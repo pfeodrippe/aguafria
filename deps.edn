@@ -1,0 +1,9 @@
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}}
+ :aliases
+ {:test {:extra-paths ["test"]
+         :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+         :main-opts ["-m" "aguafria.test-runner"]}
+  :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+          :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+          :main-opts ["-m" "nrepl.cmdline"]}}}

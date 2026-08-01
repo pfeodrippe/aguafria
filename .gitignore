@@ -1,0 +1,6 @@
+.aguafria/
+.cpcache/
+.nrepl-port
+target/
+**/.zig-cache/
+**/zig-out/
