@@ -1,5 +1,6 @@
 (ns aguafria.zig.emitter-test
-  (:require [aguafria.zig.emitter :as emit]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig.emitter :as emit]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
@@ -20,7 +21,9 @@
 
 (deftest expression-emission-test
   (is (= "(a + (b * 2))" (emit/emit-expr '(+ a (* b 2)))))
-  (is (= "@max(a, b)" (emit/emit-expr '(builtin max a b))))
+  (is (= "@max(a, b)"
+         (emit/emit-expr (the-ns 'aguafria.zig.emitter-test)
+                         '(ak/max a b))))
   (is (= "(~bits)" (emit/emit-expr '(op "~" bits))))
   (is (= "(if ((x < 0)) (-x) else x)"
          (emit/emit-expr '(if (< x 0) (- x) x))))

@@ -1561,7 +1561,7 @@
    :signature "@workItemId(comptime dimension: u32) u32",
    :tag "work_item_id",
    :zig-name "@workItemId"}],
- :generated-by "aguafria.generate-keywords",
+ :generated-by "aguafria.generate-keyword",
  :keywords
  [{:name "addrspace", :tag "addrspace"}
   {:name "align", :tag "align"}

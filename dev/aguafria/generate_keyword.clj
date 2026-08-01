@@ -1,4 +1,4 @@
-(ns aguafria.generate-keywords
+(ns aguafria.generate-keyword
   "Generate Aguafria's Zig token catalog from the installed Zig and ZLS.
 
   Zig's `std/zig/BuiltinFn.zig` is the completeness authority. ZLS enriches
@@ -19,7 +19,7 @@
            [java.lang ProcessBuilder$Redirect]))
 
 (def ^:private catalog-path
-  "resources/aguafria/zig-builtins.edn")
+  "resources/aguafria/zig-keyword.edn")
 
 (def ^:private reader-token-specs
   [{:name "bit-not"
@@ -318,7 +318,7 @@
                   :extra-in-zls (sort (set/difference zls-names compiler-names))})))
     (sorted-map
      :builtins builtins
-     :generated-by "aguafria.generate-keywords"
+     :generated-by "aguafria.generate-keyword"
      :keywords keywords
      :reader-tokens reader-tokens
      :schema-version 1
@@ -378,7 +378,7 @@
           (println "Zig keyword catalog is current:" catalog-path)
           (do
             (binding [*out* *err*]
-              (println "Zig keyword catalog is stale. Run: clojure -M:generate-keywords"))
+              (println "Zig keyword catalog is stale. Run: clojure -M:generate-keyword"))
             (System/exit 1)))
         (do
           (io/make-parents output)

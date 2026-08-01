@@ -3,7 +3,8 @@
 
   Nothing in this namespace evaluates or macroexpands a Zig form as Clojure.
   It only validates data and renders deterministic Zig source."
-  (:require [clojure.string :as str]))
+  (:require [aguafria.keyword :as keyword]
+            [clojure.string :as str]))
 
 (defn- fail!
   [message form & [data]]
@@ -27,7 +28,78 @@
         (str/replace "-" "_")
         (str/replace "/" "__"))))
 
-(declare emit-expr emit-stmt emit-statements)
+(declare emit-expr emit-stmt emit-statements emit-type)
+
+(def ^:dynamic *keyword-context*
+  "Namespace used to resolve aliases such as `ak/intCast` during emission."
+  nil)
+
+(defn- current-keyword-token
+  [op]
+  (keyword/resolve-token (or *keyword-context* *ns*) op))
+
+(declare qualify-form)
+
+(defn- qualify-seq
+  [context-ns form]
+  (let [[op & raw-args] form
+        token (keyword/resolve-token context-ns op)
+        args (mapv #(qualify-form context-ns %) raw-args)
+        qualified-op (if token
+                       (:symbol token)
+                       (qualify-form context-ns op))]
+    (when token
+      (keyword/validate-call! token args form))
+    (with-meta (apply list qualified-op args) (meta form))))
+
+(defn qualify-form
+  "Replace keyword aliases with canonical `aguafria.keyword/...` Var symbols.
+
+  The Zig form itself remains intact; no intermediate `builtin` form is
+  introduced. This makes stored declaration metadata readable and allows the
+  emitter to consume generated keyword Vars directly."
+  [context-ns form]
+  (cond
+    (seq? form) (qualify-seq context-ns form)
+    (vector? form) (with-meta (mapv #(qualify-form context-ns %) form)
+                              (meta form))
+    (map? form) (with-meta
+                  (into (empty form)
+                        (map (fn [[key value]]
+                               [(qualify-form context-ns key)
+                                (qualify-form context-ns value)]))
+                        form)
+                  (meta form))
+    (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
+                           (meta form))
+    :else form))
+
+(defn prepare-declaration
+  "Qualify every Zig form in a declaration using its defining Clojure ns."
+  [context-ns declaration]
+  (cond-> declaration
+    (contains? declaration :type)
+    (update :type #(when (some? %) (qualify-form context-ns %)))
+
+    (contains? declaration :return)
+    (update :return #(qualify-form context-ns %))
+
+    (contains? declaration :value)
+    (update :value #(qualify-form context-ns %))
+
+    (contains? declaration :body)
+    (update :body #(mapv (partial qualify-form context-ns) %))
+
+    (contains? declaration :args)
+    (update :args #(mapv (fn [arg]
+                           (update arg :type (partial qualify-form context-ns)))
+                         %))
+
+    (contains? declaration :fields)
+    (update :fields #(mapv (fn [field]
+                             (update field :type
+                                     (partial qualify-form context-ns)))
+                           %))))
 
 (def ^:dynamic *source-mapping?*
   "When true, statement emission includes Clojure line/column marker comments.
@@ -35,13 +107,13 @@
   uncluttered."
   false)
 
-(defn emit-type
+(defn- emit-type*
   "Emit a Zig type from a keyword/symbol/string or a compositional vector.
 
   Supported vectors include `[:* t]`, `[:*const t]`, `[:many t]`,
   `[:many-const t]`, `[:sentinel t n]`, `[:slice t]`, `[:slice-const t]`,
   `[:array n t]`, `[:vector n t]`, `[:c-pointer t]`, `[:optional t]`, and
-  `[:error-union t]`. A normalized Zig builtin call may also produce a type."
+  `[:error-union t]`. A generated keyword call may also produce a type."
   [t]
   (cond
     (or (keyword? t) (symbol? t) (string? t))
@@ -103,6 +175,14 @@
     :else
     (fail! "Cannot emit Zig type" t)))
 
+(defn emit-type
+  "Emit a Zig type, resolving generated keyword Vars directly."
+  ([t]
+   (emit-type* t))
+  ([context-ns t]
+   (binding [*keyword-context* context-ns]
+     (emit-type* t))))
+
 (def ^:private infix-operators
   {"+" "+", "-" "-", "*" "*", "/" "/", "%" "%"
    "+%" "+%", "-%" "-%", "*%" "*%"
@@ -158,8 +238,34 @@
   (str "(if (" (emit-expr test) ") " (emit-expr then)
        " else " (emit-expr else) ")"))
 
-(defn emit-expr
-  "Emit one Zig expression from Clojure data."
+(defn- emit-keyword-expr
+  [token args form]
+  (keyword/validate-call! token args form)
+  (case (:kind token)
+    :call
+    (str (:zig-name token) "("
+         (str/join ", " (map emit-expr args)) ")")
+
+    :operator
+    (let [operator (:zig-token token)]
+      (cond
+        (and (= 1 (count args)) (contains? prefix-operators operator))
+        (str "(" operator (emit-expr (first args)) ")")
+
+        (contains? infix-operators operator)
+        (parenthesized-infix operator args form)
+
+        :else
+        (fail! "Generated keyword names an unsupported Zig operator"
+               form {:token token})))
+
+    :assignment
+    (fail! "Assignment keyword cannot be used as a Zig expression"
+           form {:token token})
+
+    (fail! "Unknown generated Zig keyword kind" form {:token token})))
+
+(defn- emit-expr*
   [form]
   (cond
     (nil? form) "null"
@@ -183,8 +289,12 @@
     (vector? form) (emit-vector-literal form)
 
     (seq? form)
-    (let [[op & args] form]
+    (let [[op & args] form
+          token (current-keyword-token op)]
       (cond
+        token
+        (emit-keyword-expr token args form)
+
         (= op 'raw)
         (if (and (= 1 (count args)) (string? (first args)))
           (first args)
@@ -254,18 +364,6 @@
           (str "nosuspend " (emit-expr (first args)))
           (fail! "nosuspend expects one expression" form))
 
-        (= op 'builtin)
-        (let [[builtin-name & builtin-args] args]
-          (when-not (and builtin-name
-                         (or (symbol? builtin-name) (keyword? builtin-name)
-                             (string? builtin-name)))
-            (fail! "builtin expects a Zig builtin name followed by arguments" form))
-          (str "@" (identifier builtin-name) "("
-               (str/join ", " (map emit-expr builtin-args)) ")"))
-
-        (and (keyword? op) (str/starts-with? (name op) "@"))
-        (str (name op) "(" (str/join ", " (map emit-expr args)) ")")
-
         (contains? infix-operators (operator-name op))
         (if (and (= 1 (count args))
                  (contains? prefix-operators (operator-name op)))
@@ -288,6 +386,14 @@
 
     :else
     (fail! "Cannot emit Zig expression" form {:class (class form)})))
+
+(defn emit-expr
+  "Emit one Zig expression, resolving `aguafria.keyword` Vars directly."
+  ([form]
+   (emit-expr* form))
+  ([context-ns form]
+   (binding [*keyword-context* context-ns]
+     (emit-expr* form))))
 
 (defn- indent
   [level text]
@@ -365,8 +471,16 @@
    (let [rendered
          (if-not (seq? form)
            (str (emit-expr form) ";")
-           (let [[op & args] form]
+           (let [[op & args] form
+                 token (current-keyword-token op)]
              (cond
+               (and token (= :assignment (:kind token)))
+               (do
+                 (keyword/validate-call! token args form)
+                 (let [[target value] args]
+                   (str (emit-expr target) " " (:zig-token token) " "
+                        (emit-expr value) ";")))
+
                (= op 'do) (emit-statements args level)
                (= op 'raw) (emit-expr form)
                (= op 'comment) (if (and (= 1 (count args)) (string? (first args)))
@@ -430,6 +544,12 @@
                                      (fail! "unreachable takes no arguments" form))
                :else (str (emit-expr form) ";"))))]
      (str (form-source-comment form) rendered))))
+
+(defn emit-stmt-in
+  "Emit one statement while resolving aliases in `context-ns`."
+  [context-ns form]
+  (binding [*keyword-context* context-ns]
+    (emit-stmt form)))
 
 (defn emit-statements
   ([forms] (emit-statements forms 0))
@@ -597,12 +717,15 @@
 
 (defn emit-module
   "Emit a complete deterministic Zig source module from declarations."
-  [module-name declarations]
-  (binding [*source-mapping?* true]
-    (str "// Generated by Aguafria. Edit the Clojure declarations, not this file.\n"
-         "// Module: " module-name "\n\n"
-         (->> declarations
-              (sort-by declaration-sort-key)
-              (map emit-declaration)
-              (str/join "\n\n"))
-         "\n")))
+  ([module-name declarations]
+   (binding [*source-mapping?* true]
+     (str "// Generated by Aguafria. Edit the Clojure declarations, not this file.\n"
+          "// Module: " module-name "\n\n"
+          (->> declarations
+               (sort-by declaration-sort-key)
+               (map emit-declaration)
+               (str/join "\n\n"))
+          "\n")))
+  ([context-ns module-name declarations]
+   (emit-module module-name
+                (mapv (partial prepare-declaration context-ns) declarations))))

@@ -1,13 +1,14 @@
-(ns aguafria.keywords-test
-  (:require [aguafria.keywords :as ak]
+(ns aguafria.keyword-test
+  (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]
+            [aguafria.zig.emitter :as emitter]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
-(deftest generated-builtin-catalog-test
-  (let [catalog (ak/builtins)
-        public-vars (ns-publics 'aguafria.keywords)]
-    (testing "every compiler builtin is a documented, inspectable Var"
+(deftest generated-keyword-catalog-test
+  (let [catalog (ak/entries)
+        public-vars (ns-publics 'aguafria.keyword)]
+    (testing "every compiler @ function is a documented, inspectable Var"
       (is (> (count catalog) 100))
       (is (re-matches #"[0-9]+\.[0-9]+\.[0-9]+.*"
                       (:zig-version (ak/catalog-info))))
@@ -18,15 +19,18 @@
           (is (= zig-name (:zig/name metadata)) zig-name)
           (is (str/starts-with? (:zig/signature metadata) zig-name) zig-name)
           (is (not (str/blank? (:doc metadata))) zig-name)
-          (is (= :builtin (get-in metadata [:aguafria/token :kind])) zig-name))))
+          (is (= :call (get-in metadata [:aguafria/token :kind])) zig-name))))
 
     (testing "ordinary readable Zig keywords stay ordinary forms"
       (is (some #(= "if" (:name %)) (ak/language-keywords)))
-      (is (nil? (get public-vars 'if))))))
+      (is (nil? (get public-vars 'if)))
+      (is (nil? (get public-vars 'builtins))))))
 
 (deftest alias-aware-emission-test
-  (testing "the namespace alias resolves generated @builtins"
-    (is (= "@intCast(value)" (az/emit-expr '(ak/intCast value))))
+  (testing "the namespace alias resolves generated @ functions"
+    (is (= "@intCast(value)"
+           (emitter/emit-expr (the-ns 'aguafria.keyword-test)
+                              '(ak/intCast value))))
     (is (= "@field(value, \"member\")"
            (az/emit-expr '(ak/field value "member"))))
     (is (= "@Vector(4, i32)"
@@ -41,7 +45,7 @@
     (is (= "total /= divisor;"
            (az/emit-stmt '(ak/div-assign total divisor)))))
 
-  (testing "bad builtin arity fails before invoking Zig"
+  (testing "bad generated-keyword arity fails before invoking Zig"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"@intCast expects 1 argument"
                           (az/emit-expr '(ak/intCast one two)))))

@@ -1,5 +1,5 @@
 (ns aguafria.zig-integration-test
-  (:require [aguafria.keywords :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.shell :as shell]
@@ -41,7 +41,7 @@
   [values :- (ak/Vector 4 :i32)]
   (ak/reduce :.Add values))
 
-(az/defn builtin-int-cast :- :i32
+(az/defn keyword-int-cast :- :i32
   [value :- :i64]
   (ak/intCast value))
 
@@ -81,7 +81,7 @@
     (is (= 45 (sum-to 10)))
     (is (= 20 (external-quadruple 5)))
     (is (= 10 (simd-sum4 1 2 3 4)))
-    (is (= 42 (builtin-int-cast 42)))
+    (is (= 42 (keyword-int-cast 42)))
     (is (= 6 (reader-safe-bit-xor 5 3)))
     (is (= 9 (abs-i32 -9)))
     (is (= 9 (abs-i32 9))))
@@ -108,9 +108,9 @@
   (is (= "Increment an integer in Zig." (:doc (meta #'base))))
   (is (= '([x :- :i32]) (:arglists (meta #'base))))
   (is (= :fn (get-in (meta #'base) [:aguafria/declaration :kind])))
-  (is (= '[(builtin intCast value)]
-         (get-in (meta #'builtin-int-cast) [:aguafria/declaration :body])))
-  (is (= '(builtin Vector 4 :i32)
+  (is (= '[(aguafria.keyword/intCast value)]
+         (get-in (meta #'keyword-int-cast) [:aguafria/declaration :body])))
+  (is (= '(aguafria.keyword/Vector 4 :i32)
          (get-in (meta #'simd-lane-sum)
                  [:aguafria/declaration :args 0 :type]))))
 

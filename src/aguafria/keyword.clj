@@ -1,7 +1,7 @@
-(ns aguafria.keywords
+(ns aguafria.keyword
   "Reader-safe names for Zig syntax that Clojure cannot spell directly.
 
-  Require this namespace as `ak`. Every Zig `@builtin` is exposed as a real,
+  Require this namespace as `ak`. Every Zig `@` function is exposed as a real,
   documented Var, generated from the installed Zig compiler and matching ZLS
   language-reference data. Ordinary readable Zig forms such as `if`, `while`,
   and `try` stay unqualified."
@@ -9,7 +9,7 @@
             [clojure.java.io :as io]))
 
 (def ^:private catalog-resource
-  "aguafria/zig-builtins.edn")
+  "aguafria/zig-keyword.edn")
 
 (defn- load-catalog
   []
@@ -17,18 +17,23 @@
     (edn/read-string (slurp resource))
     (throw (ex-info "Aguafria's generated Zig keyword catalog is missing"
                     {:resource catalog-resource
-                     :regenerate-with "clojure -M:generate-keywords"}))))
+                     :regenerate-with "clojure -M:generate-keyword"}))))
 
 (def ^:private generated-catalog
   (load-catalog))
+
+;; Clojure keeps removed definitions across `require :reload`. Clean the old
+;; pre-singular API so a long-running REPL observes the rename immediately.
+(when (contains? (ns-interns *ns*) 'builtins)
+  (ns-unmap *ns* 'builtins))
 
 (defn catalog-info
   "Return generation/version/source metadata for the bundled Zig catalog."
   []
   (dissoc generated-catalog :builtins :keywords :reader-tokens))
 
-(defn builtins
-  "Return the generated catalog of all Zig compiler `@builtins`."
+(defn entries
+  "Return the generated catalog of all Zig compiler `@` functions."
   []
   (:builtins generated-catalog))
 
@@ -60,7 +65,7 @@
     :else
     '([& arguments])))
 
-(defn- builtin-doc
+(defn- compiler-doc
   [{:keys [documentation documentation-source signature zig-name]}]
   (str signature "\n\n"
        documentation "\n\n"
@@ -84,24 +89,26 @@
   (fn [& arguments]
     (throw
      (ex-info
-      (str "`aguafria.keywords/" (:name token)
+      (str "`aguafria.keyword/" (:name token)
            "` is Zig syntax and can only be used inside an Aguafria form")
       {:arguments arguments
        :token token
        :example (str "(az/defn example :- :i32 [x :- :i64] (ak/"
                      (:name token) " x))")}))))
 
-(defn- builtin-token
+(defn- call-token
   [builtin]
-  {:kind :builtin
+  {:kind :call
    :name (:name builtin)
    :param-count (:param-count builtin)
+   :symbol (symbol "aguafria.keyword" (:name builtin))
    :signature (:signature builtin)
    :zig-name (:zig-name builtin)})
 
 (defn- reader-token
   [token]
-  (select-keys token [:kind :minimum-param-count :name :param-count :zig-token]))
+  (assoc (select-keys token [:kind :minimum-param-count :name :param-count :zig-token])
+         :symbol (symbol "aguafria.keyword" (:name token))))
 
 (defn- intern-token!
   [token metadata]
@@ -109,7 +116,7 @@
     (when-let [existing (get (ns-interns *ns*) sym)]
       (if (:aguafria/token (meta existing))
         (ns-unmap *ns* sym)
-        (throw (ex-info "A generated Zig name collides with the keywords namespace API"
+        (throw (ex-info "A generated Zig name collides with the keyword namespace API"
                         {:name sym :token token}))))
     ;; Avoid noisy replacement warnings for generated names such as `max`,
     ;; `min`, and `abs`, which Clojure happens to refer from clojure.core.
@@ -138,13 +145,19 @@
       (when target-ns
         (ns-resolve target-ns (symbol (name sym)))))))
 
-(defn- call-token
+(defn resolve-token
+  "Resolve a qualified generated keyword symbol in `context-ns`.
+
+  The result describes the Zig call/operator and includes its canonical
+  `aguafria.keyword/...` symbol. Unqualified Zig forms intentionally return
+  nil so ordinary forms such as `if` and `field` retain their meanings."
   [context-ns op]
   (some-> (resolve-qualified-var context-ns op)
           meta
           :aguafria/token))
 
-(defn- validate-token-arity!
+(defn validate-call!
+  "Validate the argument count declared by a generated Zig keyword Var."
   [{:keys [minimum-param-count name param-count zig-name] :as token} args form]
   (when (and (some? param-count) (not= param-count (count args)))
     (throw (ex-info
@@ -163,48 +176,6 @@
              :form form
              :token token}))))
 
-(declare normalize-form)
-
-(defn- normalize-seq
-  [context-ns form]
-  (let [[op & raw-args] form
-        token (call-token context-ns op)
-        args (mapv #(normalize-form context-ns %) raw-args)
-        normalized
-        (if token
-          (do
-            (validate-token-arity! token args form)
-            (case (:kind token)
-              :builtin (list* 'builtin (symbol (:name token)) args)
-              :operator (list* 'op (:zig-token token) args)
-              :assignment (list* 'assign (:zig-token token) args)
-              (throw (ex-info "Unknown Aguafria Zig token kind"
-                              {:form form :token token}))))
-          (apply list (normalize-form context-ns op) args))]
-    (with-meta normalized (meta form))))
-
-(defn normalize-form
-  "Resolve `aguafria.keywords` Vars in captured Zig data.
-
-  `context-ns` is the namespace where an Aguafria macro is expanded, allowing
-  any alias (not only `ak`) to work. The returned data contains only the small
-  canonical forms understood by the emitter."
-  [context-ns form]
-  (cond
-    (seq? form) (normalize-seq context-ns form)
-    (vector? form) (with-meta (mapv #(normalize-form context-ns %) form)
-                              (meta form))
-    (map? form) (with-meta
-                  (into (empty form)
-                        (map (fn [[key value]]
-                               [(normalize-form context-ns key)
-                                (normalize-form context-ns value)]))
-                        form)
-                  (meta form))
-    (set? form) (with-meta (into #{} (map #(normalize-form context-ns %)) form)
-                           (meta form))
-    :else form))
-
 ;; `require :reload` must also remove tokens that disappeared in a newer Zig
 ;; catalog instead of leaving stale Vars in a long-running REPL.
 (doseq [[sym v] (ns-interns *ns*)
@@ -212,12 +183,12 @@
   (ns-unmap *ns* sym))
 
 (doseq [builtin (:builtins generated-catalog)]
-  (let [token (builtin-token builtin)]
+  (let [token (call-token builtin)]
     (intern-token!
      token
      {:aguafria/token token
       :arglists (parameter-arglists builtin)
-      :doc (builtin-doc builtin)
+      :doc (compiler-doc builtin)
       :zig/allows-lvalue? (:allows-lvalue? builtin)
       :zig/documentation-format (:documentation-format builtin)
       :zig/documentation-source (:documentation-source builtin)
