@@ -1,0 +1,1651 @@
+{:builtins
+ [{:allows-lvalue? false,
+   :documentation
+   "Returns an [enum](https://ziglang.org/documentation/0.16.0/#enum) type with the properties specified by the arguments.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Enum",
+   :param-count 4,
+   :signature
+   "@Enum(\n  comptime TagInt: type,\n  comptime mode: Type.Enum.Mode,\n  comptime field_names: []const []const u8,\n  comptime field_values: *const [field_names.len]TagInt,\n) type",
+   :tag "Enum",
+   :zig-name "@Enum"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the comptime-only \"enum literal\" type. This is the type of uncoerced [Enum Literals](https://ziglang.org/documentation/0.16.0/#Enum-Literals). Values of this type can coerce to any [enum](https://ziglang.org/documentation/0.16.0/#enum) with a matching field.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "EnumLiteral",
+   :param-count 0,
+   :signature "@EnumLiteral() type",
+   :tag "EnumLiteral",
+   :zig-name "@EnumLiteral"}
+  {:allows-lvalue? false,
+   :documentation
+   "Given a type and the name of one of its fields, returns the type of that field.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "FieldType",
+   :param-count 2,
+   :signature
+   "@FieldType(comptime Type: type, comptime field_name: []const u8) type",
+   :tag "FieldType",
+   :zig-name "@FieldType"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns a [function](https://ziglang.org/documentation/0.16.0/#Functions) type with the properties specified by the arguments.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Fn",
+   :param-count 4,
+   :signature
+   "@Fn(\n  comptime param_types: []const type,\n  comptime param_attrs: *const [param_types.len]Type.Fn.Param.Attributes,\n  comptime ReturnType: type,\n  comptime attrs: Type.Fn.Attributes,\n) type",
+   :tag "Fn",
+   :zig-name "@Fn"}
+  {:allows-lvalue? false,
+   :documentation
+   "Zig compiler builtin `@Frame`. The compiler table declares 1 parameter, error evaluation `never`.",
+   :documentation-format :markdown,
+   :documentation-source :zig-compiler-table,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Frame",
+   :param-count 1,
+   :signature "@Frame(...)",
+   :tag "Frame",
+   :zig-name "@Frame"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns an integer type with the given signedness and bit width.\n\nFor instance, `@Int(.unsigned, 18)` returns the type `u18`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Int",
+   :param-count 2,
+   :signature
+   "@Int(comptime signedness: Signedness, comptime bits: u16) type",
+   :tag "Int",
+   :zig-name "@Int"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns a [pointer](https://ziglang.org/documentation/0.16.0/#Pointers) type with the properties specified by the arguments.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Pointer",
+   :param-count 4,
+   :signature
+   "@Pointer(\n  comptime size: Type.Pointer.Size,\n  comptime attrs: Type.Pointer.Attributes,\n  comptime Element: type,\n  comptime sentinel: ?Element,\n) type",
+   :tag "Pointer",
+   :zig-name "@Pointer"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns a [struct](https://ziglang.org/documentation/0.16.0/#struct) type with the properties specified by the arguments.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Struct",
+   :param-count 5,
+   :signature
+   "@Struct(\n  comptime layout: Type.ContainerLayout,\n  comptime BackingInt: ?type,\n  comptime field_names: []const []const u8,\n  comptime field_types: *const [field_names.len]type,\n  comptime field_attrs: *const [field_names.len]Type.StructField.Attributes,\n) type",
+   :tag "Struct",
+   :zig-name "@Struct"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the innermost struct, enum, or union that this function call is inside. This can be useful for an anonymous struct that needs to refer to itself:\n\nWhen `@This()` is used at file scope, it returns a reference to the struct that corresponds to the current file.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "This",
+   :param-count 0,
+   :signature "@This() type",
+   :tag "This",
+   :zig-name "@This"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns a [tuple](https://ziglang.org/documentation/0.16.0/#Tuples) type with the given field types.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Tuple",
+   :param-count 1,
+   :signature "@Tuple(comptime field_types: []const type) type",
+   :tag "Tuple",
+   :zig-name "@Tuple"}
+  {:allows-lvalue? false,
+   :documentation
+   "`@TypeOf` is a special builtin function that takes any (non-zero) number of expressions as parameters and returns the type of the result, using [Peer Type Resolution](https://ziglang.org/documentation/0.16.0/#Peer-Type-Resolution).\n\nThe expressions are evaluated, however they are guaranteed to have no\n**runtime** side-effects:",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "TypeOf",
+   :param-count nil,
+   :signature "@TypeOf(...) type",
+   :tag "TypeOf",
+   :zig-name "@TypeOf"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns a [union](https://ziglang.org/documentation/0.16.0/#union) type with the properties specified by the arguments.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Union",
+   :param-count 5,
+   :signature
+   "@Union(\n  comptime layout: Type.ContainerLayout,\n  comptime ArgType: ?type,\n  comptime field_names: []const []const u8,\n  comptime field_types: *const [field_names.len]type,\n  comptime field_attrs: *const [field_names.len]Type.UnionField.Attributes,\n) type",
+   :tag "Union",
+   :zig-name "@Union"}
+  {:allows-lvalue? false,
+   :documentation
+   "Creates [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "Vector",
+   :param-count 2,
+   :signature "@Vector(len: comptime_int, Element: type) type",
+   :tag "Vector",
+   :zig-name "@Vector"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the absolute value of an integer or a floating point number. Uses a dedicated hardware instruction when available.  The return type is always an unsigned integer of the same bit width as the operand if the operand is an integer. Unsigned integer operands are supported. The builtin cannot overflow for signed integer operands.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats), [Integers](https://ziglang.org/documentation/0.16.0/#Integers) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats or integers.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "abs",
+   :param-count 1,
+   :signature "@abs(value: anytype) anytype",
+   :tag "abs",
+   :zig-name "@abs"}
+  {:allows-lvalue? false,
+   :documentation
+   "Performs `a + b` and returns a tuple with the result and a possible overflow bit.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "addWithOverflow",
+   :param-count 2,
+   :signature
+   "@addWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }",
+   :tag "add_with_overflow",
+   :zig-name "@addWithOverflow"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts a pointer from one address space to another. The new address space is inferred based on the result type. Depending on the current target and address spaces, this cast may be a no-op, a complex operation, or illegal. If the cast is legal, then the resulting pointer points to the same memory location as the pointer operand. It is always valid to cast a pointer between the same address spaces.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "addrSpaceCast",
+   :param-count 1,
+   :signature "@addrSpaceCast(ptr: anytype) anytype",
+   :tag "addrspace_cast",
+   :zig-name "@addrSpaceCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "`ptr` can be `*T`, `?*T`, or `[]T`. Changes the alignment of a pointer. The alignment to use is inferred based on the result type.\n\nA [pointer alignment safety check](https://ziglang.org/documentation/0.16.0/#Incorrect-Pointer-Alignment) is added to the generated code to make sure the pointer is aligned as promised.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "alignCast",
+   :param-count 1,
+   :signature "@alignCast(ptr: anytype) anytype",
+   :tag "align_cast",
+   :zig-name "@alignCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the number of bytes that this type should be aligned to for the current target to match the C ABI. When the child type of a pointer has this alignment, the alignment can be omitted from the type.\n\n```zig\nconst assert = @import(\"std\").debug.assert;\ncomptime {\n    assert(*u32 == *align(@alignOf(u32)) u32);\n}\n```\nThe result is a target-specific compile time constant. It is guaranteed to be less than or equal to [@sizeOf(T)](https://ziglang.org/documentation/0.16.0/#sizeOf).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "alignOf",
+   :param-count 1,
+   :signature "@alignOf(comptime T: type) comptime_int",
+   :tag "align_of",
+   :zig-name "@alignOf"}
+  {:allows-lvalue? false,
+   :documentation
+   "Performs [Type Coercion](https://ziglang.org/documentation/0.16.0/#Type-Coercion). This cast is allowed when the conversion is unambiguous and safe, and is the preferred way to convert between types, whenever possible.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :maybe,
+   :illegal-outside-function? false,
+   :name "as",
+   :param-count 2,
+   :signature "@as(comptime T: type, expression) T",
+   :tag "as",
+   :zig-name "@as"}
+  {:allows-lvalue? false,
+   :documentation
+   "This builtin function atomically dereferences a pointer to a `T` and returns the value.\n\n`T` must be a pointer, a `bool`, a float, an integer, an enum, or a packed struct.\n\n`AtomicOrder` can be found with `@import(\"std\").builtin.AtomicOrder`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "atomicLoad",
+   :param-count 3,
+   :signature
+   "@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: AtomicOrder) T",
+   :tag "atomic_load",
+   :zig-name "@atomicLoad"}
+  {:allows-lvalue? false,
+   :documentation
+   "This builtin function dereferences a pointer to a `T` and atomically modifies the value and returns the previous value.\n\n`T` must be a pointer, a `bool`, a float, an integer, an enum, or a packed struct.\n\n`AtomicOrder` can be found with `@import(\"std\").builtin.AtomicOrder`.\n\n`AtomicRmwOp` can be found with `@import(\"std\").builtin.AtomicRmwOp`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "atomicRmw",
+   :param-count 5,
+   :signature
+   "@atomicRmw(\n  comptime T: type,\n  ptr: *T,\n  comptime op: AtomicRmwOp,\n  operand: T,\n  comptime ordering: AtomicOrder,\n) T",
+   :tag "atomic_rmw",
+   :zig-name "@atomicRmw"}
+  {:allows-lvalue? false,
+   :documentation
+   "This builtin function dereferences a pointer to a `T` and atomically stores the given value.\n\n`T` must be a pointer, a `bool`, a float, an integer, an enum, or a packed struct.\n\n`AtomicOrder` can be found with `@import(\"std\").builtin.AtomicOrder`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "atomicStore",
+   :param-count 4,
+   :signature
+   "@atomicStore(\n  comptime T: type,\n  ptr: *T,\n  value: T,\n  comptime ordering: AtomicOrder,\n) void",
+   :tag "atomic_store",
+   :zig-name "@atomicStore"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts a value of one type to another type. The return type is the inferred result type.\n\nAsserts that `@sizeOf(@TypeOf(value)) == @sizeOf(DestType)`.\n\nAsserts that `@typeInfo(DestType) != .pointer`. Use `@ptrCast` or `@ptrFromInt` if you need this.\n\nCan be used for these things for example:\n\n - Convert `f32` to `u32` bits\n - Convert `i32` to `u32` preserving twos complement\nWorks at compile-time if `value` is known at compile time. It's a compile error to bitcast a value of undefined layout; this means that, besides the restriction from types which possess dedicated casting builtins (enums, pointers, error sets), bare structs, error unions, slices, optionals, and any other type without a well-defined memory layout, also cannot be used in this operation.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "bitCast",
+   :param-count 1,
+   :signature "@bitCast(value: anytype) anytype",
+   :tag "bit_cast",
+   :zig-name "@bitCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the bit offset of a field relative to its containing struct.\n\nFor non [packed structs](https://ziglang.org/documentation/0.16.0/#packed-struct), this will always be divisible by `8`. For packed structs, non-byte-aligned fields will share a byte offset, but they will have different bit offsets.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "bitOffsetOf",
+   :param-count 2,
+   :signature
+   "@bitOffsetOf(comptime T: type, comptime field_name: []const u8) comptime_int",
+   :tag "bit_offset_of",
+   :zig-name "@bitOffsetOf"}
+  {:allows-lvalue? false,
+   :documentation
+   "`@TypeOf(anytype)` accepts any integer type or integer vector type.\n\nReverses the bitpattern of an integer value, including the sign bit if applicable.\n\nFor example 0b10110110 (`u8 = 182`, `i8 = -74`) becomes 0b01101101 (`u8 = 109`, `i8 = 109`).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "bitReverse",
+   :param-count 1,
+   :signature "@bitReverse(integer: anytype) T",
+   :tag "bit_reverse",
+   :zig-name "@bitReverse"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the number of bits it takes to store `T` in memory if the type were a field in a packed struct/union. The result is a target-specific compile time constant.\n\nThis function measures the size at runtime. For types that are disallowed at runtime, such as `comptime_int` and `type`, the result is `0`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "bitSizeOf",
+   :param-count 1,
+   :signature "@bitSizeOf(comptime T: type) comptime_int",
+   :tag "bit_size_of",
+   :zig-name "@bitSizeOf"}
+  {:allows-lvalue? false,
+   :documentation
+   "Hints to the optimizer how likely a given branch of control flow is to be reached.\n\n`BranchHint` can be found with `@import(\"std\").builtin.BranchHint`.\n\nThis function is only valid as the first statement in a control flow branch, or the first statement in a function.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "branchHint",
+   :param-count 1,
+   :signature "@branchHint(hint: BranchHint) void",
+   :tag "branch_hint",
+   :zig-name "@branchHint"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function inserts a platform-specific debug trap instruction which causes debuggers to break there. Unlike for `@trap()`, execution may continue after this point if the program is resumed.\n\nThis function is only valid within function scope.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "breakpoint",
+   :param-count 0,
+   :signature "@breakpoint() void",
+   :tag "breakpoint",
+   :zig-name "@breakpoint"}
+  {:allows-lvalue? false,
+   :documentation
+   "`@TypeOf(operand)` must be an integer type or an integer vector type with bit count evenly divisible by 8.\n\n`operand` may be an [integer](https://ziglang.org/documentation/0.16.0/#Integers) or [vector](https://ziglang.org/documentation/0.16.0/#Vectors).\n\nSwaps the byte order of the integer. This converts a big endian integer to a little endian integer, and converts a little endian integer to a big endian integer.\n\nNote that for the purposes of memory layout with respect to endianness, the integer type should be related to the number of bytes reported by [@sizeOf](https://ziglang.org/documentation/0.16.0/#sizeOf) bytes. This is demonstrated with `u24`. `@sizeOf(u24) == 4`, which means that a `u24` stored in memory takes 4 bytes, and those 4 bytes are what are swapped on a little vs big endian system. On the other hand, if `T` is specified to be `u24`, then only 3 bytes are reversed.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "byteSwap",
+   :param-count 1,
+   :signature "@byteSwap(operand: anytype) T",
+   :tag "byte_swap",
+   :zig-name "@byteSwap"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function can only occur inside `@cImport`.\n\nThis appends\n`#define $name $value`to the `@cImport` temporary buffer.\n\nTo define without a value, like this:\n\n`#define _GNU_SOURCE`Use the void value, like this:\n\n`@cDefine(\"_GNU_SOURCE\", {})`",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "cDefine",
+   :param-count 2,
+   :signature "@cDefine(comptime name: []const u8, value) void",
+   :tag "c_define",
+   :zig-name "@cDefine"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function parses C code and imports the functions, types, variables, and compatible macro definitions into a new empty struct type, and then returns that type.\n\n`expression` is interpreted at compile time. The builtin functions `@cInclude`, `@cDefine`, and `@cUndef` work within this expression, appending to a temporary buffer which is then parsed as C code.\n\nUsually you should only have one `@cImport` in your entire application, because it saves the compiler from invoking clang multiple times, and prevents inline functions from being duplicated.\n\nReasons for having multiple `@cImport` expressions would be:\n\n - To avoid a symbol collision, for example if foo.h and bar.h both\n`#define CONNECTION_COUNT` - To analyze the C code with different preprocessor defines",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "cImport",
+   :param-count 1,
+   :signature "@cImport(expression) type",
+   :tag "c_import",
+   :zig-name "@cImport"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function can only occur inside `@cImport`.\n\nThis appends\n`#include &lt;$path&gt;\\n`to the `c_import` temporary buffer.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "cInclude",
+   :param-count 1,
+   :signature "@cInclude(comptime path: []const u8) void",
+   :tag "c_include",
+   :zig-name "@cInclude"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function can only occur inside `@cImport`.\n\nThis appends\n`#undef $name`to the `@cImport` temporary buffer.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "cUndef",
+   :param-count 1,
+   :signature "@cUndef(comptime name: []const u8) void",
+   :tag "c_undef",
+   :zig-name "@cUndef"}
+  {:allows-lvalue? false,
+   :documentation "Implements the C macro `va_arg`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "cVaArg",
+   :param-count 2,
+   :signature "@cVaArg(operand: *VaList, comptime T: type) T",
+   :tag "c_va_arg",
+   :zig-name "@cVaArg"}
+  {:allows-lvalue? false,
+   :documentation "Implements the C macro `va_copy`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "cVaCopy",
+   :param-count 1,
+   :signature "@cVaCopy(src: *VaList) VaList",
+   :tag "c_va_copy",
+   :zig-name "@cVaCopy"}
+  {:allows-lvalue? false,
+   :documentation "Implements the C macro `va_end`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "cVaEnd",
+   :param-count 1,
+   :signature "@cVaEnd(src: *VaList) void",
+   :tag "c_va_end",
+   :zig-name "@cVaEnd"}
+  {:allows-lvalue? false,
+   :documentation
+   "Implements the C macro `va_start`. Only valid inside a variadic function.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "cVaStart",
+   :param-count 0,
+   :signature "@cVaStart() VaList",
+   :tag "c_va_start",
+   :zig-name "@cVaStart"}
+  {:allows-lvalue? false,
+   :documentation
+   "Calls a function, in the same way that invoking an expression with parentheses does:\n\n`@call` allows more flexibility than normal function call syntax does. The `CallModifier` enum is reproduced here:",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :maybe,
+   :illegal-outside-function? false,
+   :name "call",
+   :param-count 3,
+   :signature
+   "@call(modifier: CallModifier, function: anytype, args: anytype) anytype",
+   :tag "call",
+   :zig-name "@call"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the smallest integral value not less than the given floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.\n\nWhen the inferred result type is an [integer](https://ziglang.org/documentation/0.16.0/#Integers), the integer part is extracted from the ceiled result. If that value cannot fit in the destination type, it invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "ceil",
+   :param-count 1,
+   :signature "@ceil(value: anytype) @TypeOf(value)",
+   :tag "ceil",
+   :zig-name "@ceil"}
+  {:allows-lvalue? false,
+   :documentation
+   "`@TypeOf(operand)` must be an integer type or an integer vector type.\n\n`operand` may be an [integer](https://ziglang.org/documentation/0.16.0/#Integers) or [vector](https://ziglang.org/documentation/0.16.0/#Vectors).\n\nCounts the number of most-significant (leading in a big-endian sense) zeroes in an integer - \"count leading zeroes\".\n\nThe return type is an unsigned integer or vector of unsigned integers with the minimum number of bits that can represent the bit count of the integer type.\n\nIf `operand` is zero, `@clz` returns the bit width of integer type `T`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "clz",
+   :param-count 1,
+   :signature "@clz(operand: anytype) anytype",
+   :tag "clz",
+   :zig-name "@clz"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function performs a strong atomic compare-and-exchange operation, returning `null` if the current value is the given expected value. It's the equivalent of this code, except atomic:\n\nIf you are using cmpxchg in a retry loop, [@cmpxchgWeak](https://ziglang.org/documentation/0.16.0/#cmpxchgWeak) is the better choice, because it can be implemented more efficiently in machine instructions.\n\n`T` must be a pointer, a `bool`, an integer, an enum, or a packed struct.\n\n`@typeInfo(@TypeOf(ptr)).pointer.alignment` must be `>= @sizeOf(T).`\n\n`AtomicOrder` can be found with `@import(\"std\").builtin.AtomicOrder`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "cmpxchgStrong",
+   :param-count 6,
+   :signature
+   "@cmpxchgStrong(\n  comptime T: type,\n  ptr: *T,\n  expected_value: T,\n  new_value: T,\n  success_order: AtomicOrder,\n  fail_order: AtomicOrder,\n) ?T",
+   :tag "cmpxchg_strong",
+   :zig-name "@cmpxchgStrong"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function performs a weak atomic compare-and-exchange operation, returning `null` if the current value is the given expected value. It's the equivalent of this code, except atomic:\n\n```zig\nfn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {\n    const old_value = ptr.*;\n    if (old_value == expected_value and usuallyTrueButSometimesFalse()) {\n        ptr.* = new_value;\n        return null;\n    } else {\n        return old_value;\n    }\n}\n```\nIf you are using cmpxchg in a retry loop, the sporadic failure will be no problem, and `cmpxchgWeak` is the better choice, because it can be implemented more efficiently in machine instructions. However if you need a stronger guarantee, use [@cmpxchgStrong](https://ziglang.org/documentation/0.16.0/#cmpxchgStrong).\n\n`T` must be a pointer, a `bool`, an integer, an enum, or a packed struct.\n\n`@typeInfo(@TypeOf(ptr)).pointer.alignment` must be `>= @sizeOf(T).`\n\n`AtomicOrder` can be found with `@import(\"std\").builtin.AtomicOrder`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "cmpxchgWeak",
+   :param-count 6,
+   :signature
+   "@cmpxchgWeak(\n  comptime T: type,\n  ptr: *T,\n  expected_value: T,\n  new_value: T,\n  success_order: AtomicOrder,\n  fail_order: AtomicOrder,\n) ?T",
+   :tag "cmpxchg_weak",
+   :zig-name "@cmpxchgWeak"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function, when semantically analyzed, causes a compile error with the message `msg`.\n\nThere are several ways that code avoids being semantically checked, such as using `if` or `switch` with compile time constants, and `comptime` functions.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "compileError",
+   :param-count 1,
+   :signature "@compileError(comptime msg: []const u8) noreturn",
+   :tag "compile_error",
+   :zig-name "@compileError"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function prints the arguments passed to it at compile-time.\n\nTo prevent accidentally leaving compile log statements in a codebase, a compilation error is added to the build, pointing to the compile log statement. This error prevents code from being generated, but does not otherwise interfere with analysis.\n\nThis function can be used to do \"printf debugging\" on compile-time executing code.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "compileLog",
+   :param-count nil,
+   :signature "@compileLog(...) void",
+   :tag "compile_log",
+   :zig-name "@compileLog"}
+  {:allows-lvalue? false,
+   :documentation "Remove `const` qualifier from a pointer.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "constCast",
+   :param-count 1,
+   :signature "@constCast(value: anytype) DestType",
+   :tag "const_cast",
+   :zig-name "@constCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "Cosine trigonometric function on a floating point number in radians. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "cos",
+   :param-count 1,
+   :signature "@cos(value: anytype) @TypeOf(value)",
+   :tag "cos",
+   :zig-name "@cos"}
+  {:allows-lvalue? false,
+   :documentation
+   "`@TypeOf(operand)` must be an integer type or an integer vector type.\n\n`operand` may be an [integer](https://ziglang.org/documentation/0.16.0/#Integers) or [vector](https://ziglang.org/documentation/0.16.0/#Vectors).\n\nCounts the number of least-significant (trailing in a big-endian sense) zeroes in an integer - \"count trailing zeroes\".\n\nThe return type is an unsigned integer or vector of unsigned integers with the minimum number of bits that can represent the bit count of the integer type.\n\nIf `operand` is zero, `@ctz` returns the bit width of integer type `T`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "ctz",
+   :param-count 1,
+   :signature "@ctz(operand: anytype) anytype",
+   :tag "ctz",
+   :zig-name "@ctz"}
+  {:allows-lvalue? false,
+   :documentation
+   "Zig compiler builtin `@disableInstrumentation`. The compiler table declares 0 parameters, error evaluation `never`, and restricts it to function scope.",
+   :documentation-format :markdown,
+   :documentation-source :zig-compiler-table,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "disableInstrumentation",
+   :param-count 0,
+   :signature "@disableInstrumentation(...)",
+   :tag "disable_instrumentation",
+   :zig-name "@disableInstrumentation"}
+  {:allows-lvalue? false,
+   :documentation
+   "Zig compiler builtin `@disableIntrinsics`. The compiler table declares 0 parameters, error evaluation `never`, and restricts it to function scope.",
+   :documentation-format :markdown,
+   :documentation-source :zig-compiler-table,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "disableIntrinsics",
+   :param-count 0,
+   :signature "@disableIntrinsics(...)",
+   :tag "disable_intrinsics",
+   :zig-name "@disableIntrinsics"}
+  {:allows-lvalue? false,
+   :documentation
+   "Exact division. Caller guarantees `denominator != 0` and `@divTrunc(numerator, denominator) * denominator == numerator`.\n\n - `@divExact(6, 3) == 2`\n - `@divExact(a, b) * b == a`\nFor a function that returns a possible error code, use `@import(\"std\").math.divExact`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "divExact",
+   :param-count 2,
+   :signature "@divExact(numerator: T, denominator: T) T",
+   :tag "div_exact",
+   :zig-name "@divExact"}
+  {:allows-lvalue? false,
+   :documentation
+   "Floored division. Rounds toward negative infinity. For unsigned integers it is the same as `numerator / denominator`. Caller guarantees `denominator != 0` and `!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1)`.\n\n - `@divFloor(-5, 3) == -2`\n - `(@divFloor(a, b) * b) + @mod(a, b) == a`\nFor a function that returns a possible error code, use `@import(\"std\").math.divFloor`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "divFloor",
+   :param-count 2,
+   :signature "@divFloor(numerator: T, denominator: T) T",
+   :tag "div_floor",
+   :zig-name "@divFloor"}
+  {:allows-lvalue? false,
+   :documentation
+   "Truncated division. Rounds toward zero. For unsigned integers it is the same as `numerator / denominator`. Caller guarantees `denominator != 0` and `!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1)`.\n\n - `@divTrunc(-5, 3) == -1`\n - `(@divTrunc(a, b) * b) + @rem(a, b) == a`\nFor a function that returns a possible error code, use `@import(\"std\").math.divTrunc`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "divTrunc",
+   :param-count 2,
+   :signature "@divTrunc(numerator: T, denominator: T) T",
+   :tag "div_trunc",
+   :zig-name "@divTrunc"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns a compile time constant pointer to null-terminated, fixed-size array with length equal to the byte count of the file given by `path`. The contents of the array are the contents of the file. This is equivalent to a [string literal](https://ziglang.org/documentation/0.16.0/#String-Literals-and-Unicode-Code-Point-Literals) with the file contents.\n\n`path` is absolute or relative to the current file, just like `@import`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "embedFile",
+   :param-count 1,
+   :signature "@embedFile(comptime path: []const u8) *const [N:0]u8",
+   :tag "embed_file",
+   :zig-name "@embedFile"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts an integer into an [enum](https://ziglang.org/documentation/0.16.0/#enum) value. The return type is the inferred result type.\n\nAttempting to convert an integer with no corresponding value in the enum invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior). Note that a [non-exhaustive enum](https://ziglang.org/documentation/0.16.0/#Non-exhaustive-enum) has corresponding values for all integers in the enum's integer tag type: the `_` value represents all the remaining unnamed integers in the enum's tag type.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "enumFromInt",
+   :param-count 1,
+   :signature "@enumFromInt(integer: anytype) anytype",
+   :tag "enum_from_int",
+   :zig-name "@enumFromInt"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts an error set or error union value from one error set to another error set. The return type is the inferred result type. Attempting to convert an error which is not in the destination error set results in safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :maybe,
+   :illegal-outside-function? false,
+   :name "errorCast",
+   :param-count 1,
+   :signature "@errorCast(value: anytype) anytype",
+   :tag "error_cast",
+   :zig-name "@errorCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts from the integer representation of an error into [The Global Error Set](https://ziglang.org/documentation/0.16.0/#The-Global-Error-Set) type.\n\nIt is generally recommended to avoid this cast, as the integer representation of an error is not stable across source code changes.\n\nAttempting to convert an integer that does not correspond to any error results in safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :always,
+   :illegal-outside-function? false,
+   :name "errorFromInt",
+   :param-count 1,
+   :signature
+   "@errorFromInt(value: @Int(.unsigned, @bitSizeOf(anyerror))) anyerror",
+   :tag "error_from_int",
+   :zig-name "@errorFromInt"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the string representation of an error. The string representation of `error.OutOfMem` is `\"OutOfMem\"`.\n\nIf there are no calls to `@errorName` in an entire application, or all calls have a compile-time known value for `err`, then no error name table will be generated.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "errorName",
+   :param-count 1,
+   :signature "@errorName(err: anyerror) [:0]const u8",
+   :tag "error_name",
+   :zig-name "@errorName"}
+  {:allows-lvalue? false,
+   :documentation
+   "If the binary is built with error return tracing, and this function is invoked in a function that calls a function with an error or error union return type, returns a stack trace object. Otherwise returns [null](https://ziglang.org/documentation/0.16.0/#null).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "errorReturnTrace",
+   :param-count 0,
+   :signature "@errorReturnTrace() ?*StackTrace",
+   :tag "error_return_trace",
+   :zig-name "@errorReturnTrace"}
+  {:allows-lvalue? false,
+   :documentation
+   "Base-e exponential function on a floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "exp",
+   :param-count 1,
+   :signature "@exp(value: anytype) @TypeOf(value)",
+   :tag "exp",
+   :zig-name "@exp"}
+  {:allows-lvalue? false,
+   :documentation
+   "Base-2 exponential function on a floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "exp2",
+   :param-count 1,
+   :signature "@exp2(value: anytype) @TypeOf(value)",
+   :tag "exp2",
+   :zig-name "@exp2"}
+  {:allows-lvalue? false,
+   :documentation
+   "Creates a symbol in the output object file which refers to the target of\n`ptr`.\n\n`ptr`must point to a global variable or a comptime-known constant.\n\nThis builtin can be called from a [comptime](https://ziglang.org/documentation/0.16.0/#comptime) block to conditionally export symbols. When\n`ptr`points to a function with the C calling convention and `options.linkage` is `.strong`, this is equivalent to the `export` keyword used on a function:\n\nThis is equivalent to:\n\nNote that even when using `export`, the `@\"foo\"` syntax for [identifiers](https://ziglang.org/documentation/0.16.0/#Identifiers) can be used to choose any string for the symbol name:\n\nWhen looking at the resulting object, you can see the symbol is used verbatim:\n\n`00000000000001f0 T A function name that is a complete sentence.`",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "export",
+   :param-count 2,
+   :signature
+   "@export(comptime ptr: *const anyopaque, comptime options: ExportOptions) void",
+   :tag "export",
+   :zig-name "@export"}
+  {:allows-lvalue? false,
+   :documentation
+   "Creates a reference to an external symbol in the output object file. T must be a pointer type.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "extern",
+   :param-count 2,
+   :signature "@extern(T: type, comptime options: ExternOptions) T",
+   :tag "extern",
+   :zig-name "@extern"}
+  {:allows-lvalue? true,
+   :documentation
+   "Performs field access by a compile-time string. Works on both fields and declarations.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :maybe,
+   :illegal-outside-function? false,
+   :name "field",
+   :param-count 2,
+   :signature
+   "@field(lhs: anytype, comptime field_name: []const u8) (field)",
+   :tag "field",
+   :zig-name "@field"}
+  {:allows-lvalue? false,
+   :documentation
+   "Given a pointer to a struct or union field, returns a pointer to the struct or union containing that field. The return type (pointer to the parent struct or union in question) is the inferred result type.\n\nIf `field_ptr` does not point to the `field_name` field of an instance of the result type, and the result type has ill-defined layout, invokes unchecked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "fieldParentPtr",
+   :param-count 2,
+   :signature
+   "@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype",
+   :tag "field_parent_ptr",
+   :zig-name "@fieldParentPtr"}
+  {:allows-lvalue? false,
+   :documentation
+   "Convert from one float type to another. This cast is safe, but may cause the numeric value to lose precision. The return type is the inferred result type.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "floatCast",
+   :param-count 1,
+   :signature "@floatCast(value: anytype) anytype",
+   :tag "float_cast",
+   :zig-name "@floatCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts an integer to the closest floating point representation. The return type is the inferred result type. To convert the other way, use [@round](https://ziglang.org/documentation/0.16.0/#round), [@floor](https://ziglang.org/documentation/0.16.0/#floor), [@ceil](https://ziglang.org/documentation/0.16.0/#ceil), or [@trunc](https://ziglang.org/documentation/0.16.0/#trunc). This operation is legal for all values of all integer types.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "floatFromInt",
+   :param-count 1,
+   :signature "@floatFromInt(int: anytype) anytype",
+   :tag "float_from_int",
+   :zig-name "@floatFromInt"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the largest integral value not greater than the given floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.\n\nWhen the inferred result type is an [integer](https://ziglang.org/documentation/0.16.0/#Integers), the integer part is extracted from the floored result. If that value cannot fit in the destination type, it invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "floor",
+   :param-count 1,
+   :signature "@floor(value: anytype) @TypeOf(value)",
+   :tag "floor",
+   :zig-name "@floor"}
+  {:allows-lvalue? false,
+   :documentation
+   "Zig compiler builtin `@frame`. The compiler table declares 0 parameters, error evaluation `never`.",
+   :documentation-format :markdown,
+   :documentation-source :zig-compiler-table,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "frame",
+   :param-count 0,
+   :signature "@frame(...)",
+   :tag "frame",
+   :zig-name "@frame"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the base pointer of the current stack frame.\n\nThe implications of this are target-specific and not consistent across all platforms. The frame address may not be available in release mode due to aggressive optimizations.\n\nThis function is only valid within function scope.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "frameAddress",
+   :param-count 0,
+   :signature "@frameAddress() usize",
+   :tag "frame_address",
+   :zig-name "@frameAddress"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns whether or not a [container](https://ziglang.org/documentation/0.16.0/#Containers) has a declaration matching `name`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "hasDecl",
+   :param-count 2,
+   :signature
+   "@hasDecl(comptime Container: type, comptime name: []const u8) bool",
+   :tag "has_decl",
+   :zig-name "@hasDecl"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns whether the field name of a struct, union, or enum exists.\n\nThe result is a compile time constant.\n\nIt does not include functions, variables, or constants.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "hasField",
+   :param-count 2,
+   :signature
+   "@hasField(comptime Container: type, comptime name: []const u8) bool",
+   :tag "has_field",
+   :zig-name "@hasField"}
+  {:allows-lvalue? false,
+   :documentation
+   "Imports the file at `target`, adding it to the compilation if it is not already added. `target` is either a relative path to another file from the file containing the `@import` call, or it is the name of a [module](https://ziglang.org/documentation/0.16.0/#Compilation-Model), with the import referring to the root source file of that module. Either way, the file path must end in either\n`.zig`(for a Zig source file) or\n`.zon`(for a ZON data file).\n\nIf `target` refers to a Zig source file, then `@import` returns that file's [corresponding struct type](https://ziglang.org/documentation/0.16.0/#Source-File-Structs), essentially as if the builtin call was replaced by `struct { FILE_CONTENTS }`. The return type is `type`.\n\nIf `target` refers to a ZON file, then `@import` returns the value of the literal in the file. If there is an inferred [result type](https://ziglang.org/documentation/0.16.0/#Result-Types), then the return type is that type, and the ZON literal is interpreted as that type ([Result Types](https://ziglang.org/documentation/0.16.0/#Result-Types) are propagated through the ZON expression). Otherwise, the return type is the type of the equivalent Zig expression, essentially as if the builtin call was replaced by the ZON file contents.\n\nThe following modules are always available for import:\n\n - `@import(\"std\")` - Zig Standard Library\n - `@import(\"builtin\")` - Target-specific information. The command\n`zig build-exe --show-builtin`outputs the source to stdout for reference.\n - `@import(\"root\")` - Alias for the root module. In typical project structures, this means it refers back to\n`src/main.zig`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "import",
+   :param-count 1,
+   :signature "@import(comptime target: []const u8) anytype",
+   :tag "import",
+   :zig-name "@import"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns whether the builtin was run in a `comptime` context. The result is a compile-time constant.\n\nThis can be used to provide alternative, comptime-friendly implementations of functions. It should not be used, for instance, to exclude certain functions from being evaluated at comptime.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "inComptime",
+   :param-count 0,
+   :signature "@inComptime() bool",
+   :tag "in_comptime",
+   :zig-name "@inComptime"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts an integer to another integer while keeping the same numerical value. The return type is the inferred result type. Attempting to convert a number which is out of range of the destination type results in safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).\n\nTo truncate the significant bits of a number out of range of the destination type, use [@truncate](https://ziglang.org/documentation/0.16.0/#truncate).\n\nIf `T` is `comptime_int`, then this is semantically equivalent to [Type Coercion](https://ziglang.org/documentation/0.16.0/#Type-Coercion).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "intCast",
+   :param-count 1,
+   :signature "@intCast(int: anytype) anytype",
+   :tag "int_cast",
+   :zig-name "@intCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts `true` to `@as(u1, 1)` and `false` to `@as(u1, 0)`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "intFromBool",
+   :param-count 1,
+   :signature "@intFromBool(value: bool) u1",
+   :tag "int_from_bool",
+   :zig-name "@intFromBool"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts an enumeration value into its integer tag type. When a tagged union is passed, the tag value is used as the enumeration value.\n\nIf there is only one possible enum value, the result is a `comptime_int` known at [comptime](https://ziglang.org/documentation/0.16.0/#comptime).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "intFromEnum",
+   :param-count 1,
+   :signature "@intFromEnum(enum_or_tagged_union: anytype) anytype",
+   :tag "int_from_enum",
+   :zig-name "@intFromEnum"}
+  {:allows-lvalue? false,
+   :documentation
+   "Supports the following types:\n\n - [The Global Error Set](https://ziglang.org/documentation/0.16.0/#The-Global-Error-Set)\n - [Error Set Type](https://ziglang.org/documentation/0.16.0/#Error-Set-Type)\n - [Error Union Type](https://ziglang.org/documentation/0.16.0/#Error-Union-Type)\nConverts an error to the integer representation of an error.\n\nIt is generally recommended to avoid this cast, as the integer representation of an error is not stable across source code changes.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "intFromError",
+   :param-count 1,
+   :signature
+   "@intFromError(err: anytype) @Int(.unsigned, @bitSizeOf(anyerror))",
+   :tag "int_from_error",
+   :zig-name "@intFromError"}
+  {:allows-lvalue? false,
+   :documentation
+   "Deprecated. Equivalent to [@trunc](https://ziglang.org/documentation/0.16.0/#trunc).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "intFromFloat",
+   :param-count 1,
+   :signature "@intFromFloat(float: anytype) anytype",
+   :tag "int_from_float",
+   :zig-name "@intFromFloat"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts `value` to a `usize` which is the address of the pointer. `value` can be `*T` or `?*T`.\n\nTo convert the other way, use [@ptrFromInt](https://ziglang.org/documentation/0.16.0/#ptrFromInt)",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "intFromPtr",
+   :param-count 1,
+   :signature "@intFromPtr(value: anytype) usize",
+   :tag "int_from_ptr",
+   :zig-name "@intFromPtr"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the natural logarithm of a floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "log",
+   :param-count 1,
+   :signature "@log(value: anytype) @TypeOf(value)",
+   :tag "log",
+   :zig-name "@log"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the logarithm to the base 10 of a floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "log10",
+   :param-count 1,
+   :signature "@log10(value: anytype) @TypeOf(value)",
+   :tag "log10",
+   :zig-name "@log10"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the logarithm to the base 2 of a floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "log2",
+   :param-count 1,
+   :signature "@log2(value: anytype) @TypeOf(value)",
+   :tag "log2",
+   :zig-name "@log2"}
+  {:allows-lvalue? false,
+   :documentation
+   "Takes two or more arguments and returns the biggest value included (the maximum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.\n\nNaNs are handled as follows: return the biggest non-NaN value included. If all operands are NaN, return NaN.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "max",
+   :param-count nil,
+   :signature "@max(...) T",
+   :tag "max",
+   :zig-name "@max"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function copies bytes from one region of memory to another.\n\n`dest` must be a mutable slice, a mutable pointer to an array, or a mutable many-item [pointer](https://ziglang.org/documentation/0.16.0/#Pointers). It may have any alignment, and it may have any element type.\n\n`source` must be a slice, a pointer to an array, or a many-item [pointer](https://ziglang.org/documentation/0.16.0/#Pointers). It may have any alignment, and it may have any element type.\n\nThe `source` element type must have the same in-memory representation as the `dest` element type.\n\nSimilar to [for](https://ziglang.org/documentation/0.16.0/#for) loops, at least one of `source` and `dest` must provide a length, and if two lengths are provided, they must be equal.\n\nFinally, the two memory regions must not overlap.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "memcpy",
+   :param-count 2,
+   :signature "@memcpy(noalias dest, noalias source) void",
+   :tag "memcpy",
+   :zig-name "@memcpy"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function copies bytes from one region of memory to another, but unlike [@memcpy](https://ziglang.org/documentation/0.16.0/#memcpy) the regions may overlap.\n\n`dest` must be a mutable slice, a mutable pointer to an array, or a mutable many-item [pointer](https://ziglang.org/documentation/0.16.0/#Pointers). It may have any alignment, and it may have any element type.\n\n`source` must be a slice, a pointer to an array, or a many-item [pointer](https://ziglang.org/documentation/0.16.0/#Pointers). It may have any alignment, and it may have any element type.\n\nThe `source` element type must have the same in-memory representation as the `dest` element type.\n\nSimilar to [for](https://ziglang.org/documentation/0.16.0/#for) loops, at least one of `source` and `dest` must provide a length, and if two lengths are provided, they must be equal.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "memmove",
+   :param-count 2,
+   :signature "@memmove(dest, source) void",
+   :tag "memmove",
+   :zig-name "@memmove"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function sets all the elements of a memory region to `elem`.\n\n`dest` must be a mutable slice or a mutable pointer to an array. It may have any alignment, and it may have any element type.\n\n`elem` is coerced to the element type of `dest`.\n\nFor securely zeroing out sensitive contents from memory, you should use `std.crypto.secureZero`",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "memset",
+   :param-count 2,
+   :signature "@memset(dest, elem) void",
+   :tag "memset",
+   :zig-name "@memset"}
+  {:allows-lvalue? false,
+   :documentation
+   "Takes two or more arguments and returns the smallest value included (the minimum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.\n\nNaNs are handled as follows: return the smallest non-NaN value included. If all operands are NaN, return NaN.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "min",
+   :param-count nil,
+   :signature "@min(...) T",
+   :tag "min",
+   :zig-name "@min"}
+  {:allows-lvalue? false,
+   :documentation
+   "Modulus division. For unsigned integers this is the same as `numerator % denominator`. Caller guarantees `denominator != 0`, otherwise the operation will result in a [Remainder Division by Zero](https://ziglang.org/documentation/0.16.0/#Remainder-Division-by-Zero) when runtime safety checks are enabled.\n\n - `@mod(-5, 3) == 1`\n - `(@divFloor(a, b) * b) + @mod(a, b) == a`\nFor a function that returns an error code, see `@import(\"std\").math.mod`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "mod",
+   :param-count 2,
+   :signature "@mod(numerator: T, denominator: T) T",
+   :tag "mod",
+   :zig-name "@mod"}
+  {:allows-lvalue? false,
+   :documentation
+   "Fused multiply-add, similar to `(a * b) + c`, except only rounds once, and is thus more accurate.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "mulAdd",
+   :param-count 4,
+   :signature
+   "@mulAdd(\n  comptime T: type,\n  a: T,\n  b: T,\n  c: T,\n) T",
+   :tag "mul_add",
+   :zig-name "@mulAdd"}
+  {:allows-lvalue? false,
+   :documentation
+   "Performs `a * b` and returns a tuple with the result and a possible overflow bit.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "mulWithOverflow",
+   :param-count 2,
+   :signature
+   "@mulWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }",
+   :tag "mul_with_overflow",
+   :zig-name "@mulWithOverflow"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the byte offset of a field relative to its containing struct.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "offsetOf",
+   :param-count 2,
+   :signature
+   "@offsetOf(comptime T: type, comptime field_name: []const u8) comptime_int",
+   :tag "offset_of",
+   :zig-name "@offsetOf"}
+  {:allows-lvalue? false,
+   :documentation
+   "Invokes the panic handler function. By default the panic handler function calls the public `panic` function exposed in the root source file, or if there is not one specified, the `std.builtin.default_panic` function from `std/builtin.zig`.\n\nGenerally it is better to use `@import(\"std\").debug.panic`. However, `@panic` can be useful for 2 scenarios:\n\n - From library code, calling the programmer's panic function if they exposed one in the root source file.\n - When mixing C and Zig code, calling the canonical panic implementation across multiple .o files.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "panic",
+   :param-count 1,
+   :signature "@panic(message: []const u8) noreturn",
+   :tag "panic",
+   :zig-name "@panic"}
+  {:allows-lvalue? false,
+   :documentation
+   "`@TypeOf(operand)` must be an integer type.\n\n`operand` may be an [integer](https://ziglang.org/documentation/0.16.0/#Integers) or [vector](https://ziglang.org/documentation/0.16.0/#Vectors).\n\nCounts the number of bits set in an integer - \"population count\".\n\nThe return type is an unsigned integer or vector of unsigned integers with the minimum number of bits that can represent the bit count of the integer type.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "popCount",
+   :param-count 1,
+   :signature "@popCount(operand: anytype) anytype",
+   :tag "pop_count",
+   :zig-name "@popCount"}
+  {:allows-lvalue? false,
+   :documentation
+   "This builtin tells the compiler to emit a prefetch instruction if supported by the target CPU. If the target CPU does not support the requested prefetch instruction, this builtin is a no-op. This function has no effect on the behavior of the program, only on the performance characteristics.\n\nThe `ptr` argument may be any pointer type and determines the memory address to prefetch. This function does not dereference the pointer, it is perfectly legal to pass a pointer to invalid memory to this function and no Illegal Behavior will result.\n\n`PrefetchOptions` can be found with `@import(\"std\").builtin.PrefetchOptions`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "prefetch",
+   :param-count 2,
+   :signature
+   "@prefetch(ptr: anytype, comptime options: PrefetchOptions) void",
+   :tag "prefetch",
+   :zig-name "@prefetch"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts a pointer of one type to a pointer of another type. The return type is the inferred result type.\n\n[Optional Pointers](https://ziglang.org/documentation/0.16.0/#Optional-Pointers) are allowed. Casting an optional pointer which is [null](https://ziglang.org/documentation/0.16.0/#null) to a non-optional pointer invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).\n\n`@ptrCast` cannot be used for:\n\n - Removing `const` qualifier, use [@constCast](https://ziglang.org/documentation/0.16.0/#constCast).\n - Removing `volatile` qualifier, use [@volatileCast](https://ziglang.org/documentation/0.16.0/#volatileCast).\n - Changing pointer address space, use [@addrSpaceCast](https://ziglang.org/documentation/0.16.0/#addrSpaceCast).\n - Increasing pointer alignment, use [@alignCast](https://ziglang.org/documentation/0.16.0/#alignCast).\n - Casting a non-slice pointer to a slice, use slicing syntax `ptr[start..end]`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "ptrCast",
+   :param-count 1,
+   :signature "@ptrCast(value: anytype) anytype",
+   :tag "ptr_cast",
+   :zig-name "@ptrCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts an integer to a [pointer](https://ziglang.org/documentation/0.16.0/#Pointers). The return type is the inferred result type. To convert the other way, use [@intFromPtr](https://ziglang.org/documentation/0.16.0/#intFromPtr). Casting an address of 0 to a destination type which in not [optional](https://ziglang.org/documentation/0.16.0/#Optional-Pointers) and does not have the `allowzero` attribute will result in a [Pointer Cast Invalid Null](https://ziglang.org/documentation/0.16.0/#Pointer-Cast-Invalid-Null) panic when runtime safety checks are enabled.\n\nIf the destination pointer type does not allow address zero and `address` is zero, this invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "ptrFromInt",
+   :param-count 1,
+   :signature "@ptrFromInt(address: usize) anytype",
+   :tag "ptr_from_int",
+   :zig-name "@ptrFromInt"}
+  {:allows-lvalue? false,
+   :documentation
+   "Transforms a [vector](https://ziglang.org/documentation/0.16.0/#Vectors) into a scalar value (of type\n`E`) by performing a sequential horizontal reduction of its elements using the specified operator `op`.\n\nNot every operator is available for every vector element type:\n\n - Every operator is available for [integer](https://ziglang.org/documentation/0.16.0/#Integers) vectors.\n - `.And`, `.Or`, `.Xor` are additionally available for `bool` vectors,\n - `.Min`, `.Max`, `.Add`, `.Mul` are additionally available for [floating point](https://ziglang.org/documentation/0.16.0/#Floats) vectors,\nNote that `.Add` and `.Mul` reductions on integral types are wrapping; when applied on floating point types the operation associativity is preserved, unless the float mode is set to `.optimized`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "reduce",
+   :param-count 2,
+   :signature "@reduce(comptime op: ReduceOp, value: anytype) E",
+   :tag "reduce",
+   :zig-name "@reduce"}
+  {:allows-lvalue? false,
+   :documentation
+   "Remainder division. For unsigned integers this is the same as `numerator % denominator`. Caller guarantees `denominator != 0`, otherwise the operation will result in a [Remainder Division by Zero](https://ziglang.org/documentation/0.16.0/#Remainder-Division-by-Zero) when runtime safety checks are enabled.\n\n - `@rem(-5, 3) == -2`\n - `(@divTrunc(a, b) * b) + @rem(a, b) == a`\nFor a function that returns an error code, see `@import(\"std\").math.rem`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "rem",
+   :param-count 2,
+   :signature "@rem(numerator: T, denominator: T) T",
+   :tag "rem",
+   :zig-name "@rem"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the address of the next machine code instruction that will be executed when the current function returns.\n\nThe implications of this are target-specific and not consistent across all platforms.\n\nThis function is only valid within function scope. If the function gets inlined into a calling function, the returned address will apply to the calling function.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "returnAddress",
+   :param-count 0,
+   :signature "@returnAddress() usize",
+   :tag "return_address",
+   :zig-name "@returnAddress"}
+  {:allows-lvalue? false,
+   :documentation
+   "Rounds the given floating point number to the nearest integer. If two integers are equally close, rounds away from zero. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.\n\nWhen the inferred result type is an [integer](https://ziglang.org/documentation/0.16.0/#Integers), the integer part is extracted from the rounded result. If that value cannot fit in the destination type, it invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "round",
+   :param-count 1,
+   :signature "@round(value: anytype) @TypeOf(value)",
+   :tag "round",
+   :zig-name "@round"}
+  {:allows-lvalue? false,
+   :documentation
+   "Selects values element-wise from `a` or `b` based on `pred`. If `pred[i]` is `true`, the corresponding element in the result will be `a[i]` and otherwise `b[i]`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "select",
+   :param-count 4,
+   :signature
+   "@select(\n  comptime T: type,\n  pred: @Vector(len, bool),\n  a: @Vector(len, T),\n  b: @Vector(len, T),\n) @Vector(len, T)",
+   :tag "select",
+   :zig-name "@select"}
+  {:allows-lvalue? false,
+   :documentation
+   "Increase the maximum number of backwards branches that compile-time code execution can use before giving up and making a compile error.\n\nIf the `new_quota` is smaller than the default quota (`1000`) or a previously explicitly set quota, it is ignored.\n\nExample:\n\nNow we use `@setEvalBranchQuota`:",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "setEvalBranchQuota",
+   :param-count 1,
+   :signature "@setEvalBranchQuota(comptime new_quota: u32) void",
+   :tag "set_eval_branch_quota",
+   :zig-name "@setEvalBranchQuota"}
+  {:allows-lvalue? false,
+   :documentation
+   "Changes the current scope's rules about how floating point operations are defined.\n\n - `.strict` (default) - Floating point operations follow strict IEEE compliance.\n - `.optimized` - Floating point operations may do all of the following:\n   - Assume the arguments and result are not NaN. Optimizations are required to retain legal behavior over NaNs, but the value of the result is undefined.\n   - Assume the arguments and result are not +/-Inf. Optimizations are required to retain legal behavior over +/-Inf, but the value of the result is undefined.\n   - Treat the sign of a zero argument or result as insignificant.\n   - Use the reciprocal of an argument rather than perform division.\n   - Perform floating-point contraction (e.g. fusing a multiply followed by an addition into a fused multiply-add).\n   - Perform algebraically equivalent transformations that may change results in floating point (e.g. reassociate).\nThis is equivalent to\n`-ffast-math`in GCC.\nThe floating point mode is inherited by child scopes, and can be overridden in any scope. You can set the floating point mode in a struct or module scope by using a comptime block.\n\n`FloatMode` can be found with `@import(\"std\").builtin.FloatMode`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "setFloatMode",
+   :param-count 1,
+   :signature "@setFloatMode(comptime mode: FloatMode) void",
+   :tag "set_float_mode",
+   :zig-name "@setFloatMode"}
+  {:allows-lvalue? false,
+   :documentation
+   "Sets whether runtime safety checks are enabled for the scope that contains the function call.\n\nNote: it is\n[planned](https://github.com/ziglang/zig/issues/978)to replace `@setRuntimeSafety` with\n`@optimizeFor`",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "setRuntimeSafety",
+   :param-count 1,
+   :signature "@setRuntimeSafety(comptime safety_on: bool) void",
+   :tag "set_runtime_safety",
+   :zig-name "@setRuntimeSafety"}
+  {:allows-lvalue? false,
+   :documentation
+   "`). For unsigned integers, the result is [undefined](https://ziglang.org/documentation/0.16.0/#undefined) if any 1 bits are shifted out. For signed integers, the result is [undefined](https://ziglang.org/documentation/0.16.0/#undefined) if any bits that disagree with the resultant sign bit are shifted out.\n\nThe type of `shift_amt` is an unsigned integer with `log2(@typeInfo(T).int.bits)` bits. This is because `shift_amt >= @typeInfo(T).int.bits` triggers safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).\n\n`comptime_int` is modeled as an integer with an infinite number of bits, meaning that in such case, `@shlExact` always produces a result and cannot produce a compile error.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "shlExact",
+   :param-count 2,
+   :signature "@shlExact(value: T, shift_amt: Log2T) T",
+   :tag "shl_exact",
+   :zig-name "@shlExact"}
+  {:allows-lvalue? false,
+   :documentation
+   "b` and returns a tuple with the result and a possible overflow bit.\n\nThe type of `shift_amt` is an unsigned integer with `log2(@typeInfo(@TypeOf(a)).int.bits)` bits. This is because `shift_amt >= @typeInfo(@TypeOf(a)).int.bits` triggers safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "shlWithOverflow",
+   :param-count 2,
+   :signature
+   "@shlWithOverflow(a: anytype, shift_amt: Log2T) struct { @TypeOf(a), u1 }",
+   :tag "shl_with_overflow",
+   :zig-name "@shlWithOverflow"}
+  {:allows-lvalue? false,
+   :documentation
+   "Performs the right shift operation (`>>`). Caller guarantees that the shift will not shift any 1 bits out.\n\nThe type of `shift_amt` is an unsigned integer with `log2(@typeInfo(T).int.bits)` bits. This is because `shift_amt >= @typeInfo(T).int.bits` triggers safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "shrExact",
+   :param-count 2,
+   :signature "@shrExact(value: T, shift_amt: Log2T) T",
+   :tag "shr_exact",
+   :zig-name "@shrExact"}
+  {:allows-lvalue? false,
+   :documentation
+   "Constructs a new [vector](https://ziglang.org/documentation/0.16.0/#Vectors) by selecting elements from `a` and `b` based on `mask`.\n\nEach element in `mask` selects an element from either `a` or `b`. Positive numbers select from `a` starting at 0. Negative values select from `b`, starting at `-1` and going down. It is recommended to use the `~` operator for indexes from `b` so that both indexes can start from `0` (i.e. `~@as(i32, 0)` is `-1`).\n\nFor each element of `mask`, if it or the selected value from `a` or `b` is `undefined`, then the resulting element is `undefined`.\n\n`a_len` and `b_len` may differ in length. Out-of-bounds element indexes in `mask` result in compile errors.\n\nIf `a` or `b` is `undefined`, it is equivalent to a vector of all `undefined` with the same length as the other vector. If both vectors are `undefined`, `@shuffle` returns a vector with all elements `undefined`.\n\n`E` must be an [integer](https://ziglang.org/documentation/0.16.0/#Integers), [float](https://ziglang.org/documentation/0.16.0/#Floats), [pointer](https://ziglang.org/documentation/0.16.0/#Pointers), or `bool`. The mask may be any vector length, and its length determines the result length.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "shuffle",
+   :param-count 4,
+   :signature
+   "@shuffle(\n  comptime E: type,\n  a: @Vector(a_len, E),\n  b: @Vector(b_len, E),\n  comptime mask: @Vector(mask_len, i32),\n) @Vector(mask_len, E)",
+   :tag "shuffle",
+   :zig-name "@shuffle"}
+  {:allows-lvalue? false,
+   :documentation
+   "Sine trigonometric function on a floating point number in radians. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "sin",
+   :param-count 1,
+   :signature "@sin(value: anytype) @TypeOf(value)",
+   :tag "sin",
+   :zig-name "@sin"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the number of bytes it takes to store `T` in memory. The result is a target-specific compile time constant.\n\nThis size may contain padding bytes. If there were two consecutive T in memory, the padding would be the offset in bytes between element at index 0 and the element at index 1. For [integer](https://ziglang.org/documentation/0.16.0/#Integers), consider whether you want to use `@sizeOf(T)` or `@typeInfo(T).int.bits`.\n\nThis function measures the size at runtime. For types that are disallowed at runtime, such as `comptime_int` and `type`, the result is `0`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "sizeOf",
+   :param-count 1,
+   :signature "@sizeOf(comptime T: type) comptime_int",
+   :tag "size_of",
+   :zig-name "@sizeOf"}
+  {:allows-lvalue? false,
+   :documentation
+   "Produces an array or vector where each element is the value `scalar`. The return type and thus the length of the vector is inferred.\n\n`scalar` must be an [integer](https://ziglang.org/documentation/0.16.0/#Integers), [bool](https://ziglang.org/documentation/0.16.0/#Primitive-Types), [float](https://ziglang.org/documentation/0.16.0/#Floats), or [pointer](https://ziglang.org/documentation/0.16.0/#Pointers).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "splat",
+   :param-count 1,
+   :signature "@splat(scalar: anytype) anytype",
+   :tag "splat",
+   :zig-name "@splat"}
+  {:allows-lvalue? false,
+   :documentation
+   "Performs the square root of a floating point number. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "sqrt",
+   :param-count 1,
+   :signature "@sqrt(value: anytype) @TypeOf(value)",
+   :tag "sqrt",
+   :zig-name "@sqrt"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns a `SourceLocation` struct representing the function's name and location in the source code. This must be called in a function.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "src",
+   :param-count 0,
+   :signature "@src() SourceLocation",
+   :tag "src",
+   :zig-name "@src"}
+  {:allows-lvalue? false,
+   :documentation
+   "Performs `a - b` and returns a tuple with the result and a possible overflow bit.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "subWithOverflow",
+   :param-count 2,
+   :signature
+   "@subWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }",
+   :tag "sub_with_overflow",
+   :zig-name "@subWithOverflow"}
+  {:allows-lvalue? false,
+   :documentation
+   "Converts an enum value or union value to a string literal representing the name.\n\nIf the enum is non-exhaustive and the tag value does not map to a name, it invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "tagName",
+   :param-count 1,
+   :signature "@tagName(value: anytype) [:0]const u8",
+   :tag "tag_name",
+   :zig-name "@tagName"}
+  {:allows-lvalue? false,
+   :documentation
+   "Tangent trigonometric function on a floating point number in radians. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of floats.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "tan",
+   :param-count 1,
+   :signature "@tan(value: anytype) @TypeOf(value)",
+   :tag "tan",
+   :zig-name "@tan"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function inserts a platform-specific trap/jam instruction which can be used to exit the program abnormally. This may be implemented by explicitly emitting an invalid instruction which may cause an illegal instruction exception of some sort. Unlike for `@breakpoint()`, execution does not continue after this point.\n\nOutside function scope, this builtin causes a compile error.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "trap",
+   :param-count 0,
+   :signature "@trap() noreturn",
+   :tag "trap",
+   :zig-name "@trap"}
+  {:allows-lvalue? false,
+   :documentation
+   "Rounds the given floating point number to an integer, towards zero. Uses a dedicated hardware instruction when available.\n\nSupports [Floats](https://ziglang.org/documentation/0.16.0/#Floats) and [Vectors](https://ziglang.org/documentation/0.16.0/#Vectors) of float parameters.\n\nWhen the inferred result type is an [integer](https://ziglang.org/documentation/0.16.0/#Integers), the integer part is extracted from the truncated result. If that value cannot fit in the destination type, it invokes safety-checked [Illegal Behavior](https://ziglang.org/documentation/0.16.0/#Illegal-Behavior).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "trunc",
+   :param-count 1,
+   :signature "@trunc(value: anytype) @TypeOf(value)",
+   :tag "trunc",
+   :zig-name "@trunc"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function truncates bits from an integer type, resulting in a smaller or same-sized integer type. The return type is the inferred result type.\n\nThis function always truncates the significant bits of the integer, regardless of endianness on the target platform.\n\nCalling `@truncate` on a number out of range of the destination type is well defined and working code:\n\nUse [@intCast](https://ziglang.org/documentation/0.16.0/#intCast) to convert numbers guaranteed to fit the destination type.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "truncate",
+   :param-count 1,
+   :signature "@truncate(integer: anytype) anytype",
+   :tag "truncate",
+   :zig-name "@truncate"}
+  {:allows-lvalue? false,
+   :documentation
+   "Provides type reflection.\n\nType information of [structs](https://ziglang.org/documentation/0.16.0/#struct), [unions](https://ziglang.org/documentation/0.16.0/#union), [enums](https://ziglang.org/documentation/0.16.0/#enum), and [error sets](https://ziglang.org/documentation/0.16.0/#Error-Set-Type) has fields which are guaranteed to be in the same order as appearance in the source file.\n\nType information of [structs](https://ziglang.org/documentation/0.16.0/#struct), [unions](https://ziglang.org/documentation/0.16.0/#union), [enums](https://ziglang.org/documentation/0.16.0/#enum), and [opaques](https://ziglang.org/documentation/0.16.0/#opaque) has declarations, which are also guaranteed to be in the same order as appearance in the source file.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "typeInfo",
+   :param-count 1,
+   :signature "@typeInfo(comptime T: type) Type",
+   :tag "type_info",
+   :zig-name "@typeInfo"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the string representation of a type, as an array. It is equivalent to a string literal of the type name. The returned type name is fully qualified with the parent namespace included as part of the type name with a series of dots.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "typeName",
+   :param-count 1,
+   :signature "@typeName(T: type) *const [N:0]u8",
+   :tag "type_name",
+   :zig-name "@typeName"}
+  {:allows-lvalue? false,
+   :documentation
+   "This is the same thing as [union](https://ziglang.org/documentation/0.16.0/#union) initialization syntax, except that the field name is a [comptime](https://ziglang.org/documentation/0.16.0/#comptime)-known value rather than an identifier token.\n\n`@unionInit` forwards its [result location](https://ziglang.org/documentation/0.16.0/#Result-Location-Semantics) to `init_expr`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "unionInit",
+   :param-count 3,
+   :signature
+   "@unionInit(comptime Union: type, comptime active_field_name: []const u8, init_expr) Union",
+   :tag "union_init",
+   :zig-name "@unionInit"}
+  {:allows-lvalue? false,
+   :documentation "Remove `volatile` qualifier from a pointer.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "volatileCast",
+   :param-count 1,
+   :signature "@volatileCast(value: anytype) DestType",
+   :tag "volatile_cast",
+   :zig-name "@volatileCast"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function increases the size of the Wasm memory identified by `index` by `delta` in units of unsigned number of Wasm pages. Note that each Wasm page is 64KB in size. On success, returns previous memory size; on failure, if the allocation fails, returns -1.\n\nThis function is a low level intrinsic with no safety mechanisms usually useful for allocator designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use something like `@import(\"std\").heap.WasmPageAllocator`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "wasmMemoryGrow",
+   :param-count 2,
+   :signature "@wasmMemoryGrow(index: u32, delta: usize) isize",
+   :tag "wasm_memory_grow",
+   :zig-name "@wasmMemoryGrow"}
+  {:allows-lvalue? false,
+   :documentation
+   "This function returns the size of the Wasm memory identified by `index` as an unsigned value in units of Wasm pages. Note that each Wasm page is 64KB in size.\n\nThis function is a low level intrinsic with no safety mechanisms usually useful for allocator designers targeting Wasm. So unless you are writing a new allocator from scratch, you should use something like `@import(\"std\").heap.WasmPageAllocator`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? false,
+   :name "wasmMemorySize",
+   :param-count 1,
+   :signature "@wasmMemorySize(index: u32) usize",
+   :tag "wasm_memory_size",
+   :zig-name "@wasmMemorySize"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the index of the work group in the current kernel invocation in dimension `dimension`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "workGroupId",
+   :param-count 1,
+   :signature "@workGroupId(comptime dimension: u32) u32",
+   :tag "work_group_id",
+   :zig-name "@workGroupId"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the number of work items that a work group has in dimension `dimension`.",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "workGroupSize",
+   :param-count 1,
+   :signature "@workGroupSize(comptime dimension: u32) u32",
+   :tag "work_group_size",
+   :zig-name "@workGroupSize"}
+  {:allows-lvalue? false,
+   :documentation
+   "Returns the index of the work item in the work group in dimension `dimension`. This function returns values between `0` (inclusive) and `@workGroupSize(dimension)` (exclusive).",
+   :documentation-format :markdown,
+   :documentation-source :zls-langref,
+   :eval-to-error :never,
+   :illegal-outside-function? true,
+   :name "workItemId",
+   :param-count 1,
+   :signature "@workItemId(comptime dimension: u32) u32",
+   :tag "work_item_id",
+   :zig-name "@workItemId"}],
+ :generated-by "aguafria.generate-keywords",
+ :keywords
+ [{:name "addrspace", :tag "addrspace"}
+  {:name "align", :tag "align"}
+  {:name "allowzero", :tag "allowzero"}
+  {:name "and", :tag "and"}
+  {:name "anyframe", :tag "anyframe"}
+  {:name "anytype", :tag "anytype"}
+  {:name "asm", :tag "asm"}
+  {:name "break", :tag "break"}
+  {:name "callconv", :tag "callconv"}
+  {:name "catch", :tag "catch"}
+  {:name "comptime", :tag "comptime"}
+  {:name "const", :tag "const"}
+  {:name "continue", :tag "continue"}
+  {:name "defer", :tag "defer"}
+  {:name "else", :tag "else"}
+  {:name "enum", :tag "enum"}
+  {:name "errdefer", :tag "errdefer"}
+  {:name "error", :tag "error"}
+  {:name "export", :tag "export"}
+  {:name "extern", :tag "extern"}
+  {:name "fn", :tag "fn"}
+  {:name "for", :tag "for"}
+  {:name "if", :tag "if"}
+  {:name "inline", :tag "inline"}
+  {:name "linksection", :tag "linksection"}
+  {:name "noalias", :tag "noalias"}
+  {:name "noinline", :tag "noinline"}
+  {:name "nosuspend", :tag "nosuspend"}
+  {:name "opaque", :tag "opaque"}
+  {:name "or", :tag "or"}
+  {:name "orelse", :tag "orelse"}
+  {:name "packed", :tag "packed"}
+  {:name "pub", :tag "pub"}
+  {:name "resume", :tag "resume"}
+  {:name "return", :tag "return"}
+  {:name "struct", :tag "struct"}
+  {:name "suspend", :tag "suspend"}
+  {:name "switch", :tag "switch"}
+  {:name "test", :tag "test"}
+  {:name "threadlocal", :tag "threadlocal"}
+  {:name "try", :tag "try"}
+  {:name "union", :tag "union"}
+  {:name "unreachable", :tag "unreachable"}
+  {:name "var", :tag "var"}
+  {:name "volatile", :tag "volatile"}
+  {:name "while", :tag "while"}],
+ :reader-tokens
+ [{:documentation
+   "Bitwise NOT. This Var exists because `~` is reserved by the Clojure reader.",
+   :kind :operator,
+   :name "bit-not",
+   :param-count 1,
+   :zig-tag "tilde",
+   :zig-token "~"}
+  {:documentation
+   "Bitwise XOR. This Var exists because `^` is metadata syntax in the Clojure reader.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "bit-xor",
+   :param-count nil,
+   :zig-tag "caret",
+   :zig-token "^"}
+  {:documentation
+   "Division assignment. This Var exists because `/=` is not a valid Clojure token.",
+   :kind :assignment,
+   :name "div-assign",
+   :param-count 2,
+   :zig-tag "slash_equal",
+   :zig-token "/="}],
+ :schema-version 1,
+ :sources
+ {:builtin-table
+  {:path "std/zig/BuiltinFn.zig",
+   :sha256
+   "6bf54a6c8043007ea72e7a3d1556f1cad635ba1097784e0a75dcd3196274e3fb"},
+  :language-reference
+  {:extra-builtins [],
+   :missing-builtins
+   ["@Frame" "@disableInstrumentation" "@disableIntrinsics" "@frame"],
+   :provider :zls,
+   :version "0.16.0"},
+  :tokenizer
+  {:path "std/zig/tokenizer.zig",
+   :sha256
+   "8fc9554d90894832c8aa77c612727ba30627e64204e23581f2ece9d4367856c5"}},
+ :zig-version "0.16.0"}

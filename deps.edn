@@ -1,4 +1,4 @@
-{:paths ["src"]
+{:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}}
  :aliases
  {:test {:extra-paths ["test"]
@@ -6,4 +6,12 @@
          :main-opts ["-m" "aguafria.test-runner"]}
   :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
           :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
-          :main-opts ["-m" "nrepl.cmdline"]}}}
+          :main-opts ["-m" "nrepl.cmdline"]}
+  :generate-keywords
+  {:extra-paths ["dev"]
+   :extra-deps {org.clojure/data.json {:mvn/version "2.5.2"}}
+   :main-opts ["-m" "aguafria.generate-keywords"]}
+  :check-keywords
+  {:extra-paths ["dev"]
+   :extra-deps {org.clojure/data.json {:mvn/version "2.5.2"}}
+   :main-opts ["-m" "aguafria.generate-keywords" "--check"]}}}

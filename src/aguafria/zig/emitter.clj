@@ -40,7 +40,8 @@
 
   Supported vectors include `[:* t]`, `[:*const t]`, `[:many t]`,
   `[:many-const t]`, `[:sentinel t n]`, `[:slice t]`, `[:slice-const t]`,
-  `[:array n t]`, `[:optional t]`, and `[:error-union t]`."
+  `[:array n t]`, `[:vector n t]`, `[:c-pointer t]`, `[:optional t]`, and
+  `[:error-union t]`. A normalized Zig builtin call may also produce a type."
   [t]
   (cond
     (or (keyword? t) (symbol? t) (string? t))
@@ -95,6 +96,9 @@
                  (str "const " (emit-type (first xs)))
                  (fail! "Const type expects one child type" t))
         (fail! "Unknown composite Zig type" t {:operator op})))
+
+    (seq? t)
+    (emit-expr t)
 
     :else
     (fail! "Cannot emit Zig type" t)))

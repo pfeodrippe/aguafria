@@ -1,10 +1,12 @@
 (ns aguafria.test-runner
-  (:require [aguafria.zig.emitter-test]
+  (:require [aguafria.keywords-test]
+            [aguafria.zig.emitter-test]
             [aguafria.zig-integration-test]
             [clojure.test :as test]))
 
 (def test-namespaces
-  '[aguafria.zig.emitter-test
+  '[aguafria.keywords-test
+    aguafria.zig.emitter-test
     aguafria.zig-integration-test])
 
 (defn -main
