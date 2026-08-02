@@ -1,6 +1,7 @@
 (ns aguafria.zig.runtime
   "Compilation, loading, and invocation for generated Zig modules."
   (:require [aguafria.zig.emitter :as emit]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str])
@@ -10,7 +11,7 @@
            [java.lang.invoke MethodHandle]
            [java.nio.charset StandardCharsets]
            [java.nio.file AtomicMoveNotSupportedException CopyOption Files Path
-            StandardCopyOption]
+            StandardCopyOption StandardOpenOption]
            [java.security MessageDigest]
            [java.util ArrayList HexFormat]))
 
@@ -19,6 +20,10 @@
 (defonce ^:private program-build-sequence (atom 0))
 (defonce ^:private compile-lock (Object.))
 (defonce ^:private artifact-locks (atom {}))
+
+(def ^:dynamic *registration-batch*
+  "Declaration collector used by tooling that bulk-loads generated source."
+  nil)
 
 (defn- env-true?
   [value]
@@ -89,6 +94,15 @@
   (swap! config merge options))
 
 (defn configuration [] @config)
+
+(defn read-declaration
+  "Reconstitute declaration data serialized into JVM-safe UTF-8 chunks.
+  Public because macro expansions call it; not part of the user-facing API."
+  [chunks]
+  (when-not (and (vector? chunks) (every? string? chunks))
+    (throw (ex-info "Serialized Aguafria declaration must be string chunks"
+                    {:chunks (type chunks)})))
+  (edn/read-string (apply str chunks)))
 
 (defn clear!
   "Forget loaded modules. Generated, content-addressed files are retained."
@@ -384,9 +398,58 @@
       (Files/move (.toPath from) (.toPath to)
                   (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING])))))
 
+(defn- materialize-registered-module-source!
+  [module]
+  (let [{:keys [source] :as module-state} (get @registry (str module))]
+    (when-not (and module-state (string? source))
+      (throw
+       (ex-info
+        (str "Required Aguafria namespace `" module
+             "` has no registered Zig source. Require/load that namespace "
+             "before compiling its caller.")
+        {:aguafria/phase :zig-dependency
+         :module (str module)
+         :known-modules (sort (keys @registry))})))
+    (let [source-hash (subs (sha256 source) 0 24)
+          directory (io/file (:cache-dir @config) "dependencies"
+                             (safe-path-component module) source-hash)
+          source-file (io/file directory "module.zig")]
+      (.mkdirs directory)
+      (when-not (= source (when (.isFile source-file) (slurp source-file)))
+        (Files/writeString (.toPath source-file) source StandardCharsets/UTF_8
+                           (into-array StandardOpenOption
+                                       [StandardOpenOption/CREATE
+                                        StandardOpenOption/TRUNCATE_EXISTING
+                                        StandardOpenOption/WRITE])))
+      (.getAbsolutePath source-file))))
+
+(defn- compiler-options-for-declarations
+  [compiler-options declarations]
+  (let [automatic
+        (into {}
+              (keep (fn [[_ {:keys [import-name namespace]}]]
+                      (when namespace
+                        [import-name
+                         (materialize-registered-module-source! namespace)])))
+              (emit/declaration-imports declarations))
+        configured (:modules compiler-options)
+        conflicts (->> (keys automatic)
+                       (filter #(contains? configured %))
+                       sort
+                       vec)]
+    (when (seq conflicts)
+      (throw (ex-info
+              "Configured Zig modules conflict with required Aguafria namespaces"
+              {:aguafria/phase :zig-dependency
+               :module-names conflicts
+               :configured configured
+               :automatic automatic})))
+    (assoc compiler-options :modules (merge configured automatic))))
+
 (defn- compile-source!
-  [module-name source]
-  (let [{:keys [cache-dir optimize zig] :as compiler-options} @config
+  [module-name source declarations]
+  (let [{:keys [cache-dir optimize zig] :as compiler-options}
+        (compiler-options-for-declarations @config declarations)
         compiler-version (zig-version)
         hash-input [source compiler-version
                     (select-keys compiler-options
@@ -485,7 +548,8 @@
   (if-not (supported-signature? declaration)
     {:declaration declaration
      :unsupported? true}
-    (let [symbol-name (emit/identifier (:name declaration))
+    (let [symbol-name (emit/identifier (or (:zig-name declaration)
+                                           (:name declaration)))
           address (-> (.find lookup symbol-name)
                       (.orElseThrow
                        (reify java.util.function.Supplier
@@ -543,7 +607,7 @@
   [{:keys [module declaration-key generation declarations source completion]}]
   (mark-build-started! module generation)
   (try
-    (let [compiled (compile-source! module source)
+    (let [compiled (compile-source! module source declarations)
           ;; Stale snapshots are useful compiler work/history, but loading each
           ;; one would waste native-library arenas during a large REPL reload.
           loaded (when (= generation
@@ -631,7 +695,7 @@
       (record-build! job false)
       (mark-build-started! module generation)
       (try
-        (let [compiled (compile-source! module source)
+        (let [compiled (compile-source! module source declarations)
               loaded (load-module compiled declarations)
               new-module (merge loaded
                                 {:module module
@@ -649,6 +713,8 @@
           (mark-build-failed! module generation error)
           (throw error))))))
 
+(declare recompile!)
+
 (defn register-declaration!
   "Add or replace a declaration and rebuild its namespace module.
 
@@ -659,9 +725,64 @@
   (when-not (and module declaration-key)
     (throw (ex-info "Declaration requires :module and :declaration-key"
                     {:declaration declaration})))
-  (if (:async? @config)
-    (register-async! declaration)
-    (register-sync! declaration)))
+  (if *registration-batch*
+    (do
+      (swap! *registration-batch* conj declaration)
+      {:module module :declaration-key declaration-key :batched? true})
+    (if (:async? @config)
+      (register-async! declaration)
+      (register-sync! declaration))))
+
+(defn register-batch!
+  "Register a complete declaration batch without intermediate compilations.
+
+  With `:compile? false` (the converter default), the source and declarations
+  become immediately inspectable and a later `recompile!` builds the complete
+  module once. `:replace? true` removes declarations absent from the batch."
+  [declarations {:keys [compile? replace? module]
+                 :or {compile? false replace? true}}]
+  (let [declarations (vec declarations)
+        modules (cond-> (set (map :module declarations))
+                  module (conj (str module)))]
+    (when-not (= 1 (count modules))
+      (throw (ex-info "A registration batch must contain exactly one module"
+                      {:modules modules :declaration-count (count declarations)})))
+    (let [module (first modules)
+          definitions (into {} (map (juxt :declaration-key identity)) declarations)]
+      (if compile?
+        ;; Seed the whole immutable snapshot, then ask the existing single-module
+        ;; compiler to compile that complete definition map exactly once.
+        (do
+          (locking compile-lock
+            (swap! registry update module
+                   (fn [current]
+                     (assoc (or current {})
+                            :module module
+                            :definitions (if replace?
+                                           definitions
+                                           (merge (:definitions current) definitions))))))
+          (recompile! module))
+        (locking compile-lock
+          (let [old-module (get @registry module)
+                definitions (if replace?
+                              definitions
+                              (merge (:definitions old-module) definitions))
+                declarations (vec (vals definitions))
+                source (emit-source! module declarations)]
+            (swap! registry assoc module
+                   (merge old-module
+                          {:module module
+                           :definitions definitions
+                           :declarations declarations
+                           :source source
+                           :source-only? true
+                           :pending nil
+                           :last-error nil
+                           :failed-generation nil}))
+            {:module module
+             :declaration-count (count declarations)
+             :source-only? true
+             :compiled? false}))))))
 
 (defn recompile!
   "Recompile one existing module using the current compiler configuration.
@@ -736,7 +857,9 @@
      (when-not module-state
        (throw (ex-info "Cannot build an unknown Aguafria module"
                        {:module module :known-modules (sort (keys @registry))})))
-     (let [compiler-options (merge @config options)
+     (let [declarations (vec (vals (:definitions module-state)))
+           compiler-options (compiler-options-for-declarations
+                             (merge @config options) declarations)
            kind (or (:kind options) :exe)
            name (safe-path-component (or (:name options) module))
            command-name ({:exe "build-exe"
@@ -771,8 +894,7 @@
                          :requested-at-ms started-at
                          :started-at-ms started-at
                          :thread (.getName (Thread/currentThread))
-                         :declarations (mapv declaration-summary
-                                             (vals (:definitions module-state)))}]
+                         :declarations (mapv declaration-summary declarations)}]
        (swap! build-registry
               (fn [builds]
                 (-> builds (assoc build-key build-record) trim-build-history)))

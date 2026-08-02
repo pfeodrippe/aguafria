@@ -11,15 +11,13 @@
 (az/configure! {:async? true
                 :modules {"extra_math" "test/fixtures/extra_math.zig"}})
 
-(az/defraw std-import
-  "const std = @import(\"std\");")
+(az/defimport std "std" [])
 
-(az/defraw extra-math-import
-  "const extra_math = @import(\"extra_math\");")
+(az/defimport extra-math "extra_math" [quadruple])
 
 (az/defstruct Point
-  [x :- :i32
-   y :- :i32])
+  [[:x {:doc "Horizontal coordinate"} :i32]
+   [:y :i32]])
 
 (az/defconst multiplier :i32 3)
 
@@ -35,7 +33,7 @@
 
 (az/defn external-quadruple :- :i32
   [x :- :i32]
-  (extra_math.quadruple x))
+  (extra-math/quadruple x))
 
 (az/defn ^{:export false :public true} simd-lane-sum :- :i32
   [values :- (ak/Vector 4 :i32)]
@@ -95,6 +93,14 @@
       (is (str/includes? source "pub fn sum_point(point: Point) i32"))
       (is (not (str/includes? source "@import(\"aguafria")))))
 
+  (testing "external Zig members are real, inspectable Clojure Vars"
+    (let [test-ns (the-ns 'aguafria.zig-integration-test)
+          member (ns-resolve test-ns 'extra-math/quadruple)]
+      (is (var? (ns-resolve test-ns 'std)))
+      (is (var? member))
+      (is (= "extra_math.quadruple"
+             (get-in (meta member) [:aguafria/zig-reference :zig-name])))))
+
   (testing "newest generation has been published"
     (let [{:keys [generation requested-generation pending? error source-path
                   library-path]} (az/module-info 'aguafria.zig-integration-test)]
@@ -112,7 +118,10 @@
          (get-in (meta #'keyword-int-cast) [:aguafria/declaration :body])))
   (is (= '(aguafria.keyword/Vector 4 :i32)
          (get-in (meta #'simd-lane-sum)
-                 [:aguafria/declaration :args 0 :type]))))
+                 [:aguafria/declaration :args 0 :type])))
+  (is (= {:doc "Horizontal coordinate"}
+         (get-in (meta #'Point)
+                 [:aguafria/declaration :fields 0 :properties]))))
 
 (deftest explicit-recompile-test
   (az/await! 'aguafria.zig-integration-test)
@@ -127,13 +136,23 @@
 
 (deftest hot-reload-test
   (testing "recompiling the module updates an already-defined Zig caller"
-    (is (= 12 (composed 3)))
-    (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
-      (eval
-       '(az/defn base :- :i32
-          [x :- :i32]
-          (+ x 5))))
-    (is (= 24 (composed 3)))))
+    (try
+      (is (= 12 (composed 3)))
+      (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
+        (eval
+         '(az/defn base :- :i32
+            [x :- :i32]
+            (+ x 5))))
+      (is (= 24 (composed 3)))
+      (finally
+        (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
+          (eval
+           '(az/defn base
+              "Increment an integer in Zig."
+              :- :i32
+              [x :- :i32]
+              (+ x 1))))
+        (az/await! 'aguafria.zig-integration-test)))))
 
 (deftest standalone-build-and-stats-test
   (let [artifact (az/build! 'aguafria.zig-integration-test

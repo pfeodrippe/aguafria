@@ -27,8 +27,12 @@
   (is (= "(~bits)" (emit/emit-expr '(op "~" bits))))
   (is (= "(if ((x < 0)) (-x) else x)"
          (emit/emit-expr '(if (< x 0) (- x) x))))
-  (is (= "(point).x" (emit/emit-expr '(field point x))))
-  (is (= "(items)[start..end]" (emit/emit-expr '(slice items start end))))
+  (is (= "point.x" (emit/emit-expr '(field point x))))
+  (is (= "items[start..end]" (emit/emit-expr '(slice items start end))))
+  (is (= "0 .. 10" (emit/emit-expr '(op ".." 0 10))))
+  (is (= "?*u8" (emit/emit-expr '(type [:optional [:* :u8]]))))
+  (is (= "(Foo{.x = 1}).stat()"
+         (emit/emit-expr '((field (init Foo {:x 1}) stat)))))
   (is (= ".{.x = 1, .y = 2}" (emit/emit-expr {:y 2 :x 1})))
   (is (= ".{1, 2, 3}" (emit/emit-expr [1 2 3])))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -41,6 +45,10 @@
   (is (= "total += value;" (emit/emit-stmt '(+= total value))))
   (is (= "total /= divisor;"
          (emit/emit-stmt '(assign "/=" total divisor))))
+  (is (= "defer cleanup();" (emit/emit-stmt '(defer (cleanup)))))
+  (is (= "errdefer cleanup();" (emit/emit-stmt '(errdefer (cleanup)))))
+  (is (= "comptime validate();"
+         (emit/emit-stmt '(comptime-stmt (validate)))))
   (is (= (str "while ((i < n)) {\n"
               "    total += i;\n"
               "    i += 1;\n"
@@ -52,6 +60,26 @@
               "    return x;\n"
               "}")
          (emit/emit-stmt '(if (< x 0) (return (- x)) (return x))))))
+
+(deftest struct-schema-test
+  (testing "Malli-style field entries preserve per-field properties"
+    (is (= [{:name :x
+             :type :f32
+             :properties {:doc "Horizontal component" :align 4}}
+            {:name :y :type :f32 :properties {}}]
+           (emit/parse-struct-fields
+            [[:x {:doc "Horizontal component" :align 4} :f32]
+             [:y :f32]]))))
+  (testing "metadata on an entry is retained as field properties"
+    (is (= {:unit :meters}
+           (:properties
+            (first (emit/parse-struct-fields
+                    [(with-meta [:distance :f32] {:unit :meters})]))))))
+  (testing "the old flattened struct syntax is rejected clearly"
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Each az/defstruct field must be a vector"
+         (emit/parse-struct-fields '[:x :- :f32 :y :- :f32])))))
 
 (deftest declaration-and-module-test
   (let [source (emit/emit-module
@@ -65,6 +93,22 @@
              (.indexOf source "export fn add"))))
     (is (re-find #"export fn add\(a: i32, b: i32\) callconv\(\.c\) i32" source))
     (is (str/includes? source "return (a + b);"))))
+
+(deftest source-metadata-safety-test
+  (let [source (emit/emit-module
+                "cider-buffer"
+                [{:kind :const :name 'answer :type :i32 :value 42
+                  :source {:file "(ns broken\n  (:require [evil]))"
+                           :line 9 :column 3}}])]
+    (testing "multiline editor buffer contents can never be injected as Zig"
+      (is (not (str/includes? source "(:require")))
+      (is (str/includes? source "// Clojure source: <repl>:9:3")))))
+
+(deftest unresolved-reference-test
+  (is (thrown-with-msg?
+       clojure.lang.ExceptionInfo
+       #"Unresolved dotted Zig reference"
+       (emit/emit-expr '(out_of_nowhere.member 1)))))
 
 (deftest implicit-return-test
   (is (= "return (a + b);"

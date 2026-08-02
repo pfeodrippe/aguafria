@@ -1,0 +1,3 @@
+[submodule "vendor/tigerbeetle"]
+	path = vendor/tigerbeetle
+	url = https://github.com/tigerbeetle/tigerbeetle.git

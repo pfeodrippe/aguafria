@@ -37,7 +37,7 @@
            (az/emit-type '(ak/Vector 4 :i32)))))
 
   (testing "bare field is still Aguafria's readable field-access form"
-    (is (= "(value).member" (az/emit-expr '(field value member)))))
+    (is (= "value.member" (az/emit-expr '(field value member)))))
 
   (testing "reader-hostile operators have named tokens"
     (is (= "(~bits)" (az/emit-expr '(ak/bit-not bits))))
