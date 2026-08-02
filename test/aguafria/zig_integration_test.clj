@@ -114,6 +114,12 @@
   (is (= "Increment an integer in Zig." (:doc (meta #'base))))
   (is (= '([x :- :i32]) (:arglists (meta #'base))))
   (is (= :fn (get-in (meta #'base) [:aguafria/declaration :kind])))
+  (is (= ["aguafria.zig-integration-test" :fn "base"]
+         (get-in (meta #'base) [:aguafria/declaration :logical-id])))
+  (is (= 64 (count (get-in (meta #'base)
+                           [:aguafria/declaration :abi-fingerprint]))))
+  (is (= 64 (count (get-in (meta #'Point)
+                           [:aguafria/declaration :schema-fingerprint]))))
   (is (= '[(aguafria.keyword/intCast value)]
          (get-in (meta #'keyword-int-cast) [:aguafria/declaration :body])))
   (is (= '(aguafria.keyword/Vector 4 :i32)
@@ -171,6 +177,12 @@
     (testing "monitor-friendly statistics are plain inspectable data"
       (is (= :finished (:status module-stats)))
       (is (pos? (:declaration-count module-stats)))
+      (is (some #(and (= "base" (:name %))
+                      (= 64 (count (:abi-fingerprint %))))
+                (:declarations module-stats)))
+      (is (some #(and (= "Point" (:name %))
+                      (= 64 (count (:schema-fingerprint %))))
+                (:declarations module-stats)))
       (is (some #(and (= "main" (:name %)) (= :finished (:state %)))
                 (:declarations module-stats)))
       (is (some #(= :standalone-program (:purpose %)) (:builds module-stats)))

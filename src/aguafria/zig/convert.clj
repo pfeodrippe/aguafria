@@ -2,6 +2,7 @@
   "Convert compiler-parsed Zig source into inspectable Aguafria namespaces."
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.emitter :as emitter]
+            [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.std :as zig-std]
             [clojure.edn :as edn]
@@ -10,7 +11,7 @@
             [clojure.string :as str])
   (:import [java.io File PushbackReader]
            [java.nio.charset StandardCharsets]
-           [java.nio.file Files Path StandardOpenOption]
+           [java.nio.file CopyOption Files Path StandardCopyOption StandardOpenOption]
            [java.security MessageDigest]
            [java.util HexFormat]))
 
@@ -305,13 +306,30 @@
              (not (contains? #{"nil" "true" "false"} text)))
     (symbol text)))
 
+(defn- clojure-identifier
+  "Return a deterministic reader-safe symbol for any Zig identifier spelling.
+
+  Zig quoted identifiers and Clojure reader literals cannot be represented as
+  plain Clojure symbols. Their generated name is readable and collision
+  resistant; `:zig/name` keeps the exact spelling for lossless emission."
+  [text]
+  (let [plain (safe-identifier text)]
+    (if (and plain (not (emitter/structural-operator? plain)))
+      plain
+      (let [readable (-> (str text)
+                         (str/replace-first #"^@\"" "")
+                         (str/replace #"\"$" "")
+                         (str/replace #"[^A-Za-z0-9]+" "-")
+                         (str/replace #"^-+|-+$" ""))
+            readable (if (str/blank? readable) "identifier" readable)
+            generated (symbol (str "zig-" readable "-"
+                                   (subs (sha256 text) 0 16)))]
+        (with-meta generated {:zig/name text})))))
+
 (defn- declaration-reference-symbol
   [context text]
   (when-let [clojure-name (get (:declaration-names context) text)]
-    (if (and (= (str clojure-name) text)
-             (not (emitter/structural-operator? clojure-name)))
-      clojure-name
-      (with-meta clojure-name {:zig/name text :zig/reference true}))))
+    (with-meta clojure-name nil)))
 
 (def ^:private jvm-utf8-chunk-bytes 24000)
 
@@ -454,8 +472,16 @@
   [context node-index]
   (let [{:keys [a b]} (node context node-index)
         segments (field-segments context node-index)
-        field-source (token-text context b)]
-    (or (std-reference context segments)
+        field-source (token-text context b)
+        imported (get (:project-imports-by-node context) a)]
+    (or (when-let [{:keys [alias namespace declarations self?]} imported]
+          (when-let [clojure-name (get declarations field-source)]
+            (if self?
+              clojure-name
+              (do
+                (swap! (:project-aliases context) assoc namespace alias)
+                (symbol (str alias) (str clojure-name))))))
+        (std-reference context segments)
         (project-reference context segments)
         (list 'field
               (translate-expr context a)
@@ -546,9 +572,16 @@
   [context node-index]
   (let [[_ argument-nodes] (get (:builtin-index context) node-index)
         zig-name (token-text context (:main-token (node context node-index)))]
-    (if-let [builtin (get @builtin-symbols zig-name)]
-      (apply list builtin (map #(translate-expr context %) argument-nodes))
-      (record-fallback! context node-index :expression :unknown-zig-builtin))))
+    (if-let [{:keys [alias namespace self?]}
+             (get (:project-imports-by-node context) node-index)]
+      (if self?
+        (list 'ak/This)
+        (do
+          (swap! (:project-aliases context) assoc namespace alias)
+          alias))
+      (if-let [builtin (get @builtin-symbols zig-name)]
+        (apply list builtin (map #(translate-expr context %) argument-nodes))
+        (record-fallback! context node-index :expression :unknown-zig-builtin)))))
 
 (defn- catch-captures
   [context left-node right-node]
@@ -567,7 +600,7 @@
             type-node align-node addrspace-node section-node _init-node]
            (get (:var-index context) node-index)]
     (let [zig-name (token-text context (inc mut-token))
-          name (safe-identifier zig-name)
+          name (clojure-identifier zig-name)
           kind (case (first (token context mut-token))
                  :keyword_const :const
                  :keyword_var :var
@@ -590,10 +623,16 @@
 (defn- translate-destructure
   [context node-index]
   (let [[_ variables value-node comptime-token]
-        (get (:assign-destructure-index context) node-index)]
+        (get (:assign-destructure-index context) node-index)
+        bindings (mapv #(destructure-binding context %) variables)
+        bindings (if comptime-token
+                   (mapv #(cond-> %
+                            (= "comptime" (:prefix %)) (dissoc :prefix))
+                         bindings)
+                   bindings)]
     (list 'destructure
           (cond-> {} comptime-token (assoc :comptime? true))
-          (mapv #(destructure-binding context %) variables)
+          bindings
           (translate-expr context value-node))))
 
 (defn- translate-if
@@ -698,9 +737,10 @@
         (case text
           "true" true
           "false" false
-          (or (declaration-reference-symbol context text)
-              (safe-identifier text)
-              (list 'identifier-literal text))))
+          (if (and (= "std" text) (:std-import? context))
+            (std-alias context 'aguafria.std)
+            (or (declaration-reference-symbol context text)
+                (clojure-identifier text)))))
 
       (= :number_literal tag)
       (or (parse-number (node-source context node-index))
@@ -834,7 +874,7 @@
   (mapv
    (fn [[name-token type-node qualifier-token anytype-token]]
      (let [special (when anytype-token (token-text context anytype-token))]
-       (cond-> {:name (some->> name-token (token-text context) safe-identifier)}
+       (cond-> {:name (some->> name-token (token-text context) clojure-identifier)}
          qualifier-token
          (assoc :prefix (token-text context qualifier-token))
 
@@ -899,7 +939,8 @@
       (let [name (token-text context main-token)]
         (if (primitive-type? name)
           (keyword name)
-          (or (declaration-reference-symbol context name) (symbol name))))
+          (or (declaration-reference-symbol context name)
+              (clojure-identifier name))))
 
       (= :field_access tag) (translate-field context node-index)
 
@@ -915,7 +956,7 @@
          type-node align-node addrspace-node section-node init-node]
         (get (:var-index context) node-index)
         kind (first (token context mut-token))
-        name (safe-identifier (token-text context (inc mut-token)))]
+        name (clojure-identifier (token-text context (inc mut-token)))]
     (if (or visibility extern-token threadlocal (nil? name) (nil? init-node))
       (record-statement-fallback! context node-index :qualified-local-declaration)
       (let [operator (if (= :keyword_const kind) 'const 'var)
@@ -953,7 +994,7 @@
         capture (when (and capture? closing-pipe)
                   (some (fn [token-index]
                           (when (= :identifier (first (token context token-index)))
-                            (safe-identifier (token-text context token-index))))
+                            (clojure-identifier (token-text context token-index))))
                         (range (inc first-child-token) closing-pipe)))]
     {:child-node child-node :capture capture :capture? capture?}))
 
@@ -975,7 +1016,7 @@
         label (when (and (< first-token main-token)
                          (= :identifier (first (token context first-token)))
                          (= :colon (first (token context (inc first-token)))))
-                (safe-identifier (token-text context first-token)))
+                (clojure-identifier (token-text context first-token)))
         qualifier-token (cond-> first-token label (+ 2))
         inline? (= :keyword_inline (first (token context qualifier-token)))
         qualifier-end (cond-> qualifier-token inline? inc)
@@ -987,10 +1028,10 @@
       (let [body (if (contains? (:block-index context) then-node)
                    (rest (translate-block context then-node))
                    [(translate-stmt context then-node)])
-            else-body (when else-node
-                        (if (contains? (:block-index context) else-node)
-                          (vec (rest (translate-block context else-node)))
-                          [(translate-stmt context else-node)]))
+            else-block? (and else-node
+                             (contains? (:block-index context) else-node))
+            else-body (when else-block?
+                        (vec (rest (translate-block context else-node))))
             options (cond-> {}
                       label (assoc :label label)
                       inline? (assoc :inline? true)
@@ -998,7 +1039,9 @@
                       continue-node
                       (assoc :continue (translate-expr context continue-node))
                       (seq error) (assoc :error error)
-                      else-node (assoc :else else-body))]
+                      else-block? (assoc :else else-body)
+                      (and else-node (not else-block?))
+                      (assoc :else-expression (translate-expr context else-node)))]
         (apply list 'while-loop options
                (translate-expr context condition) body)))))
 
@@ -1014,12 +1057,12 @@
           (= :asterisk tag)
           (let [name-token (inc token-index)
                 identifier (when (= :identifier (first (token context name-token)))
-                             (safe-identifier (token-text context name-token)))]
+                             (clojure-identifier (token-text context name-token)))]
             (when identifier
               (recur (inc name-token)
                      (conj captures (list 'pointer-capture identifier)))))
           (= :identifier tag)
-          (if-let [identifier (safe-identifier (token-text context token-index))]
+          (if-let [identifier (clojure-identifier (token-text context token-index))]
             (recur (inc token-index) (conj captures identifier))
             nil)
           :else (recur (inc token-index) captures))))))
@@ -1063,7 +1106,7 @@
    (let [[_ condition-node case-nodes label-token]
          (get (:switch-index context) node-index)
          label (when label-token
-                 (safe-identifier (token-text context label-token)))
+                 (clojure-identifier (token-text context label-token)))
          clauses (map #(translate-switch-case context %) case-nodes)]
      (if (and label-token (nil? label))
        (record-fallback! context node-index :expression :quoted-switch-label)
@@ -1117,7 +1160,7 @@
   (let [[_ comptime-token field-token type-node align-node value-node tuple-like?]
         (get (:container-field-index context) node-index)
         zig-name (token-text context field-token)
-        name (or (safe-identifier zig-name) (symbol (str "zig-field-" order)))
+        name (with-meta (clojure-identifier zig-name) nil)
         attributes (cond-> {:export false
                             :public false
                             :source-comment false
@@ -1176,6 +1219,13 @@
           (record-fallback! context node-index :expression
                             (keyword (str "unsupported-container-member-"
                                           (name tag)))))]
+    (when-not form
+      (throw (ex-info "Aguafria silently omitted a Zig container member"
+                      {:aguafria/phase :zig-conversion
+                       :path (:path context)
+                       :node node-index
+                       :tag tag
+                       :source (node-source context node-index)})))
     (nested-declaration-form form)))
 
 (defn- translate-container
@@ -1226,7 +1276,7 @@
         label (when (and (< first-token main-token)
                          (= :identifier (first (token context first-token)))
                          (= :colon (first (token context (inc first-token)))))
-                (safe-identifier (token-text context first-token)))
+                (clojure-identifier (token-text context first-token)))
         qualifier-token (cond-> first-token label (+ 2))
         inline? (= :keyword_inline (first (token context qualifier-token)))
         qualifier-end (cond-> qualifier-token inline? inc)
@@ -1298,7 +1348,7 @@
           (= :colon (first (token context next-token)))
           (let [label-token (inc next-token)
                 value-token (inc label-token)
-                label (safe-identifier (token-text context label-token))]
+                label (clojure-identifier (token-text context label-token))]
             (if (<= value-token last-token)
               (if-let [value-node (get (:node-span-index context)
                                        [value-token last-token])]
@@ -1315,12 +1365,20 @@
 
       (= :continue tag)
       (let [{:keys [first-token last-token]} (node context node-index)
-            colon-token (inc first-token)]
+            colon-token (inc first-token)
+            label-token (inc colon-token)
+            value-token (inc label-token)]
         (cond
           (> colon-token last-token) (list 'continue)
           (= :colon (first (token context colon-token)))
-          (list 'continue
-                (safe-identifier (token-text context (inc colon-token))))
+          (let [label (clojure-identifier (token-text context label-token))]
+            (if (> value-token last-token)
+              (list 'continue label)
+              (if-let [value-node (get (:node-span-index context)
+                                       [value-token last-token])]
+                (list 'continue label (translate-expr context value-node))
+                (record-statement-fallback! context node-index
+                                            :continue-switch-operand))))
           :else
           (record-statement-fallback! context node-index :qualified-continue)))
 
@@ -1334,14 +1392,61 @@
 (defn translate-block
   [context node-index]
   (if-let [[_ statements] (get (:block-index context) node-index)]
-    (let [{:keys [first-token main-token]} (node context node-index)
+    (let [{:keys [first-token main-token last-token]} (node context node-index)
           labeled? (< first-token main-token)
           label (when labeled?
-                  (safe-identifier (token-text context first-token)))]
-      (apply list
-             (concat [(if labeled? 'labeled-block 'block)]
-                     (when labeled? [label])
-                     (map #(translate-stmt context %) statements))))
+                  (clojure-identifier (token-text context first-token)))
+          source-comments
+          (fn [start end]
+            (when (and start end (< start end))
+              (->> (str/split-lines
+                    (byte-slice (:source-bytes context) start end))
+                   (keep (fn [line]
+                           (let [line (str/triml line)]
+                             (when (str/starts-with? line "//")
+                               (let [text (subs line (if (str/starts-with? line "///")
+                                                       3 2))]
+                                 (str/replace-first text #"^ " ""))))))
+                   vec)))
+          blank-lines
+          (fn [start end]
+            (if (and start end (< start end))
+              (count (re-seq #"\r?\n[\t ]*(?=\r?\n)"
+                             (byte-slice (:source-bytes context) start end)))
+              0))
+          translated
+          (loop [remaining statements
+                 previous nil
+                 result []]
+            (if-let [statement (first remaining)]
+              (let [start (if previous
+                            (node-end-after-separator context previous)
+                            (token-end context main-token))
+                    end (first (node-range context statement))
+                    comments (source-comments start end)
+                    blank-lines-before (blank-lines start end)
+                    form (translate-stmt context statement)
+                    form (cond-> form
+                           (and (seq comments)
+                                (instance? clojure.lang.IObj form))
+                           (vary-meta assoc :aguafria/source-comments comments)
+
+                           (and (pos? blank-lines-before)
+                                (instance? clojure.lang.IObj form))
+                           (vary-meta assoc :aguafria/blank-lines-before
+                                      blank-lines-before))]
+                (recur (next remaining) statement (conj result form)))
+              result))
+          trailing-start (if-let [statement (last statements)]
+                           (node-end-after-separator context statement)
+                           (token-end context main-token))
+          trailing (source-comments trailing-start (token-start context last-token))
+          form (apply list
+                      (concat [(if labeled? 'labeled-block 'block)]
+                              (when labeled? [label])
+                              translated))]
+      (cond-> form
+        (seq trailing) (vary-meta assoc :aguafria/trailing-comments trailing)))
     (record-statement-fallback! context node-index :non-block-body)))
 
 (defn- words-contain?
@@ -1359,7 +1464,7 @@
 (defn- declaration-name
   [context zig-name options]
   (let [clojure-name (or (get (:declaration-names context) zig-name)
-                         (safe-identifier zig-name))]
+                         (clojure-identifier zig-name))]
     (with-meta clojure-name
     (into {}
           (remove (comp nil? val))
@@ -1369,8 +1474,8 @@
 (defn- declaration-name-and-attributes
   [context zig-name options]
   (let [clojure-name (or (get (:declaration-names context) zig-name)
-                         (safe-identifier zig-name))]
-    [clojure-name
+                         (clojure-identifier zig-name))]
+    [(with-meta clojure-name nil)
      (into {}
            (remove (comp nil? val))
            (cond-> options
@@ -1406,7 +1511,7 @@
      (let [special (when anytype-token (token-text context anytype-token))]
        (if (= "..." special)
          ['... {:zig/variadic true} '_]
-         (let [name (or (some->> name-token (token-text context) safe-identifier) '_)
+         (let [name (or (some->> name-token (token-text context) clojure-identifier) '_)
                type (cond
                       type-node (translate-type context type-node)
                       (= "anytype" special) :anytype
@@ -1424,7 +1529,7 @@
         (get (:function-index context) node-index)
         zig-name (when name-token (token-text context name-token))
         name (when zig-name (or (get (:declaration-names context) zig-name)
-                                (safe-identifier zig-name)))]
+                                (clojure-identifier zig-name)))]
     (if-not (and name return-node body-node)
       nil
       (let [prefix (prefix-before-token context node-index
@@ -1443,14 +1548,19 @@
             (declaration-name-and-attributes context zig-name metadata)
             return (translate-type context return-node)
             bindings (function-arguments context params)
-            body (if (contains? (:block-index context) body-node)
-                   (rest (translate-block context body-node))
+            block-form (when (contains? (:block-index context) body-node)
+                         (translate-block context body-node))
+            body (if block-form
+                   (rest block-form)
                    [(record-statement-fallback! context body-node :non-block-function-body)])
             docstring (docstring-from-leading leading)]
-        (apply list 'az/defn declaration-name
-               (concat (when docstring [docstring])
-                       [attributes ':- return bindings]
-                       body))))))
+        (cond-> (apply list 'az/defn declaration-name
+                       (concat (when docstring [docstring])
+                               [attributes ':- return bindings]
+                               body))
+          (seq (:aguafria/trailing-comments (meta block-form)))
+          (vary-meta assoc :aguafria/trailing-comments
+                     (:aguafria/trailing-comments (meta block-form))))))))
 
 (defn- token-before-tag
   [context start-token wanted]
@@ -1514,7 +1624,7 @@
         name-token (inc mut-token)
         zig-name (token-text context name-token)
         name (or (get (:declaration-names context) zig-name)
-                 (safe-identifier zig-name))
+                 (clojure-identifier zig-name))
         prefix (prefix-before-token context node-index mut-token)]
     (when (and name init-node)
       (let [metadata {:export false
@@ -1533,20 +1643,37 @@
                  (simple-struct-fields context init-node))]
         (cond
           import-name
-          (if-let [{:keys [alias namespace]}
-                   (get (:import-bindings context) zig-name)]
-            (do
+          (cond
+            (get (:import-bindings context) zig-name)
+            (let [{:keys [alias namespace public?]}
+                  (get (:import-bindings context) zig-name)]
               (swap! (:project-aliases context) assoc namespace alias)
-              ::omit-declaration)
-            (if (= "std" import-name)
-              ::omit-declaration
-              ;; Preserve compiler/build-provided imports as ordinary,
-              ;; inspectable module-valued Vars. `az/defimport` is a convenience
-              ;; for manually exposing selected external members; a converted
-              ;; Zig declaration is exactly a const initialized by @import.
+              (if public?
+                (apply list 'az/defconst declaration-name
+                       (concat (when docstring [docstring])
+                               [attributes alias]))
+                ::omit-declaration))
+
+            (get (:project-imports-by-node context) init-node)
+            (let [{:keys [alias namespace self?]}
+                  (get (:project-imports-by-node context) init-node)]
+              (when-not self?
+                (swap! (:project-aliases context) assoc namespace alias))
               (apply list 'az/defconst declaration-name
                      (concat (when docstring [docstring])
-                             [attributes (translate-expr context init-node)]))))
+                             [attributes (translate-expr context init-node)])))
+
+            (and (= "std" import-name)
+                 (some #{node-index} (:root-decls context)))
+            ::omit-declaration
+
+            :else
+            ;; Compiler/build-provided imports have no converted Clojure
+            ;; namespace and therefore remain explicit external module data.
+            (apply list 'az/defconst declaration-name
+                   (concat (when docstring [docstring])
+                           [(assoc attributes :zig/import-name import-name)
+                            (translate-expr context init-node)])))
 
           simple-struct
           (let [{:keys [layout fields]} simple-struct]
@@ -1574,30 +1701,40 @@
         test-name (when name-token
                     (let [source (token-text context name-token)]
                       (or (parse-string source) (safe-identifier source))))
-        body (if (contains? (:block-index context) body-node)
-               (rest (translate-block context body-node))
+        block-form (when (contains? (:block-index context) body-node)
+                     (translate-block context body-node))
+        body (if block-form
+               (rest block-form)
                [(record-statement-fallback! context body-node :non-block-test-body)])]
-    (apply list 'az/deftest
-           {:zig/order order :zig/leading leading :source-comment false}
-           test-name body)))
+    (cond-> (apply list 'az/deftest
+                   {:zig/order order :zig/leading leading :source-comment false}
+                   test-name body)
+      (seq (:aguafria/trailing-comments (meta block-form)))
+      (vary-meta assoc :aguafria/trailing-comments
+                 (:aguafria/trailing-comments (meta block-form))))))
 
 (defn- translate-comptime-declaration
   [context node-index order leading]
   (let [body-node (:a (node context node-index))
-        body (if (contains? (:block-index context) body-node)
-               (rest (translate-block context body-node))
+        block-form (when (contains? (:block-index context) body-node)
+                     (translate-block context body-node))
+        body (if block-form
+               (rest block-form)
                [(translate-stmt context body-node)])
-        name (with-meta (symbol (str "zig-comptime-" order))
-               {:export false :public false :source-comment false
-                :zig/order order :zig/leading leading})]
-    (apply list 'az/defcomptime name body)))
+        name (symbol (str "zig-comptime-" order))
+        attributes {:export false :public false :source-comment false
+                    :zig/order order :zig/leading leading}]
+    (cond-> (apply list 'az/defcomptime name attributes body)
+      (seq (:aguafria/trailing-comments (meta block-form)))
+      (vary-meta assoc :aguafria/trailing-comments
+                 (:aguafria/trailing-comments (meta block-form))))))
 
 (defn- translate-container-field-declaration
   [context node-index order leading]
   (let [[_ comptime-token field-token type-node align-node value-node tuple-like?]
         (get (:container-field-index context) node-index)
         zig-name (token-text context field-token)]
-    (when (or tuple-like? (nil? type-node) (nil? (safe-identifier zig-name)))
+    (when (or tuple-like? (nil? type-node))
       (throw (ex-info "Aguafria cannot structurally convert this Zig root field"
                       {:path (:path context)
                        :node node-index
@@ -1612,8 +1749,12 @@
                                   (token-text context comptime-token))
                     :zig/align (when align-node
                                  (translate-expr context align-node))}
-          decorated (declaration-name context zig-name metadata)
-          form ['az/deffield decorated (translate-type context type-node)]]
+          [declaration-name attributes]
+          (declaration-name-and-attributes context zig-name metadata)
+          docstring (docstring-from-leading leading)
+          form (vec (concat ['az/deffield declaration-name]
+                            (when docstring [docstring])
+                            [attributes (translate-type context type-node)]))]
       (apply list (cond-> form
                     value-node (conj (translate-expr context value-node)))))))
 
@@ -1638,10 +1779,14 @@
                     :zig/leading leading
                     :zig/prefix prefix
                     :zig/qualifiers (when (seq qualifiers) qualifiers)}
-          decorated (declaration-name context zig-name metadata)]
-      (list 'az/defextern decorated ':-
-            (translate-type context return-node)
-            (function-arguments context params)))))
+          [declaration-name attributes]
+          (declaration-name-and-attributes context zig-name metadata)
+          docstring (docstring-from-leading leading)]
+      (apply list 'az/defextern declaration-name
+             (concat (when docstring [docstring])
+                     [attributes ':-
+                      (translate-type context return-node)
+                      (function-arguments context params)])))))
 
 (defn- unsupported-top-level!
   [context node-index]
@@ -1704,14 +1849,92 @@
                  (not= ::omit-declaration form) (conj form))))
       forms)))
 
+(def ^:private declaration-form-operators
+  '#{az/defn az/defconst az/defvar az/defstruct az/defcomptime
+     az/defextern az/deffield az/deftest
+     fn-decl fn-proto-decl const-decl var-decl struct-decl comptime-decl
+     field-decl enum-field-decl tuple-field-decl test-decl container
+     az/fn-decl az/fn-proto-decl az/const-decl az/var-decl az/struct-decl
+     az/comptime-decl az/field-decl az/enum-field-decl az/tuple-field-decl
+     az/test-decl az/container})
+
+(defn- declaration-attributes-index
+  [form]
+  (let [operator (first form)]
+    (when (contains? declaration-form-operators operator)
+      (cond
+        (#{'az/deftest 'test-decl 'container 'tuple-field-decl
+           'az/test-decl 'az/container 'az/tuple-field-decl} operator) 1
+        (string? (nth form 2 nil)) 3
+        :else 2))))
+
+(defn- clojure-comment-lines
+  [attributes docstring?]
+  (concat
+   (when (and (not docstring?) (string? (:doc attributes)))
+     (str/split-lines (:doc attributes)))
+   (:comments attributes)))
+
+(deftype ^:private SourceComments [lines])
+
+(defn- write-clojure-comments
+  [lines]
+  (doseq [line lines]
+    (print (str ";;" (when (seq line) " ") line))
+    (pprint/pprint-newline :mandatory)))
+
+(defn- presentational-form
+  [form]
+  (if-let [attributes-index (declaration-attributes-index form)]
+    (let [items (vec form)
+          attributes (nth items attributes-index nil)]
+      (if (map? attributes)
+        (let [docstring? (string? (nth items 2 nil))
+              comments (vec (clojure-comment-lines attributes docstring?))
+              attributes (dissoc attributes :doc :comments)
+              attributes (cond-> attributes
+                           (empty? (:attrs attributes)) (dissoc :attrs))
+              items (if (empty? attributes)
+                      (into (subvec items 0 attributes-index)
+                            (subvec items (inc attributes-index)))
+                      (assoc items attributes-index attributes))]
+          [comments (with-meta (apply list items)
+                      (meta form))])
+        [[] form]))
+    [[] form]))
+
+(defn- clojure-source-dispatch
+  [value]
+  (if (instance? SourceComments value)
+    (write-clojure-comments (.lines ^SourceComments value))
+    (if (seq? value)
+      (let [[comments form] (presentational-form value)
+            leading-comments (:aguafria/source-comments (meta form))
+            blank-lines-before (:aguafria/blank-lines-before (meta form))
+            trailing-comments (:aguafria/trailing-comments (meta form))
+            form (vary-meta form dissoc :aguafria/source-comments
+                            :aguafria/blank-lines-before
+                            :aguafria/trailing-comments)
+            form (if (seq trailing-comments)
+                   (apply list (concat form [(SourceComments. trailing-comments)]))
+                   form)]
+        (dotimes [_ (or blank-lines-before 0)]
+          (pprint/pprint-newline :mandatory))
+        (write-clojure-comments (concat leading-comments comments))
+        (pprint/code-dispatch form))
+      (pprint/code-dispatch value))))
+
 (defn- pprint-code
   [form]
   (binding [pprint/*print-right-margin* 100
             pprint/*print-miser-width* 60
             *print-namespace-maps* false
             *print-meta* true]
-    (with-out-str
-      (pprint/write form :dispatch pprint/code-dispatch))))
+    (-> (with-out-str
+          (pprint/write form :dispatch clojure-source-dispatch))
+        ;; Mandatory pretty-printer breaks inherit the current indentation.
+        ;; Paragraph separators should be genuinely empty lines.
+        (str/replace #"(?m)^[\t ]+$" ""))))
 
 (defn- require-specs
   [std-aliases project-aliases]
@@ -1735,10 +1958,8 @@
 (defn- namespace-form
   [namespace-symbol std-aliases project-aliases project-imports]
   (apply list
-         (concat ['ns namespace-symbol]
-                 (when (seq project-imports)
-                   [{:aguafria/zig-imports project-imports}])
-                 [(list* :require (require-specs std-aliases project-aliases))])))
+         ['ns namespace-symbol
+          (list* :require (require-specs std-aliases project-aliases))]))
 
 (defn- used-project-imports
   [context project-aliases]
@@ -1752,12 +1973,158 @@
                            (:import-bindings context))]
                  [(str alias) {:namespace (str namespace-symbol)
                                :import-name import-name
-                               :declarations
+                               :renames
                                (into (sorted-map)
-                                     (map (fn [[zig-name clojure-name]]
-                                            [(str clojure-name) zig-name]))
+                                     (comp
+                                      (map (fn [[zig-name clojure-name]]
+                                             [(str clojure-name) zig-name]))
+                                      (filter (fn [[clojure-name zig-name]]
+                                                (not= clojure-name zig-name))))
                                      declarations)}]))
         project-aliases)))
+
+(def ^:private compact-boolean-attributes
+  [[:export :export]
+   [:public :public]
+   [:implicit-return :implicit-return]
+   [:source-comment :source-comment]])
+
+(defn- leading-documentation
+  [leading]
+  (let [lines (str/split-lines (or leading ""))
+        docs (keep #(second (re-matches #"\s*/// ?(.*)" %)) lines)
+        comments (keep #(second (re-matches #"\s*//(?!/) ?(.*)" %)) lines)]
+    (cond-> {}
+      (seq docs) (assoc :doc (str/join "\n" docs))
+      (seq comments) (assoc :comments (vec comments)))))
+
+(defn- compact-declaration-attributes
+  [attributes]
+  (if (or (contains? attributes :zig/order)
+          (contains? attributes :zig/leading))
+    (let [flags (into (sorted-set)
+                      (keep (fn [[key flag]]
+                              (when (true? (get attributes key)) flag)))
+                      compact-boolean-attributes)
+          notes (leading-documentation (:zig/leading attributes))
+          prefix (:zig/prefix attributes)
+          redundant-prefix? (or (str/blank? prefix)
+                                (and (= "pub" prefix) (contains? flags :public))
+                                (and (= "export" prefix) (contains? flags :export))
+                                (and (= "pub export" prefix)
+                                     (contains? flags :public)
+                                     (contains? flags :export)))]
+      (cond-> (-> attributes
+                  (dissoc :export :public :implicit-return :source-comment
+                          :zig/order :zig/leading)
+                  (assoc :attrs flags)
+                  (merge notes))
+        redundant-prefix? (dissoc :zig/prefix)))
+    attributes))
+
+(declare compact-generated-form)
+
+(defn- compact-generated-map
+  [form]
+  (let [form (into (empty form)
+                   (map (fn [[key value]]
+                          [(compact-generated-form key)
+                           (compact-generated-form value)]))
+                   form)
+        form (compact-declaration-attributes form)]
+    (if (and (contains? form :kind) (contains? form :enum?))
+      (-> form
+          (update :attrs (fnil into (sorted-set))
+                  (when (:enum? form) [:enum]))
+          (dissoc :enum? :zig/trailing))
+      (dissoc form :zig/trailing))))
+
+(defn- compact-generated-seq
+  [form]
+  (let [items (mapv compact-generated-form form)
+        doc? (string? (nth items 2 nil))
+        attributes-index (if doc? 3 2)]
+    (with-meta
+      (apply list
+             (if (and doc? (map? (nth items attributes-index nil)))
+               (update items attributes-index dissoc :doc)
+               items))
+      (meta form))))
+
+(defn- compact-generated-form
+  [form]
+  (cond
+    (map? form) (with-meta (compact-generated-map form) (meta form))
+    (vector? form) (with-meta (mapv compact-generated-form form) (meta form))
+    (set? form) (with-meta (into (empty form) (map compact-generated-form) form)
+                           (meta form))
+    (seq? form) (compact-generated-seq form)
+    :else form))
+
+(declare qualify-generated-source-form)
+
+(defn- generated-source-operator
+  [operator]
+  (if-not (and (symbol? operator) (nil? (namespace operator)))
+    operator
+    (cond
+      ;; These spellings already name a Clojure special form or real core Var,
+      ;; so they have an ordinary, inspectable source without an Aguafria alias.
+      (or (special-symbol? operator)
+          (ns-resolve 'clojure.core operator))
+      operator
+
+      (keyword/token-name (name operator))
+      (symbol "ak" (keyword/token-name (name operator)))
+
+      (emitter/structural-operator? operator)
+      (symbol "az" (name operator))
+
+      ;; Local bindings and calls to declarations remain ordinary symbols.
+      :else operator)))
+
+(defn- qualify-generated-source-form
+  "Give every generated Zig/Aguafria list head a real source Var."
+  [form]
+  (cond
+    (seq? form)
+    (let [items (mapv qualify-generated-source-form form)]
+      (with-meta (apply list (update items 0 generated-source-operator))
+        (meta form)))
+
+    (vector? form)
+    (with-meta (mapv qualify-generated-source-form form) (meta form))
+
+    (map? form)
+    (with-meta (into (empty form)
+                     (map (fn [[key value]]
+                            [(qualify-generated-source-form key)
+                             (qualify-generated-source-form value)]))
+                     form)
+      (meta form))
+
+    (set? form)
+    (with-meta (into (empty form) (map qualify-generated-source-form) form)
+      (meta form))
+
+    :else form))
+
+(defn- unresolved-generated-syntax-heads
+  [forms]
+  (->> (tree-seq coll? seq forms)
+       (keep (fn [form]
+               (when (seq? form)
+                 (let [operator (first form)]
+                   (when (and (symbol? operator)
+                              (nil? (namespace operator))
+                              (not (special-symbol? operator))
+                              (nil? (ns-resolve 'clojure.core operator))
+                              (or (keyword/token-name (name operator))
+                                  (emitter/structural-operator? operator)))
+                     operator)))))
+       distinct
+       (sort-by str)
+       vec))
 
 (defn- fallback-view
   [fallbacks]
@@ -1789,27 +2156,31 @@
 (defn- clojure-name-occupied?
   [candidate]
   (or (special-symbol? candidate)
-      (some? (get (ns-map (the-ns 'aguafria.zig.convert)) candidate))))
+      (emitter/structural-operator? candidate)
+      ;; Clojure permits shadowing referred Vars (for example `assert`) but a
+      ;; symbol mapped to an imported JVM class cannot be the target of `def`.
+      ;; Keep that small unavoidable reader/compiler collision deterministic.
+      (class? (get (ns-map *ns*) candidate))))
 
 (defn- declaration-name-map
   [parsed]
   (let [zig-names (->> (:root-decls parsed)
                        (keep #(some->> (top-level-name-token parsed %)
                                       (token-text parsed)))
-                       (filter safe-identifier)
                        distinct
                        vec)
-        occupied-zig (set zig-names)]
+        occupied-clojure-names (set (map clojure-identifier zig-names))]
     (first
      (reduce
       (fn [[mapping used] zig-name]
-        (let [plain (symbol zig-name)
+        (let [plain (clojure-identifier zig-name)
               clojure-name
-              (if-not (clojure-name-occupied? plain)
+              (if-not (or (contains? used plain)
+                          (clojure-name-occupied? plain))
                 plain
                 (loop [suffix "-zig" index 2]
-                  (let [candidate (symbol (str zig-name suffix))]
-                    (if (or (contains? occupied-zig (str candidate))
+                  (let [candidate (symbol (str plain suffix))]
+                    (if (or (contains? occupied-clojure-names candidate)
                             (contains? used candidate)
                             (clojure-name-occupied? candidate))
                       (recur (str "-zig-" index) (inc index))
@@ -1825,12 +2196,35 @@
          :std-aliases (atom {})
          :project-aliases (atom {})
          :import-bindings (or (:import-bindings options) {})
+         :project-imports-by-node (or (:project-imports-by-node options) {})
+         :std-import?
+         (boolean
+          (some (fn [node-index]
+                  (when-let [[_ _visibility _extern _lib _threadlocal _comptime
+                              _mut-token _type _align _addrspace _section init-node]
+                             (get (:var-index parsed) node-index)]
+                    (= "std" (and init-node
+                                   (import-initializer parsed init-node)))))
+                (:root-decls parsed)))
          :declaration-names (declaration-name-map parsed)))
 
 (defn- conversion-report
   [context namespace-symbol forms elapsed-ms]
   (let [fallbacks (fallback-view @(:fallbacks context))
-        kinds (frequencies (map first forms))]
+        kinds (frequencies (map first forms))
+        unresolved-syntax-heads (unresolved-generated-syntax-heads forms)
+        compact-defaults
+        (->> forms
+             (keep (fn [form]
+                     (let [index (declaration-attributes-index form)
+                           attributes (when index (nth form index nil))]
+                       (when (and (symbol? (second form))
+                                  (map? attributes)
+                                  (contains? attributes :attrs)
+                                  (empty? (:attrs attributes)))
+                         (str (second form))))))
+             sort
+             vec)]
     {:path (:path context)
      :namespace namespace-symbol
      :zig-version (:zig-version context)
@@ -1846,6 +2240,9 @@
      :raw-declaration-count (get kinds 'az/defraw 0)
      :fallback-count (count fallbacks)
      :fallbacks fallbacks
+     :unresolved-syntax-count (count unresolved-syntax-heads)
+     :unresolved-syntax-heads unresolved-syntax-heads
+     :compact-defaults compact-defaults
      :std-namespaces (->> @(:std-aliases context) keys sort vec)
      :project-namespaces (->> @(:project-aliases context) keys sort vec)
      :elapsed-ms elapsed-ms}))
@@ -1864,7 +2261,8 @@
                                       (-> (io/file path) .getName
                                           (str/replace #"\.zig$" "")
                                           (str/replace "_" "-"))))
-         forms (translate-declarations context)
+         forms (mapv (comp qualify-generated-source-form compact-generated-form)
+                     (translate-declarations context))
          aliases @(:std-aliases context)
          project-aliases @(:project-aliases context)
          project-imports (used-project-imports context project-aliases)
@@ -1874,12 +2272,36 @@
               ";; Edit and reevaluate these ordinary declarations at the REPL.\n\n"
               (pprint-code (namespace-form namespace-symbol aliases
                                            project-aliases project-imports))
-              "\n"
-              (str/join "\n" (map pprint-code forms))
+              "\n\n"
+              (str/join "\n\n" (map pprint-code forms))
               (when (seq forms) "\n")
               "")
          report (conversion-report context namespace-symbol forms
                                    (/ (- (System/nanoTime) started) 1e6))]
+     ;; `render-zig` evaluates forms in a temporary namespace. Register both
+     ;; reader-safe declaration renames and compact defaults here so an
+     ;; individual file round-trips exactly like the same file in a converted
+     ;; project. In particular, Zig declarations named after Aguafria syntax
+     ;; operators (for example `field` and `index`) must still emit their
+     ;; original Zig names without attaching presentation metadata to every
+     ;; reference in the generated Clojure source.
+     (project/register-catalog!
+      {:schema-version 1
+       :modules
+       {(str namespace-symbol)
+        {:renames
+         (into (sorted-map)
+               (keep (fn [[zig-name clojure-name]]
+                       (when (not= zig-name (str clojure-name))
+                         [(str clojure-name) zig-name])))
+               (:declaration-names context))
+         :compact-defaults (:compact-defaults report)}}})
+     (when (pos? (:unresolved-syntax-count report))
+       (throw (ex-info "Generated Clojure contains unresolved Aguafria/Zig syntax"
+                       {:path (str path)
+                        :namespace namespace-symbol
+                        :operators (:unresolved-syntax-heads report)
+                        :hint "Every syntax list head must resolve through az, ak, or Clojure."})))
      (when (pos? (:fallback-count report))
        (throw
         (ex-info
@@ -1919,22 +2341,29 @@
     (try
       (binding [*ns* scratch
                 *file* (str namespace-symbol)]
-        (alter-meta! scratch assoc :aguafria/zig-imports project-imports)
         (refer 'clojure.core)
         (doseq [require-spec (require-specs std-aliases project-aliases)]
           (require require-spec))
         ;; Each declaration is evaluated as its own top-level form. Besides
         ;; matching REPL behavior, this avoids the JVM method-size limit for a
         ;; very large raw Zig declaration.
-        (binding [runtime/*registration-batch* collector]
+        (binding [runtime/*registration-batch* collector
+                  project/*catalog-namespace* namespace-symbol]
           (doseq [form forms]
             (eval form))))
-      (let [declarations @collector]
+      (let [declarations (mapv (fn [index declaration]
+                                 (cond-> declaration
+                                   (nil? (:source-order declaration))
+                                   (assoc :source-order index)))
+                               (range)
+                               @collector)]
         ;; Emit while scratch Vars still exist: qualified declaration/import
         ;; references resolve through their metadata, then the namespace can be
         ;; removed without leaking tooling state into the user's REPL.
-        {:declarations declarations
-         :zig-source (emitter/emit-module (str namespace-symbol) declarations)})
+        (binding [project/*catalog-namespace* namespace-symbol]
+          {:declarations declarations
+           :zig-source (emitter/emit-module (str namespace-symbol)
+                                            declarations)}))
       (finally
         (remove-conversion-namespaces! scratch-symbol)))))
 
@@ -2160,6 +2589,9 @@
   ([root] (load-tree! root {}))
   ([root options]
    (let [root-file (.getCanonicalFile (io/file root))
+         catalog-file (io/file root-file "aguafria-project.edn")
+         _ (when (.isFile catalog-file)
+             (project/load-catalog! catalog-file))
          files (->> (file-seq root-file)
                     (filter #(and (.isFile ^File %)
                                   (str/ends-with? (.getName ^File %) ".clj")))
@@ -2177,6 +2609,181 @@
       :file-count (count reports)
       :declaration-count (reduce + (map :declaration-count reports))
       :files reports})))
+
+(def ^:private excluded-project-segments
+  #{".git" ".zig-cache" "zig-cache" "zig-out"})
+
+(defn- conversion-report-data
+  [report-or-path]
+  (let [report (if (map? report-or-path)
+                 report-or-path
+                 (edn/read-string (slurp (io/file report-or-path))))]
+    (when-not (and (map? report)
+                   (string? (:input-root report))
+                   (string? (:output-root report))
+                   (sequential? (:files report)))
+      (throw (ex-info "Expected a convert-tree! report or EDN report path"
+                      {:report report-or-path})))
+    report))
+
+(defn- relative-path-segments
+  [^Path relative]
+  (mapv str (iterator-seq (.iterator relative))))
+
+(defn- excluded-project-path?
+  [^Path relative]
+  (boolean (some excluded-project-segments (relative-path-segments relative))))
+
+(defn- project-input-files
+  [^File input-root]
+  (let [git-result (run-command ["git" "-C" (.getAbsolutePath input-root)
+                                 "ls-files" "-z" "--cached" "--others"
+                                 "--exclude-standard"]
+                                input-root)]
+    (if (zero? (:exit git-result))
+      (->> (str/split (:out git-result) #"\u0000")
+           (remove str/blank?)
+           (map #(.toPath (io/file input-root %)))
+           (filter #(Files/isRegularFile ^Path %
+                                         (make-array java.nio.file.LinkOption 0)))
+           (sort-by str)
+           vec)
+      (let [root-path (.toPath input-root)]
+        (with-open [paths (Files/walk root-path
+                                      (make-array java.nio.file.FileVisitOption 0))]
+          (->> (iterator-seq (.iterator paths))
+               (filter #(Files/isRegularFile ^Path %
+                                             (make-array java.nio.file.LinkOption 0)))
+               (remove #(excluded-project-path? (.relativize root-path ^Path %)))
+               (sort-by str)
+               vec))))))
+
+(defn- ensure-materialized-write!
+  [^Path target same? overwrite? details write!]
+  (let [exists? (Files/exists target (make-array java.nio.file.LinkOption 0))]
+    (when (and exists? (not same?) (not overwrite?))
+      (throw (ex-info "Refusing to replace a materialized project file"
+                      (assoc details
+                             :output (str target)
+                             :hint "Pass :overwrite? true to replace it."))))
+    (if (and exists? same?)
+      false
+      (do
+        (when-let [parent (.getParent target)]
+          (Files/createDirectories parent
+                                   (make-array java.nio.file.attribute.FileAttribute 0)))
+        (write!)
+        true))))
+
+(defn- restore-source-imports
+  [report namespace-symbol source]
+  (reduce
+   (fn [source [alias {:keys [namespace import-name]}]]
+     (let [prefix (str "const " (emitter/identifier (symbol alias)) " = @import(")
+           live (str prefix (emitter/emit-expr namespace) ");")
+           original (str prefix (emitter/emit-expr import-name) ");")]
+       (str/replace source live original)))
+   source
+   (get (:module-imports report) (str namespace-symbol))))
+
+(defn materialize-project!
+  "Materialize a converted project as a normal Zig source tree.
+
+  `report-or-path` is the map returned by `convert-tree!` or its EDN file.
+  Aguafria bulk-loads the generated Clojure namespaces, mirrors ordinary
+  project assets into `output-root`, and replaces each converted `.zig` file
+  with the source emitted from its registered Vars. Relative imports and the
+  project's unchanged build files therefore keep their original layout.
+
+  Existing differing files require `:overwrite? true`; nothing is deleted."
+  ([report-or-path output-root]
+   (materialize-project! report-or-path output-root {}))
+  ([report-or-path output-root {:keys [overwrite?]
+                                :or {overwrite? false}}]
+   (let [started (System/nanoTime)
+         report (conversion-report-data report-or-path)
+         input-root (.getCanonicalFile (io/file (:input-root report)))
+         generated-root (.getCanonicalFile (io/file (:output-root report)))
+         output-root (.getCanonicalFile (io/file output-root))
+         input-path (.toPath input-root)
+         output-path (.toPath output-root)]
+     (when (or (= input-root output-root)
+               (.startsWith output-path input-path))
+       (throw (ex-info "Materialized output must be outside the input project"
+                       {:input-root (.getAbsolutePath input-root)
+                        :output-root (.getAbsolutePath output-root)})))
+     (let [loaded (load-tree! generated-root)
+           converted
+           (into {}
+                 (map (fn [{:keys [path namespace]}]
+                        (let [source-path (.toPath (.getCanonicalFile
+                                                   (io/file path)))]
+                          [(.relativize input-path source-path)
+                           {:namespace namespace
+                            :source (runtime/source namespace)}])))
+                 (:files report))
+           inputs (project-input-files input-root)
+           results
+           (mapv
+            (fn [^Path source-path]
+              (let [relative (.relativize input-path source-path)
+                    target (.resolve output-path relative)]
+                (if-let [{:keys [namespace source]} (get converted relative)]
+                  (do
+                    (when-not (string? source)
+                      (throw (ex-info "Converted namespace has no emitted Zig source"
+                                      {:namespace namespace
+                                       :input (str source-path)})))
+                    (let [source (restore-source-imports report namespace source)]
+                      {:relative (str relative)
+                       :kind :zig
+                       :namespace namespace
+                       :written?
+                       (ensure-materialized-write!
+                        target
+                        (and (Files/isRegularFile target
+                                                  (make-array java.nio.file.LinkOption 0))
+                             (= source (slurp (.toFile target))))
+                        overwrite?
+                        {:input (str source-path) :namespace namespace}
+                        #(Files/writeString
+                          target source StandardCharsets/UTF_8
+                          (into-array StandardOpenOption
+                                      [StandardOpenOption/CREATE
+                                       StandardOpenOption/TRUNCATE_EXISTING
+                                       StandardOpenOption/WRITE])))}))
+                  {:relative (str relative)
+                   :kind :asset
+                   :written?
+                   (ensure-materialized-write!
+                    target
+                    (and (Files/isRegularFile target
+                                              (make-array java.nio.file.LinkOption 0))
+                         (= -1 (Files/mismatch source-path target)))
+                    overwrite?
+                    {:input (str source-path)}
+                    #(Files/copy
+                      source-path target
+                      (into-array CopyOption
+                                  [StandardCopyOption/REPLACE_EXISTING
+                                   StandardCopyOption/COPY_ATTRIBUTES]))) })))
+            inputs)
+           zig-count (count (filter #(= :zig (:kind %)) results))
+           asset-count (- (count results) zig-count)
+           written-count (count (filter :written? results))
+           materialization
+           {:input-root (.getAbsolutePath input-root)
+            :generated-root (.getAbsolutePath generated-root)
+            :output-root (.getAbsolutePath output-root)
+            :file-count (count results)
+            :zig-file-count zig-count
+            :asset-file-count asset-count
+            :written-count written-count
+            :unchanged-count (- (count results) written-count)
+            :declaration-count (:declaration-count loaded)
+            :elapsed-ms (/ (- (System/nanoTime) started) 1e6)
+            :files results}]
+       (record-conversion! materialization)))))
 
 (defn- clojure-segment
   [segment]
@@ -2210,13 +2817,24 @@
   (into {}
         (keep
          (fn [node-index]
-           (when-let [[_ _visibility _extern _lib _threadlocal _comptime
+           (when-let [[_ visibility _extern _lib _threadlocal _comptime
                        mut-token _type _align _addrspace _section init-node]
                       (get (:var-index parsed) node-index)]
              (when-let [import-name (and init-node
                                          (import-initializer parsed init-node))]
-               [(token-text parsed (inc mut-token)) import-name])))
+               [(token-text parsed (inc mut-token))
+                {:import-name import-name
+                 :public? (= "pub" (when visibility
+                                      (token-text parsed visibility)))}])))
          (:root-decls parsed))))
+
+(defn- parsed-import-calls
+  [parsed]
+  (into (sorted-map)
+        (keep (fn [node-index]
+                (when-let [import-name (import-initializer parsed node-index)]
+                  [node-index import-name])))
+        (keys (:builtin-index parsed))))
 
 (defn- conversion-output-file
   [^File output-root namespace-symbol]
@@ -2234,30 +2852,113 @@
                (when (= 1 (count matches)) [module-name (first matches)])))
        (into {})))
 
+(defn- import-target
+  [plan import-name plan-by-path module-index input-root-file]
+  (let [relative-path (.getCanonicalPath
+                       (io/file (.getParentFile ^File (:file plan)) import-name))
+        root-module-path
+        (when-not (str/ends-with? import-name ".zig")
+          (.getCanonicalPath (io/file input-root-file (str import-name ".zig"))))]
+    (or (get plan-by-path relative-path)
+        (when root-module-path (get plan-by-path root-module-path))
+        (get module-index import-name))))
+
+(declare generated-module-alias)
+
 (defn- tree-import-bindings
   [plan plan-by-path module-index input-root-file]
   (into {}
         (keep
-         (fn [[zig-alias import-name]]
-           (let [relative-path (.getCanonicalPath
-                                (io/file (.getParentFile ^File (:file plan))
-                                         import-name))
-                 root-module-path
-                 (when-not (str/ends-with? import-name ".zig")
-                   (.getCanonicalPath (io/file input-root-file
-                                               (str import-name ".zig"))))
-                 target (or (get plan-by-path relative-path)
-                            (when root-module-path
-                              (get plan-by-path root-module-path))
-                            (get module-index import-name))]
+         (fn [[zig-alias {:keys [import-name public?]}]]
+           (let [target (import-target plan import-name plan-by-path
+                                       module-index input-root-file)]
              (when target
-               (let [alias (get (:declaration-names plan) zig-alias)]
+               (let [declaration-name (get (:declaration-names plan) zig-alias)
+                     alias (if public?
+                             (generated-module-alias import-name
+                                                     (:namespace target))
+                             declaration-name)]
                  [zig-alias
                   {:alias alias
+                   :declaration-name declaration-name
                    :namespace (:namespace target)
                    :import-name import-name
+                   :public? public?
                    :declarations (:declaration-names target)}]))))
          (:imports plan))))
+
+(defn- generated-module-alias
+  [import-name namespace-symbol]
+  (let [slug (-> import-name
+                 (str/replace #"^\./|\.zig$" "")
+                 (str/replace #"\.\./" "parent-")
+                 (str/replace #"[^A-Za-z0-9]+" "-")
+                 (str/replace #"^-+|-+$" ""))]
+    (symbol (str "module-" (if (str/blank? slug) "project" slug)
+                 "-" (subs (sha256 namespace-symbol) 0 8)))))
+
+(defn- tree-project-imports
+  [plan plan-by-path module-index input-root-file import-bindings]
+  (let [aliases-by-namespace
+        (into {}
+              (map (fn [[_ {:keys [namespace alias]}]] [namespace alias]))
+              import-bindings)]
+    (into (sorted-map)
+          (keep
+           (fn [[node-index import-name]]
+             (when-let [target (import-target plan import-name plan-by-path
+                                              module-index input-root-file)]
+               (let [namespace (:namespace target)
+                     alias (or (get aliases-by-namespace namespace)
+                               (generated-module-alias import-name namespace))]
+                 [node-index {:alias alias
+                              :namespace namespace
+                              :import-name import-name
+                              :self? (= namespace (:namespace plan))
+                              :declarations (:declaration-names target)}]))))
+          (:import-calls plan))))
+
+(defn- compact-declaration-renames
+  [declaration-names]
+  (into (sorted-map)
+        (comp
+         (map (fn [[zig-name clojure-name]]
+                [(str clojure-name) zig-name]))
+         (filter (fn [[clojure-name zig-name]]
+                   (not= clojure-name zig-name))))
+        declaration-names))
+
+(defn- project-catalog
+  ([plans] (project-catalog plans []))
+  ([plans reports]
+   (let [defaults-by-namespace
+         (into {} (map (juxt (comp str :namespace) :compact-defaults)) reports)]
+  {:schema-version 1
+   :modules
+   (into (sorted-map)
+         (map (fn [{:keys [namespace declaration-names]}]
+                [(str namespace)
+                 (cond-> {:renames (compact-declaration-renames declaration-names)}
+                   (seq (get defaults-by-namespace (str namespace)))
+                   (assoc :compact-defaults
+                          (get defaults-by-namespace (str namespace))))]))
+         plans)})))
+
+(defn- project-module-imports
+  [plans]
+  (into (sorted-map)
+        (map
+         (fn [{:keys [namespace project-imports]}]
+           [(str namespace)
+            (into (sorted-map)
+                  (comp
+                   (filter (fn [[_ import]] (not (:self? import))))
+                   (map (fn [[_ {:keys [alias namespace import-name]}]]
+                          [(str alias) {:namespace (str namespace)
+                                        :import-name import-name}]))
+                   (distinct))
+                  project-imports)]))
+        plans))
 
 (defn convert-tree!
   "Convert every `.zig` file below `input-root` into `output-root`.
@@ -2287,12 +2988,27 @@
               :namespace namespace-symbol
               :parsed parsed
               :imports (parsed-imports parsed)
+              :import-calls (parsed-import-calls parsed)
               :declaration-names (declaration-name-map parsed)}))
          (zig-files input-root))
         plan-by-path (into {} (map (juxt #(-> ^File (:file %) .getCanonicalPath)
                                          identity)
                                    plans))
         module-index (module-name-index plans)
+        plans (mapv (fn [plan]
+                      (let [import-bindings
+                            (tree-import-bindings plan plan-by-path
+                                                  module-index input-root-file)]
+                        (assoc plan
+                               :import-bindings import-bindings
+                               :project-imports
+                               (tree-project-imports
+                                plan plan-by-path module-index input-root-file
+                                import-bindings))))
+                    plans)
+        preliminary-catalog (project-catalog plans)
+        _ (project/register-catalog! preliminary-catalog)
+        module-imports (project-module-imports plans)
         reports
         (mapv
          (fn [{:keys [^Path path relative namespace parsed] :as plan}]
@@ -2301,18 +3017,30 @@
                             (assoc options
                                    ::parsed parsed
                                    :namespace namespace
-                                   :import-bindings
-                                   (tree-import-bindings plan plan-by-path
-                                                         module-index input-root-file)
+                                   :import-bindings (:import-bindings plan)
+                                   :project-imports-by-node (:project-imports plan)
                                    :source-display-path
                                    (str (.normalize (.toPath
                                                     (io/file (str input-root)
                                                              (str relative)))))))))
          plans)
+        catalog (project-catalog plans reports)
+        _ (project/register-catalog! catalog)
         fallbacks (reduce + (map :fallback-count reports))
         declarations (reduce + (map :declaration-count reports))
+        catalog-file (io/file output-file "aguafria-project.edn")
+        _ (io/make-parents catalog-file)
+        _ (Files/writeString
+           (.toPath catalog-file)
+           (with-out-str (pprint/pprint catalog))
+           StandardCharsets/UTF_8
+           (into-array StandardOpenOption
+                       [StandardOpenOption/CREATE
+                        StandardOpenOption/TRUNCATE_EXISTING
+                        StandardOpenOption/WRITE]))
         report {:input-root (.getAbsolutePath (.getCanonicalFile (io/file input-root)))
                 :output-root (.getAbsolutePath output-file)
+                :catalog-path (.getAbsolutePath catalog-file)
                 :namespace-prefix (symbol (str namespace-prefix))
                 :file-count (count reports)
                 :declaration-count declarations
@@ -2320,6 +3048,9 @@
                 (reduce + (map :structural-declaration-count reports))
                 :raw-declaration-count (reduce + (map :raw-declaration-count reports))
                 :fallback-count fallbacks
+                :unresolved-syntax-count
+                (reduce + (map :unresolved-syntax-count reports))
+                :module-imports module-imports
                 :elapsed-ms (/ (- (System/nanoTime) started) 1e6)
                 :files reports}]
     (record-conversion! report)))

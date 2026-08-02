@@ -6,6 +6,10 @@ fn index(value: i32) i32 {
     return value * 2;
 }
 
+fn assert(value: i32) i32 {
+    return value;
+}
+
 pub fn demo(value: i32) i32 {
-    return field(value) + index(value);
+    return assert(field(value)) + index(value);
 }

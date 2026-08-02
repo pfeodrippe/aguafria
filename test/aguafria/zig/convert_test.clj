@@ -3,6 +3,7 @@
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
@@ -32,10 +33,36 @@
     (is (every? #(and (symbol? %) (= "az" (clojure.core/namespace %)))
                 top-level-apis))
     (is (zero? (:raw-declaration-count report)))
+    (is (zero? (:unresolved-syntax-count report)))
     (is (not-any? #{'az/defraw} top-level-apis))
     (is (not (str/includes? clojure-source "batch/begin!")))
     (is (not (str/includes? clojure-source "batch/end!")))
     (is (not (str/includes? clojure-source "aguafria.zig.batch")))))
+
+(deftest converted-source-has-compact-attrs-comments-and-spacing-test
+  (let [{container-source :clojure-source}
+        (convert/convert-file "test/fixtures/container.zig"
+                              {:namespace 'fixture.compact-source})
+        {comment-source :clojure-source}
+        (convert/convert-file "sample/src/main.zig"
+                              {:namespace 'fixture.comment-source})]
+    (doseq [obsolete [":zig/order" ":zig/leading" ":zig/trailing"
+                      ":export false" ":public false"
+                      ":implicit-return false" ":source-comment false"]]
+      (is (not (str/includes? container-source obsolete)) obsolete))
+    (is (str/includes? container-source ":attrs #{:public}"))
+    (is (str/includes? container-source ":attrs #{:enum}"))
+    (is (not (str/includes? container-source ":attrs #{}")))
+    (is (str/includes? container-source "(az/field-decl replica Replica)"))
+    (is (re-find #"\)\n\n\(az/defconst" container-source))
+    (is (str/includes?
+         comment-source
+         ";; Prints to stderr, unbuffered, ignoring potential errors."))
+    (is (str/includes? comment-source ";; Don't forget to flush!"))
+    (is (not (str/includes? comment-source ":comments")))
+    ;; Source comments remain comments: they do not become runtime forms.
+    (is (not-any? #(= "Prints to stderr, unbuffered, ignoring potential errors." %)
+                  (tree-seq coll? seq (read-forms comment-source))))))
 
 (deftest converted-vars-live-in-the-declared-namespace-test
   (let [result (convert/load-converted! generated-sample-root)
@@ -43,8 +70,8 @@
     (is (= 'sample.src.root (:namespace result)))
     (is (false? (:compiled? result)))
     (is (:source-only? result))
-    (is (= 5 (:declaration-count result)))
-    (doseq [name '[std Io printAnotherMessage add]]
+    (is (= 4 (:declaration-count result)))
+    (doseq [name '[Io printAnotherMessage add]]
       (let [v (ns-resolve target name)]
         (is (var? v) (str name " should be a Var in sample.src.root"))
         (is (= "sample.src.root"
@@ -66,7 +93,7 @@
       (is (:source-only? result)))))
 
 (deftest structural-operator-name-collisions-are-real-zig-references-test
-  (let [{:keys [forms report]}
+  (let [{:keys [forms report clojure-source]}
         (convert/convert-file "test/fixtures/name_collisions.zig"
                               {:namespace 'fixture.name-collisions})
         demo (some #(when (= 'demo (-> % second (vary-meta dissoc :doc))) %) forms)
@@ -74,7 +101,9 @@
                       "test/fixtures/name_collisions.zig"
                       {:namespace 'fixture.name-collisions})]
     (is (zero? (:raw-declaration-count report)))
-    (is (= '[az/defn az/defn az/defn] (mapv first forms)))
+    (is (= '[az/defn az/defn az/defn az/defn] (mapv first forms)))
+    (is (= 'assert (second (nth forms 2))))
+    (is (not (str/includes? clojure-source "assert-zig")))
     (is demo)
     (is (:success? verification))))
 
@@ -95,11 +124,11 @@
                             :mode :ast-check})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (some #(and (seq? %) (= 'number-literal (first %)))
+    (is (some #(and (seq? %) (= 'az/number-literal (first %)))
               (tree-seq coll? seq forms)))
-    (is (some #(and (seq? %) (= 'multiline-string (first %)))
+    (is (some #(and (seq? %) (= 'az/multiline-string (first %)))
               (tree-seq coll? seq forms)))
-    (is (some #(and (seq? %) (= 'error-value (first %)))
+    (is (some #(and (seq? %) (= 'az/error-value (first %)))
               (tree-seq coll? seq forms)))
     (is (:success? verification))))
 
@@ -115,8 +144,11 @@
     (is (str/includes? clojure-source "pointer-capture"))
     (is (str/includes? clojure-source "else-clause"))
     (is (str/includes? clojure-source "else-expression"))
-    (is (str/includes? clojure-source "(inline-for"))
-    (is (str/includes? clojure-source "(for-loop"))
+    (is (str/includes? clojure-source "(az/inline-for"))
+    (is (str/includes? clojure-source "(az/for-loop"))
+    (is (str/includes? clojure-source "(az/while-loop"))
+    (is (re-find #"\(ak/errdefer \(az/block\)\)\n\n  \(var total" clojure-source))
+    (is (re-find #"\)\n\n  \(for\n" clojure-source))
     (is (str/includes? clojure-source ":inline? true"))
     (is (:success? verification))))
 
@@ -129,9 +161,9 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "(switch"))
-    (is (str/includes? clojure-source "(inline-case"))
-    (is (str/includes? clojure-source "(case-else"))
+    (is (str/includes? clojure-source "(ak/switch"))
+    (is (str/includes? clojure-source "(az/inline-case"))
+    (is (str/includes? clojure-source "(az/case-else"))
     (is (:success? verification))))
 
 (deftest converted-relative-imports-are-normal-requires-test
@@ -155,17 +187,23 @@
     (is (not (str/includes? main-source "az/defimport")))
     (is (str/includes? main-source
                        (str "[" namespace-prefix ".math :as-alias math]")))
+    (is (not (re-find #"\(az/defconst\s+math\b" main-source)))
+    (is (not (str/includes? main-source "math.zig")))
     (is (str/includes? main-source "math/double"))
-    (is (str/includes? main-source ":aguafria/zig-imports"))
+    (is (not (str/includes? main-source ":aguafria/zig-imports")))
+    (is (not (str/includes? (slurp (:catalog-path report)) ".zig")))
     (convert/load-converted! math-file)
     (convert/load-converted! main-file)
+    (is (var? (ns-resolve (the-ns (:namespace math-report)) 'double)))
     (let [_ (runtime/recompile! (:namespace main-report))
           _ (runtime/await! (:namespace main-report))
           compiled (runtime/module-info (:namespace main-report))
           zig-source (runtime/source (:namespace main-report))]
       (is (some? (:published-generation compiled)))
       (is (some? (:library-path compiled)))
-      (is (str/includes? zig-source "const math = @import(\"math.zig\");"))
+      (is (str/includes? zig-source
+                         (str "const math = @import(\""
+                              (:namespace math-report) "\");")))
       (is (str/includes? zig-source "math.double(math.double(value))")))))
 
 (deftest compiler-provided-import-is-an-ordinary-module-var-test
@@ -182,18 +220,49 @@
     (is (= 'builtin (second (first forms))))
     (is (:success? verification))))
 
+(deftest materialized-project-preserves-relative-imports-and-compiles-test
+  (let [generated (.toFile
+                   (java.nio.file.Files/createTempDirectory
+                    "aguafria-materialized-clojure"
+                    (make-array java.nio.file.attribute.FileAttribute 0)))
+        project (.toFile
+                 (java.nio.file.Files/createTempDirectory
+                  "aguafria-materialized-zig"
+                  (make-array java.nio.file.attribute.FileAttribute 0)))
+        report (convert/convert-tree!
+                "test/fixtures/import_tree" generated
+                {:namespace-prefix (symbol (str "fixture.materialized-" (gensym)))
+                 :overwrite? true})
+        materialized (convert/materialize-project! report project)
+        main-source (slurp (io/file project "main.zig"))
+        result (shell/sh "zig" "build-obj" "main.zig"
+                         :dir (.getAbsolutePath project))
+        unchanged (convert/materialize-project! report project)]
+    (is (= 2 (:zig-file-count materialized)))
+    (is (zero? (:asset-file-count materialized)))
+    (is (= 2 (:written-count materialized)))
+    (is (str/includes? main-source "const math = @import(\"math.zig\");"))
+    (is (str/includes? main-source "math.double(math.double(value))"))
+    (is (zero? (:exit result)) (:err result))
+    (is (zero? (:written-count unchanged)))
+    (is (= 2 (:unchanged-count unchanged)))))
+
 (deftest nested-zig-containers-are-structural-test
   (let [path "test/fixtures/container.zig"
-        {:keys [report clojure-source]}
+        {:keys [forms report clojure-source]}
         (convert/convert-file path {:namespace 'fixture.container})
         verification (convert/verify-file
                       path {:namespace 'fixture.container
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "(container"))
-    (is (str/includes? clojure-source "(enum-field-decl"))
-    (is (str/includes? clojure-source "(fn-decl"))
+    (is (str/includes? clojure-source "(az/container"))
+    (is (str/includes? clojure-source "(az/enum-field-decl"))
+    (is (str/includes? clojure-source "(az/fn-decl"))
+    (is (str/includes? clojure-source ":zig/name \"@\\\"127.0.0.1\\\"\""))
+    (is (str/includes? clojure-source ":zig/name \"@\\\"null-device\\\"\""))
+    (is (str/includes? clojure-source "^{:zig/name \"init\"} zig-init-"))
+    (is (not-any? nil? (tree-seq coll? seq forms)))
     (is (:success? verification))))
 
 (deftest error-sets-unions-and-qualified-pointers-are-structural-test
@@ -211,9 +280,9 @@
     (is (str/includes? clojure-source ":fn"))
     (is (str/includes? clojure-source ":callconv"))
     (is (str/includes? clojure-source ":array-sentinel"))
-    (is (str/includes? clojure-source "(slice-sentinel"))
+    (is (str/includes? clojure-source "(az/slice-sentinel"))
     (is (str/includes? clojure-source "ak/bit-xor"))
-    (is (str/includes? clojure-source "(op \"-%\""))
+    (is (str/includes? clojure-source "(az/op \"-%\""))
     (is (:success? verification))))
 
 (deftest if-and-while-captures-are-structural-test
@@ -225,10 +294,10 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "(if-capture"))
-    (is (str/includes? clojure-source "(if-capture-stmt"))
-    (is (str/includes? clojure-source "(catch-capture"))
-    (is (str/includes? clojure-source "(while-loop"))
+    (is (str/includes? clojure-source "(az/if-capture"))
+    (is (str/includes? clojure-source "(az/if-capture-stmt"))
+    (is (str/includes? clojure-source "(az/catch-capture"))
+    (is (str/includes? clojure-source "(az/while-loop"))
     (is (str/includes? clojure-source ":continue"))
     (is (str/includes? clojure-source ":error"))
     (is (:success? verification))))
@@ -252,43 +321,111 @@
         loaded (convert/load-tree! tiger-root)]
     (testing "the pinned complete corpus was structurally converted"
       (is (= 245 (:file-count report)))
-      (is (= 3944 (:declaration-count report)))
-      (is (= 3944 (:structural-declaration-count report)))
+      (is (= 3982 (:declaration-count report)))
+      (is (= 3982 (:structural-declaration-count report)))
       (is (zero? (:raw-declaration-count report)))
       (is (zero? (:fallback-count report)))
+      (is (zero? (:unresolved-syntax-count report)))
+      (is (every? #(zero? (:unresolved-syntax-count %)) (:files report)))
       (is (every? #(not (re-find raw-boundary-pattern (slurp %)))
                   (->> (file-seq (io/file tiger-root))
                        (filter #(.isFile ^java.io.File %))
                        (filter #(str/ends-with? (.getName ^java.io.File %) ".clj"))))))
     (testing "all checked-in files load like normal Clojure namespaces"
       (is (= 245 (:file-count loaded)))
-      (is (= 3944 (:declaration-count loaded)))
+      (is (= 3982 (:declaration-count loaded)))
       (is (every? :source-only? (:files loaded)))
       (is (every? #(= (:namespace %)
                        (some-> (:namespace %) find-ns ns-name))
                   (:files loaded))))
-    (testing "storage declarations are Vars in tigerbeetle.src.storage"
+    (testing "storage uses normal aliases and real local declarations"
       (let [storage (the-ns 'tigerbeetle.src.storage)]
-        (doseq [name '[std constants stdx vsr]]
+        (is (= 'tigerbeetle.src.vsr
+               (some-> (get (ns-aliases storage) 'vsr) ns-name)))
+        (is (nil? (:aguafria/zig-imports (meta storage))))
+        (doseq [name '[constants stdx]]
           (is (var? (ns-resolve storage name))
               (str name " should be interned in tigerbeetle.src.storage")))))))
 
-(deftest complete-tigerbeetle-conversion-rejects-raw-boundaries-test
+(deftest complete-tigerbeetle-conversion-materializes-and-compiles-test
   (let [output (.toFile
                 (java.nio.file.Files/createTempDirectory
                  "aguafria-tigerbeetle-structural"
                  (make-array java.nio.file.attribute.FileAttribute 0)))
+        project (.toFile
+                 (java.nio.file.Files/createTempDirectory
+                  "aguafria-tigerbeetle-materialized"
+                  (make-array java.nio.file.attribute.FileAttribute 0)))
         report (convert/convert-tree!
                 "vendor/tigerbeetle" output
                 {:namespace-prefix 'tigerbeetle
-                 :overwrite? true})]
+                 :overwrite? true})
+        materialized (convert/materialize-project! report project)
+        git-result (shell/sh "git" "rev-parse" "--verify" "HEAD"
+                             :dir (.getAbsolutePath
+                                   (.getCanonicalFile
+                                    (io/file "vendor/tigerbeetle"))))
+        git-commit (str/trim (:out git-result))
+        git-dir-result (shell/sh "git" "rev-parse" "--absolute-git-dir"
+                                 :dir (.getAbsolutePath
+                                       (.getCanonicalFile
+                                        (io/file "vendor/tigerbeetle"))))
+        git-dir (str/trim (:out git-dir-result))
+        build-env (assoc (into {} (System/getenv))
+                         "GIT_DIR" git-dir
+                         "GIT_WORK_TREE" (.getAbsolutePath project))
+        check-result (shell/sh "zig" "build"
+                               (str "-Dgit-commit=" git-commit)
+                               "check"
+                               :dir (.getAbsolutePath project)
+                               :env build-env)
+        original-root (.getCanonicalFile (io/file "vendor/tigerbeetle"))
+        original-build (shell/sh "zig" "build"
+                                 (str "-Dgit-commit=" git-commit)
+                                 :dir (.getAbsolutePath original-root))
+        converted-build (shell/sh "zig" "build"
+                                  (str "-Dgit-commit=" git-commit)
+                                  :dir (.getAbsolutePath project)
+                                  :env build-env)
+        original-executable (.getAbsolutePath
+                             (io/file original-root
+                                      "zig-out/bin/tigerbeetle"))
+        converted-executable (.getAbsolutePath
+                              (io/file project
+                                       "zig-out/bin/tigerbeetle"))
+        original-version (shell/sh original-executable "version")
+        converted-version (shell/sh converted-executable "version")
+        original-help (shell/sh original-executable "--help")
+        converted-help (shell/sh converted-executable "--help")]
     (is (= 245 (:file-count report)))
-    (is (= 3944 (:declaration-count report)))
+    (is (= 3982 (:declaration-count report)))
     (is (= (:declaration-count report)
            (:structural-declaration-count report)))
     (is (zero? (:raw-declaration-count report)))
     (is (zero? (:fallback-count report)))
+    (is (zero? (:unresolved-syntax-count report)))
+    (is (every? #(zero? (:unresolved-syntax-count %)) (:files report)))
     (is (every? #(not (re-find raw-boundary-pattern (slurp %)))
                 (->> (file-seq output)
                      (filter #(.isFile ^java.io.File %))
-                     (filter #(str/ends-with? (.getName ^java.io.File %) ".clj")))))))
+                     (filter #(str/ends-with? (.getName ^java.io.File %) ".clj")))))
+    (is (= 245 (:zig-file-count materialized)))
+    (is (= 374 (:asset-file-count materialized)))
+    (is (= 619 (:file-count materialized)))
+    (is (= 3982 (:declaration-count materialized)))
+    (is (zero? (:exit git-result)) (:err git-result))
+    (is (zero? (:exit git-dir-result)) (:err git-dir-result))
+    (is (= 40 (count git-commit)))
+    (is (zero? (:exit check-result))
+        (str (:out check-result) (:err check-result)))
+    (is (zero? (:exit original-build))
+        (str (:out original-build) (:err original-build)))
+    (is (zero? (:exit converted-build))
+        (str (:out converted-build) (:err converted-build)))
+    (testing "representative CLI behavior is byte-identical"
+      (is (= (select-keys original-version [:exit :out :err])
+             (select-keys converted-version [:exit :out :err])))
+      (is (= (select-keys original-help [:exit :out :err])
+             (select-keys converted-help [:exit :out :err])))
+      (is (str/includes? (:out converted-version) (subs git-commit 0 7)))
+      (is (str/includes? (:out converted-help) "tigerbeetle start")))))

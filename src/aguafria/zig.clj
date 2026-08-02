@@ -4,7 +4,9 @@
   Require this namespace as `az`. Declaration macros capture their bodies;
   the bodies are emitted as Zig and are never evaluated as Clojure."
   (:refer-clojure :exclude [defn defstruct])
-  (:require [aguafria.zig.emitter :as emitter]
+  (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.emitter :as emitter]
+            [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
             [clojure.string :as str]))
 
@@ -139,16 +141,24 @@
 (defn- declaration-options
   ([name] (declaration-options name nil))
   ([name attributes]
-   (let [m (merge (meta name) attributes)]
-     {:export? (not= false (:export m))
-      :public? (if (contains? m :public) (:public m) (not (:private m)))
+   (let [m (merge (meta name) attributes)
+         compact? (or (contains? m :attrs)
+                      (project/compact-default? (ns-name *ns*) name))
+         attrs (set (:attrs m))]
+     {:export? (if compact? (contains? attrs :export)
+                   (not= false (:export m)))
+      :public? (if compact? (contains? attrs :public)
+                   (if (contains? m :public) (:public m) (not (:private m))))
       :source-order (:zig/order m)
       :leading-source (:zig/leading m)
       :zig-prefix (:zig/prefix m)
       :zig-qualifiers (:zig/qualifiers m)
       :zig-name (:zig/name m)
-      :implicit-return? (not= false (:implicit-return m))
-      :emit-source-comment? (not= false (:source-comment m))
+      :implicit-return? (if compact? (contains? attrs :implicit-return)
+                            (not= false (:implicit-return m)))
+      :emit-source-comment? (if compact? (contains? attrs :source-comment)
+                                (not= false (:source-comment m)))
+      :comments (:comments m)
       :attributes (or attributes {})})))
 
 (defn- leading-doc-and-attributes
@@ -174,7 +184,8 @@
   "Serialize macro data so very large Zig forms do not exceed the JVM's
   per-string or per-method classfile limits."
   [descriptor]
-  (let [text (binding [*print-meta* true] (pr-str descriptor))
+  (let [descriptor (runtime/declaration-info descriptor)
+        text (binding [*print-meta* true] (pr-str descriptor))
         size 12000
         chunks (->> (range 0 (count text) size)
                     (mapv #(subs text % (min (count text) (+ % size)))))]
@@ -428,13 +439,21 @@
 
       (az/deffield count :u64 0)
 
-  The initializer is optional. Converted files that use Zig's file-as-struct
-  pattern emit this form rather than disguising fields as raw declarations."
-  [name type & initializer]
+  An optional docstring and attr-map follow the name. The initializer is
+  optional. Converted files that use Zig's file-as-struct pattern emit this
+  form rather than disguising fields as raw declarations."
+  [name & declaration]
+  (let [[docstring attributes declaration]
+        (leading-doc-and-attributes declaration)
+        [type & initializer] declaration]
+    (when-not type
+      (throw (ex-info "az/deffield requires a type"
+                      {:form &form :name name :declaration declaration})))
   (when (> (count initializer) 1)
     (throw (ex-info "az/deffield accepts at most one initializer"
                     {:form &form :name name :initializer initializer})))
-  (let [descriptor (emitter/prepare-declaration
+  (let [options (merge (meta name) attributes)
+        descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :field
                             :name name
@@ -443,39 +462,46 @@
                             :type type
                             :has-value? (boolean (seq initializer))
                             :value (first initializer)
-                            :align (:zig/align (meta name))
+                            :align (:zig/align options)
+                            :doc docstring
                             :clojure-form &form
                             :source (source-location &form)}
-                           (declaration-options name)))
+                           (declaration-options name attributes)))
         descriptor-form (descriptor-expression descriptor)]
     `(let [descriptor# ~descriptor-form]
        (runtime/register-declaration! descriptor#)
-       (def ~(with-meta name (assoc (meta name) :doc "A Zig container-root field."))
+       (def ~(with-meta name (assoc (meta name) :doc
+                                    (or docstring "A Zig container-root field.")))
          {:aguafria/declaration descriptor#})
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
-       (var ~name))))
+       (var ~name)))))
 
 (defmacro defcomptime
   "Define a named, inspectable top-level Zig `comptime` block. The Clojure name
-  is for REPL inspection only and is not emitted into Zig."
-  [name & body]
-  (let [descriptor (emitter/prepare-declaration
+  is for REPL inspection only and is not emitted into Zig. Accepts an optional
+  docstring and ordinary attr-map after the name."
+  [name & declaration]
+  (let [[docstring attributes body]
+        (leading-doc-and-attributes declaration)
+        descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :comptime
                             :name name
                             :declaration-key [:comptime name]
                             :module (str *ns*)
                             :body (vec body)
+                            :doc docstring
                             :implicit-return? false
                             :clojure-form &form
                             :source (source-location &form)}
-                           (declaration-options name)))
+                           (declaration-options name attributes)))
         descriptor-form (descriptor-expression descriptor)]
     `(let [descriptor# ~descriptor-form]
        (runtime/register-declaration! descriptor#)
-       (def ~(with-meta name (assoc (meta name) :doc "A Zig top-level comptime block."))
+       (def ~(with-meta name (assoc (meta name) :doc
+                                    (or docstring "A Zig top-level comptime block.")))
          {:aguafria/declaration descriptor#})
        (alter-meta! (var ~name) assoc :aguafria/declaration descriptor#)
        (var ~name))))
@@ -485,10 +511,13 @@
 
       (az/defextern GetCommandLineW :- windows/LPWSTR [])
 
-  Prefix/library/calling-convention spelling is retained in name metadata by
-  the converter. The Var is usable from Zig declarations but is not a JVM FFM
+  Prefix/library/calling-convention spelling is retained in the optional
+  attr-map. The Var is usable from Zig declarations but is not a JVM FFM
   export of the generated module."
-  [name marker return bindings]
+  [name & declaration]
+  (let [[docstring attributes declaration]
+        (leading-doc-and-attributes declaration)
+        [marker return bindings] declaration]
   (when-not (= marker ':-)
     (throw (ex-info "az/defextern expects: name :- return-type [typed args]"
                     {:form &form :name name})))
@@ -500,11 +529,12 @@
                             :qualified-name qualified-name
                             :declaration-key [:fn-proto name]
                             :module (str *ns*)
+                            :doc docstring
                             :return return
                             :args (emitter/parse-typed-bindings bindings)
                             :clojure-form &form
                             :source (source-location &form)}
-                           (declaration-options name)))
+                           (declaration-options name attributes)))
         descriptor-form (descriptor-expression descriptor)]
     `(let [descriptor# ~descriptor-form]
        (runtime/register-declaration! descriptor#)
@@ -513,19 +543,21 @@
          (throw (ex-info "A Zig extern declaration cannot be called directly from Clojure"
                          {:function '~qualified-name :arguments arguments#})))
        (alter-meta! (var ~name) merge
-                    {:aguafria/declaration descriptor#
+                    {:doc ~docstring
+                     :aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
-       (var ~name))))
+       (var ~name)))))
 
 (defmacro deftest
   "Define a Zig `test` declaration. The name may be a string, symbol, or nil.
-  A leading options map supports converter metadata such as `:zig/order`."
+  A leading attr-map supports the same compact `:attrs` set as declarations."
   [& declaration]
   (let [[options declaration] (if (map? (first declaration))
                                 [(first declaration) (rest declaration)]
-                                [{} declaration])
+                                [{:attrs #{}} declaration])
         [name & body] declaration
         internal-name (symbol (str "zig-test-" (Math/abs (hash [name &form]))))
+        declaration-options (declaration-options internal-name options)
         descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :test
@@ -537,8 +569,36 @@
                             :implicit-return? false
                             :clojure-form &form
                             :source (source-location &form)}
-                           {:source-order (:zig/order options)
-                            :leading-source (:zig/leading options)
-                            :emit-source-comment? (not= false (:source-comment options))}))
+                           (select-keys declaration-options
+                                        [:source-order :leading-source
+                                         :emit-source-comment? :comments])))
         descriptor-form (descriptor-expression descriptor)]
     `(runtime/register-declaration! ~descriptor-form)))
+
+(clojure.core/defn- unavailable-syntax-form
+  [operator]
+  (fn [& arguments]
+    (throw (ex-info (str "`az/" operator "` is Aguafria Zig syntax and can only "
+                         "be used inside an Aguafria declaration")
+                    {:operator operator :arguments arguments}))))
+
+;; Structural forms are real, documented Vars so generated Clojure never
+;; relies on an unresolved list head. Clojure-native forms (`if`, `do`, `for`,
+;; and so on) and Zig keyword/operator Vars owned by `ak` stay in their natural
+;; namespaces.
+(doseq [operator (emitter/syntax-operators)
+        :when (and (not (special-symbol? operator))
+                   (nil? (ns-resolve 'clojure.core operator))
+                   (nil? (keyword/token-name (name operator))))]
+  (when (contains? (ns-map *ns*) operator)
+    (ns-unmap *ns* operator))
+  (let [syntax {:kind :syntax
+                :name operator
+                :symbol (symbol "aguafria.zig" (name operator))}
+        v (intern *ns* operator (unavailable-syntax-form operator))]
+    (alter-meta! v merge
+                 {:aguafria/syntax syntax
+                  :arglists '([& forms])
+                  :doc (str "Aguafria structural Zig form `" operator
+                            "`. Valid only inside `az/defn`, `az/defconst`, "
+                            "or another Aguafria declaration.")})))

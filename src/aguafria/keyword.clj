@@ -22,6 +22,20 @@
 (def ^:private generated-catalog
   (load-catalog))
 
+;; Remove generated Vars before compiling the rest of this namespace on
+;; `require :reload`. In particular, a previous `ak/fn` or `ak/if` Var must
+;; not shadow Clojure's own special-form spelling while this file is read.
+(let [removed (->> (ns-interns *ns*)
+                   (keep (fn [[sym v]]
+                           (when (:aguafria/token (meta v)) sym)))
+                   vec)]
+  (doseq [sym removed]
+    (ns-unmap *ns* sym))
+  ;; Re-refer any clojure.core name that an older generated catalog shadowed.
+  (doseq [sym removed
+          :when (ns-resolve 'clojure.core sym)]
+    (refer 'clojure.core :only [sym])))
+
 ;; Clojure keeps removed definitions across `require :reload`. Clean the old
 ;; pre-singular API so a long-running REPL observes the rename immediately.
 (when (contains? (ns-interns *ns*) 'builtins)
@@ -40,8 +54,9 @@
 (defn language-keywords
   "Return Zig's mechanically discovered ordinary keyword catalog.
 
-  These are inspectable but are not interned as `ak/...` Vars because readable
-  forms such as `if` and `while` are intentionally written without a prefix."
+  Every entry is also backed by a documented `ak/...` Var. Generated source
+  may still use an ordinary Clojure form such as `if` when it has the same
+  clear spelling and already resolves in Clojure."
   []
   (:keywords generated-catalog))
 
@@ -110,6 +125,18 @@
   (assoc (select-keys token [:kind :minimum-param-count :name :param-count :zig-token])
          :symbol (symbol "aguafria.keyword" (:name token))))
 
+(defn- language-token
+  [entry builtin-names]
+  (let [zig-token (:name entry)
+        clojure-name (if (contains? builtin-names zig-token)
+                       (str "keyword-" zig-token)
+                       zig-token)]
+    {:kind :keyword
+     :name clojure-name
+     :param-count nil
+     :symbol (symbol "aguafria.keyword" clojure-name)
+     :zig-token zig-token}))
+
 (defn- intern-token!
   [token metadata]
   (let [sym (symbol (:name token))]
@@ -156,6 +183,20 @@
           meta
           :aguafria/token))
 
+(defn token-name
+  "Return the generated `ak/...` Var name for a Zig keyword/operator token."
+  [zig-token]
+  (let [builtin-names (set (map :name (:builtins generated-catalog)))]
+    (or (some (fn [entry]
+                (when (= zig-token (:zig-token entry)) (:name entry)))
+              (:reader-tokens generated-catalog))
+        (some (fn [entry]
+                (when (and (= zig-token (:name entry))
+                           (not (special-symbol? (symbol zig-token)))
+                           (nil? (ns-resolve 'clojure.core (symbol zig-token))))
+                  (:name (language-token entry builtin-names))))
+              (:keywords generated-catalog)))))
+
 (defn validate-call!
   "Validate the argument count declared by a generated Zig keyword Var."
   [{:keys [minimum-param-count name param-count zig-name] :as token} args form]
@@ -176,12 +217,6 @@
              :form form
              :token token}))))
 
-;; `require :reload` must also remove tokens that disappeared in a newer Zig
-;; catalog instead of leaving stale Vars in a long-running REPL.
-(doseq [[sym v] (ns-interns *ns*)
-        :when (:aguafria/token (meta v))]
-  (ns-unmap *ns* sym))
-
 (doseq [builtin (:builtins generated-catalog)]
   (let [token (call-token builtin)]
     (intern-token!
@@ -199,6 +234,24 @@
       :zig/signature (:signature builtin)
       :zig/source (get-in generated-catalog [:sources :builtin-table :path])
       :zig/version (:zig-version generated-catalog)})))
+
+(let [builtin-names (set (map :name (:builtins generated-catalog)))]
+  (doseq [entry (:keywords generated-catalog)
+          :let [operator (symbol (:name entry))]
+          :when (and (not (special-symbol? operator))
+                     (nil? (ns-resolve 'clojure.core operator)))]
+    (let [token (language-token entry builtin-names)]
+      (intern-token!
+       token
+       {:aguafria/token token
+        :arglists '([& forms])
+        :doc (str "Zig `" (:zig-token token) "` keyword, mechanically discovered "
+                  "from Zig " (:zig-version generated-catalog) " `"
+                  (get-in generated-catalog [:sources :tokenizer :path]) "`. "
+                  "This Var is syntax and is only valid inside an Aguafria declaration.")
+        :zig/name (:zig-token token)
+        :zig/source (get-in generated-catalog [:sources :tokenizer :path])
+        :zig/version (:zig-version generated-catalog)}))))
 
 (doseq [entry (:reader-tokens generated-catalog)]
   (let [token (reader-token entry)]

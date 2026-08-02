@@ -112,12 +112,18 @@
   (reset! program-build-sequence 0)
   nil)
 
+(declare declaration-info)
+
 (defn- declaration-summary
-  [{:keys [declaration-key kind name qualified-name export? source]}]
+  [{:keys [declaration-key kind name qualified-name export? source logical-id
+           abi-fingerprint schema-fingerprint]}]
   {:key declaration-key
    :kind kind
    :name (str name)
    :qualified-name (some-> qualified-name str)
+   :logical-id logical-id
+   :abi-fingerprint abi-fingerprint
+   :schema-fingerprint schema-fingerprint
    :export? (boolean export?)
    :source source})
 
@@ -196,6 +202,161 @@
   (let [digest (doto (MessageDigest/getInstance "SHA-256")
                  (.update (.getBytes (str s) StandardCharsets/UTF_8)))]
     (.formatHex (HexFormat/of) (.digest digest))))
+
+(defn- canonical-fingerprint-value
+  [value]
+  (cond
+    (symbol? value)
+    (let [reference (:aguafria/zig-reference (meta value))]
+      (cond-> [:symbol (str value)]
+        (:zig/name (meta value))
+        (conj [:zig/name (:zig/name (meta value))])
+
+        reference
+        (conj [:zig/reference
+               (select-keys reference
+                            [:kind :module :zig-name :import-name
+                             :import-alias])])))
+
+    (keyword? value) [:keyword (namespace value) (name value)]
+
+    (map? value)
+    [:map
+     (->> value
+          (map (fn [[key nested]]
+                 [(canonical-fingerprint-value key)
+                  (canonical-fingerprint-value nested)]))
+          (sort-by (comp pr-str first))
+          vec)]
+
+    (set? value)
+    [:set (->> value (map canonical-fingerprint-value) (sort-by pr-str) vec)]
+
+    (vector? value)
+    [:vector (mapv canonical-fingerprint-value value)]
+
+    (seq? value)
+    [:list (mapv canonical-fingerprint-value value)]
+
+    :else value))
+
+(defn- data-fingerprint
+  [value]
+  (sha256 (pr-str (canonical-fingerprint-value value))))
+
+(defn- declaration-zig-name
+  [{:keys [name zig-name]}]
+  (emit/identifier (or zig-name name)))
+
+(defn- callable-abi
+  [{:keys [args return export? zig-prefix zig-qualifiers] :as declaration}]
+  {:kind :callable
+   :symbol (declaration-zig-name declaration)
+   :export? (boolean export?)
+   :calling-convention (cond
+                         (seq zig-qualifiers) zig-qualifiers
+                         (and export? (nil? zig-prefix)) :c
+                         :else :zig)
+   :prefix zig-prefix
+   :arguments
+   (mapv (fn [{:keys [type properties]}]
+           {:type type
+            :prefix (:zig/prefix properties)
+            :variadic? (boolean (:zig/variadic properties))})
+         args)
+   :return return})
+
+(defn- struct-schema
+  [{:keys [layout fields] :as declaration}]
+  {:kind :struct-schema
+   :symbol (declaration-zig-name declaration)
+   :layout (or layout :extern)
+   :fields
+   (mapv (fn [{:keys [name type properties]}]
+           {:name (emit/identifier name)
+            :type type
+            ;; Documentation does not alter memory layout. Other field
+            ;; properties are retained because users may attach alignment or
+            ;; future schema-affecting options through the Malli-style map.
+            :properties (dissoc properties :doc :comments)})
+         fields)})
+
+(declare container-value-schema)
+
+(defn- schema-type
+  [type]
+  (if (and (seq? type)
+           (symbol? (first type))
+           (= "container" (name (first type))))
+    (container-value-schema type)
+    type))
+
+(defn- nested-field-schema
+  [form]
+  (let [kind (keyword (name (first form)))
+        arguments (rest form)
+        [field-name arguments]
+        (if (= :tuple-field-decl kind)
+          [nil arguments]
+          [(first arguments) (next arguments)])
+        arguments (if (string? (first arguments)) (next arguments) arguments)
+        [attributes arguments] (if (map? (first arguments))
+                                 [(first arguments) (next arguments)]
+                                 [{} arguments])
+        type-or-value (first arguments)]
+    (cond->
+     {:kind kind
+      :attributes (select-keys attributes
+                               [:attrs :align :zig/align :zig/prefix])}
+      field-name (assoc :name (emit/identifier field-name))
+      (= :enum-field-decl kind) (assoc :value type-or-value)
+      (contains? #{:field-decl :tuple-field-decl} kind)
+      (assoc :type (schema-type type-or-value)))))
+
+(defn- container-value-schema
+  [form]
+  (let [[_ options & members] form]
+    {:kind :container-schema
+     :container (select-keys options [:kind :layout :enum? :argument])
+     :fields
+     (->> members
+          (filter #(and (seq? %)
+                        (symbol? (first %))
+                        (contains? #{"field-decl" "enum-field-decl"
+                                     "tuple-field-decl"}
+                                   (name (first %)))))
+          (mapv nested-field-schema))}))
+
+(defn- container-type-declaration?
+  [{:keys [kind value]}]
+  (and (= :const kind)
+       (seq? value)
+       (symbol? (first value))
+       (= "container" (name (first value)))))
+
+(defn declaration-info
+  "Return a declaration with a stable logical identity and deterministic
+  callable ABI or struct-schema fingerprint. Body-only function changes do
+  not change the ABI fingerprint; signature/layout changes do. The returned
+  map is plain serializable data and is also stored in Var metadata/stats."
+  [{:keys [module kind declaration-key] :as declaration}]
+  (let [logical-id [(str module) kind (declaration-zig-name declaration)]]
+    (cond-> (assoc declaration :logical-id logical-id)
+      (contains? #{:fn :fn-proto} kind)
+      (assoc :abi-fingerprint (data-fingerprint (callable-abi declaration)))
+
+      (= :struct kind)
+      (assoc :schema-fingerprint (data-fingerprint
+                                  (struct-schema declaration)))
+
+      (container-type-declaration? declaration)
+      (assoc :schema-fingerprint
+             (data-fingerprint
+              {:symbol (declaration-zig-name declaration)
+               :schema (container-value-schema (:value declaration))}))
+
+      declaration-key
+      (assoc :logical-key declaration-key))))
 
 (defn- safe-path-component
   [s]
@@ -603,6 +764,27 @@
    :source-path (:source-path compiled)
    :library-path (:library-path compiled)})
 
+(defn- next-source-order
+  [definitions]
+  (inc (reduce max -1 (keep :source-order (vals definitions)))))
+
+(defn- stable-source-order
+  [definitions declaration]
+  (if (some? (:source-order declaration))
+    declaration
+    (if-let [order (get-in definitions [(:declaration-key declaration)
+                                        :source-order])]
+      (assoc declaration :source-order order)
+      (assoc declaration :source-order (next-source-order definitions)))))
+
+(defn- ordered-batch
+  [declarations]
+  (mapv (fn [index declaration]
+          (cond-> declaration
+            (nil? (:source-order declaration)) (assoc :source-order index)))
+        (range)
+        declarations))
+
 (defn- compile-and-publish-async!
   [{:keys [module declaration-key generation declarations source completion]}]
   (mark-build-started! module generation)
@@ -649,7 +831,9 @@
   (let [job
         (locking compile-lock
           (let [old-module (get @registry module)
-                definitions (assoc (or (:definitions old-module) {})
+                old-definitions (or (:definitions old-module) {})
+                declaration (stable-source-order old-definitions declaration)
+                definitions (assoc old-definitions
                                    declaration-key declaration)
                 declarations (vec (vals definitions))
                 source (emit-source! module declarations)
@@ -685,7 +869,9 @@
   [{:keys [module declaration-key] :as declaration}]
   (locking compile-lock
     (let [old-module (get @registry module)
-          definitions (assoc (or (:definitions old-module) {})
+          old-definitions (or (:definitions old-module) {})
+          declaration (stable-source-order old-definitions declaration)
+          definitions (assoc old-definitions
                              declaration-key declaration)
           declarations (vec (vals definitions))
           source (emit-source! module declarations)
@@ -721,17 +907,19 @@
   With `:async?` configuration enabled, returns immediately after scheduling
   an immutable module snapshot. Builds may run concurrently, but only the
   newest requested generation is published."
-  [{:keys [module declaration-key] :as declaration}]
-  (when-not (and module declaration-key)
-    (throw (ex-info "Declaration requires :module and :declaration-key"
-                    {:declaration declaration})))
-  (if *registration-batch*
-    (do
-      (swap! *registration-batch* conj declaration)
-      {:module module :declaration-key declaration-key :batched? true})
-    (if (:async? @config)
-      (register-async! declaration)
-      (register-sync! declaration))))
+  [declaration]
+  (let [{:keys [module declaration-key] :as declaration}
+        (declaration-info declaration)]
+    (when-not (and module declaration-key)
+      (throw (ex-info "Declaration requires :module and :declaration-key"
+                      {:declaration declaration})))
+    (if *registration-batch*
+      (do
+        (swap! *registration-batch* conj declaration)
+        {:module module :declaration-key declaration-key :batched? true})
+      (if (:async? @config)
+        (register-async! declaration)
+        (register-sync! declaration)))))
 
 (defn register-batch!
   "Register a complete declaration batch without intermediate compilations.
@@ -741,7 +929,7 @@
   module once. `:replace? true` removes declarations absent from the batch."
   [declarations {:keys [compile? replace? module]
                  :or {compile? false replace? true}}]
-  (let [declarations (vec declarations)
+  (let [declarations (mapv declaration-info (ordered-batch declarations))
         modules (cond-> (set (map :module declarations))
                   module (conj (str module)))]
     (when-not (= 1 (count modules))

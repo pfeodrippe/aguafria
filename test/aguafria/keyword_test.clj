@@ -21,9 +21,12 @@
           (is (not (str/blank? (:doc metadata))) zig-name)
           (is (= :call (get-in metadata [:aguafria/token :kind])) zig-name))))
 
-    (testing "ordinary readable Zig keywords stay ordinary forms"
+    (testing "Zig-only keywords are Vars; Clojure-native spellings stay native"
       (is (some #(= "if" (:name %)) (ak/language-keywords)))
       (is (nil? (get public-vars 'if)))
+      (is (var? (get public-vars 'const)))
+      (is (= :keyword (get-in (meta (get public-vars 'const))
+                              [:aguafria/token :kind])))
       (is (nil? (get public-vars 'builtins))))))
 
 (deftest alias-aware-emission-test
@@ -44,6 +47,13 @@
     (is (= "(left ^ right)" (az/emit-expr '(ak/bit-xor left right))))
     (is (= "total /= divisor;"
            (az/emit-stmt '(ak/div-assign total divisor)))))
+
+  (testing "readable Zig-only syntax also comes from documented Vars"
+    (is (= "const value: u32 = 1;"
+           (az/emit-stmt '(ak/const value :u32 1))))
+    (is (= "total += value;" (az/emit-stmt '(ak/+= total value))))
+    (is (var? (ns-resolve 'aguafria.zig 'while-loop)))
+    (is (not (str/blank? (:doc (meta (ns-resolve 'aguafria.zig 'while-loop)))))))
 
   (testing "bad generated-keyword arity fails before invoking Zig"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo

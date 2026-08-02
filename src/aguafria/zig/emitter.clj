@@ -4,6 +4,7 @@
   Nothing in this namespace evaluates or macroexpands a Zig form as Clojure.
   It only validates data and renders deterministic Zig source."
   (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.project :as project]
             [clojure.string :as str]))
 
 (defn- fail!
@@ -14,20 +15,22 @@
   "Render a Clojure name as a legal, conventional Zig identifier.
 
   Hyphens become underscores and namespace separators become double
-  underscores. Dots are retained so names such as `std.math.sqrt` can name a
-  Zig declaration directly."
+  underscores for Clojure symbols/keywords. Strings and `:zig/name` metadata
+  are already-exact Zig spellings and are returned unchanged."
   [x]
-  (let [s (cond
-            (and (symbol? x) (:zig/name (meta x))) (:zig/name (meta x))
-            (symbol? x) (if-let [n (namespace x)]
-                          (str n "__" (name x))
-                          (name x))
-            (keyword? x) (name x)
-            (string? x) x
-            :else (fail! "Expected a Zig identifier" x))]
-    (-> s
-        (str/replace "-" "_")
-        (str/replace "/" "__"))))
+  (cond
+    (string? x) x
+    (and (symbol? x) (:zig/name (meta x))) (:zig/name (meta x))
+    :else
+    (let [s (cond
+              (symbol? x) (if-let [n (namespace x)]
+                            (str n "__" (name x))
+                            (name x))
+              (keyword? x) (name x)
+              :else (fail! "Expected a Zig identifier" x))]
+      (-> s
+          (str/replace "-" "_")
+          (str/replace "/" "__")))))
 
 (declare emit-expr emit-stmt emit-statements emit-type emit-block-expr
          postfix-source multiline-string-tail? indent braced capture-source
@@ -58,6 +61,11 @@
        (not (:zig/reference (meta op)))
        (contains? structural-operators op)))
 
+(defn syntax-operators
+  "Return Aguafria's structural form names for tooling and generated Vars."
+  []
+  structural-operators)
+
 (def ^:dynamic *keyword-context*
   "Namespace used to resolve aliases such as `ak/intCast` during emission."
   nil)
@@ -77,49 +85,82 @@
           (ns-resolve target-ns (symbol (name sym)))))
       (ns-resolve context-ns sym))))
 
+(defn- resolved-syntax-operator
+  [context-ns op]
+  (or (when (structural-operator? op) op)
+      (some-> (resolve-context-var context-ns op)
+              meta :aguafria/syntax :name symbol)))
+
 (defn- declared-project-reference
   [context-ns sym]
   (when-let [requested-alias (when (symbol? sym)
                                (some-> sym namespace symbol))]
-    (let [imports (:aguafria/zig-imports (meta context-ns))
-          import (or (get imports requested-alias)
-                     (get imports (str requested-alias)))
-          declarations (:declarations import)
+    (let [target-ns (get (ns-aliases context-ns) requested-alias)
           clojure-name (name sym)
-          zig-name (or (get declarations clojure-name)
-                       (get declarations (symbol clojure-name))
-                       (get declarations (keyword clojure-name)))
-          target-module (some-> (:namespace import) str)]
-      (when (and import zig-name target-module)
+          target-module (some-> target-ns ns-name str)
+          zig-name (when target-module
+                     (project/declaration-zig-name target-module clojure-name))]
+      (when (and zig-name target-module)
         {:kind :declaration
          :module target-module
          :zig-name zig-name
          :symbol (symbol target-module clojure-name)}))))
 
+(defn- namespace-root-reference
+  [context-ns sym]
+  (when (and (symbol? sym) (nil? (namespace sym)))
+    (when-let [target-ns (get (ns-aliases context-ns) sym)]
+      (let [module (str (ns-name target-ns))]
+        (when-not (str/starts-with? module "aguafria.zig.import.")
+          (cond-> {:kind :namespace-root
+                   :module module
+                   :zig-name (identifier sym)
+                   :symbol sym}
+            (= "aguafria.std" module)
+            (assoc :module nil
+                   :import-alias (identifier sym)
+                   :import-name "std")))))))
+
 (defn- resolve-zig-reference
   [context-ns sym]
   (or (:aguafria/zig-reference (meta sym))
-      (some-> (resolve-context-var context-ns sym)
-              meta
-              :aguafria/zig-reference)
-      (declared-project-reference context-ns sym)))
+      ;; Qualified symbols explicitly name Vars. Unqualified symbols may be
+      ;; lexical binders, container members, error names, or declaration names;
+      ;; resolving them through ns-resolve would capture an unrelated top-level
+      ;; Var with the same spelling.
+      (when (and (symbol? sym) (namespace sym))
+        (some-> (resolve-context-var context-ns sym)
+                meta
+                :aguafria/zig-reference))
+      (declared-project-reference context-ns sym)
+      (namespace-root-reference context-ns sym)
+      (when (and (symbol? sym) (nil? (namespace sym)))
+        (let [module (str (or project/*catalog-namespace*
+                              (ns-name context-ns)))
+              zig-name (project/declaration-zig-name module (name sym))]
+          (when (not= zig-name (name sym))
+            {:kind :declaration
+             :module module
+             :zig-name zig-name
+             :symbol (symbol module (name sym))})))))
 
 (defn- contextual-reference
   [context-ns original-symbol reference]
-  (let [current-module (str (ns-name context-ns))
+  (let [current-module (str (or project/*catalog-namespace*
+                                (ns-name context-ns)))
         target-module (:module reference)]
-    (if (or (nil? target-module) (= current-module target-module))
+    (if (or (= :import-member (:kind reference))
+            (nil? target-module)
+            (= current-module target-module))
       reference
-      (let [imports (:aguafria/zig-imports (meta context-ns))
-            requested-alias (some-> original-symbol namespace symbol)
+      (let [requested-alias (or (some-> original-symbol namespace symbol)
+                                (when (= :namespace-root (:kind reference))
+                                  original-symbol))
+            aliased-target (some-> (get (ns-aliases context-ns) requested-alias)
+                                   ns-name str)
             [import-alias import]
-            (or (when-let [import (or (get imports requested-alias)
-                                      (get imports (str requested-alias)))]
-                  [requested-alias import])
-                (some (fn [[alias import]]
-                        (when (= (str (:namespace import)) target-module)
-                          [alias import]))
-                      imports)
+            (or (when (= aliased-target target-module)
+                  [requested-alias {:namespace (symbol target-module)}])
                 [requested-alias
                  {:namespace (symbol target-module)
                   :import-name target-module}])
@@ -130,11 +171,15 @@
                                      :target-module target-module}))
             zig-alias (identifier import-alias)]
         (assoc reference
-               :kind :namespace-member
+               :kind (if (= :namespace-root (:kind reference))
+                       :namespace-root
+                       :namespace-member)
                :import-alias zig-alias
-               :import-name (or (:import-name import) target-module)
+               :import-name target-module
                :import-namespace (symbol target-module)
-               :zig-name (str zig-alias "." (:zig-name reference)))))))
+               :zig-name (if (= :namespace-root (:kind reference))
+                           zig-alias
+                           (str zig-alias "." (:zig-name reference))))))))
 
 (defn- reference-symbol
   [context-ns original-symbol reference]
@@ -151,19 +196,32 @@
 (defn- qualify-seq
   [context-ns form]
   (let [[op & raw-args] form
-        structural? (structural-operator? op)
+        structural-op (resolved-syntax-operator context-ns op)
+        structural? (some? structural-op)
         token (when-not structural? (keyword/resolve-token context-ns op))
         reference (when-not structural? (resolve-zig-reference context-ns op))
-        args (mapv #(qualify-form context-ns %) raw-args)
+        args (if (and structural? (= 'field structural-op) (= 2 (count raw-args)))
+               ;; A field name is Zig syntax, not a Var reference. Qualifying
+               ;; it would incorrectly capture a same-named top-level Var.
+               [(qualify-form context-ns (first raw-args))
+                (let [field-name (second raw-args)]
+                  ;; Quoted names use Aguafria's explicit identifier-literal
+                  ;; form, which still needs syntax normalization.
+                  (if (seq? field-name)
+                    (qualify-form context-ns field-name)
+                    field-name))]
+               (mapv #(qualify-form context-ns %) raw-args))
         qualified-op (cond
-                       structural? op
+                       structural? structural-op
+                       (= :keyword (:kind token)) (symbol (:zig-token token))
                        token (:symbol token)
                        reference (reference-symbol context-ns op reference)
                        :else (qualify-form context-ns op))]
-    (when token
+    (when (and token (not= :keyword (:kind token)))
       (keyword/validate-call! token args form))
     (when (and (symbol? op)
                (or (namespace op) (str/includes? (name op) "."))
+               (not structural?)
                (nil? token)
                (nil? reference))
       (fail! (str "Unresolved Zig reference `" op "`. "
@@ -191,6 +249,11 @@
                   (meta form))
     (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
                            (meta form))
+    (and (symbol? form) (nil? (namespace form))
+         (namespace-root-reference context-ns form))
+    (reference-symbol context-ns form
+                      (namespace-root-reference context-ns form))
+
     (and (symbol? form)
          (or (namespace form) (str/includes? (name form) ".")))
     (if-let [reference (resolve-zig-reference context-ns form)]
@@ -465,7 +528,7 @@
     (if (and (vector? lines) (empty? extra)
              (every? #(and (string? %) (not (re-find #"[\r\n]" %))) lines)
              (seq lines))
-      (str/join "\n" (map #(str "\\\\" %) lines))
+      (str (str/join "\n" (map #(str "\\\\" %) lines)) "\n")
       (fail! "multiline-string expects one non-empty vector of logical lines"
              form))))
 
@@ -680,8 +743,13 @@
     (vector? form) (emit-vector-literal form)
 
     (seq? form)
-    (let [[op & args] form
-          token (current-keyword-token op)]
+    (let [[source-op & args] form
+          source-token (current-keyword-token source-op)
+          op (or (resolved-syntax-operator (or *keyword-context* *ns*) source-op)
+                 (when (= :keyword (:kind source-token))
+                   (symbol (:zig-token source-token)))
+                 source-op)
+          token (when-not (= :keyword (:kind source-token)) source-token)]
       (cond
         token
         (emit-keyword-expr token args form)
@@ -978,6 +1046,12 @@
     (rest form)
     [form]))
 
+(defn- expression-terminator
+  [rendered]
+  (if (multiline-string-tail? rendered)
+    (if (re-find #"(?:\r\n|\r|\n)$" rendered) ";" "\n;")
+    ";"))
+
 (defn- emit-local
   [kind args form]
   (let [[n & declaration] args
@@ -1003,9 +1077,7 @@
            (when-let [section (:linksection options)]
              (str " linksection(" (emit-expr section) ")"))
            " = " rendered
-           (if (multiline-string-tail? rendered)
-             "\n;"
-             ";")))))
+           (expression-terminator rendered)))))
 
 (defn- ensure-semicolon
   [source]
@@ -1013,18 +1085,33 @@
     source
     (str source ";")))
 
+(def ^:private block-like-expression-ops
+  #{"block" "labeled-block" "if" "if-capture" "switch" "labeled-switch"})
+
+(defn- expression-statement-needs-semicolon?
+  [form]
+  (not (and (seq? form)
+            (contains? block-like-expression-ops
+                       (operator-name (first form))))))
+
 (defn- multiline-string-tail?
   [source]
   (some-> source str/split-lines last str/triml (str/starts-with? "\\\\")))
 
 (defn- postfix-source
   [form]
-  (let [source (emit-expr form)]
+  (let [source (emit-expr form)
+        direct-postfix? (and (seq? form)
+                             (contains? #{"field" "index" "slice"
+                                          "slice-sentinel" "deref" "unwrap"}
+                                        (operator-name (first form))))]
     (if (or (map? form)
             (vector? form)
-            (and (seq? form)
-                 (contains? #{'init 'array-init 'do 'block 'labeled-block}
-                            (first form))))
+            ;; Parenthesize every compound target before field access, calls,
+            ;; indexing, or slicing, except an existing postfix chain. Keeping
+            ;; `b.step(...)` unwrapped is required for Zig method lookup;
+            ;; wrapping `try call()` is required before accessing its result.
+            (and (seq? form) (not direct-postfix?)))
       (str "(" source ")")
       source)))
 
@@ -1076,11 +1163,12 @@
   (let [[options condition & body] args]
     (when-not (and (map? options) (some? condition))
       (fail! "while-loop expects an options map and condition" form))
-    (let [{:keys [label inline? payload continue error else]} options]
+    (let [{:keys [label inline? payload continue error else else-expression]} options
+          else-expression? (contains? options :else-expression)]
       (when-not (or (nil? label)
                     (symbol? label) (keyword? label) (string? label))
         (fail! "while-loop :label must be an identifier" form {:label label}))
-      (when (and error (nil? else))
+      (when (and error (nil? else) (not else-expression?))
         (fail! "A while error capture requires an else branch" form))
       (when (and (some? else) (not (vector? else)))
         (fail! "while-loop :else must be a vector of statements" form
@@ -1096,7 +1184,10 @@
            (braced body level)
            (when (some? else)
              (str " else " (captures-source error form)
-                  (braced else level)))))))
+                  (braced else level)))
+           (when else-expression?
+             (str " else " (captures-source error form)
+                  (emit-expr else-expression)))))))
 
 (defn- for-bindings
   [bindings form]
@@ -1177,6 +1268,11 @@
       (fail! "for-loop expects an options map and bindings" form))
     (emit-for-source options bindings body level form)))
 
+(defn- for-else-expression?
+  [body]
+  (let [else-form (last body)]
+    (and (seq? else-form) (= 'else-expression (first else-form)))))
+
 (defn emit-stmt
   "Emit one Zig statement. `level` is used only for nested block indentation."
   ([form] (emit-stmt form 0))
@@ -1184,8 +1280,13 @@
    (let [rendered
          (if-not (seq? form)
            (str (emit-expr form) ";")
-           (let [[op & args] form
-                 token (current-keyword-token op)]
+           (let [[source-op & args] form
+                 source-token (current-keyword-token source-op)
+                 op (or (resolved-syntax-operator (or *keyword-context* *ns*) source-op)
+                        (when (= :keyword (:kind source-token))
+                          (symbol (:zig-token source-token)))
+                        source-op)
+                 token (when-not (= :keyword (:kind source-token)) source-token)]
              (cond
                (and token (= :assignment (:kind token)))
                (do
@@ -1241,9 +1342,23 @@
                (= op 'if-capture-stmt)
                (emit-if-capture-stmt args level form)
                (= op 'while) (emit-loop "while" args level form)
-               (= op 'while-loop) (emit-while-loop args level form)
-               (contains? #{'for 'inline-for} op) (emit-for args level form)
-               (= op 'for-loop) (emit-for-loop args level form)
+               (= op 'while-loop)
+               (let [[options] args
+                     source (emit-while-loop args level form)]
+                 (cond-> source
+                   (and (map? options)
+                        (contains? options :else-expression)
+                        (expression-statement-needs-semicolon?
+                         (:else-expression options)))
+                   ensure-semicolon))
+               (contains? #{'for 'inline-for} op)
+               (let [[_bindings & body] args
+                     source (emit-for args level form)]
+                 (cond-> source (for-else-expression? body) ensure-semicolon))
+               (= op 'for-loop)
+               (let [[_options _bindings & body] args
+                     source (emit-for-loop args level form)]
+                 (cond-> source (for-else-expression? body) ensure-semicolon))
                (= op 'else-clause)
                (fail! "else-clause can only be the final form of a for" form)
                (= op 'else-expression)
@@ -1308,7 +1423,10 @@
                (= op 'continue) (case (count args)
                                   0 "continue;"
                                   1 (str "continue :" (identifier (first args)) ";")
-                                  (fail! "continue expects at most one label" form))
+                                  2 (str "continue :" (identifier (first args)) " "
+                                         (emit-expr (second args)) ";")
+                                  (fail! "continue expects an optional label and switch operand"
+                                         form))
                (= op 'unreachable) (if (empty? args)
                                      "unreachable;"
                                      (fail! "unreachable takes no arguments" form))
@@ -1503,16 +1621,30 @@
     (when (seq zig-prefix) (str zig-prefix " "))
     default-prefix))
 
+(defn- comment-lines
+  [prefix value]
+  (when (seq value)
+    (str (->> (if (string? value) (str/split-lines value) value)
+              (map #(str prefix (when (seq %) " ") %))
+              (str/join "\n"))
+         "\n")))
+
+(defn- declaration-notes
+  [{:keys [doc comments]}]
+  (str (comment-lines "///" doc)
+       (comment-lines "//" comments)))
+
 (defn emit-declaration
   "Emit a normalized declaration descriptor."
   [{:keys [kind name type value fields body args return export? public? layout
            source code import-name leading-source zig-prefix zig-qualifiers
            zig-name implicit-return? emit-source-comment? test-name
-           has-value? align]
+           has-value? align doc comments]
     :as declaration}]
   (let [declaration-name (or zig-name name)]
     (str
      leading-source
+     (declaration-notes {:doc doc :comments comments})
      (when (not= false emit-source-comment?) (source-comment source))
      (case kind
      :import
@@ -1532,9 +1664,7 @@
             (when type (str ": " (emit-type type)))
             (when (seq zig-qualifiers) (str " " zig-qualifiers))
             " = " rendered
-            (if (multiline-string-tail? rendered)
-              "\n;"
-              ";")))
+            (expression-terminator rendered)))
 
      :var
      (let [rendered (emit-expr value)]
@@ -1544,9 +1674,7 @@
             (when type (str ": " (emit-type type)))
             (when (seq zig-qualifiers) (str " " zig-qualifiers))
             " = " rendered
-            (if (multiline-string-tail? rendered)
-              "\n;"
-              ";")))
+            (expression-terminator rendered)))
 
      :struct
      (str (declaration-prefix zig-prefix
@@ -1642,30 +1770,44 @@
           [nil declaration])
         [attributes declaration]
         (if (and (map? (first declaration)) (next declaration))
-          [(first declaration) (next declaration)]
-          [{} declaration])]
-    [docstring attributes declaration]))
+          [(cond-> (first declaration)
+             (not (contains? (first declaration) :attrs))
+             (assoc :attrs #{}))
+           (next declaration)]
+          [{:attrs #{}} declaration])]
+    [(or docstring (:doc attributes)) attributes declaration]))
 
 (defn- nested-base
   [kind name attributes]
-  (let [attributes (merge (meta name) attributes)]
+  (let [attributes (merge (meta name) attributes)
+        compact? (contains? attributes :attrs)
+        attrs (set (:attrs attributes))]
     {:kind kind
      :name name
      :zig-name (:zig/name attributes)
-     :export? (not= false (:export attributes))
-     :public? (if (contains? attributes :public)
-                (:public attributes)
-                (not (:private attributes)))
+     :doc (:doc attributes)
+     :comments (:comments attributes)
+     :export? (if compact? (contains? attrs :export)
+                  (not= false (:export attributes)))
+     :public? (if compact? (contains? attrs :public)
+                  (if (contains? attributes :public)
+                    (:public attributes)
+                    (not (:private attributes))))
      :leading-source (:zig/leading attributes)
      :zig-prefix (:zig/prefix attributes)
      :zig-qualifiers (:zig/qualifiers attributes)
-     :implicit-return? (not= false (:implicit-return attributes))
-     :emit-source-comment? (not= false (:source-comment attributes))
+     :implicit-return? (if compact? (contains? attrs :implicit-return)
+                           (not= false (:implicit-return attributes)))
+     :emit-source-comment? (if compact? (contains? attrs :source-comment)
+                               (not= false (:source-comment attributes)))
      :align (:zig/align attributes)}))
 
 (defn- nested-declaration
   [form]
-  (let [[operator & declaration] form]
+  (let [[source-operator & declaration] form
+        operator (or (resolved-syntax-operator (or *keyword-context* *ns*)
+                                                  source-operator)
+                     source-operator)]
     (case operator
       fn-decl
       (let [[name & declaration] declaration
@@ -1723,36 +1865,55 @@
         (merge (nested-base :import name {}) {:import-name import-name}))
 
       field-decl
-      (let [[name attributes type & initializer] declaration]
-        (when-not (and (map? attributes) (<= (count initializer) 1))
-          (fail! "field-decl expects name, attributes, type, and optional value" form))
+      (let [[name & declaration] declaration
+            [attributes declaration] (if (map? (first declaration))
+                                       [(first declaration) (next declaration)]
+                                       [{:attrs #{}} declaration])
+            [type & initializer] declaration]
+        (when-not (and type (<= (count initializer) 1))
+          (fail! "field-decl expects name, optional attributes, type, and optional value" form))
         (merge (nested-base :field name attributes)
                {:type type :has-value? (boolean (seq initializer))
                 :value (first initializer)}))
 
       enum-field-decl
-      (let [[name attributes & initializer] declaration]
-        (when-not (and (map? attributes) (<= (count initializer) 1))
-          (fail! "enum-field-decl expects name, attributes, and optional value" form))
-        {:kind :enum-field :name name :attributes (merge (meta name) attributes)
-         :has-value? (boolean (seq initializer)) :value (first initializer)})
+      (let [[name & declaration] declaration
+            [attributes initializer] (if (map? (first declaration))
+                                       [(first declaration) (next declaration)]
+                                       [{:attrs #{}} declaration])]
+        (when-not (<= (count initializer) 1)
+          (fail! "enum-field-decl expects name, optional attributes, and optional value" form))
+        (merge (nested-base :enum-field name attributes)
+               {:attributes (merge (meta name) attributes)
+                :has-value? (boolean (seq initializer))
+                :value (first initializer)}))
 
       tuple-field-decl
-      (let [[attributes type & initializer] declaration]
-        (when-not (and (map? attributes) (<= (count initializer) 1))
-          (fail! "tuple-field-decl expects attributes, type, and optional value" form))
-        {:kind :tuple-field :type type :attributes attributes
-         :has-value? (boolean (seq initializer)) :value (first initializer)})
+      (let [[attributes declaration] (if (map? (first declaration))
+                                       [(first declaration) (next declaration)]
+                                       [{:attrs #{}} declaration])
+            [type & initializer] declaration]
+        (when-not (and type (<= (count initializer) 1))
+          (fail! "tuple-field-decl expects optional attributes, type, and optional value" form))
+        (merge (nested-base :tuple-field nil attributes)
+               {:attributes attributes
+                :type type
+                :has-value? (boolean (seq initializer))
+                :value (first initializer)}))
 
       comptime-decl
-      (let [[name & body] declaration]
-        (merge (nested-base :comptime name {}) {:body (vec body)}))
+      (let [[name & declaration] declaration
+            [docstring attributes body] (nested-doc-attributes declaration)]
+        (merge (nested-base :comptime name attributes)
+               {:doc docstring :body (vec body)}))
 
       test-decl
-      (let [[attributes test-name & body] declaration]
-        (merge {:kind :test :test-name test-name :body (vec body)}
-               {:leading-source (:zig/leading attributes)
-                :emit-source-comment? (not= false (:source-comment attributes))}))
+      (let [[attributes declaration] (if (map? (first declaration))
+                                       [(first declaration) (next declaration)]
+                                       [{:attrs #{}} declaration])
+            [test-name & body] declaration]
+        (merge (nested-base :test nil attributes)
+               {:test-name test-name :body (vec body)}))
 
       (fail! "Unknown nested Zig declaration" form {:operator operator}))))
 
@@ -1762,12 +1923,14 @@
         (nested-declaration form)]
     (case kind
       :enum-field
-      (str (:zig/leading attributes)
+      (str (:leading-source declaration)
+           (declaration-notes declaration)
            (identifier (or (:zig/name attributes) name))
            (when has-value? (str " = " (emit-expr value))) ",")
 
       :tuple-field
-      (str (:zig/leading attributes)
+      (str (:leading-source declaration)
+           (declaration-notes declaration)
            (when-let [prefix (:zig/prefix attributes)] (str prefix " "))
            (emit-type type)
            (when-let [align (:zig/align attributes)]
@@ -1781,7 +1944,8 @@
   (let [[_ options & members] form]
     (when-not (and (map? options) (keyword? (:kind options)))
       (fail! "container expects an option map with :kind" form))
-    (let [{:keys [kind layout enum? argument zig/trailing]} options
+    (let [{:keys [kind layout enum? argument zig/trailing attrs]} options
+          enum? (or enum? (contains? (set attrs) :enum))
           layout-source (case layout
                           :extern "extern "
                           :packed "packed "
@@ -1791,7 +1955,8 @@
                                  form))
           kind-source
           (case kind
-            :struct "struct"
+            :struct (str "struct"
+                         (when argument (str "(" (emit-type argument) ")")))
             :enum (str "enum" (when argument (str "(" (emit-type argument) ")")))
             :union (cond
                      enum? (str "union(enum"
@@ -1817,40 +1982,60 @@
   originating Clojure namespace. The data is serializable and can also be used
   by the compiler runtime to resolve generated module dependencies."
   [declarations]
-  (reduce
-   (fn [imports value]
-     (if-let [{:keys [import-alias import-name import-namespace]}
-              (and (symbol? value)
-                   (:aguafria/zig-reference (meta value)))]
-       (if (and import-alias import-name)
-         (let [entry {:alias import-alias
-                      :import-name import-name
-                      :namespace import-namespace}]
-           (if-let [existing (get imports import-alias)]
-             (if (= existing entry)
-               imports
-               (fail! "Two required namespaces resolve to the same Zig import alias"
-                      value {:alias import-alias
-                             :first existing
-                             :second entry}))
-             (assoc imports import-alias entry)))
-         imports)
-       imports))
-   (sorted-map)
-   (tree-seq coll? seq declarations)))
+  (let [explicit
+        (into (sorted-map)
+              (keep
+               (fn [{:keys [name zig-name attributes]}]
+                 (let [import-name (:zig/import-name attributes)
+                       import-namespace (:zig/import-namespace attributes)]
+                   (when (and (string? import-name) import-namespace)
+                     (let [alias (identifier (or zig-name name))]
+                       [alias {:alias alias
+                               :import-name import-name
+                               :namespace (symbol (str import-namespace))}])))))
+              declarations)]
+    (reduce
+     (fn [imports value]
+       (if-let [{:keys [import-alias import-name import-namespace]}
+                (and (symbol? value)
+                     (:aguafria/zig-reference (meta value)))]
+         (if (and import-alias import-name)
+           (let [entry {:alias import-alias
+                        :import-name import-name
+                        :namespace import-namespace}]
+             (if-let [existing (get imports import-alias)]
+               (if (= existing entry)
+                 imports
+                 (fail! "Two required namespaces resolve to the same Zig import alias"
+                        value {:alias import-alias
+                               :first existing
+                               :second entry}))
+               (assoc imports import-alias entry)))
+           imports)
+         imports))
+     explicit
+     (tree-seq coll? seq declarations))))
 
 (defn- synthesized-import-declarations
   [declarations]
   (let [explicit (into {}
-                       (keep (fn [{:keys [kind name zig-name import-name]}]
-                               (when (= :import kind)
-                                 [(identifier (or zig-name name)) import-name])))
+                       (keep (fn [{:keys [kind name zig-name import-name
+                                         attributes]}]
+                               (let [ordinary-import
+                                     (:zig/import-name attributes)]
+                                 (cond
+                                   (= :import kind)
+                                   [(identifier (or zig-name name)) import-name]
+
+                                   (string? ordinary-import)
+                                   [(identifier (or zig-name name))
+                                    ordinary-import]))))
                        declarations)]
     (mapv
      (fn [[alias {:keys [import-name]}]]
        (when-let [explicit-import (get explicit alias)]
          (when-not (= explicit-import import-name)
-           (fail! "A synthesized namespace import conflicts with az/defimport"
+          (fail! "A synthesized namespace import conflicts with an explicit module Var"
                   alias {:alias alias
                          :namespace-import import-name
                          :explicit-import explicit-import})))
@@ -1867,7 +2052,9 @@
 (defn emit-module
   "Emit a complete deterministic Zig source module from declarations."
   ([module-name declarations]
-   (binding [*source-mapping?* true]
+   (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
+   (binding [*source-mapping?* true
+             *keyword-context* context-ns]
      (let [imports (remove nil? (synthesized-import-declarations declarations))
            declarations (concat imports declarations)]
        (str "// Generated by Aguafria. Edit the Clojure declarations, not this file.\n"
@@ -1876,7 +2063,7 @@
                (sort-by declaration-sort-key)
                (map emit-declaration)
                (str/join "\n\n"))
-            "\n"))))
+            "\n")))))
   ([context-ns module-name declarations]
    (emit-module module-name
                 (mapv (partial prepare-declaration context-ns) declarations))))

@@ -8,11 +8,13 @@ calls, parallel snapshots, namespace-module replacement, external Zig modules,
 standalone `ReleaseFast` output, statistics, mapped diagnostics, and the
 Zig/ZLS-generated keyword catalog plus the complete EDN-derived Zig std
 namespace graph. The complete current 245-file TigerBeetle conversion is
-checked in and bulk-loadable as 245 ordinary namespaces with 3,944 top-level
+checked in and bulk-loadable as 245 ordinary namespaces with 3,982 top-level
 declarations, zero generated `az/defraw` declarations, and zero nested
 `raw`/`raw-statements`/type/expression fallbacks. Conversion now fails with
 source-located structured data instead of returning generated code if any Zig
-AST node lacks a structural Aguafria representation.
+AST node lacks a structural Aguafria representation. The complete converted
+graph also materializes back into a 619-file TigerBeetle project and passes
+`zig build check` with Zig 0.16.0.
 
 The pinned TigerBeetle source now has a verified compatibility-only Zig 0.16
 baseline on macOS/aarch64: `zig build check`, the release build and CLI smoke
@@ -48,9 +50,11 @@ is an implicit return for the final expression of a non-void function.
 1. **Project and public API**
    - Add `deps.edn`, source/test paths, Kaocha discovery, and an nREPL alias.
    - Expose `aguafria.zig` as the user namespace (normally aliased to `az`).
-   - Expose reader-hostile Zig syntax through generated, documented Vars in
-     `aguafria.keyword` (normally aliased to `ak`) while keeping readable
-     language forms such as `if` and `while` bare.
+   - Expose Zig-only keywords/operators and reader-hostile Zig syntax through
+     generated, documented Vars in `aguafria.keyword` (normally aliased to
+     `ak`) while keeping Clojure-native language forms such as `if` and
+     `while` bare. Expose structural Aguafria helpers such as `az/field` and
+     `az/while-loop` as real documented Vars as well.
    - Expose Zig's entire public std graph as normal require-able namespaces
      under `aguafria.std`, including nested container members and docs, with a
      single runtime bootstrap reading the generated EDN catalog and no
@@ -76,12 +80,15 @@ is an implicit return for the final expression of a non-void function.
      branches, and tail `do` blocks while retaining explicit early returns.
    - Keep output deterministic and reject malformed forms with useful
      `ex-info` data.
-   - Represent imported modules and members as real, inspectable Clojure Vars;
+   - Represent imported modules and members as normal Clojure namespace aliases
+     and real, inspectable Clojure Vars;
      reject unresolved dotted/qualified references instead of treating them as
-     magical Zig identifiers. Converted relative Zig imports become ordinary
-     Clojure `:require` aliases, and module/source metadata supplies the
-     corresponding Zig `@import(...)` during emission. Do not generate empty
-     `az/defimport` declarations for converted project files.
+     magical Zig identifiers. Converted modules use cycle-safe Clojure
+     `:as-alias` requires and a generated EDN rename catalog; generated
+     namespaces contain no Aguafria metadata and no Zig file paths. Clojure
+     namespace identity is the live compiler-module identity. Original Zig
+     paths remain only in conversion reports used by optional materialization.
+     Do not generate empty `az/defimport` declarations for converted files.
    - Qualify generated `ak/...` aliases to their `aguafria.keyword/...` Var
      symbols at macro-expansion time, independent of the chosen alias. Have the
      emitter consume those Vars directly—without an intermediate `builtin`
@@ -156,9 +163,14 @@ is an implicit return for the final expression of a non-void function.
      formatting, and verification must be explicit options, and every
      operation must return a serializable conversion report.
    - Translate imports, functions, constants, variables, structs, ordinary
-     operators, language forms, and `@` builtins to normal `az/...`, bare Zig
-     forms, `aguafria.std...` Vars, and `ak/...` Vars. Preserve comments and
-     source locations for documentation and error mapping.
+     operators, language forms, and `@` builtins to normal `az/...`,
+     Clojure-native forms, `aguafria.std...` Vars, and `ak/...` Vars. Reject
+     generated Zig/Aguafria syntax list heads that do not resolve through a
+     real Var or Clojure itself. Preserve comments, logical blank-line groups,
+     and source locations for documentation and error mapping. Render ordinary Zig
+     comments as `;;` at their corresponding Clojure declaration/member/body
+     positions, and render Zig doc comments as idiomatic declaration
+     docstrings.
    - Never emit `az/defraw`, `(raw ...)`, `(raw-statements ...)`, or chunked raw
      equivalents in converted user code. Every declaration, nested container,
      expression, type, and statement must have an inspectable structural
@@ -253,10 +265,11 @@ is an implicit return for the final expression of a non-void function.
   ordinary Aguafria Clojure namespace per Zig file.
 - [x] Bulk-load all generated namespaces with Vars interned in their declared
   namespaces and zero top-level `az/defraw` declarations.
-- [x] Replace converted relative `az/defimport ... []` declarations with normal
-  namespace `:require` aliases whose Vars carry resolvable Zig references;
-  synthesize the matching Zig imports from namespace/module metadata, and
-  automatically pass registered dependency-module sources to Zig.
+- [x] Replace converted relative `az/defimport ... []` declarations with
+  cycle-safe namespace `:as-alias` requires and real target Vars. Resolve the
+  few unavoidable reader/structural name collisions through an EDN catalog,
+  keep generated namespaces free of Aguafria metadata and Zig paths, and use
+  Clojure namespace identity for live compiler modules.
 - [x] Resolve converted source modules (for example `stdx`/`vsr`) as ordinary
   required namespaces. Preserve compiler/build-provided module values such as
   `builtin`, `root`, and build option modules as ordinary `az/defconst` Vars
@@ -265,20 +278,47 @@ is an implicit return for the final expression of a non-void function.
 - [x] Support declaration docstrings and ordinary attr-maps after names for
   `defn`, `defconst`, `defvar`, and `defstruct`; let inferred-type
   `defconst`/`defvar` omit the `_` placeholder, and generate this clean syntax.
+- [x] Normalize `defextern` and `deffield` to accept docstrings/ordinary
+  attr-maps after the name; `defcomptime` follows the same convention and
+  nameless `deftest` accepts a leading attr-map.
+- [x] Remove generated layout bookkeeping (`:zig/order`, `:zig/leading`, and
+  `:zig/trailing`) from user-facing Clojure. Preserve declaration order inside
+  the emitter/runtime, compact positive declaration booleans into
+  `:attrs #{...}`, and show retained comments as actual `;;` source comments
+  instead of metadata-map noise.
+- [x] Omit an empty `:attrs` set and its entire argument from generated source;
+  preserve top-level no-flag semantics through the EDN project catalog and use
+  natural no-flag defaults for nested members such as
+  `(az/field-decl uniform_bit :u1)`.
+- [x] Preserve original logical paragraph breaks between function statements,
+  with blank lines containing no indentation-only whitespace.
+- [x] Back every non-Clojure syntax head with a documented `ak/...` or `az/...`
+  Var, generate keyword/operator entries from Zig 0.16's tokenizer, and fail
+  conversion if known syntax remains unresolved.
+- [x] Regenerate the complete TigerBeetle corpus with compact attrs/comments
+  and assert that no obsolete ordering/layout/false-boolean metadata remains;
+  the generated corpus contains 10,390 positioned `;;` comment lines.
 - [x] Eliminate all nested raw expression/statement/type fallbacks from all 245
   generated namespaces—not only the selected executable path.
 - [x] Add a hard conversion/generation test that rejects every raw boundary in
   converted code and reports the unsupported Zig AST node with source context.
-- [ ] Compile the converted TigerBeetle graph rather than merely loading its
-  structural declarations.
+- [x] Materialize the full converted TigerBeetle graph and pass
+  `zig build check` with Zig 0.16.0 rather than merely loading structural
+  declarations. The Kaocha regression performs a fresh 245-file conversion,
+  materializes all 619 project files, and runs this compiler gate.
+- [x] Rebuild handwritten and materialized TigerBeetle executables from the
+  same source commit and compare representative CLI behavior: `version` and
+  the complete 4,478-byte `--help` output are byte-identical.
 - [ ] Compare normalized generated Zig, executable behavior, protocol-visible
   results, exit status, and selected upstream tests with the handwritten Zig
   baseline.
 
 ### Live reload engine
 
-- [ ] Add logical Var identities plus callable ABI and struct schema
-  fingerprints.
+- [x] Add stable logical Var identities plus deterministic callable ABI and
+  struct/container schema fingerprints. Store them in Var metadata and the
+  serializable statistics API; body/doc changes preserve their compatible key
+  while signature/field/order/layout changes produce a breaking key.
 - [ ] Generate stable dispatch cells and route reloadable inter-Var calls
   through the cell for the referenced ABI version.
 - [ ] Add atomic component publication, active-call accounting, quiescence,
@@ -294,7 +334,10 @@ is an implicit return for the final expression of a non-void function.
 - [x] Record the initial complete structural TigerBeetle conversion baseline:
   245 files and 3,944 declarations in 27.85 seconds on the current
   macOS/aarch64 development machine with Zig 0.16.0; retain per-file timings in
-  the serializable conversion report.
+  the serializable conversion report. After retaining 38 public import Vars,
+  the current namespace-native/catalog conversion contains 3,982 declarations
+  and completes in about 22.7 seconds while resolving every project-local nested
+  `@import` through namespace aliases.
 - [ ] Add reproducible microbenchmarks and whole-project benchmarks for sample
   and TigerBeetle conversion, catalog bootstrap/Var interning, emission,
   clean/cached/incremental compilation, parallel declaration compilation,

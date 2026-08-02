@@ -33,6 +33,16 @@
   (is (= "?*u8" (emit/emit-expr '(type [:optional [:* :u8]]))))
   (is (= "(Foo{.x = 1}).stat()"
          (emit/emit-expr '((field (init Foo {:x 1}) stat)))))
+  (testing "postfix expressions preserve Zig precedence"
+    (is (= "b.step(\"check\", \"Check\")"
+           (emit/emit-expr '((field b step) "check" "Check"))))
+    (is (= "(try file.stat(io)).size"
+           (emit/emit-expr '(field (try ((field file stat) io)) size)))))
+  (is (str/starts-with?
+       (emit/emit-expr
+        '(container {:kind :struct :layout :packed :argument :u16}
+                    (field-decl bits :u16)))
+       "packed struct(u16)"))
   (is (= ".{.x = 1, .y = 2}" (emit/emit-expr {:y 2 :x 1})))
   (is (= ".{1, 2, 3}" (emit/emit-expr [1 2 3])))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -49,6 +59,8 @@
   (is (= "errdefer cleanup();" (emit/emit-stmt '(errdefer (cleanup)))))
   (is (= "comptime validate();"
          (emit/emit-stmt '(comptime-stmt (validate)))))
+  (is (= "continue :dispatch self.producer;"
+         (emit/emit-stmt '(continue dispatch (field self producer)))))
   (is (= (str "while ((i < n)) {\n"
               "    total += i;\n"
               "    i += 1;\n"
@@ -59,7 +71,37 @@
               "} else {\n"
               "    return x;\n"
               "}")
-         (emit/emit-stmt '(if (< x 0) (return (- x)) (return x))))))
+         (emit/emit-stmt '(if (< x 0) (return (- x)) (return x)))))
+  (testing "for-else expressions terminate the complete Zig statement"
+    (is (= (str "for (items) |item| {\n"
+                "    use(item);\n"
+                "} else return .different_member_set;")
+           (emit/emit-stmt
+            '(for [[item items]] (use item)
+               (else-expression (return :.different_member_set))))))
+    (is (= (str "inline for (items) |item| {\n"
+                "    use(item);\n"
+                "} else unreachable;")
+           (emit/emit-stmt
+            '(inline-for [[item items]] (use item)
+               (else-expression unreachable))))))
+  (testing "while-else expressions terminate only when Zig requires it"
+    (is (= (str "while ((head < max)) {\n"
+                "    advance();\n"
+                "} else max;")
+           (emit/emit-stmt
+            '(while-loop {:else-expression max} (< head max) (advance)))))
+    (let [source
+          (emit/emit-stmt
+           '(while-loop
+             {:else-expression
+              (switch value
+                (case [0] zero)
+                (case-else other))}
+             ready
+             (advance)))]
+      (is (str/ends-with? source "\n}"))
+      (is (not (str/ends-with? source "\n};"))))))
 
 (deftest struct-schema-test
   (testing "Malli-style field entries preserve per-field properties"
