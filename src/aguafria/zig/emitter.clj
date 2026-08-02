@@ -38,7 +38,7 @@
 
 (def ^:private structural-operators
   '#{raw raw-chunks raw-statements raw-statement-chunks
-     do block labeled-block init array-init op type
+     do block labeled-block object init array-init op type
      number-literal string-literal multiline-string char-literal
      identifier-literal enum-literal error-value
      pointer-capture else-clause else-expression catch-capture
@@ -101,10 +101,14 @@
           zig-name (when target-module
                      (project/declaration-zig-name target-module clojure-name))]
       (when (and zig-name target-module)
-        {:kind :declaration
-         :module target-module
-         :zig-name zig-name
-         :symbol (symbol target-module clojure-name)}))))
+        (merge
+         {:kind :declaration
+          :module target-module
+          :zig-name zig-name
+          :symbol (symbol target-module clojure-name)}
+         (select-keys
+          (project/module-import (ns-name context-ns) requested-alias)
+          [:source-order]))))))
 
 (defn- namespace-root-reference
   [context-ns sym]
@@ -112,10 +116,14 @@
     (when-let [target-ns (get (ns-aliases context-ns) sym)]
       (let [module (str (ns-name target-ns))]
         (when-not (str/starts-with? module "aguafria.zig.import.")
-          (cond-> {:kind :namespace-root
-                   :module module
-                   :zig-name (identifier sym)
-                   :symbol sym}
+          (cond-> (merge
+                   {:kind :namespace-root
+                    :module module
+                    :zig-name (identifier sym)
+                    :symbol sym}
+                   (select-keys
+                    (project/module-import (ns-name context-ns) sym)
+                    [:source-order]))
             (= "aguafria.std" module)
             (assoc :module nil
                    :import-alias (identifier sym)
@@ -156,6 +164,7 @@
       (let [requested-alias (or (some-> original-symbol namespace symbol)
                                 (when (= :namespace-root (:kind reference))
                                   original-symbol))
+            catalog-import (project/module-import current-module requested-alias)
             aliased-target (some-> (get (ns-aliases context-ns) requested-alias)
                                    ns-name str)
             [import-alias import]
@@ -175,8 +184,13 @@
                        :namespace-root
                        :namespace-member)
                :import-alias zig-alias
+               ;; Live modules import the converted namespace identity. The
+               ;; catalog retains the original `.zig` spelling solely for
+               ;; optional standalone materialization.
                :import-name target-module
                :import-namespace (symbol target-module)
+               :source-order (or (:source-order catalog-import)
+                                 (:source-order reference))
                :zig-name (if (= :namespace-root (:kind reference))
                            zig-alias
                            (str zig-alias "." (:zig-name reference))))))))
@@ -190,6 +204,19 @@
 (defn- current-zig-reference
   [sym]
   (resolve-zig-reference (or *keyword-context* *ns*) sym))
+
+(defn- known-type-reference
+  [sym]
+  (or (some-> (current-zig-reference sym)
+              (#(when (:type-reference? %) %)))
+      ;; Ordinary same-namespace type calls remain unqualified in stored
+      ;; forms. Resolve only Vars explicitly marked as Zig type declarations;
+      ;; arbitrary functions that receive maps must remain function calls.
+      (when (and (symbol? sym) (nil? (namespace sym)))
+        (some-> (resolve-context-var (or *keyword-context* *ns*) sym)
+                meta
+                :aguafria/zig-reference
+                (#(when (:type-reference? %) %))))))
 
 (declare qualify-form)
 
@@ -542,6 +569,22 @@
             (str/join ", "))
        "}"))
 
+(defn- emit-object-literal
+  [fields form]
+  (when-not (and (vector? fields)
+                 (every? #(and (vector? %) (= 2 (count %))) fields))
+    (fail! "object expects one vector of [field value] entries" form
+           {:fields fields}))
+  (str ".{"
+       (->> fields
+            (map (fn [[field value]]
+                   (when-not (or (keyword? field) (symbol? field) (string? field))
+                     (fail! "object field names must be keywords, symbols, or strings"
+                            form {:field field}))
+                   (str "." (identifier field) " = " (emit-expr value))))
+            (str/join ", "))
+       "}"))
+
 (defn- emit-vector-literal
   [xs]
   (str ".{" (str/join ", " (map emit-expr xs)) "}"))
@@ -784,6 +827,12 @@
         (= op 'multiline-string)
         (emit-multiline-string args form)
 
+        (= op 'object)
+        (let [[fields & extra] args]
+          (if (empty? extra)
+            (emit-object-literal fields form)
+            (fail! "object expects one vector of [field value] entries" form)))
+
         (= op 'error-value)
         (if (= 1 (count args))
           (str "error." (identifier-fragment (first args)))
@@ -800,9 +849,14 @@
 
         (= op 'init)
         (let [[type fields] args]
-          (if (and (= 2 (count args)) (map? fields))
-            (str (emit-type type) (subs (emit-map-literal fields) 1))
-            (fail! "init expects a type and field map" form)))
+          (if (and (= 2 (count args))
+                   (or (map? fields)
+                       (and (seq? fields)
+                            (= 'object
+                               (resolved-syntax-operator
+                                (or *keyword-context* *ns*) (first fields))))))
+            (str (emit-type type) (subs (emit-expr fields) 1))
+            (fail! "init expects a type and an object/map literal" form)))
 
         (= op 'array-init)
         (let [[type elements] args]
@@ -996,6 +1050,16 @@
         (and (contains? prefix-operators (operator-name op)) (= 1 (count args)))
         (str "(" (get prefix-operators (operator-name op))
              (emit-expr (first args)) ")")
+
+        (and (known-type-reference op)
+             (= 1 (count args))
+             (or (map? (first args))
+                 (and (seq? (first args))
+                      (= 'object
+                         (resolved-syntax-operator
+                          (or *keyword-context* *ns*)
+                          (ffirst args))))))
+        (str (postfix-source op) (subs (emit-expr (first args)) 1))
 
         (or (symbol? op) (keyword? op) (string? op) (seq? op))
         (str (postfix-source op)
@@ -1762,6 +1826,81 @@
 
      (fail! "Unknown Zig declaration kind" declaration {:kind kind})))))
 
+(defn- exact-zig-symbol
+  [name]
+  (with-meta (symbol name) {:zig/name name}))
+
+(declare synthesized-import-declarations)
+
+(defn- emit-reloadable-function
+  [declaration {:keys [implementation dispatch-type dispatch getter setter
+                       active-counter]}]
+  (let [arguments (mapv :name (:args declaration))
+        call (apply list (exact-zig-symbol dispatch) arguments)
+        wrapper-body (if (= :void (:return declaration))
+                       [call]
+                       [(list 'return call)])
+        implementation-declaration
+        (assoc declaration
+               :name (symbol implementation)
+               :zig-name implementation
+               :export? false
+               :public? false
+               :doc nil
+               :comments nil
+               :source nil
+               :emit-source-comment? false)
+        implementation-source
+        (-> (emit-declaration implementation-declaration)
+            (str/replace-first
+             #"\{\n"
+             (str "{\n"
+                  "    _ = @atomicRmw(usize, &" active-counter
+                  ", .Add, 1, .acq_rel);\n"
+                  "    defer { _ = @atomicRmw(usize, &" active-counter
+                  ", .Sub, 1, .acq_rel); }\n")))
+        wrapper-declaration
+        (assoc declaration
+               :body wrapper-body
+               :implicit-return? false)]
+    (str implementation-source "\n\n"
+         "const " dispatch-type " = @TypeOf(&" implementation ");\n"
+         "var " dispatch ": " dispatch-type " = &" implementation ";\n\n"
+         "export fn " getter "() callconv(.c) usize {\n"
+         "    return @intFromPtr(&" implementation ");\n"
+         "}\n\n"
+         "export fn " setter "(address: usize) callconv(.c) void {\n"
+         "    " dispatch " = @ptrFromInt(address);\n"
+         "}\n\n"
+         (emit-declaration wrapper-declaration))))
+
+(defn emit-reloadable-module
+  "Emit a development shared-library module with stable dispatch cells for
+  declarations named by `dispatch-specs`. The ordinary `emit-module` output
+  remains the direct/static Zig source used for inspection and final builds."
+  [module-name declarations dispatch-specs]
+  (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
+    (binding [*source-mapping?* true
+              *keyword-context* context-ns]
+      (let [imports (remove nil? (synthesized-import-declarations declarations))
+            declarations (concat imports declarations)
+            {:keys [active-counter active-getter]} (some-> dispatch-specs first val)]
+        (str "// Generated by Aguafria for reloadable development.\n"
+             "// Module: " module-name "\n\n"
+             "var " active-counter ": usize = 0;\n\n"
+             "export fn " active-getter "() callconv(.c) usize {\n"
+             "    return @atomicLoad(usize, &" active-counter ", .acquire);\n"
+             "}\n\n"
+             (->> declarations
+                  (sort-by declaration-sort-key)
+                  (map (fn [declaration]
+                         (if-let [spec (get dispatch-specs
+                                            (:declaration-key declaration))]
+                           (emit-reloadable-function declaration spec)
+                           (emit-declaration declaration))))
+                  (str/join "\n\n"))
+             "\n")))))
+
 (defn- nested-doc-attributes
   [declaration]
   (let [[docstring declaration]
@@ -1769,7 +1908,13 @@
           [(first declaration) (next declaration)]
           [nil declaration])
         [attributes declaration]
-        (if (and (map? (first declaration)) (next declaration))
+        ;; An enum member can consist solely of its name and an attributes
+        ;; map, for example `(az/enum-field-decl clojure-name
+        ;; {:zig/name "@\"zig-name\""})`. Requiring a following value made
+        ;; that map look like the enum's explicit Zig value. Object values are
+        ;; represented by `az/object`, so an ordinary map in this position is
+        ;; unambiguously declaration metadata throughout the structural API.
+        (if (map? (first declaration))
           [(cond-> (first declaration)
              (not (contains? (first declaration) :attrs))
              (assoc :attrs #{}))
@@ -1866,37 +2011,42 @@
 
       field-decl
       (let [[name & declaration] declaration
-            [attributes declaration] (if (map? (first declaration))
-                                       [(first declaration) (next declaration)]
-                                       [{:attrs #{}} declaration])
+            [doc attributes declaration] (nested-doc-attributes declaration)
             [type & initializer] declaration]
         (when-not (and type (<= (count initializer) 1))
-          (fail! "field-decl expects name, optional attributes, type, and optional value" form))
+          (fail! "field-decl expects name, optional doc/attributes, type, and optional value"
+                 form))
         (merge (nested-base :field name attributes)
-               {:type type :has-value? (boolean (seq initializer))
+               {:doc doc :type type :has-value? (boolean (seq initializer))
                 :value (first initializer)}))
 
       enum-field-decl
       (let [[name & declaration] declaration
-            [attributes initializer] (if (map? (first declaration))
-                                       [(first declaration) (next declaration)]
-                                       [{:attrs #{}} declaration])]
+            ;; A Zig enum value cannot be a string. Consequently a terminal
+            ;; string here is documentation, not an explicit value. This is
+            ;; the one nested declaration where the generic doc/value parser
+            ;; would otherwise be ambiguous because no type follows the doc.
+            [doc attributes initializer]
+            (if (and (= 1 (count declaration))
+                     (string? (first declaration)))
+              [(first declaration) {:attrs #{}} nil]
+              (nested-doc-attributes declaration))]
         (when-not (<= (count initializer) 1)
-          (fail! "enum-field-decl expects name, optional attributes, and optional value" form))
+          (fail! "enum-field-decl expects name, optional doc/attributes, and optional value"
+                 form))
         (merge (nested-base :enum-field name attributes)
-               {:attributes (merge (meta name) attributes)
+               {:doc doc :attributes (merge (meta name) attributes)
                 :has-value? (boolean (seq initializer))
                 :value (first initializer)}))
 
       tuple-field-decl
-      (let [[attributes declaration] (if (map? (first declaration))
-                                       [(first declaration) (next declaration)]
-                                       [{:attrs #{}} declaration])
+      (let [[doc attributes declaration] (nested-doc-attributes declaration)
             [type & initializer] declaration]
         (when-not (and type (<= (count initializer) 1))
-          (fail! "tuple-field-decl expects optional attributes, type, and optional value" form))
+          (fail! "tuple-field-decl expects optional doc/attributes, type, and optional value"
+                 form))
         (merge (nested-base :tuple-field nil attributes)
-               {:attributes attributes
+               {:doc doc :attributes attributes
                 :type type
                 :has-value? (boolean (seq initializer))
                 :value (first initializer)}))
@@ -1967,12 +2117,13 @@
             :opaque "opaque"
             (fail! "container kind must be :struct, :enum, :union, or :opaque"
                    form))
-          member-source (str/join "\n" (map emit-container-member members))]
+          member-source (str/join "\n" (map emit-container-member members))
+          inner-source (str (when (seq member-source) (indent 1 member-source))
+                            trailing)]
       (str layout-source kind-source " {"
-           (when (or (seq member-source) (seq trailing))
-             (str "\n"
-                  (when (seq member-source) (indent 1 member-source))
-                  trailing))
+           (when (seq inner-source)
+             (str "\n" inner-source
+                  (when-not (str/ends-with? inner-source "\n") "\n")))
            "}"))))
 
 (defn declaration-imports
@@ -1996,16 +2147,20 @@
               declarations)]
     (reduce
      (fn [imports value]
-       (if-let [{:keys [import-alias import-name import-namespace]}
+       (if-let [{:keys [import-alias import-name import-namespace source-order]}
                 (and (symbol? value)
                      (:aguafria/zig-reference (meta value)))]
          (if (and import-alias import-name)
            (let [entry {:alias import-alias
                         :import-name import-name
-                        :namespace import-namespace}]
+                        :namespace import-namespace
+                        :source-order source-order}]
              (if-let [existing (get imports import-alias)]
-               (if (= existing entry)
-                 imports
+               (if (= (select-keys existing [:alias :import-name :namespace])
+                      (select-keys entry [:alias :import-name :namespace]))
+                 (assoc imports import-alias
+                        (assoc existing :source-order
+                               (or (:source-order existing) source-order)))
                  (fail! "Two required namespaces resolve to the same Zig import alias"
                         value {:alias import-alias
                                :first existing
@@ -2032,7 +2187,7 @@
                                     ordinary-import]))))
                        declarations)]
     (mapv
-     (fn [[alias {:keys [import-name]}]]
+     (fn [[alias {:keys [import-name source-order]}]]
        (when-let [explicit-import (get explicit alias)]
          (when-not (= explicit-import import-name)
           (fail! "A synthesized namespace import conflicts with an explicit module Var"
@@ -2042,7 +2197,7 @@
        (when-not (contains? explicit alias)
          {:kind :import
           :name (symbol alias)
-          :source-order Long/MIN_VALUE
+          :source-order (or source-order Long/MIN_VALUE)
           :public? false
           :export? false
           :emit-source-comment? false

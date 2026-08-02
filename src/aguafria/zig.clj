@@ -141,6 +141,7 @@
 (defn- declaration-options
   ([name] (declaration-options name nil))
   ([name attributes]
+   (project/ensure-source-catalog! *file*)
    (let [m (merge (meta name) attributes)
          compact? (or (contains? m :attrs)
                       (project/compact-default? (ns-name *ns*) name))
@@ -149,7 +150,9 @@
                    (not= false (:export m)))
       :public? (if compact? (contains? attrs :public)
                    (if (contains? m :public) (:public m) (not (:private m))))
-      :source-order (:zig/order m)
+      :source-order (or (:zig/order m)
+                        (project/declaration-source-order
+                         (ns-name *ns*) name))
       :leading-source (:zig/leading m)
       :zig-prefix (:zig/prefix m)
       :zig-qualifiers (:zig/qualifiers m)
@@ -174,11 +177,17 @@
     [(or docstring (:doc attributes)) attributes declaration]))
 
 (defn- declaration-reference
-  [{:keys [module name zig-name]}]
-  {:kind :declaration
-   :module module
-   :zig-name (emitter/identifier (or zig-name name))
-   :symbol (symbol module (str name))})
+  [{:keys [kind module name zig-name value]}]
+  (cond-> {:kind :declaration
+           :declaration-kind kind
+           :module module
+           :zig-name (emitter/identifier (or zig-name name))
+           :symbol (symbol module (str name))}
+    (or (= :struct kind)
+        (and (= :const kind)
+             (seq? value)
+             (= 'container (first value))))
+    (assoc :type-reference? true)))
 
 (defn- descriptor-expression
   "Serialize macro data so very large Zig forms do not exceed the JVM's
@@ -328,7 +337,9 @@
 
   Each entry is `[field type]` or `[field properties type]`; properties remain
   inspectable in declaration metadata. The default is `extern struct`; attach
-  `^{:layout :normal}` or `^{:layout :packed}` to the name to change it."
+  `^{:layout :normal}` or `^{:layout :packed}` to the name to change it. A
+  known struct Var is also a constructor form inside Zig code, so
+  `(Vector2 {:x 1.0 :y 2.0})` emits `Vector2{ .x = 1.0, .y = 2.0 }`."
   [name & declaration]
   (let [[docstring attributes declaration]
         (leading-doc-and-attributes declaration)

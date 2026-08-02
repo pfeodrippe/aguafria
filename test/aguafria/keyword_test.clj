@@ -25,6 +25,9 @@
       (is (some #(= "if" (:name %)) (ak/language-keywords)))
       (is (nil? (get public-vars 'if)))
       (is (var? (get public-vars 'const)))
+      (is (var? (get public-vars 'var)))
+      (is (= "var" (get-in (meta (get public-vars 'var))
+                            [:aguafria/token :zig-token])))
       (is (= :keyword (get-in (meta (get public-vars 'const))
                               [:aguafria/token :kind])))
       (is (nil? (get public-vars 'builtins))))))
@@ -52,6 +55,8 @@
     (is (= "const value: u32 = 1;"
            (az/emit-stmt '(ak/const value :u32 1))))
     (is (= "total += value;" (az/emit-stmt '(ak/+= total value))))
+    (is (= "var value: u32 = 1;"
+           (az/emit-stmt '(ak/var value :u32 1))))
     (is (var? (ns-resolve 'aguafria.zig 'while-loop)))
     (is (not (str/blank? (:doc (meta (ns-resolve 'aguafria.zig 'while-loop)))))))
 

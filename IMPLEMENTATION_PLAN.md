@@ -8,7 +8,7 @@ calls, parallel snapshots, namespace-module replacement, external Zig modules,
 standalone `ReleaseFast` output, statistics, mapped diagnostics, and the
 Zig/ZLS-generated keyword catalog plus the complete EDN-derived Zig std
 namespace graph. The complete current 245-file TigerBeetle conversion is
-checked in and bulk-loadable as 245 ordinary namespaces with 3,982 top-level
+checked in and bulk-loadable as 245 ordinary namespaces with 4,029 top-level
 declarations, zero generated `az/defraw` declarations, and zero nested
 `raw`/`raw-statements`/type/expression fallbacks. Conversion now fails with
 source-located structured data instead of returning generated code if any Zig
@@ -20,14 +20,27 @@ The pinned TigerBeetle source now has a verified compatibility-only Zig 0.16
 baseline on macOS/aarch64: `zig build check`, the release build and CLI smoke
 test, all 349 unit tests, all 44 runnable integration tests, formatting, and the
 aggregate `zig build test` pass (3 integration cases are intentionally skipped
-by their upstream platform/environment guards). The auxiliary local executable
-matrix also compiles with `vopr:build`, `fuzz:build`, `vortex:build`, and
-`scripts:build`. These changes preserve TigerBeetle behavior and contain no
-Aguafria instrumentation. This is not a claim that representative fuzz
-workloads, separate language-client tests, cross-platform targets, or the
-complete upstream CI matrix have run locally.
+by their upstream platform/environment guards). The full `clients:c` target,
+including its Linux and Windows cross-compiles, its sample, and the auxiliary
+`vopr:build`, `fuzz:build`, `vortex:build`, and `scripts:build` targets compile.
+The representative fuzz-smoke workload passes. These changes preserve
+TigerBeetle behavior and contain no Aguafria instrumentation. Separate
+language-client tests and the complete upstream CI matrix have not run locally.
 
-The remaining work is larger than the old namespace-module replacement test:
+Standalone behavioral parity is the current release gate. Exact preservation
+of Zig comments, whitespace, source-byte quines, embedded-source checksums, and
+project-specific style policy is not part of that gate; generated Zig may use
+different local/import names and layout when its compiled behavior is the same.
+The converted tree currently passes every runnable behavioral test reached by
+the aggregate; its remaining two failures and one crash are the AMQP
+source-byte checksum, `tidy`, and the source quine. The full integration suite,
+cross-platform C-client/auxiliary builds, paired deterministic VOPR seeds
+1/42/123/999, and fuzz smoke now pass. Each paired VOPR run produces identical
+output, and the original/converted fuzz-smoke runs completed in 23.548s and
+23.675s respectively. Broader performance and language-client evidence remains
+explicit follow-up work; local standalone behavioral parity is established.
+
+The later live work is larger than the old namespace-module replacement test:
 true live native Var indirection, compatible pointer swaps, incompatible ABI
 version coexistence, quiescent retirement, state migration, and a running
 TigerBeetle equivalence/hot-reload demonstration. These are tracked explicitly
@@ -83,8 +96,10 @@ is an implicit return for the final expression of a non-void function.
    - Represent imported modules and members as normal Clojure namespace aliases
      and real, inspectable Clojure Vars;
      reject unresolved dotted/qualified references instead of treating them as
-     magical Zig identifiers. Converted modules use cycle-safe Clojure
-     `:as-alias` requires and a generated EDN rename catalog; generated
+     magical Zig identifiers. Converted modules use ordinary eager `:as`
+     requires for acyclic graph edges and reserve `:as-alias` only for edges
+     that close a real Zig import cycle, as recorded in a generated EDN
+     catalog; generated
      namespaces contain no Aguafria metadata and no Zig file paths. Clojure
      namespace identity is the live compiler-module identity. Original Zig
      paths remain only in conversion reports used by optional materialization.
@@ -99,6 +114,12 @@ is an implicit return for the final expression of a non-void function.
    - On every declaration, regenerate the namespace's complete Zig module,
      content-address it, and compile it as a shared library with `zig
      build-lib`.
+   - For converted namespaces, register each declaration's inspectable source
+     immediately and debounce compilation until the namespace load is quiet;
+     evaluating a complete generated file must never compile a half-loaded
+     module. Load missing converted dependency sources cycle-safely from the
+     EDN graph before compiling, without user batching calls or namespace
+     metadata.
    - Cache generated source/binaries under `.aguafria/zig` and reload the
      entire namespace module so dependent Zig functions see redefinitions.
    - Surface compiler failures with the generated source path, command,
@@ -252,12 +273,17 @@ is an implicit return for the final expression of a non-void function.
   upstream-guarded skips, formatting, and aggregate `zig build test` all pass.
 - [x] Compile the auxiliary local executable matrix with Zig 0.16.0:
   `vopr:build`, `fuzz:build`, `vortex:build`, and `scripts:build`.
-- [ ] Exercise representative fuzz workloads and the remaining cross-platform,
-  language-client, and complete upstream CI matrix without changing
-  TigerBeetle behavior.
+- [x] Build the complete `clients:c` cross-platform artifact matrix and C
+  sample, including the Linux and Windows targets, on Zig 0.16.0.
+- [x] Exercise the deterministic representative fuzz-smoke workload; the
+  handwritten baseline completes successfully in 23.548s.
+- [ ] Exercise separate language-client tests and the complete upstream CI
+  matrix without changing TigerBeetle behavior.
 - [ ] Regenerate `vendor/tigerbeetle-zig-0.16.patch` from the submodule diff and
   verify that it applies cleanly to the pinned upstream commit.
-- [ ] Record original/upstream behavioral outputs used for equivalence.
+- [x] Record original/upstream behavioral outputs used for equivalence: CLI
+  `version`/`--help`, full unit/integration exits, VOPR seeds 1/42/123/999, and
+  deterministic fuzz-smoke output/workload completion.
 
 ### Conversion correctness
 
@@ -266,10 +292,20 @@ is an implicit return for the final expression of a non-void function.
 - [x] Bulk-load all generated namespaces with Vars interned in their declared
   namespaces and zero top-level `az/defraw` declarations.
 - [x] Replace converted relative `az/defimport ... []` declarations with
-  cycle-safe namespace `:as-alias` requires and real target Vars. Resolve the
+  normal `:as` requires on acyclic edges, cycle-safe `:as-alias` only on
+  cyclic edges, and real target Vars. Resolve the
   few unavoidable reader/structural name collisions through an EDN catalog,
   keep generated namespaces free of Aguafria metadata and Zig paths, and use
   Clojure namespace identity for live compiler modules.
+- [x] Make an arbitrary generated namespace directly evaluable in a fresh
+  REPL: discover its EDN catalog from the source/classpath, register the full
+  reachable cyclic dependency source graph automatically, coalesce whole-file
+  declaration loads, and publish the final requested module generation. The
+  `message-buffer` acceptance case loads 138 reachable modules and compiles
+  without manual preload or `batch/begin!`.
+- [x] Verify generated-code hot publication in a fresh JVM by adding and then
+  reevaluating one `az/defn`: its stable Clojure Var returns 10 before the edit,
+  11 afterward, and advances from native generation 5 to 6.
 - [x] Resolve converted source modules (for example `stdx`/`vsr`) as ordinary
   required namespaces. Preserve compiler/build-provided module values such as
   `builtin`, `root`, and build option modules as ordinary `az/defconst` Vars
@@ -292,6 +328,16 @@ is an implicit return for the final expression of a non-void function.
   `(az/field-decl uniform_bit :u1)`.
 - [x] Preserve original logical paragraph breaks between function statements,
   with blank lines containing no indentation-only whitespace.
+- [x] Represent converted Zig object/struct literals with ordered
+  `(az/object [[:field value] ...])` entry vectors instead of Clojure maps.
+  Named struct construction remains ergonomic as `(Foo {:field value})`, but
+  anonymous type inference, comptime reflection, serialization, and exact
+  regeneration never depend on hash-map iteration order.
+- [x] Emit Zig local-variable declarations through the real qualified
+  `ak/var` Var. Do not leave bare `(var ...)`, whose Clojure meaning is a
+  fundamentally different special form.
+- [x] Render multiline Zig documentation as readable multiline Clojure string
+  literals/docstrings with real line breaks, never a single escaped `\n` line.
 - [x] Back every non-Clojure syntax head with a documented `ak/...` or `az/...`
   Var, generate keyword/operator entries from Zig 0.16's tokenizer, and fail
   conversion if known syntax remains unresolved.
@@ -309,9 +355,36 @@ is an implicit return for the final expression of a non-void function.
 - [x] Rebuild handwritten and materialized TigerBeetle executables from the
   same source commit and compare representative CLI behavior: `version` and
   the complete 4,478-byte `--help` output are byte-identical.
-- [ ] Compare normalized generated Zig, executable behavior, protocol-visible
+- [x] Produce a self-contained converted-project bundle containing the
+  generated Clojure/EDN source of truth plus every non-Zig project asset. It
+  must materialize and build without consulting any original `.zig` file or
+  the original TigerBeetle checkout. The checked bundle contains 245 generated
+  namespaces and 374 non-Zig assets; its test substitutes a nonexistent
+  original input root before materializing and compiling all 619 files.
+- [x] Allow `materialize-project!` to create a nonexistent destination root;
+  cover that public API path with a focused Kaocha regression rather than
+  requiring callers to create an empty directory first.
+- [x] Run every materialized Zig module through the configured `zig fmt` by
+  default and surface formatter failures as Aguafria diagnostics. Preserve
+  clean original declaration/import placement in the EDN catalog rather than
+  reintroducing `:zig/order` noise into generated Clojure.
+- [ ] Deferred/non-gating: complete lossless source-trivia/layout regeneration
+  for programs that intentionally observe their own source. TigerBeetle's
+  quine, embedded-source checksum, and stricter `tidy` policy do not measure
+  compiled behavior and are not standalone parity blockers.
+- [x] Run the regenerated, self-contained TigerBeetle tree through the complete
+  behavioral unit/integration, deterministic VOPR/simulation, fuzz
+  build/workload, auxiliary executable, and aggregate matrix. The full
+  integration suite passes; all behavioral unit cases pass; VOPR seeds
+  1/42/123/999 have byte-identical output; fuzz smoke passes in 23.675s; and
+  `clients:c`, its sample, VOPR, fuzz, Vortex, and scripts all build. The three
+  source-observer/style exceptions remain separately recorded, and separate
+  language-client/full-CI gaps remain explicit.
+- [x] Compare executable behavior, protocol-visible deterministic simulation
   results, exit status, and selected upstream tests with the handwritten Zig
-  baseline.
+  baseline. `version` and the complete `--help` output match, and all four VOPR
+  output hashes match. Exact normalized source is intentionally not a behavior
+  requirement.
 
 ### Live reload engine
 
@@ -327,6 +400,16 @@ is an implicit return for the final expression of a non-void function.
 - [ ] Add stable versioned `defvar` state capsules and explicit migration API.
 - [ ] Add versioned `defstruct`, `defn`, and `defconst` coexistence and expose
   them through inspection/statistics.
+- [ ] Make type-producing declarations and containers live-reloadable, not
+  merely fingerprinted. This includes `az/container` values, anonymous and
+  nested containers, comptime/generic type factories such as TigerBeetle's
+  `az/defn OptionsType`, their monomorphizations, and containers returned from
+  other comptime declarations. Track their type/schema dependencies and
+  recompile/publish the affected dependency SCC atomically. A logic-only,
+  schema-compatible reevaluation must update new calls without restarting the
+  process; a breaking layout/type change must publish a new version while old
+  callers, instantiated types, and live state continue using the old version
+  until migration and quiescent retirement.
 - [ ] Preserve the direct static optimized final-build path.
 
 ### Performance
@@ -335,9 +418,12 @@ is an implicit return for the final expression of a non-void function.
   245 files and 3,944 declarations in 27.85 seconds on the current
   macOS/aarch64 development machine with Zig 0.16.0; retain per-file timings in
   the serializable conversion report. After retaining 38 public import Vars,
-  the current namespace-native/catalog conversion contains 3,982 declarations
-  and completes in about 22.7 seconds while resolving every project-local nested
-  `@import` through namespace aliases.
+  the current namespace-native/catalog conversion contains 4,029 declarations
+  and completed in 24.32 seconds in the latest full regeneration while resolving
+  every project-local nested `@import` through namespace aliases.
+- [x] Record a first native behavioral/performance parity sample: deterministic
+  VOPR output is byte-identical for seeds 1/42/123/999, while parallel
+  handwritten and converted fuzz-smoke runs complete in 23.548s and 23.675s.
 - [ ] Add reproducible microbenchmarks and whole-project benchmarks for sample
   and TigerBeetle conversion, catalog bootstrap/Var interning, emission,
   clean/cached/incremental compilation, parallel declaration compilation,
@@ -367,6 +453,12 @@ is an implicit return for the final expression of a non-void function.
   publish corrected `B@v2` through `A@v2` while both generations coexist.
 - [ ] Change a struct layout; prove old code/state remains valid, migrate with
   an explicit function, and route new code to the new version.
+- [ ] In converted TigerBeetle, reevaluate the comptime `az/defn OptionsType`
+  in `src/state_machine/workload.clj` and prove container/type-producing code
+  is genuinely hot: compatible changes atomically republish affected
+  monomorphizations and dependents, while a breaking generated-container
+  change creates a coexisting type generation without invalidating old
+  callers or state.
 - [ ] Run the converted TigerBeetle program, make a non-structural logic change,
   evaluate the changed `az/defn`, and prove the same PID adopts it while
   preserving live state.

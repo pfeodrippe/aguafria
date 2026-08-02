@@ -1,0 +1,1 @@
+This non-Zig asset must survive independent Aguafria materialization.

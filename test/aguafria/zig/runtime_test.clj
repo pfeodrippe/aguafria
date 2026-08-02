@@ -34,7 +34,9 @@
     (is (= 64 (count (:abi-fingerprint baseline))))
     (testing "implementation and parameter-name edits preserve the ABI"
       (is (= (:abi-fingerprint baseline) (:abi-fingerprint body-change)))
-      (is (= (:abi-fingerprint baseline) (:abi-fingerprint argument-rename))))
+      (is (= (:abi-fingerprint baseline) (:abi-fingerprint argument-rename)))
+      (is (not= (:implementation-fingerprint baseline)
+                (:implementation-fingerprint body-change))))
     (testing "a signature edit creates a distinct ABI version key"
       (is (not= (:abi-fingerprint baseline)
                 (:abi-fingerprint signature-change))))))

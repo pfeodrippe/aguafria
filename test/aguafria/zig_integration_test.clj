@@ -25,6 +25,10 @@
   [point :- Point]
   (+ (field point x) (field point y)))
 
+(az/defn constructed-point-sum :- :i32
+  []
+  (sum-point (Point {:y 5 :x 4})))
+
 (az/defn base
   "Increment an integer in Zig."
   :- :i32
@@ -73,9 +77,15 @@
 (az/defn ^{:export false :public true} main :- :void
   [])
 
+(defn- declaration-stat
+  [name]
+  (some #(when (= name (:name %)) %)
+        (:declarations (az/stats 'aguafria.zig-integration-test))))
+
 (deftest compile-and-invoke-test
   (testing "latest async module generation is callable"
     (is (= 12 (composed 3)))
+    (is (= 9 (constructed-point-sum)))
     (is (= 45 (sum-to 10)))
     (is (= 20 (external-quadruple 5)))
     (is (= 10 (simd-sum4 1 2 3 4)))
@@ -85,13 +95,18 @@
     (is (= 9 (abs-i32 9))))
 
   (testing "declarations are ordinary standalone Zig"
-    (let [source (az/source 'aguafria.zig-integration-test)]
+    (let [source (az/source 'aguafria.zig-integration-test)
+          reload-source (:reload-source
+                         (az/module-info 'aguafria.zig-integration-test))]
       (is (str/includes? source "const std = @import(\"std\");"))
       (is (str/includes? source "const extra_math = @import(\"extra_math\");"))
       (is (str/includes? source "pub const Point = extern struct"))
       (is (str/includes? source "pub const multiplier: i32 = 3;"))
       (is (str/includes? source "pub fn sum_point(point: Point) i32"))
-      (is (not (str/includes? source "@import(\"aguafria")))))
+      (is (str/includes? source "Point{.x = 4, .y = 5}"))
+      (is (not (str/includes? source "@import(\"aguafria")))
+      (is (not (str/includes? source "__aguafria_")))
+      (is (str/includes? reload-source "_set_dispatch"))))
 
   (testing "external Zig members are real, inspectable Clojure Vars"
     (let [test-ns (the-ns 'aguafria.zig-integration-test)
@@ -141,15 +156,29 @@
     (is (= 10 (simd-sum4 1 2 3 4)))))
 
 (deftest hot-reload-test
-  (testing "recompiling the module updates an already-defined Zig caller"
+  (testing "a compatible callee edit repoints an already-compiled Zig caller"
     (try
       (is (= 12 (composed 3)))
-      (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
-        (eval
-         '(az/defn base :- :i32
-            [x :- :i32]
-            (+ x 5))))
-      (is (= 24 (composed 3)))
+      (let [base-before (declaration-stat "base")
+            composed-before (declaration-stat "composed")
+            generations-before (:native-generation-count
+                                (az/stats 'aguafria.zig-integration-test))]
+        (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
+          (eval
+           '(az/defn base :- :i32
+              [x :- :i32]
+              (+ x 5))))
+        (is (= 24 (composed 3)))
+        (let [base-after (declaration-stat "base")
+              composed-after (declaration-stat "composed")
+              stats-after (az/stats 'aguafria.zig-integration-test)]
+          (is (< (:implementation-generation base-before)
+                 (:implementation-generation base-after)))
+          (is (= (:implementation-generation composed-before)
+                 (:implementation-generation composed-after)))
+          (is (= (inc generations-before)
+                 (:native-generation-count stats-after)))
+          (is (pos? (:dispatch-version-count stats-after)))))
       (finally
         (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
           (eval
@@ -159,6 +188,30 @@
               [x :- :i32]
               (+ x 1))))
         (az/await! 'aguafria.zig-integration-test)))))
+
+(deftest add-function-and-rewire-existing-caller-test
+  (let [pid (.pid (java.lang.ProcessHandle/current))]
+    (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
+      (eval
+       '(az/defn live-existing-b :- :i32
+          [x :- :i32]
+          (+ x 2))))
+    (is (= 5 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
+                          'live-existing-b)
+              3)))
+    (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
+      (eval
+       '(az/defn live-new-a :- :i32
+          [x :- :i32]
+          (* x 10)))
+      (eval
+       '(az/defn live-existing-b :- :i32
+          [x :- :i32]
+          (+ (live-new-a x) 2))))
+    (is (= 32 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
+                           'live-existing-b)
+               3)))
+    (is (= pid (.pid (java.lang.ProcessHandle/current))))))
 
 (deftest standalone-build-and-stats-test
   (let [artifact (az/build! 'aguafria.zig-integration-test
@@ -173,6 +226,8 @@
       (is (= "ReleaseFast" (:optimize artifact)))
       (is (.isFile (java.io.File. (:output-path artifact))))
       (is (some #{"-OReleaseFast"} (:command artifact)))
+      (is (not (str/includes? (slurp (:source-path artifact))
+                              "__aguafria_")))
       (is (zero? (:exit execution))))
     (testing "monitor-friendly statistics are plain inspectable data"
       (is (= :finished (:status module-stats)))
@@ -186,6 +241,11 @@
       (is (some #(and (= "main" (:name %)) (= :finished (:state %)))
                 (:declarations module-stats)))
       (is (some #(= :standalone-program (:purpose %)) (:builds module-stats)))
+      (is (pos? (:native-generation-count module-stats)))
+      (is (pos? (:dispatch-version-count module-stats)))
+      (is (every? integer?
+                  (keep :implementation-generation
+                        (:dispatch-versions module-stats))))
       (is (zero? (get-in all-stats [:summary :active-build-count])))
       (is (pos? (get-in all-stats [:summary :finished-build-count]))))))
 

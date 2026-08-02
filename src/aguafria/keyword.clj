@@ -33,7 +33,7 @@
     (ns-unmap *ns* sym))
   ;; Re-refer any clojure.core name that an older generated catalog shadowed.
   (doseq [sym removed
-          :when (ns-resolve 'clojure.core sym)]
+          :when (contains? (ns-publics 'clojure.core) sym)]
     (refer 'clojure.core :only [sym])))
 
 ;; Clojure keeps removed definitions across `require :reload`. Clean the old
@@ -137,6 +137,11 @@
      :symbol (symbol "aguafria.keyword" clojure-name)
      :zig-token zig-token}))
 
+(def ^:private qualified-clojure-collisions
+  "Zig keywords whose unqualified spelling has a substantially different
+  Clojure meaning. They remain real, qualified `ak/...` Vars."
+  #{"var"})
+
 (defn- intern-token!
   [token metadata]
   (let [sym (symbol (:name token))]
@@ -192,8 +197,10 @@
               (:reader-tokens generated-catalog))
         (some (fn [entry]
                 (when (and (= zig-token (:name entry))
-                           (not (special-symbol? (symbol zig-token)))
-                           (nil? (ns-resolve 'clojure.core (symbol zig-token))))
+                           (or (contains? qualified-clojure-collisions zig-token)
+                               (and (not (special-symbol? (symbol zig-token)))
+                                    (nil? (ns-resolve 'clojure.core
+                                                     (symbol zig-token))))))
                   (:name (language-token entry builtin-names))))
               (:keywords generated-catalog)))))
 
@@ -238,8 +245,9 @@
 (let [builtin-names (set (map :name (:builtins generated-catalog)))]
   (doseq [entry (:keywords generated-catalog)
           :let [operator (symbol (:name entry))]
-          :when (and (not (special-symbol? operator))
-                     (nil? (ns-resolve 'clojure.core operator)))]
+          :when (or (contains? qualified-clojure-collisions (:name entry))
+                    (and (not (special-symbol? operator))
+                         (nil? (ns-resolve 'clojure.core operator))))]
     (let [token (language-token entry builtin-names)]
       (intern-token!
        token

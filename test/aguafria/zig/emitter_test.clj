@@ -33,6 +33,21 @@
   (is (= "?*u8" (emit/emit-expr '(type [:optional [:* :u8]]))))
   (is (= "(Foo{.x = 1}).stat()"
          (emit/emit-expr '((field (init Foo {:x 1}) stat)))))
+  (is (= ".{.z = 3, .a = 1, .m = 2}"
+         (emit/emit-expr '(object [[:z 3] [:a 1] [:m 2]]))))
+  (is (= "Foo{.z = 3, .a = 1}"
+         (emit/emit-expr '(init Foo (object [[:z 3] [:a 1]])))))
+  (let [foo (with-meta 'Foo
+              {:aguafria/zig-reference
+               {:kind :declaration
+                :declaration-kind :struct
+                :zig-name "Foo"
+                :type-reference? true}})]
+    (is (= "Foo{.a = 1, .z = 3}"
+           (emit/emit-expr (list foo {:z 3 :a 1}))))
+    (is (= "Foo(.{.a = 1, .z = 3})"
+           (emit/emit-expr '(Foo {:z 3 :a 1})))
+        "An unmarked function call receiving a map must stay a function call"))
   (testing "postfix expressions preserve Zig precedence"
     (is (= "b.step(\"check\", \"Check\")"
            (emit/emit-expr '((field b step) "check" "Check"))))
@@ -43,6 +58,13 @@
         '(container {:kind :struct :layout :packed :argument :u16}
                     (field-decl bits :u16)))
        "packed struct(u16)"))
+  (is (= (str "enum {\n"
+              "    /// Waiting for work.\n"
+              "    waiting,\n"
+              "}")
+         (emit/emit-expr
+          '(container {:kind :enum :layout :normal}
+                      (enum-field-decl waiting "Waiting for work.")))))
   (is (= ".{.x = 1, .y = 2}" (emit/emit-expr {:y 2 :x 1})))
   (is (= ".{1, 2, 3}" (emit/emit-expr [1 2 3])))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
