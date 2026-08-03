@@ -33,8 +33,12 @@ clojure -M:nrepl
 ```
 
 Open `src/tigerbeetle_agua/core.clj`, evaluate the namespace, and work down the
-single `(comment ...)` form at the end. It contains generation, compilation,
-format/start, account creation, transfer, lookup, status, and hot-reload calls.
+two `(comment ...)` forms at the end. The first is an API scratchpad. The second
+is a self-contained hot-reload walkthrough with three progressively deeper
+edits: a scalar function body, TigerBeetle's real comptime-dependent transfer
+parser verified through live account balances, and a comptime type factory
+whose returned struct method updates an already-compiled caller. The replica,
+JVM, and nREPL stay running throughout.
 
 ## Generate and check
 

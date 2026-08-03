@@ -1,6 +1,7 @@
 (ns tigerbeetle-agua.core
   "A small, REPL-first host for the Aguafria-generated TigerBeetle project."
   (:require
+   [aguafria.keyword :as ak]
    [aguafria.zig :as az]
    [aguafria.zig.host :as host]
    [clojure.edn :as edn]
@@ -21,23 +22,24 @@
   (-> "tigerbeetle_agua/defaults.edn" io/resource slurp edn/read-string))
 
 (defn module-summary
-  "Return a compact view of the generated main module's compiler state."
-  []
-  (when-let [info (az/module-info tigerbeetle-main)]
-    {:module (:module info)
-     :status (cond
-               (:error info) :failed
-               (:pending? info) :compiling
-               (:source-only? info) :source-only
-               (:published-generation info) :finished
-               :else :registered)
-     :source-only? (:source-only? info)
-     :pending? (:pending? info)
-     :error (:error info)
-     :requested-generation (:requested-generation info)
-     :published-generation (:published-generation info)
-     :native-generation-count (:native-generation-count info)
-     :declaration-count (count (:definitions info))}))
+  "Return a compact view of one generated module's compiler state."
+  ([] (module-summary tigerbeetle-main))
+  ([module]
+   (when-let [info (az/module-info module)]
+     {:module (:module info)
+      :status (cond
+                (:error info) :failed
+                (:pending? info) :compiling
+                (:source-only? info) :source-only
+                (:published-generation info) :finished
+                :else :registered)
+      :source-only? (:source-only? info)
+      :pending? (:pending? info)
+      :error (:error info)
+      :requested-generation (:requested-generation info)
+      :published-generation (:published-generation info)
+      :native-generation-count (:native-generation-count info)
+      :declaration-count (count (:definitions info))})))
 
 (defn load!
   "Load and compile generated TigerBeetle in this JVM.
@@ -174,11 +176,16 @@
   ([options]
    (run-statements! demo-statements options)))
 
+(defn await-module-reload!
+  "Wait for one module's latest declarations and return compact status."
+  [module]
+  (az/await! module)
+  (module-summary module))
+
 (defn await-reload!
   "Wait for the latest evaluated declarations and return main-module status."
   []
-  (az/await! tigerbeetle-main)
-  (module-summary))
+  (await-module-reload! tigerbeetle-main))
 
 (defn status
   "Return compiler and native-host statistics suitable for a future monitor."
@@ -252,5 +259,180 @@
 
   ;; Long-running Zig mains stop at their own cooperative/natural safe point;
   ;; Aguafria deliberately does not kill arbitrary native execution.)
+
+  )
+
+(comment
+
+  ;; COMPLETE TRANSACTION-VISIBLE HOT-RELOAD WALKTHROUGH
+  ;;
+  ;; Start from examples/tigerbeetle-agua in a terminal with:
+  ;;
+  ;;   clojure -M:nrepl
+  ;;
+  ;; Connect Calva/CIDER to the printed port, open this file, evaluate its ns
+  ;; form, and then evaluate the expressions below one at a time. Everything
+  ;; runs inside that one JVM. This uses a fresh disposable TigerBeetle data
+  ;; file and an available local port; it does not touch the default data file.
+  (def hot-reload-directory
+    (.toFile
+     (java.nio.file.Files/createTempDirectory
+      "tigerbeetle-agua-hot-reload-"
+      (make-array java.nio.file.attribute.FileAttribute 0))))
+
+  (def hot-reload-address
+    (with-open [socket (java.net.ServerSocket. 0)]
+      (str (.getLocalPort socket))))
+
+  (def hot-reload-options
+    {:addresses hot-reload-address
+     :data-file (str (io/file hot-reload-directory "0_0.tigerbeetle"))})
+
+  ;; EDIT 1 OF 3 — SIMPLE FUNCTION BODY
+  ;;
+  ;; Evaluate this function and call it like an ordinary Clojure Var.
+  (az/defn live-transfer-amount :- :u128
+    []
+    10)
+
+  (live-transfer-amount)
+  ;; => 10
+  ;;
+  ;; Change only `10` above to `12`, evaluate that ONE az/defn again, then:
+  (await-module-reload! 'tigerbeetle-agua.core)
+  (live-transfer-amount)
+  ;; => 12. The existing Var now dispatches to the new native body.
+
+  ;; START THE REAL TIGERBEETLE SERVER
+  ;;
+  ;; Compile the converted program, format one replica, and start it on a
+  ;; native thread. Keep `hot-reload-replica` running throughout every step.
+  (load!)
+  (format-replica! hot-reload-options)
+  (def hot-reload-replica (start-replica! hot-reload-options))
+  (host/info hot-reload-replica)
+  ;; => {:status :running, :active? true, ...}
+
+  ;; EDIT 2 OF 3 — REAL TIGERBEETLE TRANSACTION LOGIC
+  ;;
+  ;; Interact through TigerBeetle's converted REPL. Create two accounts and
+  ;; create transfer 100 WITHOUT an `amount`. The checked parser defaults it
+  ;; to zero, so the lookup printed by TigerBeetle shows debits_posted=0 for
+  ;; account 1 and credits_posted=0 for account 2.
+  (run-statement!
+   "create_accounts id=1 code=10 ledger=700, id=2 code=10 ledger=700"
+   hot-reload-options)
+
+  (run-statement!
+   (str "create_transfers id=100 debit_account_id=1 credit_account_id=2 "
+        "ledger=700 code=10")
+   hot-reload-options)
+
+  (run-statement! "lookup_accounts id=1, id=2" hot-reload-options)
+  ;; TigerBeetle prints, in part:
+  ;;   account 1: debits_posted=0
+  ;;   account 2: credits_posted=0
+
+  ;; Open this generated Clojure namespace in the same editor:
+  ;;
+  ;;   ../../generated/tigerbeetle/tigerbeetle/src/repl/parser.clj
+  ;;
+  ;; Find the `az/defn object_default` form and change only its
+  ;; `:.create_transfers` case from:
+  ;;
+  ;;   (std-mem/zeroInit (az/field tb Transfer) (az/object []))
+  ;;
+  ;; to:
+  ;;
+  ;;   (std-mem/zeroInit (az/field tb Transfer) (az/object [[:amount 25]]))
+  ;;
+  ;; Evaluate that ONE complete `az/defn object_default` form with Calva/CIDER.
+  ;; It is a real comptime-dependent TigerBeetle parser function. Wait for its
+  ;; new generation and all compatible dependents to publish:
+  (await-module-reload! 'tigerbeetle.src.repl.parser)
+  (host/info hot-reload-replica)
+  ;; => still {:status :running, :active? true, ...}; no restart occurred.
+
+  ;; Use TigerBeetle's REPL again. Transfer 101 also omits `amount`, but the
+  ;; hot parser now supplies 25. The live replica applies the real transaction,
+  ;; and the next lookup makes the reload visible in durable ledger state.
+  (run-statement!
+   (str "create_transfers id=101 debit_account_id=1 credit_account_id=2 "
+        "ledger=700 code=10")
+   hot-reload-options)
+
+  (run-statement! "lookup_accounts id=1, id=2" hot-reload-options)
+  ;; TigerBeetle now prints, in part:
+  ;;   account 1: debits_posted=25
+  ;;   account 2: credits_posted=25
+
+  ;; Undo the one-line parser edit, evaluate `object_default` once more,
+  ;; and await it. A third omitted amount is zero again; balances remain 25.
+  (await-module-reload! 'tigerbeetle.src.repl.parser)
+
+  (run-statement!
+   (str "create_transfers id=102 debit_account_id=1 credit_account_id=2 "
+        "ledger=700 code=10")
+   hot-reload-options)
+
+  (run-statement! "lookup_accounts id=1, id=2" hot-reload-options)
+  ;; => debits_posted=25 and credits_posted=25.
+
+  ;; EDIT 3 OF 3 — COMPTIME FUNCTION RETURNING A STRUCT TYPE
+  ;;
+  ;; Evaluate both definitions. HotAmountType is a comptime type factory whose
+  ;; returned struct has data plus a method. Its attrs make it a normal public
+  ;; Zig declaration with an implicit return, without incorrectly C-exporting
+  ;; a comptime signature. comptime-amount is an ordinary compiled caller.
+  (az/defn HotAmountType
+    {:attrs #{:public :implicit-return}}
+    :-
+    :type
+    [[bonus {:zig/prefix "comptime"} :u64]]
+    (az/container
+     {:kind :struct}
+     (az/field-decl base :u64)
+     (az/const-decl Self (ak/This))
+     (az/fn-decl amount
+       {:attrs #{:implicit-return}}
+       :-
+       :u64
+       [[self [:*const Self]]]
+       (+ (az/field self base) bonus))))
+
+  (az/defn comptime-amount :- :u64
+    [[base :u64]]
+    (ak/var calculator
+      (HotAmountType 5)
+      (az/object [[:base base]]))
+    ((az/field calculator amount)))
+
+  (await-module-reload! 'tigerbeetle-agua.core)
+  (comptime-amount 10)
+  ;; => 15
+  ;;
+  ;; In HotAmountType, change only the method's final expression from:
+  ;;
+  ;;   (+ (az/field self base) bonus)
+  ;;
+  ;; to:
+  ;;
+  ;;   (+ (az/field self base) (* bonus 2))
+  ;;
+  ;; Evaluate that ONE complete HotAmountType az/defn, not comptime-amount.
+  (await-module-reload! 'tigerbeetle-agua.core)
+  (comptime-amount 10)
+  ;; => 20. The existing caller was republished against the compatible new
+  ;; struct method; its public signature and the struct layout did not change.
+
+  (mapv #(select-keys % [:generation :status :active? :schema-fingerprint])
+        (az/type-versions #'HotAmountType))
+  ;; => one active version whose :status is :compatible.
+  ;;
+  ;; Body-only function/method edits publish into existing live callers and
+  ;; objects immediately. No restart or migration is needed. Only an ABI or
+  ;; stored-layout change creates a new version: old objects/callers stay valid
+  ;; on that old version while new code uses the new version, until the user
+  ;; chooses an explicit safe migration/restart.
 
   )
