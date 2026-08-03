@@ -1804,7 +1804,7 @@
             :extern "extern struct"
             :packed "packed struct"
             :normal "struct"
-            nil "extern struct"
+            nil "struct"
             (fail! "Struct :layout must be :extern, :packed, or :normal" declaration))
           " {\n"
           (indent 1 (->> fields

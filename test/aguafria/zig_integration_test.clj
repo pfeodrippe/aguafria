@@ -333,7 +333,7 @@
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
           (eval '(az/defstruct Point
-                   {:attrs #{:public}}
+                   {:layout :extern :attrs #{:public}}
                    [[:x :i32]
                     [:y :f64]
                     [:enabled :u8]]))
@@ -570,6 +570,202 @@
                                 "__aguafria_jvm_type_")))
         (finally
           (doseq [value [@empty-value @returned @constructed]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest struct-optional-fields-use-nil-or-values-test
+  (testing "Zig supplies optional presence/payload access instead of layout guesses"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.optional-field-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constructed (atom nil)
+          returned (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct MaybeValues
+                   {:layout :normal :attrs #{:public}}
+                   [[:count [:optional :u32]]
+                    [:ratio [:optional :f64]]]))
+          (eval '(az/defn identity-maybe-values
+                   {:attrs #{:public :implicit-return}}
+                   :- MaybeValues
+                   [value :- MaybeValues]
+                   value)))
+        (reset! returned
+                ((ns-resolve test-ns 'identity-maybe-values)
+                 {:count nil :ratio 2.5}))
+        (let [MaybeValues (var-get (ns-resolve test-ns 'MaybeValues))]
+          (reset! constructed
+                  (MaybeValues {:count 4294967295 :ratio nil})))
+        (is (= {:count nil :ratio 2.5} (az/value @returned)))
+        (is (= {:count 4294967295 :ratio nil}
+               (az/value @constructed)))
+        (finally
+          (doseq [value [@returned @constructed]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest optional-function-values-use-nil-or-payload-test
+  (testing "top-level optional arguments/results use Zig semantic helpers"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.optional-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constant (atom nil)
+          absent (atom nil)
+          present (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defconst default-optional [:optional :u32] 42))
+          (eval '(az/defn identity-optional
+                   {:attrs #{:public :implicit-return}}
+                   :- [:optional :u32]
+                   [value :- [:optional :u32]]
+                   value)))
+        (reset! constant (var-get (ns-resolve test-ns 'default-optional)))
+        (reset! absent ((ns-resolve test-ns 'identity-optional) nil))
+        (reset! present
+                ((ns-resolve test-ns 'identity-optional) 4294967295))
+        (is (nil? (az/value @absent)))
+        (is (= 42 (az/value @constant)))
+        (is (= 4294967295 (az/value @present)))
+        (is (= "nil" (pr-str @absent)))
+        (finally
+          (doseq [value [@present @absent @constant]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest borrowed-pointers-are-typed-clojure-values-test
+  (testing "pointer values retain their Zig type and point at live native state"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.pointer-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          state-value (atom nil)
+          pointer-value (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defvar pointed :i32 42))
+          (eval '(az/defn pointed-address
+                   {:attrs #{:public :implicit-return}}
+                   :- [:* :i32]
+                   []
+                   (& pointed)))
+          (eval '(az/defn read-pointed
+                   {:attrs #{:public :implicit-return}}
+                   :- :i32
+                   [pointer :- [:* :i32]]
+                   (az/deref pointer))))
+        (reset! state-value (var-get (ns-resolve test-ns 'pointed)))
+        (reset! pointer-value ((ns-resolve test-ns 'pointed-address)))
+        (let [pointer (az/value @pointer-value)]
+          (is (az/zig-pointer? pointer))
+          (is (pos? (az/pointer-address pointer)))
+          (is (= [:* :i32] (az/pointer-type pointer)))
+          (is (= 4 (.byteSize (az/pointer-segment pointer 4))))
+          (is (= 42 ((ns-resolve test-ns 'read-pointed) pointer)))
+          (az/set-value! @state-value 99)
+          (is (= 99 ((ns-resolve test-ns 'read-pointed) pointer))))
+        (finally
+          (doseq [value [@pointer-value @state-value]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest slices-use-clojure-vectors-with-owned-call-storage-test
+  (testing "slice vectors round-trip, including odd-width elements and empty slices"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.slice-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          returned-values (atom [])
+          holder-value (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defn echo-slice
+                   {:attrs #{:public :implicit-return}}
+                   :- [:slice-const :u24]
+                   [items :- [:slice-const :u24]]
+                   items))
+          (eval '(az/defstruct SliceHolder
+                   [[:items [:slice-const :u24]]])))
+        (let [echo (ns-resolve test-ns 'echo-slice)
+              full (echo [0 16777215 42])
+              empty (echo [])
+              holder-type (var-get (ns-resolve test-ns 'SliceHolder))
+              holder (holder-type {:items [1 66051]})]
+          (reset! returned-values [full empty])
+          (reset! holder-value holder)
+          (is (= [0 16777215 42] (az/value full)))
+          (is (= [] (az/value empty)))
+          (is (= {:items [1 66051]} (az/value holder))))
+        (finally
+          (doseq [value (concat @returned-values [@holder-value])
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest error-unions-use-explicit-ok-or-error-maps-test
+  (testing "error-union payloads and named errors remain exact and reusable"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.error-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          returned-values (atom [])]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defn maybe-value
+                   {:attrs #{:public :implicit-return}}
+                   :- [:error-union [:error-set [NoValue]] :u24]
+                   [fail :- :bool]
+                   (if fail (az/error-value NoValue) 66051)))
+          (eval '(az/defn echo-result
+                   {:attrs #{:public :implicit-return}}
+                   :- [:error-union [:error-set [NoValue]] :u24]
+                   [result :- [:error-union [:error-set [NoValue]] :u24]]
+                   result))
+          (eval '(az/defstruct ResultHolder
+                   [[:result [:error-union [:error-set [NoValue]] :u24]]])))
+        (let [maybe-value (ns-resolve test-ns 'maybe-value)
+              echo-result (ns-resolve test-ns 'echo-result)
+              ok (maybe-value false)
+              error (maybe-value true)
+              error-value (az/value error)
+              echoed-ok (echo-result {:ok 16777215})
+              echoed-error (echo-result error-value)
+              holder-type (var-get (ns-resolve test-ns 'ResultHolder))
+              holder-ok (holder-type {:result {:ok 7}})
+              holder-error (holder-type {:result error-value})]
+          (reset! returned-values
+                  [ok error echoed-ok echoed-error holder-ok holder-error])
+          (is (= {:ok 66051} (az/value ok)))
+          (is (= :NoValue (get-in error-value [:error :name])))
+          (is (pos? (get-in error-value [:error :code])))
+          (is (= {:ok 16777215} (az/value echoed-ok)))
+          (is (= error-value (az/value echoed-error)))
+          (is (= {:result {:ok 7}} (az/value holder-ok)))
+          (is (= {:result error-value} (az/value holder-error))))
+        (finally
+          (doseq [value @returned-values
                   :when (az/zig-value? value)]
             (az/close! value))
           (az/configure! old-config)
@@ -820,7 +1016,7 @@
                          (az/module-info 'aguafria.zig-integration-test))]
       (is (str/includes? source "const std = @import(\"std\");"))
       (is (str/includes? source "const extra_math = @import(\"extra_math\");"))
-      (is (str/includes? source "pub const Point = extern struct"))
+      (is (str/includes? source "pub const Point = struct"))
       (is (str/includes? source "pub const multiplier: i32 = 3;"))
       (is (str/includes? source "pub fn sum_point(point: Point) i32"))
       (is (str/includes? source "Point{.x = 4, .y = 5}"))

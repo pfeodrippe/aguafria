@@ -23,7 +23,7 @@
                  (+ x clean-variable)))
         (eval '(az/defstruct CleanPoint
                  "Inspectable struct."
-                 {:layout :normal :public false}
+                 {:public false}
                  [[:x :f32] [:y {:doc "Vertical"} :f32]])))
       (let [by-name (into {} (map (juxt :name identity)) @declarations)]
         (is (= 4 (count @declarations)))

@@ -13,36 +13,67 @@
 
 (clojure.core/defn emit-expr "Emit one Zig expression." [form]
   (emitter/emit-expr *ns* form))
+
 (clojure.core/defn emit-stmt "Emit one Zig statement." [form]
   (emitter/emit-stmt-in *ns* form))
+
 (clojure.core/defn emit-type "Emit one Zig type." [type]
   (emitter/emit-type *ns* type))
+
 (clojure.core/defn emit-module "Emit a complete Zig module." [module declarations]
   (emitter/emit-module *ns* module declarations))
+
 (clojure.core/defn source "Return a module's current generated Zig source." [module]
   (runtime/source module))
+
 (clojure.core/defn module-info "Return inspectable loaded-module information." [module]
   (runtime/module-info module))
+
 (clojure.core/defn zig-value?
   "True for an exact native Zig value handle."
   [candidate]
   (value/zig-value? candidate))
+
 (clojure.core/defn zig-type?
   "True for an ordinary callable Aguafria Zig type constructor."
   [candidate]
   (value/zig-type? candidate))
+
+(clojure.core/defn zig-pointer?
+  "True for a typed borrowed Zig pointer returned by az/value."
+  [candidate]
+  (value/zig-pointer? candidate))
+
+(clojure.core/defn pointer-address
+  "Return a borrowed Zig pointer's native address."
+  [pointer]
+  (value/pointer-address pointer))
+
+(clojure.core/defn pointer-type
+  "Return a borrowed Zig pointer's exact Aguafria type form."
+  [pointer]
+  (value/pointer-type pointer))
+
+(clojure.core/defn pointer-segment
+  "Return a borrowed FFM MemorySegment of `byte-size` bytes at a Zig pointer."
+  [pointer byte-size]
+  (value/pointer-segment pointer byte-size))
+
 (clojure.core/defn value-info
   "Inspect a native Zig value without forcing it."
   [zig-value]
   (value/info zig-value))
+
 (clojure.core/defn native-segment
   "Return a Zig value's authoritative FFM MemorySegment."
   [zig-value]
   (value/segment zig-value))
+
 (clojure.core/defn native-bytes
   "Copy a Zig value's exact native representation into a byte vector."
   [zig-value]
   (value/bytes zig-value))
+
 (clojure.core/defn value
   "Return the semantic Clojure value represented by a native Zig value.
   Scalars remain scalars; structs become maps and arrays/vectors become
@@ -51,6 +82,7 @@
   (if (value/zig-value? zig-value)
     (value/decoded zig-value)
     zig-value))
+
 (clojure.core/defn close!
   "Release a native Zig value explicitly. Closing is idempotent; otherwise
   the backing memory is released automatically when the value becomes
@@ -59,6 +91,7 @@
   (when (value/zig-value? zig-value)
     (.close ^java.lang.AutoCloseable zig-value))
   nil)
+
 (clojure.core/defn set-value!
   "Write a checked Clojure value into an az/defvar's actual native storage.
   This is an in-place REPL operation, not a compilation. Coordinate with
@@ -69,52 +102,66 @@
                     {:value zig-var
                      :clojure-type (clojure.core/type zig-var)})))
   (value/set-value! zig-var value))
+
 (clojure.core/defn function-versions
   "Return loaded ABI versions for an exported Zig Var or qualified symbol."
   [function]
   (runtime/function-versions function))
+
 (clojure.core/defn invoke-version!
   "Invoke a retained scalar ABI version by its fingerprint."
   [function abi-fingerprint arguments]
   (runtime/invoke-version! function abi-fingerprint arguments))
+
 (clojure.core/defn stats
   "Return monitor-friendly compilation statistics globally or for one module."
   ([] (runtime/stats))
   ([module] (runtime/stats module)))
+
 (clojure.core/defn build!
   "Build a generated module as a standalone Zig artifact."
   ([module] (runtime/build! module))
   ([module options] (runtime/build! module options)))
+
 (clojure.core/defn configure! "Merge Aguafria compiler configuration." [options]
   (runtime/configure! options))
+
 (clojure.core/defn configuration "Return current Aguafria configuration." []
   (runtime/configuration))
+
 (clojure.core/defn clear! "Forget loaded modules and build history." []
   (runtime/clear!))
+
 (clojure.core/defn recompile!
   "Recompile one module or every known module using current configuration."
   ([] (runtime/recompile!))
   ([module] (runtime/recompile! module)))
+
 (clojure.core/defn recompile-component!
   "Atomically prepare and publish every module in a dependency SCC."
   [module]
   (runtime/recompile-component! module))
+
 (clojure.core/defn recompile-affected!
   "Recompile a module SCC followed by every transitively dependent SCC."
   [module]
   (runtime/recompile-affected! module))
+
 (clojure.core/defn state-versions
   "Return the retained native state generations for an az/defvar."
   [state]
   (runtime/state-versions state))
+
 (clojure.core/defn type-versions
   "Return retained schema generations for a defstruct/container type Var."
   [type]
   (runtime/type-versions type))
+
 (clojure.core/defn migrate-state!
   "Apply an explicit Zig migration to a breaking az/defvar schema change."
   [state migration]
   (runtime/migrate-state! state migration))
+
 (clojure.core/defn await!
   "Wait for the newest async build of one module or every known module."
   ([] (runtime/await!))
@@ -424,8 +471,8 @@
          [:y {:doc \"Vertical component\"} :f32]])
 
   Each entry is `[field type]` or `[field properties type]`; properties remain
-  inspectable in declaration metadata. The default is `extern struct`; attach
-  `^{:layout :normal}` or `^{:layout :packed}` to the name to change it. A
+  inspectable in declaration metadata. The default is an ordinary Zig
+  `struct`; pass `{:layout :extern}` or `{:layout :packed}` to change it. A
   known struct Var is also a constructor form inside Zig code, so
   `(Vector2 {:x 1.0 :y 2.0})` emits `Vector2{ .x = 1.0, .y = 2.0 }`."
   [name & declaration]
@@ -444,7 +491,7 @@
                             :module (str *ns*)
                             :doc docstring
                             :fields (emitter/parse-struct-fields fields)
-                            :layout (or (:layout attributes) (:layout (meta name)) :extern)
+                            :layout (or (:layout attributes) (:layout (meta name)) :normal)
                             :clojure-form &form
                             :source (source-location &form)}
                            (declaration-options name attributes)))

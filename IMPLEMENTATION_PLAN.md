@@ -107,7 +107,7 @@ natural quiescence explicitly migrates the state and adopts the new caller
 graph. Both deterministic 2,000-request hosts report `PASSED (10772 ticks)` in
 the same JVM PID. Arbitrary live stack/heap object graphs are intentionally not
 reinterpreted; they require an application-defined safe point and migration.
-The current complete Kaocha regression run passes 87 tests and 2,986
+The current complete Kaocha regression run passes 92 tests and 3,008
 assertions with zero failures.
 
 ## Goal
@@ -219,8 +219,18 @@ is an implicit return for the final expression of a non-void function.
      single-entry maps for tagged unions. Untagged union constructors retain
      the caller's explicit active-field interpretation; arbitrary returned
      untagged values correctly remain ambiguous. Live `defvar` values support
-     checked, in-place `az/set-value!` without a build. Add optionals, error
-     unions, pointers, and owned/borrowed slices.
+     checked, in-place `az/set-value!` without a build. Optionals use `nil` or
+     their semantic payload in constants, struct fields, and direct function
+     arguments/results, with Zig-generated tag/payload helpers. Typed borrowed
+     pointers preserve their exact Zig type/address, expose an explicitly sized
+     FFM view, and round-trip through direct function calls while observing
+     live native state. Slices use Clojure vectors with Zig-generated
+     pointer/length/element-layout accessors; call-owned backing storage is
+     retained whenever a returned native value may borrow it. Error unions use
+     explicit `{:ok value}` or `{:error {:name keyword :code integer}}` maps,
+     preserve exact native error codes, and work in direct calls and normal
+     struct fields. Complete long-lived owned slices, top-level mutable
+     slice/error-union state, and deeply nested special-type compositions.
    - [ ] Finish native-value lifetime coverage. Native generations are pinned
      while FFM-backed values reference their bytes; type/size/alignment/segment,
      idempotent explicit close, automatic Cleaner release, and use-after-close
@@ -756,6 +766,13 @@ is an implicit return for the final expression of a non-void function.
   4.29 ns/dispatch iteration, and 554 ns/FFM call; TigerBeetle's warm
   conversion is 3.47 s and first explicit reload/intern of 4,032 Vars is
   18.35 s.
+- [ ] Profile and shorten the complete Kaocha wall time without weakening test
+  isolation. Report per-test and per-purpose Zig process/cache timing; keep
+  deliberate clean-cache, failed-build, ABI-version, migration, and standalone
+  build cases isolated, while sharing stable compiled fixtures and eliminating
+  duplicate equivalent compiler launches in tests that do not exercise cache
+  invalidation. Add a warm-suite budget so interactive runtime performance and
+  test-harness regeneration cost remain visibly separate.
 - [x] Benchmark development dispatch against direct Zig calls, and prove the
   `:reloadable? false` `ReleaseFast` artifact has no dispatch/runtime overhead
   beyond equivalent handwritten Zig. The development probe reports both the
@@ -872,7 +889,7 @@ is an implicit return for the final expression of a non-void function.
   dependency components, 135 finished builds, 36 stale superseded builds, and
   zero active/queued/compiling builds or active native hosts. After adding the
   cache, fresh generated-classpath, and migration-monitor regressions, the
-  current complete command-line Kaocha run passes 87 tests and 2,986
+  current complete command-line Kaocha run passes 92 tests and 3,008
   assertions with zero failures.
 
 ## Deferred ideas from `todo.md`

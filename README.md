@@ -87,21 +87,21 @@ Functions use the typed syntax from Vybe's C API:
   (* multiplier (+ a b)))
 ```
 
-`az/defstruct` uses Malli-style field entries and emits an `extern struct` by
-default. A field can include a properties map, which remains available in the
-Var's declaration metadata. An ordinary attribute map selects a normal or
-packed Zig struct:
+`az/defstruct` uses Malli-style field entries and emits an ordinary Zig
+`struct` by default. A field can include a properties map, which remains
+available in the Var's declaration metadata. Use an ordinary attribute map
+only when an explicit extern or packed layout is required:
 
 ```clojure
-(az/defstruct InternalPoint
-  {:layout :normal}
+(az/defstruct CPoint
+  {:layout :extern}
   [[:x {:doc "Horizontal component"} :f32]
    [:y :f32]])
 
-(az/defn origin-offset :- InternalPoint
+(az/defn origin-offset :- CPoint
   []
   ;; A known struct Var acts as a typed Zig initializer.
-  (InternalPoint {:x 4.0 :y 5.0}))
+  (CPoint {:x 4.0 :y 5.0}))
 ```
 
 The accepted field shapes are `[:field type]` and
@@ -779,12 +779,22 @@ JVM scalar representation use a native-backed `ZigValue`: printing and
 
 `az/defconst` and `az/defvar` roots likewise expose their real semantic Zig
 values, never Aguafria's internal declaration maps. Structs—including nested
-packed structs—accept field maps. Arrays and SIMD vectors accept Clojure
-vectors, enums accept keywords, and tagged unions accept a single-entry map
-such as `{:integer 42}`. These values pass directly to other Aguafria Vars through
-development-only pointer bridges; standalone output remains ordinary optimized
-Zig with no Clojure runtime. Native storage is released automatically when a
-value becomes unreachable, or deterministically with idempotent `az/close!`.
+packed structs—accept field maps. Arrays, SIMD vectors, and slices accept
+Clojure vectors; slice backing memory lives for the native call and is retained
+when a native result can borrow it. Enums accept keywords, and tagged unions
+accept a single-entry map such as `{:integer 42}`. Zig optionals use `nil` or
+their payload value. Error unions use `{:ok value}` or an exact decoded
+`{:error {:name :SomeError :code n}}`; retaining the native code makes the
+error reusable without guessing Zig's generation-specific error numbering.
+These representations work as normal-struct fields and direct function
+arguments/results. Typed Zig pointers are borrowed `ZigPointer` values: use
+`az/pointer-type`, `az/pointer-address`, or `az/pointer-segment` to inspect them
+and pass the pointer itself directly to another Aguafria function. The Zig
+owner still controls the pointee lifetime.
+These values pass directly to other Aguafria Vars through development-only
+pointer bridges; standalone output remains ordinary optimized Zig with no
+Clojure runtime. Native storage is released automatically when a value becomes
+unreachable, or deterministically with idempotent `az/close!`.
 
 `(az/set-value! live-var new-value)` writes through a live `az/defvar` handle
 in place without compiling. It uses the same type/range checks and accepts the
@@ -792,8 +802,9 @@ same maps, keywords, and vectors as constructors. This is native mutation, so
 coordinate with a running Zig thread through a safe point, lock, atomic, or a
 synchronized Zig function exactly as handwritten Zig requires.
 
-Pointers, slices, optionals, and error unions require richer semantic
-ownership/tag codecs and are tracked as bridge work. An untagged union can be
+Long-lived owned slices, top-level mutable slice/error-union state, and deeply
+nested compositions still require richer ownership codecs and are tracked as
+bridge work. An untagged union can be
 constructed with an explicit single-entry map, but a value returned by
 arbitrary Zig code has no runtime active tag; Aguafria reports that ambiguity
 instead of guessing from its bytes.

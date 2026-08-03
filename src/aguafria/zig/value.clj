@@ -5,7 +5,7 @@
   (:refer-clojure :exclude [bytes type])
   (:require [clojure.pprint :as pprint])
   (:import [java.lang.ref Cleaner Cleaner$Cleanable]
-           [java.lang.foreign MemorySegment]))
+           [java.lang.foreign Arena MemorySegment]))
 
 (declare decoded info realize! type type-info
          decode-packed-backing decode-struct decode-value-segment
@@ -13,6 +13,50 @@
          write-struct! write-value-segment!)
 
 (defonce ^:private ^Cleaner native-cleaner (Cleaner/create))
+
+(def ^:dynamic *allocation-arena*
+  "Arena used for pointee storage while encoding values such as Zig slices."
+  nil)
+
+(deftype ZigPointer [address zigType]
+  Object
+  (toString [_]
+    (str "#aguafria/zig-pointer[" address " " (pr-str zigType) "]")))
+
+(defn zig-pointer?
+  "True for a typed, borrowed Zig pointer value."
+  [value]
+  (instance? ZigPointer value))
+
+(defn pointer-address
+  "Return a Zig pointer's native address as a JVM long."
+  [^ZigPointer pointer]
+  (.-address pointer))
+
+(defn pointer-type
+  "Return the exact Aguafria Zig pointer type form."
+  [^ZigPointer pointer]
+  (.-zigType pointer))
+
+(defn- unsigned-address
+  [address]
+  (if (and (instance? Long address) (neg? (long address)))
+    (java.math.BigInteger. (Long/toUnsignedString (long address)))
+    (biginteger address)))
+
+(defn pointer-segment
+  "Create a borrowed MemorySegment view of `byte-size` bytes at a non-null Zig
+  pointer. The pointee's Zig owner controls its lifetime."
+  ^MemorySegment [^ZigPointer pointer byte-size]
+  (let [address (long (pointer-address pointer))
+        byte-size (long byte-size)]
+    (when (zero? address)
+      (throw (ex-info "Cannot create a MemorySegment for a null Zig pointer"
+                      {:type (pointer-type pointer) :byte-size byte-size})))
+    (when (neg? byte-size)
+      (throw (ex-info "Pointer MemorySegment size cannot be negative"
+                      {:type (pointer-type pointer) :byte-size byte-size})))
+    (.reinterpret (MemorySegment/ofAddress address) byte-size)))
 
 (deftype ZigType [descriptor construct]
   clojure.lang.IFn
@@ -206,6 +250,15 @@
                         (clojure.core/name field-name)])]
     (when-not (identical? missing result)
       result)))
+
+(defn- field-present?
+  [field-values field]
+  (let [field-name (:name field)]
+    (boolean
+     (some #(contains? field-values %)
+           [(field-key field-name)
+            field-name
+            (clojure.core/name field-name)]))))
 
 (defn- validate-field-map!
   [description schema field-values]
@@ -415,7 +468,58 @@
          (decode-value-segment payload type schema)))}
       (throw (ex-info "Tagged Zig union has no recognized active field"
                       {:schema (dissoc schema :fields)
-                       :known-fields (mapv (comp field-key :name) fields)})))))
+                      :known-fields (mapv (comp field-key :name) fields)})))))
+
+(defn- decode-optional
+  [^MemorySegment native-segment
+   {:keys [child-type child-schema present-fn payload-segment-fn]}]
+  (when (present-fn native-segment)
+    (let [payload (payload-segment-fn native-segment)]
+      (when-not payload
+        (throw (ex-info "Present Zig optional has no payload address"
+                        {:child-type child-type})))
+      (decode-value-segment payload child-type child-schema))))
+
+(defn- decode-pointer
+  [^MemorySegment native-segment zig-type]
+  (ZigPointer. (.longValue (unsigned-native-integer native-segment)) zig-type))
+
+(defn- decode-slice
+  [^MemorySegment native-segment
+   {:keys [element-type element-schema element-size read-fn] :as schema}]
+  (let [{:keys [address length]} (read-fn native-segment)
+        length (long length)
+        element-size (long element-size)]
+    (when (neg? length)
+      (throw (ex-info "Zig slice is too large for JVM indexing"
+                      {:schema (dissoc schema :read-fn :set-fn)
+                       :length length})))
+    (when (and (pos? length) (zero? address))
+      (throw (ex-info "Non-empty Zig slice has a null pointer"
+                      {:schema (dissoc schema :read-fn :set-fn)
+                       :length length})))
+    (let [byte-size (Math/multiplyExact length element-size)
+          pointee (when (pos? byte-size)
+                    (.reinterpret (MemorySegment/ofAddress (long address))
+                                  byte-size))]
+      (mapv (fn [index]
+              (if (zero? element-size)
+                nil
+                (decode-value-segment
+                 (.asSlice ^MemorySegment pointee
+                           (* index element-size) element-size)
+                 element-type element-schema)))
+            (range length)))))
+
+(defn- decode-error-union
+  [^MemorySegment native-segment
+   {:keys [error-fn payload-segment-fn payload-type payload-schema]}]
+  (if-let [error (error-fn native-segment)]
+    {:error error}
+    {:ok (if (= :void payload-type)
+           nil
+           (decode-value-segment (payload-segment-fn native-segment)
+                                 payload-type payload-schema))}))
 
 (defn- decode-value-segment
   [^MemorySegment native-segment zig-type schema]
@@ -434,6 +538,21 @@
 
     (= :union (:kind schema))
     (decode-union native-segment schema)
+
+    (= :optional (:kind schema))
+    (decode-optional native-segment schema)
+
+    (= :pointer (:kind schema))
+    (decode-pointer native-segment zig-type)
+
+    (= :slice (:kind schema))
+    (decode-slice native-segment schema)
+
+    (= :error-union (:kind schema))
+    (decode-error-union native-segment schema)
+
+    (= :void zig-type)
+    nil
 
     (= :bool zig-type)
     (not (zero? (.get native-segment
@@ -538,6 +657,107 @@
              (when (pos? byte-size) (.asSlice native-segment 0 byte-size))))
   native-segment)
 
+(defn- write-optional!
+  [^MemorySegment native-segment
+   {:keys [child-type child-schema payload-size set-fn]}
+   value]
+  (if (nil? value)
+    (set-fn native-segment false nil)
+    (let [payload (.asSlice native-segment 0 payload-size)]
+      (write-value-segment! payload child-type child-schema value
+                            {:optional-child child-type})
+      (set-fn native-segment true payload)))
+  native-segment)
+
+(defn- write-pointer!
+  [^MemorySegment native-segment zig-type {:keys [nullable?]} value]
+  (let [address
+        (cond
+          (zig-pointer? value) (pointer-address value)
+          (instance? MemorySegment value) (.address ^MemorySegment value)
+          (and nullable? (nil? value)) 0
+          (integer? value) value
+          :else
+          (throw (ex-info
+                  "Zig pointer requires a ZigPointer, MemorySegment, or address"
+                  {:type zig-type :value value
+                   :clojure-type (clojure.core/type value)})))]
+    (let [address (unsigned-address address)]
+      (when (and (zero? address) (not nullable?))
+        (throw (ex-info "Non-null Zig pointer cannot use address zero"
+                        {:type zig-type :value value})))
+      (write-native-integer! native-segment :usize address {:type zig-type})))
+  native-segment)
+
+(defn- write-slice!
+  [^MemorySegment native-segment
+   zig-type
+   {:keys [element-type element-schema element-size element-alignment set-fn]
+    :as schema}
+   values]
+  (when-not (sequential? values)
+    (throw (ex-info "Zig slices require a sequential Clojure value"
+                    {:type zig-type :schema (dissoc schema :read-fn :set-fn)
+                     :value values})))
+  (when-not *allocation-arena*
+    (throw (ex-info
+            "Constructing a Zig slice requires owner-scoped native storage"
+            {:type zig-type
+             :hint "Pass the vector directly to an Aguafria function or construct it inside an owning Zig value."})))
+  (let [values (vec values)
+        element-size (long element-size)
+        element-alignment (long (max 1 element-alignment))
+        byte-size (Math/multiplyExact (long (count values)) element-size)
+        ;; A Zig slice pointer is non-null even when its length is zero.
+        backing (.allocate ^Arena *allocation-arena*
+                           (long (max 1 byte-size))
+                           element-alignment)]
+    (doseq [[index value] (map-indexed vector values)]
+      (when (pos? element-size)
+        (write-value-segment!
+         (.asSlice backing (* index element-size) element-size)
+         element-type element-schema value {:index index :slice-type zig-type})))
+    (set-fn native-segment backing (count values)))
+  native-segment)
+
+(defn- write-error-union!
+  [^MemorySegment native-segment zig-type
+   {:keys [payload-type payload-schema payload-size set-ok-fn set-error-fn]}
+   value]
+  (when-not (and (map? value) (= 1 (count value)))
+    (throw (ex-info "Zig error unions require {:ok value} or {:error {:code n}}"
+                    {:type zig-type :value value})))
+  (let [[branch branch-value] (first value)]
+    (case branch
+      :ok
+      (if (= :void payload-type)
+        (do
+          (when-not (nil? branch-value)
+            (throw (ex-info "A void Zig error-union payload requires nil"
+                            {:type zig-type :value value})))
+          (set-ok-fn native-segment nil))
+        (let [payload (.asSlice native-segment 0 payload-size)]
+          (write-value-segment! payload payload-type payload-schema branch-value
+                                {:error-union zig-type :branch :ok})
+          (set-ok-fn native-segment payload)))
+
+      :error
+      (let [code (cond
+                   (integer? branch-value) branch-value
+                   (map? branch-value) (:code branch-value)
+                   :else nil)]
+        (when-not (and (integer? code) (pos? (biginteger code)))
+          (throw (ex-info
+                  "A Zig error value requires its positive native :code"
+                  {:type zig-type :value value
+                   :hint "A decoded {:error {:name ... :code ...}} value can be passed back directly."})))
+        (set-error-fn native-segment code))
+
+      (throw (ex-info "Unknown Zig error-union branch"
+                      {:type zig-type :branch branch
+                       :expected #{:ok :error}}))))
+  native-segment)
+
 (defn- write-value-segment!
   [^MemorySegment native-segment zig-type schema value context]
   (cond
@@ -555,6 +775,23 @@
 
     (= :union (:kind schema))
     (write-union! native-segment schema value)
+
+    (= :optional (:kind schema))
+    (write-optional! native-segment schema value)
+
+    (= :pointer (:kind schema))
+    (write-pointer! native-segment zig-type schema value)
+
+    (= :slice (:kind schema))
+    (write-slice! native-segment zig-type schema value)
+
+    (= :error-union (:kind schema))
+    (write-error-union! native-segment zig-type schema value)
+
+    (= :void zig-type)
+    (when-not (nil? value)
+      (throw (ex-info "Zig void requires nil"
+                      (assoc context :type zig-type :value value))))
 
     (= :bool zig-type)
     (do
@@ -581,6 +818,16 @@
                            :value value))))
   native-segment)
 
+(defn write-value!
+  "Write one checked semantic value into caller-owned native Zig storage.
+  Public for Aguafria runtime bridges; users normally call constructors or
+  `az/set-value!`."
+  ([^MemorySegment native-segment zig-type schema value]
+   (write-value-segment! native-segment zig-type schema value {}))
+  ([^MemorySegment native-segment zig-type schema value arena]
+   (binding [*allocation-arena* arena]
+     (write-value-segment! native-segment zig-type schema value {}))))
+
 (defn write-struct!
   "Encode a Clojure field map into a normal or extern struct using offsets and
   storage sizes reported by Zig itself. Missing fields are zero-initialized."
@@ -589,7 +836,7 @@
   (.fill native-segment (byte 0))
   (doseq [{:keys [byte-offset byte-size type] :as field} fields
           :let [value (field-value field-values field)]
-          :when (some? value)]
+          :when (field-present? field-values field)]
     (write-native-field! (.asSlice native-segment byte-offset byte-size)
                          field value))
   native-segment)
@@ -674,3 +921,11 @@
 (defmethod pprint/simple-dispatch ZigType
   [zig-type]
   (pprint/write-out (type-info zig-type)))
+
+(defmethod print-method ZigPointer
+  [pointer ^java.io.Writer writer]
+  (.write writer (.toString pointer)))
+
+(defmethod pprint/simple-dispatch ZigPointer
+  [pointer]
+  (print pointer))

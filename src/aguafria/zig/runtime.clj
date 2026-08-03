@@ -70,7 +70,10 @@
 (declare declaration-info declaration-type-value
          materialize-constant! materialize-state!
          materialize-type!
-         native-type-schema scalar-key scalar-layouts)
+         native-error-union-field-schema native-optional-field-schema
+         native-slice-field-schema
+         native-type-schema
+         scalar-key scalar-layouts)
 
 (defn- container-type-description
   [declaration]
@@ -1556,7 +1559,89 @@
              (find-required symbol-name)
              (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
                                     (make-array MemoryLayout 0))
-             options))]
+             options))
+          bind-present
+          (fn [symbol-name]
+            (.downcallHandle
+             linker (find-required symbol-name)
+             (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_BYTE
+                                    (into-array MemoryLayout
+                                                [ValueLayout/JAVA_LONG]))
+             options))
+          bind-address
+          (fn [symbol-name]
+            (.downcallHandle
+             linker (find-required symbol-name)
+             (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
+                                    (into-array MemoryLayout
+                                                [ValueLayout/JAVA_LONG]))
+             options))
+          bind-optional-set
+          (fn [symbol-name]
+            (.downcallHandle
+             linker (find-required symbol-name)
+             (FunctionDescriptor/ofVoid
+              (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                        ValueLayout/JAVA_BYTE
+                                        ValueLayout/JAVA_LONG]))
+             options))
+          bind-slice-set
+          (fn [symbol-name]
+            (.downcallHandle
+             linker (find-required symbol-name)
+             (FunctionDescriptor/ofVoid
+              (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                        ValueLayout/JAVA_LONG
+                                        ValueLayout/JAVA_LONG]))
+             options))
+          bind-error-set
+          (fn [symbol-name]
+            (.downcallHandle
+             linker (find-required symbol-name)
+             (FunctionDescriptor/ofVoid
+              (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                        ValueLayout/JAVA_LONG]))
+             options))
+          bind-optional-spec
+          (fn [{:keys [optional? optional-set optional-present
+                       optional-payload-address optional-payload-size
+                       slice? slice-set slice-pointer slice-length
+                       slice-element-size slice-element-align
+                       error-union? error-set-ok error-set-error
+                       error-present error-code error-name-pointer
+                       error-name-length error-payload-address
+                       error-payload-size]
+                :as optional-spec}]
+            (cond-> optional-spec
+              optional?
+              (assoc
+               :optional-set-handle (bind-optional-set optional-set)
+               :optional-present-handle (bind-present optional-present)
+               :optional-payload-address-handle
+               (bind-address optional-payload-address)
+               :optional-payload-size-handle
+               (bind-long-getter optional-payload-size))
+              slice?
+              (assoc
+               :slice-set-handle (bind-slice-set slice-set)
+               :slice-pointer-handle (bind-address slice-pointer)
+               :slice-length-handle (bind-address slice-length)
+               :slice-element-size-handle
+               (bind-long-getter slice-element-size)
+               :slice-element-align-handle
+               (bind-long-getter slice-element-align))
+              error-union?
+              (assoc
+               :error-set-ok-handle (bind-error-set error-set-ok)
+               :error-set-error-handle (bind-error-set error-set-error)
+               :error-present-handle (bind-present error-present)
+               :error-code-handle (bind-address error-code)
+               :error-name-pointer-handle (bind-address error-name-pointer)
+               :error-name-length-handle (bind-address error-name-length)
+               :error-payload-address-handle
+               (bind-address error-payload-address)
+               :error-payload-size-handle
+               (bind-long-getter error-payload-size))))]
       (cond-> {:declaration declaration
                :descriptor descriptor
                :handle handle
@@ -1564,17 +1649,43 @@
                :native-argument-bindings
                (mapv (fn [argument-spec]
                        (when argument-spec
-                         (assoc argument-spec
-                                :size-getter-handle
-                                (bind-long-getter (:size-getter argument-spec))
-                                :align-getter-handle
-                                (bind-long-getter (:align-getter argument-spec)))))
+                         (bind-optional-spec
+                          (assoc argument-spec
+                                 :size-getter-handle
+                                 (bind-long-getter (:size-getter argument-spec))
+                                 :align-getter-handle
+                                 (bind-long-getter (:align-getter argument-spec))))))
                      native-argument-specs)}
         (= :native return-mode)
-        (assoc :result-size-getter-handle
-               (bind-long-getter result-size-getter)
-               :result-align-getter-handle
-               (bind-long-getter result-align-getter))))))
+        (merge
+         (bind-optional-spec
+          {:optional? (:result-optional? spec)
+           :optional-child-type (:result-optional-child-type spec)
+           :optional-set (:result-optional-set spec)
+           :optional-present (:result-optional-present spec)
+           :optional-payload-address (:result-optional-payload-address spec)
+           :optional-payload-size (:result-optional-payload-size spec)
+           :slice? (:result-slice? spec)
+           :slice-element-type (:result-slice-element-type spec)
+           :slice-set (:result-slice-set spec)
+           :slice-pointer (:result-slice-pointer spec)
+           :slice-length (:result-slice-length spec)
+           :slice-element-size (:result-slice-element-size spec)
+           :slice-element-align (:result-slice-element-align spec)
+           :error-union? (:result-error-union? spec)
+           :error-payload-type (:result-error-payload-type spec)
+           :error-set (:result-error-set spec)
+           :error-set-ok (:result-error-set-ok spec)
+           :error-set-error (:result-error-set-error spec)
+           :error-present (:result-error-present spec)
+           :error-code (:result-error-code spec)
+           :error-name-pointer (:result-error-name-pointer spec)
+           :error-name-length (:result-error-name-length spec)
+           :error-payload-address (:result-error-payload-address spec)
+           :error-payload-size (:result-error-payload-size spec)})
+         {:result-size-getter-handle (bind-long-getter result-size-getter)
+          :result-align-getter-handle
+          (bind-long-getter result-align-getter)})))))
 
 (defn- bind-dispatch
   [^Linker linker ^SymbolLookup lookup declaration spec required?]
@@ -1780,19 +1891,91 @@
                            (FunctionDescriptor/of
                             ^MemoryLayout layout
                             (make-array MemoryLayout 0))
-                           options))]
+                           options))
+        bind-one
+        (fn [symbol-name layout]
+          (.downcallHandle linker
+                           (find-required symbol-name)
+                           (FunctionDescriptor/of
+                            ^MemoryLayout layout
+                            (into-array MemoryLayout [ValueLayout/JAVA_LONG]))
+                           options))
+        bind-optional-set
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/ofVoid
+            (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_BYTE
+                                      ValueLayout/JAVA_LONG]))
+           options))
+        bind-slice-set
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/ofVoid
+            (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_LONG]))
+           options))
+        bind-error-set
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/ofVoid
+            (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_LONG]))
+           options))]
     (merge
      spec
      {:qualified-name qualified-name}
      (if (= :scalar mode)
        {:getter-handle
         (bind-zero getter (get scalar-layouts (scalar-key (:type declaration))))}
-       {:address-getter-handle
-        (bind-zero address-getter ValueLayout/JAVA_LONG)
-        :size-getter-handle
-        (bind-zero size-getter ValueLayout/JAVA_LONG)
-        :align-getter-handle
-        (bind-zero align-getter ValueLayout/JAVA_LONG)}))))
+       (cond->
+        {:address-getter-handle
+         (bind-zero address-getter ValueLayout/JAVA_LONG)
+         :size-getter-handle
+         (bind-zero size-getter ValueLayout/JAVA_LONG)
+         :align-getter-handle
+         (bind-zero align-getter ValueLayout/JAVA_LONG)}
+         (:optional? spec)
+         (assoc
+          :optional-set-handle (bind-optional-set (:optional-set spec))
+          :optional-present-handle
+          (bind-one (:optional-present spec) ValueLayout/JAVA_BYTE)
+          :optional-payload-address-handle
+          (bind-one (:optional-payload-address spec) ValueLayout/JAVA_LONG)
+          :optional-payload-size-handle
+          (bind-zero (:optional-payload-size spec)
+                     ValueLayout/JAVA_LONG))
+         (:slice? spec)
+         (assoc
+          :slice-set-handle (bind-slice-set (:slice-set spec))
+          :slice-pointer-handle
+          (bind-one (:slice-pointer spec) ValueLayout/JAVA_LONG)
+          :slice-length-handle
+          (bind-one (:slice-length spec) ValueLayout/JAVA_LONG)
+          :slice-element-size-handle
+          (bind-zero (:slice-element-size spec) ValueLayout/JAVA_LONG)
+          :slice-element-align-handle
+          (bind-zero (:slice-element-align spec) ValueLayout/JAVA_LONG))
+         (:error-union? spec)
+         (assoc
+          :error-set-ok-handle (bind-error-set (:error-set-ok spec))
+          :error-set-error-handle (bind-error-set (:error-set-error spec))
+          :error-present-handle
+          (bind-one (:error-present spec) ValueLayout/JAVA_BYTE)
+          :error-code-handle
+          (bind-one (:error-code spec) ValueLayout/JAVA_LONG)
+          :error-name-pointer-handle
+          (bind-one (:error-name-pointer spec) ValueLayout/JAVA_LONG)
+          :error-name-length-handle
+          (bind-one (:error-name-length spec) ValueLayout/JAVA_LONG)
+          :error-payload-address-handle
+          (bind-one (:error-payload-address spec) ValueLayout/JAVA_LONG)
+          :error-payload-size-handle
+          (bind-zero (:error-payload-size spec) ValueLayout/JAVA_LONG)))))))
 
 (defn- bind-jvm-type
   [^Linker linker ^SymbolLookup lookup qualified-name
@@ -1833,6 +2016,24 @@
                                   (into-array MemoryLayout
                                               [ValueLayout/JAVA_LONG]))
            options))
+        bind-optional-set
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/ofVoid
+            (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_BYTE
+                                      ValueLayout/JAVA_LONG]))
+           options))
+        bind-slice-set
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/ofVoid
+            (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_LONG]))
+           options))
         bind-address-from-address
         (fn [symbol-name]
           (.downcallHandle
@@ -1848,7 +2049,16 @@
            :field-bindings
            (mapv (fn [{:keys [offset-getter size-getter union?
                               union-init union-active
-                              union-payload-address] :as field-spec}]
+                              union-payload-address optional?
+                              optional-set optional-present
+                              optional-payload-address optional-payload-size
+                              slice? slice-set slice-pointer slice-length
+                              slice-element-size slice-element-align
+                              error-union? error-set-ok error-set-error
+                              error-present error-code error-name-pointer
+                              error-name-length error-payload-address
+                              error-payload-size]
+                       :as field-spec}]
                    (cond->
                     (assoc field-spec
                            :offset-getter-handle (bind-long offset-getter)
@@ -1860,7 +2070,43 @@
                       :union-active-handle
                       (bind-union-active union-active)
                       :union-payload-address-handle
-                      (bind-address-from-address union-payload-address))))
+                      (bind-address-from-address union-payload-address))
+                     optional?
+                     (assoc
+                      :optional-set-handle
+                      (bind-optional-set optional-set)
+                      :optional-present-handle
+                      (bind-union-active optional-present)
+                      :optional-payload-address-handle
+                      (bind-address-from-address optional-payload-address)
+                      :optional-payload-size-handle
+                      (bind-long optional-payload-size))
+                     slice?
+                     (assoc
+                      :slice-set-handle (bind-slice-set slice-set)
+                      :slice-pointer-handle
+                      (bind-address-from-address slice-pointer)
+                      :slice-length-handle
+                      (bind-address-from-address slice-length)
+                      :slice-element-size-handle
+                      (bind-long slice-element-size)
+                      :slice-element-align-handle
+                      (bind-long slice-element-align))
+                     error-union?
+                     (assoc
+                      :error-set-ok-handle (bind-union-init error-set-ok)
+                      :error-set-error-handle (bind-union-init error-set-error)
+                      :error-present-handle (bind-union-active error-present)
+                      :error-code-handle
+                      (bind-address-from-address error-code)
+                      :error-name-pointer-handle
+                      (bind-address-from-address error-name-pointer)
+                      :error-name-length-handle
+                      (bind-address-from-address error-name-length)
+                      :error-payload-address-handle
+                      (bind-address-from-address error-payload-address)
+                      :error-payload-size-handle
+                      (bind-long error-payload-size))))
                  field-specs)
            :enum-member-bindings
            (mapv (fn [{:keys [address-getter] :as member-spec}]
@@ -2626,14 +2872,83 @@
                             :indirect)
                      prefix (str "__aguafria_jvm_call_" token)
                      native-argument-specs
-                     (mapv (fn [index argument-mode]
+                     (mapv (fn [index argument-mode argument]
                              (when (= :native argument-mode)
-                               {:index index
-                                :size-getter
-                                (str prefix "_argument_" index "_size")
-                                :align-getter
-                                (str prefix "_argument_" index "_align")}))
-                           (range) argument-modes)]
+                               (let [type (:type argument)
+                                     optional?
+                                     (and (vector? type)
+                                          (= "optional"
+                                             (some-> type first name)))
+                                     slice?
+                                     (and (vector? type)
+                                          (contains? #{"slice" "slice-const"}
+                                                     (some-> type first name)))
+                                     error-union?
+                                     (and (vector? type)
+                                          (= "error-union"
+                                             (some-> type first name)))
+                                     helper-prefix
+                                     (str prefix "_argument_" index)]
+                                 {:index index
+                                  :optional? optional?
+                                  :optional-child-type
+                                  (when optional? (second type))
+                                  :slice? slice?
+                                  :slice-element-type
+                                  (when slice? (second type))
+                                  :size-getter (str helper-prefix "_size")
+                                  :align-getter (str helper-prefix "_align")
+                                  :optional-set
+                                  (str helper-prefix "_optional_set")
+                                  :optional-present
+                                  (str helper-prefix "_optional_present")
+                                  :optional-payload-address
+                                  (str helper-prefix "_optional_payload_address")
+                                  :optional-payload-size
+                                  (str helper-prefix "_optional_payload_size")
+                                  :slice-set (str helper-prefix "_slice_set")
+                                  :slice-pointer (str helper-prefix "_slice_pointer")
+                                  :slice-length (str helper-prefix "_slice_length")
+                                  :slice-element-size
+                                  (str helper-prefix "_slice_element_size")
+                                  :slice-element-align
+                                  (str helper-prefix "_slice_element_align")
+                                  :error-union? error-union?
+                                  :error-payload-type
+                                  (when error-union? (last type))
+                                  :error-set
+                                  (when (and error-union? (= 3 (count type)))
+                                    (second type))
+                                  :error-set-ok (str helper-prefix "_error_set_ok")
+                                  :error-set-error
+                                  (str helper-prefix "_error_set_error")
+                                  :error-present
+                                  (str helper-prefix "_error_present")
+                                  :error-code (str helper-prefix "_error_code")
+                                  :error-name-pointer
+                                  (str helper-prefix "_error_name_pointer")
+                                  :error-name-length
+                                  (str helper-prefix "_error_name_length")
+                                  :error-payload-address
+                                  (str helper-prefix "_error_payload_address")
+                                  :error-payload-size
+                                  (str helper-prefix "_error_payload_size")})))
+                           (range) argument-modes (:args declaration))
+                     result-type (:return declaration)
+                     result-optional?
+                     (and (= :native return-mode)
+                          (vector? result-type)
+                          (= "optional" (some-> result-type first name)))
+                     result-slice?
+                     (and (= :native return-mode)
+                          (vector? result-type)
+                          (contains? #{"slice" "slice-const"}
+                                     (some-> result-type first name)))
+                     result-error-union?
+                     (and (= :native return-mode)
+                          (vector? result-type)
+                          (= "error-union" (some-> result-type first name)))
+                     result-helper-prefix (str prefix "_result")]
                  [qualified-name
                   {:declaration declaration
                    :mode mode
@@ -2642,7 +2957,52 @@
                    :return-mode return-mode
                    :symbol prefix
                    :result-size-getter (str prefix "_result_size")
-                   :result-align-getter (str prefix "_result_align")}]))))
+                   :result-align-getter (str prefix "_result_align")
+                   :result-optional? result-optional?
+                   :result-optional-child-type
+                   (when result-optional? (second result-type))
+                   :result-optional-set
+                   (str result-helper-prefix "_optional_set")
+                   :result-optional-present
+                   (str result-helper-prefix "_optional_present")
+                   :result-optional-payload-address
+                   (str result-helper-prefix "_optional_payload_address")
+                   :result-optional-payload-size
+                   (str result-helper-prefix "_optional_payload_size")
+                   :result-slice? result-slice?
+                   :result-slice-element-type
+                   (when result-slice? (second result-type))
+                   :result-slice-set (str result-helper-prefix "_slice_set")
+                   :result-slice-pointer
+                   (str result-helper-prefix "_slice_pointer")
+                   :result-slice-length
+                   (str result-helper-prefix "_slice_length")
+                   :result-slice-element-size
+                   (str result-helper-prefix "_slice_element_size")
+                   :result-slice-element-align
+                   (str result-helper-prefix "_slice_element_align")
+                   :result-error-union? result-error-union?
+                   :result-error-payload-type
+                   (when result-error-union? (last result-type))
+                   :result-error-set
+                   (when (and result-error-union? (= 3 (count result-type)))
+                     (second result-type))
+                   :result-error-set-ok
+                   (str result-helper-prefix "_error_set_ok")
+                   :result-error-set-error
+                   (str result-helper-prefix "_error_set_error")
+                   :result-error-present
+                   (str result-helper-prefix "_error_present")
+                   :result-error-code
+                   (str result-helper-prefix "_error_code")
+                   :result-error-name-pointer
+                   (str result-helper-prefix "_error_name_pointer")
+                   :result-error-name-length
+                   (str result-helper-prefix "_error_name_length")
+                   :result-error-payload-address
+                   (str result-helper-prefix "_error_payload_address")
+                   :result-error-payload-size
+                   (str result-helper-prefix "_error_payload_size")}]))))
           declarations)))
 
 (defn- jvm-value-wrapper-specs
@@ -2658,7 +3018,17 @@
                      token (subs (sha256 (pr-str [qualified-name type
                                                   (:value declaration)]))
                                  0 24)
-                     prefix (str "__aguafria_jvm_value_" token)]
+                     prefix (str "__aguafria_jvm_value_" token)
+                     optional?
+                     (and (vector? type)
+                          (= "optional" (some-> type first name)))
+                     slice?
+                     (and (vector? type)
+                          (contains? #{"slice" "slice-const"}
+                                     (some-> type first name)))
+                     error-union?
+                     (and (vector? type)
+                          (= "error-union" (some-> type first name)))]
                  [qualified-name
                   {:declaration declaration
                    :mode (if (contains? scalar-layouts (scalar-key type))
@@ -2667,7 +3037,35 @@
                    :getter (str prefix "_get")
                    :address-getter (str prefix "_address")
                    :size-getter (str prefix "_size")
-                   :align-getter (str prefix "_align")}]))))
+                   :align-getter (str prefix "_align")
+                   :optional? optional?
+                   :optional-child-type (when optional? (second type))
+                   :optional-set (str prefix "_optional_set")
+                   :optional-present (str prefix "_optional_present")
+                   :optional-payload-address
+                   (str prefix "_optional_payload_address")
+                   :optional-payload-size
+                   (str prefix "_optional_payload_size")
+                   :slice? slice?
+                   :slice-element-type (when slice? (second type))
+                   :slice-set (str prefix "_slice_set")
+                   :slice-pointer (str prefix "_slice_pointer")
+                   :slice-length (str prefix "_slice_length")
+                   :slice-element-size (str prefix "_slice_element_size")
+                   :slice-element-align (str prefix "_slice_element_align")
+                   :error-union? error-union?
+                   :error-payload-type (when error-union? (last type))
+                   :error-set
+                   (when (and error-union? (= 3 (count type))) (second type))
+                   :error-set-ok (str prefix "_error_set_ok")
+                   :error-set-error (str prefix "_error_set_error")
+                   :error-present (str prefix "_error_present")
+                   :error-code (str prefix "_error_code")
+                   :error-name-pointer (str prefix "_error_name_pointer")
+                   :error-name-length (str prefix "_error_name_length")
+                   :error-payload-address
+                   (str prefix "_error_payload_address")
+                   :error-payload-size (str prefix "_error_payload_size")}]))))
           declarations)))
 
 (defn- jvm-type-wrapper-specs
@@ -2717,19 +3115,81 @@
                    :align-getter (str prefix "_align")
                    :field-specs
                    (mapv (fn [index field]
-                           {:index index
-                           :field field
-                            :union? (= :union container-kind)
-                            :offset-getter
-                            (str prefix "_field_" index "_offset")
-                            :size-getter
-                            (str prefix "_field_" index "_size")
-                            :union-init
-                            (str prefix "_field_" index "_init")
-                            :union-active
-                            (str prefix "_field_" index "_active")
-                            :union-payload-address
-                            (str prefix "_field_" index "_payload_address")})
+                           (let [optional?
+                                 (and (vector? (:type field))
+                                      (= "optional"
+                                         (some-> (:type field) first name)))
+                                 slice?
+                                 (and (vector? (:type field))
+                                      (contains? #{"slice" "slice-const"}
+                                                 (some-> (:type field)
+                                                         first name)))
+                                 error-union?
+                                 (and (vector? (:type field))
+                                      (= "error-union"
+                                         (some-> (:type field) first name)))]
+                             {:index index
+                              :field field
+                              :union? (= :union container-kind)
+                              :optional? optional?
+                              :optional-child-type
+                              (when optional? (second (:type field)))
+                              :slice? slice?
+                              :slice-element-type
+                              (when slice? (second (:type field)))
+                              :offset-getter
+                              (str prefix "_field_" index "_offset")
+                              :size-getter
+                              (str prefix "_field_" index "_size")
+                              :union-init
+                              (str prefix "_field_" index "_init")
+                              :union-active
+                              (str prefix "_field_" index "_active")
+                              :union-payload-address
+                              (str prefix "_field_" index "_payload_address")
+                              :optional-set
+                              (str prefix "_field_" index "_optional_set")
+                              :optional-present
+                              (str prefix "_field_" index "_optional_present")
+                              :optional-payload-address
+                              (str prefix "_field_" index
+                                   "_optional_payload_address")
+                              :optional-payload-size
+                              (str prefix "_field_" index
+                                   "_optional_payload_size")
+                              :slice-set
+                              (str prefix "_field_" index "_slice_set")
+                              :slice-pointer
+                              (str prefix "_field_" index "_slice_pointer")
+                              :slice-length
+                              (str prefix "_field_" index "_slice_length")
+                              :slice-element-size
+                              (str prefix "_field_" index "_slice_element_size")
+                              :slice-element-align
+                              (str prefix "_field_" index "_slice_element_align")
+                              :error-union? error-union?
+                              :error-payload-type
+                              (when error-union? (last (:type field)))
+                              :error-set
+                              (when (and error-union?
+                                         (= 3 (count (:type field))))
+                                (second (:type field)))
+                              :error-set-ok
+                              (str prefix "_field_" index "_error_set_ok")
+                              :error-set-error
+                              (str prefix "_field_" index "_error_set_error")
+                              :error-present
+                              (str prefix "_field_" index "_error_present")
+                              :error-code
+                              (str prefix "_field_" index "_error_code")
+                              :error-name-pointer
+                              (str prefix "_field_" index "_error_name_pointer")
+                              :error-name-length
+                              (str prefix "_field_" index "_error_name_length")
+                              :error-payload-address
+                              (str prefix "_field_" index "_error_payload_address")
+                              :error-payload-size
+                              (str prefix "_field_" index "_error_payload_size")}))
                          (range) fields)
                    :enum-member-specs
                    (mapv (fn [index member]
@@ -2740,10 +3200,138 @@
                          (range) enum-members)}])))))
           declarations)))
 
+(defn- emit-jvm-optional-storage-wrapper
+  [child-type {:keys [optional-set optional-present
+                      optional-payload-address optional-payload-size]}]
+  (let [child-type (emit/emit-type child-type)]
+    (str
+     "export fn " optional-set
+     "(storage_address: usize, present: bool, value_address: usize) callconv(.c) void {\n"
+     "    const storage: *?" child-type " = @ptrFromInt(storage_address);\n"
+     "    storage.* = if (present) (@as(*const " child-type
+     ", @ptrFromInt(value_address))).* else null;\n"
+     "}\n"
+     "export fn " optional-present
+     "(storage_address: usize) callconv(.c) bool {\n"
+     "    const storage: *const ?" child-type
+     " = @ptrFromInt(storage_address);\n"
+     "    return storage.* != null;\n"
+     "}\n"
+     "export fn " optional-payload-address
+     "(storage_address: usize) callconv(.c) usize {\n"
+     "    const storage: *const ?" child-type
+     " = @ptrFromInt(storage_address);\n"
+     "    if (storage.*) |*payload| return @intFromPtr(payload);\n"
+     "    return 0;\n"
+     "}\n"
+     "export fn " optional-payload-size
+     "() callconv(.c) usize {\n"
+     "    return @sizeOf(" child-type ");\n"
+     "}\n")))
+
+(defn- emit-jvm-slice-storage-wrapper
+  [slice-type element-type
+   {:keys [slice-set slice-pointer slice-length
+           slice-element-size slice-element-align]}]
+  (let [slice-type (emit/emit-type slice-type)
+        element-type (emit/emit-type element-type)]
+    (str
+     "export fn " slice-set
+     "(storage_address: usize, items_address: usize, length: usize) callconv(.c) void {\n"
+     "    const storage: *" slice-type " = @ptrFromInt(storage_address);\n"
+     "    const items: [*]" (when (str/includes? slice-type "const ") "const ")
+     element-type " = @ptrFromInt(items_address);\n"
+     "    storage.* = items[0..length];\n"
+     "}\n"
+     "export fn " slice-pointer
+     "(storage_address: usize) callconv(.c) usize {\n"
+     "    const storage: *const " slice-type
+     " = @ptrFromInt(storage_address);\n"
+     "    return @intFromPtr(storage.*.ptr);\n"
+     "}\n"
+     "export fn " slice-length
+     "(storage_address: usize) callconv(.c) usize {\n"
+     "    const storage: *const " slice-type
+     " = @ptrFromInt(storage_address);\n"
+     "    return storage.*.len;\n"
+     "}\n"
+     "export fn " slice-element-size "() callconv(.c) usize {\n"
+     "    return @sizeOf(" element-type ");\n"
+     "}\n"
+     "export fn " slice-element-align "() callconv(.c) usize {\n"
+     "    return @alignOf(" element-type ");\n"
+     "}\n")))
+
+(defn- emit-jvm-error-union-storage-wrapper
+  [error-union-type payload-type
+   {:keys [error-set-ok error-set-error error-present error-code
+           error-name-pointer error-name-length error-payload-address
+           error-payload-size]}]
+  (let [void-payload? (= :void payload-type)
+        error-union-type (emit/emit-type error-union-type)
+        payload-type (emit/emit-type payload-type)]
+    (str
+     "export fn " error-set-ok
+     "(storage_address: usize, payload_address: usize) callconv(.c) void {\n"
+     "    const ErrorUnion = " error-union-type ";\n"
+     "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
+     (if void-payload?
+       "    _ = payload_address;\n    storage.* = {};\n"
+       (str "    storage.* = (@as(*const " payload-type
+            ", @ptrFromInt(payload_address))).*;\n"))
+     "}\n"
+     "export fn " error-set-error
+     "(storage_address: usize, code: usize) callconv(.c) void {\n"
+     "    const ErrorUnion = " error-union-type ";\n"
+     "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
+     "    storage.* = @errorCast(@errorFromInt(@as(u16, @intCast(code))));\n"
+     "}\n"
+     "export fn " error-present
+     "(storage_address: usize) callconv(.c) bool {\n"
+     "    const ErrorUnion = " error-union-type ";\n"
+     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
+     "    if (storage.*) |_| return false else |_| return true;\n"
+     "}\n"
+     "export fn " error-code
+     "(storage_address: usize) callconv(.c) usize {\n"
+     "    const ErrorUnion = " error-union-type ";\n"
+     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
+     "    if (storage.*) |_| return 0 else |err| return @intFromError(err);\n"
+     "}\n"
+     "export fn " error-name-pointer
+     "(storage_address: usize) callconv(.c) usize {\n"
+     "    const ErrorUnion = " error-union-type ";\n"
+     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
+     "    if (storage.*) |_| return 0 else |err| return @intFromPtr(@errorName(err).ptr);\n"
+     "}\n"
+     "export fn " error-name-length
+     "(storage_address: usize) callconv(.c) usize {\n"
+     "    const ErrorUnion = " error-union-type ";\n"
+     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
+     "    if (storage.*) |_| return 0 else |err| return @errorName(err).len;\n"
+     "}\n"
+     "export fn " error-payload-address
+     "(storage_address: usize) callconv(.c) usize {\n"
+     "    const ErrorUnion = " error-union-type ";\n"
+     "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
+     (if void-payload?
+       "    _ = storage;\n    return 0;\n"
+       "    if (storage.*) |*payload| return @intFromPtr(payload) else |_| return 0;\n")
+     "}\n"
+     "export fn " error-payload-size "() callconv(.c) usize {\n"
+     "    return " (if void-payload? "0" (str "@sizeOf(" payload-type ")")) ";\n"
+     "}\n")))
+
 (defn- emit-jvm-callable-wrapper
   [[_ {:keys [declaration symbol mode argument-modes return-mode
               native-argument-specs result-size-getter
-              result-align-getter]}]]
+              result-align-getter result-optional?
+              result-optional-child-type
+              result-optional-set result-optional-present
+              result-optional-payload-address
+              result-optional-payload-size result-slice?
+              result-slice-element-type result-error-union?
+              result-error-payload-type] :as entry}]]
   (let [argument-names (mapv #(str "argument_" %) (range (count (:args declaration))))
         bridge-arguments
         (mapv (fn [argument-name argument argument-mode]
@@ -2789,21 +3377,66 @@
                   "}\n"
                   "export fn " result-align-getter "() callconv(.c) usize {\n"
                   "    return @alignOf(" (emit/emit-type (:return declaration)) ");\n"
-                  "}\n"))
+                  "}\n"
+                  (when result-optional?
+                    (emit-jvm-optional-storage-wrapper
+                     result-optional-child-type
+                     {:optional-set result-optional-set
+                      :optional-present result-optional-present
+                      :optional-payload-address
+                      result-optional-payload-address
+                      :optional-payload-size result-optional-payload-size}))
+                  (when result-slice?
+                    (emit-jvm-slice-storage-wrapper
+                     (:return declaration) result-slice-element-type
+                     {:slice-set (:result-slice-set entry)
+                      :slice-pointer (:result-slice-pointer entry)
+                      :slice-length (:result-slice-length entry)
+                      :slice-element-size (:result-slice-element-size entry)
+                      :slice-element-align
+                      (:result-slice-element-align entry)}))
+                  (when result-error-union?
+                    (emit-jvm-error-union-storage-wrapper
+                     (:return declaration) result-error-payload-type
+                     {:error-set-ok (:result-error-set-ok entry)
+                      :error-set-error (:result-error-set-error entry)
+                      :error-present (:result-error-present entry)
+                      :error-code (:result-error-code entry)
+                      :error-name-pointer (:result-error-name-pointer entry)
+                      :error-name-length (:result-error-name-length entry)
+                      :error-payload-address
+                      (:result-error-payload-address entry)
+                      :error-payload-size
+                      (:result-error-payload-size entry)}))))
            (apply str
                   (keep
-                   (fn [{:keys [index size-getter align-getter]}]
-                     (let [argument-type
-                           (emit/emit-type
-                            (:type (nth (:args declaration) index)))]
-                       (str "export fn " size-getter
+                   (fn [{:keys [index size-getter align-getter optional?
+                                optional-child-type slice?
+                                slice-element-type error-union?
+                                error-payload-type] :as argument-spec}]
+                     (when argument-spec
+                       (let [argument-type
+                             (emit/emit-type
+                              (:type (nth (:args declaration) index)))]
+                         (str "export fn " size-getter
                             "() callconv(.c) usize {\n"
                             "    return @sizeOf(" argument-type ");\n"
                             "}\n"
                             "export fn " align-getter
                             "() callconv(.c) usize {\n"
                             "    return @alignOf(" argument-type ");\n"
-                            "}\n")))
+                            "}\n"
+                            (when optional?
+                              (emit-jvm-optional-storage-wrapper
+                               optional-child-type argument-spec))
+                            (when slice?
+                              (emit-jvm-slice-storage-wrapper
+                               (:type (nth (:args declaration) index))
+                               slice-element-type argument-spec))
+                            (when error-union?
+                              (emit-jvm-error-union-storage-wrapper
+                               (:type (nth (:args declaration) index))
+                               error-payload-type argument-spec))))))
                    native-argument-specs))))))
 
 (defn- emit-jvm-callable-wrappers
@@ -2817,7 +3450,8 @@
 
 (defn- emit-jvm-value-wrapper
   [[_ {:keys [declaration mode getter address-getter size-getter
-              align-getter]}]]
+              align-getter optional? optional-child-type slice?
+              slice-element-type error-union? error-payload-type] :as spec}]]
   (let [constant-name (emit/identifier (or (:zig-name declaration)
                                            (:name declaration)))]
     (if (= :scalar mode)
@@ -2833,7 +3467,16 @@
            "}\n"
            "export fn " align-getter "() callconv(.c) usize {\n"
            "    return @alignOf(@TypeOf(" constant-name "));\n"
-           "}\n"))))
+           "}\n"
+           (when optional?
+             (emit-jvm-optional-storage-wrapper optional-child-type
+                                                spec))
+           (when slice?
+             (emit-jvm-slice-storage-wrapper (:type declaration)
+                                             slice-element-type spec))
+           (when error-union?
+             (emit-jvm-error-union-storage-wrapper
+              (:type declaration) error-payload-type spec))))))
 
 (defn- emit-jvm-value-wrappers
   [specs]
@@ -2859,9 +3502,16 @@
                 (map
                  (fn [{:keys [field offset-getter size-getter union?
                               union-init union-active
-                              union-payload-address]}]
+                              union-payload-address optional?
+                              optional-child-type optional-set
+                              optional-present optional-payload-address
+                              optional-payload-size slice?
+                              slice-element-type error-union?
+                              error-payload-type] :as field-spec}]
                    (let [field-name (emit/identifier (:name field))
                          field-type (emit/emit-type (:type field))
+                         optional-child-type
+                         (when optional? (emit/emit-type optional-child-type))
                          void-field? (= :void (:type field))]
                      (str "export fn " offset-getter
                           "() callconv(.c) usize {\n"
@@ -2908,7 +3558,40 @@
                                    "    const value: *" type-name
                                    " = @ptrFromInt(value_address);\n"
                                    "    return @intFromPtr(&value." field-name ");\n"))
-                                "}\n")))))))
+                                "}\n"))))
+                          (when optional?
+                            (str
+                             "export fn " optional-set
+                             "(storage_address: usize, present: bool, value_address: usize) callconv(.c) void {\n"
+                             "    const storage: *?" optional-child-type
+                             " = @ptrFromInt(storage_address);\n"
+                             "    storage.* = if (present) "
+                             "(@as(*const " optional-child-type
+                             ", @ptrFromInt(value_address))).* else null;\n"
+                             "}\n"
+                             "export fn " optional-present
+                             "(storage_address: usize) callconv(.c) bool {\n"
+                             "    const storage: *const ?" optional-child-type
+                             " = @ptrFromInt(storage_address);\n"
+                             "    return storage.* != null;\n"
+                             "}\n"
+                             "export fn " optional-payload-address
+                             "(storage_address: usize) callconv(.c) usize {\n"
+                             "    const storage: *const ?" optional-child-type
+                             " = @ptrFromInt(storage_address);\n"
+                             "    if (storage.*) |*payload| return @intFromPtr(payload);\n"
+                             "    return 0;\n"
+                             "}\n"
+                             "export fn " optional-payload-size
+                             "() callconv(.c) usize {\n"
+                             "    return @sizeOf(" optional-child-type ");\n"
+                             "}\n"))
+                          (when slice?
+                            (emit-jvm-slice-storage-wrapper
+                             (:type field) slice-element-type field-spec))
+                          (when error-union?
+                            (emit-jvm-error-union-storage-wrapper
+                             (:type field) error-payload-type field-spec)))))
                  field-specs))
          (apply str
                 (map
@@ -5176,10 +5859,13 @@
                          :actual-zig-type actual-type
                          :actual-module actual-module})))
       (.address ^MemorySegment (zig-value/segment argument)))
-    (if-let [schema (and (or (map? argument) (sequential? argument)
-                             (keyword? argument) (symbol? argument)
-                             (string? argument))
-                         (native-type-schema module expected-type))]
+    (if-let [schema (or (native-optional-field-schema module #{}
+                                                       argument-binding)
+                        (native-slice-field-schema module #{}
+                                                   argument-binding)
+                        (native-error-union-field-schema module #{}
+                                                         argument-binding)
+                        (native-type-schema module expected-type))]
       (let [size (long (.invokeWithArguments
                         ^MethodHandle (:size-getter-handle argument-binding)
                         (ArrayList.)))
@@ -5188,16 +5874,7 @@
                    ^MethodHandle (:align-getter-handle argument-binding)
                    (ArrayList.)))
             segment (.allocate call-arena size alignment)]
-        (case (:kind schema)
-          :packed-struct (zig-value/write-packed-struct! segment schema argument)
-          :struct (zig-value/write-struct! segment schema argument)
-          (:array :vector) (zig-value/write-array! segment schema argument)
-          :enum (zig-value/write-enum! segment schema argument)
-          :union (zig-value/write-union! segment schema argument)
-          (throw (ex-info "Clojure construction is not implemented for this Zig type"
-                          {:function qualified-name
-                           :expected-zig-type expected-type
-                           :schema schema})))
+        (zig-value/write-value! segment expected-type schema argument call-arena)
         (.address segment))
       (throw (ex-info "Zig function argument requires a native Zig value or constructible Clojure value"
                       {:function qualified-name
@@ -5212,7 +5889,8 @@
         {:keys [argument-modes return-mode]} (:bridge-spec function-binding)
         native-result? (= :native return-mode)
         result-arena (when native-result? (Arena/ofShared))
-        call-arena (Arena/ofConfined)]
+        call-arena (if native-result? (Arena/ofShared) (Arena/ofConfined))
+        retained-call-arena? (atom false)]
     (try
       (let [coerced
             (mapv (fn [index {:keys [type]} argument argument-mode]
@@ -5251,32 +5929,47 @@
                 close!
                 (fn []
                   (when (compare-and-set! closed? false true)
-                    (try (.close ^Arena result-arena)
-                         (finally
-                           (.decrementAndGet ^AtomicLong native-value-refs)
-                           (locking compile-lock
-                             (retire-module-quiescent-generations! module))))))]
+                    (try
+                      (try
+                        (.close ^Arena result-arena)
+                        (finally
+                          (.close ^Arena call-arena)))
+                      (finally
+                        (.decrementAndGet ^AtomicLong native-value-refs)
+                        (locking compile-lock
+                          (retire-module-quiescent-generations! module))))))
+                native-value
+                (zig-value/native-value
+                 {:module module
+                  :name (:name declaration)
+                  :kind :return
+                  :type (:return declaration)
+                  :logical-id (:logical-id declaration)}
+                 (constantly {:representation :native
+                              :segment result-segment
+                              :size result-size
+                              :alignment result-alignment
+                              :schema
+                              (or (native-optional-field-schema module #{}
+                                                                function-binding)
+                                  (native-slice-field-schema module #{}
+                                                             function-binding)
+                                  (native-error-union-field-schema
+                                   module #{} function-binding)
+                                  (native-type-schema module
+                                                      (:return declaration)))
+                              :generation (:wrapper-generation function-binding)
+                              :close! close!}))]
             (.incrementAndGet ^AtomicLong native-value-refs)
-            (zig-value/native-value
-             {:module module
-              :name (:name declaration)
-              :kind :return
-              :type (:return declaration)
-              :logical-id (:logical-id declaration)}
-             (constantly {:representation :native
-                          :segment result-segment
-                          :size result-size
-                          :alignment result-alignment
-                          :schema (native-type-schema module
-                                                      (:return declaration))
-                          :generation (:wrapper-generation function-binding)
-                          :close! close!})))))
+            (reset! retained-call-arena? true)
+            native-value)))
       (catch Throwable error
         (when result-arena
           (try (.close ^Arena result-arena) (catch Throwable _)))
         (throw error))
       (finally
-        (.close call-arena)))))
+        (when-not @retained-call-arena?
+          (.close call-arena))))))
 
 (defn- invoke-binding!
   [module function-binding arguments]
@@ -5400,6 +6093,161 @@
                :bytes (vec (.toArray segment ValueLayout/JAVA_BYTE))}))
           enum-member-bindings)}))))
 
+(defn- native-optional-field-schema
+  [module seen {:keys [optional? optional-child-type
+                       optional-set-handle optional-present-handle
+                       optional-payload-address-handle
+                       optional-payload-size-handle]}]
+  (when optional?
+    (let [payload-size
+          (long (.invokeWithArguments ^MethodHandle optional-payload-size-handle
+                                      (ArrayList.)))]
+      {:kind :optional
+       :child-type optional-child-type
+       :child-schema (native-type-schema module optional-child-type seen)
+       :payload-size payload-size
+       :present-fn
+       (fn [^MemorySegment storage]
+         (not
+          (zero?
+           (long
+            (.invokeWithArguments
+             ^MethodHandle optional-present-handle
+             (ArrayList. ^java.util.Collection
+                         [(long (.address storage))]))))))
+       :payload-segment-fn
+       (fn [^MemorySegment storage]
+         (let [address
+               (long
+                (.invokeWithArguments
+                 ^MethodHandle optional-payload-address-handle
+                 (ArrayList. ^java.util.Collection
+                             [(long (.address storage))])))]
+           (when (pos? address)
+             (.reinterpret (MemorySegment/ofAddress address) payload-size))))
+       :set-fn
+       (fn [^MemorySegment storage present? ^MemorySegment payload]
+         (.invokeWithArguments
+          ^MethodHandle optional-set-handle
+          (ArrayList. ^java.util.Collection
+                      [(long (.address storage))
+                       (byte (if present? 1 0))
+                       (long (if payload (.address payload) 0))]))
+         storage)})))
+
+(defn- native-slice-field-schema
+  [module seen {:keys [slice? slice-element-type slice-set-handle
+                       slice-pointer-handle slice-length-handle
+                       slice-element-size-handle
+                       slice-element-align-handle]}]
+  (when slice?
+    (let [element-size
+          (long (.invokeWithArguments ^MethodHandle slice-element-size-handle
+                                      (ArrayList.)))
+          element-alignment
+          (long (.invokeWithArguments ^MethodHandle slice-element-align-handle
+                                      (ArrayList.)))]
+      {:kind :slice
+       :element-type slice-element-type
+       :element-schema (native-type-schema module slice-element-type seen)
+       :element-size element-size
+       :element-alignment element-alignment
+       :ownership :borrowed
+       :read-fn
+       (fn [^MemorySegment storage]
+         {:address
+          (long (.invokeWithArguments
+                 ^MethodHandle slice-pointer-handle
+                 (ArrayList. ^java.util.Collection
+                             [(long (.address storage))])))
+          :length
+          (long (.invokeWithArguments
+                 ^MethodHandle slice-length-handle
+                 (ArrayList. ^java.util.Collection
+                             [(long (.address storage))])))})
+       :set-fn
+       (fn [^MemorySegment storage ^MemorySegment backing length]
+         (.invokeWithArguments
+          ^MethodHandle slice-set-handle
+          (ArrayList. ^java.util.Collection
+                      [(long (.address storage))
+                       (long (.address backing))
+                       (long length)]))
+         storage)})))
+
+(defn- native-error-union-field-schema
+  [module seen {:keys [error-union? error-payload-type error-set
+                       error-set-ok-handle error-set-error-handle
+                       error-present-handle error-code-handle
+                       error-name-pointer-handle error-name-length-handle
+                       error-payload-address-handle
+                       error-payload-size-handle]}]
+  (when error-union?
+    (let [payload-size
+          (long (.invokeWithArguments ^MethodHandle error-payload-size-handle
+                                      (ArrayList.)))]
+      {:kind :error-union
+       :error-set error-set
+       :payload-type error-payload-type
+       :payload-schema (native-type-schema module error-payload-type seen)
+       :payload-size payload-size
+       :error-fn
+       (fn [^MemorySegment storage]
+         (when-not
+          (zero?
+           (long (.invokeWithArguments
+                  ^MethodHandle error-present-handle
+                  (ArrayList. ^java.util.Collection
+                              [(long (.address storage))]))))
+           (let [code
+                 (long (.invokeWithArguments
+                        ^MethodHandle error-code-handle
+                        (ArrayList. ^java.util.Collection
+                                    [(long (.address storage))])))
+                 name-address
+                 (long (.invokeWithArguments
+                        ^MethodHandle error-name-pointer-handle
+                        (ArrayList. ^java.util.Collection
+                                    [(long (.address storage))])))
+                 name-length
+                 (long (.invokeWithArguments
+                        ^MethodHandle error-name-length-handle
+                        (ArrayList. ^java.util.Collection
+                                    [(long (.address storage))])))
+                 name (when (and (pos? name-address) (pos? name-length))
+                        (String.
+                         (.toArray
+                          (.reinterpret (MemorySegment/ofAddress name-address)
+                                        name-length)
+                          ValueLayout/JAVA_BYTE)
+                         StandardCharsets/UTF_8))]
+             {:name (when name (keyword name)) :code code})))
+       :payload-segment-fn
+       (fn [^MemorySegment storage]
+         (when (pos? payload-size)
+           (let [address
+                 (long (.invokeWithArguments
+                        ^MethodHandle error-payload-address-handle
+                        (ArrayList. ^java.util.Collection
+                                    [(long (.address storage))])))]
+             (when (pos? address)
+               (.reinterpret (MemorySegment/ofAddress address) payload-size)))))
+       :set-ok-fn
+       (fn [^MemorySegment storage ^MemorySegment payload]
+         (.invokeWithArguments
+          ^MethodHandle error-set-ok-handle
+          (ArrayList. ^java.util.Collection
+                      [(long (.address storage))
+                       (long (if payload (.address payload) 0))]))
+         storage)
+       :set-error-fn
+       (fn [^MemorySegment storage code]
+         (.invokeWithArguments
+          ^MethodHandle error-set-error-handle
+          (ArrayList. ^java.util.Collection
+                      [(long (.address storage)) (long code)]))
+         storage)})))
+
 (defn- native-union-schema
   [module type seen declaration fields]
   (let [qualified-name (symbol (:module declaration) (str (:name declaration)))
@@ -5420,7 +6268,12 @@
                        ^MethodHandle (:size-getter-handle field-binding)
                        (ArrayList.)))
                 field-schema
-                (native-type-schema module (:type field) (conj seen [module type]))]
+                (or (native-slice-field-schema
+                     module (conj seen [module type]) field-binding)
+                    (native-error-union-field-schema
+                     module (conj seen [module type]) field-binding)
+                    (native-type-schema module (:type field)
+                                        (conj seen [module type])))]
             (cond->
              (assoc field
                     :byte-offset 0
@@ -5466,6 +6319,28 @@
    (let [identity [module type]]
      (when-not (contains? seen identity)
        (cond
+         (and (vector? type)
+              (contains? #{"*" "*const" "many" "many-const"
+                           "sentinel" "sentinel-const" "c-pointer"
+                           "pointer"}
+                         (some-> type first name)))
+         (let [[operator & arguments] type
+               operator (name operator)
+               options (when (= "pointer" operator) (first arguments))
+               child-type
+               (case operator
+                 "pointer" (second arguments)
+                 "sentinel" (first arguments)
+                 "sentinel-const" (first arguments)
+                 (first arguments))]
+           {:kind :pointer
+            :type type
+            :child-type child-type
+            :nullable? (boolean (or (= "c-pointer" operator)
+                                    (:allowzero? options)
+                                    (:allowzero options)))
+            :ownership :borrowed})
+
          (and (vector? type)
               (contains? #{:array :array-sentinel :vector} (first type)))
          (let [[kind & arguments] type
@@ -5564,8 +6439,14 @@
                       (mapv
                        (fn [field field-binding]
                          (let [field-schema
-                               (native-type-schema module (:type field)
-                                                   (conj seen identity))]
+                               (or (native-optional-field-schema
+                                    module (conj seen identity) field-binding)
+                                   (native-slice-field-schema
+                                    module (conj seen identity) field-binding)
+                                   (native-error-union-field-schema
+                                    module (conj seen identity) field-binding)
+                                   (native-type-schema module (:type field)
+                                                       (conj seen identity)))]
                            (cond->
                             (assoc field
                                    :byte-offset
@@ -5641,17 +6522,7 @@
                      (locking compile-lock
                        (retire-module-quiescent-generations! module))))))]
       (try
-        (case (:kind schema)
-          :packed-struct
-          (zig-value/write-packed-struct! segment schema clojure-value)
-          :struct
-          (zig-value/write-struct! segment schema clojure-value)
-          :enum
-          (zig-value/write-enum! segment schema clojure-value)
-          :union
-          (zig-value/write-union! segment schema clojure-value)
-          (throw (ex-info "Clojure construction is not implemented for this Zig schema"
-                          {:type qualified-name :schema schema})))
+        (zig-value/write-value! segment type-name schema clojure-value arena)
         (let [schema
               (if (and (= :union (:kind schema))
                        (not (:tagged? schema))
@@ -5727,7 +6598,10 @@
                                    :size size
                                    :alignment alignment})))
               segment (.reinterpret (MemorySegment/ofAddress address) size)
-              schema (native-type-schema module (:type declaration))
+              schema (or (native-optional-field-schema module #{} binding)
+                         (native-slice-field-schema module #{} binding)
+                         (native-error-union-field-schema module #{} binding)
+                         (native-type-schema module (:type declaration)))
               closed? (atom false)
               close!
               (fn []
