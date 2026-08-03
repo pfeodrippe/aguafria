@@ -70,6 +70,9 @@
   "Namespace used to resolve aliases such as `ak/intCast` during emission."
   nil)
 
+(def ^:dynamic *reloadable-state-references?* false)
+(def ^:dynamic *lexical-bindings* #{})
+
 (defn- current-keyword-token
   [op]
   (keyword/resolve-token (or *keyword-context* *ns*) op))
@@ -154,11 +157,13 @@
 
 (defn- contextual-reference
   [context-ns original-symbol reference]
-  (let [current-module (str (or project/*catalog-namespace*
+  (let [actual-module (str (ns-name context-ns))
+        current-module (str (or project/*catalog-namespace*
                                 (ns-name context-ns)))
         target-module (:module reference)]
     (if (or (= :import-member (:kind reference))
             (nil? target-module)
+            (= actual-module target-module)
             (= current-module target-module))
       reference
       (let [requested-alias (or (some-> original-symbol namespace symbol)
@@ -220,6 +225,10 @@
 
 (declare qualify-form)
 
+(def ^:private declaration-name-operators
+  '#{fn-decl fn-proto-decl const-decl var-decl struct-decl import-decl
+     field-decl enum-field-decl comptime-decl test-decl})
+
 (defn- qualify-seq
   [context-ns form]
   (let [[op & raw-args] form
@@ -227,7 +236,9 @@
         structural? (some? structural-op)
         token (when-not structural? (keyword/resolve-token context-ns op))
         reference (when-not structural? (resolve-zig-reference context-ns op))
-        args (if (and structural? (= 'field structural-op) (= 2 (count raw-args)))
+        args (cond
+               (and structural? (= 'field structural-op)
+                    (= 2 (count raw-args)))
                ;; A field name is Zig syntax, not a Var reference. Qualifying
                ;; it would incorrectly capture a same-named top-level Var.
                [(qualify-form context-ns (first raw-args))
@@ -237,6 +248,15 @@
                   (if (seq? field-name)
                     (qualify-form context-ns field-name)
                     field-name))]
+
+               (and structural?
+                    (contains? declaration-name-operators structural-op)
+                    (seq raw-args))
+               (into [(first raw-args)]
+                     (map #(qualify-form context-ns %))
+                     (next raw-args))
+
+               :else
                (mapv #(qualify-form context-ns %) raw-args))
         qualified-op (cond
                        structural? structural-op
@@ -281,6 +301,21 @@
     (reference-symbol context-ns form
                       (namespace-root-reference context-ns form))
 
+    ;; Preserve schema identity on ordinary same-namespace type/state
+    ;; references. This lets implementation fingerprints notice a new
+    ;; defstruct and lets development emission route a defvar through its
+    ;; stable state-reference cell.
+    (and (symbol? form) (nil? (namespace form))
+         (not (contains? *lexical-bindings* form)))
+    (if-let [reference
+             (some-> (resolve-context-var context-ns form)
+                     meta :aguafria/zig-reference
+                     (#(when (or (:type-reference? %)
+                                 (= :var (:declaration-kind %)))
+                           %)))]
+      (reference-symbol context-ns form reference)
+      form)
+
     (and (symbol? form)
          (or (namespace form) (str/includes? (name form) ".")))
     (if-let [reference (resolve-zig-reference context-ns form)]
@@ -288,6 +323,18 @@
       form)
 
     :else form))
+
+(defn- declaration-local-bindings
+  [context-ns declaration]
+  (into (set (map :name (:args declaration)))
+        (keep (fn [value]
+                (when (seq? value)
+                  (let [operator (resolved-syntax-operator context-ns
+                                                           (first value))]
+                    (when (and (contains? #{'const 'var} operator)
+                               (symbol? (second value)))
+                      (second value))))))
+        (tree-seq coll? seq (:body declaration))))
 
 (defn prepare-declaration
   "Qualify every Zig form in a declaration using its defining Clojure ns."
@@ -303,7 +350,10 @@
     (update :value #(qualify-form context-ns %))
 
     (contains? declaration :body)
-    (update :body #(mapv (partial qualify-form context-ns) %))
+    (update :body
+            #(binding [*lexical-bindings*
+                       (declaration-local-bindings context-ns declaration)]
+               (mapv (partial qualify-form context-ns) %)))
 
     (contains? declaration :args)
     (update :args #(mapv (fn [arg]
@@ -772,7 +822,13 @@
     (number? form) (str form)
     (symbol? form)
     (if-let [reference (current-zig-reference form)]
-      (:zig-name reference)
+      (if (and *reloadable-state-references?*
+               (:state-accessor reference))
+        (let [accessor (if-let [alias (:import-alias reference)]
+                         (str alias "." (:state-accessor reference))
+                         (:state-accessor reference))]
+          (str accessor "().*"))
+        (:zig-name reference))
       (if (str/includes? (name form) ".")
         (fail! (str "Unresolved dotted Zig reference `" form "`. "
                     "Declare imported members with az/defimport.")
@@ -1703,7 +1759,7 @@
   [{:keys [kind name type value fields body args return export? public? layout
            source code import-name leading-source zig-prefix zig-qualifiers
            zig-name implicit-return? emit-source-comment? test-name
-           has-value? align doc comments]
+           has-value? align doc comments body-prefix-source]
     :as declaration}]
   (let [declaration-name (or zig-name name)]
     (str
@@ -1791,7 +1847,11 @@
      :fn
      (let [body-source (binding [*source-mapping?*
                                  (not= false emit-source-comment?)]
-                         (emit-function-body body return implicit-return?))]
+                         (emit-function-body body return implicit-return?))
+           body-source (str (when (seq body-prefix-source)
+                              (str body-prefix-source
+                                   (when (seq body-source) "\n")))
+                            body-source)]
        (str (declaration-prefix zig-prefix
                                 (cond
                                   (and export? public?) "pub export "
@@ -1838,95 +1898,166 @@
 
 (defn- emit-reloadable-function
   [declaration {:keys [implementation dispatch-type dispatch getter setter
-                       active-counter]}]
+                       active-counter active-depth active-tracking
+                       publication-epoch emit-getter?]}]
   (let [arguments (mapv :name (:args declaration))
         target (str dispatch "_target")
+        target-address (str dispatch "_target_address")
         track-active (str implementation "_track_active")
         call (apply list (exact-zig-symbol target) arguments)
         implementation-call (apply list (exact-zig-symbol implementation) arguments)
-        wrapper-body (if (= :void (:return declaration))
-                       [call]
-                       [(list 'return call)])
+        wrapper-body [(list 'return call)]
         implementation-declaration
         (assoc declaration
                :name (symbol implementation)
                :zig-name implementation
                :export? false
                :public? false
+               ;; `inline fn` itself is not a stable addressable dispatch
+               ;; target. Keep the public wrapper inline, but materialize its
+               ;; versioned implementation as an ordinary private function so
+               ;; the generated getter/cell can retain a real pointer.
+               :zig-prefix nil
                :doc nil
                :comments nil
                :source nil
-               :emit-source-comment? false)
+               :emit-source-comment? false
+               :body-prefix-source
+               (str "const " track-active " = !@inComptime() and @atomicLoad(bool, &"
+                    active-tracking ", .acquire);\n"
+                    "const " track-active "_outermost = if (" track-active
+                    ") " active-depth " == 0 else false;\n"
+                    "if (" track-active ") {\n"
+                    "    " active-depth " += 1;\n"
+                    "    if (" track-active "_outermost) { _ = @atomicRmw(usize, &"
+                    active-counter ", .Add, 1, .acq_rel); }\n"
+                    "}\n"
+                    "defer if (" track-active ") {\n"
+                    "    " active-depth " -= 1;\n"
+                    "    if (" track-active
+                    "_outermost) { _ = @atomicRmw(usize, &" active-counter
+                    ", .Sub, 1, .acq_rel); }\n"
+                    "};"))
         implementation-source
-        (-> (emit-declaration implementation-declaration)
-            (str/replace-first
-             #"\{\n"
-             (str "{\n"
-                  "    const " track-active " = !@inComptime();\n"
-                  "    if (" track-active ") { _ = @atomicRmw(usize, &"
-                  active-counter ", .Add, 1, .acq_rel); }\n"
-                  "    defer if (" track-active
-                  ") { _ = @atomicRmw(usize, &" active-counter
-                  ", .Sub, 1, .acq_rel); };\n")))
+        (emit-declaration implementation-declaration)
         wrapper-declaration
         (assoc declaration
                :body wrapper-body
-               :implicit-return? false)
-        wrapper-source
-        (-> (emit-declaration wrapper-declaration)
-            (str/replace-first
-             #"\{\n"
-             (str "{\n"
-                  "    if (@inComptime()) {\n"
-                  (if (= :void (:return declaration))
-                    (str "        " (emit-expr implementation-call) ";\n"
-                         "        return;\n")
-                    (str "        return " (emit-expr implementation-call) ";\n"))
-                  "    }\n"
-                  "    const " target ": " dispatch-type
-                  " = @atomicLoad(" dispatch-type ", &" dispatch
-                  ", .acquire);\n")))]
+               :implicit-return? false
+               :body-prefix-source
+               (str "if (@inComptime()) {\n"
+                    "    return " (emit-expr implementation-call) ";\n"
+                    "}\n"
+                    "const " target-address ": usize = publication: {\n"
+                    "    if (" publication-epoch ") |epoch| {\n"
+                    "        while (true) {\n"
+                    "            const before = @atomicLoad(usize, epoch, .acquire);\n"
+                    "            if ((before & 1) != 0) continue;\n"
+                    "            const candidate = @atomicLoad(usize, &"
+                    dispatch ", .acquire);\n"
+                    "            const after = @atomicLoad(usize, epoch, .acquire);\n"
+                    "            if (before == after) break :publication candidate;\n"
+                    "        }\n"
+                    "    }\n"
+                    "    break :publication @atomicLoad(usize, &" dispatch
+                    ", .acquire);\n"
+                    "};\n"
+                    "const " target ": " dispatch-type " = if ("
+                    target-address " == 0) &" implementation
+                    " else @ptrFromInt(" target-address ");"))
+         wrapper-source
+         (emit-declaration wrapper-declaration)]
     (str implementation-source "\n\n"
          "const " dispatch-type " = @TypeOf(&" implementation ");\n"
-         "var " dispatch ": " dispatch-type " = &" implementation ";\n\n"
-         "export fn " getter "() callconv(.c) usize {\n"
-         "    return @intFromPtr(&" implementation ");\n"
-         "}\n\n"
+         "var " dispatch ": usize = 0;\n\n"
+         (when emit-getter?
+           (str "export fn " getter "() callconv(.c) usize {\n"
+                "    return @intFromPtr(&" implementation ");\n"
+                "}\n\n"))
          "export fn " setter "(address: usize) callconv(.c) void {\n"
-         "    @atomicStore(" dispatch-type ", &" dispatch
-         ", @ptrFromInt(address), .release);\n"
+         "    @atomicStore(usize, &" dispatch ", address, .release);\n"
          "}\n\n"
          wrapper-source)))
 
+(defn- emit-reloadable-state
+  [declaration {:keys [accessor getter setter size-getter align-getter]}]
+  (let [name (identifier (or (:zig-name declaration) (:name declaration)))]
+    (str (emit-declaration declaration) "\n\n"
+         "var " accessor "_pointer: @TypeOf(&" name ") = &" name ";\n\n"
+         "pub fn " accessor "() @TypeOf(&" name ") {\n"
+         "    return @atomicLoad(@TypeOf(&" name "), &" accessor
+         "_pointer, .acquire);\n"
+         "}\n\n"
+         "export fn " getter "() callconv(.c) usize {\n"
+         "    return @intFromPtr(&" name ");\n"
+         "}\n\n"
+         "export fn " setter "(address: usize) callconv(.c) void {\n"
+         "    @atomicStore(@TypeOf(&" name "), &" accessor
+         "_pointer, @ptrFromInt(address), .release);\n"
+         "}\n\n"
+         "export fn " size-getter "() callconv(.c) usize {\n"
+         "    return @sizeOf(@TypeOf(" name "));\n"
+         "}\n\n"
+         "export fn " align-getter "() callconv(.c) usize {\n"
+         "    return @alignOf(@TypeOf(" name "));\n"
+         "}")))
+
 (defn emit-reloadable-module
-  "Emit a development shared-library module with stable dispatch cells for
-  declarations named by `dispatch-specs`. The ordinary `emit-module` output
-  remains the direct/static Zig source used for inspection and final builds."
-  [module-name declarations dispatch-specs]
-  (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
-    (binding [*source-mapping?* true
-              *keyword-context* context-ns]
-      (let [imports (remove nil? (synthesized-import-declarations declarations
-                                                                    true))
-            declarations (concat imports declarations)
-            {:keys [active-counter active-getter]} (some-> dispatch-specs first val)]
-        (str "// Generated by Aguafria for reloadable development.\n"
-             "// Module: " module-name "\n\n"
-             (when active-counter
-               (str "var " active-counter ": usize = 0;\n\n"
-                    "export fn " active-getter "() callconv(.c) usize {\n"
-                    "    return @atomicLoad(usize, &" active-counter
-                    ", .acquire);\n"
-                    "}\n\n"))
-             (->> declarations
-                  (sort-by declaration-sort-key)
-                  (map (fn [declaration]
-                         (if-let [spec (get dispatch-specs
-                                            (:declaration-key declaration))]
-                           (emit-reloadable-function declaration spec)
-                           (emit-declaration declaration))))
-                  (str/join "\n\n"))
-             "\n")))))
+  "Emit a development shared-library module with stable function dispatch and
+  versioned state hooks. Ordinary `emit-module` remains the direct/static Zig
+  source used for inspection and final builds."
+  ([module-name declarations dispatch-specs]
+   (emit-reloadable-module module-name declarations dispatch-specs {}))
+  ([module-name declarations dispatch-specs state-specs]
+   (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
+     (binding [*source-mapping?* true
+               *keyword-context* context-ns
+               *reloadable-state-references?* true]
+       (let [imports (remove nil? (synthesized-import-declarations declarations
+                                                                     true))
+             declarations (concat imports declarations)
+             {:keys [active-counter active-depth active-tracking
+                     active-tracking-setter active-getter publication-epoch
+                     publication-epoch-setter]}
+             (some-> dispatch-specs first val)]
+         (str "// Generated by Aguafria for reloadable development.\n"
+              "// Module: " module-name "\n\n"
+              (when active-counter
+                (str "var " active-counter ": usize = 0;\n"
+                     "threadlocal var " active-depth ": usize = 0;\n\n"
+                     "var " active-tracking ": bool = true;\n\n"
+                     "export fn " active-tracking-setter
+                     "(enabled: u8) callconv(.c) void {\n"
+                     "    @atomicStore(bool, &" active-tracking
+                     ", enabled != 0, .release);\n"
+                     "}\n\n"
+                     "export fn " active-getter "() callconv(.c) usize {\n"
+                     "    return @atomicLoad(usize, &" active-counter
+                     ", .acquire);\n"
+                     "}\n\n"
+                     "var " publication-epoch ": ?*const usize = null;\n\n"
+                     "export fn " publication-epoch-setter
+                     "(address: usize) callconv(.c) void {\n"
+                     "    " publication-epoch " = @ptrFromInt(address);\n"
+                     "}\n\n"))
+              (->> declarations
+                   (sort-by declaration-sort-key)
+                   (map (fn [declaration]
+                          (cond
+                            (get dispatch-specs (:declaration-key declaration))
+                            (emit-reloadable-function
+                             declaration
+                             (get dispatch-specs (:declaration-key declaration)))
+
+                            (get state-specs (:declaration-key declaration))
+                            (emit-reloadable-state
+                             declaration
+                             (get state-specs (:declaration-key declaration)))
+
+                            :else
+                            (emit-declaration declaration))))
+                   (str/join "\n\n"))
+              "\n"))))))
 
 (defn- nested-doc-attributes
   [declaration]

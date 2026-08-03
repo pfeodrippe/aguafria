@@ -48,6 +48,26 @@
   "Recompile one module or every known module using current configuration."
   ([] (runtime/recompile!))
   ([module] (runtime/recompile! module)))
+(clojure.core/defn recompile-component!
+  "Atomically prepare and publish every module in a dependency SCC."
+  [module]
+  (runtime/recompile-component! module))
+(clojure.core/defn recompile-affected!
+  "Recompile a module SCC followed by every transitively dependent SCC."
+  [module]
+  (runtime/recompile-affected! module))
+(clojure.core/defn state-versions
+  "Return the retained native state generations for an az/defvar."
+  [state]
+  (runtime/state-versions state))
+(clojure.core/defn type-versions
+  "Return retained schema generations for a defstruct/container type Var."
+  [type]
+  (runtime/type-versions type))
+(clojure.core/defn migrate-state!
+  "Apply an explicit Zig migration to a breaking az/defvar schema change."
+  [state migration]
+  (runtime/migrate-state! state migration))
 (clojure.core/defn await!
   "Wait for the newest async build of one module or every known module."
   ([] (runtime/await!))
@@ -185,17 +205,27 @@
     [(or docstring (:doc attributes)) attributes declaration]))
 
 (defn- declaration-reference
-  [{:keys [kind module name zig-name value]}]
-  (cond-> {:kind :declaration
-           :declaration-kind kind
-           :module module
-           :zig-name (emitter/identifier (or zig-name name))
-           :symbol (symbol module (str name))}
-    (or (= :struct kind)
-        (and (= :const kind)
-             (seq? value)
-             (= 'container (first value))))
-    (assoc :type-reference? true)))
+  [declaration]
+  (let [{:keys [kind module name zig-name value return logical-id abi-fingerprint
+                schema-fingerprint implementation-fingerprint]}
+        (runtime/declaration-info declaration)]
+    (cond-> {:kind :declaration
+             :declaration-kind kind
+             :module module
+             :zig-name (emitter/identifier (or zig-name name))
+             :symbol (symbol module (str name))}
+      logical-id (assoc :logical-id logical-id)
+      abi-fingerprint (assoc :abi-fingerprint abi-fingerprint)
+      implementation-fingerprint
+      (assoc :implementation-fingerprint implementation-fingerprint)
+      schema-fingerprint (assoc :schema-fingerprint schema-fingerprint)
+      (= :var kind)
+      (assoc :state-accessor (:accessor (runtime/state-reference declaration)))
+      (or (= :struct kind)
+          (and (= :const kind)
+               (seq? value)
+               (= 'container (first value))))
+      (assoc :type-reference? true))))
 
 (defn- descriptor-expression
   "Serialize macro data so very large Zig forms do not exceed the JVM's
@@ -263,6 +293,7 @@
                      :arglists '~(list arglist)
                      :aguafria/declaration descriptor#
                      :aguafria/zig-reference ~quoted-reference})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
 
 (defmacro defconst
@@ -300,6 +331,7 @@
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
 
 (defmacro defvar
@@ -334,6 +366,7 @@
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
 
 (defmacro defstruct
@@ -376,6 +409,7 @@
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
 
 (defmacro defimport
@@ -426,6 +460,7 @@
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
 
 (defmacro defraw
@@ -451,6 +486,7 @@
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
 
 (defmacro deffield
@@ -495,6 +531,7 @@
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name)))))
 
 (defmacro defcomptime
@@ -523,6 +560,7 @@
                                     (or docstring "A Zig top-level comptime block.")))
          {:aguafria/declaration descriptor#})
        (alter-meta! (var ~name) assoc :aguafria/declaration descriptor#)
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
 
 (defmacro defextern
@@ -565,6 +603,7 @@
                     {:doc ~docstring
                      :aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
+       (runtime/refresh-declaration-var! descriptor#)
        (var ~name)))))
 
 (defmacro deftest
@@ -607,7 +646,6 @@
 ;; namespaces.
 (doseq [operator (emitter/syntax-operators)
         :when (and (not (special-symbol? operator))
-                   (nil? (ns-resolve 'clojure.core operator))
                    (nil? (keyword/token-name (name operator))))]
   (when (contains? (ns-map *ns*) operator)
     (ns-unmap *ns* operator))

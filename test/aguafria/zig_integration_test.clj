@@ -1,6 +1,8 @@
 (ns aguafria.zig-integration-test
   (:require [aguafria.keyword :as ak]
+            [aguafria.std :as zig-std]
             [aguafria.zig :as az]
+            [aguafria.zig.host :as host]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -100,6 +102,222 @@
   (some #(when (= name (:name %)) %)
         (:declarations (az/stats 'aguafria.zig-integration-test))))
 
+(defn- capture-declaration
+  [target-ns form]
+  (let [captured (atom [])]
+    (binding [*ns* target-ns
+              runtime/*registration-batch* captured]
+      (eval form))
+    (or (first @captured)
+        (throw (ex-info "Aguafria form captured no declaration"
+                        {:namespace (ns-name target-ns) :form form})))))
+
+(deftest native-process-main-host-test
+  (testing "a std.process.Init main runs in the JVM and shares live native state"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.process-host-" (random-uuid)))
+          test-ns (create-ns test-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (alias 'std-process 'aguafria.std.process)
+          (eval '(az/defvar observed :u32 0))
+          (eval '(az/defn observed-value :- :u32 [] observed))
+          (eval '(az/defn main
+                   {:zig/qualifiers "!" :attrs #{:public}}
+                   :- :void
+                   [[process-init std-process/Init]]
+                   (set! _ process-init)
+                   (set! observed 42))))
+        (let [main-var (ns-resolve test-ns 'main)
+              handle (host/start! main-var ["argument"] {:argv0 "fixture"})
+              result (host/await! handle)
+              final-info (host/info handle)]
+          (is (= 0 (:exit-code result)))
+          (is (= 42 ((ns-resolve test-ns 'observed-value))))
+          (is (= :finished (:status final-info)))
+          (is (false? (:active? final-info))))
+        (finally
+          (az/configure! old-config))))))
+
+(deftest development-root-public-declarations-reach-dependencies-test
+  (testing "@import(\"root\") observes the converted application root"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          dependency-symbol
+          (symbol (str "aguafria.root-context-dependency-" suffix))
+          application-symbol
+          (symbol (str "aguafria.root-context-application-" suffix))
+          dependency-ns (create-ns dependency-symbol)
+          application-ns (create-ns application-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (doseq [target [dependency-ns application-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)
+            (alias 'ak 'aguafria.keyword)))
+        (binding [*ns* dependency-ns]
+          (eval
+           '(az/defconst root
+              {:zig/import-name "root"}
+              (ak/import "root")))
+          (eval
+           '(az/defconst selected_config :u32
+              (if (ak/hasDecl root "custom_config")
+                (az/field root custom_config)
+                0))))
+        (binding [*ns* application-ns]
+          (alias 'dependency dependency-symbol)
+          (eval '(az/defconst custom_config {:attrs #{:public}} :u32 7))
+          (eval
+           '(az/defn read_context :- :u32 []
+              dependency/selected_config)))
+        (is (= 7 ((ns-resolve application-ns 'read_context))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns application-symbol)
+          (remove-ns dependency-symbol))))))
+
+(deftest running-native-host-follows-compatible-var-swap-test
+  (testing "an already-running main follows a compatible callee publication"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.running-host-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          handle (atom nil)
+          await-value
+          (fn [expected]
+            (loop [attempt 0]
+              (let [value ((ns-resolve test-ns 'observed-value))]
+                (cond
+                  (= expected value) value
+                  (< attempt 500) (do (Thread/sleep 10) (recur (inc attempt)))
+                  :else value))))]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (alias 'std-process 'aguafria.std.process)
+          (eval '(az/defvar running :bool true))
+          (eval '(az/defvar observed :i32 0))
+          (eval '(az/defn logic
+                   {:attrs #{:public :implicit-return}}
+                   :- :i32 [] 1))
+          (eval '(az/defn observed-value :- :i32 [] observed))
+          (eval '(az/defn stop :- :void [] (set! running false)))
+          (eval '(az/defn main
+                   {:zig/qualifiers "!" :attrs #{:public}}
+                   :- :void
+                   [[process-init std-process/Init]]
+                   (set! _ process-init)
+                   (while running
+                     (set! observed (logic))))))
+        (reset! handle
+                (host/start! (ns-resolve test-ns 'main) [] {:argv0 "fixture"}))
+        (is (= 1 (await-value 1)))
+        (binding [*ns* test-ns]
+          (eval '(az/defn logic
+                   {:attrs #{:public :implicit-return}}
+                   :- :i32 [] 2)))
+        (is (= 2 (await-value 2)))
+        ((ns-resolve test-ns 'stop))
+        (is (= 0 (:exit-code (host/await! @handle))))
+        (is (= 2 ((ns-resolve test-ns 'observed-value))))
+        (finally
+          (when (and @handle (:active? (host/info @handle)))
+            (try
+              ((ns-resolve test-ns 'stop))
+              (host/await! @handle)
+              (catch Throwable _)))
+          (az/configure! old-config))))))
+
+(deftest running-native-host-pins-breaking-type-generation-test
+  (testing "a host keeps its complete old dispatch graph across a layout break"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.running-type-host-"
+                                   (random-uuid)))
+          test-ns (create-ns test-symbol)
+          handle (atom nil)
+          pid (.pid (java.lang.ProcessHandle/current))
+          await-observed
+          (fn [expected]
+            (loop [attempt 0]
+              (let [value ((ns-resolve test-ns 'observed-value))]
+                (cond
+                  (= expected value) value
+                  (< attempt 500) (do (Thread/sleep 10) (recur (inc attempt)))
+                  :else value))))]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (alias 'ak 'aguafria.keyword)
+          (alias 'std-process 'aguafria.std.process)
+          (eval '(az/defvar running :bool true))
+          (eval '(az/defvar observed :usize 0))
+          (eval '(az/defstruct Item [[:value :i32]]))
+          (eval '(az/defn item-size :- :usize [] (ak/sizeOf Item)))
+          (eval '(az/defn observed-value :- :usize [] observed))
+          (eval '(az/defn stop :- :void [] (set! running false)))
+          (eval '(az/defn reset-running :- :void [] (set! running true)))
+          (eval '(az/defn main
+                   {:zig/qualifiers "!" :attrs #{:public}}
+                   :- :void
+                   [[process-init std-process/Init]]
+                   (set! _ process-init)
+                   (while running
+                     (set! observed (item-size))))))
+        (reset! handle
+                (host/start! (ns-resolve test-ns 'main) [] {:argv0 "fixture"}))
+        (is (= 4 (await-observed 4)))
+
+        (binding [*ns* test-ns]
+          (eval '(az/defstruct Item [[:value :i32] [:extra :i32]])))
+        (is (= 4 ((ns-resolve test-ns 'item-size))))
+        (binding [*ns* test-ns]
+          (eval '(az/defn item-size :- :usize [] (ak/sizeOf Item))))
+        (is (= 8 ((ns-resolve test-ns 'item-size))))
+        (Thread/sleep 100)
+        (is (= 4 ((ns-resolve test-ns 'observed-value))))
+        (is (:dispatch-frozen? (host/info @handle)))
+        (is (= [:retained :breaking]
+               (mapv :status
+                     (az/type-versions (ns-resolve test-ns 'Item)))))
+
+        ((ns-resolve test-ns 'stop))
+        (let [old-handle @handle]
+          (is (= 0 (:exit-code (host/await! old-handle))))
+          ;; A breaking type never silently redirects an untouched caller,
+          ;; including the host root. Explicitly reevaluate `main` at the safe
+          ;; boundary so the replacement adopts `item-size@v2`.
+          (binding [*ns* test-ns]
+            (eval '(az/defn main
+                     {:zig/qualifiers "!" :attrs #{:public}}
+                     :- :void
+                     [[process-init std-process/Init]]
+                     (set! _ process-init)
+                     (while running
+                       (set! observed (item-size))))))
+          ((ns-resolve test-ns 'reset-running))
+          (reset! handle (host/restart! old-handle))
+          (is (= (:id old-handle) (:replaces-host-id @handle)))
+          (is (= pid (.pid (java.lang.ProcessHandle/current))))
+          (is (= 8 (await-observed 8)))
+          ((ns-resolve test-ns 'stop))
+          (is (= 0 (:exit-code (host/await! @handle)))))
+        (finally
+          (when (and @handle (:active? (host/info @handle)))
+            (try
+              ((ns-resolve test-ns 'stop))
+              (host/await! @handle)
+              (catch Throwable _)))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
 (deftest compile-and-invoke-test
   (testing "latest async module generation is callable"
     (is (= 12 (composed 3)))
@@ -173,6 +391,27 @@
            (:published-generation
             (az/stats 'aguafria.zig-integration-test))))
     (is (= 10 (simd-sum4 1 2 3 4)))))
+
+(deftest content-addressed-development-modules-use-native-cache-test
+  (testing "unchanged Aguafria-owned dependency files do not disable cache hits"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.cache-fixture-" (random-uuid)))
+          test-ns (create-ns test-symbol)]
+      (try
+        (az/configure! {:async? false :modules {} :zig-args []})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defn cached_value :- :u32 [] 42)))
+        (is (= 42 ((ns-resolve test-ns 'cached_value))))
+        (let [initial-hash (get-in (az/stats test-symbol) [:last-build :hash])]
+          (az/recompile! test-symbol)
+          (let [build (:last-build (az/stats test-symbol))]
+            (is (true? (:cached? build)))
+            (is (= initial-hash (:hash build)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
 
 (deftest hot-reload-test
   (testing "a compatible callee edit repoints an already-compiled Zig caller"
@@ -393,6 +632,171 @@
           (remove-ns b-symbol)
           (remove-ns a-symbol))))))
 
+(deftest inline-function-hot-dispatch-test
+  (testing "a forced-inline Zig wrapper keeps existing callers on a live cell"
+    (let [old-config (az/configuration)
+          module-symbol (symbol (str "aguafria.inline-live-" (random-uuid)))
+          module-ns (create-ns module-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* module-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval
+           '(az/defn inline-base
+              {:zig/prefix "pub inline"
+               :attrs #{:public :implicit-return}}
+              :- :i32
+              [x :- :i32]
+              (+ x 1)))
+          (eval
+           '(az/defn inline-caller :- :i32
+              [x :- :i32]
+              (inline-base x))))
+        (is (= 6 ((ns-resolve module-ns 'inline-caller) 5)))
+        (let [caller-generation-before
+              (->> (:declarations (az/stats module-symbol))
+                   (some #(when (= "inline-caller" (:name %))
+                            (:implementation-generation %))))]
+          (binding [*ns* module-ns]
+            (eval
+             '(az/defn inline-base
+                {:zig/prefix "pub inline"
+                 :attrs #{:public :implicit-return}}
+                :- :i32
+                [x :- :i32]
+                (+ x 2))))
+          (is (= 7 ((ns-resolve module-ns 'inline-caller) 5)))
+          (is (= caller-generation-before
+                 (->> (:declarations (az/stats module-symbol))
+                      (some #(when (= "inline-caller" (:name %))
+                               (:implementation-generation %))))))
+          (is (= 1 (count (az/function-versions
+                           (ns-resolve module-ns 'inline-base)))))
+          (is (str/includes? (az/source module-symbol)
+                             "pub inline fn inline_base")))
+        (finally
+          (az/configure! old-config)
+          (remove-ns module-symbol))))))
+
+(deftest generic-function-edit-republishes-concrete-cross-namespace-callers-test
+  (testing "a generic Var edit recompiles monomorphized callers instead of inventing a pointer ABI"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          generic-symbol (symbol (str "aguafria.generic-live-" suffix))
+          caller-symbol (symbol (str "aguafria.generic-caller-" suffix))
+          generic-ns (create-ns generic-symbol)
+          caller-ns (create-ns caller-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (doseq [target [generic-ns caller-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* generic-ns]
+          (eval
+           '(az/defn generic-add
+              {:attrs #{:public :implicit-return}}
+              :- T
+              [[T {:zig/prefix "comptime"} :type]
+               [x T]]
+              (+ x 1))))
+        (binding [*ns* caller-ns]
+          (alias 'generic generic-symbol)
+          (eval
+           '(az/defn concrete-caller :- :i32
+              [x :- :i32]
+              (generic/generic-add :i32 x))))
+        (is (= 6 ((ns-resolve caller-ns 'concrete-caller) 5)))
+        (let [caller-generation-before
+              (->> (:declarations (az/stats caller-symbol))
+                   (some #(when (= "concrete-caller" (:name %))
+                            (:implementation-generation %))))]
+          (binding [*ns* generic-ns]
+            (eval
+             '(az/defn generic-add
+                {:attrs #{:public :implicit-return}}
+                :- T
+                [[T {:zig/prefix "comptime"} :type]
+                 [x T]]
+                (+ x 2))))
+          (is (= 7 ((ns-resolve caller-ns 'concrete-caller) 5)))
+          (is (< caller-generation-before
+                 (->> (:declarations (az/stats caller-symbol))
+                      (some #(when (= "concrete-caller" (:name %))
+                               (:implementation-generation %))))))
+          (is (empty? (az/function-versions
+                       (ns-resolve generic-ns 'generic-add)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns caller-symbol)
+          (remove-ns generic-symbol))))))
+
+(deftest composite-zig-signature-hot-dispatch-test
+  (testing "Zig callers hot-swap native functions whose ABI is not JVM-scalar"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          a-symbol (symbol (str "aguafria.composite-a-" suffix))
+          b-symbol (symbol (str "aguafria.composite-b-" suffix))
+          a-ns (create-ns a-symbol)
+          b-ns (create-ns b-symbol)]
+      (try
+        (az/configure! {:async? true})
+        (doseq [target [a-ns b-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* a-ns]
+          (eval '(az/defstruct Pair [[:x :i32] [:y :i32]]))
+          (eval
+           '(az/defn ^{:export false :public true} sum-pair :- :i32
+              [pair :- Pair]
+              (+ (az/field pair x) (az/field pair y))))
+          (eval
+           '(az/defn ^{:export false :public true :zig/qualifiers "!"}
+              fallible :- :i32
+              [x :- :i32]
+              (+ x 1))))
+        (binding [*ns* b-ns]
+          (alias 'a a-symbol)
+          (eval
+           '(az/defn call-pair :- :i32
+              [x :- :i32 y :- :i32]
+              (a/sum-pair (a/Pair {:x x :y y}))))
+          (eval
+           '(az/defn call-fallible :- :i32
+              [x :- :i32]
+              (catch (a/fallible x) 0))))
+        (is (= 7 ((ns-resolve b-ns 'call-pair) 3 4)))
+        (is (= 4 ((ns-resolve b-ns 'call-fallible) 3)))
+        (let [b-generation
+              (->> (:declarations (az/stats b-symbol))
+                   (some #(when (= "call-pair" (:name %))
+                            (:implementation-generation %))))]
+          (binding [*ns* a-ns]
+            (eval
+             '(az/defn ^{:export false :public true} sum-pair :- :i32
+                [pair :- Pair]
+                (+ (* (az/field pair x) 10) (az/field pair y))))
+            (eval
+             '(az/defn ^{:export false :public true :zig/qualifiers "!"}
+                fallible :- :i32
+                [x :- :i32]
+                (+ x 10))))
+          (az/await! a-symbol)
+          (is (= 34 ((ns-resolve b-ns 'call-pair) 3 4)))
+          (is (= 13 ((ns-resolve b-ns 'call-fallible) 3)))
+          (is (= b-generation
+                 (->> (:declarations (az/stats b-symbol))
+                      (some #(when (= "call-pair" (:name %))
+                               (:implementation-generation %)))))))
+        (is (some #(= "sum_pair" (last (:logical-id %)))
+                  (:dispatch-versions (az/stats a-symbol))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol))))))
+
 (deftest handwritten-cyclic-module-hot-reload-test
   (testing "ordinary Aguafria namespaces can form and hot-reload a Zig cycle"
     (let [old-config (az/configuration)
@@ -446,6 +850,253 @@
             (is (:cyclic-dependency-component? b-stats))
             (is (= #{(str a-symbol) (str b-symbol)}
                    (set (:dependency-component-modules a-stats))))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol))))))
+
+(deftest cyclic-breaking-type-adoption-is-explicit-test
+  (testing "cyclic callers retain a breaking type until each Var is reevaluated"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          a-symbol (symbol (str "aguafria.cyclic-type-a-" suffix))
+          b-symbol (symbol (str "aguafria.cyclic-type-b-" suffix))
+          a-ns (create-ns a-symbol)
+          b-ns (create-ns b-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (doseq [target [a-ns b-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)
+            (alias 'ak 'aguafria.keyword)))
+        (binding [*ns* a-ns]
+          (alias 'b b-symbol)
+          (eval '(az/defstruct Item [[:value :u32]])))
+        (binding [*ns* b-ns]
+          (alias 'a a-symbol)
+          (eval '(az/defn item-size :- :usize [] (ak/sizeOf a/Item))))
+        (binding [*ns* a-ns]
+          (eval '(az/defn entry :- :usize [] (b/item-size))))
+        (is (= 4 ((ns-resolve a-ns 'entry))))
+        (is (:cyclic-dependency-component? (az/stats a-symbol)))
+        (is (some #(= (:abi-fingerprint %)
+                      (:abi-fingerprint
+                       (:aguafria/declaration
+                        (meta (ns-resolve b-ns 'item-size)))))
+                  (az/function-versions (ns-resolve b-ns 'item-size))))
+
+        (az/configure! {:async? true})
+        (binding [*ns* a-ns]
+          (eval '(az/defstruct Item [[:value :u32] [:extra :u32]])))
+        (let [waiting (future (az/await! a-symbol))
+              result (deref waiting 30000 ::timed-out)]
+          (when (= ::timed-out result)
+            (future-cancel waiting))
+          (is (not= ::timed-out result)))
+        (is (= 4 ((ns-resolve b-ns 'item-size))))
+        (is (= 4 ((ns-resolve a-ns 'entry))))
+        (binding [*ns* b-ns]
+          (eval '(az/defn item-size :- :usize [] (ak/sizeOf a/Item))))
+        (az/await! b-symbol)
+        (is (= 8 ((ns-resolve b-ns 'item-size))))
+        (is (= 4 ((ns-resolve a-ns 'entry))))
+        (let [old-version
+              (some #(when-not (:current? %) %)
+                    (az/function-versions (ns-resolve b-ns 'item-size)))]
+          (is (= 4 (az/invoke-version! (ns-resolve b-ns 'item-size)
+                                       (:abi-fingerprint old-version) []))))
+        (binding [*ns* a-ns]
+          (eval '(az/defn entry :- :usize [] (b/item-size))))
+        (az/await! a-symbol)
+        (is (= 8 ((ns-resolve a-ns 'entry))))
+        (is (= [:retained :breaking]
+               (mapv :status
+                     (az/type-versions (ns-resolve a-ns 'Item)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol))))))
+
+(deftest cyclic-compatible-type-propagation-does-not-self-await-test
+  (testing "a compatible type-factory edit atomically propagates through its SCC"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          a-symbol (symbol (str "aguafria.cyclic-factory-a-" suffix))
+          b-symbol (symbol (str "aguafria.cyclic-factory-b-" suffix))
+          a-ns (create-ns a-symbol)
+          b-ns (create-ns b-symbol)
+          define-options!
+          (fn [answer]
+            (binding [*ns* a-ns]
+              (eval
+               (clojure.walk/postwalk
+                #(if (= 'aguafria-test/answer %) answer %)
+                '(az/defn OptionsType {:attrs #{:public}} :- :type []
+                   (ak/return
+                    (az/container
+                     {:kind :struct :layout :normal}
+                     (az/field-decl value :u32)
+                     (az/fn-decl answer {:attrs #{:public}} :- :u32 []
+                       (ak/return aguafria-test/answer)))))))))]
+      (try
+        (az/configure! {:async? false})
+        (doseq [target [a-ns b-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)
+            (alias 'ak 'aguafria.keyword)))
+        (binding [*ns* a-ns] (alias 'b b-symbol))
+        (define-options! 1)
+        (binding [*ns* b-ns]
+          (alias 'a a-symbol)
+          (eval
+           '(az/defn option-answer :- :u32 []
+              ((az/field (a/OptionsType) answer)))))
+        (binding [*ns* a-ns]
+          (eval '(az/defn entry :- :u32 [] (b/option-answer))))
+        (is (= 1 ((ns-resolve a-ns 'entry))))
+        (is (:cyclic-dependency-component? (az/stats a-symbol)))
+
+        (az/configure! {:async? true})
+        (define-options! 2)
+        (let [waiting (future (az/await! a-symbol))
+              result (deref waiting 30000 ::timed-out)]
+          (when (= ::timed-out result)
+            (future-cancel waiting))
+          (is (not= ::timed-out result)))
+        (is (= 2 ((ns-resolve b-ns 'option-answer))))
+        (is (= 2 ((ns-resolve a-ns 'entry))))
+        (is (= [:compatible]
+               (mapv :status
+                     (az/type-versions (ns-resolve a-ns 'OptionsType)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol))))))
+
+(deftest cyclic-component-atomic-publication-and-rollback-test
+  (testing "every prepared SCC member publishes together and a failed prepare publishes none"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          a-symbol (symbol (str "aguafria.atomic-a-" suffix))
+          b-symbol (symbol (str "aguafria.atomic-b-" suffix))
+          a-ns (create-ns a-symbol)
+          b-ns (create-ns b-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (doseq [target [a-ns b-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* a-ns]
+          (alias 'b b-symbol)
+          (eval
+           '(az/defn ^{:export false :public true} inner-a :- :i32
+              [x :- :i32]
+              (+ x 1))))
+        (binding [*ns* b-ns]
+          (alias 'a a-symbol)
+          (eval
+           '(az/defn ^{:export false :public true} call-a :- :i32
+              [x :- :i32]
+              (+ (a/inner-a x) 2))))
+        (binding [*ns* a-ns]
+          (eval
+           '(az/defn entry :- :i32
+              [x :- :i32]
+              (b/call-a x))))
+        (is (= 8 ((ns-resolve a-ns 'entry) 5)))
+
+        (let [good-a
+              (capture-declaration
+               a-ns
+               '(az/defn ^{:export false :public true} inner-a :- :i32
+                  [x :- :i32]
+                  (+ x 10)))
+              good-b
+              (capture-declaration
+               b-ns
+               '(az/defn ^{:export false :public true} call-a :- :i32
+                  [x :- :i32]
+                  (+ (a/inner-a x) 5)))]
+          (runtime/register-batch! [good-a]
+                                   {:module a-symbol :compile? false
+                                    :replace? false})
+          (runtime/register-batch! [good-b]
+                                   {:module b-symbol :compile? false
+                                    :replace? false})
+          ;; Source/Vars are inspectable immediately, but native publication
+          ;; remains on the previous complete component until requested.
+          (is (= 8 ((ns-resolve a-ns 'entry) 5)))
+          (let [publication (az/recompile-component! a-symbol)
+                a-stats (az/stats a-symbol)
+                b-stats (az/stats b-symbol)
+                publication-id (:component publication)]
+            (is (= #{(str a-symbol) (str b-symbol)}
+                   (set (:modules publication))))
+            (is (nat-int? (:duration-ms publication)))
+            (is (= (:duration-ms publication)
+                   (:critical-path-ms publication)))
+            (is (= 20 ((ns-resolve a-ns 'entry) 5)))
+            (is (= publication-id
+                   (get-in a-stats [:last-component-publication :id])))
+            (is (= publication-id
+                   (get-in b-stats [:last-component-publication :id])))
+            (is (= (:modules publication)
+                   (get-in a-stats [:last-component-publication :modules])))
+
+            (let [published-before
+                  {a-symbol (:published-generation a-stats)
+                   b-symbol (:published-generation b-stats)}
+                  bad-a
+                  (capture-declaration
+                   a-ns
+                   '(az/defn ^{:export false :public true} inner-a :- :i32
+                      [x :- :i32]
+                      (+ x true)))
+                  next-b
+                  (capture-declaration
+                   b-ns
+                   '(az/defn ^{:export false :public true} call-a :- :i32
+                      [x :- :i32]
+                      (+ (a/inner-a x) 7)))]
+              (runtime/register-batch! [bad-a]
+                                       {:module a-symbol :compile? false
+                                        :replace? false})
+              (runtime/register-batch! [next-b]
+                                       {:module b-symbol :compile? false
+                                        :replace? false})
+              (let [failure
+                    (try
+                      (az/recompile-component! a-symbol)
+                      nil
+                      (catch clojure.lang.ExceptionInfo error error))
+                    a-failed (az/stats a-symbol)
+                    b-failed (az/stats b-symbol)]
+                (is (instance? clojure.lang.ExceptionInfo failure))
+                (is (= published-before
+                       {a-symbol (:published-generation a-failed)
+                        b-symbol (:published-generation b-failed)}))
+                (is (= 20 ((ns-resolve a-ns 'entry) 5)))
+                (is (string? (get-in a-failed
+                                     [:last-component-publication-failure
+                                      :error])))
+                (is (= (get-in a-failed
+                               [:last-component-publication-failure :component])
+                       (get-in b-failed
+                               [:last-component-publication-failure :component]))))
+
+              ;; Restore the last valid descriptors through the same component
+              ;; recovery path so this test leaves no failed native state.
+              (runtime/register-batch! [good-a]
+                                       {:module a-symbol :compile? false
+                                        :replace? false})
+              (runtime/register-batch! [good-b]
+                                       {:module b-symbol :compile? false
+                                        :replace? false})
+              (az/recompile-component! a-symbol)
+              (is (= 20 ((ns-resolve a-ns 'entry) 5))))))
         (finally
           (az/configure! old-config)
           (remove-ns b-symbol)
@@ -728,6 +1379,549 @@
         (finally
           (az/configure! old-config))))))
 
+(deftest breaking-callable-live-slice-closes-over-cross-namespace-dependencies-test
+  (testing "a breaking Var publishes with local and imported dependencies while old callers remain live"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          dependency-symbol (symbol (str "aguafria.breaking-dependency-" suffix))
+          callee-symbol (symbol (str "aguafria.breaking-callee-" suffix))
+          caller-symbol (symbol (str "aguafria.breaking-dependent-" suffix))
+          dependency-ns (create-ns dependency-symbol)
+          callee-ns (create-ns callee-symbol)
+          caller-ns (create-ns caller-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (doseq [target [dependency-ns callee-ns caller-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* dependency-ns]
+          (eval
+           '(az/defn ^{:export false :public true} combine :- :i32
+              [x :- :i32 y :- :i32]
+              (* x y))))
+        (binding [*ns* callee-ns]
+          (alias 'dependency dependency-symbol)
+          (eval
+           '(az/defn a :- :i32
+              [x :- :i32]
+              (+ x 1)))
+          (eval
+           '(az/defn old-local-caller :- :i32
+              [x :- :i32]
+              (+ (a x) 10))))
+        (binding [*ns* caller-ns]
+          (alias 'callee callee-symbol)
+          (eval
+           '(az/defn remote-caller :- :i32
+              [x :- :i32]
+              (+ (callee/old-local-caller x) 100))))
+
+        (is (= 116 ((ns-resolve caller-ns 'remote-caller) 5)))
+        (let [a-v1-abi (-> (ns-resolve callee-ns 'a)
+                           meta :aguafria/declaration :abi-fingerprint)
+              remote-generation-before
+              (->> (:declarations (az/stats caller-symbol))
+                   (some #(when (= "remote-caller" (:name %))
+                            (:implementation-generation %))))]
+          ;; `a@v2` needs both a newly added local const and an imported
+          ;; Zig-only helper. The stale one-argument local caller makes the
+          ;; complete callee module invalid, forcing the breaking live slice.
+          (binding [*ns* callee-ns]
+            (eval '(az/defconst local-bias-base :i32 2))
+            (eval '(az/defconst local-bias :i32 (+ local-bias-base 1)))
+            (eval
+             '(az/defn a :- :i32
+                [x :- :i32 y :- :i32]
+                (dependency/combine (+ x local-bias) y))))
+
+          (is (= 20 ((ns-resolve callee-ns 'a) 2 4)))
+          (is (= 16 ((ns-resolve callee-ns 'old-local-caller) 5)))
+          (is (= 116 ((ns-resolve caller-ns 'remote-caller) 5)))
+          (is (= 6 (az/invoke-version! (ns-resolve callee-ns 'a)
+                                       a-v1-abi [5])))
+          (let [partial-stats (az/stats callee-symbol)]
+            (is (:partial-publication? partial-stats))
+            (is (string? (:full-compile-error partial-stats)))
+            (is (some #{(str dependency-symbol)}
+                      (:dependencies partial-stats))))
+
+          ;; Explicitly reevaluating the stale local caller adopts `a@v2`.
+          ;; Its ABI is compatible, so the untouched remote caller follows the
+          ;; dispatch swap without being recompiled.
+          (binding [*ns* callee-ns]
+            (eval
+             '(az/defn old-local-caller :- :i32
+                [x :- :i32]
+                (+ (a x 4) 10))))
+          (is (= 142 ((ns-resolve caller-ns 'remote-caller) 5)))
+          (is (= remote-generation-before
+                 (->> (:declarations (az/stats caller-symbol))
+                      (some #(when (= "remote-caller" (:name %))
+                               (:implementation-generation %))))))
+          (is (= 2 (count (az/function-versions
+                           (ns-resolve callee-ns 'a)))))
+          (is (false? (:partial-publication? (az/stats callee-symbol)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns caller-symbol)
+          (remove-ns callee-symbol)
+          (remove-ns dependency-symbol))))))
+
+(deftest live-defvar-state-preservation-and-explicit-migration-test
+  (testing "compatible reloads preserve state and breaking layouts wait for explicit Zig migration"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          test-symbol (symbol (str "aguafria.live-state-" suffix))
+          test-ns (create-ns test-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (alias 'ak 'aguafria.keyword)
+          (eval '(az/defvar counter :i32 1))
+          (eval '(az/defn read-counter :- :i32 [] counter))
+          (eval '(az/defn write-counter :- :void
+                   [value :- :i32]
+                   (az/assign "=" counter value)))
+          (eval '(az/defn migrate-counter :- :void
+                   [old-address :- :usize new-address :- :usize]
+                   (ak/const old-value [:*const :i32]
+                     (ak/ptrFromInt old-address))
+                   (ak/const new-value [:* :i64]
+                     (ak/ptrFromInt new-address))
+                   (az/assign "=" (az/deref new-value)
+                     (ak/intCast (az/deref old-value))))))
+        ((ns-resolve test-ns 'write-counter) 37)
+        (is (= 37 ((ns-resolve test-ns 'read-counter))))
+
+        (binding [*ns* test-ns]
+          (eval '(az/defn read-counter :- :i32 [] (+ counter 1))))
+        (is (= 38 ((ns-resolve test-ns 'read-counter))))
+        (is (= :preserved (:status (last (az/state-versions
+                                          (ns-resolve test-ns 'counter))))))
+
+        (let [layout-error
+              (binding [*ns* test-ns]
+                (try
+                  (eval '(az/defvar counter :i64 0))
+                  nil
+                  (catch clojure.lang.ExceptionInfo error error)))]
+          (is (= :zig-state-migration-required
+                 (:aguafria/phase (ex-data layout-error))))
+          (is (= 38 ((ns-resolve test-ns 'read-counter)))))
+
+        (binding [*ns* test-ns]
+          (let [reader-error
+                (try
+                  (eval '(az/defn read-counter :- :i64 [] counter))
+                  nil
+                  (catch clojure.lang.ExceptionInfo error error))]
+            (is (= :zig-state-migration-required
+                   (:aguafria/phase (ex-data reader-error))))))
+
+        (let [publication
+              (az/migrate-state!
+               (symbol (str test-symbol) "counter")
+               (symbol (str test-symbol) "migrate-counter"))
+              versions (az/state-versions
+                        (symbol (str test-symbol) "counter"))
+              active (some #(when (:active? %) %) versions)
+              retained (filter #(= :retained (:status %)) versions)]
+          (is (integer? (:component publication)))
+          (is (= 37 ((ns-resolve test-ns 'read-counter))))
+          (is (= :migrated (:status active)))
+          (is (= :i64
+                 (:type (some #(when (= 'counter (:name %)) %)
+                              (:definitions (az/module-info test-symbol))))))
+          (is (seq retained))
+          (is (= (:migration-function active)
+                 (get-in publication [:migration :function]))))
+        (is (some #(= :migration-required (:status %))
+                  (:builds (az/stats test-symbol))))
+        (is (not (str/includes? (az/source test-symbol)
+                                "__aguafria_state_")))
+        (finally
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest versioned-defstruct-layout-and-dependent-reevaluation-test
+  (testing "breaking layouts coexist and an explicitly reevaluated dependent adopts the new schema"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.live-type-" (random-uuid)))
+          test-ns (create-ns test-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (alias 'ak 'aguafria.keyword)
+          (eval '(az/defstruct Item [[:value :i32]]))
+          (eval '(az/defn item-size :- :usize [] (ak/sizeOf Item))))
+        (is (= 4 ((ns-resolve test-ns 'item-size))))
+
+        (binding [*ns* test-ns]
+          (eval '(az/defstruct Item [[:value :i32] [:extra :i32]])))
+        (let [versions (az/type-versions (ns-resolve test-ns 'Item))]
+          (is (= 2 (count versions)))
+          (is (= :retained (:status (first versions))))
+          (is (= :breaking (:status (last versions))))
+          (is (not= (:schema-fingerprint (first versions))
+                    (:schema-fingerprint (last versions)))))
+        ;; The previous dependent stays live until the user reevaluates it.
+        (is (= 4 ((ns-resolve test-ns 'item-size))))
+        (binding [*ns* test-ns]
+          (eval '(az/defn item-size :- :usize [] (ak/sizeOf Item))))
+        (is (= 8 ((ns-resolve test-ns 'item-size))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest cross-namespace-type-factory-hot-propagation-test
+  (testing "type-factory edits automatically republish existing monomorphized callers"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          type-symbol (symbol (str "aguafria.live-type-factory-" suffix))
+          caller-symbol (symbol (str "aguafria.live-type-caller-" suffix))
+          type-ns (create-ns type-symbol)
+          caller-ns (create-ns caller-symbol)
+          pre-break-answer-abi (atom nil)
+          define-options!
+          (fn [field-type answer]
+            (binding [*ns* type-ns]
+              (eval
+               (clojure.walk/postwalk
+                (fn [value]
+                  (case value
+                    aguafria-test/field-type field-type
+                    aguafria-test/answer-value answer
+                    value))
+                '(az/defn OptionsType {:attrs #{:public}} :- :type []
+                   (ak/return
+                    (az/container
+                     {:kind :struct :layout :normal}
+                     (az/field-decl value aguafria-test/field-type)
+                     (az/fn-decl answer
+                       {:attrs #{:public}}
+                       :- :u32 []
+                       (ak/return aguafria-test/answer-value)))))))))]
+      (try
+        (az/configure! {:async? true})
+        (doseq [target [type-ns caller-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)
+            (alias 'ak 'aguafria.keyword)))
+        (define-options! :u32 1)
+        (az/await! type-symbol)
+        (binding [*ns* caller-ns]
+          (alias 'types type-symbol)
+          (eval
+           '(az/defn option-size :- :usize []
+              (ak/return (ak/sizeOf (types/OptionsType)))))
+          (eval
+           '(az/defn option-answer :- :u32 []
+              (ak/return ((az/field (types/OptionsType) answer))))))
+        (is (= 4 ((ns-resolve caller-ns 'option-size))))
+        (is (= 1 ((ns-resolve caller-ns 'option-answer))))
+
+        (let [before-generation
+              (:published-generation (az/module-info caller-symbol))]
+          (define-options! :u32 2)
+          (az/await! type-symbol)
+          (is (= 2 ((ns-resolve caller-ns 'option-answer))))
+          (is (< before-generation
+                 (:published-generation (az/module-info caller-symbol))))
+          (reset! pre-break-answer-abi
+                  (:abi-fingerprint
+                   (some #(when (:current? %) %)
+                         (az/function-versions
+                          (ns-resolve caller-ns 'option-answer))))))
+
+        (let [before-generation
+              (:published-generation (az/module-info caller-symbol))]
+          (define-options! :u64 3)
+          (az/await! type-symbol)
+          ;; Breaking type generations do not silently redirect untouched
+          ;; callers. They continue through the retained monomorphization.
+          (is (= 4 ((ns-resolve caller-ns 'option-size))))
+          (is (= 2 ((ns-resolve caller-ns 'option-answer))))
+          (is (= 2 (az/invoke-version!
+                    (ns-resolve caller-ns 'option-answer)
+                    @pre-break-answer-abi [])))
+          (is (= before-generation
+                 (:published-generation (az/module-info caller-symbol))))
+          (is (= [:retained :breaking]
+                 (mapv :status
+                       (az/type-versions
+                        (ns-resolve type-ns 'OptionsType)))))
+
+          (binding [*ns* caller-ns]
+            (eval
+             '(az/defn option-size :- :usize []
+                (ak/return (ak/sizeOf (types/OptionsType)))))
+            (eval
+             '(az/defn option-answer :- :u32 []
+                (ak/return ((az/field (types/OptionsType) answer))))))
+          (az/await! caller-symbol)
+          (is (= 8 ((ns-resolve caller-ns 'option-size))))
+          (is (= 3 ((ns-resolve caller-ns 'option-answer)))))
+
+        ;; A compatible method edit on the new layout must not erase the
+        ;; retained pre-break schema or downgrade the active lineage.
+        (define-options! :u64 4)
+        (az/await! type-symbol)
+        (is (= 4 ((ns-resolve caller-ns 'option-answer))))
+        (is (= [:retained :breaking]
+               (mapv :status
+                     (az/type-versions
+                      (ns-resolve type-ns 'OptionsType)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns caller-symbol)
+          (remove-ns type-symbol))))))
+
+(deftest cross-namespace-type-factory-state-migration-test
+  (testing "a breaking factory type retains dependent state until an explicit migration"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          type-symbol (symbol (str "aguafria.state-type-factory-" suffix))
+          state-symbol (symbol (str "aguafria.state-type-owner-" suffix))
+          type-ns (create-ns type-symbol)
+          state-ns (create-ns state-symbol)
+          define-options!
+          (fn [field-type]
+            (binding [*ns* type-ns]
+              (eval
+               (clojure.walk/postwalk
+                (fn [value]
+                  (if (= value 'aguafria-test/field-type)
+                    field-type
+                    value))
+                '(az/defn OptionsType {:attrs #{:public}} :- :type []
+                   (ak/return
+                    (az/container
+                     {:kind :struct :layout :normal}
+                     (az/field-decl value aguafria-test/field-type))))))))]
+      (try
+        (az/configure! {:async? true})
+        (doseq [target [type-ns state-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)
+            (alias 'ak 'aguafria.keyword)))
+        (define-options! :u32)
+        (az/await! type-symbol)
+        (binding [*ns* state-ns]
+          (alias 'types type-symbol)
+          (eval '(az/defstruct OldOptions [[:value :u32]]))
+          (eval
+           '(az/defvar options (types/OptionsType)
+              (az/object [[:value 11]])))
+          (eval
+           '(az/defn read-option :- :u64 []
+              (ak/return (ak/intCast (az/field options value)))))
+          ;; This declaration is compiled against the old factory type first.
+          ;; It is explicitly reevaluated after the type break so the user,
+          ;; rather than automatic propagation, chooses the migration edge.
+          (eval
+           '(az/defn migrate-options :- :void
+              [old-address :- :usize new-address :- :usize]
+              (ak/const old-options [:*const OldOptions]
+                (ak/ptrFromInt old-address))
+              (ak/const new-options [:* (types/OptionsType)]
+                (ak/ptrFromInt new-address))
+              (set! (az/field (az/deref new-options) value)
+                (ak/intCast
+                 (az/field (az/deref old-options) value))))))
+        (is (= 11 ((ns-resolve state-ns 'read-option))))
+
+        (define-options! :u64)
+        (is (map? (az/await! type-symbol)))
+        (is (= 11 ((ns-resolve state-ns 'read-option))))
+        (is (= [:retained :breaking]
+               (mapv :status
+                     (az/type-versions
+                      (symbol (str type-symbol) "OptionsType")))))
+
+        (binding [*ns* state-ns]
+          (eval
+           '(az/defvar options (types/OptionsType)
+              (az/object [[:value 11]])))
+          (eval
+           '(az/defn migrate-options :- :void
+              [old-address :- :usize new-address :- :usize]
+              (ak/const old-options [:*const OldOptions]
+                (ak/ptrFromInt old-address))
+              (ak/const new-options [:* (types/OptionsType)]
+                (ak/ptrFromInt new-address))
+              (set! (az/field (az/deref new-options) value)
+                (ak/intCast
+                 (az/field (az/deref old-options) value))))))
+        (let [migration-required
+              (try
+                (az/await! state-symbol)
+                nil
+                (catch clojure.lang.ExceptionInfo error error))]
+          (is (= :zig-state-migration-required
+                 (:aguafria/phase (ex-data migration-required))))
+          (is (false? (:pending? (az/module-info state-symbol))))
+          ;; A late await still reports the completed state generation's
+          ;; migration requirement; the previously published capsule remains
+          ;; callable throughout.
+          (is (= :zig-state-migration-required
+                 (:aguafria/phase
+                  (ex-data
+                   (try
+                     (az/await! state-symbol)
+                     nil
+                     (catch clojure.lang.ExceptionInfo error error))))))
+          (is (= 11 ((ns-resolve state-ns 'read-option)))))
+
+        (az/migrate-state!
+         (symbol (str state-symbol) "options")
+         (symbol (str state-symbol) "migrate-options"))
+        (is (map? (az/await! state-symbol)))
+        (is (= 11 ((ns-resolve state-ns 'read-option))))
+        (is (= [:retained :migrated]
+               (mapv :status
+                     (az/state-versions
+                      (symbol (str state-symbol) "options")))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns state-symbol)
+          (remove-ns type-symbol))))))
+
+(deftest struct-backed-state-explicit-migration-test
+  (testing "a breaking defstruct-backed capsule retains old state and migrates without reinterpretation"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.struct-state-" (random-uuid)))
+          test-ns (create-ns test-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (alias 'ak 'aguafria.keyword)
+          (eval '(az/defstruct OldCounterState [[:value :i32]]))
+          (eval '(az/defstruct CounterState [[:value :i32]]))
+          (eval '(az/defvar state CounterState
+                   (CounterState {:value 1})))
+          (eval '(az/defn read-value :- :i32 []
+                   (az/field state value)))
+          (eval '(az/defn write-value :- :void
+                   [value :- :i32]
+                   (az/assign "=" (az/field state value) value))))
+        ((ns-resolve test-ns 'write-value) 41)
+
+        ;; The type can publish as an independent retained live slice while
+        ;; state and existing code continue on the old schema.
+        (binding [*ns* test-ns]
+          (eval '(az/defstruct CounterState
+                   [[:value :i32] [:extra :i32]])))
+        (is (= 41 ((ns-resolve test-ns 'read-value))))
+        (is (= [:retained :breaking]
+               (mapv :status
+                     (az/type-versions (ns-resolve test-ns 'CounterState)))))
+
+        (let [state-error
+              (binding [*ns* test-ns]
+                (try
+                  (eval '(az/defvar state CounterState
+                           (CounterState {:value 0 :extra 0})))
+                  nil
+                  (catch clojure.lang.ExceptionInfo error error)))]
+          (is (= :zig-state-migration-required
+                 (:aguafria/phase (ex-data state-error))))
+          (is (= 41 ((ns-resolve test-ns 'read-value)))))
+
+        (binding [*ns* test-ns]
+          (let [migration-error
+                (try
+                  (eval '(az/defn migrate-struct-state :- :void
+                           [old-address :- :usize new-address :- :usize]
+                           (ak/const old-state [:*const OldCounterState]
+                             (ak/ptrFromInt old-address))
+                           (ak/const new-state [:* CounterState]
+                             (ak/ptrFromInt new-address))
+                           (az/assign "="
+                             (az/field (az/deref new-state) value)
+                             (az/field (az/deref old-state) value))
+                           (az/assign "="
+                             (az/field (az/deref new-state) extra)
+                             99)))
+                  nil
+                  (catch clojure.lang.ExceptionInfo error error))]
+            (is (= :zig-state-migration-required
+                   (:aguafria/phase (ex-data migration-error))))))
+
+        (az/migrate-state!
+         (symbol (str test-symbol) "state")
+         (symbol (str test-symbol) "migrate-struct-state"))
+        (binding [*ns* test-ns]
+          (eval '(az/defn read-extra :- :i32 []
+                   (az/field state extra))))
+        (is (= 41 ((ns-resolve test-ns 'read-value))))
+        (is (= 99 ((ns-resolve test-ns 'read-extra))))
+        (let [versions (az/state-versions
+                        (symbol (str test-symbol) "state"))]
+          (is (= [:retained :migrated] (mapv :status versions)))
+          (is (not= (:schema-fingerprint (first versions))
+                    (:schema-fingerprint (second versions)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest cross-namespace-defvar-capsule-test
+  (testing "old and new callers in different namespaces share one stable native state capsule"
+    (let [old-config (az/configuration)
+          suffix (str (random-uuid))
+          a-symbol (symbol (str "aguafria.state-a-" suffix))
+          b-symbol (symbol (str "aguafria.state-b-" suffix))
+          a-ns (create-ns a-symbol)
+          b-ns (create-ns b-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (doseq [target [a-ns b-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* a-ns]
+          (eval '(az/defvar counter :i32 1))
+          (eval '(az/defn read-a :- :i32 [] counter))
+          (eval '(az/defn write-a :- :void
+                   [value :- :i32]
+                   (az/assign "=" counter value))))
+        (binding [*ns* b-ns]
+          (alias 'a a-symbol)
+          (eval '(az/defn read-b :- :i32 [] a/counter))
+          (eval '(az/defn write-b :- :void
+                   [value :- :i32]
+                   (az/assign "=" a/counter value))))
+
+        ((ns-resolve b-ns 'write-b) 9)
+        (is (= 9 ((ns-resolve a-ns 'read-a))))
+        (is (= 9 ((ns-resolve b-ns 'read-b))))
+
+        ;; Reloading only A keeps B's already-compiled accessor on the same
+        ;; canonical address; no dependent recompilation is required.
+        (binding [*ns* a-ns]
+          (eval '(az/defn read-a :- :i32 [] (+ counter 1))))
+        (is (= 10 ((ns-resolve a-ns 'read-a))))
+        (is (= 9 ((ns-resolve b-ns 'read-b))))
+
+        (binding [*ns* b-ns]
+          (eval '(az/defn read-b :- :i32 [] (+ a/counter 2))))
+        (is (= 11 ((ns-resolve b-ns 'read-b))))
+        ((ns-resolve a-ns 'write-a) 20)
+        (is (= 22 ((ns-resolve b-ns 'read-b))))
+        (is (= 21 ((ns-resolve a-ns 'read-a))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol))))))
+
 (deftest standalone-build-and-stats-test
   (let [artifact (az/build! 'aguafria.zig-integration-test
                             {:kind :exe
@@ -762,7 +1956,16 @@
                   (keep :implementation-generation
                         (:dispatch-versions module-stats))))
       (is (zero? (get-in all-stats [:summary :active-build-count])))
-      (is (pos? (get-in all-stats [:summary :finished-build-count]))))))
+      (is (pos? (get-in all-stats [:summary :finished-build-count])))
+      (is (pos? (get-in module-stats
+                        [:timings :native-build-ms :count])))
+      (is (number? (get-in module-stats
+                           [:timings :end-to-end-ms :p95-ms])))
+      (is (pos? (get-in all-stats
+                        [:timings :by-purpose :repl-shared-library
+                         :native-build-ms :count])))
+      (is (nat-int? (get-in module-stats
+                            [:timings :cache :hit-count]))))))
 
 (deftest scalar-boundary-test
   (binding [*ns* (the-ns 'aguafria.zig-integration-test)]

@@ -6,7 +6,8 @@
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [java.io PushbackReader]
-           [java.net URL]))
+           [java.net URL]
+           [java.nio.file CopyOption Files StandardCopyOption]))
 
 (def ^:private resource-name "aguafria-project.edn")
 (defonce ^:private catalogs (atom {}))
@@ -42,7 +43,16 @@
   "Read and register an `aguafria-project.edn` file or URL."
   [source]
   (with-open [reader (PushbackReader. (io/reader source))]
-    (register-catalog! (edn/read reader))))
+    (let [catalog-url (io/as-url source)
+          base-url (str (URL. catalog-url "."))
+          catalog (edn/read reader)]
+      (register-catalog!
+       (update catalog :modules
+               (fn [modules]
+                 (into {}
+                       (map (fn [[module data]]
+                              [module (assoc data :catalog-base-url base-url)]))
+                       modules)))))))
 
 (defn- resource-urls
   []
@@ -97,10 +107,78 @@
   [module]
   (:relative-path (module-data module)))
 
+(defn- url-relative
+  [base relative]
+  (URL. (URL. base) (str/replace (str relative) "\\" "/")))
+
+(defn- extracted-build-path-root
+  [{:keys [token bundle-relative]}]
+  (io/file (or (System/getProperty "aguafria.cache-dir") ".aguafria/zig")
+           "project-build-paths"
+           (subs token 2 (- (count token) 2))
+           (.getName (io/file bundle-relative))))
+
+(defn- copy-resource!
+  [^URL source ^java.io.File target executable?]
+  (io/make-parents target)
+  (with-open [input (.openStream source)]
+    (Files/copy input (.toPath target)
+                (into-array CopyOption
+                            [StandardCopyOption/REPLACE_EXISTING])))
+  (when executable?
+    (.setExecutable target true false))
+  target)
+
+(defn- resolve-bundled-build-path
+  [catalog-base-url {:keys [bundle-relative directory? entries] :as descriptor}]
+  (when-not catalog-base-url
+    (throw (ex-info "Build-option path catalog has no resource base"
+                    {:aguafria/phase :zig-build-option-path
+                     :descriptor descriptor})))
+  (let [bundle-url (url-relative catalog-base-url bundle-relative)]
+    (if (= "file" (.getProtocol bundle-url))
+      (let [file (.getCanonicalFile (io/file bundle-url))]
+        (when-not (.exists file)
+          (throw (ex-info "Bundled Zig build-option path is missing"
+                          {:aguafria/phase :zig-build-option-path
+                           :path (.getAbsolutePath file)
+                           :descriptor descriptor})))
+        (.getAbsolutePath file))
+      (let [target-root (extracted-build-path-root descriptor)]
+        (if directory?
+          (do
+            (.mkdirs target-root)
+            (doseq [{:keys [relative executable?]} entries]
+              (copy-resource!
+               (url-relative catalog-base-url
+                             (str bundle-relative "/" relative))
+               (io/file target-root relative)
+               executable?)))
+          (let [{:keys [executable?]} (first entries)]
+            (copy-resource! bundle-url target-root executable?)))
+        (.getAbsolutePath (.getCanonicalFile target-root))))))
+
 (defn ^:no-doc generated-modules
   "Return build-generated named Zig module sources captured for this module."
   [module]
-  (or (:generated-modules (module-data module)) {}))
+  (let [{:keys [generated-modules catalog-base-url]} (module-data module)]
+    (into (sorted-map)
+          (map (fn [[module-name source]]
+                 [module-name
+                  (if (string? source)
+                    source
+                    (let [{:keys [source-template paths]} source]
+                      (reduce
+                       (fn [rendered {:keys [token] :as path}]
+                         (str/replace rendered token
+                                      (let [resolved
+                                            (resolve-bundled-build-path
+                                             catalog-base-url path)
+                                            quoted (pr-str resolved)]
+                                        (subs quoted 1 (dec (count quoted))))))
+                       source-template
+                       paths)))]))
+          (or generated-modules {}))))
 
 (defn declaration-zig-name
   "Resolve a target Clojure Var name to its exact Zig declaration spelling."
@@ -136,6 +214,12 @@
   (ensure-resource-catalogs!)
   (get-in @catalogs [(str (or *catalog-namespace* source-namespace))
                      :source-orders (str declaration-name)]))
+
+(defn ^:no-doc expected-declaration-count
+  "Return the converter-recorded number of top-level declarations for module."
+  [module]
+  (when-let [source-orders (:source-orders (module-data module))]
+    (count source-orders)))
 
 (defn stats
   "Return serializable project-catalog inspection data."

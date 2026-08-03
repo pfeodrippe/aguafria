@@ -8,7 +8,7 @@ calls, parallel snapshots, namespace-module replacement, external Zig modules,
 standalone `ReleaseFast` output, statistics, mapped diagnostics, and the
 Zig/ZLS-generated keyword catalog plus the complete EDN-derived Zig std
 namespace graph. The complete current 245-file TigerBeetle conversion is
-checked in and bulk-loadable as 245 ordinary namespaces with 4,029 top-level
+checked in and bulk-loadable as 245 ordinary namespaces with 4,032 top-level
 declarations, zero generated `az/defraw` declarations, and zero nested
 `raw`/`raw-statements`/type/expression fallbacks. Conversion now fails with
 source-located structured data instead of returning generated code if any Zig
@@ -20,12 +20,16 @@ The pinned TigerBeetle source now has a verified compatibility-only Zig 0.16
 baseline on macOS/aarch64: `zig build check`, the release build and CLI smoke
 test, all 349 unit tests, all 44 runnable integration tests, formatting, and the
 aggregate `zig build test` pass (3 integration cases are intentionally skipped
-by their upstream platform/environment guards). The full `clients:c` target,
-including its Linux and Windows cross-compiles, its sample, and the auxiliary
-`vopr:build`, `fuzz:build`, `vortex:build`, and `scripts:build` targets compile.
-The representative fuzz-smoke workload passes. These changes preserve
-TigerBeetle behavior and contain no Aguafria instrumentation. Separate
-language-client tests and the complete upstream CI matrix have not run locally.
+by their upstream platform/environment guards). The full native client artifact
+matrix (`c`, `dotnet`, `rust`, `go`, `java`, `node`, `python`, and `ruby`), the
+C sample, and the auxiliary `vopr:build`, `fuzz:build`, `vortex:build`, and
+`scripts:build` targets compile. The representative fuzz-smoke workload passes.
+Complete upstream client CI modes now pass locally for Go, Rust, Java, Node,
+Python, and Ruby, including live client tests and samples. The .NET 10 SDK was
+installed and its unmodified upstream CI started successfully, but its test
+phase produced no result within a bounded ten-minute local run and was stopped;
+.NET and the complete upstream multi-OS matrix remain external coverage. These
+changes preserve TigerBeetle behavior and contain no Aguafria instrumentation.
 
 Standalone behavioral parity is the current release gate. Exact preservation
 of Zig comments, whitespace, source-byte quines, embedded-source checksums, and
@@ -40,8 +44,11 @@ output, and the original/converted fuzz-smoke runs completed in 23.548s and
 23.675s respectively. Broader performance and language-client evidence remains
 explicit follow-up work; local standalone behavioral parity is established.
 
-The first true live native Var layer is now implemented for scalar functions
-in one namespace and across transitive, including cyclic, namespace graphs.
+The first true live native Var layer is now implemented for named,
+non-generic functions in one namespace and across transitive, including
+cyclic, namespace graphs. Dispatch now covers Zig-only/private functions,
+named struct-by-value signatures, and inferred error unions as well as scalar
+C exports; only scalar C ABI functions are directly invokable from the JVM.
 Development libraries contain stable, ABI-keyed dispatch cells; an
 ABI-compatible callee edit repoints already-compiled callers without
 recompiling them, while final `ReleaseFast` builds retain direct static calls
@@ -55,13 +62,53 @@ retires its arena after quiescence. Breaking scalar ABI versions coexist and
 old callers remain on the old version until reevaluated.
 
 This generic path now passes both a hand-written two-namespace cyclic hot-
-reload test and a real converted TigerBeetle scalar probe: an already-compiled
-caller observed `compaction_op_min` change from 96 to 97 and back to 96 in the
-same JVM without changing the caller's implementation generation. Atomic
-multi-module SCC publication, build-step-dependent path option recreation,
-state migration, live containers/types, and a running full
-TigerBeetle-process hot-reload demonstration remain explicit work below; this
-document must not call the project live-complete before they pass.
+reload test and real converted TigerBeetle probes: already-compiled callers
+observe `compaction_op_min` change from 96 to 97 and back to 96 and
+`stdx.zeroed` change from true to false in the same JVM without changing the
+callers' implementation generations. Initial development generations use
+erased zero-valued dispatch addresses that fall back to their local Zig
+implementation. An implementation-address getter is emitted for C exports
+(which Zig must already analyze) and, otherwise, only when that specific Var
+is changed, preserving Zig's normal lazy/platform analysis.
+The complete converted `tigerbeetle.main` namespace now publishes in a fresh
+JVM with 38 declarations, eight callable versions, and zero failed builds.
+Atomic
+multi-module SCC publication now prepares the complete component in parallel
+and publishes it behind one native odd/even epoch. Stable schema-keyed native
+state capsules survive compatible reloads, explicit migrations publish
+breaking state versions, and versioned struct/container schemas let old and
+new callers coexist. Build-step-dependent path options are now captured by an
+options-only Zig build and stored as relocatable bundles.
+The library now also has a separate `aguafria.zig.host` development API that
+constructs Zig 0.16 `std.process.Init`, runs a native main on a dedicated JVM
+thread, exposes host lifecycle through serializable statistics, and transfers
+native state-capsule ownership to/from the running program. The actual
+converted TigerBeetle main runs its `version` command in that hot-reload PID
+and exits successfully; a blocking hand-written main follows a compatible
+callee edit while it remains active. The real converted VOPR also completes
+the deterministic 100-request seed-1 run with the original 22,666 ticks. In a
+long-running performance VOPR, generation 41 → 45 published while the host was
+still `:running`; the edit added a new Var and function and rewired existing
+`full_core` to call it, after which the same process exited 0 and the new Var
+read 4,242. Cross-module comptime/type-factory propagation is automatic for
+schema-compatible edits: type references carry separate layout and
+comptime-implementation identities, and dependent SCCs compile from one staged
+graph before atomic publication. Breaking layouts instead publish an
+independent root generation; untouched callers/state remain on the old schema
+until those Vars are explicitly reevaluated and, for state, migrated. This is
+the requested Clojure model—old B keeps calling A@v1 after A breaks. Clojure
+Var metadata is refreshed from every successful native preparation so later
+REPL forms resolve the current schema/ABI without hidden namespace metadata.
+The actual converted TigerBeetle `OptionsType` structural publication now also
+passes in a running VOPR host. A separate real VOPR acceptance changes the
+signature of existing `full_core`, requests an existing `log_performance_mode`
+state change from `bool` to a struct while the old host remains live, then at
+natural quiescence explicitly migrates the state and adopts the new caller
+graph. Both deterministic 2,000-request hosts report `PASSED (10772 ticks)` in
+the same JVM PID. Arbitrary live stack/heap object graphs are intentionally not
+reinterpreted; they require an application-defined safe point and migration.
+The current complete Kaocha regression run passes 80 tests and 2,961
+assertions with zero failures.
 
 ## Goal
 
@@ -133,11 +180,12 @@ is an implicit return for the final expression of a non-void function.
      content-address it, and compile it as a shared library with `zig
      build-lib`.
    - For converted namespaces, register each declaration's inspectable source
-     immediately and debounce compilation until the namespace load is quiet;
-     evaluating a complete generated file must never compile a half-loaded
-     module. Load missing converted dependency sources cycle-safely from the
-     EDN graph before compiling, without user batching calls or namespace
-     metadata.
+     immediately and use the EDN catalog's exact declaration count as the
+     initial compilation boundary; evaluating a complete generated file must
+     never compile a half-loaded module or record those invalid snapshots as
+     failures. Debounce later single-Var reevaluations. Load missing converted
+     dependency sources cycle-safely from the EDN graph before compiling,
+     without user batching calls or namespace metadata.
    - Cache generated source/binaries under `.aguafria/zig` and reload the
      entire namespace module so dependent Zig functions see redefinitions.
    - Surface compiler failures with the generated source path, command,
@@ -295,10 +343,26 @@ is an implicit return for the final expression of a non-void function.
   sample, including the Linux and Windows targets, on Zig 0.16.0.
 - [x] Exercise the deterministic representative fuzz-smoke workload; the
   handwritten baseline completes successfully in 23.548s.
-- [ ] Exercise separate language-client tests and the complete upstream CI
-  matrix without changing TigerBeetle behavior.
-- [ ] Regenerate `vendor/tigerbeetle-zig-0.16.patch` from the submodule diff and
-  verify that it applies cleanly to the pinned upstream commit.
+- [x] Build the full native language-client artifact matrix on Zig 0.16.0 and
+  run every locally supported upstream client CI mode. Go, Rust, Java, Node,
+  Python, and Ruby pass their complete CI paths, including live tests/samples;
+  `test:jni` also passes. Go covers format/vet, unit tests, and four live
+  samples; Python covers 29 live pytest cases and four samples.
+  The aggregate release prerequisite now avoids a debug/release shared-output
+  race, embedded C clients initialize a valid Zig 0.16 `std.Io`, and valid
+  non-exhaustive protocol-operation values are safe to format in diagnostics.
+- [x] Run the Go runtime client suite with its host SDK; the complete upstream
+  `zig build ci -- go` mode passes on macOS/aarch64.
+- [ ] Finish the .NET runtime client suite, then run the complete upstream
+  language-client matrix on its Linux, Windows, macOS, x86_64, and aarch64 CI
+  hosts. The .NET 10 SDK installs and the unmodified suite reaches its live
+  integration tests, but the bounded local attempt produced no final result;
+  every native Zig artifact build already passes.
+- [x] Refresh `vendor/tigerbeetle-zig-0.16.patch` from the complete current
+  tracked submodule diff: 1,666 lines across 21 compatibility-only files. It
+  applies cleanly to a fresh local clone of pinned commit `40868ce…`, passes
+  `git diff --check`, and produces byte-identical files, without staging or
+  changing either index.
 - [x] Record original/upstream behavioral outputs used for equivalence: CLI
   `version`/`--help`, full unit/integration exits, VOPR seeds 1/42/123/999, and
   deterministic fuzz-smoke output/workload completion.
@@ -337,13 +401,19 @@ is an implicit return for the final expression of a non-void function.
   named modules automatically, while an explicit `az/configure! :modules`
   entry remains an intentional override. A fresh-JVM TigerBeetle namespace
   test compiles with an empty manual module map and proves its command uses the
-  captured `vsr_options`; the checked default profile captures three module
-  attachments across `vsr_options` and `test_options`.
-- [ ] Recreate `Step.Options.addOptionPath` and other build-step-dependent path
-  values relative to the materialized project/cache. The inspector detects and
-  rejects these modules with structured owner/name/count data rather than
-  silently recording incomplete Zig. Value-only generated modules are already
-  self-contained and require neither original Zig files nor manual paths.
+  captured `vsr_options`; the checked conversion now captures both the default
+  and `vopr` profiles mechanically, with six module attachments across four
+  owners and root-specific precedence for `vsr_options`/`vsr_vopr_options`.
+- [x] Recreate `Step.Options.addOptionPath` and other build-step-dependent path
+  values without retaining the original checkout/cache. A version-matched
+  synthetic Zig build target runs only selected option nodes and their path
+  producers, captures ordinary generated Zig after `addOptionPath` values are
+  appended, bundles referenced files/directories, and records relocatable EDN
+  tokens. Runtime resource loading resolves filesystem or packaged-resource
+  bundles automatically. Tests cover a project source path and a generated
+  `Compile.getEmittedBin()` executable; TigerBeetle's real
+  `test:integration:build` profile resolves three path values across
+  `test_options` and `vortex_options` with no conflicts or unresolved paths.
 - [x] Support declaration docstrings and ordinary attr-maps after names for
   `defn`, `defconst`, `defvar`, and `defstruct`; let inferred-type
   `defconst`/`defvar` omit the `_` placeholder, and generate this clean syntax.
@@ -440,8 +510,11 @@ is an implicit return for the final expression of a non-void function.
   test publishes a replacement while the old native call remains active,
   observes its retirement-pending state through `az/stats`, and proves that its
   arena is unloaded only after the call returns.
-- [ ] Extend atomic publication from a single namespace to complete dependency
-  components, including rollback of a partially prepared multi-module swap.
+- [x] Extend atomic publication from a single namespace to complete dependency
+  components. Every SCC member compiles and loads in parallel before one
+  registry transition; native dispatch wrappers share an odd/even publication
+  epoch so they cannot enter a half-updated cell set, and preparation or setter
+  failure restores the complete prior component before releasing callers.
 - [x] Route cross-namespace scalar calls through imported development dispatch
   cells. Adding `A/new-a`, hot-rewiring new and existing `B` Vars,
   compatible `A`-only swaps without recompiling `B`, and breaking `A@v1`/`A@v2`
@@ -460,20 +533,50 @@ is an implicit return for the final expression of a non-void function.
   entry overwriting the root-owned cell. A hand-written cyclic A/B integration
   test proves an existing caller follows an A-only compatible swap without
   recompilation.
+- [x] Preserve Zig `@import("root")` behavior behind the synthetic development
+  loader. Forward the selected application's public root declarations and add
+  its profile module to the root dependency table. A focused regression proves
+  a dependency observes its application's root config, and converted VOPR now
+  selects `test_min` (`clients=2`) exactly like the original instead of silently
+  falling back to the production config (`clients=16`).
 - [x] Preserve Zig comptime semantics for reloadable scalar helpers: calls made
   during comptime use the statically compiled implementation and do not execute
   atomic active-call accounting, while runtime calls still use the swappable
   cell. Permit absent transitive dispatch exports only when an unreachable
   platform-specific Zig declaration was lazily omitted; partial getter/setter
   export pairs remain an error.
+- [x] Make dispatch publication demand-driven and type-erased at rest. Every
+  eligible wrapper owns an atomic `usize` cell where zero means its local
+  implementation; setters never reference `@TypeOf(&implementation)`, and an
+  implementation getter is emitted for a C export (which is necessarily
+  analyzed for JVM invocation) or for an already-published Var whose
+  implementation changed. Getter demand also detects a live dependency
+  generation that embedded an older source-only implementation before the
+  owner published for the first time; a 15-run fresh-JVM stress acceptance
+  covers that async race. This keeps unreachable Windows/Linux/debug code lazy
+  on another host while struct-by-value and inferred-error-union hot-swaps
+  still update already-compiled callers.
+- [x] Gate the first compilation of every converted namespace on the exact
+  declaration count stored in `aguafria-project.edn`. A fresh require of the
+  full converted TigerBeetle main graph publishes successfully without any
+  half-file compiler failures appearing in `az/stats`.
 - [x] Expose deterministic direct dependencies, reverse dependents, SCC ids,
   member lists, and cycle flags through `az/stats`. The loaded 245-module
   TigerBeetle graph currently resolves to 123 components, 6 cyclic components,
   and a largest cyclic component of 97 modules; this is the measured atomicity
   problem the component publisher must handle efficiently.
-- [ ] Build the complete dependency graph and publish strongly connected/cyclic
-  components atomically from one immutable dependency snapshot.
-- [ ] Add stable versioned `defvar` state capsules and explicit migration API.
+- [x] Build the complete dependency graph and publish strongly connected/cyclic
+  components atomically from one immutable dependency snapshot. The explicit
+  `az/recompile-component!` recovery path records component ids, members,
+  generations, publication timestamps, and rollback errors in `az/stats`.
+- [x] Add stable versioned `defvar` state capsules and an explicit migration
+  API. Development emission routes same- and cross-namespace state references
+  through schema-keyed native pointer cells backed by the first published
+  library generation; compatible reloads reuse that address, breaking schemas
+  retain the old capsule, and `az/migrate-state!` accepts only an exported
+  `(usize old, usize new) void` Zig migration before atomic SCC publication.
+  State/type generations and migrations are exposed by `az/state-versions`,
+  `az/type-versions`, and `az/stats`; final static Zig has none of these hooks.
 - [x] Retain breaking scalar `defn` ABI versions side by side and expose them
   through `az/function-versions`, `az/invoke-version!`, and statistics. A native
   integration test publishes a two-argument v2, invokes it normally, and then
@@ -484,10 +587,20 @@ is an implicit return for the final expression of a non-void function.
   `B`/`A@v1`, and expose the expected full-source compiler error in statistics.
   After reevaluating corrected `B`, the complete namespace publishes normally.
   This scenario also passes through the asynchronous compiler.
-- [ ] Generalize breaking-callable live slices to their transitive declaration
+- [x] Generalize breaking-callable live slices to their transitive declaration
   dependencies, cross-namespace callers/SCCs, and versioned
   `defstruct`/`defconst` coexistence through the same inspection machinery.
-- [ ] Make type-producing declarations and containers live-reloadable, not
+  Same-module live slices now close over referenced state/type declarations,
+  stored declaration references refresh mechanically to current schema cells,
+  and breaking `defstruct`/container schemas coexist as retained generations.
+  A focused three-namespace acceptance now forces `A@v2` into a partial live
+  slice that closes over a two-level local `defconst` chain and an imported
+  Zig-only helper. The old local caller, the untouched cross-SCC caller, and
+  explicit `A@v1` invocation all remain live until caller reevaluation adopts
+  v2. JVM downcall bindings now independently retain their wrapper generation,
+  preventing partial publication from closing an arena still referenced by an
+  unchanged Clojure Var.
+- [x] Make type-producing declarations and containers live-reloadable, not
   merely fingerprinted. This includes `az/container` values, anonymous and
   nested containers, comptime/generic type factories such as TigerBeetle's
   `az/defn OptionsType`, their monomorphizations, and containers returned from
@@ -496,10 +609,45 @@ is an implicit return for the final expression of a non-void function.
   schema-compatible reevaluation must update new calls without restarting the
   process; a breaking layout/type change must publish a new version while old
   callers, instantiated types, and live state continue using the old version
-  until migration and quiescent retirement.
+  until migration and quiescent retirement. Type references now refresh across
+  namespace boundaries with distinct schema and comptime-implementation
+  identities. Compatible edits automatically recompile dependent SCCs from a
+  coherent staged graph; breaking edits publish only the changed live slice so
+  untouched dependents stay on their retained ABI until reevaluated. Retained
+  breaking lineages survive compatible follow-up publications, and focused
+  same/cross-namespace/cyclic tests prove `u32` → `u64` coexistence, explicit
+  caller adoption, and state-capsule migration without unsafe
+  reinterpretation. Actual generated TigerBeetle `OptionsType` compatible and
+  explicit breaking-`WorkloadType` adoption tests remain green. Forward type
+  resolution during component refresh is scoped by logical Zig module, so an
+  unqualified name in a large SCC cannot acquire a same-named type from another
+  namespace and spuriously turn a compatible edit into a layout break. The
+  complete post-fix Kaocha run passes 79 tests and 2,952 assertions.
+- [x] Extend direct dispatch to Zig `inline`/`pub inline` declarations where
+  the development wrapper can retain call-site optimization around the cell,
+  and propagate edits to concrete monomorphized callers for generic/anonymous-
+  signature functions that cannot own one stable function-pointer ABI cell.
+  Forced-inline functions now keep an inline public wrapper but materialize an
+  addressable private implementation per generation; a focused acceptance
+  proves an already-compiled caller follows the swapped cell without changing
+  generation. Non-dispatchable callable references include implementation
+  identity in concrete callers, so a generic cross-namespace edit atomically
+  republishes its monomorphized dependent while ordinary pointer-dispatchable
+  callees still swap without caller recompilation.
 - [x] Preserve the direct static optimized final-build path: `az/source` and
   the `ReleaseFast` source used by `az/build!` contain no `__aguafria_`
   development dispatch symbols.
+- [x] Add a project-generic development process host outside the common
+  `aguafria.zig` declaration API. It reproduces Zig 0.16 `std.process.Init`,
+  runs `pub fn main(std.process.Init) !void` on a native thread, makes the
+  host's state capsules authoritative during its lifetime, atomically points
+  JVM/native copies at them, copies state back before unloading, refuses two
+  simultaneous state owners, and reports host status through `az/stats` and
+  `aguafria.zig.host/stats`. Host completion is delivered only after state is
+  restored and native arenas close. `aguafria.zig.host/restart!` uses that
+  explicit quiescent boundary to start the current generation in the same JVM
+  PID and records `:replaces-host-id`; it never force-kills arbitrary Zig code
+  or guesses how to migrate live stack/heap objects.
 
 ### Performance
 
@@ -507,34 +655,84 @@ is an implicit return for the final expression of a non-void function.
   245 files and 3,944 declarations in 27.85 seconds on the current
   macOS/aarch64 development machine with Zig 0.16.0; retain per-file timings in
   the serializable conversion report. After retaining 38 public import Vars,
-  the current namespace-native/catalog conversion contains 4,029 declarations
+  the current namespace-native/catalog conversion contains 4,032 declarations
   and completed in 24.32 seconds in the latest full regeneration while resolving
   every project-local nested `@import` through namespace aliases.
 - [x] Record a first native behavioral/performance parity sample: deterministic
   VOPR output is byte-identical for seeds 1/42/123/999, while parallel
   handwritten and converted fuzz-smoke runs complete in 23.548s and 23.675s.
-- [ ] Add reproducible microbenchmarks and whole-project benchmarks for sample
+- [x] Measure the development process host on real converted VOPR. A cached
+  seed-1 100-request run reproduces `PASSED (22666 ticks)` and spends 653 ms in
+  the native host; its fresh-JVM wall time is 82.86 s and is dominated by graph
+  loading/cold compilation. The live-edit performance run remained active for
+  63.452 s while a new generation compiled and published. Nested calls now use
+  one per-module active-call lease, and a process host retains all generations
+  coarsely so it can omit per-call retirement RMWs without unsafe unloading.
+- [x] Add reproducible microbenchmarks and whole-project benchmarks for sample
   and TigerBeetle conversion, catalog bootstrap/Var interning, emission,
   clean/cached/incremental compilation, parallel declaration compilation,
-  reload publication, FFM invocation, and dispatch-cell calls.
-- [ ] Reduce interactive compile closure and command size for large graphs.
-  The correctness-first loader currently snapshots/materializes the full
-  reachable graph and makes configured external modules visible throughout it;
-  measure this on TigerBeetle, then cache unchanged named modules and pass only
-  the dependency edges/modules actually required by each compile.
-- [ ] Publish timing/cache/queue counters through the existing serializable
+  reload publication, FFM invocation, and dispatch-cell calls. The initial
+  `clojure -M:bench` EDN harness now records machine/toolchain metadata,
+  clean/same-source/incremental development builds, direct native loops,
+  dispatch-cell loops, FFM batches, and runtime timing/cache statistics. Its
+  first small ReleaseFast run exposed and fixed development cache suppression:
+  Aguafria-owned generated modules are content-addressed and now permit a
+  same-hash cache hit, while user-configured mutable module paths remain
+  conservative misses. Project modes now benchmark first/repeat conversion,
+  cold/warm std catalog installation, first/repeat generated namespace loads,
+  and complete emission without touching the checked-in corpus. The measured
+  sample is 3 files/11 declarations; TigerBeetle is 245 files/4,032
+  declarations and 5.42 MB emitted Zig, always with zero fallback/unresolved
+  syntax. Four independent ReleaseFast modules compile 1.44× faster in the
+  parallel probe on the recorded machine.
+- [x] Reduce interactive compile closure and command size for large graphs.
+  Namespace modules are limited to the actual reachable import closure and
+  remain content-addressed across builds. Named configured/build-generated
+  modules are now selected from the exact imports of the root declaration
+  slice plus reachable namespaces, and each is attached only to its importers;
+  this also prevents Zig 0.16's unused-`-M` error for small breaking live
+  slices. The measured full VOPR graph is 143 modules and 596 dependency edges,
+  versus repeating every build option across every namespace. The post-fix real
+  signature/state-migration VOPR acceptance passes twice with identical
+  `PASSED (10772 ticks)` behavior and zero failed builds.
+- [x] Publish timing/cache/queue counters through the existing serializable
   statistics APIs, including per-phase latency percentiles and critical-path
-  time for dependency components.
-- [ ] Profile the benchmarks and optimize the measured hot paths using
+  time for dependency components. `az/stats` now reports overall, per-module,
+  and per-purpose min/p50/p95/p99/max/mean summaries for queue wait, native
+  build, and end-to-end latency, plus cache observation/hit/miss/rate counters.
+  Atomic component publications expose both wall duration and the observed
+  parallel critical path; focused monitor/API and SCC rollback tests pass.
+  An intentional structural publication stop is reported separately as
+  `:migration-required`/`:migration-required-build-count`, not as a compiler
+  failure.
+- [x] Profile the benchmarks and optimize the measured hot paths using
   content-addressed AST/conversion caches, persistent dependency indexes,
   bounded work-stealing compilation, batched/streamed file I/O, and allocation
-  reduction where they materially help.
-- [ ] Define and enforce performance budgets for interactive single-Var reload,
+  reduction where they materially help. The first profile showed unchanged
+  TigerBeetle conversion spending nearly all of its 24.2 s in repeated AST
+  extraction, translation, and pretty-printing. Atomic caches keyed by exact
+  source, Zig AST helper/toolchain, namespace/import graph, keyword/std
+  catalogs, and converter schema now make all 245 AST/render hits explicit and
+  cut the unchanged conversion to 3.58 s (6.4×). Corrupt/incomplete cache data
+  is discarded and recomputed; focused cold-miss/warm-hit tests pass.
+- [x] Define and enforce performance budgets for interactive single-Var reload,
   warm namespace load, complete sample conversion, and complete TigerBeetle
-  conversion; record the machine/toolchain with every result.
-- [ ] Benchmark development dispatch against direct Zig calls, and prove the
+  conversion; record the machine/toolchain with every result. The EDN budget
+  catalog covers micro/sample/TigerBeetle modes, and
+  `clojure -M:bench check micro|sample|tigerbeetle` exits nonzero with exact
+  failed metric paths.
+  All 21 current checks pass on macOS/aarch64, Java 23, Clojure 1.12.0, Zig
+  0.16.0. The micro baseline is a 45 ms cache hit, 235 ms single-Var reload,
+  4.29 ns/dispatch iteration, and 554 ns/FFM call; TigerBeetle's warm
+  conversion is 3.47 s and first explicit reload/intern of 4,032 Vars is
+  18.35 s.
+- [x] Benchmark development dispatch against direct Zig calls, and prove the
   `:reloadable? false` `ReleaseFast` artifact has no dispatch/runtime overhead
-  beyond equivalent handwritten Zig.
+  beyond equivalent handwritten Zig. The development probe reports both the
+  direct and dispatch loops (4.29 ns per dispatch iteration in the current
+  million-iteration run). A separately built final dynamic library contains
+  no dispatch/state/epoch markers; its ReleaseFast composed/direct p50 ratio is
+  0.96, so the ordinary call is optimized as well as the handwritten loop.
 
 ### Host and cross-target portability
 
@@ -570,21 +768,82 @@ is an implicit return for the final expression of a non-void function.
   observe 96 → 97 → 96 in the same JVM while the caller's implementation
   generation remains unchanged. This proves real converted cyclic-component
   scalar dispatch; it is not the still-pending full running-program/state test.
-- [ ] Change a struct layout; prove old code/state remains valid, migrate with
-  an explicit function, and route new code to the new version.
-- [ ] In converted TigerBeetle, reevaluate the comptime `az/defn OptionsType`
+- [x] Load the complete converted `tigerbeetle.main` graph in a fresh JVM with
+  zero failed intermediate builds. Compile an ordinary caller of the real
+  converted `stdx.zeroed`, reevaluate only that TigerBeetle Var, and observe
+  true → false in the same PID while the caller implementation generation is
+  unchanged. This proves non-scalar Zig ABI dispatch and catalog-bounded
+  namespace loading; it is not yet the long-lived server/VOPR process test.
+- [x] Change a struct layout; prove old code/state remains valid, migrate with
+  an explicit function, and route new code to the new version. A 4-byte
+  `defstruct` generation remains live after an 8-byte layout is published,
+  only reevaluating its dependent redirects that Var to the new schema, and a
+  struct-backed `defvar` migration copies the old field, initializes the new
+  field, publishes the new capsule, and retains the old generation without
+  unsafe reinterpretation.
+- [x] Cross a project-generic native-host safe point after a breaking struct
+  publication. The active host stays pinned to the 4-byte type, exits and
+  restores state, the host root is explicitly reevaluated to adopt the new
+  caller graph, and `host/restart!` starts a linked replacement in the same JVM
+  PID that observes the 8-byte type. Compatible edits remain immediate and do
+  not use this boundary.
+- [x] In converted TigerBeetle, reevaluate the comptime `az/defn OptionsType`
   in `src/state_machine/workload.clj` and prove container/type-producing code
   is genuinely hot: compatible changes atomically republish affected
   monomorphizations and dependents, while a breaking generated-container
   change creates a coexisting type generation without invalidating old
-  callers or state.
-- [ ] Run the converted TigerBeetle program, make a non-structural logic change,
+  callers or state. The actual generated namespace now passes the compatible
+  half in a fresh JVM: changing `pending_timeout_mean` inside `OptionsType`'s
+  nested `generate` method preserves its schema fingerprint, advances the
+  native module generation, and republishes the containing `WorkloadType`
+  generation. A breaking edit now publishes coexisting `OptionsType`
+  generations while `WorkloadType` stays on its old schema; explicitly
+  reevaluating `WorkloadType` then publishes its coexisting new generation.
+  Cross-module and cyclic tests prove automatic compatible propagation,
+  explicit breaking caller adoption, retained old ABI invocation, and a
+  state-bearing dependent that keeps its old value until `az/migrate-state!`
+  publishes `[:retained :migrated]`. Finally, the repeatable
+  `clojure -M:vopr-type-hot-acceptance` run changes the actual converted
+  `OptionsType` while a 2,000-request seed-1 VOPR is running: the same PID stays
+  active, the host is pinned to its complete old dispatch graph, versions are
+  `[:retained :breaking]`, VOPR reports `PASSED (10772 ticks)`, exits 0 after
+  54.027 seconds, and statistics report zero failed builds. Selectively moving
+  that already-live host object graph to the new layout still requires the
+  explicit quiescence/migration acceptance below.
+- [x] Run the converted TigerBeetle program, make a non-structural logic change,
   evaluate the changed `az/defn`, and prove the same PID adopts it while
-  preserving live state.
-- [ ] Perform a versioned function-signature change and a versioned struct/state
+  preserving live state. The reproducible
+  `clojure -M:vopr-hot-acceptance 2000 1` command starts converted VOPR, defines
+  a new state-backed `aguafria_hot_reload_mark`, and reevaluates existing
+  `full_core` to call it while the original host stays active. A converted
+  performance VOPR stayed `:running` while generation 41 → 45 added
+  `aguafria_hot_reload_probe_value` and `aguafria_hot_reload_mark` and rewired
+  existing `full_core` to call the new function. The repeatable seed-1 run
+  exits 0 with `PASSED (10772 ticks)`, the native probe returns 4,242, the
+  process PID is unchanged, and statistics report zero failed builds.
+- [x] Perform a versioned function-signature change and a versioned struct/state
   migration in the live TigerBeetle harness without unsafe reinterpretation.
-- [ ] Run all unit/integration tests through Kaocha from an isolated nREPL and
-  publish timing plus conversion/reload statistics.
+  `clojure -M:vopr-migration-hot-acceptance 2000 1` keeps the original
+  converted VOPR running while `full_core@v2` publishes with a third argument
+  and the existing `log_performance_mode` requests a `bool` →
+  `AguafriaLogPerformanceState` schema. The old host completes with
+  `PASSED (10772 ticks)` before migration. At that exact quiescent boundary,
+  explicit Zig code copies `enabled` and initializes `migration_generation=1`,
+  `main`/`log_override` adopt the new state and ABI, and `host/restart!` runs a
+  linked replacement in the same JVM PID. It also reports
+  `PASSED (10772 ticks)`, the function has two distinct ABIs with one current,
+  state statuses are `[:retained :migrated]`, lineage is 1 → 2, statistics show
+  one migration-required safety stop, and failed builds remain zero.
+- [x] Run all unit/integration tests through Kaocha from an isolated nREPL and
+  publish timing plus conversion/reload statistics. The dedicated
+  `:test-nrepl` alias and programmatic Kaocha API run pass 78 tests and 2,948
+  assertions with zero failures/errors/pending in 515,680 ms. The same REPL's
+  final `az/stats` snapshot reports 293 modules, 4,153 declarations, 165
+  dependency components, 135 finished builds, 36 stale superseded builds, and
+  zero active/queued/compiling builds or active native hosts. After adding the
+  cache, fresh generated-classpath, and migration-monitor regressions, the
+  current complete command-line Kaocha run passes 80 tests and 2,961
+  assertions with zero failures.
 
 ## Deferred ideas from `todo.md`
 

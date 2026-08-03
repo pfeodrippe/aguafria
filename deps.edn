@@ -14,6 +14,18 @@
           :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
           :main-opts ["-m" "nrepl.cmdline"]}
 
+  :test-nrepl
+  {:extra-paths ["test" "generated/tigerbeetle"]
+   :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}
+                nrepl/nrepl {:mvn/version "1.3.1"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "nrepl.cmdline"]}
+
+  :bench
+  {:extra-paths ["dev"]
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "aguafria.benchmark"]}
+
   :generate-keyword
   {:extra-paths ["dev"]
    :extra-deps {org.clojure/data.json {:mvn/version "2.5.2"}}
@@ -22,4 +34,19 @@
   :check-keyword
   {:extra-paths ["dev"]
    :extra-deps {org.clojure/data.json {:mvn/version "2.5.2"}}
-   :main-opts ["-m" "aguafria.generate-keyword" "--check"]}}}
+   :main-opts ["-m" "aguafria.generate-keyword" "--check"]}
+
+  :vopr-type-hot-acceptance
+  {:extra-paths ["dev" "generated/tigerbeetle"]
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "aguafria.vopr-type-hot-acceptance"]}
+
+  :vopr-hot-acceptance
+  {:extra-paths ["dev" "generated/tigerbeetle"]
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "aguafria.vopr-hot-acceptance"]}
+
+  :vopr-migration-hot-acceptance
+  {:extra-paths ["dev" "generated/tigerbeetle"]
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "aguafria.vopr-migration-hot-acceptance"]}}}

@@ -94,3 +94,39 @@
            (:schema-fingerprint body-change)))
     (is (not= (:schema-fingerprint baseline)
               (:schema-fingerprint layout-change)))))
+
+(deftest comptime-type-factory-schema-test
+  (let [declaration
+        {:module "fixture.live"
+         :kind :fn
+         :name 'OptionsType
+         :qualified-name 'fixture.live/OptionsType
+         :declaration-key [:fn 'OptionsType]
+         :args []
+         :return :type
+         :body
+         '[(aguafria.zig/container
+            {:kind :struct :layout :normal}
+            (aguafria.zig/field-decl count :u32)
+            (aguafria.zig/fn-decl calculate :- :u32 [] 1))]}
+        baseline (runtime/declaration-info declaration)
+        method-change
+        (runtime/declaration-info
+         (assoc declaration :body
+                '[(aguafria.zig/container
+                   {:kind :struct :layout :normal}
+                   (aguafria.zig/field-decl count :u32)
+                   (aguafria.zig/fn-decl calculate :- :u32 [] 2))]))
+        field-change
+        (runtime/declaration-info
+         (assoc declaration :body
+                '[(aguafria.zig/container
+                   {:kind :struct :layout :normal}
+                   (aguafria.zig/field-decl count :u64)
+                   (aguafria.zig/fn-decl calculate :- :u32 [] 1))]))]
+    (is (:type-factory? baseline))
+    (is (= 64 (count (:schema-fingerprint baseline))))
+    (is (= (:schema-fingerprint baseline)
+           (:schema-fingerprint method-change)))
+    (is (not= (:schema-fingerprint baseline)
+              (:schema-fingerprint field-change)))))

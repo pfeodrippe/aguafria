@@ -5,23 +5,33 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [clojure.walk :as walk])
   (:import [java.io File]
            [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option
-            MemoryLayout SymbolLookup ValueLayout]
-           [java.lang.invoke MethodHandle]
+            MemoryLayout MemorySegment SymbolLookup ValueLayout]
+           [java.lang.invoke MethodHandle VarHandle]
            [java.nio.charset StandardCharsets]
            [java.nio.file AtomicMoveNotSupportedException CopyOption Files Path
             StandardCopyOption StandardOpenOption]
            [java.security MessageDigest]
            [java.util ArrayList HexFormat]
-           [java.util.concurrent Executors ScheduledExecutorService ScheduledFuture
-            ThreadFactory TimeUnit]
+           [java.util.concurrent ExecutionException Executors
+            ScheduledExecutorService ScheduledFuture ThreadFactory TimeUnit]
            [java.util.concurrent.atomic AtomicLong]))
 
 (defonce ^:private registry (atom {}))
 (defonce ^:private build-registry (atom {}))
 (defonce ^:private program-build-sequence (atom 0))
+(defonce ^:private component-publication-sequence (atom 0))
+(defonce ^:private live-host-sequence (AtomicLong. 0))
+(defonce ^:private live-hosts (atom {}))
+(defonce ^:private state-migrations (atom {}))
+(defonce ^:private dispatch-publication-arena (Arena/ofShared))
+(defonce ^:private dispatch-publication-epoch
+  (.allocate ^Arena dispatch-publication-arena ValueLayout/JAVA_LONG))
+(defonce ^:private dispatch-publication-epoch-handle
+  (.varHandle ValueLayout/JAVA_LONG))
 (defonce ^:private compile-lock (Object.))
 (defonce ^:private artifact-locks (atom {}))
 (defonce ^:private retirement-pending-modules (atom #{}))
@@ -140,7 +150,16 @@
   JVM or native invocation is active."
   []
   (locking compile-lock
-    (let [active
+    (let [active-hosts
+          (->> @live-hosts
+               vals
+               (filter #(contains? #{:starting :running} (:status %)))
+               (mapv #(select-keys % [:id :function :status :started-at-ms])))
+          _ (when (seq active-hosts)
+              (throw (ex-info "Cannot clear Aguafria while native hosts are active"
+                              {:aguafria/phase :native-clear
+                               :active-hosts active-hosts})))
+          active
           (->> @registry
                (mapcat (fn [[module module-state]]
                          (keep
@@ -175,10 +194,13 @@
       (reset! registry {})
       (reset! build-registry {})
       (reset! program-build-sequence 0)
+      (reset! component-publication-sequence 0)
+      (reset! live-hosts {})
+      (reset! state-migrations {})
       (reset! retirement-pending-modules #{})
       nil)))
 
-(declare declaration-info)
+(declare declaration-info host-view)
 
 (defn- declaration-summary
   [{:keys [declaration-key kind name qualified-name export? source logical-id
@@ -252,16 +274,20 @@
 
 (defn- mark-build-failed!
   [module generation error]
-  (let [finished-at (System/currentTimeMillis)]
+  (let [finished-at (System/currentTimeMillis)
+        phase (:aguafria/phase (ex-data error))
+        status (if (= :zig-state-migration-required phase)
+                 :migration-required
+                 :failed)]
     (swap! build-registry update [module :repl generation]
            (fn [build]
              (merge build
-                    {:status :failed
+                    {:status status
                      :finished-at-ms finished-at
                      :duration-ms (when-let [started-at (:started-at-ms build)]
                                     (- finished-at started-at))
                      :error (ex-message error)
-                     :phase (:aguafria/phase (ex-data error))
+                     :phase phase
                      :diagnostic-count (count (:diagnostics (ex-data error)))})))))
 
 (defn- sha256
@@ -283,7 +309,7 @@
         (conj [:zig/reference
                (select-keys reference
                             [:kind :module :zig-name :import-name
-                             :import-alias])])))
+                             :import-alias :schema-fingerprint])])))
 
     (keyword? value) [:keyword (namespace value) (name value)]
 
@@ -331,7 +357,17 @@
             :prefix (:zig/prefix properties)
             :variadic? (boolean (:zig/variadic properties))})
          args)
-   :return return})
+   :return return
+   ;; A caller compiled against a breaking type schema is a distinct live
+   ;; implementation lineage even when its surface C signature is scalar.
+   ;; Keeping this identity in the dispatch key prevents a running old host
+   ;; from being redirected to code that interprets its stack/heap instances
+   ;; with the new layout. Compatible method-only edits retain the same schema
+   ;; key and therefore continue to hot-swap in place.
+   :type-dependencies
+   (mapv (fn [[logical-id schema-fingerprint _implementation-fingerprint]]
+           [logical-id schema-fingerprint])
+         (:type-dependency-fingerprints declaration))})
 
 (defn- struct-schema
   [{:keys [layout fields] :as declaration}]
@@ -348,7 +384,15 @@
             :properties (dissoc properties :doc :comments)})
          fields)})
 
-(declare container-value-schema)
+(defn- state-schema
+  [{:keys [type]}]
+  {:kind :state-schema
+   ;; Inferred Zig globals are verified again from exported @sizeOf/@alignOf
+   ;; data when loaded. Their initializer is implementation, not layout,
+   ;; otherwise changing `0` to `1` would spuriously demand a migration.
+   :type (or type :zig-inferred)})
+
+(declare container-value-schema type-factory-schema-value)
 
 (defn- schema-type
   [type]
@@ -392,7 +436,29 @@
                         (contains? #{"field-decl" "enum-field-decl"
                                      "tuple-field-decl"}
                                    (name (first %)))))
-          (mapv nested-field-schema))}))
+          (mapv nested-field-schema))
+     ;; Nested type aliases participate in the effective layout even though
+     ;; they are not fields themselves. For example, TigerBeetle's
+     ;; `WorkloadType` declares `const Options = OptionsType(...)` and then
+     ;; stores an `Options` field. Keep alias types/values in the schema while
+     ;; continuing to exclude method bodies, so logic-only edits remain
+     ;; compatible.
+     :type-aliases
+     (->> members
+          (filter #(and (seq? %)
+                        (symbol? (first %))
+                        (= "const-decl" (name (first %)))))
+          (mapv
+           (fn [[_ alias-name & arguments]]
+             (let [arguments (if (string? (first arguments))
+                               (next arguments)
+                               arguments)
+                   arguments (if (map? (first arguments))
+                               (next arguments)
+                               arguments)]
+               {:name (emit/identifier alias-name)
+                :definition
+                (mapv type-factory-schema-value arguments)}))))}))
 
 (defn- container-type-declaration?
   [{:keys [kind value]}]
@@ -400,6 +466,30 @@
        (seq? value)
        (symbol? (first value))
        (= "container" (name (first value)))))
+
+(defn- type-factory-schema-value
+  [value]
+  (cond
+    (and (seq? value)
+         (symbol? (first value))
+         (= "container" (name (first value))))
+    (container-value-schema value)
+
+    (map? value)
+    (into (empty value)
+          (map (fn [[key nested]]
+                 [(type-factory-schema-value key)
+                  (type-factory-schema-value nested)]))
+          value)
+
+    (vector? value) (mapv type-factory-schema-value value)
+    (set? value) (into #{} (map type-factory-schema-value) value)
+    (seq? value) (apply list (map type-factory-schema-value value))
+    :else value))
+
+(defn- type-factory-declaration?
+  [{:keys [kind return]}]
+  (and (= :fn kind) (= :type return)))
 
 (defn declaration-info
   "Return a declaration with a stable logical identity and deterministic
@@ -416,17 +506,43 @@
               (select-keys declaration
                            [:kind :name :zig-name :args :return :body :export?
                             :public? :zig-prefix :zig-qualifiers
-                            :implicit-return?])))
+                            :implicit-return?
+                            :type-dependency-fingerprints
+                            :callable-dependency-fingerprints])))
 
       (= :struct kind)
       (assoc :schema-fingerprint (data-fingerprint
                                   (struct-schema declaration)))
 
+      (= :var kind)
+      (assoc :schema-fingerprint
+             (data-fingerprint (state-schema declaration)))
+
       (container-type-declaration? declaration)
       (assoc :schema-fingerprint
              (data-fingerprint
               {:symbol (declaration-zig-name declaration)
-               :schema (container-value-schema (:value declaration))}))
+               :schema (container-value-schema (:value declaration))})
+             ;; The schema deliberately excludes nested method bodies, but a
+             ;; compatible method edit still changes every monomorphization
+             ;; that copied that method at comptime.
+             :implementation-fingerprint
+             (data-fingerprint
+              {:kind :container-type
+               :symbol (declaration-zig-name declaration)
+               :value (:value declaration)
+               :type-dependency-fingerprints
+               (:type-dependency-fingerprints declaration)}))
+
+      (type-factory-declaration? declaration)
+      (assoc :type-factory? true
+             :schema-fingerprint
+             (data-fingerprint
+              {:kind :type-factory
+               :symbol (declaration-zig-name declaration)
+               :arguments (mapv #(select-keys % [:type :properties])
+                                (:args declaration))
+               :shape (type-factory-schema-value (:body declaration))}))
 
       declaration-key
       (assoc :logical-key declaration-key))))
@@ -583,18 +699,37 @@
 
 (declare scalar-key)
 
+(defn- generic-function-argument?
+  [{:keys [type properties]}]
+  (or (:zig/variadic properties)
+      (= "comptime" (:zig/prefix properties))
+      (contains? #{:anytype 'anytype :type 'type} type)))
+
+(defn- contains-syntax-operator?
+  [form operator-name]
+  (boolean
+   (some (fn [value]
+           (and (seq? value)
+                (symbol? (first value))
+                (= operator-name (name (first value)))))
+         (tree-seq coll? seq form))))
+
+(defn- anonymous-type?
+  [type]
+  (contains-syntax-operator? type "container"))
+
 (defn- dispatchable-declaration?
-  [{:keys [kind args return zig-prefix zig-qualifiers]}]
+  [{:keys [kind args return zig-prefix]}]
   (and (:reloadable? @config)
        (= :fn kind)
-       (nil? zig-prefix)
-       (not (seq zig-qualifiers))
-       (or (= :void return) (contains? scalar-layouts (scalar-key return)))
-       (every? (fn [{:keys [type properties]}]
-                 (and (contains? scalar-layouts (scalar-key type))
-                      (not (:zig/variadic properties))
-                      (nil? (:zig/prefix properties))))
-               args)))
+       ;; Forced-inline wrappers can still inline the cell load and indirect
+       ;; call into each concrete caller. Their implementation must be emitted
+       ;; as an addressable non-inline helper (see emit-reloadable-function).
+       (contains? #{nil "inline" "pub inline"} zig-prefix)
+       (not (contains? #{:type 'type :anytype 'anytype} return))
+       (not (anonymous-type? return))
+       (not-any? #(anonymous-type? (:type %)) args)
+       (not-any? generic-function-argument? args)))
 
 (defn- declaration-dispatch-spec
   [{:keys [logical-id abi-fingerprint implementation-fingerprint]
@@ -614,7 +749,15 @@
      :getter (str prefix "_implementation_address")
      :setter (str prefix "_set_dispatch")
      :active-counter (str "__aguafria_" module-token "_active_calls")
-     :active-getter (str "__aguafria_" module-token "_active_call_count")}))
+     :active-depth (str "__aguafria_" module-token "_active_depth")
+     :active-tracking (str "__aguafria_" module-token "_track_active_calls")
+     :active-tracking-setter
+     (str "__aguafria_" module-token "_set_active_call_tracking")
+     :active-getter (str "__aguafria_" module-token "_active_call_count")
+     :publication-epoch (str "__aguafria_" module-token
+                             "_publication_epoch")
+     :publication-epoch-setter (str "__aguafria_" module-token
+                                    "_set_publication_epoch")}))
 
 (defn- reloadable-dispatch-specs
   [declarations]
@@ -625,11 +768,43 @@
                       (declaration-dispatch-spec declaration)])))
         declarations))
 
+(defn- declaration-state-spec
+  [{:keys [logical-id schema-fingerprint] :as declaration}]
+  (let [version-key [logical-id schema-fingerprint]
+        token (subs (sha256 (pr-str version-key)) 0 24)
+        prefix (str "__aguafria_state_" token)]
+    {:declaration-key (:declaration-key declaration)
+     :version-key version-key
+     :logical-id logical-id
+     :schema-fingerprint schema-fingerprint
+     :accessor (str prefix "_reference")
+     :getter (str prefix "_address")
+     :setter (str prefix "_set_address")
+     :size-getter (str prefix "_size")
+     :align-getter (str prefix "_alignment")}))
+
+(defn state-reference
+  "Return deterministic development state-reference metadata for a defvar."
+  [declaration]
+  (let [declaration (declaration-info declaration)]
+    (when (= :var (:kind declaration))
+      (select-keys (declaration-state-spec declaration)
+                   [:version-key :logical-id :schema-fingerprint :accessor]))))
+
+(defn- reloadable-state-specs
+  [declarations]
+  (into {}
+        (comp
+         (filter #(and (:reloadable? @config) (= :var (:kind %))))
+         (map (juxt :declaration-key declaration-state-spec)))
+        declarations))
+
 (defn- emit-reload-source!
-  [module declarations dispatch-specs]
+  [module declarations dispatch-specs state-specs]
   (if (:reloadable? @config)
     (try
-      (emit/emit-reloadable-module module declarations dispatch-specs)
+      (emit/emit-reloadable-module module declarations dispatch-specs
+                                   state-specs)
       (catch clojure.lang.ExceptionInfo error
         (let [declaration (or (some #(when (contains? dispatch-specs
                                                      (:declaration-key %))
@@ -746,8 +921,30 @@
          :known-modules (sort (keys @registry))})))
     (materialize-module-source! module source)))
 
-(defn- development-dependency-snapshot
+(defn- declaration-named-module-imports
   [declarations]
+  (->> (tree-seq coll? seq declarations)
+       (keep (fn [value]
+               (cond
+                 (map? value)
+                 (or (get-in value [:attributes :zig/import-name])
+                     (when (= :import (:kind value))
+                       (:import-name value)))
+
+                 (and (sequential? value)
+                      (symbol? (first value))
+                      (= "import" (name (first value)))
+                      (string? (second value)))
+                 (second value))))
+       (filter string?)
+       distinct
+       sort
+       vec))
+
+(defn- development-dependency-snapshot
+  ([declarations]
+   (development-dependency-snapshot declarations @registry))
+  ([declarations module-states]
   (let [root-module (some-> declarations first :module str)
         direct-dependencies
         (fn [module-declarations]
@@ -767,7 +964,7 @@
       (if-let [module (first pending)]
         (if (contains? seen module)
           (recur (next pending) seen snapshot)
-          (let [module-state (get @registry module)
+          (let [module-state (get module-states module)
                 source (or (:reload-source module-state)
                            (:source module-state))
                 dependencies
@@ -776,6 +973,17 @@
                           (:dispatch-specs module-state))
                 entries
                 (->> specs
+                     (keep (fn [[declaration-key spec]]
+                             (when-let [declaration
+                                        (get-in module-state
+                                                [:definitions declaration-key])]
+                               {:declaration declaration
+                                :spec spec
+                                :owned? false})))
+                     vec)
+                state-entries
+                (->> (reloadable-state-specs
+                      (vals (:definitions module-state)))
                      (keep (fn [[declaration-key spec]]
                              (when-let [declaration
                                         (get-in module-state
@@ -794,11 +1002,15 @@
                   (assoc module {:module module
                                  :source source
                                  :dependencies dependencies
-                                 :dispatch-entries entries}))]
+                                 :named-module-imports
+                                 (declaration-named-module-imports
+                                  (vals (:definitions module-state)))
+                                 :dispatch-entries entries
+                                 :state-entries state-entries}))]
             (recur (concat (next pending) dependencies)
                    (conj seen module)
                    snapshot)))
-        snapshot))))
+        snapshot)))))
 
 (defn- project-generated-module-sources
   [modules overridden-names]
@@ -831,6 +1043,12 @@
    (sorted-map)
    (distinct (remove nil? modules))))
 
+(defn- development-profile-module
+  [declarations]
+  (or (some-> declarations first :attributes
+              :zig/build-profile-owner str)
+      (some-> declarations first :module str)))
+
 (defn- compiler-options-for-declarations
   [compiler-options declarations]
   (let [development-dependencies?
@@ -838,6 +1056,7 @@
         dependency-snapshot (:dependency-snapshot compiler-options)
         development-root-source (:development-root-source compiler-options)
         development-root-module (some-> declarations first :module str)
+        development-profile-module (development-profile-module declarations)
         compiler-options (dissoc compiler-options :development-dependencies?
                                  :dependency-snapshot
                                  :development-root-source)
@@ -849,6 +1068,8 @@
              distinct
              sort
              vec)
+        root-named-module-imports
+        (declaration-named-module-imports declarations)
         automatic
         (if development-dependencies?
           (into {}
@@ -889,12 +1110,22 @@
                         (str module))
                       path]))
               (:modules compiler-options))
-        captured-generated
+        ;; A root-specific build profile (for example TigerBeetle's VOPR)
+        ;; overrides fallback options captured on dependencies. Direct imports
+        ;; are still dependencies here: putting them at the root's rank would
+        ;; make a VOPR-owned `vsr_options` conflict with the fallback captured
+        ;; on `vsr.zig`. Conflicts among equally ranked transitive owners remain
+        ;; errors.
+        preferred-generated
         (project-generated-module-sources
-         (concat [development-root-module]
-                 root-dependencies
-                 (keys dependency-snapshot))
+         [development-profile-module]
          (set (keys configured)))
+        captured-generated
+        (merge
+         (project-generated-module-sources
+          (keys dependency-snapshot)
+          (into (set (keys configured)) (keys preferred-generated)))
+         preferred-generated)
         generated
         (into {}
               (keep (fn [[module-name {:keys [source]}]]
@@ -903,26 +1134,44 @@
                          (materialize-module-source!
                           (str "build-generated-" module-name) source)])))
               captured-generated)
-        external (merge generated configured)
+        external-candidates (merge generated configured)
+        required-external-names
+        (->> (concat root-named-module-imports
+                     (mapcat :named-module-imports
+                             (vals dependency-snapshot)))
+             (filter (set (keys external-candidates)))
+             set)
+        ;; Zig 0.16 rejects even an otherwise valid `-Mname=...` module when
+        ;; no module in this compilation graph declares it through `--dep`.
+        ;; A declaration live-slice therefore carries only the named modules
+        ;; it (or its reachable namespace modules) actually imports.
+        external (select-keys external-candidates required-external-names)
+        external-names (set (keys external))
         module-dependencies
         (when development-dependencies?
-          (into {:root (->> (concat [development-root-module]
-                                    (keys external))
+          (into {:root (->> (concat [development-root-module
+                                     development-profile-module])
                             distinct
                             (remove nil?)
                             (sort-by str)
                             vec)
                  development-root-module
-                 (->> (concat root-dependencies (keys external))
+                 (->> (concat root-dependencies
+                              (filter external-names
+                                      root-named-module-imports))
                       distinct
                       (sort-by str)
                       vec)}
-                (map (fn [[module {:keys [dependencies]}]]
-                       [module (->> (concat dependencies (keys external))
+                (concat
+                 (map (fn [[module {:keys [dependencies
+                                            named-module-imports]}]]
+                        [module (->> (concat dependencies
+                                             (filter external-names
+                                                     named-module-imports))
                                     distinct
                                     (sort-by str)
-                                    vec)]))
-                dependency-snapshot))
+                                    vec)])
+                      dependency-snapshot))))
         conflicts (->> (keys automatic)
                        (filter #(contains? external %))
                        sort
@@ -935,7 +1184,14 @@
                :configured configured
                :generated (keys generated)
                :automatic automatic})))
-    (cond-> (assoc compiler-options :modules (merge external automatic))
+    (cond-> (assoc compiler-options
+                   :modules (merge external automatic)
+                   ;; Automatic and build-generated modules are materialized
+                   ;; beneath content-addressed paths, so they cannot make an
+                   ;; otherwise identical artifact stale. User-configured
+                   ;; module paths are mutable and remain deliberately
+                   ;; non-cacheable until their contents are fingerprinted.
+                   :cache-safe? (empty? configured))
       module-dependencies
       (assoc :module-dependencies module-dependencies))))
 
@@ -1017,6 +1273,7 @@
    (compile-source! module-name source declarations nil))
   ([module-name source declarations dependency-snapshot]
    (let [development-dependencies? true
+         profile-module (development-profile-module declarations)
          {:keys [cache-dir optimize zig] :as compiler-options}
          (compiler-options-for-declarations
           (cond-> (assoc @config
@@ -1033,11 +1290,41 @@
         source-hash (subs (sha256 (pr-str hash-input)) 0 24)
         module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
         source-file (io/file module-dir "module.zig")
+        profile-root-declarations
+        (if (= (str module-name) profile-module)
+          ;; A breaking declaration may compile as an intentionally small
+          ;; live slice of the profile root. Re-exporting every declaration
+          ;; registered in the full module would reference names that are not
+          ;; present in that slice (for example VOPR's `std_options`).
+          declarations
+          (vals (get-in @registry [profile-module :definitions])))
         compiler-source
         (if development-dependencies?
           (str "// Aguafria development loader.\n"
                "const aguafria_module = @import("
                (emit/emit-expr (str module-name)) ");\n"
+               (when (and profile-module
+                          (not= (str module-name) profile-module))
+                 (str "const aguafria_profile_root = @import("
+                      (emit/emit-expr profile-module) ");\n"))
+               (->> profile-root-declarations
+                    (filter :public?)
+                    (filter #(contains? #{:const :struct :fn :fn-proto}
+                                        (:kind %)))
+                    (map (fn [declaration]
+                           (let [declaration-name
+                                 (emit/identifier
+                                  (or (:zig-name declaration)
+                                      (:name declaration)))
+                                 source-module
+                                 (if (= (str module-name) profile-module)
+                                   "aguafria_module"
+                                   "aguafria_profile_root")]
+                             (str "pub const " declaration-name " = "
+                                  source-module "." declaration-name ";\n"))))
+                    distinct
+                    sort
+                    (apply str))
                "comptime { _ = aguafria_module; }\n")
           source)
         library-name (System/mapLibraryName
@@ -1057,7 +1344,7 @@
                                        (assoc % (.getAbsolutePath library-file) (Object.))))
                              (.getAbsolutePath library-file))]
       (locking artifact-lock
-        (let [cache-safe? (and (empty? (:modules compiler-options))
+        (let [cache-safe? (and (:cache-safe? compiler-options)
                                (empty? (:zig-args compiler-options)))
               cached? (and cache-safe? (usable-artifact? library-file))
               result
@@ -1153,15 +1440,12 @@
                       (.orElse (.find lookup symbol-name) nil))
         getter-address (find-symbol (:getter spec))
         setter-address (find-symbol (:setter spec))
-        _ (when (and required? (or (nil? getter-address)
-                                   (nil? setter-address)))
+        _ (when (and required? (nil? setter-address))
             (throw (ex-info "Reload dispatch symbol was not found"
-                            {:symbol (if (nil? getter-address)
-                                       (:getter spec)
-                                       (:setter spec))
+                            {:symbol (:setter spec)
                              :declaration declaration
                              :dispatch-spec spec})))
-        _ (when (not= (nil? getter-address) (nil? setter-address))
+        _ (when (and getter-address (nil? setter-address))
             (throw (ex-info "Reload dispatch symbols were only partially linked"
                             {:getter (:getter spec)
                              :getter-found? (boolean getter-address)
@@ -1176,17 +1460,20 @@
         setter-descriptor
         (FunctionDescriptor/ofVoid
          (into-array MemoryLayout [ValueLayout/JAVA_LONG]))]
-    (when getter-address
-      (let [getter (.downcallHandle linker getter-address
-                                    getter-descriptor options)
-            setter (.downcallHandle linker setter-address
+    (when setter-address
+      (let [setter (.downcallHandle linker setter-address
                                     setter-descriptor options)
-            implementation-address
-            (long (.invokeWithArguments ^MethodHandle getter (ArrayList.)))]
-        (assoc spec
-               :declaration declaration
-               :implementation-address implementation-address
-               :setter-handle setter)))))
+            binding (assoc spec
+                           :declaration declaration
+                           :setter-handle setter)]
+        (if getter-address
+          (let [getter (.downcallHandle linker getter-address
+                                        getter-descriptor options)]
+            (assoc binding
+                   :implementation-address
+                   (long (.invokeWithArguments ^MethodHandle getter
+                                               (ArrayList.)))))
+          binding)))))
 
 (defn- bind-active-call-counter
   [^Linker linker ^SymbolLookup lookup dispatch-specs]
@@ -1204,15 +1491,137 @@
       (.downcallHandle linker address descriptor
                        (into-array Linker$Option [])))))
 
+(defn- native-host-active?
+  []
+  (boolean
+   (some #(contains? #{:starting :running} (:status %))
+         (vals @live-hosts))))
+
+(defn- freeze-active-host-dispatch!
+  [declaration]
+  (let [frozen-at (System/currentTimeMillis)
+        reason {:logical-id (:logical-id declaration)
+                :schema-fingerprint (:schema-fingerprint declaration)
+                :frozen-at-ms frozen-at}]
+    (swap! live-hosts
+           (fn [hosts]
+             (into {}
+                   (map (fn [[id host]]
+                          [id
+                           (if (contains? #{:starting :running}
+                                          (:status host))
+                             (assoc host
+                                    :dispatch-frozen? true
+                                    :dispatch-frozen-reason reason)
+                             host)]))
+                   hosts))))
+  nil)
+
+(defn- bind-active-call-tracking
+  [^Linker linker ^SymbolLookup lookup dispatch-specs]
+  (when-let [symbol-name
+             (some-> dispatch-specs first val :active-tracking-setter)]
+    (let [address
+          (-> (.find lookup symbol-name)
+              (.orElseThrow
+               (reify java.util.function.Supplier
+                 (get [_]
+                   (ex-info "Reload active-call tracking symbol was not found"
+                            {:symbol symbol-name})))))
+          descriptor
+          (FunctionDescriptor/ofVoid
+           (into-array MemoryLayout [ValueLayout/JAVA_BYTE]))]
+      (.downcallHandle linker address descriptor
+                       (into-array Linker$Option [])))))
+
+(defn- set-active-call-tracking-handle!
+  [handle enabled?]
+  (when handle
+    (.invokeWithArguments
+     ^MethodHandle handle
+     (ArrayList. ^java.util.Collection
+                 [(byte (if enabled? 1 0))])))
+  nil)
+
+(defn- bind-publication-epoch!
+  [^Linker linker ^SymbolLookup lookup specs]
+  (let [descriptor
+        (FunctionDescriptor/ofVoid
+         (into-array MemoryLayout [ValueLayout/JAVA_LONG]))
+        options (into-array Linker$Option [])
+        epoch-address (.address ^MemorySegment dispatch-publication-epoch)]
+    (mapv
+     (fn [symbol-name]
+       (let [address
+             (-> (.find lookup symbol-name)
+                 (.orElseThrow
+                  (reify java.util.function.Supplier
+                    (get [_]
+                      (ex-info "Reload publication-epoch symbol was not found"
+                               {:symbol symbol-name})))))
+             setter (.downcallHandle linker address descriptor options)]
+         (.invokeWithArguments ^MethodHandle setter
+                               (ArrayList. ^java.util.Collection
+                                           [(long epoch-address)]))
+         setter))
+     (->> specs
+          (keep :publication-epoch-setter)
+          distinct
+          sort))))
+
+(defn- bind-state
+  [^Linker linker ^SymbolLookup lookup declaration spec]
+  (let [find-required
+        (fn [symbol-name]
+          (-> (.find lookup symbol-name)
+              (.orElseThrow
+               (reify java.util.function.Supplier
+                 (get [_]
+                   (ex-info "Reload state symbol was not found"
+                            {:symbol symbol-name
+                             :declaration declaration
+                             :state-spec spec}))))))
+        options (into-array Linker$Option [])
+        getter-descriptor
+        (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
+                               (make-array MemoryLayout 0))
+        setter-descriptor
+        (FunctionDescriptor/ofVoid
+         (into-array MemoryLayout [ValueLayout/JAVA_LONG]))
+        bind-getter
+        (fn [symbol-name]
+          (.downcallHandle linker (find-required symbol-name)
+                           getter-descriptor options))
+        address-handle (bind-getter (:getter spec))
+        size-handle (bind-getter (:size-getter spec))
+        align-handle (bind-getter (:align-getter spec))
+        setter-handle
+        (.downcallHandle linker (find-required (:setter spec))
+                         setter-descriptor options)
+        call-long
+        (fn [handle]
+          (long (.invokeWithArguments ^MethodHandle handle (ArrayList.))))]
+    (assoc spec
+           :declaration declaration
+           :address (call-long address-handle)
+           :size (call-long size-handle)
+           :alignment (call-long align-handle)
+           :setter-handle setter-handle)))
+
 (defn- dependency-dispatch-entries
   [dependency-snapshot]
   (->> dependency-snapshot vals (mapcat :dispatch-entries) vec))
 
+(defn- dependency-state-entries
+  [dependency-snapshot]
+  (->> dependency-snapshot vals (mapcat :state-entries) vec))
+
 (defn- load-module
-  [compiled declarations dispatch-specs dependency-entries]
-  (try
-    (let [arena (Arena/ofShared)
-          lookup (SymbolLookup/libraryLookup
+  [compiled declarations dispatch-specs dependency-entries
+   dependency-state-entries]
+  (let [arena (Arena/ofShared)]
+    (try
+      (let [lookup (SymbolLookup/libraryLookup
                   ^Path (.toPath (io/file (:library-path compiled))) arena)
           linker (Linker/nativeLinker)
           functions (->> declarations
@@ -1238,25 +1647,61 @@
                           [(:version-key spec)
                            (assoc binding :owned? owned?)])))
                 dispatch-entries)
+          state-specs (reloadable-state-specs declarations)
+          state-entries
+          (concat
+           (map (fn [[declaration-key spec]]
+                  {:declaration (get declarations-by-key declaration-key)
+                   :spec spec
+                   :owned? true})
+                state-specs)
+           dependency-state-entries)
+          state-bindings
+          (into {}
+                (keep (fn [{:keys [declaration spec owned?]}]
+                        ;; Platform-lazy dependency modules may omit their
+                        ;; state helpers exactly as they can omit dispatch
+                        ;; symbols. Owned state is always required.
+                        (try
+                          [(:version-key spec)
+                           (assoc (bind-state linker lookup declaration spec)
+                                  :owned? owned?)]
+                          (catch Throwable error
+                            (when owned? (throw error))))))
+                state-entries)
           active-call-handle
-          (bind-active-call-counter linker lookup dispatch-specs)]
-      (merge compiled {:arena arena :lookup lookup :linker linker
-                       :functions functions
-                       :dispatch-bindings dispatch-bindings
-                       :active-call-handle active-call-handle
-                       :jvm-active-calls (AtomicLong. 0)}))
-    (catch Throwable error
-      (throw
-       (ex-info
-        (str "Aguafria could not load the compiled Zig library\n\n"
-             "error[aguafria::load]: " (ex-message error) "\n"
-             "  --> " (:library-path compiled) "\n"
-             "  = generated source: " (:source-path compiled) "\n"
-             "  = hint: run the JVM with --enable-native-access=ALL-UNNAMED")
-        {:aguafria/phase :native-load
-         :source-path (:source-path compiled)
-         :library-path (:library-path compiled)}
-        error)))))
+          (bind-active-call-counter linker lookup dispatch-specs)
+          active-call-tracking-handle
+          (bind-active-call-tracking linker lookup dispatch-specs)
+          _ (when (native-host-active?)
+              (set-active-call-tracking-handle!
+               active-call-tracking-handle false))
+          publication-epoch-setters
+          (bind-publication-epoch!
+           linker lookup (vals dispatch-bindings))]
+        (merge compiled {:arena arena :lookup lookup :linker linker
+                         :loaded-declarations declarations
+                         :functions functions
+                         :dispatch-bindings dispatch-bindings
+                         :state-bindings state-bindings
+                         :active-call-handle active-call-handle
+                         :active-call-tracking-handle
+                         active-call-tracking-handle
+                         :publication-epoch-setters publication-epoch-setters
+                         :jvm-active-calls (AtomicLong. 0)}))
+      (catch Throwable error
+        (try (.close ^Arena arena) (catch Throwable _))
+        (throw
+         (ex-info
+          (str "Aguafria could not load the compiled Zig library\n\n"
+               "error[aguafria::load]: " (ex-message error) "\n"
+               "  --> " (:library-path compiled) "\n"
+               "  = generated source: " (:source-path compiled) "\n"
+               "  = hint: run the JVM with --enable-native-access=ALL-UNNAMED")
+          {:aguafria/phase :native-load
+           :source-path (:source-path compiled)
+           :library-path (:library-path compiled)}
+          error))))))
 
 (defn- invoke-dispatch-setter!
   [^MethodHandle setter address]
@@ -1272,10 +1717,23 @@
    :linker (:linker loaded)
    :functions (:functions loaded)
    :dispatch-bindings (:dispatch-bindings loaded)
+   :state-bindings (:state-bindings loaded)
    :active-call-handle (:active-call-handle loaded)
+   :active-call-tracking-handle (:active-call-tracking-handle loaded)
    :jvm-active-calls (:jvm-active-calls loaded)
    :hash (:hash loaded)
    :library-path (:library-path loaded)})
+
+(defn- set-all-active-call-tracking!
+  [enabled?]
+  (doseq [handle
+          (->> @registry
+               vals
+               (mapcat :native-generations)
+               (keep :active-call-tracking-handle)
+               distinct)]
+    (set-active-call-tracking-handle! handle enabled?))
+  nil)
 
 (defn- prepare-loaded-generation
   [loaded generation]
@@ -1290,9 +1748,278 @@
                                  (:jvm-active-calls loaded))]))
                   functions))))
 
-(defn- reconcile-dispatch!
+(defn- invoke-state-setter!
+  [binding address]
+  (.invokeWithArguments ^MethodHandle (:setter-handle binding)
+                        (ArrayList. ^java.util.Collection
+                                    [(long address)]))
+  nil)
+
+(defn- migration-function-binding
+  [loaded migration]
+  (let [qualified-name (symbol (:function migration))]
+    (or (get (:functions loaded) qualified-name)
+        (get-in @registry [(namespace qualified-name)
+                           :functions qualified-name]))))
+
+(defn- invoke-state-migration!
+  [loaded migration previous-address next-address]
+  (let [function-binding (migration-function-binding loaded migration)]
+    (when-not function-binding
+      (throw
+       (ex-info "The registered Zig state migration function is not loaded"
+                {:aguafria/phase :zig-state-migration
+                 :migration migration
+                 :available-functions
+                 (->> (concat (keys (:functions loaded))
+                              (mapcat (comp keys :functions val) @registry))
+                      (map str) distinct sort vec)})))
+    (let [declaration (:declaration function-binding)]
+      (when-not (and (= :void (:return declaration))
+                     (= [:usize :usize] (mapv :type (:args declaration))))
+        (throw
+         (ex-info
+          "A Zig state migration must accept old/new usize addresses and return void"
+          {:aguafria/phase :zig-state-migration
+           :migration (:function migration)
+           :arguments (mapv :type (:args declaration))
+           :return (:return declaration)}))))
+    (.invokeWithArguments ^MethodHandle (:handle function-binding)
+                          (ArrayList. ^java.util.Collection
+                                      [(long previous-address)
+                                       (long next-address)]))
+    nil))
+
+(defn- reconcile-state
+  [current loaded generation]
+  (let [previous-versions (vec (:state-versions current))
+        active-by-logical
+        (into {} (keep (fn [version]
+                         (when (:active? version)
+                           [(:logical-id version) version])))
+              previous-versions)]
+    (reduce-kv
+     (fn [{:keys [state-versions] :as result} _ binding]
+       (let [{:keys [logical-id schema-fingerprint address size alignment]}
+             binding
+             previous (get active-by-logical logical-id)
+             compatible? (or (nil? previous)
+                             (= schema-fingerprint
+                                (:schema-fingerprint previous)))
+             migration-key [logical-id (:schema-fingerprint previous)
+                            schema-fingerprint]
+             migration (when (and previous (not compatible?))
+                         (get @state-migrations migration-key))]
+         (when (and previous compatible?
+                    (not= [size alignment]
+                          [(:size previous) (:alignment previous)]))
+           (throw
+            (ex-info
+             "A defvar kept its schema fingerprint but Zig changed its native layout"
+             {:aguafria/phase :zig-state-layout
+              :logical-id logical-id
+              :schema-fingerprint schema-fingerprint
+              :previous {:size (:size previous)
+                         :alignment (:alignment previous)}
+              :next {:size size :alignment alignment}})))
+         (cond
+           (nil? previous)
+           (do
+             (invoke-state-setter! binding address)
+             (update result :state-versions conj
+                     (assoc (select-keys binding
+                                         [:version-key :logical-id
+                                          :schema-fingerprint :address :size
+                                          :alignment])
+                            :generation generation
+                            :active? true
+                            :status :initialized)))
+
+           compatible?
+           (do
+             (invoke-state-setter! binding (:address previous))
+             (update result :state-versions
+                     (fn [versions]
+                       (mapv #(if (and (= (:logical-id %) logical-id)
+                                       (:active? %))
+                                (assoc % :active? true
+                                       :status (if (= :migrated (:status %))
+                                                 :migrated
+                                                 :preserved)
+                                       :last-bound-generation generation)
+                                %)
+                             versions))))
+
+           migration
+           (do
+             (invoke-state-migration! loaded migration (:address previous)
+                                      address)
+             (invoke-state-setter! binding address)
+             (-> result
+                 (update :state-versions
+                         (fn [versions]
+                           (mapv #(if (= (:logical-id %) logical-id)
+                                    (assoc % :active? false :status :retained)
+                                    %)
+                                 versions)))
+                 (update :state-versions conj
+                         (assoc (select-keys binding
+                                             [:version-key :logical-id
+                                              :schema-fingerprint :address
+                                              :size :alignment])
+                                :generation generation
+                                :active? true
+                                :status :migrated
+                                :migrated-from-schema
+                                (:schema-fingerprint previous)
+                                :migration-function (:function migration)
+                                :migrated-at-ms (System/currentTimeMillis)))))
+
+           :else
+           (throw
+            (ex-info
+             "A defvar layout changed and requires an explicit Zig migration"
+             {:aguafria/phase :zig-state-migration-required
+              :logical-id logical-id
+              :from-schema (:schema-fingerprint previous)
+              :to-schema schema-fingerprint
+              :previous-generation (:generation previous)
+              :requested-generation generation
+              :hint (str "Define an exported `(usize old, usize new) void` "
+                         "Aguafria function, then call `az/migrate-state!` "
+                         "with the state Var and migration Var.")})))))
+     {:state-versions previous-versions}
+     (into {} (filter (comp :owned? val)) (:state-bindings loaded)))))
+
+(defn- type-producing-declaration?
+  [{:keys [kind schema-fingerprint]}]
+  (and schema-fingerprint (not= :var kind)))
+
+(defn- declaration-reference-view
+  [{:keys [kind module name zig-name logical-id abi-fingerprint
+           schema-fingerprint implementation-fingerprint value]
+    :as declaration}]
+  (cond-> {:kind :declaration
+           :declaration-kind kind
+           :module module
+           :zig-name (emit/identifier (or zig-name name))
+           :symbol (symbol module (str name))}
+    logical-id (assoc :logical-id logical-id)
+    abi-fingerprint (assoc :abi-fingerprint abi-fingerprint)
+    implementation-fingerprint
+    (assoc :implementation-fingerprint implementation-fingerprint)
+    schema-fingerprint (assoc :schema-fingerprint schema-fingerprint)
+    (= :var kind)
+    (assoc :state-accessor (:accessor (declaration-state-spec declaration)))
+    ;; `:type-reference?` means the Var itself is usable with Zig's
+    ;; `Type{...}` constructor syntax. A function returning `type` is invoked
+    ;; normally and must not be rewritten to `function{...}`.
+    (or (= :struct kind)
+        (and (= :const kind)
+             (seq? value)
+             (symbol? (first value))
+             (= "container" (name (first value)))))
+    (assoc :type-reference? true)))
+
+(defn- publish-clojure-declaration-metadata!
+  "Keep ordinary Clojure Vars aligned with declarations refreshed internally
+  by automatic dependency propagation. A later REPL form must resolve the
+  current ABI/schema reference exactly as if the affected Var had itself been
+  reevaluated."
+  [declarations]
+  (doseq [{:keys [module name] :as declaration} declarations
+          :let [namespace (find-ns (symbol module))]
+          :when namespace
+          :let [v (ns-resolve namespace (symbol (str name)))]
+          :when (var? v)]
+    (alter-meta! v
+                 (fn [metadata]
+                   (cond-> (assoc metadata :aguafria/declaration declaration)
+                     (contains? #{:fn :fn-proto :const :var :struct :import
+                                  :raw :field}
+                                (:kind declaration))
+                     (assoc :aguafria/zig-reference
+                            (declaration-reference-view declaration)))))
+  nil))
+
+(defn refresh-declaration-var!
+  "Synchronize one just-defined Clojure Var with the descriptor currently
+  registered for it. Macros call this after `def`, because synchronous native
+  preparation can enrich type/callable dependency identities before the Var
+  itself exists."
+  [declaration]
+  (let [{:keys [module declaration-key] :as declaration}
+        (declaration-info declaration)
+        current (or (get-in @registry [module :definitions declaration-key])
+                    declaration)]
+    (publish-clojure-declaration-metadata! [current])
+    current))
+
+(defn- reconcile-type-versions
+  [current loaded generation]
+  (let [previous-versions (vec (:type-versions current))]
+    {:type-versions
+     (reduce
+      (fn [versions declaration]
+        (let [{:keys [logical-id schema-fingerprint]} declaration
+              previous (some #(when (and (= logical-id (:logical-id %))
+                                          (:active? %))
+                                 %)
+                             versions)
+              compatible? (or (nil? previous)
+                              (= schema-fingerprint
+                                 (:schema-fingerprint previous)))
+              next-version
+              {:logical-id logical-id
+               :schema-fingerprint schema-fingerprint
+               :generation generation
+               :kind (:kind declaration)
+               :name (str (:name declaration))
+               :active? true
+               :status (cond
+                         (nil? previous) :initialized
+                         (= :breaking (:status previous)) :breaking
+                         compatible? :compatible
+                         :else :breaking)
+               :previous-schema
+               (if (and compatible? (= :breaking (:status previous)))
+                 (:previous-schema previous)
+                 (:schema-fingerprint previous))}]
+          (if (and previous compatible?)
+            (mapv #(if (and (= logical-id (:logical-id %))
+                            (:active? %))
+                     next-version
+                     %)
+                  versions)
+            (conj
+             (mapv #(if (= logical-id (:logical-id %))
+                      (assoc % :active? false :status :retained)
+                      %)
+                   versions)
+             next-version))))
+      previous-versions
+      (filter type-producing-declaration?
+              (:loaded-declarations loaded)))}))
+
+(defn- reconcile-dispatch
   [current loaded generation]
   (let [previous-state (or (:dispatch-state current) {})
+        previous-types
+        (into {}
+              (comp (filter type-producing-declaration?)
+                    (map (juxt :logical-id identity)))
+              (:loaded-declarations current))
+        compatible-type-logic-change?
+        (boolean
+         (some
+          (fn [declaration]
+            (when-let [previous (get previous-types (:logical-id declaration))]
+              (and (= (:schema-fingerprint previous)
+                      (:schema-fingerprint declaration))
+                   (not= (:implementation-fingerprint previous)
+                         (:implementation-fingerprint declaration)))))
+          (filter type-producing-declaration?
+                  (:loaded-declarations loaded))))
         candidates (:dispatch-bindings loaded)
         owned-candidates (into {}
                                (filter (comp :owned? val))
@@ -1300,53 +2027,121 @@
         dispatch-state
         (reduce-kv
          (fn [state version-key candidate]
-           (let [active (get state version-key)]
+           (let [active (get state version-key)
+                 implementation-address (:implementation-address candidate)
+                 candidate-state
+                 (-> candidate
+                     (select-keys [:version-key :logical-id
+                                   :abi-fingerprint
+                                   :implementation-fingerprint
+                                   :implementation-address])
+                     (assoc :implementation-generation generation))]
              (assoc state version-key
-                    (if (and active
-                             (= (:implementation-fingerprint active)
-                                (:implementation-fingerprint candidate)))
+                    (cond
+                      ;; A setter-only generation preserves Zig laziness. Keep
+                      ;; the prior active implementation, or publish an
+                      ;; inspectable placeholder until the first real edit
+                      ;; demands an implementation address.
+                      (nil? implementation-address)
+                      (or active candidate-state)
+
+                      (and active
+                           (empty? (:state-bindings loaded))
+                           (not compatible-type-logic-change?)
+                           (= (:implementation-fingerprint active)
+                              (:implementation-fingerprint candidate)))
                       active
-                      (-> candidate
-                          (select-keys [:version-key :logical-id
-                                        :abi-fingerprint
-                                        :implementation-fingerprint
-                                        :implementation-address])
-                          (assoc :implementation-generation generation))))))
+
+                      :else candidate-state))))
          previous-state
          owned-candidates)
         generations (conj (vec (:native-generations current))
-                          (native-generation generation loaded))
-        project-active
-        (into {}
-              (mapcat (comp seq :dispatch-state val))
-              @registry)
-        active-versions (merge project-active dispatch-state)]
-    ;; Every loaded generation owns cells for the ABI versions it compiled.
-    ;; Updating all matching cells lets already-compiled callers follow a
-    ;; compatible implementation replacement while their library stays alive.
-    (doseq [{:keys [dispatch-bindings]} generations
-            [version-key {:keys [setter-handle]}] dispatch-bindings
-            :let [active (get active-versions version-key)]
-            :when active]
-      (invoke-dispatch-setter! setter-handle
-                               (:implementation-address active)))
-    {:dispatch-state dispatch-state
-     :native-generations generations}))
+                          (native-generation generation loaded))]
+    (merge {:dispatch-state dispatch-state
+            :native-generations generations}
+           (reconcile-state current loaded generation)
+           (reconcile-type-versions current loaded generation))))
 
-(defn- refresh-project-dispatch!
+(defn- reconcile-dispatch!
+  [current loaded generation]
+  (reconcile-dispatch current loaded generation))
+
+(defn- set-dispatch-publication-epoch!
+  [value]
+  ;; The shared segment is naturally aligned. Full fences make the epoch
+  ;; transition visible to the native acquire loads surrounding every
+  ;; dispatch-cell read.
+  (VarHandle/fullFence)
+  (.set ^MemorySegment dispatch-publication-epoch ValueLayout/JAVA_LONG
+        0 (long value))
+  (VarHandle/fullFence)
+  value)
+
+(defn- begin-dispatch-publication!
+  []
+  (let [current (.get ^MemorySegment dispatch-publication-epoch
+                      ValueLayout/JAVA_LONG 0)
+        publishing (if (even? current) (inc current) (+ current 2))]
+    (set-dispatch-publication-epoch! publishing)))
+
+(defn- end-dispatch-publication!
+  [publishing]
+  (set-dispatch-publication-epoch! (inc publishing)))
+
+(defn- refresh-project-dispatch-unguarded!
   []
   (let [active-versions
         (into {}
               (mapcat (comp seq :dispatch-state val))
-              @registry)]
+              @registry)
+        active-states
+        (into {}
+              (keep (fn [version]
+                      (when (:active? version)
+                        [(:version-key version) version])))
+              (mapcat :state-versions (vals @registry)))]
     (doseq [[_ module-state] @registry
             {:keys [dispatch-bindings]} (:native-generations module-state)
             [version-key {:keys [setter-handle]}] dispatch-bindings
             :let [active (get active-versions version-key)]
-            :when active]
+            :when (some? (:implementation-address active))]
       (invoke-dispatch-setter! setter-handle
-                               (:implementation-address active))))
+                               (:implementation-address active)))
+    (doseq [[_ module-state] @registry
+            {:keys [state-bindings]} (:native-generations module-state)
+            [version-key binding] state-bindings
+            :let [active (get active-states version-key)]
+            :when active]
+      (invoke-state-setter! binding (:address active)))
+    ;; A development host is another loaded copy of the logical module graph.
+    ;; Keep its dependency cells in the same atomic publication epoch as the
+    ;; JVM-owned generations so an already-running program observes each Var
+    ;; replacement without being restarted.
+    (doseq [{:keys [loaded status dispatch-frozen?]} (vals @live-hosts)
+            :when (and loaded
+                       (not dispatch-frozen?)
+                       (contains? #{:starting :running} status))
+            [version-key {:keys [setter-handle]}] (:dispatch-bindings loaded)
+            :let [active (get active-versions version-key)]
+            :when (some? (:implementation-address active))]
+      (invoke-dispatch-setter! setter-handle
+                               (:implementation-address active)))
+    (doseq [{:keys [loaded status share-state?]} (vals @live-hosts)
+            :when (and loaded share-state?
+                       (contains? #{:starting :running} status))
+            [version-key binding] (:state-bindings loaded)
+            :let [active (get active-states version-key)]
+            :when active]
+      (invoke-state-setter! binding (:address active))))
   nil)
+
+(defn- refresh-project-dispatch!
+  []
+  (let [publishing (begin-dispatch-publication!)]
+    (try
+      (refresh-project-dispatch-unguarded!)
+      (finally
+        (end-dispatch-publication! publishing)))))
 
 (defn- native-active-call-count
   [{:keys [active-call-handle]}]
@@ -1371,9 +2166,25 @@
 
 (defn- retire-quiescent-generations!
   [module-state]
-  (let [current-generation (:published-generation module-state)
+  (let [host-active? (native-host-active?)
+        current-generation (:published-generation module-state)
         referenced-generations
-        (into #{current-generation}
+        (into (into (into (into #{current-generation}
+                                (keep :generation)
+                                (remove #(= :superseded (:status %))
+                                        (:state-versions module-state)))
+                          (keep :generation)
+                          (remove #(= :superseded (:status %))
+                                  (:type-versions module-state)))
+                    ;; `:functions` contains JVM downcall handles into the
+                    ;; wrapper generation. During a partial breaking
+                    ;; publication an unchanged callable can intentionally
+                    ;; remain here even when its native dispatch cell points
+                    ;; at an older implementation generation. Its arena is
+                    ;; therefore independently live until a later complete
+                    ;; publication replaces the binding.
+                    (keep :wrapper-generation)
+                    (vals (:functions module-state)))
               (keep :implementation-generation)
               (vals (:dispatch-state module-state)))
         [retained newly-retired]
@@ -1383,6 +2194,7 @@
                  jvm-active (jvm-active-call-count generation)
                  retire? (and (not (contains? referenced-generations
                                                (:generation generation)))
+                              (not host-active?)
                               (zero? native-active)
                               (zero? jvm-active))]
              (if retire?
@@ -1398,7 +2210,15 @@
         limit (max 1 (long (:build-history-limit @config)))
         retired (->> (concat (:retired-generations module-state) newly-retired)
                      (take-last limit)
-                     vec)]
+                     vec)
+        retired-generation-ids (set (map :generation newly-retired))
+        retire-version
+        (fn [version]
+          (if (contains? retired-generation-ids (:generation version))
+            (-> version
+                (assoc :active? false :status :retired)
+                (dissoc :address))
+            version))]
     (let [module (:module module-state)
           pending? (some #(not (contains? referenced-generations
                                           (:generation %)))
@@ -1408,7 +2228,9 @@
                (if pending? conj disj) module))
       (assoc module-state
              :native-generations retained
-             :retired-generations retired))))
+             :retired-generations retired
+             :state-versions (mapv retire-version (:state-versions module-state))
+             :type-versions (mapv retire-version (:type-versions module-state))))))
 
 (defn- retire-module-quiescent-generations!
   [module]
@@ -1456,12 +2278,99 @@
         declarations))
 
 (defn- module-sources
-  [module declarations]
-  (let [source (emit-source! module declarations)
-        dispatch-specs (reloadable-dispatch-specs declarations)]
-    {:source source
-     :dispatch-specs dispatch-specs
-     :compile-source (emit-reload-source! module declarations dispatch-specs)}))
+  ([module declarations]
+   (module-sources module declarations #{}))
+  ([module declarations getter-declaration-keys]
+   (let [source (emit-source! module declarations)
+         reload-source-dispatch-specs
+         (reloadable-dispatch-specs declarations)
+         dispatch-specs
+         (into {}
+               (map (fn [[declaration-key spec]]
+                      [declaration-key
+                       (cond-> spec
+                         (contains? getter-declaration-keys declaration-key)
+                         (assoc :emit-getter? true))]))
+               reload-source-dispatch-specs)
+         state-specs (reloadable-state-specs declarations)
+         reload-source
+         (emit-reload-source! module declarations reload-source-dispatch-specs
+                              state-specs)]
+     {:source source
+      :dispatch-specs dispatch-specs
+      :reload-source-dispatch-specs reload-source-dispatch-specs
+      :state-specs state-specs
+      ;; Dependency copies always contain setters and a local implementation,
+      ;; but never an exported implementation-address getter. This preserves
+      ;; Zig's lazy/platform analysis when another module imports this source.
+      :reload-source reload-source
+      ;; Only declarations whose already-published implementation changed
+      ;; expose a getter in the owning generation.
+      :compile-source
+      (if (= dispatch-specs reload-source-dispatch-specs)
+        reload-source
+        (emit-reload-source! module declarations dispatch-specs state-specs))})))
+
+(defn- changed-dispatch-declaration-keys
+  [module-state declarations]
+  (let [previous-by-version
+        (into {}
+              (comp
+               (filter dispatchable-declaration?)
+               (map (fn [declaration]
+                      [[(:logical-id declaration)
+                        (:abi-fingerprint declaration)]
+                       declaration])))
+              (:loaded-declarations module-state))
+        embedded-dependency-implementations
+        (reduce
+         (fn [implementations [_ module-state]]
+           (reduce
+            (fn [implementations generation]
+              (reduce-kv
+               (fn [implementations version-key binding]
+                 (if (:owned? binding)
+                   implementations
+                   (update implementations version-key (fnil conj #{})
+                           (:implementation-fingerprint binding))))
+               implementations
+               (:dispatch-bindings generation)))
+            implementations
+            (:native-generations module-state)))
+         {}
+         @registry)]
+    (into #{}
+          (keep
+           (fn [declaration]
+             (when (dispatchable-declaration? declaration)
+               (let [version-key
+                     [(:logical-id declaration)
+                      (:abi-fingerprint declaration)]
+                     previous
+                     (get previous-by-version
+                          version-key)
+                     embedded-implementations
+                     (get embedded-dependency-implementations version-key)]
+                 (when (or
+                        ;; A C-exported wrapper is analyzed and directly
+                        ;; callable already. Capturing its address adds no
+                        ;; extra eagerness and lets JVM calls plus imported
+                        ;; callers retain the exact initial generation.
+                        (:export? declaration)
+                        (and previous
+                             (not= (:implementation-fingerprint previous)
+                                   (:implementation-fingerprint declaration)))
+                        ;; A dependent module may already be callable from an
+                        ;; embedded source snapshot before this declaration's
+                        ;; owner publishes its first native generation. If the
+                        ;; owner has since changed, it must expose a getter so
+                        ;; those live dependency cells can leave their local
+                        ;; zero/default implementation.
+                        (some #(not= (:implementation-fingerprint declaration)
+                                     %)
+                              embedded-implementations))
+                   (:declaration-key declaration))))))
+          declarations)))
 
 (defn- breaking-callable-change?
   [old-declaration declaration]
@@ -1472,49 +2381,355 @@
        (not= (:abi-fingerprint old-declaration)
              (:abi-fingerprint declaration))))
 
+(defn- breaking-state-change?
+  [old-declaration declaration]
+  (and old-declaration
+       (= :var (:kind old-declaration) (:kind declaration))
+       (not= (:schema-fingerprint old-declaration)
+             (:schema-fingerprint declaration))))
+
+(defn- breaking-type-change?
+  [old-declaration declaration]
+  (and old-declaration
+       (type-producing-declaration? old-declaration)
+       (type-producing-declaration? declaration)
+       (not= (:schema-fingerprint old-declaration)
+             (:schema-fingerprint declaration))))
+
+(defn- type-producing-change?
+  [old-declaration declaration]
+  (and (:reloadable? @config)
+       old-declaration
+       (type-producing-declaration? old-declaration)
+       (type-producing-declaration? declaration)
+       (or (not= (:schema-fingerprint old-declaration)
+                 (:schema-fingerprint declaration))
+           (not= (:implementation-fingerprint old-declaration)
+                 (:implementation-fingerprint declaration)))))
+
+(defn- compatible-type-producing-change?
+  [old-declaration declaration]
+  (and (type-producing-change? old-declaration declaration)
+       (= (:schema-fingerprint old-declaration)
+          (:schema-fingerprint declaration))))
+
+(defn- concrete-caller-recompile-change?
+  "A compatible function that cannot own a stable dispatch cell is copied or
+  statically bound into concrete Zig callers. Republishing those dependent
+  components is the safe hot-reload mechanism for generic, anonymous-signature,
+  and other non-addressable functions."
+  [old-declaration declaration]
+  (and (:reloadable? @config)
+       old-declaration
+       (= :fn (:kind old-declaration) (:kind declaration))
+       (not (type-producing-declaration? old-declaration))
+       (= (:abi-fingerprint old-declaration)
+          (:abi-fingerprint declaration))
+       (not= (:implementation-fingerprint old-declaration)
+             (:implementation-fingerprint declaration))
+       (not (and (dispatchable-declaration? old-declaration)
+                 (dispatchable-declaration? declaration)))))
+
+(defn- compatible-dependent-propagation?
+  [old-declaration declaration]
+  (or (compatible-type-producing-change? old-declaration declaration)
+      (concrete-caller-recompile-change? old-declaration declaration)))
+
+(defn- refresh-live-declaration-references
+  [declarations]
+  (letfn [(refresh-pass [declarations]
+            (let [registered-by-logical
+                  (into {}
+                        (comp (mapcat (comp vals :definitions val))
+                              (map (juxt :logical-id identity)))
+                        @registry)
+                  current-by-logical
+                  (merge registered-by-logical
+                         (into {} (map (juxt :logical-id identity))
+                               declarations))
+                  current-types-by-name
+                  (into {}
+                        (comp
+                         (filter type-producing-declaration?)
+                         (mapcat
+                          (fn [declaration]
+                            (let [names (->> [(:name declaration)
+                                             (:zig-name declaration)
+                                             (declaration-zig-name declaration)]
+                                             (remove nil?)
+                                             (map str)
+                                             distinct)]
+                              (map (fn [name]
+                                     [[(:module declaration) name]
+                                      declaration])
+                                   names)))))
+                        declarations)]
+              (mapv
+               (fn [declaration]
+                 (let [type-producing? (type-producing-declaration? declaration)
+                       refreshed
+                       (walk/postwalk
+                        (fn [value]
+                          (if (symbol? value)
+                            (let [reference
+                                  (:aguafria/zig-reference (meta value))
+                                  current
+                                  (or (and reference
+                                           (get current-by-logical
+                                                (:logical-id reference)))
+                                      ;; Converted Zig permits forward references,
+                                      ;; so the target Var may not have existed
+                                      ;; when this form was macroexpanded. Resolve
+                                      ;; same-module type names from the complete
+                                      ;; declaration snapshot at publication time.
+                                      (and type-producing?
+                                           (nil? (namespace value))
+                                           (get current-types-by-name
+                                                [(:module declaration)
+                                                 (name value)])))]
+                              (cond
+                                (= :var (:kind current))
+                                (let [reference
+                                      (assoc (or reference
+                                                 {:logical-id (:logical-id current)
+                                                  :kind (:kind current)
+                                                  :module (:module current)
+                                                  :zig-name
+                                                  (declaration-zig-name current)})
+                                             :schema-fingerprint
+                                             (:schema-fingerprint current)
+                                             :state-accessor
+                                             (:accessor
+                                              (declaration-state-spec current)))]
+                                  (with-meta value
+                                    (assoc (meta value)
+                                           :aguafria/zig-reference reference)))
+
+                                (type-producing-declaration? current)
+                                (let [reference
+                                      (assoc (or reference
+                                                 {:logical-id (:logical-id current)
+                                                  :kind (:kind current)
+                                                  :module (:module current)
+                                                  :zig-name
+                                                  (declaration-zig-name current)})
+                                             :schema-fingerprint
+                                             (:schema-fingerprint current))]
+                                  (with-meta value
+                                    (assoc (meta value)
+                                           :aguafria/zig-reference reference)))
+
+                                (contains? #{:fn :fn-proto} (:kind current))
+                                (let [reference
+                                      (assoc (or reference
+                                                 {:logical-id (:logical-id current)
+                                                  :kind (:kind current)
+                                                  :module (:module current)
+                                                  :zig-name
+                                                  (declaration-zig-name current)})
+                                             :abi-fingerprint
+                                             (:abi-fingerprint current)
+                                             :implementation-fingerprint
+                                             (:implementation-fingerprint current))]
+                                  (with-meta value
+                                    (assoc (meta value)
+                                           :aguafria/zig-reference reference)))
+
+                                :else value))
+                            value))
+                        declaration)
+                       type-dependency-fingerprints
+                       (->> (tree-seq coll? seq refreshed)
+                            (keep (fn [value]
+                                    (when (symbol? value)
+                                      (let [reference
+                                            (:aguafria/zig-reference
+                                             (meta value))
+                                            current
+                                            (and reference
+                                                 (get current-by-logical
+                                                      (:logical-id reference)))]
+                                        (when (type-producing-declaration?
+                                               current)
+                                          [(:logical-id current)
+                                           (:schema-fingerprint current)
+                                           (:implementation-fingerprint
+                                            current)])))))
+                            distinct
+                            (sort-by pr-str)
+                            vec)
+                       callable-dependency-fingerprints
+                       (->> (tree-seq coll? seq refreshed)
+                            (keep (fn [value]
+                                    (when (symbol? value)
+                                      (let [reference
+                                            (:aguafria/zig-reference
+                                             (meta value))
+                                            current
+                                            (and reference
+                                                 (get current-by-logical
+                                                      (:logical-id reference)))]
+                                        (when (and (contains? #{:fn :fn-proto}
+                                                               (:kind current))
+                                                   (not (type-producing-declaration?
+                                                         current)))
+                                          (cond-> [(:logical-id current)
+                                                   (:abi-fingerprint current)]
+                                            (not (dispatchable-declaration?
+                                                  current))
+                                            (conj
+                                             (:implementation-fingerprint
+                                              current))))))))
+                            distinct
+                            (sort-by pr-str)
+                            vec)]
+                   (-> refreshed
+                       (assoc :type-dependency-fingerprints
+                              type-dependency-fingerprints
+                              :callable-dependency-fingerprints
+                              callable-dependency-fingerprints)
+                       declaration-info)))
+               declarations)))]
+    ;; A defvar schema can itself depend on a just-refreshed defstruct schema.
+    ;; The second pass makes that transitive identity visible to its users.
+    (refresh-pass (refresh-pass declarations))))
+
+(defn- declaration-live-slice
+  [declarations root-declaration]
+  (let [by-logical (into {} (map (juxt :logical-id identity)) declarations)
+        by-name
+        (into {}
+              (mapcat
+               (fn [declaration]
+                 (->> [(:name declaration)
+                       (:zig-name declaration)
+                       (declaration-zig-name declaration)]
+                      (remove nil?)
+                      (map #(vector (str %) declaration)))))
+              declarations)]
+    (loop [pending [root-declaration]
+           selected {}]
+      (if-let [declaration (first pending)]
+        (if (contains? selected (:declaration-key declaration))
+          (recur (next pending) selected)
+          (let [references
+                (->> (tree-seq coll? seq declaration)
+                     (keep (fn [value]
+                             (when (symbol? value)
+                               (let [logical-id
+                                     (some-> value meta
+                                             :aguafria/zig-reference
+                                             :logical-id)]
+                                 (or (get by-logical logical-id)
+                                     ;; Converted Zig permits same-file
+                                     ;; forward references whose stored
+                                     ;; unqualified symbols predate the
+                                     ;; target Clojure Var. A declaration-name
+                                     ;; lookup closes that real dependency
+                                     ;; without inventing a builtin or raw
+                                     ;; source fragment.
+                                     (when (nil? (namespace value))
+                                       (get by-name (name value))))))))
+                     distinct)]
+            (recur (concat (next pending) references)
+                   (assoc selected (:declaration-key declaration)
+                          declaration))))
+        (->> (vals selected)
+             (sort-by (juxt :source-order (comp str :name)))
+             vec)))))
+
 (defn- compilation-plan
-  [module declarations old-declaration declaration]
-  (let [primary-dependencies (development-dependency-snapshot declarations)
-        primary (assoc (module-sources module declarations)
+  [module module-state declarations old-declaration declaration]
+  (let [declarations (refresh-live-declaration-references declarations)
+        ;; The old descriptor is the immutable identity actually compiled into
+        ;; its published native generation. Refreshing it against today's
+        ;; registry would silently rewrite a stale caller's historical ABI/type
+        ;; dependencies and could make an explicit adoption look unchanged.
+        declaration
+        (or (some #(when (= (:declaration-key declaration)
+                            (:declaration-key %))
+                    %)
+                  declarations)
+            declaration)
+        getter-declaration-keys
+        (changed-dispatch-declaration-keys module-state declarations)
+        primary-dependencies (development-dependency-snapshot declarations)
+        primary (assoc (module-sources module declarations
+                                       getter-declaration-keys)
                        :declarations declarations
                        :dependency-snapshot primary-dependencies
                        :partial-publication? false)
         fallback
-        (when (breaking-callable-change? old-declaration declaration)
-          (let [fallback-declarations [declaration]
+        (when (or (breaking-callable-change? old-declaration declaration)
+                  (breaking-state-change? old-declaration declaration)
+                  (breaking-type-change? old-declaration declaration))
+          (let [refreshed-declaration
+                (or (some #(when (= (:declaration-key declaration)
+                                    (:declaration-key %))
+                            %)
+                          declarations)
+                    declaration)
+                fallback-declarations
+                (declaration-live-slice declarations refreshed-declaration)
                 fallback-dependencies
                 (development-dependency-snapshot fallback-declarations)]
-            (assoc (module-sources module fallback-declarations)
+            (assoc (module-sources module fallback-declarations
+                                   getter-declaration-keys)
                    :declarations fallback-declarations
                    :dependency-snapshot fallback-dependencies
                    :partial-publication? true)))]
-    {:primary primary :fallback fallback}))
+    {:primary primary
+     :fallback fallback
+     :old-declaration old-declaration
+     :declaration declaration
+     ;; A breaking type is a new logical generation. Compiling the complete
+     ;; namespace here would silently redirect untouched dependents to it.
+     ;; Publish only the edited Var and its declaration dependencies; each
+     ;; caller/state owner adopts the new schema when explicitly reevaluated.
+     :prefer-fallback? (breaking-type-change? old-declaration declaration)}))
+
+(defn- complete-compilation-plan
+  [module module-state declarations]
+  (let [declarations (refresh-live-declaration-references declarations)]
+    {:primary
+     (assoc (module-sources
+             module declarations
+             (changed-dispatch-declaration-keys module-state declarations))
+            :declarations declarations
+            :dependency-snapshot (development-dependency-snapshot declarations)
+            :partial-publication? false)}))
 
 (defn- compile-plan!
-  [module {:keys [primary fallback]}]
-  (try
-    (assoc primary :compiled
-           (compile-source! module (:compile-source primary)
-                            (:declarations primary)
-                            (:dependency-snapshot primary)))
-    (catch Throwable full-error
-      (if-not fallback
-        (throw full-error)
-        (try
-          (let [compiled (compile-source! module (:compile-source fallback)
-                                          (:declarations fallback)
-                                          (:dependency-snapshot fallback))]
-            (assoc fallback :compiled
-                   (assoc compiled
-                          :partial-publication? true
-                          :full-compile-error (ex-message full-error))))
-          (catch Throwable fallback-error
-            (throw
-             (ex-info (ex-message fallback-error)
-                      (assoc (ex-data fallback-error)
-                             :aguafria/full-module-error (ex-message full-error)
-                             :aguafria/partial-publication-attempted? true)
-                      fallback-error))))))))
+  [module {:keys [primary fallback prefer-fallback?]}]
+  (if prefer-fallback?
+    (assoc fallback :compiled
+           (assoc (compile-source! module (:compile-source fallback)
+                                   (:declarations fallback)
+                                   (:dependency-snapshot fallback))
+                  :partial-publication? true))
+    (try
+      (assoc primary :compiled
+             (compile-source! module (:compile-source primary)
+                              (:declarations primary)
+                              (:dependency-snapshot primary)))
+      (catch Throwable full-error
+        (if-not fallback
+          (throw full-error)
+          (try
+            (let [compiled (compile-source! module (:compile-source fallback)
+                                            (:declarations fallback)
+                                            (:dependency-snapshot fallback))]
+              (assoc fallback :compiled
+                     (assoc compiled
+                            :partial-publication? true
+                            :full-compile-error (ex-message full-error))))
+            (catch Throwable fallback-error
+              (throw
+               (ex-info (ex-message fallback-error)
+                        (assoc (ex-data fallback-error)
+                               :aguafria/full-module-error (ex-message full-error)
+                               :aguafria/partial-publication-attempted? true)
+                        fallback-error)))))))))
 
 (defn- refresh-plan-dependency-snapshots
   [plan]
@@ -1530,14 +2745,18 @@
    plan
    [:primary :fallback]))
 
+(declare recompile-component! recompile-dependent-components!)
+
 (defn- compile-and-publish-async!
-  [{:keys [module declaration-key generation declarations source plan completion]}]
+  [{:keys [module declaration-key generation declarations source plan completion
+           propagate-dependent-change?]}]
   (mark-build-started! module generation)
   (try
     (ensure-converted-dependency-sources! module declarations)
     (let [plan (refresh-plan-dependency-snapshots plan)
           {compiled-declarations :declarations
-           :keys [compiled compile-source dispatch-specs partial-publication?
+           :keys [compiled compile-source reload-source dispatch-specs
+                  reload-source-dispatch-specs partial-publication?
                   dependency-snapshot]}
           (compile-plan! module plan)
           ;; Stale snapshots are useful compiler work/history, but loading each
@@ -1546,6 +2765,8 @@
                           (get-in @registry [module :requested-generation]))
                    (-> (load-module compiled compiled-declarations dispatch-specs
                                     (dependency-dispatch-entries
+                                     dependency-snapshot)
+                                    (dependency-state-entries
                                      dependency-snapshot))
                        (prepare-loaded-generation generation)))
           published? (atom false)]
@@ -1553,6 +2774,10 @@
         (let [current (get @registry module)]
           (when (and loaded (= generation (:requested-generation current)))
             (let [dispatch (reconcile-dispatch! current loaded generation)
+                  compiled-definitions
+                  (into {}
+                        (map (juxt :declaration-key identity))
+                        compiled-declarations)
                   functions (if partial-publication?
                               (merge (:functions current) (:functions loaded))
                               (:functions loaded))
@@ -1562,28 +2787,79 @@
                      (merge current loaded dispatch
                             {:generation generation
                              :published-generation generation
-                             :pending nil
+                             ;; Keep the completion visible until dependent
+                             ;; type propagation has also finished. Otherwise
+                             ;; an `await!` started in this small window can
+                             ;; return while an affected SCC is still being
+                             ;; compiled (or miss its migration error).
+                             :pending completion
                              :scheduled nil
                              :source source
-                             :reload-source compile-source
+                             :reload-source reload-source
                              :dispatch-specs published-dispatch-specs
-                             :reload-source-dispatch-specs dispatch-specs
+                             :reload-source-dispatch-specs
+                             reload-source-dispatch-specs
+                             :definitions
+                             (if partial-publication?
+                               (merge (:definitions current)
+                                      compiled-definitions)
+                               compiled-definitions)
                              :functions functions
                              :partial-publication? partial-publication?
                              :full-compile-error (:full-compile-error compiled)
                              :source-only? false
                              :last-error nil
-                             :failed-generation nil}))
+                             :failed-generation nil
+                             :last-dependent-publication-failure nil
+                             :last-dependent-publication-error nil}))
               (refresh-project-dispatch!)
+              (publish-clojure-declaration-metadata!
+               compiled-declarations)
               (retire-module-quiescent-generations! module)))))
       (when (and loaded (not @published?))
         (.close ^Arena (:arena loaded)))
-      (let [status (if @published? :finished :stale)]
+      (let [propagation
+            (when (and @published? propagate-dependent-change?)
+              (try
+                {:affected (recompile-dependent-components! module completion)}
+                (catch Throwable error
+                  {:error error})))
+            propagation-error (:error propagation)
+            affected (:affected propagation)
+            status (if @published? :finished :stale)]
         (mark-build-finished! module generation status compiled)
-        (deliver completion
-                 {:status :success
-                  :result (registration-result module declaration-key generation
-                                               compiled @published?)})))
+        (if propagation-error
+          (do
+            (swap! registry update module assoc
+                   :last-dependent-publication-failure
+                   {:phase (:aguafria/phase (ex-data propagation-error))
+                    :generation generation
+                    :logical-id (:logical-id (ex-data propagation-error))
+                    :failed-at-ms (System/currentTimeMillis)
+                    :error (ex-message propagation-error)}
+                   :last-dependent-publication-error propagation-error)
+            (swap! registry update module
+                   (fn [current]
+                     (if (and (= generation (:requested-generation current))
+                              (identical? completion (:pending current)))
+                       (assoc current :pending nil :scheduled nil)
+                       current)))
+            (deliver completion {:status :error
+                                 :error propagation-error
+                                 :published? true}))
+          (do
+            (swap! registry update module
+                   (fn [current]
+                     (if (and (= generation (:requested-generation current))
+                              (identical? completion (:pending current)))
+                       (assoc current :pending nil :scheduled nil)
+                       current)))
+            (deliver completion
+                     {:status :success
+                      :result (cond->
+                               (registration-result module declaration-key generation
+                                                    compiled @published?)
+                                affected (assoc :affected affected))})))))
     (catch Throwable error
       (locking compile-lock
         (swap! registry update module
@@ -1609,9 +2885,16 @@
                 definitions (assoc old-definitions
                                    declaration-key declaration)
                 declarations (vec (vals definitions))
-                plan (compilation-plan module declarations
+                plan (compilation-plan module old-module declarations
                                        old-declaration declaration)
-                {:keys [source compile-source dispatch-specs]} (:primary plan)
+                plan-old-declaration (:old-declaration plan)
+                plan-declaration (:declaration plan)
+                _ (when (and (native-host-active?)
+                             (breaking-type-change? plan-old-declaration
+                                                    plan-declaration))
+                    (freeze-active-host-dispatch! plan-declaration))
+                {:keys [source compile-source reload-source dispatch-specs
+                        reload-source-dispatch-specs]} (:primary plan)
                 generation (inc (or (:requested-generation old-module)
                                     (:generation old-module) 0))
                 completion (promise)
@@ -1624,17 +2907,23 @@
                      :compile-source compile-source
                      :dispatch-specs dispatch-specs
                      :plan plan
+                     :propagate-dependent-change?
+                     (compatible-dependent-propagation?
+                      plan-old-declaration plan-declaration)
                      :completion completion}]
             (swap! registry assoc module
                    (merge old-module
                           {:module module
                            :definitions definitions
                            :source source
-                           :reload-source compile-source
+                           :reload-source reload-source
                            :dispatch-specs dispatch-specs
+                           :reload-source-dispatch-specs
+                           reload-source-dispatch-specs
                            :requested-generation generation
                            :pending completion
                            :last-error nil
+                           :last-dependent-publication-error nil
                            :failed-generation nil}))
             job))]
     (record-build! job true)
@@ -1651,6 +2940,51 @@
   therefore never compiles half of a file, while reevaluating one declaration
   still schedules a hot generation automatically."
   [{:keys [module declaration-key] :as declaration}]
+  ;; A host may start from a complete immutable source graph while individual
+  ;; dependency modules are still finishing their first background builds.
+  ;; Do not let a type edit supersede that baseline: the running host already
+  ;; contains the old layout, so it must become an inspectable retained
+  ;; generation before the new schema is queued.
+  (let [{:keys [definitions pending]} (get @registry module)
+        old-declaration (get definitions declaration-key)
+        hosted-type-change?
+        (and (native-host-active?)
+             (type-producing-change? old-declaration declaration))]
+    (when (and pending hosted-type-change?)
+      @pending)
+    (when hosted-type-change?
+      (locking compile-lock
+        (let [active-version
+              (some #(when (and (= (:logical-id old-declaration)
+                                  (:logical-id %))
+                                (:active? %))
+                       %)
+                    (get-in @registry [module :type-versions]))]
+          (when-not active-version
+            ;; The old layout already exists in each active host's immutable
+            ;; native graph. Represent that real ownership directly instead of
+            ;; eagerly compiling the whole dependency SCC merely to obtain a
+            ;; duplicate library generation (which would also defeat Zig's
+            ;; normal lazy analysis of unreachable declarations).
+            (let [host-ids (->> @live-hosts
+                                vals
+                                (filter #(contains? #{:starting :running}
+                                                    (:status %)))
+                                (mapv :id))
+                  baseline
+                  {:logical-id (:logical-id old-declaration)
+                   :schema-fingerprint
+                   (:schema-fingerprint old-declaration)
+                   :generation nil
+                   :kind (:kind old-declaration)
+                   :name (str (:name old-declaration))
+                   :active? true
+                   :host-only? true
+                   :host-ids host-ids
+                   :status :hosted
+                   :previous-schema nil}]
+              (swap! registry update-in [module :type-versions]
+                     (fnil conj []) baseline)))))))
   (let [[job superseded]
         (locking compile-lock
           (let [old-module (get @registry module)
@@ -1659,11 +2993,23 @@
                 declaration (stable-source-order old-definitions declaration)
                 definitions (assoc old-definitions declaration-key declaration)
                 declarations (vec (vals definitions))
-                plan (compilation-plan module declarations
+                plan (compilation-plan module old-module declarations
                                        old-declaration declaration)
-                {:keys [source compile-source dispatch-specs]} (:primary plan)
+                plan-old-declaration (:old-declaration plan)
+                plan-declaration (:declaration plan)
+                _ (when (and (native-host-active?)
+                             (breaking-type-change? plan-old-declaration
+                                                    plan-declaration))
+                    (freeze-active-host-dispatch! plan-declaration))
+                {:keys [source compile-source reload-source dispatch-specs
+                        reload-source-dispatch-specs]} (:primary plan)
                 generation (inc (or (:requested-generation old-module)
                                     (:generation old-module) 0))
+                expected-declaration-count
+                (project/expected-declaration-count module)
+                ready? (or (nil? expected-declaration-count)
+                           (>= (count definitions)
+                               expected-declaration-count))
                 completion (promise)
                 job {:module module
                      :declaration-key declaration-key
@@ -1674,6 +3020,10 @@
                      :compile-source compile-source
                      :dispatch-specs dispatch-specs
                      :plan plan
+                     :propagate-dependent-change?
+                     (compatible-dependent-propagation?
+                      plan-old-declaration plan-declaration)
+                     :ready? ready?
                      :completion completion}]
             (swap! registry assoc module
                    (merge old-module
@@ -1681,52 +3031,74 @@
                            :definitions definitions
                            :declarations declarations
                            :source source
-                           :reload-source compile-source
+                           :reload-source reload-source
                            :dispatch-specs dispatch-specs
+                           :reload-source-dispatch-specs
+                           reload-source-dispatch-specs
                            :source-only? true
                            :requested-generation generation
+                           :scheduled nil
                            :pending completion
                            :last-error nil
+                           :last-dependent-publication-error nil
                            :failed-generation nil}))
             [job {:scheduled (:scheduled old-module)
                   :completion (:pending old-module)
                   :generation (:requested-generation old-module)}]))]
     (record-build! job true)
-    (when (and (:scheduled superseded)
-               (.cancel ^ScheduledFuture (:scheduled superseded) false))
-      (when (:generation superseded)
-        (mark-build-finished! module (:generation superseded) :stale {}))
-      (when (:completion superseded)
-        (deliver (:completion superseded) {:status :success :stale? true})))
-    (let [task
-          (.schedule
-           converted-compiler
-           ^Runnable
-           (reify Runnable
-             (run [_]
-               (if (= (:generation job)
-                      (get-in @registry [module :requested-generation]))
-                 (compile-and-publish-async! job)
-                 (do
-                   (mark-build-finished! module (:generation job) :stale {})
-                   (deliver (:completion job)
-                            {:status :success :stale? true})))))
-           (long (:converted-compile-debounce-ms @config))
-           TimeUnit/MILLISECONDS)]
-      ;; A zero-delay job may already have finished. Never put its completed
-      ;; scheduler handle back into a published module state.
-      (swap! registry update module
-             (fn [current]
-               (if (and (= (:generation job) (:requested-generation current))
-                        (identical? (:completion job) (:pending current)))
-                 (assoc current :scheduled task)
-                 current))))
+    (let [scheduled (:scheduled superseded)
+          cancelled? (and scheduled
+                          (.cancel ^ScheduledFuture scheduled false))]
+      (when (and (:completion superseded)
+                 (or (nil? scheduled) cancelled?))
+        (when (:generation superseded)
+          (mark-build-finished! module (:generation superseded) :stale {}))
+        (deliver (:completion superseded)
+                 {:status :success :stale? true})))
+    (if-not (:ready? job)
+      (do
+        ;; The catalog tells us exactly when a generated namespace is
+        ;; complete. Intermediate forms remain immediately inspectable but
+        ;; are never sent to Zig as invalid half-modules.
+        (mark-build-finished! module (:generation job) :stale {})
+        (deliver (:completion job)
+                 {:status :success :source-only? true})
+        (swap! registry update module
+               (fn [current]
+                 (if (and (= (:generation job)
+                             (:requested-generation current))
+                          (identical? (:completion job) (:pending current)))
+                   (assoc current :pending nil :scheduled nil)
+                   current))))
+      (let [task
+            (.schedule
+             converted-compiler
+             ^Runnable
+             (reify Runnable
+               (run [_]
+                 (if (= (:generation job)
+                        (get-in @registry [module :requested-generation]))
+                   (compile-and-publish-async! job)
+                   (do
+                     (mark-build-finished! module (:generation job) :stale {})
+                     (deliver (:completion job)
+                              {:status :success :stale? true})))))
+             (long (:converted-compile-debounce-ms @config))
+             TimeUnit/MILLISECONDS)]
+        ;; A zero-delay job may already have finished. Never put its completed
+        ;; scheduler handle back into a published module state.
+        (swap! registry update module
+               (fn [current]
+                 (if (and (= (:generation job) (:requested-generation current))
+                          (identical? (:completion job) (:pending current)))
+                   (assoc current :scheduled task)
+                   current)))))
     {:module module
      :declaration-key declaration-key
      :generation (:generation job)
      :async? true
      :converted? true
-     :pending? true}))
+     :pending? (:ready? job)}))
 
 (defn- register-sync!
   [{:keys [module declaration-key] :as declaration}]
@@ -1738,23 +3110,43 @@
           definitions (assoc old-definitions
                              declaration-key declaration)
           declarations (vec (vals definitions))
-          plan (compilation-plan module declarations old-declaration declaration)
+          plan (compilation-plan module old-module declarations
+                                 old-declaration declaration)
+          plan-old-declaration (:old-declaration plan)
+          plan-declaration (:declaration plan)
+          _ (when (and (native-host-active?)
+                       (breaking-type-change? plan-old-declaration
+                                              plan-declaration))
+              (freeze-active-host-dispatch! plan-declaration))
+          propagate-dependent-change?
+          (compatible-dependent-propagation?
+           plan-old-declaration plan-declaration)
           {source :source} (:primary plan)
           generation (inc (or (:requested-generation old-module)
                               (:generation old-module) 0))
-          job {:module module :generation generation :declarations declarations}]
+          job {:module module :generation generation :declarations declarations}
+          prepared (atom nil)
+          published? (atom false)]
       (record-build! job false)
       (mark-build-started! module generation)
       (try
         (let [{compiled-declarations :declarations
-               :keys [compiled compile-source dispatch-specs
+               :keys [compiled compile-source reload-source dispatch-specs
+                      reload-source-dispatch-specs
                       partial-publication? dependency-snapshot]}
               (compile-plan! module plan)
               loaded (-> (load-module compiled compiled-declarations dispatch-specs
                                       (dependency-dispatch-entries
+                                       dependency-snapshot)
+                                      (dependency-state-entries
                                        dependency-snapshot))
                          (prepare-loaded-generation generation))
+              _ (reset! prepared loaded)
               dispatch (reconcile-dispatch! old-module loaded generation)
+              compiled-definitions
+              (into {}
+                    (map (juxt :declaration-key identity))
+                    compiled-declarations)
               functions (if partial-publication?
                           (merge (:functions old-module) (:functions loaded))
                           (:functions loaded))
@@ -1766,24 +3158,549 @@
                       :published-generation generation
                       :requested-generation generation
                       :source source
-                      :reload-source compile-source
+                      :reload-source reload-source
                       :dispatch-specs published-dispatch-specs
-                      :reload-source-dispatch-specs dispatch-specs
+                      :reload-source-dispatch-specs
+                      reload-source-dispatch-specs
                       :functions functions
                       :partial-publication? partial-publication?
                       :full-compile-error (:full-compile-error compiled)
                       :pending nil
                       :last-error nil
+                      :last-dependent-publication-error nil
                       :failed-generation nil
-                      :definitions definitions})]
+                      :last-dependent-publication-failure nil
+                      :definitions
+                      (if partial-publication?
+                        (merge (:definitions old-module)
+                               compiled-definitions)
+                        compiled-definitions)})]
           (swap! registry assoc module new-module)
+          (reset! published? true)
           (refresh-project-dispatch!)
+          (publish-clojure-declaration-metadata! compiled-declarations)
           (retire-module-quiescent-generations! module)
           (mark-build-finished! module generation :finished compiled)
-          (registration-result module declaration-key generation compiled true))
+          (cond-> (registration-result module declaration-key generation
+                                       compiled true)
+            propagate-dependent-change?
+            (assoc :affected (recompile-dependent-components! module nil))))
         (catch Throwable error
-          (mark-build-failed! module generation error)
+          (when (and @prepared (not @published?))
+            (try (.close ^Arena (:arena @prepared)) (catch Throwable _)))
+          (when (and (not @published?)
+                     (= :zig-state-migration-required
+                        (:aguafria/phase (ex-data error))))
+            ;; Keep the requested source/descriptor inspectable after a sync
+            ;; migration stop, while the prior native generation remains the
+            ;; published callable program.
+            (swap! registry assoc module
+                   (merge old-module
+                          {:module module
+                           :definitions definitions
+                           :source source
+                           :requested-generation generation
+                           :pending nil
+                           :last-error error
+                           :failed-generation generation})))
+          (when @published?
+            ;; The edited module is already a valid published generation. A
+            ;; transitive dependent may still require an explicit state
+            ;; migration; retain that failure for inspection without rolling
+            ;; the root module back to its previous source/type identity.
+            (swap! registry update module assoc
+                   :last-dependent-publication-failure
+                   {:phase (:aguafria/phase (ex-data error))
+                    :generation generation
+                    :logical-id (:logical-id (ex-data error))
+                    :failed-at-ms (System/currentTimeMillis)
+                    :error (ex-message error)}
+                   :last-dependent-publication-error error))
+          (when-not @published?
+            (mark-build-failed! module generation error))
           (throw error))))))
+
+(declare await! dependency-topology)
+
+(defn- dependency-component-members
+  [module module-states]
+  (let [topology (dependency-topology module-states)
+        component-id (get-in topology [:component-by-module module])
+        component (some #(when (= component-id (:id %)) %)
+                        (:components topology))]
+    (->> (or (:modules component) [module])
+         (filter #(contains? module-states %))
+         sort
+         vec)))
+
+(defn- component-job
+  [module module-state declarations]
+  (let [declarations (vec declarations)
+        definitions (into {}
+                          (map (juxt :declaration-key identity))
+                          declarations)
+        generation (inc (or (:requested-generation module-state)
+                            (:generation module-state) 0))
+        sources
+        (module-sources
+         module declarations
+         (changed-dispatch-declaration-keys module-state declarations))]
+    (when-not (seq declarations)
+      (throw (ex-info "Cannot compile an empty dependency-component module"
+                      {:aguafria/phase :zig-component-prepare
+                       :module module})))
+    {:module module
+     :generation generation
+     :declaration-key (:declaration-key (first declarations))
+     :definitions definitions
+     :declarations declarations
+     :sources sources
+     ;; Dependency snapshots for every SCC member are created only after all
+     ;; of these staged states exist. This prevents A@new from compiling
+     ;; against B@old while an ostensibly atomic cyclic publication is being
+     ;; prepared.
+     :staged-state
+     (merge module-state
+            {:definitions definitions
+             :source (:source sources)
+             :reload-source (:reload-source sources)
+             :dispatch-specs (:dispatch-specs sources)
+             :reload-source-dispatch-specs
+             (:reload-source-dispatch-specs sources)})}))
+
+(defn- finalize-component-job
+  [job staged-module-states]
+  (let [sources (:sources job)]
+    (assoc job :plan
+           {:primary
+            (assoc sources
+                   :declarations (:declarations job)
+                   :dependency-snapshot
+                   (development-dependency-snapshot
+                    (:declarations job) staged-module-states)
+                   :partial-publication? false)})))
+
+(defn- prepared-component-module-state
+  [old-module {:keys [module generation definitions] :as job}
+   {:keys [compiled compile-source reload-source dispatch-specs
+           reload-source-dispatch-specs partial-publication?]
+    :as compilation}
+   loaded publication]
+  (let [dispatch (reconcile-dispatch old-module loaded generation)
+        functions (if partial-publication?
+                    (merge (:functions old-module) (:functions loaded))
+                    (:functions loaded))]
+    (merge old-module loaded dispatch
+           {:module module
+            :generation generation
+            :published-generation generation
+            :requested-generation generation
+            :source (get-in job [:plan :primary :source])
+            :reload-source reload-source
+            :dispatch-specs dispatch-specs
+            :reload-source-dispatch-specs reload-source-dispatch-specs
+            :functions functions
+            :partial-publication? partial-publication?
+            :full-compile-error (:full-compile-error compiled)
+            :pending nil
+            :scheduled nil
+            :source-only? false
+            :last-error nil
+            :failed-generation nil
+            :definitions definitions
+            :last-component-publication publication
+            :last-component-publication-failure nil})))
+
+(defn- unwrap-component-compile-error
+  [error]
+  (if (instance? ExecutionException error)
+    (or (.getCause ^ExecutionException error) error)
+    error))
+
+(defn- close-prepared-component!
+  [prepared]
+  (doseq [{:keys [loaded]} prepared]
+    (when-let [arena (:arena loaded)]
+      (try
+        (.close ^Arena arena)
+        (catch Throwable _))))
+  nil)
+
+(defn- compile-component-sync!
+  ([requested-module]
+   (compile-component-sync! requested-module nil))
+  ([requested-module ignored-pending]
+  ;; Resolve pending work before taking the component-wide publication lock.
+  ;; A later request cannot enter while the lock is held.
+  (doseq [module (dependency-component-members requested-module @registry)]
+    (when-let [pending (get-in @registry [module :pending])]
+      ;; Explicit component recompilation is also the recovery path after a
+      ;; failed generation. Wait for in-flight work, but do not rethrow its
+      ;; recorded error before attempting the new immutable snapshot. During
+      ;; automatic type propagation, the cyclic root component may include
+      ;; the declaration whose publication is performing this recompilation;
+      ;; never wait on that one promise from inside itself.
+      (when-not (identical? pending ignored-pending)
+        @pending)))
+  (locking compile-lock
+    (let [module-states @registry
+          members (dependency-component-members requested-module module-states)
+          _ (when-not (seq members)
+              (throw (ex-info "Cannot find an Aguafria dependency component"
+                              {:module requested-module
+                               :known-modules (sort (keys module-states))})))
+          _ (doseq [module members]
+              (let [declarations (vec (vals (get-in module-states
+                                                     [module :definitions])))]
+                (ensure-converted-dependency-sources! module declarations)))
+          ;; Converted dependency loading above can populate the graph. Capture
+          ;; one final immutable registry/component snapshot after it finishes.
+          module-states @registry
+          members (dependency-component-members requested-module module-states)
+          component-declarations
+          (->> members
+               (mapcat #(vals (get-in module-states [% :definitions])))
+               vec
+               refresh-live-declaration-references
+               (group-by :module))
+          staged-jobs
+          (mapv #(component-job % (get module-states %)
+                                (get component-declarations %))
+                members)
+          staged-module-states
+          (reduce (fn [states {:keys [module staged-state]}]
+                    (assoc states module staged-state))
+                  module-states
+                  staged-jobs)
+          jobs (mapv #(finalize-component-job % staged-module-states)
+                     staged-jobs)
+          publication {:id (swap! component-publication-sequence inc)
+                       :modules members
+                       :requested-at-ms (System/currentTimeMillis)}
+          prepared (atom [])
+          published? (atom false)]
+      (doseq [job jobs]
+        (record-build! job false)
+        (mark-build-started! (:module job) (:generation job)))
+      (try
+        ;; Every member compiles from plans captured after the cycle-safe load.
+        ;; Compiles are independent and Zig's cache remains responsible for
+        ;; sharing unchanged work.
+        (let [compile-futures
+              (mapv (fn [{:keys [module plan]}]
+                      (future
+                        ;; `plan` already points at the coherent staged SCC
+                        ;; graph assembled above. Refreshing from the live
+                        ;; registry here would reintroduce old peer sources.
+                        (compile-plan! module plan)))
+                    jobs)
+              compile-results
+              (mapv (fn [future]
+                      (try
+                        {:compilation @future}
+                        (catch Throwable error
+                          {:error (unwrap-component-compile-error error)})))
+                    compile-futures)
+              compile-error (some :error compile-results)]
+          (when compile-error (throw compile-error))
+          (doseq [[job {:keys [compilation]}] (map vector jobs compile-results)]
+            (let [{compiled-declarations :declarations
+                   :keys [compiled dispatch-specs dependency-snapshot]}
+                  compilation
+                  loaded
+                  (-> (load-module compiled compiled-declarations dispatch-specs
+                                   (dependency-dispatch-entries
+                                    dependency-snapshot)
+                                   (dependency-state-entries
+                                    dependency-snapshot))
+                      (prepare-loaded-generation (:generation job)))]
+              (swap! prepared conj {:job job
+                                    :compilation compilation
+                                    :loaded loaded})))
+          (let [old-component-states (select-keys @registry members)
+                published-at-ms (System/currentTimeMillis)
+                duration-ms (- published-at-ms (:requested-at-ms publication))
+                publication (assoc publication
+                                   :published-at-ms published-at-ms
+                                   :duration-ms duration-ms
+                                   ;; Component members prepare in parallel;
+                                   ;; the component wall time is therefore the
+                                   ;; publication's observed critical path.
+                                   :critical-path-ms duration-ms)
+                new-component-states
+                (into {}
+                      (map (fn [{:keys [job compilation loaded]}]
+                             (let [module (:module job)]
+                               [module
+                                (prepared-component-module-state
+                                 (get old-component-states module)
+                                 job compilation loaded publication)])))
+                      @prepared)]
+            ;; The registry replacement is one atom transition. Native dispatch
+            ;; setters are updated behind one odd publication epoch, so native
+            ;; wrappers cannot enter a half-published component.
+            (swap! registry merge new-component-states)
+            (let [publishing (begin-dispatch-publication!)]
+              (try
+                (refresh-project-dispatch-unguarded!)
+                (catch Throwable publication-error
+                  ;; Keep the epoch odd while restoring the complete component
+                  ;; and all old targets; no native wrapper can cross it.
+                  (swap! registry merge old-component-states)
+                  (try
+                    (refresh-project-dispatch-unguarded!)
+                    (catch Throwable rollback-error
+                      (.addSuppressed publication-error rollback-error)))
+                  (throw
+                   (ex-info "Atomic dependency-component publication failed"
+                            {:aguafria/phase :zig-component-publication
+                             :component (:id publication)
+                             :modules members}
+                            publication-error)))
+                (finally
+                  (end-dispatch-publication! publishing))))
+            (reset! published? true)
+            (doseq [module members]
+              (publish-clojure-declaration-metadata!
+               (vals (get-in new-component-states [module :definitions]))))
+            (doseq [module members]
+              (retire-module-quiescent-generations! module))
+            (doseq [{:keys [job compilation]} @prepared]
+              (mark-build-finished! (:module job) (:generation job)
+                                    :finished (:compiled compilation)))
+            {:status :finished
+             :component (:id publication)
+             :modules members
+             :published-at-ms published-at-ms
+             :duration-ms (:duration-ms publication)
+             :critical-path-ms (:critical-path-ms publication)
+             :generations
+             (into (sorted-map)
+                   (map (juxt :module :generation))
+                   jobs)}))
+        (catch Throwable error
+          (when-not @published?
+            (close-prepared-component! @prepared)
+            (doseq [{:keys [module generation definitions plan]} jobs]
+              (mark-build-failed! module generation error)
+              (swap! registry update module
+                     (fn [current]
+                       (assoc current
+                              :definitions definitions
+                              :source (get-in plan [:primary :source])
+                              :requested-generation generation
+                              :pending nil
+                              :scheduled nil
+                              :last-error error
+                              :failed-generation generation
+                              :last-component-publication-failure
+                              {:component (:id publication)
+                               :modules members
+                               :failed-at-ms (System/currentTimeMillis)
+                               :error (ex-message error)})))))
+          (throw error)))))))
+
+(defn recompile-component!
+  "Compile and publish every registered member of `module`'s dependency SCC.
+
+  All members are compiled and loaded before one registry transition updates
+  the component. A preparation or publication failure retains every previously
+  published module generation and records the failure in `stats`."
+  [module]
+  (compile-component-sync! (str module)))
+
+(defn- recompile-component-chain!
+  [module include-root? ignored-pending]
+  (let [module (str module)
+        topology (dependency-topology @registry)
+        component-by-module (:component-by-module topology)
+        components (into {} (map (juxt :id identity)) (:components topology))
+        root-component-id (get component-by-module module)
+        root-component (get components root-component-id)
+        dependent-component-ids
+        (fn [component-id]
+          (->> (:modules (get components component-id))
+               (mapcat #(get-in topology [:reverse-graph %]))
+               (keep component-by-module)
+               (remove #{component-id})
+               distinct
+               sort))]
+    (when-not (contains? component-by-module module)
+      (throw (ex-info "Cannot find an Aguafria module to recompile"
+                      {:module module
+                       :known-modules (sort (keys @registry))})))
+    ;; A type change inside a cycle can alter monomorphizations in every SCC
+    ;; peer, so the root component must be republished as a unit. An acyclic
+    ;; one-module root was already published by register-declaration! and can
+    ;; start directly at its dependents.
+    (loop [pending (if (or include-root? (:cyclic? root-component))
+                     [root-component-id]
+                     (dependent-component-ids root-component-id))
+           seen #{}
+           publications []]
+      (if-let [component-id (first pending)]
+        (if (contains? seen component-id)
+          (recur (next pending) seen publications)
+          (let [members (:modules (get components component-id))
+                publication (compile-component-sync! (first members)
+                                                       ignored-pending)]
+            (recur (concat (next pending)
+                           (dependent-component-ids component-id))
+                   (conj seen component-id)
+                   (conj publications publication))))
+        {:status :finished
+         :root module
+         :root-component-recompiled?
+         (boolean (some #(= (set (:modules %))
+                            (set (:modules root-component)))
+                        publications))
+         :component-count (count publications)
+         :module-count (reduce + 0 (map (comp count :modules) publications))
+         :publications publications}))))
+
+(defn- recompile-dependent-components!
+  [module ignored-pending]
+  (recompile-component-chain! module false ignored-pending))
+
+(defn recompile-affected!
+  "Recompile a module SCC and every transitively dependent SCC in dependency
+  order. Each SCC prepares/publishes atomically; unchanged functions continue
+  to use Zig's content-addressed cache and compatible dispatch identities."
+  [module]
+  (recompile-component-chain! module true nil))
+
+(defn- declaration-from-reference-when
+  [reference expected predicate]
+  (let [metadata-declaration
+        (when (instance? clojure.lang.Var reference)
+          (:aguafria/declaration (meta reference)))
+        reference-symbol
+        (cond
+          metadata-declaration
+          (symbol (:module metadata-declaration)
+                  (str (:name metadata-declaration)))
+
+          (symbol? reference) reference
+
+          :else nil)
+        _ (when-not (and reference-symbol (namespace reference-symbol))
+            (throw
+             (ex-info "A live Zig declaration must be a Var or qualified symbol"
+                      {:reference reference :expected expected})))
+        module (namespace reference-symbol)
+        declaration-name (name reference-symbol)
+        registered
+        (some (fn [declaration]
+                (when (and (predicate declaration)
+                           (= declaration-name (str (:name declaration))))
+                  declaration))
+              (vals (get-in @registry [module :definitions])))
+        declaration (or registered metadata-declaration)]
+    (when-not (predicate declaration)
+      (throw
+       (ex-info "The referenced Aguafria Var has the wrong Zig declaration kind"
+                {:reference reference
+                 :expected expected
+                 :actual-kind (:kind declaration)
+                 :known-modules (sort (keys @registry))})))
+    declaration))
+
+(defn- declaration-from-reference
+  [reference expected-kind]
+  (declaration-from-reference-when reference expected-kind
+                                   #(= expected-kind (:kind %))))
+
+(defn state-versions
+  "Return serializable native state generations for an `az/defvar` Var."
+  [state]
+  (locking compile-lock
+    (let [declaration (declaration-from-reference state :var)
+          logical-id (:logical-id declaration)]
+      (->> (get-in @registry [(:module declaration) :state-versions])
+           (filter #(= logical-id (:logical-id %)))
+           (mapv #(dissoc % :restore-handle))))))
+
+(defn type-versions
+  "Return schema generations for an `az/defstruct` or container type Var."
+  [type]
+  (locking compile-lock
+    (let [declaration
+          (declaration-from-reference-when
+           type :type-producing type-producing-declaration?)
+          logical-id (:logical-id declaration)]
+      (->> (get-in @registry [(:module declaration) :type-versions])
+           (filter #(= logical-id (:logical-id %)))
+           vec))))
+
+(defn migrate-state!
+  "Authorize and apply one explicit breaking `az/defvar` migration.
+
+  `migration` must name an exported Aguafria function with signature
+  `[old-address :- :usize new-address :- :usize] -> :void`. The migration is
+  registered for exactly the currently published and requested schema pair,
+  then the complete dependency component is prepared and published again."
+  [state migration]
+  (let [{:keys [module logical-id schema-fingerprint] :as declaration}
+        (locking compile-lock (declaration-from-reference state :var))
+        migration-declaration
+        (locking compile-lock (declaration-from-reference migration :fn))
+        active
+        (locking compile-lock
+          (some #(when (and (= logical-id (:logical-id %)) (:active? %)) %)
+                (get-in @registry [module :state-versions])))
+        _ (when-not active
+            (throw
+             (ex-info "The Zig state Var has no published state to migrate"
+                      {:aguafria/phase :zig-state-migration
+                       :logical-id logical-id :module module})))
+        _ (when (= (:schema-fingerprint active) schema-fingerprint)
+            (throw
+             (ex-info "The requested Zig state schema is already compatible"
+                      {:aguafria/phase :zig-state-migration
+                       :logical-id logical-id
+                       :schema-fingerprint schema-fingerprint})))
+        _ (when-not (and (:export? migration-declaration)
+                         (= :void (:return migration-declaration))
+                         (= [:usize :usize]
+                            (mapv :type (:args migration-declaration))))
+            (throw
+             (ex-info
+              "A Zig state migration must be exported, accept two usize addresses, and return void"
+              {:aguafria/phase :zig-state-migration
+               :migration (:qualified-name migration-declaration)
+               :export? (:export? migration-declaration)
+               :arguments (mapv :type (:args migration-declaration))
+               :return (:return migration-declaration)})))
+        migration-record
+        {:logical-id logical-id
+         :from-schema (:schema-fingerprint active)
+         :to-schema schema-fingerprint
+         :function (str (:qualified-name migration-declaration))
+         :registered-at-ms (System/currentTimeMillis)}]
+    (swap! state-migrations assoc
+           [logical-id (:from-schema migration-record)
+            (:to-schema migration-record)]
+           migration-record)
+    (let [publication (recompile-component! module)]
+      ;; A root type publication is allowed to succeed while a transitive
+      ;; state owner waits for explicit migration. Once that exact state has
+      ;; migrated, its durable dependent-publication error is resolved too.
+      (swap! registry
+             (fn [modules]
+               (into {}
+                     (map
+                      (fn [[module-name module-state]]
+                        [module-name
+                         (if (= logical-id
+                                (get-in module-state
+                                        [:last-dependent-publication-failure
+                                         :logical-id]))
+                           (-> module-state
+                               (assoc :last-dependent-publication-failure nil)
+                               (dissoc :last-dependent-publication-error))
+                           module-state)]))
+                     modules)))
+      (assoc publication :migration migration-record))))
 
 (declare recompile!)
 
@@ -1890,7 +3807,9 @@
   ([module]
    (let [module (str module)]
      (loop []
-       (let [{:keys [pending last-error failed-generation requested-generation]
+       (let [{:keys [pending last-error failed-generation requested-generation
+                     last-dependent-publication-error
+                     last-dependent-publication-failure]
               :as current} (get @registry module)]
          (cond
            pending
@@ -1902,6 +3821,11 @@
 
            (and last-error (= failed-generation requested-generation))
            (throw last-error)
+
+           (and last-dependent-publication-error
+                (= (:generation last-dependent-publication-failure)
+                   requested-generation))
+           (throw last-dependent-publication-error)
 
            :else
            current))))))
@@ -2083,8 +4007,12 @@
     (when-let [m (get @registry (str module))]
       (-> m
           (dissoc :arena :lookup :linker :functions :pending :scheduled :last-error
-                  :dispatch-bindings :dispatch-state :native-generations
-                  :active-call-handle :jvm-active-calls)
+                  :last-dependent-publication-error
+                  :dispatch-bindings :dispatch-state :state-bindings
+                  :native-generations
+                  :active-call-handle :active-call-tracking-handle
+                  :publication-epoch-setters
+                  :jvm-active-calls)
           (assoc :pending? (boolean (:pending m))
                  :error (some-> (:last-error m) ex-message)
                  :native-generation-count (count (:native-generations m))
@@ -2097,6 +4025,65 @@
   (cond-> build
     (and (#{:queued :compiling} (:status build)) (:started-at-ms build))
     (assoc :elapsed-ms (- now (:started-at-ms build)))))
+
+(defn- percentile-value
+  [sorted-values percentile]
+  (when (seq sorted-values)
+    (let [index (-> (* (double percentile) (count sorted-values))
+                    Math/ceil
+                    long
+                    dec
+                    (max 0)
+                    (min (dec (count sorted-values))))]
+      (nth sorted-values index))))
+
+(defn- metric-summary
+  [values]
+  (let [values (->> values (remove nil?) sort vec)
+        count-values (count values)]
+    (if (zero? count-values)
+      {:count 0}
+      {:count count-values
+       :min-ms (first values)
+       :p50-ms (percentile-value values 0.50)
+       :p95-ms (percentile-value values 0.95)
+       :p99-ms (percentile-value values 0.99)
+       :max-ms (peek values)
+       :mean-ms (/ (double (reduce + values)) count-values)})))
+
+(defn- build-timing-summary-base
+  [builds]
+  (let [completed
+        (filter #(and (:requested-at-ms %)
+                      (:started-at-ms %)
+                      (:finished-at-ms %))
+                builds)
+        cache-observations (filter #(contains? % :cached?) completed)
+        cache-hits (count (filter :cached? cache-observations))]
+    {:queue-wait-ms
+     (metric-summary (map #(- (:started-at-ms %) (:requested-at-ms %))
+                          completed))
+     :native-build-ms
+     (metric-summary (map #(- (:finished-at-ms %) (:started-at-ms %))
+                          completed))
+     :end-to-end-ms
+     (metric-summary (map #(- (:finished-at-ms %) (:requested-at-ms %))
+                          completed))
+     :cache {:observation-count (count cache-observations)
+             :hit-count cache-hits
+             :miss-count (- (count cache-observations) cache-hits)
+             :hit-rate (when (seq cache-observations)
+                         (/ (double cache-hits)
+                            (count cache-observations)))}}))
+
+(defn- build-timing-summary
+  [builds]
+  (assoc (build-timing-summary-base builds)
+         :by-purpose
+         (into (sorted-map)
+               (map (fn [[purpose purpose-builds]]
+                      [purpose (build-timing-summary-base purpose-builds)]))
+               (group-by :purpose builds))))
 
 (defn- module-dependency-graph
   [module-states]
@@ -2225,6 +4212,11 @@
      :dependency-component component-id
      :dependency-component-modules (:modules component)
      :cyclic-dependency-component? (boolean (:cyclic? component))
+     :last-component-publication (:last-component-publication module-state)
+     :last-component-publication-failure
+     (:last-component-publication-failure module-state)
+     :last-dependent-publication-failure
+     (:last-dependent-publication-failure module-state)
      :partial-publication? (boolean (:partial-publication? module-state))
      :full-compile-error (:full-compile-error module-state)
      :declaration-count (count declarations)
@@ -2233,12 +4225,23 @@
      :retired-generation-count (count (:retired-generations module-state))
      :dispatch-version-count (count (:dispatch-state module-state))
      :dispatch-versions (dispatch-version-views module-state)
+     :state-version-count (count (:state-versions module-state))
+     :state-versions (vec (:state-versions module-state))
+     :type-version-count (count (:type-versions module-state))
+     :type-versions (vec (:type-versions module-state))
+     :state-migrations
+     (->> @state-migrations vals
+          (filter #(some #{(:logical-id %)}
+                         (map :logical-id (:state-versions module-state))))
+          (sort-by (juxt :logical-id :registered-at-ms))
+          vec)
      :native-generations (native-generation-views module-state)
      :retired-generations (:retired-generations module-state)
      :declarations declarations
      :active-builds (->> module-builds
                          (filter #(#{:queued :compiling} (:status %)))
                          vec)
+     :timings (build-timing-summary module-builds)
      :last-build latest-build
      :source-path (:source-path module-state)
      :library-path (:library-path module-state)
@@ -2265,11 +4268,17 @@
            build-views (->> builds vals
                             (sort-by (juxt :requested-at-ms :generation) #(compare %2 %1))
                             (mapv #(build-view now %)))
-           statuses (frequencies (map :status build-views))]
+           statuses (frequencies (map :status build-views))
+           host-views (->> @live-hosts vals (sort-by :id >) (mapv host-view))
+           host-statuses (frequencies (map :status host-views))]
        {:generated-at-ms now
         :summary {:module-count (count modules)
                   :declaration-count (reduce + 0 (map :declaration-count (vals modules)))
                   :function-count (reduce + 0 (map :function-count (vals modules)))
+                  :state-version-count
+                  (reduce + 0 (map :state-version-count (vals modules)))
+                  :type-version-count
+                  (reduce + 0 (map :type-version-count (vals modules)))
                   :dependency-component-count (count (:components topology))
                   :cyclic-dependency-component-count
                   (count (filter :cyclic? (:components topology)))
@@ -2279,10 +4288,20 @@
                   :compiling-build-count (get statuses :compiling 0)
                   :finished-build-count (get statuses :finished 0)
                   :stale-build-count (get statuses :stale 0)
+                  :migration-required-build-count
+                  (get statuses :migration-required 0)
                   :failed-build-count (get statuses :failed 0)
-                  :cache-hit-count (count (filter :cached? build-views))}
+                  :cache-hit-count (count (filter :cached? build-views))
+                  :native-host-count (count host-views)
+                  :active-native-host-count
+                  (+ (get host-statuses :starting 0)
+                     (get host-statuses :running 0))
+                  :finished-native-host-count (get host-statuses :finished 0)
+                  :failed-native-host-count (get host-statuses :failed 0)}
         :modules modules
         :dependency-components (:components topology)
+        :native-hosts host-views
+        :timings (build-timing-summary build-views)
         :builds build-views})))
   ([module]
    (let [module (str module)
@@ -2431,12 +4450,24 @@
           (when (seq @retirement-pending-modules)
             (retire-pending-generations!)))))))
 
+(defn- await-callable-generation!
+  [module]
+  (try
+    (await! module)
+    (catch Throwable compilation-error
+      ;; A failed hot-reload generation is inspectable through await!/stats,
+      ;; but it must not take the last successfully published program offline.
+      ;; Binding acquisition below still reports a precise error when the
+      ;; requested function/ABI has never had a callable generation.
+      (when-not (:published-generation (get @registry module))
+        (throw compilation-error)))))
+
 (defn invoke!
   "Invoke the latest loaded generation of an exported scalar Zig function."
   [function arguments]
   (let [qualified-name (qualified-function-name function)
         module (namespace qualified-name)
-        _ (await! module)
+        _ (await-callable-generation! module)
         function-binding (acquire-function-binding! qualified-name arguments nil)]
     (invoke-binding! module function-binding arguments)))
 
@@ -2446,7 +4477,499 @@
   [function abi-fingerprint arguments]
   (let [qualified-name (qualified-function-name function)
         module (namespace qualified-name)
-        _ (await! module)
+        _ (await-callable-generation! module)
         function-binding
         (acquire-function-binding! qualified-name arguments abi-fingerprint)]
     (invoke-binding! module function-binding arguments)))
+
+(def ^:private process-main-host-symbol "__aguafria_run_process_main")
+
+(defn- process-main-host-source
+  [host-module target-module entry-name]
+  (str "// Generated by Aguafria's development process host.\n"
+       "// Host module: " host-module "\n"
+       "const std = @import(\"std\");\n"
+       "const builtin = @import(\"builtin\");\n"
+       "const application = @import(" (emit/emit-expr target-module) ");\n\n"
+       "comptime {\n"
+       "    if (builtin.os.tag == .windows) {\n"
+       "        @compileError(\"Aguafria's process-main host does not yet encode Windows UTF-16 argv\");\n"
+       "    }\n"
+       "}\n\n"
+       "export fn " process-main-host-symbol
+       "(argc: usize, argv_pointer: [*]const [*:0]const u8, "
+       "envc: usize, env_pointer: [*]const ?[*:0]const u8) callconv(.c) u8 {\n"
+       "    const args: std.process.Args.Vector = argv_pointer[0..argc];\n"
+       "    const environ: std.process.Environ.Block = .{\n"
+       "        .slice = env_pointer[0..envc :null],\n"
+       "    };\n"
+       "    const gpa = std.heap.smp_allocator;\n\n"
+       "    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);\n"
+       "    defer arena_allocator.deinit();\n\n"
+       "    var threaded: std.Io.Threaded = .init(gpa, .{\n"
+       "        .argv0 = .init(.{ .vector = args }),\n"
+       "        .environ = .{ .block = environ },\n"
+       "    });\n"
+       "    defer threaded.deinit();\n\n"
+       "    var environ_map = std.process.Environ.createMap(\n"
+       "        .{ .block = environ }, gpa,\n"
+       "    ) catch |err| {\n"
+       "        std.log.err(\"failed to parse environment variables: {t}\", .{err});\n"
+       "        return 1;\n"
+       "    };\n"
+       "    defer environ_map.deinit();\n\n"
+       "    const preopens = std.process.Preopens.init(\n"
+       "        arena_allocator.allocator(),\n"
+       "    ) catch |err| {\n"
+       "        std.log.err(\"failed to initialize process preopens: {t}\", .{err});\n"
+       "        return 1;\n"
+       "    };\n\n"
+       "    application." entry-name "(.{\n"
+       "        .minimal = .{\n"
+       "            .args = .{ .vector = args },\n"
+       "            .environ = .{ .block = environ },\n"
+       "        },\n"
+       "        .arena = &arena_allocator,\n"
+       "        .gpa = gpa,\n"
+       "        .io = threaded.io(),\n"
+       "        .environ_map = &environ_map,\n"
+       "        .preopens = preopens,\n"
+       "    }) catch |err| {\n"
+       "        std.log.err(\"application main failed: {t}\", .{err});\n"
+       "        return 1;\n"
+       "    };\n"
+       "    return 0;\n"
+       "}\n"))
+
+(defn- process-main-host-declaration
+  [host-module target-module]
+  {:kind :const
+   :name 'application
+   :declaration-key [:host-import target-module]
+   :module host-module
+   :public? false
+   :export? false
+   :attributes {:zig/import-name target-module
+                :zig/import-namespace (symbol target-module)
+                ;; The synthetic host is only a wrapper. Build-generated
+                ;; modules must be selected from the application root, just
+                ;; as they are when that converted namespace is compiled.
+                :zig/build-profile-owner target-module}})
+
+(defn- find-required-symbol
+  [^SymbolLookup lookup symbol-name data]
+  (-> (.find lookup symbol-name)
+      (.orElseThrow
+       (reify java.util.function.Supplier
+         (get [_]
+           (ex-info "Aguafria native host symbol was not found"
+                    (assoc data :symbol symbol-name)))))))
+
+(defn- allocate-host-string-vector
+  [^Arena arena arguments null-terminated?]
+  (let [strings (mapv #(.allocateFrom arena ^String %) arguments)
+        pointer-count (+ (count strings) (if null-terminated? 1 0))
+        layout (MemoryLayout/sequenceLayout (long pointer-count)
+                                            ValueLayout/ADDRESS)
+        pointers (.allocate arena layout)]
+    (doseq [[index string] (map-indexed vector strings)]
+      (.setAtIndex ^MemorySegment pointers ValueLayout/ADDRESS
+                   (long index) ^MemorySegment string))
+    (when null-terminated?
+      (.setAtIndex ^MemorySegment pointers ValueLayout/ADDRESS
+                   (long (count strings)) MemorySegment/NULL))
+    pointers))
+
+(defn- copy-native-state!
+  [source-address target-address size]
+  (when (and (pos? (long size))
+             (pos? (long source-address))
+             (pos? (long target-address))
+             (not= (long source-address) (long target-address)))
+    (let [source (.reinterpret (MemorySegment/ofAddress (long source-address))
+                               (long size))
+          target (.reinterpret (MemorySegment/ofAddress (long target-address))
+                               (long size))]
+      (MemorySegment/copy source 0 target 0 (long size))))
+  nil)
+
+(defn- active-state-versions
+  []
+  (into {}
+        (keep (fn [version]
+                (when (:active? version)
+                  [(:version-key version) version])))
+        (mapcat :state-versions (vals @registry))))
+
+(defn- promote-host-state!
+  [host-id loaded]
+  (let [active (active-state-versions)
+        ownership
+        (into {}
+              (keep
+               (fn [[version-key binding]]
+                 (when-let [previous (get active version-key)]
+                   (when-not (= (:size previous) (:size binding))
+                     (throw
+                      (ex-info "A native host state capsule changed size without a new schema"
+                               {:aguafria/phase :native-host-state
+                                :host-id host-id
+                                :version-key version-key
+                                :registered-size (:size previous)
+                                :host-size (:size binding)})))
+                   (copy-native-state! (:address previous) (:address binding)
+                                       (:size binding))
+                   [version-key
+                    {:version-key version-key
+                     :previous-address (:address previous)
+                     :host-address (:address binding)
+                     :size (:size binding)}])))
+              (:state-bindings loaded))]
+    (swap! registry
+           (fn [modules]
+             (into {}
+                   (map
+                    (fn [[module module-state]]
+                      [module
+                       (update module-state :state-versions
+                               (fn [versions]
+                                 (mapv
+                                  (fn [version]
+                                    (if-let [owned (get ownership
+                                                        (:version-key version))]
+                                      (if (:active? version)
+                                        (assoc version
+                                               :address (:host-address owned)
+                                               :host-id host-id)
+                                        version)
+                                      version))
+                                  versions)))])
+                    modules))))
+    ownership))
+
+(defn- restore-host-state!
+  [host-id ownership]
+  (doseq [[_ {:keys [previous-address host-address size]}] ownership]
+    (copy-native-state! host-address previous-address size))
+  (swap! registry
+         (fn [modules]
+           (into {}
+                 (map
+                  (fn [[module module-state]]
+                    [module
+                     (update module-state :state-versions
+                             (fn [versions]
+                               (mapv
+                                (fn [version]
+                                  (if-let [{:keys [previous-address host-address]}
+                                           (get ownership (:version-key version))]
+                                    (if (and (= host-id (:host-id version))
+                                             (= host-address (:address version)))
+                                      (-> version
+                                          (assoc :address previous-address)
+                                          (dissoc :host-id))
+                                      version)
+                                    version))
+                                versions)))])
+                  modules))))
+  nil)
+
+(defn- host-id
+  [host]
+  (cond
+    (integer? host) (long host)
+    (map? host) (long (:id host))
+    :else (throw (ex-info "Expected an Aguafria host id or handle"
+                          {:host host :type (type host)}))))
+
+(defn- host-view
+  [host]
+  (when host
+    (-> (select-keys host [:id :function :module :arguments :status
+                           :share-state?
+                           :replaces-host-id
+                           :dispatch-frozen? :dispatch-frozen-reason
+                           :requested-at-ms :started-at-ms :finished-at-ms
+                           :duration-ms :exit-code :thread :source-path
+                           :library-path :error])
+        (assoc :active? (contains? #{:starting :running :quiescing}
+                                   (:status host))))))
+
+(defn start-process-main!
+  "Start a Zig `std.process.Init` main function on a dedicated native host
+  thread in this JVM. `arguments` excludes argv[0]; use `:argv0` to set it.
+
+  The loaded host participates in Aguafria's atomic dispatch/state publication,
+  so compatible Var edits are visible to the already-running program. Returns
+  a serializable host handle immediately after native compilation/loading."
+  ([function arguments] (start-process-main! function arguments {}))
+  ([function arguments options]
+   (when-not (and (sequential? arguments) (every? string? arguments))
+     (throw (ex-info "Process-main arguments must be a sequence of strings"
+                     {:arguments arguments})))
+   (when-not (map? options)
+     (throw (ex-info "Process-main host options must be a map"
+                     {:options options})))
+   (let [qualified-name (qualified-function-name function)
+         target-module (namespace qualified-name)
+         _ (await-callable-generation! target-module)
+         id (.incrementAndGet live-host-sequence)
+         host-module (str "aguafria.host." id)
+         requested-at (System/currentTimeMillis)
+         argv (vec (cons (or (:argv0 options) (name qualified-name)) arguments))
+         environment (->> (System/getenv)
+                          (map (fn [[key value]] (str key "=" value)))
+                          sort
+                          vec)
+         completion (promise)
+         prepared
+         (locking compile-lock
+           (let [module-state (get @registry target-module)
+                 declaration (current-function-declaration module-state qualified-name)]
+             (when-not declaration
+               (throw (ex-info "Zig process main is not registered"
+                               {:function qualified-name
+                                :module target-module})))
+             (when-not (:public? declaration)
+               (throw (ex-info "Zig process main must be public"
+                               {:function qualified-name
+                                :declaration (declaration-summary declaration)})))
+             (when-not (and (= :fn (:kind declaration))
+                            (= 1 (count (:args declaration)))
+                            (= :void (:return declaration))
+                            (str/includes? (or (:zig-qualifiers declaration) "") "!"))
+               (throw
+                (ex-info
+                 "Native process hosting requires a `pub fn main(std.process.Init) !void` shape"
+                 {:function qualified-name
+                  :arguments (mapv :type (:args declaration))
+                  :return (:return declaration)
+                  :zig-qualifiers (:zig-qualifiers declaration)})))
+             (when-not (= 8 (.byteSize ValueLayout/ADDRESS))
+               (throw (ex-info "Aguafria process hosting currently requires a 64-bit JVM"
+                               {:address-bytes (.byteSize ValueLayout/ADDRESS)})))
+             (when (and (not= false (:share-state? options))
+                        (some #(and (:share-state? %)
+                                    (contains? #{:starting :running}
+                                               (:status %)))
+                              (vals @live-hosts)))
+               (throw
+                (ex-info
+                 "Only one active native host can own Aguafria state capsules"
+                 {:aguafria/phase :native-host-state
+                  :active-hosts (->> @live-hosts vals
+                                     (filter :share-state?)
+                                     (mapv host-view))})))
+             (let [host-declaration
+                   (process-main-host-declaration host-module target-module)
+                   declarations [host-declaration]
+                   dependency-snapshot
+                   (development-dependency-snapshot declarations)
+                   source (process-main-host-source
+                           host-module target-module
+                           (emit/identifier (or (:zig-name declaration)
+                                                (:name declaration))))
+                   compiled (compile-source! host-module source declarations
+                                             dependency-snapshot)
+                   loaded (load-module
+                           compiled [] {}
+                           (dependency-dispatch-entries dependency-snapshot)
+                           (dependency-state-entries dependency-snapshot))
+                   linker ^Linker (:linker loaded)
+                   lookup ^SymbolLookup (:lookup loaded)
+                   descriptor
+                   (FunctionDescriptor/of
+                    ^MemoryLayout ValueLayout/JAVA_BYTE
+                    (into-array MemoryLayout
+                                [ValueLayout/JAVA_LONG ValueLayout/ADDRESS
+                                 ValueLayout/JAVA_LONG ValueLayout/ADDRESS]))
+                   run-handle
+                   (.downcallHandle
+                    linker
+                    (find-required-symbol lookup process-main-host-symbol
+                                          {:function qualified-name
+                                           :library-path (:library-path compiled)})
+                    descriptor (into-array Linker$Option []))
+                   argument-arena (Arena/ofShared)
+                   argv-pointer (allocate-host-string-vector
+                                 argument-arena argv false)
+                   environment-pointer (allocate-host-string-vector
+                                        argument-arena environment true)
+                   share-state? (not= false (:share-state? options))
+                   owned-state (when share-state?
+                                 (promote-host-state! id loaded))
+                   record {:id id
+                           :function (str qualified-name)
+                           :module target-module
+                           :arguments argv
+                           :share-state? share-state?
+                           :replaces-host-id (:replaces-host-id options)
+                           :owned-state owned-state
+                           :status :starting
+                           :requested-at-ms requested-at
+                           :source-path (:source-path compiled)
+                           :library-path (:library-path compiled)
+                           :completion completion
+                           :loaded loaded
+                           :argument-arena argument-arena
+                           :argv-pointer argv-pointer
+                           :environment-count (count environment)
+                           :environment-pointer environment-pointer
+                           :run-handle run-handle}]
+               (swap! live-hosts assoc id record)
+               ;; A running process is a coarse native execution lease: every
+               ;; generation stays loaded until it returns. Avoiding two
+               ;; atomic RMWs on every nested Var call keeps development hosts
+               ;; fast without weakening ordinary REPL-call retirement.
+               (set-all-active-call-tracking! false)
+               (refresh-project-dispatch!)
+               record)))
+         runner
+         (fn []
+           (let [started-at (System/currentTimeMillis)
+                 outcome (atom nil)]
+             (locking compile-lock
+               (swap! live-hosts update id assoc
+                      :status :running
+                      :started-at-ms started-at
+                      :thread (.getName (Thread/currentThread))))
+             (try
+               (let [values (ArrayList. ^java.util.Collection
+                                        [(long (count argv))
+                                         (:argv-pointer prepared)
+                                         (long (:environment-count prepared))
+                                         (:environment-pointer prepared)])
+                     result (.invokeWithArguments
+                             ^MethodHandle (:run-handle prepared) values)
+                     exit-code (bit-and 0xff (long result))
+                     finished-at (System/currentTimeMillis)]
+                 (reset! outcome
+                         {:id id :status :finished :exit-code exit-code
+                          :finished-at-ms finished-at
+                          :duration-ms (- finished-at started-at)}))
+               (catch Throwable error
+                 (let [finished-at (System/currentTimeMillis)]
+                   (reset! outcome
+                           {:id id :status :failed :error error
+                            :finished-at-ms finished-at
+                            :duration-ms (- finished-at started-at)})))
+               (finally
+                 (try
+                   (locking compile-lock
+                     (swap! live-hosts update id assoc :status :quiescing)
+                     (let [{:keys [loaded argument-arena owned-state]}
+                           (get @live-hosts id)]
+                       (try
+                         (when (seq owned-state)
+                           (restore-host-state! id owned-state))
+                         (finally
+                           (swap! live-hosts update id dissoc
+                                  :loaded :argument-arena :argv-pointer
+                                  :environment-pointer :environment-count
+                                  :run-handle :owned-state)
+                           (when (seq owned-state)
+                             (refresh-project-dispatch!))
+                           (when loaded (.close ^Arena (:arena loaded)))
+                           (when argument-arena (.close ^Arena argument-arena))
+                           (when-not (native-host-active?)
+                             (set-all-active-call-tracking! true)
+                             (when (seq @retirement-pending-modules)
+                               (retire-pending-generations!))))))
+                     (let [{:keys [status exit-code error finished-at-ms
+                                   duration-ms]}
+                           @outcome]
+                       (swap! live-hosts update id assoc
+                              :status status
+                              :exit-code exit-code
+                              :error (some-> error ex-message)
+                              :finished-at-ms finished-at-ms
+                              :duration-ms duration-ms)))
+                   (catch Throwable cleanup-error
+                     (let [finished-at (System/currentTimeMillis)]
+                       (reset! outcome
+                               {:id id :status :failed :error cleanup-error
+                                :finished-at-ms finished-at
+                                :duration-ms (- finished-at started-at)})
+                       (locking compile-lock
+                         (swap! live-hosts update id assoc
+                                :status :failed
+                                :error (ex-message cleanup-error)
+                                :finished-at-ms finished-at
+                                :duration-ms (- finished-at started-at)))))
+                   (finally
+                     ;; Completion means state ownership has returned to the
+                     ;; JVM and every host arena is closed. This is the safe
+                     ;; quiescent boundary for a structural replacement.
+                     (deliver completion @outcome)))))))
+         thread (doto (Thread. ^Runnable (reify Runnable
+                                           (run [_] (runner)))
+                               (str "aguafria-native-host-" id))
+                  (.setDaemon true))]
+     (.start thread)
+     (host-view (get @live-hosts id)))))
+
+(defn await-host!
+  "Wait for a native process host. Throws an invocation failure and otherwise
+  returns its final serializable status, including the process-style exit code."
+  [host]
+  (let [id (host-id host)
+        completion (:completion (get @live-hosts id))]
+    (when-not completion
+      (throw (ex-info "Aguafria native host is not known"
+                      {:host-id id :known-hosts (sort (keys @live-hosts))})))
+    (let [{:keys [status error] :as outcome} @completion]
+      (if (= :failed status)
+        (throw error)
+        ;; Lifecycle timestamps remain available through host-info/stats. Keep
+        ;; the established process-style await result compact and compatible.
+        (dissoc outcome :finished-at-ms)))))
+
+(defn restart-process-main!
+  "Wait for a native host to reach its natural quiescent boundary, after state
+  ownership and native arenas have been restored/closed, then start the current
+  registered generation in the same JVM process. Structural edits and explicit
+  state migrations should be completed before calling this function (or after
+  a separate `await-host!`). Options may override `:arguments`, `:argv0`, and
+  `:share-state?`."
+  ([host] (restart-process-main! host {}))
+  ([host options]
+   (when-not (map? options)
+     (throw (ex-info "Native host restart options must be a map"
+                     {:options options})))
+   (let [id (host-id host)
+         previous (get @live-hosts id)]
+     (when-not previous
+       (throw (ex-info "Aguafria native host is not known"
+                       {:host-id id :known-hosts (sort (keys @live-hosts))})))
+     ;; Completion is delivered only after cleanup, so returning from this wait
+     ;; is the exact point at which a replacement may safely own state.
+     (await-host! id)
+     (let [previous (get @live-hosts id)
+           previous-argv (vec (:arguments previous))
+           arguments (if (contains? options :arguments)
+                       (vec (:arguments options))
+                       (vec (rest previous-argv)))
+           start-options
+           (-> options
+               (dissoc :arguments)
+               (assoc :argv0 (or (:argv0 options)
+                                 (first previous-argv)
+                                 (name (symbol (:function previous))))
+                      :share-state?
+                      (if (contains? options :share-state?)
+                        (:share-state? options)
+                        (:share-state? previous))
+                      :replaces-host-id id))]
+       (start-process-main! (symbol (:function previous))
+                            arguments start-options)))))
+
+(defn host-info
+  "Return serializable status for one native process host."
+  [host]
+  (host-view (get @live-hosts (host-id host))))
+
+(defn host-stats
+  "Return serializable status for all native process hosts, newest first."
+  []
+  (locking compile-lock
+    (->> @live-hosts vals (sort-by :id >) (mapv host-view))))

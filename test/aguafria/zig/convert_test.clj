@@ -1,5 +1,6 @@
 (ns aguafria.zig.convert-test
   (:require [aguafria.zig.convert :as convert]
+            [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -38,6 +39,22 @@
     (is (not (str/includes? clojure-source "batch/begin!")))
     (is (not (str/includes? clojure-source "batch/end!")))
     (is (not (str/includes? clojure-source "aguafria.zig.batch")))))
+
+(deftest zig-ast-extraction-is-content-addressed-test
+  (let [cache-directory
+        (.toFile
+         (java.nio.file.Files/createTempDirectory
+          "aguafria-ast-cache"
+          (make-array java.nio.file.attribute.FileAttribute 0)))
+        options {:namespace 'fixture.ast-cache
+                 :cache-dir (.getAbsolutePath cache-directory)}
+        first-report (:report (convert/convert-file sample-root options))
+        second-report (:report (convert/convert-file sample-root options))]
+    (is (false? (:ast-cache-hit? first-report)))
+    (is (true? (:ast-cache-hit? second-report)))
+    (is (= (:declaration-count first-report)
+           (:declaration-count second-report)))
+    (is (= (:source-bytes first-report) (:source-bytes second-report)))))
 
 (deftest converted-source-has-compact-attrs-comments-and-spacing-test
   (let [{container-source :clojure-source}
@@ -190,7 +207,16 @@
         report (convert/convert-tree!
                 "test/fixtures/import_tree" output
                 {:namespace-prefix namespace-prefix
-                 :overwrite? true})
+                 :overwrite? true
+                 :cache-dir (.getAbsolutePath
+                             (io/file output ".conversion-cache"))})
+        repeat-report
+        (convert/convert-tree!
+         "test/fixtures/import_tree" output
+         {:namespace-prefix namespace-prefix
+          :overwrite? true
+          :cache-dir (.getAbsolutePath
+                      (io/file output ".conversion-cache"))})
         math-report (some #(when (str/ends-with? (str (:namespace %)) ".math") %)
                           (:files report))
         main-report (some #(when (str/ends-with? (str (:namespace %)) ".main") %)
@@ -199,6 +225,8 @@
         main-file (:output-path main-report)
         main-source (slurp main-file)]
     (is (= 2 (:file-count report)))
+    (is (zero? (:conversion-cache-hit-count report)))
+    (is (= 2 (:conversion-cache-hit-count repeat-report)))
     (is (not (str/includes? main-source "az/defimport")))
     (is (str/includes? main-source
                        (str "[" namespace-prefix ".math :as math]")))
@@ -211,8 +239,11 @@
     ;; materialization can recreate the source graph without the input tree.
     (is (str/includes? (slurp (:catalog-path report)) "math.zig"))
     (is (str/includes? (slurp (:catalog-path report)) ":require-mode :as"))
-    (convert/load-converted! math-file)
-    (convert/load-converted! main-file)
+    ;; `main.clj` sorts before `math.clj`, so this proves a freshly generated
+    ;; root outside deps.edn is visible to eager dependency requires.
+    (let [loaded (convert/load-tree! output)]
+      (is (= 2 (:file-count loaded)))
+      (is (= 2 (:declaration-count loaded))))
     (is (var? (ns-resolve (the-ns (:namespace math-report)) 'double)))
     (let [_ (runtime/recompile! (:namespace main-report))
           _ (runtime/await! (:namespace main-report))
@@ -245,11 +276,13 @@
           root-report
           (some #(when (= "src/root.zig" (:relative-path %)) %) (:files report))
           catalog (edn/read-string (slurp (:catalog-path report)))
-          captured-source
+          captured-module
           (get-in catalog [:modules (str (:namespace root-report))
-                           :generated-modules "build_options"])]
+                           :generated-modules "build_options"])
+          captured-source (:source-template captured-module)]
       (try
         (is (= 1 (:module-count graph)))
+        (is (= 2 (:path-value-count graph)))
         (is (zero? (:conflict-count graph)))
         (is (zero? (:conflict-count alternate-graph)))
         (is (str/includes?
@@ -257,21 +290,62 @@
                      [:modules-by-path "src/root.zig" "build_options"])
              "pub const answer: u32 = 99;"))
         (is (= 1 (:generated-module-count report)))
+        (is (= 2 (:generated-module-path-value-count report)))
+        (is (= 2 (:generated-module-bundled-path-count report)))
+        (is (= 2 (:generated-module-bundled-file-count report)))
         (is (str/includes? captured-source "pub const answer: u32 = 42;"))
         (is (str/includes? captured-source
                            "pub const message: []const u8 = \"captured by Zig\";"))
+        (is (str/includes? captured-source "__AGUAFRIA_BUILD_PATH_"))
+        (is (not (str/includes? captured-source
+                                (.getCanonicalPath (io/file input)))))
+        (is (.isFile
+             (io/file output
+                      (:bundle-relative (first (:paths captured-module))))))
+        (is (true? (:executable?
+                    (first
+                     (:entries
+                      (some #(when (= "tool_path" (:name %)) %)
+                            (:paths captured-module)))))))
         (runtime/configure! {:async? false :modules {}})
         (convert/load-converted! (:output-path root-report))
         (runtime/recompile! (:namespace root-report))
         (let [answer (ns-resolve (the-ns (:namespace root-report)) 'answer)
+              data-path-length
+              (ns-resolve (the-ns (:namespace root-report)) 'data_path_length)
+              tool-path-length
+              (ns-resolve (the-ns (:namespace root-report)) 'tool_path_length)
               value (answer)
               info (runtime/stats (:namespace root-report))
-              module-info (runtime/module-info (:namespace root-report))]
+              module-info (runtime/module-info (:namespace root-report))
+              resolved-source
+              (get (project/generated-modules (:namespace root-report))
+                   "build_options")]
           (is (= 42 value))
+          (is (= (count
+                  (.getCanonicalPath
+                   (io/file output
+                            (:bundle-relative
+                             (some #(when (= "data_path" (:name %)) %)
+                                   (:paths captured-module))))))
+                 (data-path-length)))
+          (is (= (count
+                  (.getCanonicalPath
+                   (io/file output
+                            (:bundle-relative
+                             (some #(when (= "tool_path" (:name %)) %)
+                                   (:paths captured-module))))))
+                 (tool-path-length)))
+          (is (str/includes? resolved-source (.getAbsolutePath output)))
+          (is (not (str/includes? resolved-source
+                                  (.getCanonicalPath (io/file input)))))
           (is (= :finished (get-in info [:last-build :status])))
           (is (some? (:published-generation info)))
           (is (some #(str/starts-with? % "-Mbuild_options=")
-                    (:command module-info))))
+                    (:command module-info)))
+          (is (= 1 (count (filter #{"build_options"}
+                                  (:command module-info))))
+              "named build modules should be dependencies only of importers"))
         (finally
           (runtime/configure! old-config)
           (when root-report (remove-ns (:namespace root-report))))))))
@@ -409,14 +483,27 @@
 
 (deftest checked-tigerbeetle-corpus-is-plain-and-loadable-test
   (let [report (edn/read-string (slurp tiger-report))
+        catalog (edn/read-string
+                 (slurp (io/file tiger-root "aguafria-project.edn")))
+        vopr-generated
+        (get-in catalog [:modules "tigerbeetle.src.vopr"
+                         :generated-modules])
         loaded (convert/load-tree! tiger-root)]
     (testing "the pinned complete corpus was structurally converted"
       (is (= 245 (:file-count report)))
-      (is (= 4029 (:declaration-count report)))
-      (is (= 4029 (:structural-declaration-count report)))
+      (is (= 4032 (:declaration-count report)))
+      (is (= 4032 (:structural-declaration-count report)))
       (is (zero? (:raw-declaration-count report)))
       (is (zero? (:fallback-count report)))
       (is (zero? (:unresolved-syntax-count report)))
+      (is (= [[] ["vopr"]] (:build-profiles report)))
+      (is (= #{"vsr_options" "vsr_vopr_options"}
+             (set (keys vopr-generated))))
+      (let [source (get vopr-generated "vsr_vopr_options")]
+        (is (str/includes? (if (map? source)
+                            (:source-template source)
+                            source)
+                           "accounting")))
       (is (every? #(zero? (:unresolved-syntax-count %)) (:files report)))
       (is (every? #(not (re-find raw-boundary-pattern (slurp %)))
                   (->> (file-seq (io/file tiger-root))
@@ -424,7 +511,7 @@
                        (filter #(str/ends-with? (.getName ^java.io.File %) ".clj"))))))
     (testing "all checked-in files load like normal Clojure namespaces"
       (is (= 245 (:file-count loaded)))
-      (is (= 4029 (:declaration-count loaded)))
+      (is (= 4032 (:declaration-count loaded)))
       (is (every? :source-only? (:files loaded)))
       (is (every? #(= (:namespace %)
                        (some-> (:namespace %) find-ns ns-name))
@@ -461,9 +548,13 @@
                                   (:command info#)))}]
               (shutdown-agents)
               result#)))
+        classpath
+        (pr-str
+         {:paths (mapv #(.getAbsolutePath (io/file %))
+                       ["src" "resources" "generated/tigerbeetle"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
-                         "-M" "-e" expression)]
+                         "-Sdeps" classpath "-M" "-e" expression)]
     (is (zero? (:exit result)) (str (:out result) (:err result)))
     (when (zero? (:exit result))
       (is (= {:module (str module)
@@ -473,6 +564,291 @@
               :source-only? false
               :manual-module-count 0
               :captured-vsr-options? true}
+             (edn/read-string (str/trim (:out result))))))))
+
+(deftest generated-tigerbeetle-main-loads-lazily-in-a-fresh-repl-test
+  (let [module 'tigerbeetle.src.tigerbeetle.main
+        expression
+        (pr-str
+         `(do
+            (require '~module :reload)
+            (aguafria.zig.runtime/await! '~module)
+            (let [stats# (aguafria.zig.runtime/stats '~module)
+                  result# {:status (:status stats#)
+                           :declaration-count (:declaration-count stats#)
+                           :native-generation-count
+                           (:native-generation-count stats#)
+                           :dispatch-version-count
+                           (:dispatch-version-count stats#)
+                           :failed-build-count
+                           (get-in (aguafria.zig.runtime/stats)
+                                   [:summary :failed-build-count])}]
+              (shutdown-agents)
+              result#)))
+        classpath
+        (pr-str
+         {:paths (mapv #(.getAbsolutePath (io/file %))
+                       ["src" "resources" "generated/tigerbeetle"])})
+        result (shell/sh "clojure"
+                         "-J--enable-native-access=ALL-UNNAMED"
+                         "-Sdeps" classpath "-M" "-e" expression)]
+    (is (zero? (:exit result)) (str (:out result) (:err result)))
+    (when (zero? (:exit result))
+      (is (= {:status :finished
+              :declaration-count 38
+              :native-generation-count 1
+              :dispatch-version-count 8
+              :failed-build-count 0}
+             (edn/read-string (str/trim (:out result))))))))
+
+(deftest generated-tigerbeetle-main-runs-inside-native-host-test
+  (let [module 'tigerbeetle.src.tigerbeetle.main
+        result-file (.toFile (java.nio.file.Files/createTempFile
+                              "aguafria-tigerbeetle-host" ".edn"
+                              (make-array java.nio.file.attribute.FileAttribute 0)))
+        expression
+        (pr-str
+         `(do
+            (require '~module :reload)
+            (require 'aguafria.zig.host)
+            (aguafria.zig.runtime/await! '~module)
+            (let [main-var# (ns-resolve '~module '~'main)
+                  handle# (aguafria.zig.host/start!
+                           main-var# ["version"] {:argv0 "tigerbeetle"})
+                  result# (aguafria.zig.host/await! handle#)]
+              (spit ~(.getAbsolutePath result-file)
+                    (pr-str {:result result#
+                             :info (select-keys
+                                    (aguafria.zig.host/info handle#)
+                                    [:status :share-state? :exit-code])
+                             :summary (select-keys
+                                       (:summary (aguafria.zig.runtime/stats))
+                                       [:native-host-count
+                                        :active-native-host-count
+                                        :finished-native-host-count])})))
+            (shutdown-agents)))
+        classpath
+        (pr-str
+         {:paths (mapv #(.getAbsolutePath (io/file %))
+                       ["src" "resources" "generated/tigerbeetle"])})
+        result (shell/sh "clojure"
+                         "-J--enable-native-access=ALL-UNNAMED"
+                         "-Sdeps" classpath "-M" "-e" expression)]
+    (is (zero? (:exit result)) (str (:out result) (:err result)))
+    (when (zero? (:exit result))
+      (is (str/includes? (:out result) "TigerBeetle version"))
+      (is (= {:result {:id 1 :status :finished :exit-code 0 :duration-ms 3}
+              :info {:status :finished :share-state? true :exit-code 0}
+              :summary {:native-host-count 1
+                        :active-native-host-count 0
+                        :finished-native-host-count 1}}
+             (update-in (edn/read-string (slurp result-file))
+                        [:result :duration-ms]
+                        (constantly 3)))))))
+
+(deftest generated-tigerbeetle-callee-hot-swaps-without-recompiling-caller-test
+  (let [module 'tigerbeetle.src.stdx.stdx
+        caller-module 'aguafria.tigerbeetle-hot-probe
+        expression
+        (pr-str
+         `(do
+            (require '~module :reload)
+            (aguafria.zig.runtime/await! '~module)
+            (let [caller-ns# (create-ns '~caller-module)]
+              (binding [*ns* caller-ns#]
+                (alias '~'stdx '~module)
+                (eval
+                 '~'(aguafria.zig/defn probe :- :bool
+                    []
+                    (stdx/zeroed (& [0 0 0])))))
+              (aguafria.zig.runtime/await! '~caller-module)
+              (let [probe# (ns-resolve caller-ns# '~'probe)
+                    before-value# (probe#)
+                    before-generation#
+                    (->> (:declarations
+                          (aguafria.zig.runtime/stats '~caller-module))
+                         (some (fn [declaration#]
+                                 (when (= "probe" (:name declaration#))
+                                   (:implementation-generation
+                                    declaration#)))))]
+                (binding [*ns* (the-ns '~module)]
+                  (eval
+                   '~'(aguafria.zig/defn zeroed
+                      "Checks that a byteslice is zeroed."
+                      {:attrs #{:public}}
+                      :- :bool
+                      [[bytes [:slice-const :u8]]]
+                      (aguafria.keyword/return
+                       (== (aguafria.zig/field bytes len) 0)))))
+                (aguafria.zig.runtime/await! '~module)
+                (let [after-generation#
+                      (->> (:declarations
+                            (aguafria.zig.runtime/stats '~caller-module))
+                           (some (fn [declaration#]
+                                   (when (= "probe" (:name declaration#))
+                                     (:implementation-generation
+                                      declaration#)))))
+                      result# {:before before-value#
+                               :after (probe#)
+                               :caller-unchanged?
+                               (= before-generation# after-generation#)}]
+                  (shutdown-agents)
+                  result#)))))
+        classpath
+        (pr-str
+         {:paths (mapv #(.getAbsolutePath (io/file %))
+                       ["src" "resources" "generated/tigerbeetle"])})
+        result (shell/sh "clojure"
+                         "-J--enable-native-access=ALL-UNNAMED"
+                         "-Sdeps" classpath "-M" "-e" expression)]
+    (is (zero? (:exit result)) (str (:out result) (:err result)))
+    (when (zero? (:exit result))
+      (is (= {:before true :after false :caller-unchanged? true}
+             (edn/read-string (str/trim (:out result))))))))
+
+(deftest generated-tigerbeetle-options-type-hot-reloads-in-a-fresh-repl-test
+  (let [module 'tigerbeetle.src.state-machine.workload
+        expression
+        (pr-str
+         `(do
+            (require '~module :reload)
+            (require 'clojure.walk)
+            (aguafria.zig.runtime/await! '~module)
+            (let [options-var# (ns-resolve '~module '~'OptionsType)
+                  workload-var# (ns-resolve '~module '~'WorkloadType)
+                  original# (:aguafria/declaration (meta options-var#))
+                  before# (aguafria.zig.runtime/module-info '~module)
+                  before-workload-generation#
+                  (:generation
+                   (last (aguafria.zig.runtime/type-versions workload-var#)))
+                  changed#
+                  (aguafria.zig.runtime/declaration-info
+                   (update
+                    original# :body
+                    (fn [body#]
+                      (clojure.walk/postwalk
+                       (fn [value#]
+                         (if (= value# [:pending_timeout_mean 1])
+                           [:pending_timeout_mean 2]
+                           value#))
+                       body#))))]
+              (aguafria.zig.runtime/register-declaration! changed#)
+              (aguafria.zig.runtime/await! '~module)
+              (let [after# (aguafria.zig.runtime/module-info '~module)
+                    options-version#
+                    (last (aguafria.zig.runtime/type-versions options-var#))
+                    workload-version#
+                    (last (aguafria.zig.runtime/type-versions workload-var#))
+                    result#
+                    {:generation-advanced?
+                     (< (:published-generation before#)
+                        (:published-generation after#))
+                     :schema-compatible?
+                     (= (:schema-fingerprint original#)
+                        (:schema-fingerprint changed#)
+                        (:schema-fingerprint options-version#))
+                     :implementation-changed?
+                     (not= (:implementation-fingerprint original#)
+                           (:implementation-fingerprint changed#))
+                     :options-status (:status options-version#)
+                     :workload-dependent-republished?
+                     (< before-workload-generation#
+                        (:generation workload-version#))
+                     :source-changed?
+                     (clojure.string/includes? (:source after#)
+                                               ".pending_timeout_mean = 2")}]
+                (shutdown-agents)
+                result#))))
+        classpath
+        (pr-str
+         {:paths (mapv #(.getAbsolutePath (io/file %))
+                       ["src" "resources" "generated/tigerbeetle"])})
+        result (shell/sh "clojure"
+                         "-J--enable-native-access=ALL-UNNAMED"
+                         "-Sdeps" classpath "-M" "-e" expression)]
+    (is (zero? (:exit result)) (str (:out result) (:err result)))
+    (when (zero? (:exit result))
+      (is (= {:generation-advanced? true
+              :schema-compatible? true
+              :implementation-changed? true
+              :options-status :compatible
+              :workload-dependent-republished? true
+              :source-changed? true}
+             (edn/read-string (str/trim (:out result))))))))
+
+(deftest generated-tigerbeetle-options-type-breaking-layout-coexists-test
+  (let [module 'tigerbeetle.src.state-machine.workload
+        expression
+        (pr-str
+         `(do
+            (require '~module :reload)
+            (require 'clojure.walk)
+            (aguafria.zig.runtime/await! '~module)
+            (let [options-var# (ns-resolve '~module '~'OptionsType)
+                  workload-var# (ns-resolve '~module '~'WorkloadType)
+                  original# (:aguafria/declaration (meta options-var#))
+                  old-options-generation#
+                  (:generation
+                   (first (aguafria.zig.runtime/type-versions options-var#)))
+                  changed#
+                  (aguafria.zig.runtime/declaration-info
+                   (update
+                    original# :body
+                    (fn [body#]
+                      (clojure.walk/postwalk
+                       (fn [value#]
+                         (if (and (seq? value#)
+                                  (symbol? (first value#))
+                                  (= "field-decl" (name (first value#)))
+                                  (= '~'pending_timeout_mean (second value#))
+                                  (= :u32 (last value#)))
+                           (apply list (concat (butlast value#) [:u64]))
+                           value#))
+                       body#))))]
+              (aguafria.zig.runtime/register-declaration! changed#)
+              (aguafria.zig.runtime/await! '~module)
+              (let [options-versions#
+                    (aguafria.zig.runtime/type-versions options-var#)
+                    workload-before-adoption#
+                    (aguafria.zig.runtime/type-versions workload-var#)
+                    adoption-registration#
+                    (aguafria.zig.runtime/register-declaration!
+                     (:aguafria/declaration (meta workload-var#)))
+                    adoption-publication#
+                    (aguafria.zig.runtime/await! '~module)
+                    workload-versions#
+                    (aguafria.zig.runtime/type-versions workload-var#)
+                    result#
+                    {:options-statuses (mapv :status options-versions#)
+                     :workload-before-adoption-statuses
+                     (mapv :status workload-before-adoption#)
+                     :workload-statuses (mapv :status workload-versions#)
+                     :options-schemas-distinct?
+                     (apply not= (map :schema-fingerprint options-versions#))
+                     :workload-schemas-distinct?
+                     (apply not= (map :schema-fingerprint workload-versions#))
+                     :old-native-generation-retained?
+                     (boolean
+                      (some #(= old-options-generation# (:generation %))
+                            (:native-generations
+                             (aguafria.zig.runtime/stats '~module))))}]
+                (shutdown-agents)
+                result#))))
+        classpath
+        (pr-str
+         {:paths (mapv #(.getAbsolutePath (io/file %))
+                       ["src" "resources" "generated/tigerbeetle"])})
+        result (shell/sh "clojure"
+                         "-J--enable-native-access=ALL-UNNAMED"
+                         "-Sdeps" classpath "-M" "-e" expression)]
+    (is (zero? (:exit result)) (str (:out result) (:err result)))
+    (when (zero? (:exit result))
+      (is (= {:options-statuses [:retained :breaking]
+              :workload-before-adoption-statuses [:initialized]
+              :workload-statuses [:retained :breaking]
+              :options-schemas-distinct? true
+              :workload-schemas-distinct? true
+              :old-native-generation-retained? true}
              (edn/read-string (str/trim (:out result))))))))
 
 (deftest complete-tigerbeetle-conversion-materializes-and-compiles-test
@@ -530,7 +906,7 @@
         original-help (shell/sh original-executable "--help")
         converted-help (shell/sh converted-executable "--help")]
     (is (= 245 (:file-count report)))
-    (is (= 4029 (:declaration-count report)))
+    (is (= 4032 (:declaration-count report)))
     (is (= (:declaration-count report)
            (:structural-declaration-count report)))
     (is (zero? (:raw-declaration-count report)))
@@ -544,7 +920,7 @@
     (is (= 245 (:zig-file-count materialized)))
     (is (= 374 (:asset-file-count materialized)))
     (is (= 619 (:file-count materialized)))
-    (is (= 4029 (:declaration-count materialized)))
+    (is (= 4032 (:declaration-count materialized)))
     (is (zero? (:exit git-result)) (:err git-result))
     (is (zero? (:exit git-dir-result)) (:err git-dir-result))
     (is (= 40 (count git-commit)))

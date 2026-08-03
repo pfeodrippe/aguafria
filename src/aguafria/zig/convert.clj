@@ -12,7 +12,8 @@
   (:import [java.io File PushbackReader]
            [clojure.lang DynamicClassLoader RT]
            [java.nio.charset StandardCharsets]
-           [java.nio.file CopyOption Files Path StandardCopyOption StandardOpenOption]
+           [java.nio.file AtomicMoveNotSupportedException CopyOption Files Path
+            StandardCopyOption StandardOpenOption]
            [java.security MessageDigest]
            [java.util HexFormat]))
 
@@ -31,6 +32,23 @@
   (let [digest (MessageDigest/getInstance "SHA-256")]
     (.update digest (.getBytes (str value) StandardCharsets/UTF_8))
     (.formatHex (HexFormat/of) (.digest digest))))
+
+(defn- sha256-bytes
+  [^bytes value]
+  (let [digest (MessageDigest/getInstance "SHA-256")]
+    (.update digest value)
+    (.formatHex (HexFormat/of) (.digest digest))))
+
+(defn- move-replacing!
+  [^Path from ^Path to]
+  (try
+    (Files/move from to
+                (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING
+                                        StandardCopyOption/ATOMIC_MOVE]))
+    (catch AtomicMoveNotSupportedException _
+      (Files/move from to
+                  (into-array CopyOption
+                              [StandardCopyOption/REPLACE_EXISTING])))))
 
 (defn- run-command
   [command directory]
@@ -110,19 +128,31 @@
           upstream (slurp upstream-file)
           probe (resource-source build-graph-resource
                                  "build-graph inspector")
-          needle (str "        try builder.runBuild(root);\n"
-                      "        createModuleDependencies(builder) catch @panic(\"OOM\");")
-          replacement (str "        try builder.runBuild(root);\n"
-                           "        try @import(\"build-graph-dump.zig\").dump("
-                           "builder, targets.items);\n"
-                           "        createModuleDependencies(builder) catch @panic(\"OOM\");")
-          _ (when-not (str/includes? upstream needle)
+          configure-needle
+          (str "        try builder.runBuild(root);\n"
+               "        createModuleDependencies(builder) catch @panic(\"OOM\");")
+          configure-replacement
+          (str "        try builder.runBuild(root);\n"
+               "        const aguafria_build_graph = "
+               "@import(\"build-graph-dump.zig\");\n"
+               "        try aguafria_build_graph.prepare(builder, targets.items);\n"
+               "        targets.clearRetainingCapacity();\n"
+               "        try targets.append(aguafria_build_graph.capture_step_name);\n"
+               "        createModuleDependencies(builder) catch @panic(\"OOM\");")
+          exit-needle "    const code: u8 = code: {"
+          exit-replacement
+          (str "    @import(\"build-graph-dump.zig\").dumpResolved();\n\n"
+               exit-needle)
+          _ (when-not (and (str/includes? upstream configure-needle)
+                           (str/includes? upstream exit-needle))
               (throw (ex-info
                       "Installed Zig build runner is incompatible with Aguafria's inspector"
                       {:aguafria/phase :zig-build-graph
                        :zig-lib-directory lib-directory
                        :hint "Use a supported Zig version or update the runner hook."})))
-          patched (str/replace-first upstream needle replacement)
+          patched (-> upstream
+                      (str/replace-first configure-needle configure-replacement)
+                      (str/replace-first exit-needle exit-replacement))
           hash (subs (sha256 [patched probe]) 0 24)
           directory-file (io/file cache-dir "tools" "build-graph" hash)
           runner-file (io/file directory-file "build-runner.zig")
@@ -147,14 +177,24 @@
 (defn- parse-build-graph-record
   [line]
   (when (str/starts-with? line (str build-graph-marker "\t"))
-    (let [[_ owner name source path-count & extra] (str/split line #"\t" -1)]
-      (when (or (nil? path-count) (seq extra))
+    (let [[_ owner name source path-count & path-fields]
+          (str/split line #"\t" -1)
+          path-count (some-> path-count Long/parseLong)]
+      (when (or (nil? path-count)
+                (not= (* 4 path-count) (count path-fields)))
         (throw (ex-info "Malformed Aguafria build-graph record"
                         {:aguafria/phase :zig-build-graph :line line})))
       {:relative-path (decode-hex-text owner)
        :name (decode-hex-text name)
        :source (decode-hex-text source)
-       :unresolved-path-count (Long/parseLong path-count)})))
+       :paths
+       (mapv (fn [[path-name path-kind value path]]
+               {:name (decode-hex-text path-name)
+                :kind (keyword (decode-hex-text path-kind))
+                :value (decode-hex-text value)
+                :path (decode-hex-text path)})
+             (partition 4 path-fields))
+       :unresolved-path-count 0})))
 
 (defn build-generated-modules
   "Ask Zig's own configure phase for build-generated named option modules.
@@ -182,8 +222,7 @@
          runner (ensure-build-graph-runner! options (.getAbsolutePath root))
          command (vec (concat [zig "build"]
                               (map str build-steps)
-                              ["--help"
-                               "--build-file" (.getAbsolutePath build-file)
+                              ["--build-file" (.getAbsolutePath build-file)
                                "--build-runner" (:runner-path runner)]))
          result (run-command command (.getAbsolutePath root))]
      (when-not (zero? (:exit result))
@@ -229,6 +268,11 @@
         :conflicts conflicts
         :unresolved-path-module-count (count unresolved-path-modules)
         :unresolved-path-modules unresolved-path-modules
+        :path-value-count (reduce + 0 (map (comp count :paths) records))
+        :path-modules
+        (->> records
+             (filter (comp seq :paths))
+             (mapv #(select-keys % [:relative-path :name :source :paths])))
         :modules-by-path modules-by-path}))))
 
 (defn- ensure-helper!
@@ -292,6 +336,67 @@
   [entries]
   (into {} (map (juxt first identity)) entries))
 
+(defn- ast-cache-file
+  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"}}
+   helper source-hash]
+  (io/file cache-dir "conversion" "ast" (:hash helper)
+           (str source-hash ".edn")))
+
+(defn- read-ast-output
+  [output]
+  (let [raw (edn/read-string output)]
+    (when-not (= ast-schema-version (:schema-version raw))
+      (throw (ex-info "Unsupported Zig AST helper schema"
+                      {:expected ast-schema-version
+                       :actual (:schema-version raw)})))
+    raw))
+
+(defn- write-ast-cache!
+  [^File cache-file output]
+  (let [directory (.getParentFile cache-file)]
+    (.mkdirs directory)
+    (let [temporary
+          (Files/createTempFile (.toPath directory) ".aguafria-ast-" ".edn"
+                                (make-array java.nio.file.attribute.FileAttribute 0))]
+      (try
+        (Files/writeString temporary output StandardCharsets/UTF_8
+                           (into-array StandardOpenOption
+                                       [StandardOpenOption/TRUNCATE_EXISTING
+                                        StandardOpenOption/WRITE]))
+        (move-replacing! temporary (.toPath cache-file))
+        (finally
+          (Files/deleteIfExists temporary))))))
+
+(defn- extract-ast
+  [^File file helper source-hash options]
+  (let [cache-file (ast-cache-file options helper source-hash)
+        cached
+        (when (.isFile cache-file)
+          (try
+            {:raw (read-ast-output (slurp cache-file)) :cached? true}
+            ;; A truncated/manual cache entry is disposable. The immutable
+            ;; source/helper key is recomputed below and atomically replaces it.
+            (catch Throwable _ nil)))]
+    (or cached
+        (let [result (run-command [(:path helper) (.getAbsolutePath file)]
+                                  (System/getProperty "user.dir"))]
+          (when-not (zero? (:exit result))
+            (throw (ex-info (str "Zig AST extraction failed for " file "\n\n"
+                                 (:err result))
+                            (assoc result :aguafria/phase :zig-ast-parse
+                                   :path (.getAbsolutePath file)))))
+          (let [raw
+                (try
+                  (read-ast-output (:out result))
+                  (catch Throwable error
+                    (throw (ex-info "Zig AST helper returned unreadable EDN"
+                                    {:path (.getAbsolutePath file)
+                                     :stdout (:out result)
+                                     :stderr (:err result)}
+                                    error))))]
+            (write-ast-cache! cache-file (:out result))
+            {:raw raw :cached? false})))))
+
 (defn parse-file
   "Parse a Zig file with the selected Zig compiler's own `std.zig.Ast`.
 
@@ -305,27 +410,10 @@
        (throw (ex-info "Zig conversion input is not a regular file"
                        {:path (str path) :resolved (.getAbsolutePath file)})))
      (let [helper (or (::helper options) (ensure-helper! options))
-           result (run-command [(:path helper) (.getAbsolutePath file)]
-                               (System/getProperty "user.dir"))]
-       (when-not (zero? (:exit result))
-         (throw (ex-info (str "Zig AST extraction failed for " file "\n\n"
-                              (:err result))
-                         (assoc result :aguafria/phase :zig-ast-parse
-                                :path (.getAbsolutePath file)))))
-       (let [raw (try
-                   (edn/read-string (:out result))
-                   (catch Throwable error
-                     (throw (ex-info "Zig AST helper returned unreadable EDN"
-                                     {:path (.getAbsolutePath file)
-                                      :stdout (:out result)
-                                      :stderr (:err result)}
-                                     error))))
-             bytes (Files/readAllBytes (.toPath file))
-             source (String. bytes StandardCharsets/UTF_8)]
-         (when-not (= ast-schema-version (:schema-version raw))
-           (throw (ex-info "Unsupported Zig AST helper schema"
-                           {:expected ast-schema-version
-                            :actual (:schema-version raw)})))
+           bytes (Files/readAllBytes (.toPath file))
+           source-hash (sha256-bytes bytes)
+           {:keys [raw cached?]} (extract-ast file helper source-hash options)
+           source (String. bytes StandardCharsets/UTF_8)]
          (when-let [error (first (:errors raw))]
            (throw (ex-info (parse-error-message (.getAbsolutePath file) source error)
                            {:aguafria/phase :zig-parse
@@ -336,6 +424,8 @@
              (assoc :path (.getAbsolutePath file)
                     :source source
                     :source-bytes bytes
+                    :source-hash source-hash
+                    :ast-cache-hit? cached?
                     :zig-version (:zig-version helper)
                     :helper (dissoc helper :path))
              (update :nodes
@@ -372,7 +462,7 @@
                     :ptr-type-index (index-by-first (:ptr-types raw))
                     :slice-index (index-by-first (:slices raw))
                     :container-index (index-by-first (:containers raw))
-                    :container-field-index (index-by-first (:container-fields raw)))))))))
+                    :container-field-index (index-by-first (:container-fields raw))))))))
 
 (def ^:private primitive-type?
   (let [fixed #{"anyerror" "anyframe" "anyopaque" "anytype" "bool" "c_char"
@@ -2450,6 +2540,7 @@
     {:path (:path context)
      :namespace namespace-symbol
      :zig-version (:zig-version context)
+     :ast-cache-hit? (:ast-cache-hit? context)
      :source-bytes (alength ^bytes (:source-bytes context))
      :token-count (count (:tokens context))
      :node-count (count (:nodes context))
@@ -2910,9 +3001,23 @@
 
 (defn- add-generated-classpath-root!
   [^File root]
-  (let [url (-> root .toURI .toURL)]
-    (doseq [loader (distinct [(RT/baseLoader)
-                              (.getContextClassLoader (Thread/currentThread))])]
+  (let [url (-> root .toURI .toURL)
+        thread (Thread/currentThread)
+        base-loader (RT/baseLoader)
+        context-loader (.getContextClassLoader thread)
+        context-loader
+        (if (instance? DynamicClassLoader context-loader)
+          context-loader
+          ;; Java's application loader cannot accept URLs. A generated tree
+          ;; must nevertheless be visible to eager `:require` while a file is
+          ;; being compiled, not only to RT's top-level loader. Keep the new
+          ;; loader as this REPL thread's context so later editor evaluations
+          ;; see the same generated namespaces.
+          (let [loader (doto (DynamicClassLoader. base-loader)
+                         (.addURL url))]
+            (.setContextClassLoader thread loader)
+            loader))]
+    (doseq [loader (distinct [base-loader context-loader])]
       (when (instance? DynamicClassLoader loader)
         (.addURL ^DynamicClassLoader loader url)))))
 
@@ -2929,7 +3034,8 @@
          files (->> (file-seq root-file)
                     (filter #(and (.isFile ^File %)
                                   (str/ends-with? (.getName ^File %) ".clj")))
-                    (remove #(some #{".aguafria-assets"}
+                    (remove #(some #{".aguafria-assets"
+                                     ".aguafria-build-paths"}
                                    (->> (.iterator
                                          (.relativize (.toPath root-file)
                                                       (.toPath ^File %)))
@@ -2954,6 +3060,156 @@
   #{".git" ".zig-cache" "zig-cache" "zig-out"})
 
 (def ^:private bundled-assets-directory ".aguafria-assets")
+(def ^:private bundled-build-paths-directory ".aguafria-build-paths")
+
+(defn- build-path-files
+  [^File source]
+  (cond
+    (.isFile source)
+    [{:source source :relative "" :executable? (Files/isExecutable (.toPath source))}]
+
+    (.isDirectory source)
+    (let [root (.toPath source)]
+      (when-let [link (some #(when (Files/isSymbolicLink (.toPath ^File %)) %)
+                            (file-seq source))]
+        (throw (ex-info "Build-option path trees cannot contain symbolic links"
+                        {:aguafria/phase :zig-build-option-path
+                         :root (.getAbsolutePath source)
+                         :link (.getAbsolutePath ^File link)})))
+      (->> (file-seq source)
+           (filter #(.isFile ^File %))
+           (mapv (fn [^File file]
+                   {:source file
+                    :relative (str (.relativize root (.toPath file)))
+                    :executable? (Files/isExecutable (.toPath file))}))))
+
+    :else
+    (throw (ex-info "A resolved Zig build-option path does not exist"
+                    {:aguafria/phase :zig-build-option-path
+                     :path (.getAbsolutePath source)}))))
+
+(defn- copy-build-path!
+  [^File output-root {:keys [kind path]}]
+  (let [source (.getCanonicalFile (io/file path))
+        _ (when (Files/isSymbolicLink (.toPath source))
+            (throw (ex-info "Build-option paths cannot be symbolic links"
+                            {:aguafria/phase :zig-build-option-path
+                             :kind kind :path (.getAbsolutePath source)})))
+        directory? (.isDirectory source)
+        basename (.getName source)
+        id (subs (sha256 [kind (.getAbsolutePath source)]) 0 24)
+        relative-root (str bundled-build-paths-directory "/" id "/" basename)
+        target-root (.toPath (io/file output-root relative-root))
+        files (build-path-files source)]
+    (doseq [{:keys [^File source relative]} files]
+      (let [target (if (str/blank? relative)
+                     target-root
+                     (.resolve target-root relative))]
+        (Files/createDirectories (.getParent target)
+                                 (make-array java.nio.file.attribute.FileAttribute 0))
+        (Files/copy (.toPath source) target
+                    (into-array CopyOption
+                                [StandardCopyOption/REPLACE_EXISTING
+                                 StandardCopyOption/COPY_ATTRIBUTES]))))
+    {:kind kind
+     :bundle-relative relative-root
+     :directory? directory?
+     :entries (mapv #(select-keys % [:relative :executable?]) files)}))
+
+(defn- bundle-build-option-paths!
+  [build-graph ^File output-root]
+  (let [path-modules (into {}
+                           (map (juxt (juxt :relative-path :name) identity))
+                           (:path-modules build-graph))
+        bundled (atom {})
+        modules-by-path
+        (into
+         (sorted-map)
+         (map
+          (fn [[relative-path modules]]
+            [relative-path
+             (into
+              (sorted-map)
+              (map
+               (fn [[module-name source]]
+                 (if-let [{:keys [paths]} (get path-modules
+                                                [relative-path module-name])]
+                   (let [[template descriptors]
+                         (reduce
+                          (fn [[template descriptors] {:keys [path value] :as entry}]
+                            (let [token (str "__AGUAFRIA_BUILD_PATH_"
+                                             (subs (sha256 [relative-path module-name
+                                                            (:name entry) path])
+                                                   0 24)
+                                             "__")
+                                  path-literal (emitter/emit-expr value)
+                                  _ (when-not (str/includes? template path-literal)
+                                      (throw
+                                       (ex-info
+                                        "Resolved build-option path is absent from Zig's generated source"
+                                        {:aguafria/phase :zig-build-option-path
+                                         :relative-path relative-path
+                                         :module-name module-name
+                                         :option-name (:name entry)
+                                         :path path})))
+                                  bundle (or (get @bundled path)
+                                             (let [copied (copy-build-path!
+                                                           output-root entry)]
+                                               (swap! bundled assoc path copied)
+                                               copied))]
+                              [(str/replace template path-literal
+                                            (emitter/emit-expr token))
+                               (conj descriptors
+                                     (assoc bundle :name (:name entry)
+                                                   :token token))]))
+                          [source []]
+                          paths)]
+                     [module-name {:source-template template
+                                   :paths descriptors}])
+                   [module-name source]))
+               modules))]))
+         (:modules-by-path build-graph))]
+    {:modules-by-path modules-by-path
+     :path-value-count (:path-value-count build-graph 0)
+     :bundled-path-count (count @bundled)
+     :bundled-file-count
+     (reduce + 0 (map (comp count :entries val) @bundled))}))
+
+(defn- merge-build-profile-bundles
+  [profiles bundles]
+  (reduce
+   (fn [merged [profile bundle]]
+     (reduce-kv
+      (fn [merged relative-path modules]
+        (reduce-kv
+         (fn [merged module-name source]
+           (if-let [existing (get-in merged [:modules-by-path
+                                              relative-path module-name])]
+             (if (= existing source)
+               merged
+               (throw
+                (ex-info
+                 "Selected Zig build profiles disagree on one generated option module"
+                 {:aguafria/phase :zig-build-graph
+                  :relative-path relative-path
+                  :module-name module-name
+                  :profile profile
+                  :profiles profiles
+                  :hint (str "Keep profile-specific generated options on distinct "
+                             "root modules, or convert the profiles separately.")})))
+             (assoc-in merged [:modules-by-path relative-path module-name] source)))
+         merged
+         modules))
+      (-> merged
+          (update :path-value-count + (:path-value-count bundle 0))
+          (update :bundled-path-count + (:bundled-path-count bundle 0))
+          (update :bundled-file-count + (:bundled-file-count bundle 0)))
+      (:modules-by-path bundle)))
+   {:modules-by-path (sorted-map)
+    :path-value-count 0
+    :bundled-path-count 0
+    :bundled-file-count 0}
+   (map vector profiles bundles)))
 
 (defn- conversion-report-data
   [report-or-path]
@@ -3309,6 +3565,104 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
+(def ^:private rendered-conversion-cache-version 1)
+
+(defn- rendered-conversion-key
+  [parsed namespace plan source-display-path]
+  (sha256
+   [rendered-conversion-cache-version
+    (:source-hash parsed)
+    (:zig-version parsed)
+    (:helper parsed)
+    (:path parsed)
+    (str namespace)
+    (:import-bindings plan)
+    (:project-imports plan)
+    (:project-require-modes plan)
+    source-display-path
+    (keyword/catalog-info)
+    (zig-std/catalog-info)]))
+
+(defn- rendered-conversion-cache-file
+  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"}} cache-key]
+  (io/file cache-dir "conversion" "rendered"
+           (str rendered-conversion-cache-version) (str cache-key ".edn")))
+
+(defn- read-rendered-conversion-cache
+  [^File cache-file cache-key]
+  (when (.isFile cache-file)
+    (try
+      (let [value (edn/read-string (slurp cache-file))]
+        (when (and (= rendered-conversion-cache-version
+                      (:cache-version value))
+                   (= cache-key (:cache-key value))
+                   (string? (:clojure-source value))
+                   (map? (:report value)))
+          value))
+      (catch Throwable _ nil))))
+
+(defn- write-rendered-conversion-cache!
+  [^File cache-file cache-key clojure-source report]
+  (write-ast-cache!
+   cache-file
+   (pr-str {:cache-version rendered-conversion-cache-version
+            :cache-key cache-key
+            :clojure-source clojure-source
+            :report (dissoc report :elapsed-ms :output-path :written?
+                            :conversion-cache-hit?)})))
+
+(defn- write-converted-source!
+  [^File output-file clojure-source overwrite? input]
+  (let [existing (when (.isFile output-file) (slurp output-file))]
+    (when (and existing (not= existing clojure-source) (not overwrite?))
+      (throw (ex-info "Refusing to overwrite an existing converted namespace"
+                      {:input (str input)
+                       :output (.getAbsolutePath output-file)
+                       :hint "Pass :overwrite? true to replace it."})))
+    (io/make-parents output-file)
+    (when-not (= existing clojure-source)
+      (Files/writeString (.toPath output-file) clojure-source
+                         StandardCharsets/UTF_8
+                         (into-array StandardOpenOption
+                                     [StandardOpenOption/CREATE
+                                      StandardOpenOption/TRUNCATE_EXISTING
+                                      StandardOpenOption/WRITE])))
+    (not= existing clojure-source)))
+
+(defn- convert-tree-file!
+  [path ^File output-file {:keys [overwrite?] :as options}
+   parsed namespace plan source-display-path]
+  (let [started (System/nanoTime)
+        cache-key (rendered-conversion-key parsed namespace plan
+                                           source-display-path)
+        cache-file (rendered-conversion-cache-file options cache-key)]
+    (if-let [{:keys [clojure-source report]}
+             (read-rendered-conversion-cache cache-file cache-key)]
+      (let [written? (write-converted-source! output-file clojure-source
+                                               overwrite? path)]
+        (assoc report
+               :elapsed-ms (/ (- (System/nanoTime) started) 1e6)
+               :ast-cache-hit? (:ast-cache-hit? parsed)
+               :conversion-cache-hit? true
+               :output-path (.getAbsolutePath output-file)
+               :written? written?))
+      (let [report (convert-file! path output-file
+                                  (assoc options
+                                         ::parsed parsed
+                                         :namespace namespace
+                                         :import-bindings
+                                         (:import-bindings plan)
+                                         :project-imports-by-node
+                                         (:project-imports plan)
+                                         :project-require-modes
+                                         (:project-require-modes plan)
+                                         :source-display-path
+                                         source-display-path))
+            clojure-source (slurp output-file)]
+        (write-rendered-conversion-cache! cache-file cache-key
+                                          clojure-source report)
+        (assoc report :conversion-cache-hit? false)))))
+
 (defn- module-name-index
   [plans]
   (->> plans
@@ -3511,7 +3865,10 @@
   original source checkout. When `build.zig` exists, Zig's configure phase is
   inspected for generated option modules by default; use
   `:capture-build-modules? false` to skip it or `:build-steps` to select a
-  different build profile. Returns per-file and aggregate statistics."
+  different build profile. `:build-profiles` accepts several build-step
+  sequences when one converted tree must carry multiple executable profiles
+  (for example `[[] [\"vopr\"]]`). `:report-output` writes the returned report as
+  EDN. Returns per-file and aggregate statistics."
   [input-root output-root {:keys [namespace-prefix bundle-assets?] :as options}]
   (when-not namespace-prefix
     (throw (ex-info "convert-tree! requires :namespace-prefix"
@@ -3560,50 +3917,72 @@
                     plans)
         capture-build-modules? (not= false (:capture-build-modules? options))
         build-file (io/file input-root-file (or (:build-file options) "build.zig"))
-        build-graph
+        build-profiles
+        (let [profiles (or (:build-profiles options)
+                           [(vec (or (:build-steps options) []))])]
+          (when-not (and (sequential? profiles)
+                         (seq profiles)
+                         (every? #(and (sequential? %)
+                                       (every? (fn [step]
+                                                 (or (string? step)
+                                                     (instance? clojure.lang.Named
+                                                                step)))
+                                               %))
+                                 profiles))
+            (throw (ex-info ":build-profiles must contain one or more build-step sequences"
+                            {:aguafria/phase :zig-build-graph
+                             :build-profiles profiles})))
+          (mapv #(mapv str %) profiles))
+        build-graphs
         (when (and capture-build-modules? (.isFile build-file))
-          (build-generated-modules input-root-file options))
-        generated-modules-by-path (or (:modules-by-path build-graph) {})
-        _ (when (seq (:conflicts build-graph))
-            (throw
-             (ex-info
-              "Selected Zig build profile produced conflicting generated modules"
-              {:aguafria/phase :zig-build-graph
-               :input-root (.getAbsolutePath input-root-file)
-               :build-steps (:build-steps build-graph)
-               :conflicts (:conflicts build-graph)
-               :hint "Select one unambiguous build profile with :build-steps."})))
-        _ (when (seq (:unresolved-path-modules build-graph))
-            (throw
-             (ex-info
-              "Zig build profile contains generated modules with build-step paths"
-              {:aguafria/phase :zig-build-graph
-               :input-root (.getAbsolutePath input-root-file)
-               :build-steps (:build-steps build-graph)
-               :modules (:unresolved-path-modules build-graph)
-               :hint (str "These values are finalized while Zig executes their "
-                          "producer steps; select a value-only profile or disable "
-                          "capture until build-step path recreation is supported.")})))
+          (mapv #(build-generated-modules
+                  input-root-file (assoc options :build-steps %))
+                build-profiles))
+        _ (doseq [build-graph build-graphs]
+            (when (seq (:conflicts build-graph))
+              (throw
+               (ex-info
+                "Selected Zig build profile produced conflicting generated modules"
+                {:aguafria/phase :zig-build-graph
+                 :input-root (.getAbsolutePath input-root-file)
+                 :build-steps (:build-steps build-graph)
+                 :conflicts (:conflicts build-graph)
+                 :hint "Select an unambiguous entry in :build-profiles."})))
+            (when (seq (:unresolved-path-modules build-graph))
+              (throw
+               (ex-info
+                "Zig build profile contains generated modules with build-step paths"
+                {:aguafria/phase :zig-build-graph
+                 :input-root (.getAbsolutePath input-root-file)
+                 :build-steps (:build-steps build-graph)
+                 :modules (:unresolved-path-modules build-graph)
+                 :hint (str "These values are finalized while Zig executes their "
+                            "producer steps; select a value-only profile or disable "
+                            "capture until build-step path recreation is supported.")}))))
+        build-path-bundles
+        (mapv #(bundle-build-option-paths! % output-file) build-graphs)
+        build-path-bundle
+        (if (seq build-path-bundles)
+          (merge-build-profile-bundles build-profiles build-path-bundles)
+          {:modules-by-path {}
+           :path-value-count 0
+           :bundled-path-count 0
+           :bundled-file-count 0})
+        generated-modules-by-path (:modules-by-path build-path-bundle)
         preliminary-catalog (project-catalog plans [] generated-modules-by-path)
         _ (project/register-catalog! preliminary-catalog)
         module-imports (project-module-imports plans)
         reports
         (mapv
          (fn [{:keys [^Path path relative namespace parsed] :as plan}]
-           (let [output (conversion-output-file output-file namespace)]
+           (let [output (conversion-output-file output-file namespace)
+                 source-display-path
+                 (str (.normalize (.toPath
+                                   (io/file (str input-root)
+                                            (str relative)))))]
              (assoc
-              (convert-file! (str path) output
-                             (assoc options
-                                    ::parsed parsed
-                                    :namespace namespace
-                                    :import-bindings (:import-bindings plan)
-                                    :project-imports-by-node (:project-imports plan)
-                                    :project-require-modes
-                                    (:project-require-modes plan)
-                                    :source-display-path
-                                    (str (.normalize (.toPath
-                                                     (io/file (str input-root)
-                                                              (str relative)))))))
+              (convert-tree-file! (str path) output options parsed namespace
+                                  plan source-display-path)
               :relative-path (str relative))))
          plans)
         catalog (project-catalog plans reports generated-modules-by-path)
@@ -3625,12 +4004,24 @@
         report (merge
                 {:input-root (.getAbsolutePath (.getCanonicalFile (io/file input-root)))
                 :output-root (.getAbsolutePath output-file)
-                :catalog-path (.getAbsolutePath catalog-file)
+                 :catalog-path (.getAbsolutePath catalog-file)
                  :namespace-prefix (symbol (str namespace-prefix))
-                 :generated-module-count (or (:module-count build-graph) 0)
-                 :generated-module-owner-count (or (:owner-count build-graph) 0)
-                 :build-steps (or (:build-steps build-graph) [])
+                 :generated-module-count
+                 (reduce + 0 (map :module-count build-graphs))
+                 :generated-module-owner-count
+                 (count (:modules-by-path build-path-bundle))
+                 :generated-module-path-value-count
+                 (:path-value-count build-path-bundle)
+                 :generated-module-bundled-path-count
+                 (:bundled-path-count build-path-bundle)
+                 :generated-module-bundled-file-count
+                 (:bundled-file-count build-path-bundle)
+                 :build-steps (or (some-> build-graphs first :build-steps) [])
+                 :build-profiles (if build-graphs build-profiles [])
                 :file-count (count reports)
+                :ast-cache-hit-count (count (filter :ast-cache-hit? reports))
+                :conversion-cache-hit-count
+                (count (filter :conversion-cache-hit? reports))
                 :declaration-count declarations
                 :structural-declaration-count
                 (reduce + (map :structural-declaration-count reports))
@@ -3642,6 +4033,17 @@
                 :elapsed-ms (/ (- (System/nanoTime) started) 1e6)
                 :files reports}
                 asset-bundle)]
+    (when-let [report-output (:report-output options)]
+      (let [report-file (.getCanonicalFile (io/file report-output))]
+        (io/make-parents report-file)
+        (Files/writeString
+         (.toPath report-file)
+         (with-out-str (pprint/pprint report))
+         StandardCharsets/UTF_8
+         (into-array StandardOpenOption
+                     [StandardOpenOption/CREATE
+                      StandardOpenOption/TRUNCATE_EXISTING
+                      StandardOpenOption/WRITE]))))
     (record-conversion! report)))
 
 (defn stats

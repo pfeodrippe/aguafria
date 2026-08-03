@@ -1,9 +1,21 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    const tool_module = b.createModule(.{
+        .root_source_file = b.path("src/tool.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const tool = b.addExecutable(.{
+        .name = "build-options-path-tool",
+        .root_module = tool_module,
+    });
+
     const options = b.addOptions();
     options.addOption(u32, "answer", 42);
     options.addOption([]const u8, "message", "captured by Zig");
+    options.addOptionPath("data_path", b.path("data.txt"));
+    options.addOptionPath("tool_path", tool.getEmittedBin());
 
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),

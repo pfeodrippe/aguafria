@@ -1,0 +1,69 @@
+{:schema-version 1
+ :micro
+ [{:name :clean-development-build
+   :path [:compilation :clean :wall-ms]
+   :max 2000.0}
+  {:name :same-source-cache-hit
+   :path [:compilation :cached :cached?]
+   :equals true}
+  {:name :same-source-build
+   :path [:compilation :cached :wall-ms]
+   :max 250.0}
+  {:name :incremental-single-var
+   :path [:compilation :incremental :wall-ms]
+   :max 750.0}
+  {:name :ffm-call
+   :path [:ffm :p50-ns-per-call]
+   :max 10000.0}
+  {:name :reload-dispatch-iteration
+   :path [:native-loop :dispatch-p50-ns-per-iteration]
+   :max 20.0}
+  {:name :final-has-no-dispatch-markers
+   :path [:final-releasefast :dispatch-markers?]
+   :equals false}
+  {:name :final-composed-vs-direct
+   :path [:final-releasefast :composed-to-direct-p50-ratio]
+   :max 1.5}]
+
+ :sample
+ [{:name :first-conversion
+   :path [:conversion :first :wall-ms]
+   :max 10000.0}
+  {:name :repeat-conversion
+   :path [:conversion :repeat :wall-ms]
+   :max 1000.0}
+  {:name :first-namespace-load
+   :path [:namespace-load :first-wall-ms]
+   :max 1000.0}
+  {:name :emission
+   :path [:emission :wall-ms]
+   :max 1000.0}
+  {:name :fallbacks
+   :path [:conversion :repeat :fallback-count]
+   :equals 0}
+  {:name :unresolved-syntax
+   :path [:conversion :repeat :unresolved-syntax-count]
+   :equals 0}]
+
+ :tigerbeetle
+ [{:name :first-conversion
+   :path [:conversion :first :wall-ms]
+   :max 60000.0}
+  {:name :repeat-conversion
+   :path [:conversion :repeat :wall-ms]
+   :max 10000.0}
+  {:name :repeat-render-cache-coverage
+   :path [:conversion :repeat :conversion-cache-hit-count]
+   :min 245}
+  {:name :first-namespace-load
+   :path [:namespace-load :first-wall-ms]
+   :max 30000.0}
+  {:name :emission
+   :path [:emission :wall-ms]
+   :max 10000.0}
+  {:name :fallbacks
+   :path [:conversion :repeat :fallback-count]
+   :equals 0}
+  {:name :unresolved-syntax
+   :path [:conversion :repeat :unresolved-syntax-count]
+   :equals 0}]}

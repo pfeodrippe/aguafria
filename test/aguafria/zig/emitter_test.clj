@@ -158,6 +158,35 @@
     (is (re-find #"export fn add\(a: i32, b: i32\) callconv\(\.c\) i32" source))
     (is (str/includes? source "return (a + b);"))))
 
+(deftest reloadable-module-publication-epoch-test
+  (let [declaration {:kind :fn :name 'increment :return :i32 :export? true
+                     :declaration-key [:fn 'increment]
+                     :args [{:name 'value :type :i32}]
+                     :body ['(+ value 1)]}
+        source
+        (emit/emit-reloadable-module
+         "demo.live" [declaration]
+         {[:fn 'increment]
+          {:implementation "__impl"
+           :dispatch-type "__fn_type"
+           :dispatch "__dispatch"
+           :getter "__implementation_address"
+           :setter "__set_dispatch"
+           :active-counter "__active_calls"
+           :active-getter "__active_call_count"
+           :publication-epoch "__publication_epoch"
+           :publication-epoch-setter "__set_publication_epoch"}})]
+    (is (str/includes? source
+                       "var __publication_epoch: ?*const usize = null;"))
+    (is (str/includes? source
+                       "export fn __set_publication_epoch(address: usize)"))
+    (is (str/includes? source
+                       "if ((before & 1) != 0) continue;"))
+    (is (str/includes? source
+                       "if (before == after) break :publication candidate;"))
+    (is (< (.indexOf source "if (@inComptime())")
+           (.indexOf source "const __dispatch_target")))))
+
 (deftest source-metadata-safety-test
   (let [source (emit/emit-module
                 "cider-buffer"
