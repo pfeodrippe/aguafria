@@ -6,7 +6,8 @@
 
  {:test {:extra-paths ["test"]
          :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
-         :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+         :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+                    "-Daguafria.test.fixture-suffix=fixture-v1"]
          :main-opts ["-m" "kaocha.runner"]}
 
   :nrepl {:extra-paths ["generated/tigerbeetle"]

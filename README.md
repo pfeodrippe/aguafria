@@ -786,7 +786,8 @@ accept a single-entry map such as `{:integer 42}`. Zig optionals use `nil` or
 their payload value. Error unions use `{:ok value}` or an exact decoded
 `{:error {:name :SomeError :code n}}`; retaining the native code makes the
 error reusable without guessing Zig's generation-specific error numbering.
-These representations work as normal-struct fields and direct function
+These representations compose recursively through optionals, slices, error
+unions, arrays/vectors, and normal-struct fields, and work as direct function
 arguments/results. Typed Zig pointers are borrowed `ZigPointer` values: use
 `az/pointer-type`, `az/pointer-address`, or `az/pointer-segment` to inspect them
 and pass the pointer itself directly to another Aguafria function. The Zig
@@ -802,12 +803,11 @@ same maps, keywords, and vectors as constructors. This is native mutation, so
 coordinate with a running Zig thread through a safe point, lock, atomic, or a
 synchronized Zig function exactly as handwritten Zig requires.
 
-Long-lived owned slices, top-level mutable slice/error-union state, and deeply
-nested compositions still require richer ownership codecs and are tracked as
-bridge work. An untagged union can be
-constructed with an explicit single-entry map, but a value returned by
-arbitrary Zig code has no runtime active tag; Aguafria reports that ambiguity
-instead of guessing from its bytes.
+Top-level optional, slice, and error-union `defvar` values can be changed with
+`az/set-value!`; Aguafria retains Clojure-created slice backing memory for that
+state until `az/clear!`. An untagged union can be constructed with an explicit
+single-entry map, but a value returned by arbitrary Zig code has no runtime
+active tag; Aguafria reports that ambiguity instead of guessing from its bytes.
 
 ## Development
 
@@ -815,6 +815,7 @@ instead of guessing from its bytes.
 clojure -M:check-keyword
 clojure -M:test
 clojure -M:nrepl
+clojure -M:bench check suite  # populate, profile, and budget a warm full suite
 ```
 
 Kaocha discovers the tests through [`tests.edn`](tests.edn). Its CLI arguments

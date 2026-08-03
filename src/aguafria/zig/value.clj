@@ -877,9 +877,10 @@
       (when-not (= :native representation)
         (throw (ex-info "Mutable Zig state has no native storage"
                         (info zig-value))))
-      (write-value-segment! segment (:type descriptor) schema new-value
-                            {:module (:module descriptor)
-                             :name (:name descriptor)})
+      (binding [*allocation-arena* (:allocation-arena schema)]
+        (write-value-segment! segment (:type descriptor) schema new-value
+                              {:module (:module descriptor)
+                               :name (:name descriptor)}))
       (when (and (= :union (:kind schema))
                  (not (:tagged? schema))
                  (map? new-value)

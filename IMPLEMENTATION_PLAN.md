@@ -107,7 +107,7 @@ natural quiescence explicitly migrates the state and adopts the new caller
 graph. Both deterministic 2,000-request hosts report `PASSED (10772 ticks)` in
 the same JVM PID. Arbitrary live stack/heap object graphs are intentionally not
 reinterpreted; they require an application-defined safe point and migration.
-The current complete Kaocha regression run passes 92 tests and 3,008
+The current complete Kaocha regression run passes 96 tests and 3,035
 assertions with zero failures.
 
 ## Goal
@@ -211,7 +211,7 @@ is an implicit return for the final expression of a non-void function.
      exact JVM scalars where lossless, and inspectable FFM-backed Zig values
      otherwise. `defconst`, live `defvar`, and type Var roots are semantic;
      emission references remain exclusively in Var metadata.
-   - [ ] Complete development-only native-value bridges. Constant getters and
+   - [x] Complete development-only native-value bridges. Constant getters and
      pointer-based function bridges now cover odd-width integers, arbitrary
      `u64`, normal/extern structs, nested packed structs/bitfields, arrays, and
      SIMD vectors with explicit Clojure constructors, plus exact keyword
@@ -229,14 +229,19 @@ is an implicit return for the final expression of a non-void function.
      retained whenever a returned native value may borrow it. Error unions use
      explicit `{:ok value}` or `{:error {:name keyword :code integer}}` maps,
      preserve exact native error codes, and work in direct calls and normal
-     struct fields. Complete long-lived owned slices, top-level mutable
-     slice/error-union state, and deeply nested special-type compositions.
-   - [ ] Finish native-value lifetime coverage. Native generations are pinned
+     struct fields. Module-owned backing arenas keep mutable slice state alive
+     until `az/clear!`; top-level optional/slice/error-union `defvar` values
+     mutate in place and survive compatible reloads. Recursive Zig-generated
+     storage helpers compose optionals, slices, error unions, arrays/vectors,
+     and normal container fields without JVM-side layout guesses.
+   - [x] Finish native-value lifetime coverage. Native generations are pinned
      while FFM-backed values reference their bytes; type/size/alignment/segment,
      idempotent explicit close, automatic Cleaner release, and use-after-close
-     diagnostics exist. A compatible publication test proves old native values
-     pin their dylib, cross into new code, and release it on close. Add
-     breaking-schema stale-value and GC-triggered retirement acceptance tests.
+     diagnostics exist. Compatible and breaking-schema publication tests prove
+     old native values retain their exact schema/dylib, cross into compatible
+     new code, and release it on close. Native type constructors and indirect
+     returns eagerly register their Cleaner even when callers never dereference
+     them; a bounded GC acceptance proves unreachable generations retire.
 
 5. **Verification and documentation**
    - Generate the complete `@builtin` list and compiler flags from Zig's
@@ -766,13 +771,24 @@ is an implicit return for the final expression of a non-void function.
   4.29 ns/dispatch iteration, and 554 ns/FFM call; TigerBeetle's warm
   conversion is 3.47 s and first explicit reload/intern of 4,032 Vars is
   18.35 s.
-- [ ] Profile and shorten the complete Kaocha wall time without weakening test
+- [x] Profile and shorten the complete Kaocha wall time without weakening test
   isolation. Report per-test and per-purpose Zig process/cache timing; keep
   deliberate clean-cache, failed-build, ABI-version, migration, and standalone
   build cases isolated, while sharing stable compiled fixtures and eliminating
   duplicate equivalent compiler launches in tests that do not exercise cache
   invalidation. Add a warm-suite budget so interactive runtime performance and
-  test-harness regeneration cost remain visibly separate.
+  test-harness regeneration cost remain visibly separate. Isolated native test
+  modules now have deterministic per-test identities under the command-line
+  test alias and explicitly clear the unrelated mutable `extra_math` module
+  configuration, making their exact artifacts safely cacheable across fresh
+  JVMs. Test nREPL runs retain fresh identities for repeat-run isolation. The
+  54-test native integration
+  namespace fell from 315.0 s to 38.6 s (8.2×) with all 404 assertions green.
+  `clojure -M:bench check suite` performs a population pass, prints Kaocha's
+  per-test profile, and enforces a 600 s warm full-suite budget. The current
+  complete profiled run passes 96 tests/3,035 assertions in 429.2 s; 391.1 s is
+  the intentionally isolated TigerBeetle conversion/fresh-JVM acceptance, while
+  native integration is 37.8 s.
 - [x] Benchmark development dispatch against direct Zig calls, and prove the
   `:reloadable? false` `ReleaseFast` artifact has no dispatch/runtime overhead
   beyond equivalent handwritten Zig. The development probe reports both the
@@ -889,7 +905,7 @@ is an implicit return for the final expression of a non-void function.
   dependency components, 135 finished builds, 36 stale superseded builds, and
   zero active/queued/compiling builds or active native hosts. After adding the
   cache, fresh generated-classpath, and migration-monitor regressions, the
-  current complete command-line Kaocha run passes 92 tests and 3,008
+  current complete command-line Kaocha run passes 96 tests and 3,035
   assertions with zero failures.
 
 ## Deferred ideas from `todo.md`

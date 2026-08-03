@@ -66,4 +66,12 @@
    :equals 0}
   {:name :unresolved-syntax
    :path [:conversion :repeat :unresolved-syntax-count]
-   :equals 0}]}
+   :equals 0}]
+
+ :suite
+ [{:name :warm-suite-passes
+   :path [:warm-run :exit]
+   :equals 0}
+  {:name :warm-suite-wall-time
+   :path [:warm-run :wall-ms]
+   :max 600000.0}]}

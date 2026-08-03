@@ -8,7 +8,9 @@
             [aguafria.zig.convert :as convert]
             [aguafria.zig.emitter :as emitter]
             [clojure.edn :as edn]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
+            [clojure.string :as str])
   (:import [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option
             MemoryLayout SymbolLookup ValueLayout]
            [java.lang.invoke MethodHandle]
@@ -189,7 +191,7 @@
         (remove-ns module-symbol)))))
 
 (def ^:private project-specs
-  {:sample {:input "sample"
+  {:sample {:input "test/fixtures/import_tree"
             :namespace-prefix 'aguafria.benchmark.sample
             :options {}}
    :tigerbeetle {:input "vendor/tigerbeetle"
@@ -417,6 +419,47 @@
          (az/configure! old-config)
          (remove-ns module-symbol))))))
 
+(defn- run-suite-process!
+  [focus profiling-count]
+  (let [command (cond-> ["clojure" "-M:test"
+                         "--plugin" ":kaocha.plugin/profiling"
+                         "--profiling-count" (str profiling-count)]
+                  focus (conj "--focus" focus))
+        started (System/nanoTime)
+        process (-> (ProcessBuilder. ^java.util.List command)
+                    (.directory (io/file "."))
+                    (.inheritIO)
+                    (.start))
+        exit (.waitFor process)]
+    {:command command
+     :exit exit
+     :wall-ms (elapsed-ms started)}))
+
+(defn benchmark-suite!
+  "Measure a repeat Kaocha run after first ensuring its native artifacts exist.
+
+  The default is the complete suite. `:focus` is available for maintaining the
+  harness itself; `:populate? false` measures one already-warm run. Child
+  output includes Kaocha's per-test timing profile."
+  ([] (benchmark-suite! {}))
+  ([{:keys [focus populate? profiling-count]
+     :or {populate? true profiling-count 100}}]
+   (let [population (when populate?
+                      (run-suite-process! focus profiling-count))
+         _ (when (and population (not (zero? (:exit population))))
+             (throw (ex-info "Kaocha cache-population run failed"
+                             {:run population})))
+         warm-run (run-suite-process! focus profiling-count)
+         zig-command (or (:zig (az/configuration)) "zig")
+         zig-result (shell/sh zig-command "version")]
+     {:benchmark :aguafria/warm-kaocha-suite
+      :recorded-at-ms (System/currentTimeMillis)
+      :machine (machine-info (when (zero? (:exit zig-result))
+                               (str/trim (:out zig-result))))
+      :focus focus
+      :population-run population
+      :warm-run warm-run})))
+
 (defn- micro-options
   [[iterations samples ffm-calls parallel-modules]]
   (cond-> {}
@@ -474,9 +517,11 @@
                    :micro (benchmark! {})
                    :sample (benchmark-project! :sample)
                    :tigerbeetle (benchmark-project! :tigerbeetle)
+                   :suite (benchmark-suite!)
                    (throw (ex-info "Unknown performance budget target"
                                    {:target kind
-                                    :known [:micro :sample :tigerbeetle :all]})))]
+                                    :known [:micro :sample :tigerbeetle
+                                            :suite :all]})))]
       (assoc result :budget (assess-budget kind result)))))
 
 (defn -main [& arguments]
@@ -498,6 +543,11 @@
 
          "micro"
          (benchmark! (micro-options arguments))
+
+         "suite"
+         (benchmark-suite!
+          {:focus (first arguments)
+           :populate? (not= "once" (second arguments))})
 
          ;; Preserve the original concise numeric invocation:
          ;; `clojure -M:bench 100000 5 2000 4`.

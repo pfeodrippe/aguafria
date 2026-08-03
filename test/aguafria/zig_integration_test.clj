@@ -14,6 +14,14 @@
 (az/configure! {:async? true
                 :modules {"extra_math" "test/fixtures/extra_math.zig"}})
 
+;; The command-line test alias supplies a stable suffix so an unchanged suite
+;; in a fresh JVM can reuse exact content-addressed native artifacts. An nREPL
+;; rerun gets a fresh suffix and therefore cannot inherit a prior test module.
+;; Source changes produce a new artifact hash without a suffix bump.
+(def ^:private fixture-suffix
+  (or (System/getProperty "aguafria.test.fixture-suffix")
+      (str (random-uuid))))
+
 (az/defimport std "std" [])
 
 (az/defimport extra-math "extra_math" [quadruple])
@@ -116,10 +124,10 @@
 (deftest native-process-main-host-test
   (testing "a std.process.Init main runs in the JVM and shares live native state"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.process-host-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.process-host-" fixture-suffix))
           test-ns (create-ns test-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -150,10 +158,10 @@
 (deftest non-exported-var-is-lazily-callable-and-cached-test
   (testing "an ordinary Clojure Var materializes one development trampoline"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.lazy-var-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.lazy-var-" fixture-suffix))
           test-ns (create-ns test-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -179,12 +187,12 @@
 (deftest native-zig-values-round-trip-and-print-as-values-test
   (testing "a non-JVM-shaped integer retains native bytes across a Zig call"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.native-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.native-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           input (atom nil)
           output (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -234,11 +242,11 @@
 (deftest defvar-root-is-a-live-native-value-test
   (testing "a defvar Var exposes changing native state rather than metadata"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.native-state-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.native-state-" fixture-suffix))
           test-ns (create-ns test-symbol)
           state-value (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -261,17 +269,144 @@
           (az/configure! old-config)
           (remove-ns test-symbol))))))
 
+(deftest special-type-defvars-remain-mutable-across-reload-test
+  (testing "optional, error-union, and slice state mutate in native memory and survive reload"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.special-state-" fixture-suffix))
+          test-ns (create-ns test-symbol)
+          state-values (atom [])]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defvar maybe-count [:optional :u24] nil))
+          (eval '(az/defvar last-result
+                   [:error-union [:error-set [NoValue]] :u24]
+                   7))
+          (eval '(az/defvar recent-values
+                   [:slice-const :u24]
+                   (& [1 2])))
+          (eval '(az/defn missing-value
+                   {:attrs #{:public :implicit-return}}
+                   :- [:error-union [:error-set [NoValue]] :u24]
+                   []
+                   (az/error-value NoValue)))
+          (eval '(az/defn marker :- :u8 [] 1)))
+        (let [maybe-count (var-get (ns-resolve test-ns 'maybe-count))
+              last-result (var-get (ns-resolve test-ns 'last-result))
+              recent-values (var-get (ns-resolve test-ns 'recent-values))
+              missing-result ((ns-resolve test-ns 'missing-value))
+              missing-value (az/value missing-result)]
+          (reset! state-values
+                  [maybe-count last-result recent-values missing-result])
+          (is (nil? (az/value maybe-count)))
+          (is (= {:ok 7} (az/value last-result)))
+          (is (= [1 2] (az/value recent-values)))
+          (is (= 16777215 (az/set-value! maybe-count 16777215)))
+          (is (= {:ok 66051}
+                 (az/set-value! last-result {:ok 66051})))
+          (is (= [3 16777215]
+                 (az/set-value! recent-values [3 16777215])))
+          (is (= missing-value (az/set-value! last-result missing-value)))
+          ;; Publish another compatible module generation. Existing state
+          ;; handles retain both the canonical addresses and their helper ABI.
+          (binding [*ns* test-ns]
+            (eval '(az/defn marker :- :u8 [] 2)))
+          (is (= 2 ((ns-resolve test-ns 'marker))))
+          (is (= 16777215 (az/value maybe-count)))
+          (is (= :NoValue (get-in (az/value last-result) [:error :name])))
+          (is (= [3 16777215] (az/value recent-values))))
+        (finally
+          (doseq [value @state-values :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest deeply-nested-native-values-round-trip-test
+  (testing "optional, slice, and collection codecs compose without layout guesses"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.nested-native-value-"
+                                   fixture-suffix))
+          test-ns (create-ns test-symbol)
+          native-values (atom [])]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defconst initial-maybe-array
+                   [:array 2 [:optional :u24]]
+                   [nil 7]))
+          (eval '(az/defvar live-maybe-array
+                   [:array 2 [:optional :u24]]
+                   [nil 9]))
+          (eval '(az/defstruct NestedHolder
+                   [[:items [:optional [:slice-const [:optional :u24]]]]
+                    [:counts [:array 2 [:optional :u24]]]]))
+          (eval '(az/defn echo-nested-items
+                   {:attrs #{:public :implicit-return}}
+                   :- [:optional [:slice-const [:optional :u24]]]
+                   [items :- [:optional [:slice-const [:optional :u24]]]]
+                   items))
+          (eval '(az/defn maybe-nested-result
+                   {:attrs #{:public :implicit-return}}
+                   :- [:error-union [:error-set [NoValue]]
+                       [:optional :u24]]
+                   [fail :- :bool]
+                   (if fail (az/error-value NoValue) nil)))
+          (eval '(az/defn echo-nested-results
+                   {:attrs #{:public :implicit-return}}
+                   :- [:array 2
+                       [:error-union [:error-set [NoValue]]
+                        [:optional :u24]]]
+                   [results :- [:array 2
+                                [:error-union [:error-set [NoValue]]
+                                 [:optional :u24]]]]
+                   results)))
+        (let [initial (var-get (ns-resolve test-ns 'initial-maybe-array))
+              state (var-get (ns-resolve test-ns 'live-maybe-array))
+              echo (ns-resolve test-ns 'echo-nested-items)
+              absent (echo nil)
+              present (echo [nil 42 16777215])
+              maybe-result (ns-resolve test-ns 'maybe-nested-result)
+              failed (maybe-result true)
+              error-value (az/value failed)
+              result-array
+              ((ns-resolve test-ns 'echo-nested-results)
+               [error-value {:ok nil}])
+              holder-type (var-get (ns-resolve test-ns 'NestedHolder))
+              holder (holder-type {:items [1 nil 66051]
+                                   :counts [nil 16777215]})]
+          (reset! native-values
+                  [initial state absent present failed result-array holder])
+          (is (= [nil 7] (az/value initial)))
+          (is (= [nil 9] (az/value state)))
+          (is (= [42 nil] (az/set-value! state [42 nil])))
+          (is (nil? (az/value absent)))
+          (is (= [nil 42 16777215] (az/value present)))
+          (is (= :NoValue (get-in error-value [:error :name])))
+          (is (= [error-value {:ok nil}] (az/value result-array)))
+          (is (= {:items [1 nil 66051]
+                  :counts [nil 16777215]}
+                 (az/value holder))))
+        (finally
+          (doseq [value @native-values :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
 (deftest packed-structs-use-clojure-field-maps-test
   (testing "packed fields decode, pprint, construct, and pass without layout guesses"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.packed-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.packed-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constant (atom nil)
           state-value (atom nil)
           constructed (atom nil)
           returned (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -322,13 +457,13 @@
 (deftest extern-structs-use-zig-reported-layout-test
   (testing "extern structs construct, decode, pprint, and cross the native bridge"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.extern-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.extern-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constant (atom nil)
           constructed (atom nil)
           returned (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -370,12 +505,12 @@
 (deftest arrays-and-simd-vectors-use-clojure-vectors-test
   (testing "native arrays and SIMD vectors round-trip as Clojure vectors"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.sequence-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.sequence-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           array-value (atom nil)
           vector-value (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -410,12 +545,12 @@
 (deftest nested-packed-structs-remain-semantic-maps-test
   (testing "nested packed structs use nested field maps and Zig bit ordering"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.nested-packed-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.nested-packed-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constructed (atom nil)
           returned (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -453,13 +588,13 @@
 (deftest enums-use-clojure-keywords-test
   (testing "container enum Vars are constructors and enum values are keywords"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.enum-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.enum-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constant (atom nil)
           constructed (atom nil)
           returned (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -497,12 +632,12 @@
 (deftest converted-container-struct-is-a-clojure-constructor-test
   (testing "defconst container structs generated from Zig are callable types"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.container-struct-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.container-struct-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constructed (atom nil)
           returned (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -534,13 +669,13 @@
 (deftest tagged-unions-use-single-entry-clojure-maps-test
   (testing "Zig decides the active tagged-union field for construction and decoding"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.union-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.union-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constructed (atom nil)
           returned (atom nil)
           empty-value (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -578,12 +713,12 @@
 (deftest struct-optional-fields-use-nil-or-values-test
   (testing "Zig supplies optional presence/payload access instead of layout guesses"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.optional-field-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.optional-field-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constructed (atom nil)
           returned (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -615,13 +750,13 @@
 (deftest optional-function-values-use-nil-or-payload-test
   (testing "top-level optional arguments/results use Zig semantic helpers"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.optional-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.optional-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           constant (atom nil)
           absent (atom nil)
           present (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -649,12 +784,12 @@
 (deftest borrowed-pointers-are-typed-clojure-values-test
   (testing "pointer values retain their Zig type and point at live native state"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.pointer-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.pointer-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           state-value (atom nil)
           pointer-value (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -689,12 +824,12 @@
 (deftest slices-use-clojure-vectors-with-owned-call-storage-test
   (testing "slice vectors round-trip, including odd-width elements and empty slices"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.slice-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.slice-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           returned-values (atom [])
           holder-value (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -725,11 +860,11 @@
 (deftest error-unions-use-explicit-ok-or-error-maps-test
   (testing "error-union payloads and named errors remain exact and reusable"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.error-value-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.error-value-" fixture-suffix))
           test-ns (create-ns test-symbol)
           returned-values (atom [])]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -774,12 +909,12 @@
 (deftest native-values-pin-hot-reload-generations-test
   (testing "a native value survives compatible reload and releases its old dylib"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.value-reload-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.value-reload-" fixture-suffix))
           test-ns (create-ns test-symbol)
           old-value (atom nil)
           returned (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -821,10 +956,96 @@
           (az/configure! old-config)
           (remove-ns test-symbol))))))
 
+(deftest native-values-retain-breaking-type-generations-test
+  (testing "a value keeps its exact old schema after a breaking type publication"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.breaking-value-" fixture-suffix))
+          test-ns (create-ns test-symbol)
+          old-value (atom nil)
+          new-value (atom nil)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct Payload
+                   [[:items [:slice-const :u8]]])))
+        (reset! old-value
+                ((var-get (ns-resolve test-ns 'Payload)) {:items [1 2]}))
+        (is (= {:items [1 2]} (az/value @old-value)))
+        (let [old-generation (:generation (az/value-info @old-value))]
+          (binding [*ns* test-ns]
+            (eval '(az/defstruct Payload
+                     [[:items [:slice-const :u16]]])))
+          (reset! new-value
+                  ((var-get (ns-resolve test-ns 'Payload)) {:items [65535]}))
+          (is (= {:items [65535]} (az/value @new-value)))
+          (is (some? old-generation))
+          (is (pos? (or (some #(when (= old-generation (:generation %))
+                                (:native-value-reference-count %))
+                             (:native-generations (az/module-info test-symbol)))
+                        0))
+              (pr-str {:old-generation old-generation
+                       :generations
+                       (:native-generations (az/module-info test-symbol))}))
+          (az/close! @old-value)
+          (is (not (pos? (or (some #(when (= old-generation (:generation %))
+                                      (:native-value-reference-count %))
+                                   (:native-generations
+                                    (az/module-info test-symbol)))
+                              0)))))
+        (finally
+          (doseq [value [@new-value @old-value]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest unreachable-native-values-release-generations-test
+  (testing "Cleaner retirement releases a generation when explicit close is omitted"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.cleaner-value-" fixture-suffix))
+          test-ns (create-ns test-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct Payload
+                   {:layout :packed}
+                   [[:value :u8]])))
+        (let [[weak-value generation]
+              ((fn []
+                 (let [value
+                       ((var-get (ns-resolve test-ns 'Payload)) {:value 42})]
+                   ;; Force materialization and Cleaner registration before
+                   ;; this lexical scope drops its only strong reference.
+                   (az/value value)
+                   [(java.lang.ref.WeakReference. value)
+                    (:generation (az/value-info value))])))
+              reference-count
+              (fn []
+                (or (some #(when (= generation (:generation %))
+                             (:native-value-reference-count %))
+                          (:native-generations (az/module-info test-symbol)))
+                    0))]
+          (is (pos? (reference-count)))
+          (loop [attempt 0]
+            (when (and (< attempt 200)
+                       (or (.get weak-value) (pos? (reference-count))))
+              (System/gc)
+              (Thread/sleep 25)
+              (recur (inc attempt))))
+          (is (nil? (.get weak-value)))
+          (is (zero? (reference-count))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
 (deftest development-root-public-declarations-reach-dependencies-test
   (testing "@import(\"root\") observes the converted application root"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           dependency-symbol
           (symbol (str "aguafria.root-context-dependency-" suffix))
           application-symbol
@@ -832,7 +1053,7 @@
           dependency-ns (create-ns dependency-symbol)
           application-ns (create-ns application-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [dependency-ns application-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -863,7 +1084,7 @@
 (deftest running-native-host-follows-compatible-var-swap-test
   (testing "an already-running main follows a compatible callee publication"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.running-host-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.running-host-" fixture-suffix))
           test-ns (create-ns test-symbol)
           handle (atom nil)
           await-value
@@ -875,7 +1096,7 @@
                   (< attempt 500) (do (Thread/sleep 10) (recur (inc attempt)))
                   :else value))))]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -917,7 +1138,7 @@
   (testing "a host keeps its complete old dispatch graph across a layout break"
     (let [old-config (az/configuration)
           test-symbol (symbol (str "aguafria.running-type-host-"
-                                   (random-uuid)))
+                                   fixture-suffix))
           test-ns (create-ns test-symbol)
           handle (atom nil)
           pid (.pid (java.lang.ProcessHandle/current))
@@ -930,7 +1151,7 @@
                   (< attempt 500) (do (Thread/sleep 10) (recur (inc attempt)))
                   :else value))))]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -1074,7 +1295,7 @@
 (deftest content-addressed-development-modules-use-native-cache-test
   (testing "unchanged Aguafria-owned dependency files do not disable cache hits"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.cache-fixture-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.cache-fixture-" fixture-suffix))
           test-ns (create-ns test-symbol)]
       (try
         (az/configure! {:async? false :modules {} :zig-args []})
@@ -1181,14 +1402,14 @@
 (deftest add-cross-namespace-function-and-hot-rewire-caller-test
   (testing "a new A Var can be used by new and existing B Vars without restart"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.live-a-" suffix))
           b-symbol (symbol (str "aguafria.live-b-" suffix))
           a-ns (create-ns a-symbol)
           b-ns (create-ns b-symbol)
           pid (.pid (java.lang.ProcessHandle/current))]
       (try
-        (az/configure! {:async? true})
+        (az/configure! {:async? true :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1314,10 +1535,10 @@
 (deftest inline-function-hot-dispatch-test
   (testing "a forced-inline Zig wrapper keeps existing callers on a live cell"
     (let [old-config (az/configuration)
-          module-symbol (symbol (str "aguafria.inline-live-" (random-uuid)))
+          module-symbol (symbol (str "aguafria.inline-live-" fixture-suffix))
           module-ns (create-ns module-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* module-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -1361,13 +1582,13 @@
 (deftest generic-function-edit-republishes-concrete-cross-namespace-callers-test
   (testing "a generic Var edit recompiles monomorphized callers instead of inventing a pointer ABI"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           generic-symbol (symbol (str "aguafria.generic-live-" suffix))
           caller-symbol (symbol (str "aguafria.generic-caller-" suffix))
           generic-ns (create-ns generic-symbol)
           caller-ns (create-ns caller-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [generic-ns caller-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1414,13 +1635,13 @@
 (deftest composite-zig-signature-hot-dispatch-test
   (testing "Zig callers hot-swap native functions whose ABI is not JVM-scalar"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.composite-a-" suffix))
           b-symbol (symbol (str "aguafria.composite-b-" suffix))
           a-ns (create-ns a-symbol)
           b-ns (create-ns b-symbol)]
       (try
-        (az/configure! {:async? true})
+        (az/configure! {:async? true :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1479,13 +1700,13 @@
 (deftest handwritten-cyclic-module-hot-reload-test
   (testing "ordinary Aguafria namespaces can form and hot-reload a Zig cycle"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.cyclic-a-" suffix))
           b-symbol (symbol (str "aguafria.cyclic-b-" suffix))
           a-ns (create-ns a-symbol)
           b-ns (create-ns b-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1537,13 +1758,13 @@
 (deftest cyclic-breaking-type-adoption-is-explicit-test
   (testing "cyclic callers retain a breaking type until each Var is reevaluated"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.cyclic-type-a-" suffix))
           b-symbol (symbol (str "aguafria.cyclic-type-b-" suffix))
           a-ns (create-ns a-symbol)
           b-ns (create-ns b-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1565,7 +1786,7 @@
                         (meta (ns-resolve b-ns 'item-size)))))
                   (az/function-versions (ns-resolve b-ns 'item-size))))
 
-        (az/configure! {:async? true})
+        (az/configure! {:async? true :modules {}})
         (binding [*ns* a-ns]
           (eval '(az/defstruct Item [[:value :u32] [:extra :u32]])))
         (let [waiting (future (az/await! a-symbol))
@@ -1600,7 +1821,7 @@
 (deftest cyclic-compatible-type-propagation-does-not-self-await-test
   (testing "a compatible type-factory edit atomically propagates through its SCC"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.cyclic-factory-a-" suffix))
           b-symbol (symbol (str "aguafria.cyclic-factory-b-" suffix))
           a-ns (create-ns a-symbol)
@@ -1619,7 +1840,7 @@
                      (az/fn-decl answer {:attrs #{:public}} :- :u32 []
                        (ak/return aguafria-test/answer)))))))))]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1637,7 +1858,7 @@
         (is (= 1 ((ns-resolve a-ns 'entry))))
         (is (:cyclic-dependency-component? (az/stats a-symbol)))
 
-        (az/configure! {:async? true})
+        (az/configure! {:async? true :modules {}})
         (define-options! 2)
         (let [waiting (future (az/await! a-symbol))
               result (deref waiting 30000 ::timed-out)]
@@ -1657,13 +1878,13 @@
 (deftest cyclic-component-atomic-publication-and-rollback-test
   (testing "every prepared SCC member publishes together and a failed prepare publishes none"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.atomic-a-" suffix))
           b-symbol (symbol (str "aguafria.atomic-b-" suffix))
           a-ns (create-ns a-symbol)
           b-ns (create-ns b-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1784,14 +2005,14 @@
 (deftest cross-namespace-active-call-survives-callee-swap-test
   (testing "a caller-library invocation keeps the old callee library alive through publication"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.active-live-a-" suffix))
           b-symbol (symbol (str "aguafria.active-live-b-" suffix))
           a-ns (create-ns a-symbol)
           b-ns (create-ns b-symbol)
           worker (atom nil)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -1856,7 +2077,7 @@
 (deftest quiescent-native-generation-retirement-test
   (testing "an obsolete shared library is unloaded after its calls and implementations quiesce"
     (let [old-config (az/configuration)
-          module (str "aguafria.retirement-fixture-" (random-uuid))
+          module (str "aguafria.retirement-fixture-" fixture-suffix)
           qualified-name (symbol module "probe")
           declaration
           (fn [body]
@@ -1875,7 +2096,7 @@
                       :line (:line (meta #'quiescent-native-generation-retirement-test))
                       :column 1}})]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (runtime/register-declaration! (declaration ['x]))
         (is (= 7 (runtime/invoke! qualified-name [7])))
         (is (= 1 (:native-generation-count (az/stats module))))
@@ -1895,7 +2116,7 @@
 (deftest active-native-call-survives-publication-test
   (testing "publishing a replacement retains an old library until its in-flight call returns"
     (let [old-config (az/configuration)
-          module (str "aguafria.active-call-fixture-" (random-uuid))
+          module (str "aguafria.active-call-fixture-" fixture-suffix)
           qualified-name (symbol module "spin")
           worker (atom nil)
           declaration
@@ -1922,7 +2143,7 @@
             (some #(pos? (:native-active-call-count %))
                   (:native-generations (az/stats module))))]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (runtime/register-declaration! (declaration 0))
         (reset! worker (future (runtime/invoke! qualified-name [5000000000])))
         (is (loop [attempt 0]
@@ -1950,7 +2171,7 @@
 (deftest callable-abi-version-coexistence-test
   (testing "a breaking signature publishes v2 while v1 remains callable"
     (let [old-config (az/configuration)
-          module (str "aguafria.abi-version-fixture-" (random-uuid))
+          module (str "aguafria.abi-version-fixture-" fixture-suffix)
           qualified-name (symbol module "calculate")
           declaration
           (fn [args body]
@@ -1976,7 +2197,7 @@
                             {:name 'y :type :i32 :properties {}}]
                            [(list '+ 'x 'y)]))]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (runtime/register-declaration! v1)
         (is (= 8 (runtime/invoke! qualified-name [7])))
 
@@ -1998,7 +2219,7 @@
 (deftest breaking-callee-keeps-old-caller-live-test
   (testing "a breaking A publishes independently while old B keeps calling A v1"
     (let [old-config (az/configuration)
-          module (str "aguafria.breaking-caller-fixture-" (random-uuid))
+          module (str "aguafria.breaking-caller-fixture-" fixture-suffix)
           a-name (symbol module "a")
           b-name (symbol module "b")
           declaration
@@ -2028,7 +2249,7 @@
           b-v2 (declaration 'b [arg-x]
                             [(list '+ (list 'a 'x 10) 100)])]
       (try
-        (az/configure! {:async? true})
+        (az/configure! {:async? true :modules {}})
         (runtime/register-declaration! a-v1)
         (runtime/register-declaration! b-v1)
         (is (= 106 (runtime/invoke! b-name [5])))
@@ -2061,7 +2282,7 @@
 (deftest breaking-callable-live-slice-closes-over-cross-namespace-dependencies-test
   (testing "a breaking Var publishes with local and imported dependencies while old callers remain live"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           dependency-symbol (symbol (str "aguafria.breaking-dependency-" suffix))
           callee-symbol (symbol (str "aguafria.breaking-callee-" suffix))
           caller-symbol (symbol (str "aguafria.breaking-dependent-" suffix))
@@ -2069,7 +2290,7 @@
           callee-ns (create-ns callee-symbol)
           caller-ns (create-ns caller-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [dependency-ns callee-ns caller-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -2150,11 +2371,11 @@
 (deftest live-defvar-state-preservation-and-explicit-migration-test
   (testing "compatible reloads preserve state and breaking layouts wait for explicit Zig migration"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           test-symbol (symbol (str "aguafria.live-state-" suffix))
           test-ns (create-ns test-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -2228,10 +2449,10 @@
 (deftest versioned-defstruct-layout-and-dependent-reevaluation-test
   (testing "breaking layouts coexist and an explicitly reevaluated dependent adopts the new schema"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.live-type-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.live-type-" fixture-suffix))
           test-ns (create-ns test-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -2260,7 +2481,7 @@
 (deftest cross-namespace-type-factory-hot-propagation-test
   (testing "type-factory edits automatically republish existing monomorphized callers"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           type-symbol (symbol (str "aguafria.live-type-factory-" suffix))
           caller-symbol (symbol (str "aguafria.live-type-caller-" suffix))
           type-ns (create-ns type-symbol)
@@ -2286,7 +2507,7 @@
                        :- :u32 []
                        (ak/return aguafria-test/answer-value)))))))))]
       (try
-        (az/configure! {:async? true})
+        (az/configure! {:async? true :modules {}})
         (doseq [target [type-ns caller-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -2364,7 +2585,7 @@
 (deftest cross-namespace-type-factory-state-migration-test
   (testing "a breaking factory type retains dependent state until an explicit migration"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           type-symbol (symbol (str "aguafria.state-type-factory-" suffix))
           state-symbol (symbol (str "aguafria.state-type-owner-" suffix))
           type-ns (create-ns type-symbol)
@@ -2384,7 +2605,7 @@
                      {:kind :struct :layout :normal}
                      (az/field-decl value aguafria-test/field-type))))))))]
       (try
-        (az/configure! {:async? true})
+        (az/configure! {:async? true :modules {}})
         (doseq [target [type-ns state-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -2475,10 +2696,10 @@
 (deftest struct-backed-state-explicit-migration-test
   (testing "a breaking defstruct-backed capsule retains old state and migrates without reinterpretation"
     (let [old-config (az/configuration)
-          test-symbol (symbol (str "aguafria.struct-state-" (random-uuid)))
+          test-symbol (symbol (str "aguafria.struct-state-" fixture-suffix))
           test-ns (create-ns test-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
@@ -2555,13 +2776,13 @@
 (deftest cross-namespace-defvar-capsule-test
   (testing "old and new callers in different namespaces share one stable native state capsule"
     (let [old-config (az/configuration)
-          suffix (str (random-uuid))
+          suffix fixture-suffix
           a-symbol (symbol (str "aguafria.state-a-" suffix))
           b-symbol (symbol (str "aguafria.state-b-" suffix))
           a-ns (create-ns a-symbol)
           b-ns (create-ns b-symbol)]
       (try
-        (az/configure! {:async? false})
+        (az/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
@@ -2662,7 +2883,7 @@
 (deftest rust-style-compiler-diagnostic-test
   (let [old-config (az/configuration)]
     (try
-      (az/configure! {:async? false})
+      (az/configure! {:async? false :modules {}})
       (let [error (try
                     (runtime/register-declaration!
                      {:kind :const
