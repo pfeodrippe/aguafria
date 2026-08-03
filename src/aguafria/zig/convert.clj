@@ -17,8 +17,11 @@
            [java.util HexFormat]))
 
 (def ^:private ast-resource "aguafria/zig-ast.zig")
+(def ^:private build-graph-resource "aguafria/build-graph-dump.zig")
+(def ^:private build-graph-marker "__AGUAFRIA_BUILD_OPTION__")
 (def ^:private ast-schema-version 3)
 (defonce ^:private helper-lock (Object.))
+(defonce ^:private build-graph-lock (Object.))
 (defonce ^:private conversion-history (atom []))
 
 (declare record-conversion!)
@@ -71,6 +74,162 @@
     (slurp resource)
     (throw (ex-info "Aguafria's Zig AST helper resource is missing"
                     {:resource ast-resource}))))
+
+(defn- resource-source
+  [resource-name description]
+  (if-let [resource (io/resource resource-name)]
+    (slurp resource)
+    (throw (ex-info (str "Aguafria's " description " resource is missing")
+                    {:resource resource-name}))))
+
+(defn- zig-lib-directory
+  [zig directory]
+  (let [result (run-command [zig "env"] directory)]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Unable to query Zig's library directory"
+                      (assoc result :aguafria/phase :zig-build-graph))))
+    (or (second (re-find #"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]+)\""
+                         (:out result)))
+        (second (re-find #"\"lib_dir\"\s*:\s*\"([^\"]+)\""
+                         (:out result)))
+        (throw (ex-info "Zig env did not report a library directory"
+                        (assoc result :aguafria/phase :zig-build-graph))))))
+
+(defn- ensure-build-graph-runner!
+  [{:keys [cache-dir zig]
+    :or {cache-dir ".aguafria/zig" zig "zig"}}
+   directory]
+  (locking build-graph-lock
+    (let [lib-directory (zig-lib-directory zig directory)
+          upstream-file (io/file lib-directory "compiler" "build_runner.zig")
+          _ (when-not (.isFile upstream-file)
+              (throw (ex-info "Zig's standard build runner is missing"
+                              {:aguafria/phase :zig-build-graph
+                               :zig-lib-directory lib-directory
+                               :path (.getAbsolutePath upstream-file)})))
+          upstream (slurp upstream-file)
+          probe (resource-source build-graph-resource
+                                 "build-graph inspector")
+          needle (str "        try builder.runBuild(root);\n"
+                      "        createModuleDependencies(builder) catch @panic(\"OOM\");")
+          replacement (str "        try builder.runBuild(root);\n"
+                           "        try @import(\"build-graph-dump.zig\").dump("
+                           "builder, targets.items);\n"
+                           "        createModuleDependencies(builder) catch @panic(\"OOM\");")
+          _ (when-not (str/includes? upstream needle)
+              (throw (ex-info
+                      "Installed Zig build runner is incompatible with Aguafria's inspector"
+                      {:aguafria/phase :zig-build-graph
+                       :zig-lib-directory lib-directory
+                       :hint "Use a supported Zig version or update the runner hook."})))
+          patched (str/replace-first upstream needle replacement)
+          hash (subs (sha256 [patched probe]) 0 24)
+          directory-file (io/file cache-dir "tools" "build-graph" hash)
+          runner-file (io/file directory-file "build-runner.zig")
+          probe-file (io/file directory-file "build-graph-dump.zig")]
+      (.mkdirs directory-file)
+      (doseq [[^File file source] [[runner-file patched] [probe-file probe]]]
+        (when-not (= source (when (.isFile file) (slurp file)))
+          (Files/writeString (.toPath file) source StandardCharsets/UTF_8
+                             (into-array StandardOpenOption
+                                         [StandardOpenOption/CREATE
+                                          StandardOpenOption/TRUNCATE_EXISTING
+                                          StandardOpenOption/WRITE]))))
+      {:runner-path (.getAbsolutePath runner-file)
+       :probe-path (.getAbsolutePath probe-file)
+       :hash hash
+       :zig-lib-directory lib-directory})))
+
+(defn- decode-hex-text
+  [text]
+  (String. (.parseHex (HexFormat/of) text) StandardCharsets/UTF_8))
+
+(defn- parse-build-graph-record
+  [line]
+  (when (str/starts-with? line (str build-graph-marker "\t"))
+    (let [[_ owner name source path-count & extra] (str/split line #"\t" -1)]
+      (when (or (nil? path-count) (seq extra))
+        (throw (ex-info "Malformed Aguafria build-graph record"
+                        {:aguafria/phase :zig-build-graph :line line})))
+      {:relative-path (decode-hex-text owner)
+       :name (decode-hex-text name)
+       :source (decode-hex-text source)
+       :unresolved-path-count (Long/parseLong path-count)})))
+
+(defn build-generated-modules
+  "Ask Zig's own configure phase for build-generated named option modules.
+
+  Returns serializable data grouped by the project-relative Zig module that
+  imports each generated module. `:build-steps` selects a build profile; an
+  empty vector uses the project's default step. No build step is executed."
+  ([project-root] (build-generated-modules project-root {}))
+  ([project-root {:keys [zig build-steps build-file]
+                  :or {zig "zig" build-steps [] build-file "build.zig"}
+                  :as options}]
+   (let [root (.getCanonicalFile (io/file project-root))
+         build-file (.getCanonicalFile (io/file root build-file))
+         _ (when-not (.isFile build-file)
+             (throw (ex-info "Converted project has no Zig build file to inspect"
+                             {:aguafria/phase :zig-build-graph
+                              :project-root (.getAbsolutePath root)
+                              :build-file (.getAbsolutePath build-file)})))
+         _ (when-not (and (sequential? build-steps)
+                          (every? #(or (string? %) (instance? clojure.lang.Named %))
+                                  build-steps))
+             (throw (ex-info ":build-steps must be a sequence of Zig build step names"
+                             {:aguafria/phase :zig-build-graph
+                              :build-steps build-steps})))
+         runner (ensure-build-graph-runner! options (.getAbsolutePath root))
+         command (vec (concat [zig "build"]
+                              (map str build-steps)
+                              ["--help"
+                               "--build-file" (.getAbsolutePath build-file)
+                               "--build-runner" (:runner-path runner)]))
+         result (run-command command (.getAbsolutePath root))]
+     (when-not (zero? (:exit result))
+       (throw (ex-info (str "Unable to inspect Zig build-generated modules\n\n"
+                            (:err result))
+                       (assoc result :aguafria/phase :zig-build-graph))))
+     (let [records (->> (str/split-lines (:err result))
+                        (keep parse-build-graph-record)
+                        distinct
+                        (sort-by (juxt :relative-path :name :source))
+                        vec)
+           grouped (group-by (juxt :relative-path :name) records)
+           conflicts (->> grouped
+                          (keep (fn [[[relative-path name] candidates]]
+                                  (when (< 1 (count candidates))
+                                    {:relative-path relative-path
+                                     :name name
+                                     :candidate-count (count candidates)
+                                     :sources (mapv :source candidates)})))
+                          vec)
+           unresolved-path-modules
+           (->> records
+                (filter #(pos? (:unresolved-path-count %)))
+                (mapv #(select-keys % [:relative-path :name
+                                       :unresolved-path-count])))
+           complete-records
+           (remove #(pos? (:unresolved-path-count %)) records)
+           modules-by-path
+           (into (sorted-map)
+                 (map (fn [[relative-path records]]
+                        [relative-path
+                         (into (sorted-map)
+                               (map (juxt :name :source))
+                               records)]))
+                 (group-by :relative-path complete-records))]
+       {:project-root (.getAbsolutePath root)
+        :build-file (.getAbsolutePath build-file)
+        :build-steps (mapv str build-steps)
+        :runner-hash (:hash runner)
+        :module-count (count records)
+        :owner-count (count modules-by-path)
+        :conflict-count (count conflicts)
+        :conflicts conflicts
+        :unresolved-path-module-count (count unresolved-path-modules)
+        :unresolved-path-modules unresolved-path-modules
+        :modules-by-path modules-by-path}))))
 
 (defn- ensure-helper!
   [{:keys [cache-dir zig]
@@ -3260,7 +3419,8 @@
 
 (defn- project-catalog
   ([plans] (project-catalog plans []))
-  ([plans reports]
+  ([plans reports] (project-catalog plans reports {}))
+  ([plans reports generated-modules-by-path]
    (let [defaults-by-namespace
          (into {} (map (juxt (comp str :namespace) :compact-defaults)) reports)
          source-orders-by-namespace
@@ -3268,13 +3428,19 @@
   {:schema-version 1
    :modules
    (into (sorted-map)
-         (map (fn [{:keys [namespace declaration-names] :as plan}]
+         (map (fn [{:keys [namespace declaration-names relative] :as plan}]
                 [(str namespace)
-                 (cond-> {:renames (compact-declaration-renames declaration-names)
+                 (cond-> {:relative-path (str relative)
+                          :renames (compact-declaration-renames declaration-names)
                           :imports (catalog-imports plan)
                           :source-orders
                           (or (get source-orders-by-namespace (str namespace))
                               {})}
+                   (seq (get generated-modules-by-path
+                             (str/replace (str relative) "\\" "/")))
+                   (assoc :generated-modules
+                          (get generated-modules-by-path
+                               (str/replace (str relative) "\\" "/")))
                    (seq (get defaults-by-namespace (str namespace)))
                    (assoc :compact-defaults
                           (get defaults-by-namespace (str namespace))))]))
@@ -3342,7 +3508,10 @@
 
   `:namespace-prefix` is required. `:bundle-assets? true` copies every non-Zig
   project file into the generated output so later materialization needs no
-  original source checkout. Returns per-file and aggregate statistics."
+  original source checkout. When `build.zig` exists, Zig's configure phase is
+  inspected for generated option modules by default; use
+  `:capture-build-modules? false` to skip it or `:build-steps` to select a
+  different build profile. Returns per-file and aggregate statistics."
   [input-root output-root {:keys [namespace-prefix bundle-assets?] :as options}]
   (when-not namespace-prefix
     (throw (ex-info "convert-tree! requires :namespace-prefix"
@@ -3389,7 +3558,33 @@
         plans (mapv #(assoc % :project-require-modes
                             (project-require-modes import-graph %))
                     plans)
-        preliminary-catalog (project-catalog plans)
+        capture-build-modules? (not= false (:capture-build-modules? options))
+        build-file (io/file input-root-file (or (:build-file options) "build.zig"))
+        build-graph
+        (when (and capture-build-modules? (.isFile build-file))
+          (build-generated-modules input-root-file options))
+        generated-modules-by-path (or (:modules-by-path build-graph) {})
+        _ (when (seq (:conflicts build-graph))
+            (throw
+             (ex-info
+              "Selected Zig build profile produced conflicting generated modules"
+              {:aguafria/phase :zig-build-graph
+               :input-root (.getAbsolutePath input-root-file)
+               :build-steps (:build-steps build-graph)
+               :conflicts (:conflicts build-graph)
+               :hint "Select one unambiguous build profile with :build-steps."})))
+        _ (when (seq (:unresolved-path-modules build-graph))
+            (throw
+             (ex-info
+              "Zig build profile contains generated modules with build-step paths"
+              {:aguafria/phase :zig-build-graph
+               :input-root (.getAbsolutePath input-root-file)
+               :build-steps (:build-steps build-graph)
+               :modules (:unresolved-path-modules build-graph)
+               :hint (str "These values are finalized while Zig executes their "
+                          "producer steps; select a value-only profile or disable "
+                          "capture until build-step path recreation is supported.")})))
+        preliminary-catalog (project-catalog plans [] generated-modules-by-path)
         _ (project/register-catalog! preliminary-catalog)
         module-imports (project-module-imports plans)
         reports
@@ -3411,7 +3606,7 @@
                                                               (str relative)))))))
               :relative-path (str relative))))
          plans)
-        catalog (project-catalog plans reports)
+        catalog (project-catalog plans reports generated-modules-by-path)
         _ (project/register-catalog! catalog)
         fallbacks (reduce + (map :fallback-count reports))
         declarations (reduce + (map :declaration-count reports))
@@ -3431,7 +3626,10 @@
                 {:input-root (.getAbsolutePath (.getCanonicalFile (io/file input-root)))
                 :output-root (.getAbsolutePath output-file)
                 :catalog-path (.getAbsolutePath catalog-file)
-                :namespace-prefix (symbol (str namespace-prefix))
+                 :namespace-prefix (symbol (str namespace-prefix))
+                 :generated-module-count (or (:module-count build-graph) 0)
+                 :generated-module-owner-count (or (:owner-count build-graph) 0)
+                 :build-steps (or (:build-steps build-graph) [])
                 :file-count (count reports)
                 :declaration-count declarations
                 :structural-declaration-count

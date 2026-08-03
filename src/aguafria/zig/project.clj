@@ -92,6 +92,16 @@
   (ensure-resource-catalogs!)
   (get @catalogs (str module)))
 
+(defn ^:no-doc module-relative-path
+  "Return the converted module's project-relative Zig path, when known."
+  [module]
+  (:relative-path (module-data module)))
+
+(defn ^:no-doc generated-modules
+  "Return build-generated named Zig module sources captured for this module."
+  [module]
+  (or (:generated-modules (module-data module)) {}))
+
 (defn declaration-zig-name
   "Resolve a target Clojure Var name to its exact Zig declaration spelling."
   [target-namespace clojure-name]
@@ -134,10 +144,13 @@
   {:module-count (count @catalogs)
    :modules (into (sorted-map)
                   (map (fn [[module data]]
-                         [module {:rename-count (count (:renames data))
+                         [module {:relative-path (:relative-path data)
+                                  :rename-count (count (:renames data))
                                   :compact-default-count
                                   (count (:compact-defaults data))
                                   :import-count (count (:imports data))
+                                  :generated-module-count
+                                  (count (:generated-modules data))
                                   :source-order-count
                                   (count (:source-orders data))}]))
                   @catalogs)})

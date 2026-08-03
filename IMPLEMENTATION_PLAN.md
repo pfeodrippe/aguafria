@@ -40,11 +40,28 @@ output, and the original/converted fuzz-smoke runs completed in 23.548s and
 23.675s respectively. Broader performance and language-client evidence remains
 explicit follow-up work; local standalone behavioral parity is established.
 
-The later live work is larger than the old namespace-module replacement test:
-true live native Var indirection, compatible pointer swaps, incompatible ABI
-version coexistence, quiescent retirement, state migration, and a running
-TigerBeetle equivalence/hot-reload demonstration. These are tracked explicitly
-below; this document must not call the project live-complete before they pass.
+The first true live native Var layer is now implemented for scalar functions
+in one namespace and across transitive, including cyclic, namespace graphs.
+Development libraries contain stable, ABI-keyed dispatch cells; an
+ABI-compatible callee edit repoints already-compiled callers without
+recompiling them, while final `ReleaseFast` builds retain direct static calls
+and contain no dispatch machinery. Development compilation gives every
+Clojure namespace one logical Zig module in an immutable dependency snapshot
+and uses a tiny loader root, so the root may participate in a cycle without
+being compiled twice. Zig comptime calls take the current static implementation
+while runtime calls use the dispatch cell. Native and JVM-side active-call
+accounting keeps an obsolete library loaded across an in-flight call and
+retires its arena after quiescence. Breaking scalar ABI versions coexist and
+old callers remain on the old version until reevaluated.
+
+This generic path now passes both a hand-written two-namespace cyclic hot-
+reload test and a real converted TigerBeetle scalar probe: an already-compiled
+caller observed `compaction_op_min` change from 96 to 97 and back to 96 in the
+same JVM without changing the caller's implementation generation. Atomic
+multi-module SCC publication, build-step-dependent path option recreation,
+state migration, live containers/types, and a running full
+TigerBeetle-process hot-reload demonstration remain explicit work below; this
+document must not call the project live-complete before they pass.
 
 ## Goal
 
@@ -99,10 +116,11 @@ is an implicit return for the final expression of a non-void function.
      magical Zig identifiers. Converted modules use ordinary eager `:as`
      requires for acyclic graph edges and reserve `:as-alias` only for edges
      that close a real Zig import cycle, as recorded in a generated EDN
-     catalog; generated
-     namespaces contain no Aguafria metadata and no Zig file paths. Clojure
-     namespace identity is the live compiler-module identity. Original Zig
-     paths remain only in conversion reports used by optional materialization.
+     catalog; generated namespaces contain no Aguafria metadata and no Zig file
+     paths. Clojure namespace identity is the live compiler-module identity.
+     The compact project EDN catalog may retain project-relative output paths
+     for materialization and asset/layout reconstruction, but never machine-
+     absolute source paths or a runtime dependency on the original Zig tree.
      Do not generate empty `az/defimport` declarations for converted files.
    - Qualify generated `ak/...` aliases to their `aguafria.keyword/...` Var
      symbols at macro-expansion time, independent of the chosen alias. Have the
@@ -311,6 +329,21 @@ is an implicit return for the final expression of a non-void function.
   `builtin`, `root`, and build option modules as ordinary `az/defconst` Vars
   initialized with `ak/import`; generated project code contains no empty
   `az/defimport` declarations or invented member stubs.
+- [x] Ask Zig's own version-matched build configure graph for value-based
+  `Step.Options` modules and store their generated Zig source in the project
+  EDN catalog, associated with the importing module and selected build profile.
+  `convert-tree!` captures the default step automatically and accepts
+  `:build-steps` for another profile. Runtime compilation materializes these
+  named modules automatically, while an explicit `az/configure! :modules`
+  entry remains an intentional override. A fresh-JVM TigerBeetle namespace
+  test compiles with an empty manual module map and proves its command uses the
+  captured `vsr_options`; the checked default profile captures three module
+  attachments across `vsr_options` and `test_options`.
+- [ ] Recreate `Step.Options.addOptionPath` and other build-step-dependent path
+  values relative to the materialized project/cache. The inspector detects and
+  rejects these modules with structured owner/name/count data rather than
+  silently recording incomplete Zig. Value-only generated modules are already
+  self-contained and require neither original Zig files nor manual paths.
 - [x] Support declaration docstrings and ordinary attr-maps after names for
   `defn`, `defconst`, `defvar`, and `defstruct`; let inferred-type
   `defconst`/`defvar` omit the `_` placeholder, and generate this clean syntax.
@@ -392,14 +425,68 @@ is an implicit return for the final expression of a non-void function.
   struct/container schema fingerprints. Store them in Var metadata and the
   serializable statistics API; body/doc changes preserve their compatible key
   while signature/field/order/layout changes produce a breaking key.
-- [ ] Generate stable dispatch cells and route reloadable inter-Var calls
-  through the cell for the referenced ABI version.
-- [ ] Add atomic component publication, active-call accounting, quiescence,
-  and safe old-generation retirement.
-- [ ] Add cross-namespace dependency graph/SCC handling.
+- [x] Generate stable ABI-keyed dispatch cells for exported scalar functions
+  and route same-namespace reloadable inter-Var calls through them. A compatible
+  callee body edit repoints already-compiled callers without changing their
+  implementation generation.
+- [x] Apply development dispatch to addressable Zig-only scalar helpers as well
+  as C-exported functions. A non-exported `pub fn` now hot-swaps existing Zig
+  callers within one namespace and across a required namespace, while only
+  actual C exports remain directly callable from Clojure through FFM. This is
+  required for converted projects such as TigerBeetle, whose ordinary logic is
+  predominantly Zig `pub fn`, not `export fn`.
+- [x] Add native and JVM-side active-call accounting plus safe quiescent
+  retirement for scalar shared-library generations. A concurrent integration
+  test publishes a replacement while the old native call remains active,
+  observes its retirement-pending state through `az/stats`, and proves that its
+  arena is unloaded only after the call returns.
+- [ ] Extend atomic publication from a single namespace to complete dependency
+  components, including rollback of a partially prepared multi-module swap.
+- [x] Route cross-namespace scalar calls through imported development dispatch
+  cells. Adding `A/new-a`, hot-rewiring new and existing `B` Vars,
+  compatible `A`-only swaps without recompiling `B`, and breaking `A@v1`/`A@v2`
+  coexistence all pass in one PID with async compilation. Default exported
+  functions are `pub export fn`, making them both C-callable and Zig namespace
+  members.
+- [x] Capture the exact development source, direct dependency table, and
+  dispatch entries of the complete registered transitive graph when an async
+  compilation job is queued, so a concurrent callee edit cannot make the
+  caller compile one generation and bind symbols from another. Converted
+  dependencies that are unresolved during first-file registration are loaded
+  cycle-safely before the immutable snapshot is refreshed.
+- [x] Compile development graphs as logical Clojure-namespace Zig modules
+  behind a tiny loader root. The compilation root may therefore appear in an
+  A↔B cycle exactly once, without a duplicate module or dependency dispatch
+  entry overwriting the root-owned cell. A hand-written cyclic A/B integration
+  test proves an existing caller follows an A-only compatible swap without
+  recompilation.
+- [x] Preserve Zig comptime semantics for reloadable scalar helpers: calls made
+  during comptime use the statically compiled implementation and do not execute
+  atomic active-call accounting, while runtime calls still use the swappable
+  cell. Permit absent transitive dispatch exports only when an unreachable
+  platform-specific Zig declaration was lazily omitted; partial getter/setter
+  export pairs remain an error.
+- [x] Expose deterministic direct dependencies, reverse dependents, SCC ids,
+  member lists, and cycle flags through `az/stats`. The loaded 245-module
+  TigerBeetle graph currently resolves to 123 components, 6 cyclic components,
+  and a largest cyclic component of 97 modules; this is the measured atomicity
+  problem the component publisher must handle efficiently.
+- [ ] Build the complete dependency graph and publish strongly connected/cyclic
+  components atomically from one immutable dependency snapshot.
 - [ ] Add stable versioned `defvar` state capsules and explicit migration API.
-- [ ] Add versioned `defstruct`, `defn`, and `defconst` coexistence and expose
-  them through inspection/statistics.
+- [x] Retain breaking scalar `defn` ABI versions side by side and expose them
+  through `az/function-versions`, `az/invoke-version!`, and statistics. A native
+  integration test publishes a two-argument v2, invokes it normally, and then
+  invokes the retained one-argument v1 in the same process.
+- [x] Preserve a same-namespace scalar caller across a dependency-free breaking
+  callee signature. If the full new namespace cannot compile because old `B`
+  still calls `A@v1`, publish `A@v2` as an independent live slice, retain old
+  `B`/`A@v1`, and expose the expected full-source compiler error in statistics.
+  After reevaluating corrected `B`, the complete namespace publishes normally.
+  This scenario also passes through the asynchronous compiler.
+- [ ] Generalize breaking-callable live slices to their transitive declaration
+  dependencies, cross-namespace callers/SCCs, and versioned
+  `defstruct`/`defconst` coexistence through the same inspection machinery.
 - [ ] Make type-producing declarations and containers live-reloadable, not
   merely fingerprinted. This includes `az/container` values, anonymous and
   nested containers, comptime/generic type factories such as TigerBeetle's
@@ -410,7 +497,9 @@ is an implicit return for the final expression of a non-void function.
   process; a breaking layout/type change must publish a new version while old
   callers, instantiated types, and live state continue using the old version
   until migration and quiescent retirement.
-- [ ] Preserve the direct static optimized final-build path.
+- [x] Preserve the direct static optimized final-build path: `az/source` and
+  the `ReleaseFast` source used by `az/build!` contain no `__aguafria_`
+  development dispatch symbols.
 
 ### Performance
 
@@ -428,6 +517,11 @@ is an implicit return for the final expression of a non-void function.
   and TigerBeetle conversion, catalog bootstrap/Var interning, emission,
   clean/cached/incremental compilation, parallel declaration compilation,
   reload publication, FFM invocation, and dispatch-cell calls.
+- [ ] Reduce interactive compile closure and command size for large graphs.
+  The correctness-first loader currently snapshots/materializes the full
+  reachable graph and makes configured external modules visible throughout it;
+  measure this on TigerBeetle, then cache unchanged named modules and pass only
+  the dependency edges/modules actually required by each compile.
 - [ ] Publish timing/cache/queue counters through the existing serializable
   statistics APIs, including per-phase latency percentiles and critical-path
   time for dependency components.
@@ -442,15 +536,40 @@ is an implicit return for the final expression of a non-void function.
   `:reloadable? false` `ReleaseFast` artifact has no dispatch/runtime overhead
   beyond equivalent handwritten Zig.
 
+### Host and cross-target portability
+
+- [x] Keep the release compiler target independent of the JVM host: final
+  executables/libraries/objects honor Zig `:target`/`:cpu` and contain no JVM,
+  FFM, or Aguafria runtime. The TigerBeetle C artifact matrix cross-compiles for
+  Linux and Windows from the current macOS/aarch64 host.
+- [x] Require development shared libraries to target the current JVM host; the
+  same FFM/dispatch design is OS-independent, but a foreign-target DLL/shared
+  object is never loaded into the host JVM.
+- [ ] Run native compile/invoke, compatible and breaking hot reload,
+  active-call retirement, and standalone-build suites on Linux x86_64,
+  Windows x86_64, macOS x86_64, and macOS aarch64. Validate platform C ABI
+  layouts, dynamic-library naming/loading, native-access flags, and filesystem
+  behavior in CI.
+
 ### Required live acceptance scenarios
 
-- [ ] Define new `A`, redefine already-running `B` to call `A`, and observe the
+- [x] Define new `A`, redefine already-running `B` to call `A`, and observe the
   new `B` in the same live native process without restart.
-- [ ] Repeat `A`/`B` across two Clojure namespaces.
-- [ ] Redefine ABI-compatible `A` only and prove existing compiled `B` follows
+- [x] Repeat new-`A`/rewired-`B`, compatible `A`-only swapping, and breaking
+  `A@v1`/`A@v2` coexistence across two Clojure namespaces in the same PID.
+- [x] Redefine ABI-compatible `A` only and prove existing compiled `B` follows
   the swapped `A` dispatch pointer without recompiling.
-- [ ] Break `A`'s signature; prove old `B` continues through `A@v1`, then
-  publish corrected `B@v2` through `A@v2` while both generations coexist.
+- [x] Break scalar `A`'s signature within one namespace and across two
+  namespaces; prove old `B` continues through `A@v1`, then publish corrected
+  `B@v2` through `A@v2` while both generations coexist.
+- [x] Form a real cycle from two ordinary hand-written Aguafria namespaces and
+  prove that changing one compatible scalar callee updates the already-compiled
+  caller in the other namespace without restarting or recompiling that caller.
+- [x] In converted TigerBeetle code, compile an ordinary new Aguafria caller of
+  the existing Zig-only `compaction_op_min`, redefine only that callee, and
+  observe 96 → 97 → 96 in the same JVM while the caller's implementation
+  generation remains unchanged. This proves real converted cyclic-component
+  scalar dispatch; it is not the still-pending full running-program/state test.
 - [ ] Change a struct layout; prove old code/state remains valid, migrate with
   an explicit function, and route new code to the new version.
 - [ ] In converted TigerBeetle, reevaluate the comptime `az/defn OptionsType`

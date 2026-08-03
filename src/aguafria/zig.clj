@@ -22,6 +22,14 @@
   (runtime/source module))
 (clojure.core/defn module-info "Return inspectable loaded-module information." [module]
   (runtime/module-info module))
+(clojure.core/defn function-versions
+  "Return loaded ABI versions for an exported Zig Var or qualified symbol."
+  [function]
+  (runtime/function-versions function))
+(clojure.core/defn invoke-version!
+  "Invoke a retained scalar ABI version by its fingerprint."
+  [function abi-fingerprint arguments]
+  (runtime/invoke-version! function abi-fingerprint arguments))
 (clojure.core/defn stats
   "Return monitor-friendly compilation statistics globally or for one module."
   ([] (runtime/stats))

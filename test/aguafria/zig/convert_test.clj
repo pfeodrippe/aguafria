@@ -225,6 +225,57 @@
                               (:namespace math-report) "\");")))
       (is (str/includes? zig-source "math.double(math.double(value))")))))
 
+(deftest build-generated-option-modules-are-captured-and-used-test
+  (testing "Zig configure data becomes self-contained EDN and needs no manual module path"
+    (let [input "test/fixtures/build_options_project"
+          graph (convert/build-generated-modules input)
+          alternate-graph
+          (convert/build-generated-modules input {:build-steps ["alternate"]})
+          output (.toFile
+                  (java.nio.file.Files/createTempDirectory
+                   "aguafria-build-options"
+                   (make-array java.nio.file.attribute.FileAttribute 0)))
+          namespace-prefix
+          (symbol (str "fixture.build-options-" (random-uuid)))
+          old-config (runtime/configuration)
+          report (convert/convert-tree!
+                  input output
+                  {:namespace-prefix namespace-prefix
+                   :overwrite? true})
+          root-report
+          (some #(when (= "src/root.zig" (:relative-path %)) %) (:files report))
+          catalog (edn/read-string (slurp (:catalog-path report)))
+          captured-source
+          (get-in catalog [:modules (str (:namespace root-report))
+                           :generated-modules "build_options"])]
+      (try
+        (is (= 1 (:module-count graph)))
+        (is (zero? (:conflict-count graph)))
+        (is (zero? (:conflict-count alternate-graph)))
+        (is (str/includes?
+             (get-in alternate-graph
+                     [:modules-by-path "src/root.zig" "build_options"])
+             "pub const answer: u32 = 99;"))
+        (is (= 1 (:generated-module-count report)))
+        (is (str/includes? captured-source "pub const answer: u32 = 42;"))
+        (is (str/includes? captured-source
+                           "pub const message: []const u8 = \"captured by Zig\";"))
+        (runtime/configure! {:async? false :modules {}})
+        (convert/load-converted! (:output-path root-report))
+        (runtime/recompile! (:namespace root-report))
+        (let [answer (ns-resolve (the-ns (:namespace root-report)) 'answer)
+              value (answer)
+              info (runtime/stats (:namespace root-report))
+              module-info (runtime/module-info (:namespace root-report))]
+          (is (= 42 value))
+          (is (= :finished (get-in info [:last-build :status])))
+          (is (some? (:published-generation info)))
+          (is (some #(str/starts-with? % "-Mbuild_options=")
+                    (:command module-info))))
+        (finally
+          (runtime/configure! old-config)
+          (when root-report (remove-ns (:namespace root-report))))))))
+
 (deftest compiler-provided-import-is-an-ordinary-module-var-test
   (let [path "test/fixtures/compiler_import.zig"
         {:keys [forms report clojure-source]}
@@ -399,7 +450,15 @@
                            :declaration-count (count (:definitions info#))
                            :published? (some? (:published-generation info#))
                            :pending? (:pending? info#)
-                           :source-only? (:source-only? info#)}]
+                           :source-only? (:source-only? info#)
+                           :manual-module-count
+                           (count (:modules
+                                   (aguafria.zig.runtime/configuration)))
+                           :captured-vsr-options?
+                           (boolean
+                            (some #(clojure.string/starts-with?
+                                    % "-Mvsr_options=")
+                                  (:command info#)))}]
               (shutdown-agents)
               result#)))
         result (shell/sh "clojure"
@@ -411,7 +470,9 @@
               :declaration-count 8
               :published? true
               :pending? false
-              :source-only? false}
+              :source-only? false
+              :manual-module-count 0
+              :captured-vsr-options? true}
              (edn/read-string (str/trim (:out result))))))))
 
 (deftest complete-tigerbeetle-conversion-materializes-and-compiles-test
