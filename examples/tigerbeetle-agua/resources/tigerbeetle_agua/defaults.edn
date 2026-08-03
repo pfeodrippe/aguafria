@@ -1,0 +1,6 @@
+{:cluster 0
+ :replica 0
+ :replica-count 1
+ :addresses "3000"
+ :development? true
+ :data-file "data/0_0.tigerbeetle"}

@@ -8,6 +8,7 @@
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.value :as value]
             [clojure.string :as str]))
 
 (clojure.core/defn emit-expr "Emit one Zig expression." [form]
@@ -22,6 +23,52 @@
   (runtime/source module))
 (clojure.core/defn module-info "Return inspectable loaded-module information." [module]
   (runtime/module-info module))
+(clojure.core/defn zig-value?
+  "True for an exact native Zig value handle."
+  [candidate]
+  (value/zig-value? candidate))
+(clojure.core/defn zig-type?
+  "True for an ordinary callable Aguafria Zig type constructor."
+  [candidate]
+  (value/zig-type? candidate))
+(clojure.core/defn value-info
+  "Inspect a native Zig value without forcing it."
+  [zig-value]
+  (value/info zig-value))
+(clojure.core/defn native-segment
+  "Return a Zig value's authoritative FFM MemorySegment."
+  [zig-value]
+  (value/segment zig-value))
+(clojure.core/defn native-bytes
+  "Copy a Zig value's exact native representation into a byte vector."
+  [zig-value]
+  (value/bytes zig-value))
+(clojure.core/defn value
+  "Return the semantic Clojure value represented by a native Zig value.
+  Scalars remain scalars; structs become maps and arrays/vectors become
+  vectors. The ZigValue itself retains the authoritative native bytes."
+  [zig-value]
+  (if (value/zig-value? zig-value)
+    (value/decoded zig-value)
+    zig-value))
+(clojure.core/defn close!
+  "Release a native Zig value explicitly. Closing is idempotent; otherwise
+  the backing memory is released automatically when the value becomes
+  unreachable."
+  [zig-value]
+  (when (value/zig-value? zig-value)
+    (.close ^java.lang.AutoCloseable zig-value))
+  nil)
+(clojure.core/defn set-value!
+  "Write a checked Clojure value into an az/defvar's actual native storage.
+  This is an in-place REPL operation, not a compilation. Coordinate with
+  running native threads exactly as ordinary Zig code must."
+  [zig-var value]
+  (when-not (value/zig-value? zig-var)
+    (throw (ex-info "az/set-value! expects the value of an az/defvar Var"
+                    {:value zig-var
+                     :clojure-type (clojure.core/type zig-var)})))
+  (value/set-value! zig-var value))
 (clojure.core/defn function-versions
   "Return loaded ABI versions for an exported Zig Var or qualified symbol."
   [function]
@@ -327,7 +374,7 @@
     `(let [descriptor# ~descriptor-form]
        (runtime/register-declaration! descriptor#)
        (def ~(with-meta name (assoc (meta name) :doc (or docstring "A Zig top-level constant.")))
-         {:aguafria/declaration descriptor#})
+         (runtime/declaration-root-value descriptor#))
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
@@ -362,7 +409,7 @@
     `(let [descriptor# ~descriptor-form]
        (runtime/register-declaration! descriptor#)
        (def ~(with-meta name (assoc (meta name) :doc (or docstring "A Zig top-level variable.")))
-         {:aguafria/declaration descriptor#})
+         (runtime/declaration-state-value descriptor#))
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
@@ -405,7 +452,7 @@
     `(let [descriptor# ~descriptor-form]
        (runtime/register-declaration! descriptor#)
        (def ~(with-meta name (assoc (meta name) :doc (or docstring "A Zig struct declaration.")))
-         {:aguafria/declaration descriptor#})
+         (runtime/declaration-type-value descriptor#))
        (alter-meta! (var ~name) merge
                     {:aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})

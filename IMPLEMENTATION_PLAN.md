@@ -107,7 +107,7 @@ natural quiescence explicitly migrates the state and adopts the new caller
 graph. Both deterministic 2,000-request hosts report `PASSED (10772 ticks)` in
 the same JVM PID. Arbitrary live stack/heap object graphs are intentionally not
 reinterpreted; they require an application-defined safe point and migration.
-The current complete Kaocha regression run passes 80 tests and 2,961
+The current complete Kaocha regression run passes 87 tests and 2,986
 assertions with zero failures.
 
 ## Goal
@@ -207,6 +207,26 @@ is an implicit return for the final expression of a non-void function.
      loaded namespace generation, enabling REPL-oriented hot reload.
    - Allow arbitrary Zig types for code generation while clearly rejecting
      direct Clojure invocation for ABI types not yet supported.
+   - [x] Replace internal descriptor-map Var roots with real Clojure values:
+     exact JVM scalars where lossless, and inspectable FFM-backed Zig values
+     otherwise. `defconst`, live `defvar`, and type Var roots are semantic;
+     emission references remain exclusively in Var metadata.
+   - [ ] Complete development-only native-value bridges. Constant getters and
+     pointer-based function bridges now cover odd-width integers, arbitrary
+     `u64`, normal/extern structs, nested packed structs/bitfields, arrays, and
+     SIMD vectors with explicit Clojure constructors, plus exact keyword
+     construction for enums (including explicit/nonsequential tags) and
+     single-entry maps for tagged unions. Untagged union constructors retain
+     the caller's explicit active-field interpretation; arbitrary returned
+     untagged values correctly remain ambiguous. Live `defvar` values support
+     checked, in-place `az/set-value!` without a build. Add optionals, error
+     unions, pointers, and owned/borrowed slices.
+   - [ ] Finish native-value lifetime coverage. Native generations are pinned
+     while FFM-backed values reference their bytes; type/size/alignment/segment,
+     idempotent explicit close, automatic Cleaner release, and use-after-close
+     diagnostics exist. A compatible publication test proves old native values
+     pin their dylib, cross into new code, and release it on close. Add
+     breaking-schema stale-value and GC-triggered retirement acceptance tests.
 
 5. **Verification and documentation**
    - Generate the complete `@builtin` list and compiler flags from Zig's
@@ -643,14 +663,24 @@ is an implicit return for the final expression of a non-void function.
   host's state capsules authoritative during its lifetime, atomically points
   JVM/native copies at them, copies state back before unloading, refuses two
   simultaneous state owners, and reports host status through `az/stats` and
-  `aguafria.zig.host/stats`. Host completion is delivered only after state is
+  `aguafria.zig.host/stats`. Native host threads default to Zig's 16 MiB stack
+  size (and expose `:stack-size-bytes`) so normal Zig stack frames are not
+  constrained by the JVM's much smaller thread default. Host completion is delivered only after state is
   restored and native arenas close. `aguafria.zig.host/restart!` uses that
   explicit quiescent boundary to start the current generation in the same JVM
   PID and records `:replaces-host-id`; it never force-kills arbitrary Zig code
   or guesses how to migrate live stack/heap objects.
+- [x] Expose every supported `az/defn` as an ordinary callable Clojure Var.
+  A non-`export` Zig function lazily receives a development-only C ABI
+  trampoline on first JVM invocation; later calls reuse the loaded binding and
+  final/static Zig source keeps the declaration's original visibility.
 
 ### Performance
 
+- [x] Verify compile-once direct Var invocation and fresh-process cache reuse.
+  A focused non-`export` Var test proves the first call adds one development
+  generation and the second adds none; the real TigerBeetle `:check` reports
+  14 finished native builds, 14 cache hits, and zero failed builds.
 - [x] Record the initial complete structural TigerBeetle conversion baseline:
   245 files and 3,944 declarations in 27.85 seconds on the current
   macOS/aarch64 development machine with Zig 0.16.0; retain per-file timings in
@@ -842,7 +872,7 @@ is an implicit return for the final expression of a non-void function.
   dependency components, 135 finished builds, 36 stale superseded builds, and
   zero active/queued/compiling builds or active native hosts. After adding the
   cache, fresh generated-classpath, and migration-monitor regressions, the
-  current complete command-line Kaocha run passes 80 tests and 2,961
+  current complete command-line Kaocha run passes 87 tests and 2,986
   assertions with zero failures.
 
 ## Deferred ideas from `todo.md`

@@ -10,8 +10,9 @@
 (defn start!
   "Start a public `fn main(std.process.Init) !void` in this JVM.
 
-  `arguments` excludes argv[0]. Options accept `:argv0` and `:share-state?`
-  (default true). A state-sharing host temporarily owns the live state capsules,
+  `arguments` excludes argv[0]. Options accept `:argv0`, `:share-state?`
+  (default true), and `:stack-size-bytes` (default 16 MiB, matching Zig rather
+  than the JVM's smaller thread default). A state-sharing host temporarily owns the live state capsules,
   so only one may run at a time; false creates an isolated host. The returned
   handle is plain data and can be passed to `await!` or `info`. While the host
   is running, compatible Aguafria Var publications update its native dispatch
@@ -38,7 +39,8 @@
 
   Use this after breaking function/type publications and any required explicit
   state migrations. Compatible edits do not need a restart. Options may
-  override `:arguments` (excluding argv[0]), `:argv0`, and `:share-state?`.
+  override `:arguments` (excluding argv[0]), `:argv0`, `:share-state?`, and
+  `:stack-size-bytes`.
   The replacement handle exposes `:replaces-host-id` for inspection. Aguafria
   never kills an arbitrary Zig main or guesses how to migrate stack/heap
   objects; a long-running program must reach a cooperative/natural safe point."

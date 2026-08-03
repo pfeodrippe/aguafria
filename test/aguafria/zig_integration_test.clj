@@ -5,6 +5,7 @@
             [aguafria.zig.host :as host]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.shell :as shell]
+            [clojure.pprint :as pprint]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
@@ -132,15 +133,497 @@
                    (set! _ process-init)
                    (set! observed 42))))
         (let [main-var (ns-resolve test-ns 'main)
-              handle (host/start! main-var ["argument"] {:argv0 "fixture"})
+              stack-size (* 20 1024 1024)
+              handle (host/start! main-var ["argument"]
+                                  {:argv0 "fixture"
+                                   :stack-size-bytes stack-size})
               result (host/await! handle)
               final-info (host/info handle)]
           (is (= 0 (:exit-code result)))
           (is (= 42 ((ns-resolve test-ns 'observed-value))))
           (is (= :finished (:status final-info)))
+          (is (= stack-size (:stack-size-bytes final-info)))
           (is (false? (:active? final-info))))
         (finally
           (az/configure! old-config))))))
+
+(deftest non-exported-var-is-lazily-callable-and-cached-test
+  (testing "an ordinary Clojure Var materializes one development trampoline"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.lazy-var-" (random-uuid)))
+          test-ns (create-ns test-symbol)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defn twice
+                   {:attrs #{:public :implicit-return}}
+                   :- :i32
+                   [value :- :i32]
+                   (* value 2))))
+        (let [twice (ns-resolve test-ns 'twice)
+              before (:requested-generation (az/module-info test-symbol))]
+          (is (var? twice))
+          (is (= 42 (twice 21)))
+          (let [after-first (:requested-generation
+                             (az/module-info test-symbol))]
+            (is (= (inc before) after-first))
+            (is (= 42 (twice 21)))
+            (is (= after-first
+                   (:requested-generation (az/module-info test-symbol))))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest native-zig-values-round-trip-and-print-as-values-test
+  (testing "a non-JVM-shaped integer retains native bytes across a Zig call"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.native-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          input (atom nil)
+          output (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defconst wide :u56 283686952306183))
+          (eval '(az/defn identity-wide
+                   {:attrs #{:public :implicit-return}}
+                   :- :u56
+                   [value :- :u56]
+                   value))
+          (eval '(az/defn identity-u64
+                   {:attrs #{:public :implicit-return}}
+                   :- :u64
+                   [value :- :u64]
+                   value)))
+        (reset! input (var-get (ns-resolve test-ns 'wide)))
+        (reset! output ((ns-resolve test-ns 'identity-wide) @input))
+        (is (az/zig-value? @input))
+        (is (az/zig-value? @output))
+        (is (= "283686952306183" (pr-str @input)))
+        (is (= "283686952306183\n"
+               (with-out-str (pprint/pprint @output))))
+        (is (= [7 6 5 4 3 2 1 0] (az/native-bytes @input)))
+        (is (= (az/native-bytes @input) (az/native-bytes @output)))
+        (is (= {:size 8 :alignment 8 :type :u56}
+               (select-keys (az/value-info @output)
+                            [:size :alignment :type])))
+        (is (= 18446744073709551615N
+               ((ns-resolve test-ns 'identity-u64)
+                18446744073709551615N)))
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"out of range"
+             ((ns-resolve test-ns 'identity-u64)
+              18446744073709551616N)))
+        (az/close! @input)
+        (az/close! @input)
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"Zig value is closed"
+                              (az/value @input)))
+        (finally
+          (doseq [value [@output @input]
+                  :when (az/zig-value? value)]
+            (.close ^java.lang.AutoCloseable value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest defvar-root-is-a-live-native-value-test
+  (testing "a defvar Var exposes changing native state rather than metadata"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.native-state-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          state-value (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defvar live-count :u24 66051))
+          (eval '(az/defn bump :- :void [] (+= live-count 1))))
+        (reset! state-value (var-get (ns-resolve test-ns 'live-count)))
+        (is (az/zig-value? @state-value))
+        (is (= 66051 (az/value @state-value)))
+        ((ns-resolve test-ns 'bump))
+        (is (= 66052 (az/value @state-value)))
+        (is (= "66052" (pr-str @state-value)))
+        (is (= 1000 (az/set-value! @state-value 1000)))
+        ((ns-resolve test-ns 'bump))
+        (is (= 1001 (az/value @state-value)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"out of range"
+                              (az/set-value! @state-value 16777216)))
+        (finally
+          (az/close! @state-value)
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest packed-structs-use-clojure-field-maps-test
+  (testing "packed fields decode, pprint, construct, and pass without layout guesses"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.packed-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constant (atom nil)
+          state-value (atom nil)
+          constructed (atom nil)
+          returned (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct Flags
+                   {:layout :packed :attrs #{:public}}
+                   [[:enabled :bool]
+                    [:opcode :u3]
+                    [:reserved :u4]]))
+          (eval '(az/defconst default-flags
+                   Flags
+                   (Flags {:enabled true :opcode 5 :reserved 9})))
+          (eval '(az/defvar current-flags
+                   Flags
+                   (Flags {:enabled false :opcode 0 :reserved 0})))
+          (eval '(az/defn identity-flags
+                   {:attrs #{:public :implicit-return}}
+                   :- Flags
+                   [flags :- Flags]
+                   flags)))
+        (reset! constant (var-get (ns-resolve test-ns 'default-flags)))
+        (reset! state-value (var-get (ns-resolve test-ns 'current-flags)))
+        (let [Flags (var-get (ns-resolve test-ns 'Flags))]
+          (is (az/zig-type? Flags))
+          (reset! constructed
+                  (Flags {:enabled false :opcode 6 :reserved 2})))
+        (reset! returned
+                ((ns-resolve test-ns 'identity-flags)
+                 {:enabled true :opcode 3 :reserved 10}))
+        (is (= "{:enabled true, :opcode 5, :reserved 9}"
+               (pr-str @constant)))
+        (is (= {:enabled false :opcode 6 :reserved 2}
+               (az/value @constructed)))
+        (is (= {:enabled true :opcode 3 :reserved 10}
+               (az/value @returned)))
+        (is (= {:enabled true :opcode 2 :reserved 4}
+               (az/set-value! @state-value
+                              {:enabled true :opcode 2 :reserved 4})))
+        (is (= "{:enabled true, :opcode 3, :reserved 10}\n"
+               (with-out-str (pprint/pprint @returned))))
+        (is (= [(unchecked-byte 0xa7)] (az/native-bytes @returned)))
+        (finally
+          (doseq [value [@returned @constructed @state-value @constant]
+                  :when (az/zig-value? value)]
+            (.close ^java.lang.AutoCloseable value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest extern-structs-use-zig-reported-layout-test
+  (testing "extern structs construct, decode, pprint, and cross the native bridge"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.extern-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constant (atom nil)
+          constructed (atom nil)
+          returned (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct Point
+                   {:attrs #{:public}}
+                   [[:x :i32]
+                    [:y :f64]
+                    [:enabled :u8]]))
+          (eval '(az/defconst origin
+                   Point
+                   (Point {:x 0 :y 0.0 :enabled 1})))
+          (eval '(az/defn identity-point
+                   {:attrs #{:public :implicit-return}}
+                   :- Point
+                   [point :- Point]
+                   point)))
+        (reset! constant (var-get (ns-resolve test-ns 'origin)))
+        (is (= {:x 0 :y 0.0 :enabled 1} (az/value @constant)))
+        ;; Direct map coercion requests Zig's layout accessors itself; users do
+        ;; not have to invoke the explicit constructor first.
+        (reset! returned
+                ((ns-resolve test-ns 'identity-point)
+                 {:x 12 :y -3.25 :enabled 0}))
+        (let [Point (var-get (ns-resolve test-ns 'Point))]
+          (is (az/zig-type? Point))
+          (reset! constructed
+                  (Point {:x -7 :y 2.5 :enabled 1})))
+        (is (= {:x -7 :y 2.5 :enabled 1} (az/value @constructed)))
+        (is (= {:x 12 :y -3.25 :enabled 0} (az/value @returned)))
+        (is (= "{:x 12, :y -3.25, :enabled 0}\n"
+               (with-out-str (pprint/pprint @returned))))
+        (finally
+          (doseq [value [@returned @constructed @constant]
+                  :when (az/zig-value? value)]
+            (.close ^java.lang.AutoCloseable value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest arrays-and-simd-vectors-use-clojure-vectors-test
+  (testing "native arrays and SIMD vectors round-trip as Clojure vectors"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.sequence-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          array-value (atom nil)
+          vector-value (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defn identity-array
+                   {:attrs #{:public :implicit-return}}
+                   :- [:array 3 :u24]
+                   [values :- [:array 3 :u24]]
+                   values))
+          (eval '(az/defn identity-vector
+                   {:attrs #{:public :implicit-return}}
+                   :- [:vector 4 :i16]
+                   [values :- [:vector 4 :i16]]
+                   values)))
+        (reset! array-value
+                ((ns-resolve test-ns 'identity-array)
+                 [1 16777215 66051]))
+        (reset! vector-value
+                ((ns-resolve test-ns 'identity-vector)
+                 [-32768 -1 0 32767]))
+        (is (= [1 16777215 66051] (az/value @array-value)))
+        (is (= [-32768 -1 0 32767] (az/value @vector-value)))
+        (is (= "[1 16777215 66051]\n"
+               (with-out-str (pprint/pprint @array-value))))
+        (is (= 12 (count (az/native-bytes @array-value))))
+        (finally
+          (doseq [value [@array-value @vector-value]
+                  :when (az/zig-value? value)]
+            (.close ^java.lang.AutoCloseable value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest nested-packed-structs-remain-semantic-maps-test
+  (testing "nested packed structs use nested field maps and Zig bit ordering"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.nested-packed-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constructed (atom nil)
+          returned (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct Inner
+                   {:layout :packed :attrs #{:public}}
+                   [[:low :u3]
+                    [:high :bool]]))
+          (eval '(az/defstruct Outer
+                   {:layout :packed :attrs #{:public}}
+                   [[:inner Inner]
+                    [:tail :u4]]))
+          (eval '(az/defn identity-outer
+                   {:attrs #{:public :implicit-return}}
+                   :- Outer
+                   [value :- Outer]
+                   value)))
+        (let [Outer (var-get (ns-resolve test-ns 'Outer))]
+          (reset! constructed
+                  (Outer {:inner {:low 5 :high true} :tail 10})))
+        (reset! returned
+                ((ns-resolve test-ns 'identity-outer)
+                 @constructed))
+        (is (= {:inner {:low 5 :high true} :tail 10}
+               (az/value @constructed)))
+        (is (= {:inner {:low 5 :high true} :tail 10}
+               (az/value @returned)))
+        (is (= [(unchecked-byte 0xad)] (az/native-bytes @returned)))
+        (finally
+          (doseq [value [@returned @constructed]
+                  :when (az/zig-value? value)]
+            (.close ^java.lang.AutoCloseable value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest enums-use-clojure-keywords-test
+  (testing "container enum Vars are constructors and enum values are keywords"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.enum-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constant (atom nil)
+          constructed (atom nil)
+          returned (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defconst Mode
+                   {:attrs #{:public}}
+                   (az/container
+                    {:kind :enum :layout :normal :argument :u8}
+                    (az/enum-field-decl idle)
+                    (az/enum-field-decl running 7)
+                    (az/enum-field-decl stopped))))
+          (eval '(az/defconst default-mode Mode :.running))
+          (eval '(az/defn identity-mode
+                   {:attrs #{:public :implicit-return}}
+                   :- Mode
+                   [mode :- Mode]
+                   mode)))
+        (let [Mode (var-get (ns-resolve test-ns 'Mode))]
+          (is (az/zig-type? Mode))
+          (reset! constructed (Mode :stopped)))
+        (reset! constant (var-get (ns-resolve test-ns 'default-mode)))
+        (reset! returned
+                ((ns-resolve test-ns 'identity-mode) @constructed))
+        (is (= :running (az/value @constant)))
+        (is (= :stopped (az/value @constructed)))
+        (is (= :stopped (az/value @returned)))
+        (is (= :idle
+               (az/value ((ns-resolve test-ns 'identity-mode) :idle))))
+        (finally
+          (doseq [value [@returned @constructed @constant]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest converted-container-struct-is-a-clojure-constructor-test
+  (testing "defconst container structs generated from Zig are callable types"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.container-struct-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constructed (atom nil)
+          returned (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defconst Point
+                   {:attrs #{:public}}
+                   (az/container
+                    {:kind :struct :layout :extern}
+                    (az/field-decl x :i32)
+                    (az/field-decl y :f64))))
+          (eval '(az/defn identity-point
+                   {:attrs #{:public :implicit-return}}
+                   :- Point
+                   [point :- Point]
+                   point)))
+        (let [Point (var-get (ns-resolve test-ns 'Point))]
+          (is (az/zig-type? Point))
+          (reset! constructed (Point {:x -9 :y 1.25})))
+        (reset! returned
+                ((ns-resolve test-ns 'identity-point) @constructed))
+        (is (= {:x -9 :y 1.25} (az/value @constructed)))
+        (is (= {:x -9 :y 1.25} (az/value @returned)))
+        (finally
+          (doseq [value [@returned @constructed]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest tagged-unions-use-single-entry-clojure-maps-test
+  (testing "Zig decides the active tagged-union field for construction and decoding"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.union-value-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          constructed (atom nil)
+          returned (atom nil)
+          empty-value (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defconst Value
+                   {:attrs #{:public}}
+                   (az/container
+                    {:kind :union :layout :normal
+                     :enum? true :argument :u8}
+                    (az/field-decl integer :i32)
+                    (az/field-decl floating :f64)
+                    (az/field-decl none :void))))
+          (eval '(az/defn identity-value
+                   {:attrs #{:public :implicit-return}}
+                   :- Value
+                   [value :- Value]
+                   value)))
+        (reset! returned
+                ((ns-resolve test-ns 'identity-value) {:floating 2.5}))
+        (let [Value (var-get (ns-resolve test-ns 'Value))]
+          (is (az/zig-type? Value))
+          (reset! constructed (Value {:integer -42}))
+          (reset! empty-value (Value {:none nil})))
+        (is (= {:floating 2.5} (az/value @returned)))
+        (is (= {:integer -42} (az/value @constructed)))
+        (is (= {:none nil} (az/value @empty-value)))
+        (is (not (str/includes? (az/source test-symbol)
+                                "__aguafria_jvm_type_")))
+        (finally
+          (doseq [value [@empty-value @returned @constructed]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
+(deftest native-values-pin-hot-reload-generations-test
+  (testing "a native value survives compatible reload and releases its old dylib"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.value-reload-" (random-uuid)))
+          test-ns (create-ns test-symbol)
+          old-value (atom nil)
+          returned (atom nil)]
+      (try
+        (az/configure! {:async? false})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct Payload
+                   {:layout :packed :attrs #{:public}}
+                   [[:value :u8]]))
+          (eval '(az/defn identity-payload
+                   {:attrs #{:public :implicit-return}}
+                   :- Payload
+                   [payload :- Payload]
+                   payload)))
+        (let [Payload (var-get (ns-resolve test-ns 'Payload))]
+          (reset! old-value (Payload {:value 41})))
+        (is (= {:value 41} (az/value @old-value)))
+        (let [old-generation (:generation (az/value-info @old-value))]
+          (binding [*ns* test-ns]
+            (eval '(az/defn identity-payload
+                     {:attrs #{:public :implicit-return}}
+                     :- Payload
+                     [payload :- Payload]
+                     (if true payload payload))))
+          (reset! returned
+                  ((ns-resolve test-ns 'identity-payload) @old-value))
+          (is (= {:value 41} (az/value @returned)))
+          (is (pos? (or (some #(when (= old-generation (:generation %))
+                                (:native-value-reference-count %))
+                             (:native-generations (az/module-info test-symbol)))
+                        0)))
+          (az/close! @old-value)
+          (is (not (pos? (or (some #(when (= old-generation (:generation %))
+                                      (:native-value-reference-count %))
+                                   (:native-generations
+                                    (az/module-info test-symbol)))
+                              0)))))
+        (finally
+          (doseq [value [@returned @old-value]
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
 
 (deftest development-root-public-declarations-reach-dependencies-test
   (testing "@import(\"root\") observes the converted application root"

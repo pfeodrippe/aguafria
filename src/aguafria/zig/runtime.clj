@@ -2,6 +2,7 @@
   "Compilation, loading, and invocation for generated Zig modules."
   (:require [aguafria.zig.emitter :as emit]
             [aguafria.zig.project :as project]
+            [aguafria.zig.value :as zig-value]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -26,6 +27,11 @@
 (defonce ^:private component-publication-sequence (atom 0))
 (defonce ^:private live-host-sequence (AtomicLong. 0))
 (defonce ^:private live-hosts (atom {}))
+(def ^:private default-native-host-stack-size-bytes
+  ;; Match Zig's std.Thread.SpawnConfig.default_stack_size. A JVM-created
+  ;; thread is commonly only ~1-2 MiB, which is too small for ordinary Zig
+  ;; programs with substantial stack frames (TigerBeetle is one real case).
+  (* 16 1024 1024))
 (defonce ^:private state-migrations (atom {}))
 (defonce ^:private dispatch-publication-arena (Arena/ofShared))
 (defonce ^:private dispatch-publication-epoch
@@ -53,7 +59,76 @@
 
 (def ^:dynamic *converted-dependency-loading* #{})
 
+(def ^:dynamic *propagate-dependent-changes?*
+  "Internal publication policy. Ordinary declaration edits propagate; a
+  development-only JVM-call trampoline does not change Zig behavior and must
+  not rebuild otherwise-unchanged dependents."
+  true)
+
 (declare register-batch!)
+
+(declare declaration-info declaration-type-value
+         materialize-constant! materialize-state!
+         materialize-type!
+         native-type-schema scalar-key scalar-layouts)
+
+(defn- container-type-description
+  [declaration]
+  (when (= :const (:kind declaration))
+    (emit/container-description
+     (or (some-> (:module declaration) symbol find-ns) *ns*)
+     (:value declaration))))
+
+(defn declaration-root-value
+  "Return the public Clojure root for a Zig constant. Literal values retain
+  their exact JVM representation. Other declarations receive a typed, lazy
+  Zig value handle; the emitter continues to use Var metadata, never this
+  public root."
+  [declaration]
+  (let [declaration (declaration-info declaration)
+        declaration-value (:value declaration)
+        declaration-type (:type declaration)
+        exact-jvm-literal?
+        (or (nil? declaration-value)
+            (and (or (number? declaration-value)
+                     (char? declaration-value)
+                     (boolean? declaration-value))
+                 (or (nil? declaration-type)
+                     (contains? scalar-layouts
+                                (scalar-key declaration-type))))
+            ;; Zig enum literals are semantically symbolic until context gives
+            ;; them a concrete storage type, matching a Clojure keyword.
+            (and (keyword? declaration-value) (nil? declaration-type)))]
+    (cond
+      (container-type-description declaration)
+      (declaration-type-value declaration)
+
+      exact-jvm-literal?
+      declaration-value
+
+      :else
+      (zig-value/native-value
+       (select-keys declaration [:module :name :kind :type :logical-id])
+       #(materialize-constant! declaration)))))
+
+(defn declaration-type-value
+  "Return the ordinary callable Clojure value for a Zig type declaration."
+  [declaration]
+  (let [declaration (declaration-info declaration)]
+    (zig-value/zig-type
+     (select-keys declaration
+                  [:module :name :kind :layout :logical-id
+                   :schema-fingerprint])
+     #(materialize-type! declaration %))))
+
+(defn declaration-state-value
+  "Return a live, inspectable Clojure view of an `az/defvar`. Dereferencing or
+  printing it reads the actual native state bytes, never a declaration map."
+  [declaration]
+  (let [declaration (declaration-info declaration)]
+    (zig-value/native-value
+     (select-keys declaration [:module :name :kind :type :logical-id])
+     #(materialize-state! declaration))))
 
 (defn- env-true?
   [value]
@@ -1414,13 +1489,15 @@
                              arg-layouts))))
 
 (defn- bind-function
-  [^Linker linker ^SymbolLookup lookup declaration]
+  ([^Linker linker ^SymbolLookup lookup declaration]
+   (bind-function linker lookup declaration
+                  (emit/identifier (or (:zig-name declaration)
+                                       (:name declaration)))))
+  ([^Linker linker ^SymbolLookup lookup declaration symbol-name]
   (if-not (supported-signature? declaration)
     {:declaration declaration
      :unsupported? true}
-    (let [symbol-name (emit/identifier (or (:zig-name declaration)
-                                           (:name declaration)))
-          address (-> (.find lookup symbol-name)
+    (let [address (-> (.find lookup symbol-name)
                       (.orElseThrow
                        (reify java.util.function.Supplier
                          (get [_]
@@ -1432,7 +1509,72 @@
           handle (.downcallHandle linker address descriptor options)]
       {:declaration declaration
        :descriptor descriptor
-       :handle handle})))
+       :handle handle}))))
+
+(defn- bind-jvm-callable
+  [^Linker linker ^SymbolLookup lookup qualified-name
+   {:keys [declaration symbol mode argument-modes return-mode
+           native-argument-specs result-size-getter
+           result-align-getter] :as spec}]
+  (if (= :direct mode)
+    (assoc (bind-function linker lookup declaration symbol)
+           :bridge-spec spec)
+    (let [find-required
+          (fn [symbol-name]
+            (-> (.find lookup symbol-name)
+                (.orElseThrow
+                 (reify java.util.function.Supplier
+                   (get [_]
+                     (ex-info "JVM Zig callable bridge symbol was not found"
+                              {:function qualified-name
+                               :symbol symbol-name
+                               :declaration declaration}))))))
+          argument-layouts
+          (mapv (fn [{:keys [type]} argument-mode]
+                  (if (= :scalar argument-mode)
+                    (get scalar-layouts (scalar-key type))
+                    ValueLayout/JAVA_LONG))
+                (:args declaration) argument-modes)
+          argument-layouts (cond-> argument-layouts
+                             (= :native return-mode)
+                             (conj ValueLayout/JAVA_LONG))
+          argument-layouts-array (into-array MemoryLayout argument-layouts)
+          descriptor
+          (if (= :scalar return-mode)
+            (FunctionDescriptor/of
+             ^MemoryLayout (get scalar-layouts
+                                (scalar-key (:return declaration)))
+             argument-layouts-array)
+            (FunctionDescriptor/ofVoid argument-layouts-array))
+          options (into-array Linker$Option [])
+          handle (.downcallHandle linker (find-required symbol)
+                                  descriptor options)
+          bind-long-getter
+          (fn [symbol-name]
+            (.downcallHandle
+             linker
+             (find-required symbol-name)
+             (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
+                                    (make-array MemoryLayout 0))
+             options))]
+      (cond-> {:declaration declaration
+               :descriptor descriptor
+               :handle handle
+               :bridge-spec spec
+               :native-argument-bindings
+               (mapv (fn [argument-spec]
+                       (when argument-spec
+                         (assoc argument-spec
+                                :size-getter-handle
+                                (bind-long-getter (:size-getter argument-spec))
+                                :align-getter-handle
+                                (bind-long-getter (:align-getter argument-spec)))))
+                     native-argument-specs)}
+        (= :native return-mode)
+        (assoc :result-size-getter-handle
+               (bind-long-getter result-size-getter)
+               :result-align-getter-handle
+               (bind-long-getter result-align-getter))))))
 
 (defn- bind-dispatch
   [^Linker linker ^SymbolLookup lookup declaration spec required?]
@@ -1616,9 +1758,125 @@
   [dependency-snapshot]
   (->> dependency-snapshot vals (mapcat :state-entries) vec))
 
+(defn- bind-jvm-value
+  [^Linker linker ^SymbolLookup lookup
+   qualified-name {:keys [declaration mode getter address-getter size-getter
+                          align-getter] :as spec}]
+  (let [options (into-array Linker$Option [])
+        find-required
+        (fn [symbol-name]
+          (-> (.find lookup symbol-name)
+              (.orElseThrow
+               (reify java.util.function.Supplier
+                 (get [_]
+                   (ex-info "JVM Zig value accessor was not found"
+                            {:value qualified-name
+                             :symbol symbol-name
+                             :declaration declaration}))))))
+        bind-zero
+        (fn [symbol-name layout]
+          (.downcallHandle linker
+                           (find-required symbol-name)
+                           (FunctionDescriptor/of
+                            ^MemoryLayout layout
+                            (make-array MemoryLayout 0))
+                           options))]
+    (merge
+     spec
+     {:qualified-name qualified-name}
+     (if (= :scalar mode)
+       {:getter-handle
+        (bind-zero getter (get scalar-layouts (scalar-key (:type declaration))))}
+       {:address-getter-handle
+        (bind-zero address-getter ValueLayout/JAVA_LONG)
+        :size-getter-handle
+        (bind-zero size-getter ValueLayout/JAVA_LONG)
+        :align-getter-handle
+        (bind-zero align-getter ValueLayout/JAVA_LONG)}))))
+
+(defn- bind-jvm-type
+  [^Linker linker ^SymbolLookup lookup qualified-name
+   {:keys [declaration size-getter align-getter field-specs
+           enum-member-specs] :as spec}]
+  (let [options (into-array Linker$Option [])
+        find-required
+        (fn [symbol-name]
+          (-> (.find lookup symbol-name)
+              (.orElseThrow
+               (reify java.util.function.Supplier
+                 (get [_]
+                   (ex-info "JVM Zig type accessor was not found"
+                            {:type qualified-name
+                             :symbol symbol-name
+                             :declaration declaration}))))) )
+        bind-long
+        (fn [symbol-name]
+          (let [address (find-required symbol-name)]
+            (.downcallHandle
+             linker address
+             (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
+                                    (make-array MemoryLayout 0))
+             options)))
+        bind-union-init
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/ofVoid
+            (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                      ValueLayout/JAVA_LONG]))
+           options))
+        bind-union-active
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_BYTE
+                                  (into-array MemoryLayout
+                                              [ValueLayout/JAVA_LONG]))
+           options))
+        bind-address-from-address
+        (fn [symbol-name]
+          (.downcallHandle
+           linker (find-required symbol-name)
+           (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
+                                  (into-array MemoryLayout
+                                              [ValueLayout/JAVA_LONG]))
+           options))]
+    (assoc spec
+           :qualified-name qualified-name
+           :size-getter-handle (bind-long size-getter)
+           :align-getter-handle (bind-long align-getter)
+           :field-bindings
+           (mapv (fn [{:keys [offset-getter size-getter union?
+                              union-init union-active
+                              union-payload-address] :as field-spec}]
+                   (cond->
+                    (assoc field-spec
+                           :offset-getter-handle (bind-long offset-getter)
+                           :size-getter-handle (bind-long size-getter))
+                     union?
+                     (assoc :union-init-handle (bind-union-init union-init))
+                     (and union? (:tagged-union? spec))
+                     (assoc
+                      :union-active-handle
+                      (bind-union-active union-active)
+                      :union-payload-address-handle
+                      (bind-address-from-address union-payload-address))))
+                 field-specs)
+           :enum-member-bindings
+           (mapv (fn [{:keys [address-getter] :as member-spec}]
+                   (assoc member-spec
+                          :address-getter-handle
+                          (bind-long address-getter)))
+                 enum-member-specs))))
+
 (defn- load-module
-  [compiled declarations dispatch-specs dependency-entries
-   dependency-state-entries]
+  ([compiled declarations dispatch-specs dependency-entries
+    dependency-state-entries]
+   (load-module compiled declarations dispatch-specs dependency-entries
+                dependency-state-entries {} {} {}))
+  ([compiled declarations dispatch-specs dependency-entries
+    dependency-state-entries jvm-callable-specs jvm-value-specs
+    jvm-type-specs]
   (let [arena (Arena/ofShared)]
     (try
       (let [lookup (SymbolLookup/libraryLookup
@@ -1630,6 +1888,27 @@
                                 [(:qualified-name declaration)
                                  (bind-function linker lookup declaration)]))
                          (into {}))
+          functions
+          (reduce-kv
+           (fn [functions qualified-name spec]
+             (assoc functions qualified-name
+                    (bind-jvm-callable linker lookup qualified-name spec)))
+           functions
+           jvm-callable-specs)
+          values
+          (reduce-kv
+           (fn [values qualified-name spec]
+             (assoc values qualified-name
+                    (bind-jvm-value linker lookup qualified-name spec)))
+           {}
+           jvm-value-specs)
+          types
+          (reduce-kv
+           (fn [types qualified-name spec]
+             (assoc types qualified-name
+                    (bind-jvm-type linker lookup qualified-name spec)))
+           {}
+           jvm-type-specs)
           declarations-by-key (into {} (map (juxt :declaration-key identity))
                                     declarations)
           dispatch-entries
@@ -1682,13 +1961,16 @@
         (merge compiled {:arena arena :lookup lookup :linker linker
                          :loaded-declarations declarations
                          :functions functions
+                         :values values
+                         :types types
                          :dispatch-bindings dispatch-bindings
                          :state-bindings state-bindings
                          :active-call-handle active-call-handle
                          :active-call-tracking-handle
                          active-call-tracking-handle
                          :publication-epoch-setters publication-epoch-setters
-                         :jvm-active-calls (AtomicLong. 0)}))
+                         :jvm-active-calls (AtomicLong. 0)
+                         :native-value-refs (AtomicLong. 0)}))
       (catch Throwable error
         (try (.close ^Arena arena) (catch Throwable _))
         (throw
@@ -1701,7 +1983,7 @@
           {:aguafria/phase :native-load
            :source-path (:source-path compiled)
            :library-path (:library-path compiled)}
-          error))))))
+          error)))))))
 
 (defn- invoke-dispatch-setter!
   [^MethodHandle setter address]
@@ -1716,11 +1998,14 @@
    :lookup (:lookup loaded)
    :linker (:linker loaded)
    :functions (:functions loaded)
+   :values (:values loaded)
+   :types (:types loaded)
    :dispatch-bindings (:dispatch-bindings loaded)
    :state-bindings (:state-bindings loaded)
    :active-call-handle (:active-call-handle loaded)
    :active-call-tracking-handle (:active-call-tracking-handle loaded)
    :jvm-active-calls (:jvm-active-calls loaded)
+   :native-value-refs (:native-value-refs loaded)
    :hash (:hash loaded)
    :library-path (:library-path loaded)})
 
@@ -1737,16 +2022,39 @@
 
 (defn- prepare-loaded-generation
   [loaded generation]
-  (update loaded :functions
-          (fn [functions]
-            (into {}
-                  (map (fn [[qualified-name binding]]
-                         [qualified-name
-                          (assoc binding
-                                 :wrapper-generation generation
-                                 :jvm-active-calls
-                                 (:jvm-active-calls loaded))]))
-                  functions))))
+  (-> loaded
+      (update :functions
+              (fn [functions]
+                (into {}
+                      (map (fn [[qualified-name binding]]
+                             [qualified-name
+                              (assoc binding
+                                     :wrapper-generation generation
+                                     :jvm-active-calls
+                                     (:jvm-active-calls loaded)
+                                     :native-value-refs
+                                     (:native-value-refs loaded))]))
+                      functions)))
+      (update :values
+              (fn [values]
+                (into {}
+                      (map (fn [[qualified-name binding]]
+                             [qualified-name
+                              (assoc binding
+                                     :wrapper-generation generation
+                                     :native-value-refs
+                                     (:native-value-refs loaded))]))
+                      values)))
+      (update :types
+              (fn [types]
+                (into {}
+                      (map (fn [[qualified-name binding]]
+                             [qualified-name
+                              (assoc binding
+                                     :wrapper-generation generation
+                                     :native-value-refs
+                                     (:native-value-refs loaded))]))
+                      types)))))
 
 (defn- invoke-state-setter!
   [binding address]
@@ -2155,6 +2463,12 @@
     (.get ^AtomicLong jvm-active-calls)
     0))
 
+(defn- native-value-ref-count
+  [{:keys [native-value-refs]}]
+  (if native-value-refs
+    (.get ^AtomicLong native-value-refs)
+    0))
+
 (defn- retired-generation-view
   [generation native-active jvm-active]
   {:generation (:generation generation)
@@ -2169,7 +2483,7 @@
   (let [host-active? (native-host-active?)
         current-generation (:published-generation module-state)
         referenced-generations
-        (into (into (into (into #{current-generation}
+        (into (into (into (into (into (into #{current-generation}
                                 (keep :generation)
                                 (remove #(= :superseded (:status %))
                                         (:state-versions module-state)))
@@ -2185,6 +2499,10 @@
                     ;; publication replaces the binding.
                     (keep :wrapper-generation)
                     (vals (:functions module-state)))
+              (keep :wrapper-generation)
+              (vals (:values module-state)))
+              (keep :wrapper-generation)
+              (vals (:types module-state)))
               (keep :implementation-generation)
               (vals (:dispatch-state module-state)))
         [retained newly-retired]
@@ -2192,11 +2510,13 @@
          (fn [[retained retired] generation]
            (let [native-active (native-active-call-count generation)
                  jvm-active (jvm-active-call-count generation)
+                 native-value-refs (native-value-ref-count generation)
                  retire? (and (not (contains? referenced-generations
                                                (:generation generation)))
                               (not host-active?)
                               (zero? native-active)
-                              (zero? jvm-active))]
+                              (zero? jvm-active)
+                              (zero? native-value-refs))]
              (if retire?
                (do
                  (.close ^Arena (:arena generation))
@@ -2277,6 +2597,343 @@
         (range)
         declarations))
 
+(defn- jvm-callable-wrapper-specs
+  [module declarations]
+  (let [requested (get-in @registry [module :jvm-callable-declaration-keys] #{})]
+    (into {}
+          (keep
+           (fn [declaration]
+             (when (contains? requested (:declaration-key declaration))
+               (let [qualified-name (:qualified-name declaration)
+                     token (subs (sha256 (pr-str [qualified-name
+                                                  (:abi-fingerprint declaration)]))
+                                 0 24)
+                     argument-modes
+                     (mapv (fn [{:keys [type]}]
+                             (if (contains? scalar-layouts (scalar-key type))
+                               :scalar
+                               :native))
+                           (:args declaration))
+                     return-mode
+                     (cond
+                       (= :void (:return declaration)) :void
+                       (contains? scalar-layouts
+                                  (scalar-key (:return declaration))) :scalar
+                       :else :native)
+                     mode (if (and (every? #{:scalar} argument-modes)
+                                   (not= :native return-mode))
+                            :direct
+                            :indirect)
+                     prefix (str "__aguafria_jvm_call_" token)
+                     native-argument-specs
+                     (mapv (fn [index argument-mode]
+                             (when (= :native argument-mode)
+                               {:index index
+                                :size-getter
+                                (str prefix "_argument_" index "_size")
+                                :align-getter
+                                (str prefix "_argument_" index "_align")}))
+                           (range) argument-modes)]
+                 [qualified-name
+                  {:declaration declaration
+                   :mode mode
+                   :argument-modes argument-modes
+                   :native-argument-specs native-argument-specs
+                   :return-mode return-mode
+                   :symbol prefix
+                   :result-size-getter (str prefix "_result_size")
+                   :result-align-getter (str prefix "_result_align")}]))))
+          declarations)))
+
+(defn- jvm-value-wrapper-specs
+  [module declarations]
+  (let [requested (get-in @registry [module :jvm-value-declaration-keys] #{})]
+    (into {}
+          (keep
+           (fn [{:keys [kind type] :as declaration}]
+             (when (and (= :const kind)
+                        (contains? requested (:declaration-key declaration)))
+               (let [qualified-name
+                     (symbol (:module declaration) (str (:name declaration)))
+                     token (subs (sha256 (pr-str [qualified-name type
+                                                  (:value declaration)]))
+                                 0 24)
+                     prefix (str "__aguafria_jvm_value_" token)]
+                 [qualified-name
+                  {:declaration declaration
+                   :mode (if (contains? scalar-layouts (scalar-key type))
+                           :scalar
+                           :native)
+                   :getter (str prefix "_get")
+                   :address-getter (str prefix "_address")
+                   :size-getter (str prefix "_size")
+                   :align-getter (str prefix "_align")}]))))
+          declarations)))
+
+(defn- jvm-type-wrapper-specs
+  [module declarations]
+  (let [requested (get-in @registry [module :jvm-type-declaration-keys] #{})]
+    (into {}
+          (keep
+           (fn [{:keys [kind] :as declaration}]
+             (let [container-description
+                   (container-type-description declaration)
+                   container-kind
+                   (get-in container-description [:options :kind])
+                   type-declaration?
+                   (or (= :struct kind)
+                       (contains? #{:struct :enum :union :opaque}
+                                  container-kind))]
+               (when (and type-declaration?
+                          (contains? requested (:declaration-key declaration)))
+                 (let [qualified-name
+                     (symbol (:module declaration) (str (:name declaration)))
+                     token (subs (sha256 (pr-str [qualified-name
+                                                  (:schema-fingerprint
+                                                   declaration)]))
+                                 0 24)
+                     prefix (str "__aguafria_jvm_type_" token)
+                     tagged-union?
+                     (and (= :union container-kind)
+                          (or (true? (get-in container-description
+                                             [:options :enum?]))
+                              (some? (get-in container-description
+                                             [:options :argument]))))
+                     fields (if (= :struct kind)
+                              (:fields declaration)
+                              (->> (:members container-description)
+                                   (filter #(= :field (:kind %)))
+                                   vec))
+                     enum-members
+                     (->> (:members container-description)
+                          (filter #(= :enum-field (:kind %)))
+                          vec)]
+                 [qualified-name
+                  {:declaration declaration
+                   :container-description container-description
+                   :container-kind container-kind
+                   :tagged-union? tagged-union?
+                   :size-getter (str prefix "_size")
+                   :align-getter (str prefix "_align")
+                   :field-specs
+                   (mapv (fn [index field]
+                           {:index index
+                           :field field
+                            :union? (= :union container-kind)
+                            :offset-getter
+                            (str prefix "_field_" index "_offset")
+                            :size-getter
+                            (str prefix "_field_" index "_size")
+                            :union-init
+                            (str prefix "_field_" index "_init")
+                            :union-active
+                            (str prefix "_field_" index "_active")
+                            :union-payload-address
+                            (str prefix "_field_" index "_payload_address")})
+                         (range) fields)
+                   :enum-member-specs
+                   (mapv (fn [index member]
+                           {:index index
+                            :member member
+                            :address-getter
+                            (str prefix "_enum_" index "_address")})
+                         (range) enum-members)}])))))
+          declarations)))
+
+(defn- emit-jvm-callable-wrapper
+  [[_ {:keys [declaration symbol mode argument-modes return-mode
+              native-argument-specs result-size-getter
+              result-align-getter]}]]
+  (let [argument-names (mapv #(str "argument_" %) (range (count (:args declaration))))
+        bridge-arguments
+        (mapv (fn [argument-name argument argument-mode]
+                (if (= :scalar argument-mode)
+                  (str argument-name ": " (emit/emit-type (:type argument)))
+                  (str argument-name "_address: usize")))
+              argument-names (:args declaration) argument-modes)
+        bridge-arguments (cond-> bridge-arguments
+                           (= :native return-mode)
+                           (conj "result_address: usize"))
+        call-arguments
+        (mapv (fn [argument-name argument argument-mode]
+                (if (= :scalar argument-mode)
+                  argument-name
+                  (str "(@as(*const " (emit/emit-type (:type argument))
+                       ", @ptrFromInt(" argument-name "_address))).*")))
+              argument-names (:args declaration) argument-modes)
+        call (str (emit/identifier (or (:zig-name declaration)
+                                       (:name declaration)))
+                  "(" (str/join ", " call-arguments) ")")]
+    (if (= :direct mode)
+      (str "export fn " symbol "(" (str/join ", " bridge-arguments)
+           ") callconv(.c) " (emit/emit-type (:return declaration)) " {\n"
+           "    " (when-not (= :void return-mode) "return ") call ";\n"
+           "}\n")
+      (str "export fn " symbol "(" (str/join ", " bridge-arguments)
+           ") callconv(.c) "
+           (if (= :scalar return-mode)
+             (emit/emit-type (:return declaration))
+             "void")
+           " {\n"
+           "    "
+           (case return-mode
+             :void (str call ";")
+             :scalar (str "return " call ";")
+             :native
+             (str "(@as(*" (emit/emit-type (:return declaration))
+                  ", @ptrFromInt(result_address))).* = " call ";"))
+           "\n}\n"
+           (when (= :native return-mode)
+             (str "export fn " result-size-getter "() callconv(.c) usize {\n"
+                  "    return @sizeOf(" (emit/emit-type (:return declaration)) ");\n"
+                  "}\n"
+                  "export fn " result-align-getter "() callconv(.c) usize {\n"
+                  "    return @alignOf(" (emit/emit-type (:return declaration)) ");\n"
+                  "}\n"))
+           (apply str
+                  (keep
+                   (fn [{:keys [index size-getter align-getter]}]
+                     (let [argument-type
+                           (emit/emit-type
+                            (:type (nth (:args declaration) index)))]
+                       (str "export fn " size-getter
+                            "() callconv(.c) usize {\n"
+                            "    return @sizeOf(" argument-type ");\n"
+                            "}\n"
+                            "export fn " align-getter
+                            "() callconv(.c) usize {\n"
+                            "    return @alignOf(" argument-type ");\n"
+                            "}\n")))
+                   native-argument-specs))))))
+
+(defn- emit-jvm-callable-wrappers
+  [specs]
+  (when (seq specs)
+    (str "\n// Development-only JVM invocation trampolines.\n"
+         (->> specs
+              (sort-by (comp str key))
+              (map emit-jvm-callable-wrapper)
+              (str/join "\n")))))
+
+(defn- emit-jvm-value-wrapper
+  [[_ {:keys [declaration mode getter address-getter size-getter
+              align-getter]}]]
+  (let [constant-name (emit/identifier (or (:zig-name declaration)
+                                           (:name declaration)))]
+    (if (= :scalar mode)
+      (str "export fn " getter "() callconv(.c) "
+           (emit/emit-type (:type declaration)) " {\n"
+           "    return " constant-name ";\n"
+           "}\n")
+      (str "export fn " address-getter "() callconv(.c) usize {\n"
+           "    return @intFromPtr(&" constant-name ");\n"
+           "}\n"
+           "export fn " size-getter "() callconv(.c) usize {\n"
+           "    return @sizeOf(@TypeOf(" constant-name "));\n"
+           "}\n"
+           "export fn " align-getter "() callconv(.c) usize {\n"
+           "    return @alignOf(@TypeOf(" constant-name "));\n"
+           "}\n"))))
+
+(defn- emit-jvm-value-wrappers
+  [specs]
+  (when (seq specs)
+    (str "\n// Development-only JVM value accessors.\n"
+         (->> specs
+              (sort-by (comp str key))
+              (map emit-jvm-value-wrapper)
+              (str/join "\n")))))
+
+(defn- emit-jvm-type-wrapper
+  [[_ {:keys [declaration size-getter align-getter field-specs
+              enum-member-specs tagged-union?]}]]
+  (let [type-name (emit/identifier (or (:zig-name declaration)
+                                       (:name declaration)))]
+    (str "export fn " size-getter "() callconv(.c) usize {\n"
+         "    return @sizeOf(" type-name ");\n"
+         "}\n"
+         "export fn " align-getter "() callconv(.c) usize {\n"
+         "    return @alignOf(" type-name ");\n"
+         "}\n"
+         (apply str
+                (map
+                 (fn [{:keys [field offset-getter size-getter union?
+                              union-init union-active
+                              union-payload-address]}]
+                   (let [field-name (emit/identifier (:name field))
+                         field-type (emit/emit-type (:type field))
+                         void-field? (= :void (:type field))]
+                     (str "export fn " offset-getter
+                          "() callconv(.c) usize {\n"
+                          "    return "
+                          (if union?
+                            "0"
+                            (str "@offsetOf(" type-name ", \""
+                                 field-name "\")"))
+                          ";\n"
+                          "}\n"
+                          "export fn " size-getter
+                          "() callconv(.c) usize {\n"
+                          "    return @sizeOf(@FieldType(" type-name ", \""
+                          field-name "\"));\n"
+                          "}\n"
+                          (when union?
+                            (str
+                             "export fn " union-init
+                             "(destination_address: usize, value_address: usize) callconv(.c) void {\n"
+                             "    const destination: *" type-name
+                             " = @ptrFromInt(destination_address);\n"
+                             (when void-field? "    _ = value_address;\n")
+                             "    destination.* = .{ ." field-name " = "
+                             (if void-field?
+                               "{}"
+                               (str "(@as(*const " field-type
+                                    ", @ptrFromInt(value_address))).*"))
+                             " };\n"
+                             "}\n"
+                             (when tagged-union?
+                               (str
+                                "export fn " union-active
+                                "(value_address: usize) callconv(.c) bool {\n"
+                                "    const value: *const " type-name
+                                " = @ptrFromInt(value_address);\n"
+                                "    return switch (value.*) { ." field-name
+                                " => true, else => false };\n"
+                                "}\n"
+                                "export fn " union-payload-address
+                                "(value_address: usize) callconv(.c) usize {\n"
+                                (if void-field?
+                                  "    _ = value_address;\n    return 0;\n"
+                                  (str
+                                   "    const value: *" type-name
+                                   " = @ptrFromInt(value_address);\n"
+                                   "    return @intFromPtr(&value." field-name ");\n"))
+                                "}\n")))))))
+                 field-specs))
+         (apply str
+                (map
+                 (fn [{:keys [member address-getter index]}]
+                   (let [member-name
+                         (emit/identifier (or (:zig-name member)
+                                              (:name member)))
+                         storage-name (str "EnumStorage" index)]
+                     (str "export fn " address-getter
+                          "() callconv(.c) usize {\n"
+                          "    const " storage-name " = struct { var value: "
+                          type-name " = ." member-name "; };\n"
+                          "    return @intFromPtr(&" storage-name ".value);\n"
+                          "}\n")))
+                 enum-member-specs)))))
+
+(defn- emit-jvm-type-wrappers
+  [specs]
+  (when (seq specs)
+    (str "\n// Development-only JVM type constructors.\n"
+         (->> specs
+              (sort-by (comp str key))
+              (map emit-jvm-type-wrapper)
+              (str/join "\n")))))
+
 (defn- module-sources
   ([module declarations]
    (module-sources module declarations #{}))
@@ -2293,6 +2950,12 @@
                          (assoc :emit-getter? true))]))
                reload-source-dispatch-specs)
          state-specs (reloadable-state-specs declarations)
+         jvm-callable-specs (jvm-callable-wrapper-specs module declarations)
+         jvm-callable-source (emit-jvm-callable-wrappers jvm-callable-specs)
+         jvm-value-specs (jvm-value-wrapper-specs module declarations)
+         jvm-value-source (emit-jvm-value-wrappers jvm-value-specs)
+         jvm-type-specs (jvm-type-wrapper-specs module declarations)
+         jvm-type-source (emit-jvm-type-wrappers jvm-type-specs)
          reload-source
          (emit-reload-source! module declarations reload-source-dispatch-specs
                               state-specs)]
@@ -2304,12 +2967,18 @@
       ;; but never an exported implementation-address getter. This preserves
       ;; Zig's lazy/platform analysis when another module imports this source.
       :reload-source reload-source
+      :jvm-callable-specs jvm-callable-specs
+      :jvm-value-specs jvm-value-specs
+      :jvm-type-specs jvm-type-specs
       ;; Only declarations whose already-published implementation changed
       ;; expose a getter in the owning generation.
       :compile-source
-      (if (= dispatch-specs reload-source-dispatch-specs)
-        reload-source
-        (emit-reload-source! module declarations dispatch-specs state-specs))})))
+      (str (if (= dispatch-specs reload-source-dispatch-specs)
+             reload-source
+             (emit-reload-source! module declarations dispatch-specs state-specs))
+           jvm-callable-source
+           jvm-value-source
+           jvm-type-source)})))
 
 (defn- changed-dispatch-declaration-keys
   [module-state declarations]
@@ -2757,7 +3426,8 @@
           {compiled-declarations :declarations
            :keys [compiled compile-source reload-source dispatch-specs
                   reload-source-dispatch-specs partial-publication?
-                  dependency-snapshot]}
+                  dependency-snapshot jvm-callable-specs jvm-value-specs
+                  jvm-type-specs]}
           (compile-plan! module plan)
           ;; Stale snapshots are useful compiler work/history, but loading each
           ;; one would waste native-library arenas during a large REPL reload.
@@ -2767,7 +3437,10 @@
                                     (dependency-dispatch-entries
                                      dependency-snapshot)
                                     (dependency-state-entries
-                                     dependency-snapshot))
+                                     dependency-snapshot)
+                                    jvm-callable-specs
+                                    jvm-value-specs
+                                    jvm-type-specs)
                        (prepare-loaded-generation generation)))
           published? (atom false)]
       (locking compile-lock
@@ -2908,8 +3581,9 @@
                      :dispatch-specs dispatch-specs
                      :plan plan
                      :propagate-dependent-change?
-                     (compatible-dependent-propagation?
-                      plan-old-declaration plan-declaration)
+                     (and *propagate-dependent-changes?*
+                          (compatible-dependent-propagation?
+                           plan-old-declaration plan-declaration))
                      :completion completion}]
             (swap! registry assoc module
                    (merge old-module
@@ -3021,8 +3695,9 @@
                      :dispatch-specs dispatch-specs
                      :plan plan
                      :propagate-dependent-change?
-                     (compatible-dependent-propagation?
-                      plan-old-declaration plan-declaration)
+                     (and *propagate-dependent-changes?*
+                          (compatible-dependent-propagation?
+                           plan-old-declaration plan-declaration))
                      :ready? ready?
                      :completion completion}]
             (swap! registry assoc module
@@ -3119,8 +3794,9 @@
                                               plan-declaration))
               (freeze-active-host-dispatch! plan-declaration))
           propagate-dependent-change?
-          (compatible-dependent-propagation?
-           plan-old-declaration plan-declaration)
+          (and *propagate-dependent-changes?*
+               (compatible-dependent-propagation?
+                plan-old-declaration plan-declaration))
           {source :source} (:primary plan)
           generation (inc (or (:requested-generation old-module)
                               (:generation old-module) 0))
@@ -3133,13 +3809,17 @@
         (let [{compiled-declarations :declarations
                :keys [compiled compile-source reload-source dispatch-specs
                       reload-source-dispatch-specs
-                      partial-publication? dependency-snapshot]}
+                      partial-publication? dependency-snapshot
+                      jvm-callable-specs jvm-value-specs jvm-type-specs]}
               (compile-plan! module plan)
               loaded (-> (load-module compiled compiled-declarations dispatch-specs
                                       (dependency-dispatch-entries
                                        dependency-snapshot)
                                       (dependency-state-entries
-                                       dependency-snapshot))
+                                       dependency-snapshot)
+                                      jvm-callable-specs
+                                      jvm-value-specs
+                                      jvm-type-specs)
                          (prepare-loaded-generation generation))
               _ (reset! prepared loaded)
               dispatch (reconcile-dispatch! old-module loaded generation)
@@ -3405,14 +4085,18 @@
           (when compile-error (throw compile-error))
           (doseq [[job {:keys [compilation]}] (map vector jobs compile-results)]
             (let [{compiled-declarations :declarations
-                   :keys [compiled dispatch-specs dependency-snapshot]}
+                   :keys [compiled dispatch-specs dependency-snapshot
+                          jvm-callable-specs jvm-value-specs jvm-type-specs]}
                   compilation
                   loaded
                   (-> (load-module compiled compiled-declarations dispatch-specs
                                    (dependency-dispatch-entries
                                     dependency-snapshot)
                                    (dependency-state-entries
-                                    dependency-snapshot))
+                                    dependency-snapshot)
+                                   jvm-callable-specs
+                                   jvm-value-specs
+                                   jvm-type-specs)
                       (prepare-loaded-generation (:generation job)))]
               (swap! prepared conj {:job job
                                     :compilation compilation
@@ -3985,6 +4669,7 @@
          (map (fn [generation]
                 (let [native-active (native-active-call-count generation)
                       jvm-active (jvm-active-call-count generation)
+                      native-value-refs (native-value-ref-count generation)
                       referenced? (contains? referenced (:generation generation))]
                   {:generation (:generation generation)
                    :hash (:hash generation)
@@ -3993,9 +4678,11 @@
                    :referenced? referenced?
                    :native-active-call-count native-active
                    :jvm-active-call-count jvm-active
+                   :native-value-reference-count native-value-refs
                    :retirement-pending? (and (not referenced?)
                                              (or (pos? native-active)
-                                                 (pos? jvm-active)))})))
+                                                 (pos? jvm-active)
+                                                 (pos? native-value-refs)))})))
          (sort-by :generation)
          vec)))
 
@@ -4318,14 +5005,46 @@
   [module]
   (:source (get @registry (str module))))
 
+(defn- coerce-integer-argument
+  [type value signed? bits]
+  (when-not (integer? value)
+    (throw (ex-info "Zig integer argument requires a Clojure integer"
+                    {:zig-type type :value value
+                     :clojure-type (clojure.core/type value)})))
+  (let [integer (biginteger value)
+        modulus (.shiftLeft java.math.BigInteger/ONE bits)
+        minimum (if signed?
+                  (.negate (.shiftRight modulus 1))
+                  java.math.BigInteger/ZERO)
+        maximum (if signed?
+                  (.subtract (.shiftRight modulus 1) java.math.BigInteger/ONE)
+                  (.subtract modulus java.math.BigInteger/ONE))]
+    (when (or (neg? (.compareTo integer minimum))
+              (pos? (.compareTo integer maximum)))
+      (throw (ex-info "Zig integer argument is out of range"
+                      {:zig-type type :value value
+                       :minimum minimum :maximum maximum})))
+    (.longValue integer)))
+
 (defn- coerce-argument
   [type value]
   (case type
-    :bool (byte (if (if (instance? Boolean value) value (not (zero? value))) 1 0))
-    (:i8 :u8) (unchecked-byte value)
-    (:i16 :u16) (unchecked-short value)
-    (:i32 :u32) (unchecked-int value)
-    (:i64 :u64 :isize :usize) (unchecked-long value)
+    :bool
+    (if (instance? Boolean value)
+      (byte (if value 1 0))
+      (throw (ex-info "Zig bool argument requires true or false"
+                      {:zig-type type :value value
+                       :clojure-type (clojure.core/type value)})))
+    :i8 (unchecked-byte (coerce-integer-argument type value true 8))
+    :u8 (unchecked-byte (coerce-integer-argument type value false 8))
+    :i16 (unchecked-short (coerce-integer-argument type value true 16))
+    :u16 (unchecked-short (coerce-integer-argument type value false 16))
+    :i32 (unchecked-int (coerce-integer-argument type value true 32))
+    :u32 (unchecked-int (coerce-integer-argument type value false 32))
+    :i64 (unchecked-long (coerce-integer-argument type value true 64))
+    :u64 (unchecked-long (coerce-integer-argument type value false 64))
+    :isize (unchecked-long (coerce-integer-argument type value true 64))
+    :usize (unchecked-long (coerce-integer-argument type value false 64))
     :f32 (float value)
     :f64 (double value)
     value))
@@ -4338,6 +5057,11 @@
     :u8 (bit-and 0xff (long value))
     :u16 (bit-and 0xffff (long value))
     :u32 (Integer/toUnsignedLong (int value))
+    (:u64 :usize)
+    (let [signed-value (long value)]
+      (if (neg? signed-value)
+        (java.math.BigInteger. (Long/toUnsignedString signed-value))
+        signed-value))
     value))
 
 (defn- current-function-declaration
@@ -4433,17 +5157,140 @@
         (.incrementAndGet ^AtomicLong (:jvm-active-calls function-binding))
         function-binding))))
 
+(defn- native-argument-address
+  [module qualified-name expected-type argument argument-binding
+   ^Arena call-arena]
+  (if (zig-value/zig-value? argument)
+    (let [actual-type (zig-value/type argument)
+          actual-module (:module (zig-value/info argument))
+          canonical
+          (fn [type default-module]
+            (if (and (symbol? type) (nil? (namespace type)))
+              (symbol (str default-module) (name type))
+              type))]
+      (when-not (= (canonical expected-type module)
+                   (canonical actual-type actual-module))
+        (throw (ex-info "Native Zig argument has the wrong Zig type"
+                        {:function qualified-name
+                         :expected-zig-type expected-type
+                         :actual-zig-type actual-type
+                         :actual-module actual-module})))
+      (.address ^MemorySegment (zig-value/segment argument)))
+    (if-let [schema (and (or (map? argument) (sequential? argument)
+                             (keyword? argument) (symbol? argument)
+                             (string? argument))
+                         (native-type-schema module expected-type))]
+      (let [size (long (.invokeWithArguments
+                        ^MethodHandle (:size-getter-handle argument-binding)
+                        (ArrayList.)))
+            alignment
+            (long (.invokeWithArguments
+                   ^MethodHandle (:align-getter-handle argument-binding)
+                   (ArrayList.)))
+            segment (.allocate call-arena size alignment)]
+        (case (:kind schema)
+          :packed-struct (zig-value/write-packed-struct! segment schema argument)
+          :struct (zig-value/write-struct! segment schema argument)
+          (:array :vector) (zig-value/write-array! segment schema argument)
+          :enum (zig-value/write-enum! segment schema argument)
+          :union (zig-value/write-union! segment schema argument)
+          (throw (ex-info "Clojure construction is not implemented for this Zig type"
+                          {:function qualified-name
+                           :expected-zig-type expected-type
+                           :schema schema})))
+        (.address segment))
+      (throw (ex-info "Zig function argument requires a native Zig value or constructible Clojure value"
+                      {:function qualified-name
+                       :expected-zig-type expected-type
+                       :argument argument
+                       :argument-type (type argument)})))))
+
+(defn- invoke-indirect-binding!
+  [module function-binding arguments]
+  (let [declaration (:declaration function-binding)
+        qualified-name (:qualified-name declaration)
+        {:keys [argument-modes return-mode]} (:bridge-spec function-binding)
+        native-result? (= :native return-mode)
+        result-arena (when native-result? (Arena/ofShared))
+        call-arena (Arena/ofConfined)]
+    (try
+      (let [coerced
+            (mapv (fn [index {:keys [type]} argument argument-mode]
+                    (if (= :scalar argument-mode)
+                      (coerce-argument type argument)
+                      (long
+                       (native-argument-address
+                        module qualified-name type argument
+                        (nth (:native-argument-bindings function-binding) index)
+                        call-arena))))
+                  (range) (:args declaration) arguments argument-modes)
+            result-size
+            (when native-result?
+              (long (.invokeWithArguments
+                     ^MethodHandle (:result-size-getter-handle function-binding)
+                     (ArrayList.))))
+            result-alignment
+            (when native-result?
+              (long (.invokeWithArguments
+                     ^MethodHandle (:result-align-getter-handle function-binding)
+                     (ArrayList.))))
+            result-segment
+            (when native-result?
+              (.allocate ^Arena result-arena result-size result-alignment))
+            coerced (cond-> coerced
+                      native-result? (conj (long (.address result-segment))))
+            result (.invokeWithArguments
+                    ^MethodHandle (:handle function-binding)
+                    (ArrayList. ^java.util.Collection coerced))]
+        (case return-mode
+          :void nil
+          :scalar (coerce-result (:return declaration) result)
+          :native
+          (let [native-value-refs (:native-value-refs function-binding)
+                closed? (atom false)
+                close!
+                (fn []
+                  (when (compare-and-set! closed? false true)
+                    (try (.close ^Arena result-arena)
+                         (finally
+                           (.decrementAndGet ^AtomicLong native-value-refs)
+                           (locking compile-lock
+                             (retire-module-quiescent-generations! module))))))]
+            (.incrementAndGet ^AtomicLong native-value-refs)
+            (zig-value/native-value
+             {:module module
+              :name (:name declaration)
+              :kind :return
+              :type (:return declaration)
+              :logical-id (:logical-id declaration)}
+             (constantly {:representation :native
+                          :segment result-segment
+                          :size result-size
+                          :alignment result-alignment
+                          :schema (native-type-schema module
+                                                      (:return declaration))
+                          :generation (:wrapper-generation function-binding)
+                          :close! close!})))))
+      (catch Throwable error
+        (when result-arena
+          (try (.close ^Arena result-arena) (catch Throwable _)))
+        (throw error))
+      (finally
+        (.close call-arena)))))
+
 (defn- invoke-binding!
   [module function-binding arguments]
   (let [declaration (:declaration function-binding)]
     (try
-      (let [coerced (mapv (fn [{:keys [type]} value]
-                            (coerce-argument type value))
-                          (:args declaration) arguments)
-            values (ArrayList. ^java.util.Collection coerced)
-            result (.invokeWithArguments ^MethodHandle
-                                         (:handle function-binding) values)]
-        (coerce-result (:return declaration) result))
+      (if (= :indirect (get-in function-binding [:bridge-spec :mode]))
+        (invoke-indirect-binding! module function-binding arguments)
+        (let [coerced (mapv (fn [{:keys [type]} value]
+                              (coerce-argument type value))
+                            (:args declaration) arguments)
+              values (ArrayList. ^java.util.Collection coerced)
+              result (.invokeWithArguments ^MethodHandle
+                                           (:handle function-binding) values)]
+          (coerce-result (:return declaration) result)))
       (finally
         (.decrementAndGet ^AtomicLong (:jvm-active-calls function-binding))
         (locking compile-lock
@@ -4462,12 +5309,488 @@
       (when-not (:published-generation (get @registry module))
         (throw compilation-error)))))
 
+(defn- function-loaded?
+  [qualified-name]
+  (locking compile-lock
+    (let [binding (get-in @registry [(namespace qualified-name)
+                                     :functions qualified-name])]
+      (boolean (and binding (not (:unsupported? binding)))))))
+
+(defn- materialize-jvm-callable!
+  "Compile a development-only C ABI trampoline for a registered Zig Var whose
+  original declaration is intentionally not `export`. Final/static Zig source
+  and the declaration's Zig visibility remain unchanged."
+  [qualified-name]
+  (let [module (namespace qualified-name)]
+    (await-callable-generation! module)
+    (when-not (function-loaded? qualified-name)
+      (let [declaration
+            (locking compile-lock
+              (current-function-declaration (get @registry module)
+                                            qualified-name))]
+        (when-not declaration
+          (throw (ex-info "Zig function is not registered"
+                          {:function qualified-name :module module})))
+        (locking compile-lock
+          (swap! registry update-in [module :jvm-callable-declaration-keys]
+                 (fnil conj #{}) (:declaration-key declaration)))
+        (binding [*propagate-dependent-changes?* false]
+          (recompile! module))
+        (await-callable-generation! module)))))
+
+(defn- current-value-binding
+  [qualified-name]
+  (locking compile-lock
+    (get-in @registry [(namespace qualified-name) :values qualified-name])))
+
+(defn- integer-bit-width
+  [type]
+  (when (keyword? type)
+    (some-> (re-matches #"[iu](\d+)" (name type)) second Long/parseLong)))
+
+(defn- packed-field-bit-width
+  [module type seen]
+  (cond
+    (= :bool type) 1
+    (integer-bit-width type) (integer-bit-width type)
+    :else
+    (some-> (native-type-schema module type seen) :bit-size)))
+
+(defn- native-type-declaration
+  [module type]
+  (let [[target-module target-name]
+        (cond
+          (and (symbol? type) (namespace type))
+          [(namespace type) (symbol (name type))]
+
+          (symbol? type)
+          [module type]
+
+          :else [nil nil])]
+    (when target-module
+      (some (fn [declaration]
+              (when (and (contains? #{:struct :const} (:kind declaration))
+                         (= (str target-name) (str (:name declaration))))
+                declaration))
+            (vals (get-in @registry [target-module :definitions]))))))
+
+(defn- native-enum-schema
+  [type declaration]
+  (let [qualified-name (symbol (:module declaration) (str (:name declaration)))
+        {:keys [size-getter-handle enum-member-bindings] :as binding}
+        (get-in @registry [(:module declaration) :types qualified-name])]
+    (when binding
+      (let [size (long (.invokeWithArguments ^MethodHandle size-getter-handle
+                                              (ArrayList.)))]
+        {:kind :enum
+         :type type
+         :size size
+         :declaration
+         (select-keys declaration [:module :name :logical-id
+                                   :schema-fingerprint])
+         :members
+         (mapv
+          (fn [{:keys [member address-getter-handle]}]
+            (let [address
+                  (long (.invokeWithArguments ^MethodHandle
+                                              address-getter-handle
+                                              (ArrayList.)))
+                  segment (.reinterpret (MemorySegment/ofAddress address) size)]
+              {:name (keyword (str (or (:zig-name member) (:name member))))
+               :bytes (vec (.toArray segment ValueLayout/JAVA_BYTE))}))
+          enum-member-bindings)}))))
+
+(defn- native-union-schema
+  [module type seen declaration fields]
+  (let [qualified-name (symbol (:module declaration) (str (:name declaration)))
+        {:keys [field-bindings tagged-union?] :as binding}
+        (get-in @registry [(:module declaration) :types qualified-name])]
+    (when (and binding (= (count fields) (count field-bindings)))
+      {:kind :union
+       :type type
+       :tagged? tagged-union?
+       :declaration
+       (select-keys declaration [:module :name :logical-id
+                                 :schema-fingerprint])
+       :fields
+       (mapv
+        (fn [field field-binding]
+          (let [field-size
+                (long (.invokeWithArguments
+                       ^MethodHandle (:size-getter-handle field-binding)
+                       (ArrayList.)))
+                field-schema
+                (native-type-schema module (:type field) (conj seen [module type]))]
+            (cond->
+             (assoc field
+                    :byte-offset 0
+                    :byte-size field-size
+                    :init-fn
+                    (fn [^MemorySegment destination ^MemorySegment payload]
+                      (.invokeWithArguments
+                       ^MethodHandle (:union-init-handle field-binding)
+                       (ArrayList. ^java.util.Collection
+                                   [(long (.address destination))
+                                    (long (if payload (.address payload) 0))]))
+                      destination))
+              field-schema (assoc :schema field-schema)
+              tagged-union?
+              (assoc
+               :active-fn
+               (fn [^MemorySegment value]
+                 (not
+                  (zero?
+                   (long
+                    (.invokeWithArguments
+                     ^MethodHandle (:union-active-handle field-binding)
+                     (ArrayList. ^java.util.Collection
+                                 [(long (.address value))]))))))
+               :payload-segment-fn
+               (fn [^MemorySegment value]
+                 (when (pos? field-size)
+                   (let [address
+                         (long
+                          (.invokeWithArguments
+                           ^MethodHandle
+                           (:union-payload-address-handle field-binding)
+                           (ArrayList. ^java.util.Collection
+                                       [(long (.address value))])))]
+                     (when (pos? address)
+                       (.reinterpret (MemorySegment/ofAddress address)
+                                     field-size)))))))))
+        fields field-bindings)})))
+
+(defn- native-type-schema
+  ([module type] (native-type-schema module type #{}))
+  ([module type seen]
+   (let [identity [module type]]
+     (when-not (contains? seen identity)
+       (cond
+         (and (vector? type)
+              (contains? #{:array :array-sentinel :vector} (first type)))
+         (let [[kind & arguments] type
+               [length sentinel element-type storage-length schema-kind]
+               (case kind
+                 :array [(first arguments) nil (second arguments)
+                         (first arguments) :array]
+                 :array-sentinel [(first arguments) (second arguments)
+                                  (nth arguments 2)
+                                  (when (integer? (first arguments))
+                                    (inc (first arguments)))
+                                  :array]
+                 :vector [(first arguments) nil (second arguments)
+                          (first arguments) :vector])]
+           (when (and (integer? length) (not (neg? length)))
+             {:kind schema-kind
+              :type type
+              :length length
+              :storage-length storage-length
+              :sentinel sentinel
+              :element-type element-type
+              :element-schema
+              (native-type-schema module element-type (conj seen identity))}))
+
+         :else
+         (when-let [{:keys [kind layout fields] :as declaration}
+                    (native-type-declaration module type)]
+           (let [container-description
+                 (container-type-description declaration)
+                 effective-kind (or (get-in container-description
+                                            [:options :kind])
+                                    kind)
+                 layout (or (get-in container-description [:options :layout])
+                            layout)
+                 fields (if container-description
+                          (->> (:members container-description)
+                               (filter #(= :field (:kind %)))
+                               vec)
+                          fields)]
+             (cond
+               (= :enum effective-kind)
+               (native-enum-schema type declaration)
+
+               (= :union effective-kind)
+               (native-union-schema module type seen declaration fields)
+
+               (= :struct effective-kind)
+             (let [base
+                   {:type type
+                    :layout layout
+                    :declaration
+                    (select-keys declaration [:module :name :logical-id
+                                              :schema-fingerprint])}]
+               (if (= :packed layout)
+                 (let [{:keys [fields bit-size]}
+                       (reduce
+                        (fn [{:keys [fields bit-size]} field]
+                          (let [field-schema
+                                (native-type-schema module (:type field)
+                                                    (conj seen identity))
+                                field-width
+                                (or (:bit-size field-schema)
+                                    (packed-field-bit-width
+                                     module (:type field)
+                                     (conj seen identity)))]
+                            (when-not field-width
+                              (throw
+                               (ex-info "Packed Zig field type is not decodable yet"
+                                        {:module module :type type
+                                         :field (:name field)
+                                         :field-type (:type field)})))
+                            {:fields (conj fields
+                                           (cond-> (assoc field
+                                                          :bit-offset bit-size
+                                                          :bit-size field-width)
+                                             field-schema
+                                             (assoc :schema field-schema)))
+                             :bit-size (+ bit-size field-width)}))
+                        {:fields [] :bit-size 0}
+                        fields)]
+                   (assoc base
+                          :kind :packed-struct
+                          :fields fields
+                          :bit-size bit-size))
+                 (let [qualified-name
+                       (symbol (:module declaration) (str (:name declaration)))
+                       field-bindings
+                       (get-in @registry [(:module declaration) :types
+                                          qualified-name :field-bindings])]
+                   (when (and field-bindings
+                              (= (count fields) (count field-bindings)))
+                     (assoc
+                      base
+                      :kind :struct
+                      :fields
+                      (mapv
+                       (fn [field field-binding]
+                         (let [field-schema
+                               (native-type-schema module (:type field)
+                                                   (conj seen identity))]
+                           (cond->
+                            (assoc field
+                                   :byte-offset
+                                   (long
+                                    (.invokeWithArguments
+                                     ^MethodHandle
+                                     (:offset-getter-handle field-binding)
+                                     (ArrayList.)))
+                                   :byte-size
+                                   (long
+                                    (.invokeWithArguments
+                                     ^MethodHandle
+                                     (:size-getter-handle field-binding)
+                                     (ArrayList.))))
+                             field-schema (assoc :schema field-schema))))
+                       fields field-bindings))))))))))))))
+
+(defn- ensure-native-type-binding!
+  "Load Zig-authored size/alignment/field/tag accessors for a named native
+  type. Returns true when a new wrapper generation was published."
+  [module type]
+  (when-let [declaration (native-type-declaration module type)]
+    (let [container-description (container-type-description declaration)
+          constructible?
+          (or (= :struct (:kind declaration))
+              (contains? #{:struct :enum :union}
+                         (get-in container-description [:options :kind])))
+          target-module (:module declaration)
+          qualified-name (symbol target-module (str (:name declaration)))]
+      (when (and constructible?
+                 (not (get-in @registry [target-module :types qualified-name])))
+        (locking compile-lock
+          (swap! registry update-in [target-module :jvm-type-declaration-keys]
+                 (fnil conj #{}) (:declaration-key declaration)))
+        (binding [*propagate-dependent-changes?* false]
+          (recompile! target-module))
+        (await-callable-generation! target-module)
+        true))))
+
+(defn materialize-type!
+  "Construct a persistent native value from an ordinary callable Zig type Var."
+  [declaration clojure-value]
+  (let [module (:module declaration)
+        type-name (:name declaration)
+        qualified-name (symbol module (str type-name))]
+    (await-callable-generation! module)
+    (ensure-native-type-binding! module type-name)
+    (let [{:keys [size-getter-handle align-getter-handle native-value-refs
+                  wrapper-generation] :as binding}
+          (get-in @registry [module :types qualified-name])
+          _ (when-not binding
+              (throw (ex-info "Zig type constructor is not loaded"
+                              {:type qualified-name :module module})))
+          schema (native-type-schema module type-name)
+          _ (when-not schema
+              (throw (ex-info "Clojure construction is not implemented for this Zig type"
+                              {:type qualified-name
+                               :layout (:layout declaration)})))
+          size (long (.invokeWithArguments ^MethodHandle size-getter-handle
+                                           (ArrayList.)))
+          alignment
+          (long (.invokeWithArguments ^MethodHandle align-getter-handle
+                                      (ArrayList.)))
+          arena (Arena/ofShared)
+          segment (.allocate arena size alignment)
+          closed? (atom false)
+          close!
+          (fn []
+            (when (compare-and-set! closed? false true)
+              (try (.close arena)
+                   (finally
+                     (.decrementAndGet ^AtomicLong native-value-refs)
+                     (locking compile-lock
+                       (retire-module-quiescent-generations! module))))))]
+      (try
+        (case (:kind schema)
+          :packed-struct
+          (zig-value/write-packed-struct! segment schema clojure-value)
+          :struct
+          (zig-value/write-struct! segment schema clojure-value)
+          :enum
+          (zig-value/write-enum! segment schema clojure-value)
+          :union
+          (zig-value/write-union! segment schema clojure-value)
+          (throw (ex-info "Clojure construction is not implemented for this Zig schema"
+                          {:type qualified-name :schema schema})))
+        (let [schema
+              (if (and (= :union (:kind schema))
+                       (not (:tagged? schema))
+                       (map? clojure-value)
+                       (= 1 (count clojure-value)))
+                (assoc schema :active-field
+                       (keyword (clojure.core/name (ffirst clojure-value))))
+                schema)]
+        (.incrementAndGet ^AtomicLong native-value-refs)
+        (zig-value/native-value
+         {:module module
+          :name type-name
+          :kind :value
+          :type type-name
+          :logical-id (:logical-id declaration)}
+         (constantly {:representation :native
+                      :segment segment
+                      :size size
+                      :alignment alignment
+                      :schema schema
+                      :generation wrapper-generation
+                      :close! close!})))
+        (catch Throwable error
+          (.close arena)
+          (throw error))))))
+
+(defn materialize-constant!
+  "Materialize the latest value of a non-literal Zig constant for a ZigValue.
+  Scalar accessors return an exact JVM value. Other values retain their exact
+  native byte representation and pin the owning dylib generation."
+  [declaration]
+  (let [module (:module declaration)
+        qualified-name (symbol module (str (:name declaration)))]
+    (await-callable-generation! module)
+    (when-not (current-value-binding qualified-name)
+      (locking compile-lock
+        (swap! registry update-in [module :jvm-value-declaration-keys]
+               (fnil conj #{}) (:declaration-key declaration)))
+      (binding [*propagate-dependent-changes?* false]
+        (recompile! module))
+      (await-callable-generation! module))
+    (when (and (not (contains? scalar-layouts (scalar-key (:type declaration))))
+               (nil? (native-type-schema module (:type declaration))))
+      (ensure-native-type-binding! module (:type declaration)))
+    (let [{:keys [mode getter-handle address-getter-handle size-getter-handle
+                  align-getter-handle native-value-refs wrapper-generation]
+           :as binding}
+          (current-value-binding qualified-name)]
+      (when-not binding
+        (throw (ex-info "Zig constant value accessor is not loaded"
+                        {:constant qualified-name
+                         :module module
+                         :type (:type declaration)})))
+      (if (= :scalar mode)
+        {:representation :scalar
+         :value (coerce-result
+                 (:type declaration)
+                 (.invokeWithArguments ^MethodHandle getter-handle
+                                       (ArrayList.)))
+         :generation wrapper-generation}
+        (let [address (long (.invokeWithArguments
+                             ^MethodHandle address-getter-handle
+                             (ArrayList.)))
+              size (long (.invokeWithArguments ^MethodHandle size-getter-handle
+                                                (ArrayList.)))
+              alignment
+              (long (.invokeWithArguments ^MethodHandle align-getter-handle
+                                          (ArrayList.)))
+              _ (when (or (zero? address) (neg? size) (not (pos? alignment)))
+                  (throw (ex-info "Zig constant returned invalid native storage"
+                                  {:constant qualified-name
+                                   :address address
+                                   :size size
+                                   :alignment alignment})))
+              segment (.reinterpret (MemorySegment/ofAddress address) size)
+              schema (native-type-schema module (:type declaration))
+              closed? (atom false)
+              close!
+              (fn []
+                (when (compare-and-set! closed? false true)
+                  (.decrementAndGet ^AtomicLong native-value-refs)
+                  (locking compile-lock
+                    (retire-module-quiescent-generations! module))))]
+          (.incrementAndGet ^AtomicLong native-value-refs)
+          {:representation :native
+           :segment segment
+           :size size
+           :alignment alignment
+           :schema schema
+           :generation wrapper-generation
+           :close! close!})))))
+
+(defn materialize-state!
+  "Materialize the active native storage for a Zig defvar as a live ZigValue."
+  [declaration]
+  (let [{:keys [module logical-id type name]} declaration]
+    (await-callable-generation! module)
+    (when (nil? (native-type-schema module type))
+      (ensure-native-type-binding! module type))
+    (let [state-version
+          (locking compile-lock
+            (some #(when (and (= logical-id (:logical-id %)) (:active? %)) %)
+                  (get-in @registry [module :state-versions])))]
+      (when-not (and state-version (:address state-version))
+        (throw (ex-info "Zig state has no active native storage"
+                        {:state (symbol module (str name))
+                         :module module
+                         :logical-id logical-id
+                         :versions (state-versions
+                                    (symbol module (str name)))})))
+      (let [{:keys [address size alignment generation]} state-version]
+        {:representation :native
+         :segment (.reinterpret (MemorySegment/ofAddress (long address))
+                                (long size))
+         :size size
+         :alignment alignment
+         :schema (native-type-schema module type)
+         :generation generation}))))
+
 (defn invoke!
-  "Invoke the latest loaded generation of an exported scalar Zig function."
+  "Invoke the latest loaded generation of a scalar Zig Var. Non-exported
+  declarations receive a cached development-only trampoline on first call."
   [function arguments]
   (let [qualified-name (qualified-function-name function)
         module (namespace qualified-name)
         _ (await-callable-generation! module)
+        declaration
+        (locking compile-lock
+          (current-function-declaration (get @registry module)
+                                        qualified-name))
+        _ (doseq [zig-type (concat (map :type (:args declaration))
+                                   [(:return declaration)])
+                  :when (and zig-type
+                             (not= :void zig-type)
+                             (not (contains? scalar-layouts
+                                             (scalar-key zig-type)))
+                             (nil? (native-type-schema module zig-type)))]
+            (ensure-native-type-binding! module zig-type))
+        _ (materialize-jvm-callable! qualified-name)
         function-binding (acquire-function-binding! qualified-name arguments nil)]
     (invoke-binding! module function-binding arguments)))
 
@@ -4686,7 +6009,7 @@
   [host]
   (when host
     (-> (select-keys host [:id :function :module :arguments :status
-                           :share-state?
+                           :share-state? :stack-size-bytes
                            :replaces-host-id
                            :dispatch-frozen? :dispatch-frozen-reason
                            :requested-at-ms :started-at-ms :finished-at-ms
@@ -4699,6 +6022,10 @@
   "Start a Zig `std.process.Init` main function on a dedicated native host
   thread in this JVM. `arguments` excludes argv[0]; use `:argv0` to set it.
 
+  `:stack-size-bytes` defaults to Zig's 16 MiB thread-stack default instead of
+  the JVM's much smaller platform default. It may be raised for an application
+  with larger native stack frames.
+
   The loaded host participates in Aguafria's atomic dispatch/state publication,
   so compatible Var edits are visible to the already-running program. Returns
   a serializable host handle immediately after native compilation/loading."
@@ -4710,7 +6037,17 @@
    (when-not (map? options)
      (throw (ex-info "Process-main host options must be a map"
                      {:options options})))
-   (let [qualified-name (qualified-function-name function)
+   (let [stack-size-value (or (:stack-size-bytes options)
+                              default-native-host-stack-size-bytes)
+         _ (when-not (and (integer? stack-size-value)
+                          (<= (* 64 1024) stack-size-value Long/MAX_VALUE))
+             (throw
+              (ex-info
+               "Process-main :stack-size-bytes must be an integer of at least 65536"
+               {:stack-size-bytes stack-size-value
+                :minimum-stack-size-bytes (* 64 1024)})))
+         stack-size-bytes (long stack-size-value)
+         qualified-name (qualified-function-name function)
          target-module (namespace qualified-name)
          _ (await-callable-generation! target-module)
          id (.incrementAndGet live-host-sequence)
@@ -4803,6 +6140,7 @@
                            :module target-module
                            :arguments argv
                            :share-state? share-state?
+                           :stack-size-bytes stack-size-bytes
                            :replaces-host-id (:replaces-host-id options)
                            :owned-state owned-state
                            :status :starting
@@ -4901,9 +6239,11 @@
                      ;; JVM and every host arena is closed. This is the safe
                      ;; quiescent boundary for a structural replacement.
                      (deliver completion @outcome)))))))
-         thread (doto (Thread. ^Runnable (reify Runnable
+         thread (doto (Thread. (.getThreadGroup (Thread/currentThread))
+                               ^Runnable (reify Runnable
                                            (run [_] (runner)))
-                               (str "aguafria-native-host-" id))
+                               (str "aguafria-native-host-" id)
+                               stack-size-bytes)
                   (.setDaemon true))]
      (.start thread)
      (host-view (get @live-hosts id)))))
@@ -4929,8 +6269,8 @@
   ownership and native arenas have been restored/closed, then start the current
   registered generation in the same JVM process. Structural edits and explicit
   state migrations should be completed before calling this function (or after
-  a separate `await-host!`). Options may override `:arguments`, `:argv0`, and
-  `:share-state?`."
+  a separate `await-host!`). Options may override `:arguments`, `:argv0`,
+  `:share-state?`, and `:stack-size-bytes`."
   ([host] (restart-process-main! host {}))
   ([host options]
    (when-not (map? options)
@@ -4959,6 +6299,10 @@
                       (if (contains? options :share-state?)
                         (:share-state? options)
                         (:share-state? previous))
+                      :stack-size-bytes
+                      (if (contains? options :stack-size-bytes)
+                        (:stack-size-bytes options)
+                        (:stack-size-bytes previous))
                       :replaces-host-id id))]
        (start-process-main! (symbol (:function previous))
                             arguments start-options)))))

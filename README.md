@@ -1,8 +1,8 @@
 # Aguafria
 
 Aguafria is a `deps.edn` library for writing ordinary Zig with Clojure data.
-It generates standalone `.zig` modules, compiles them with Zig, and makes
-scalar exported functions callable as normal Clojure functions.
+It generates standalone `.zig` modules, compiles them with Zig, and makes Zig
+Vars callable and inspectable as normal Clojure Vars.
 
 The important boundary is simple: a body captured by `az/defn` is Zig
 represented as lists, vectors, maps, symbols, keywords, and literals. `while`
@@ -89,11 +89,12 @@ Functions use the typed syntax from Vybe's C API:
 
 `az/defstruct` uses Malli-style field entries and emits an `extern struct` by
 default. A field can include a properties map, which remains available in the
-Var's declaration metadata. Metadata on the struct name selects a normal or
+Var's declaration metadata. An ordinary attribute map selects a normal or
 packed Zig struct:
 
 ```clojure
-(az/defstruct ^{:layout :normal} InternalPoint
+(az/defstruct InternalPoint
+  {:layout :normal}
   [[:x {:doc "Horizontal component"} :f32]
    [:y :f32]])
 
@@ -751,17 +752,51 @@ throw from `az/await!` and remain visible in `az/stats`. If an older native
 generation was already published, ordinary Var invocation keeps using it after
 a failed reload instead of taking the running program offline.
 
-## Clojure ABI boundary
+## Native values from Clojure
 
-Generated Zig is not limited to scalar code, but direct Clojure calls currently
-support these exported parameter/return types:
+Exact scalar results are ordinary JVM values. Unsigned `u64`/`usize` results
+use `BigInteger` when they exceed `Long/MAX_VALUE`. Values without a lossless
+JVM scalar representation use a native-backed `ZigValue`: printing and
+`clojure.pprint` show the semantic value, while `az/native-segment` and
+`az/native-bytes` retain access to the authoritative representation.
 
-`bool`, `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `isize`, `usize`,
-`f32`, `f64`, and `void` returns.
+```clojure
+(az/defstruct Flags
+  {:layout :packed}
+  [[:enabled :bool]
+   [:opcode :u3]
+   [:reserved :u4]])
 
-Use non-exported helpers for structs, slices, pointers, optionals, error unions,
-and other Zig-native types. Calling an exported function with an unsupported
-FFM signature raises an explanatory exception rather than guessing an ABI.
+(def flags (Flags {:enabled true :opcode 5 :reserved 9}))
+(az/value flags)
+;; => {:enabled true, :opcode 5, :reserved 9}
+
+(az/native-bytes flags)
+;; => [-101]
+
+(az/close! flags)
+```
+
+`az/defconst` and `az/defvar` roots likewise expose their real semantic Zig
+values, never Aguafria's internal declaration maps. Structs—including nested
+packed structs—accept field maps. Arrays and SIMD vectors accept Clojure
+vectors, enums accept keywords, and tagged unions accept a single-entry map
+such as `{:integer 42}`. These values pass directly to other Aguafria Vars through
+development-only pointer bridges; standalone output remains ordinary optimized
+Zig with no Clojure runtime. Native storage is released automatically when a
+value becomes unreachable, or deterministically with idempotent `az/close!`.
+
+`(az/set-value! live-var new-value)` writes through a live `az/defvar` handle
+in place without compiling. It uses the same type/range checks and accepts the
+same maps, keywords, and vectors as constructors. This is native mutation, so
+coordinate with a running Zig thread through a safe point, lock, atomic, or a
+synchronized Zig function exactly as handwritten Zig requires.
+
+Pointers, slices, optionals, and error unions require richer semantic
+ownership/tag codecs and are tracked as bridge work. An untagged union can be
+constructed with an explicit single-entry map, but a value returned by
+arbitrary Zig code has no runtime active tag; Aguafria reports that ambiguity
+instead of guessing from its bytes.
 
 ## Development
 

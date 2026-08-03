@@ -34,6 +34,7 @@
         (is (= :normal (:layout (get by-name 'CleanPoint))))
         (is (= "Inspectable constant."
                (:doc (meta (ns-resolve scratch 'clean-constant)))))
+        (is (= 42 (var-get (ns-resolve scratch 'clean-constant))))
         (is (= "Inspectable function."
                (:doc (meta (ns-resolve scratch 'clean-function)))))
         (is (= "Inspectable struct."

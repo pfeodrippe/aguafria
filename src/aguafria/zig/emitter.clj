@@ -2225,6 +2225,24 @@
 
       (fail! "Unknown nested Zig declaration" form {:operator operator}))))
 
+(defn container-description
+  "Return the normalized options and member declarations for an Aguafria
+  `container` form, or nil when the form is not a container. Runtime tooling
+  uses the same parser as emission instead of independently guessing syntax."
+  ([form] (container-description *ns* form))
+  ([context-ns form]
+   (when (seq? form)
+     (let [[source-operator options & members] form
+           operator (or (resolved-syntax-operator context-ns source-operator)
+                        source-operator)]
+       (when (= 'container operator)
+         (when-not (map? options)
+           (fail! "container expects an option map with :kind" form))
+         {:options options
+          :members (mapv #(binding [*keyword-context* context-ns]
+                            (nested-declaration %))
+                         members)})))))
+
 (defn- emit-container-member
   [form]
   (let [{:keys [kind name type value has-value? attributes] :as declaration}

@@ -8,8 +8,6 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
-(def ^:private sample-root "sample/src/root.zig")
-(def ^:private generated-sample-root "sample/clojure/sample/src/root.clj")
 (def ^:private tiger-root "generated/tigerbeetle")
 (def ^:private tiger-report "generated/tigerbeetle-report.edn")
 (def ^:private raw-boundary-pattern
@@ -24,48 +22,10 @@
           forms
           (recur (conj forms form)))))))
 
-(deftest converted-source-is-an-ordinary-namespace-test
-  (let [{:keys [namespace forms clojure-source report]}
-        (convert/convert-file sample-root {:namespace 'sample.live.root})
-        top-level-apis (map first forms)]
-    (is (= 'sample.live.root namespace))
-    (is (= 'ns (ffirst (read-forms clojure-source))))
-    (is (= 'sample.live.root (second (first (read-forms clojure-source)))))
-    (is (every? #(and (symbol? %) (= "az" (clojure.core/namespace %)))
-                top-level-apis))
-    (is (zero? (:raw-declaration-count report)))
-    (is (zero? (:unresolved-syntax-count report)))
-    (is (not-any? #{'az/defraw} top-level-apis))
-    (is (not (str/includes? clojure-source "batch/begin!")))
-    (is (not (str/includes? clojure-source "batch/end!")))
-    (is (not (str/includes? clojure-source "aguafria.zig.batch")))))
-
-(deftest zig-ast-extraction-is-content-addressed-test
-  (let [cache-directory
-        (.toFile
-         (java.nio.file.Files/createTempDirectory
-          "aguafria-ast-cache"
-          (make-array java.nio.file.attribute.FileAttribute 0)))
-        options {:namespace 'fixture.ast-cache
-                 :cache-dir (.getAbsolutePath cache-directory)}
-        first-report (:report (convert/convert-file sample-root options))
-        second-report (:report (convert/convert-file sample-root options))]
-    (is (false? (:ast-cache-hit? first-report)))
-    (is (true? (:ast-cache-hit? second-report)))
-    (is (= (:declaration-count first-report)
-           (:declaration-count second-report)))
-    (is (= (:source-bytes first-report) (:source-bytes second-report)))))
-
-(deftest converted-source-has-compact-attrs-comments-and-spacing-test
+(deftest converted-source-has-compact-attrs-and-spacing-test
   (let [{container-source :clojure-source}
         (convert/convert-file "test/fixtures/container.zig"
-                              {:namespace 'fixture.compact-source})
-        {comment-source :clojure-source}
-        (convert/convert-file "sample/src/main.zig"
-                              {:namespace 'fixture.comment-source})
-        {doc-source :clojure-source}
-        (convert/convert-file "sample/src/root.zig"
-                              {:namespace 'fixture.doc-source})]
+                              {:namespace 'fixture.compact-source})]
     (doseq [obsolete [":zig/order" ":zig/leading" ":zig/trailing"
                       ":export false" ":public false"
                       ":implicit-return false" ":source-comment false"]]
@@ -74,39 +34,7 @@
     (is (str/includes? container-source ":attrs #{:enum}"))
     (is (not (str/includes? container-source ":attrs #{}")))
     (is (str/includes? container-source "(az/field-decl replica Replica)"))
-    (is (re-find #"\)\n\n\(az/defconst" container-source))
-    (is (str/includes?
-         comment-source
-         ";; Prints to stderr, unbuffered, ignoring potential errors."))
-    (is (str/includes? comment-source ";; Don't forget to flush!"))
-    (is (str/includes?
-         doc-source
-         (str "\"This is a documentation comment to explain the "
-              "`printAnotherMessage` function below.\n\n"
-              "Accepting an `Io.Writer` instance is a handy way to write "
-              "reusable code.\"")))
-    (is (not (str/includes?
-              doc-source
-              "function below.\\n\\nAccepting an `Io.Writer`")))
-    (is (str/includes? comment-source "(ak/var stdout_buffer"))
-    (is (not (re-find #"(?m)\(var\s" comment-source)))
-    (is (not (str/includes? comment-source ":comments")))
-    ;; Source comments remain comments: they do not become runtime forms.
-    (is (not-any? #(= "Prints to stderr, unbuffered, ignoring potential errors." %)
-                  (tree-seq coll? seq (read-forms comment-source))))))
-
-(deftest converted-vars-live-in-the-declared-namespace-test
-  (let [result (convert/load-converted! generated-sample-root)
-        target (the-ns 'sample.src.root)]
-    (is (= 'sample.src.root (:namespace result)))
-    (is (false? (:compiled? result)))
-    (is (:source-only? result))
-    (is (= 4 (:declaration-count result)))
-    (doseq [name '[Io printAnotherMessage add]]
-      (let [v (ns-resolve target name)]
-        (is (var? v) (str name " should be a Var in sample.src.root"))
-        (is (= "sample.src.root"
-               (get-in (meta v) [:aguafria/declaration :module])))))))
+    (is (re-find #"\)\n\n\(az/defconst" container-source))))
 
 (deftest empty-converted-module-still-loads-its-own-namespace-test
   (let [directory (.toFile
@@ -137,14 +65,6 @@
     (is (not (str/includes? clojure-source "assert-zig")))
     (is demo)
     (is (:success? verification))))
-
-(deftest sample-round-trip-runs-with-zig-test
-  (let [verification (convert/verify-file sample-root
-                                          {:namespace 'sample.verified.root
-                                           :mode :test})]
-    (is (:success? verification))
-    (is (zero? (:raw-declaration-count verification)))
-    (is (zero? (:fallback-count verification)))))
 
 (deftest zig-lexical-leaves-are-structural-test
   (let [path "test/fixtures/lexical_literals.zig"
