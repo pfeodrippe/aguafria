@@ -8,8 +8,9 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
-(def ^:private tiger-root "generated/tigerbeetle")
-(def ^:private tiger-report "generated/tigerbeetle-report.edn")
+(def ^:private tiger-root "examples/tigerbeetle-agua/generated")
+(def ^:private tiger-report
+  "examples/tigerbeetle-agua/generated/tigerbeetle-report.edn")
 (def ^:private raw-boundary-pattern
   #"\((?:az/defraw|raw|raw-chunks|raw-statements|raw-statement-chunks)(?:\s|\))")
 
@@ -446,8 +447,8 @@
         loaded (convert/load-tree! tiger-root)]
     (testing "the pinned complete corpus was structurally converted"
       (is (= 245 (:file-count report)))
-      (is (= 4032 (:declaration-count report)))
-      (is (= 4032 (:structural-declaration-count report)))
+      (is (= 4483 (:declaration-count report)))
+      (is (= 4483 (:structural-declaration-count report)))
       (is (zero? (:raw-declaration-count report)))
       (is (zero? (:fallback-count report)))
       (is (zero? (:unresolved-syntax-count report)))
@@ -466,7 +467,7 @@
                        (filter #(str/ends-with? (.getName ^java.io.File %) ".clj"))))))
     (testing "all checked-in files load like normal Clojure namespaces"
       (is (= 245 (:file-count loaded)))
-      (is (= 4032 (:declaration-count loaded)))
+      (is (= 4483 (:declaration-count loaded)))
       (is (every? :source-only? (:files loaded)))
       (is (every? #(= (:namespace %)
                        (some-> (:namespace %) find-ns ns-name))
@@ -506,14 +507,15 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources" "generated/tigerbeetle"])})
+                       ["src" "resources"
+                        "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
                          "-Sdeps" classpath "-M" "-e" expression)]
     (is (zero? (:exit result)) (str (:out result) (:err result)))
     (when (zero? (:exit result))
       (is (= {:module (str module)
-              :declaration-count 8
+              :declaration-count 10
               :published? true
               :pending? false
               :source-only? false
@@ -543,14 +545,15 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources" "generated/tigerbeetle"])})
+                       ["src" "resources"
+                        "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
                          "-Sdeps" classpath "-M" "-e" expression)]
     (is (zero? (:exit result)) (str (:out result) (:err result)))
     (when (zero? (:exit result))
       (is (= {:status :finished
-              :declaration-count 38
+              :declaration-count 42
               :native-generation-count 1
               :dispatch-version-count 8
               :failed-build-count 0}
@@ -585,7 +588,8 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources" "generated/tigerbeetle"])})
+                       ["src" "resources"
+                        "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
                          "-Sdeps" classpath "-M" "-e" expression)]
@@ -652,7 +656,8 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources" "generated/tigerbeetle"])})
+                       ["src" "resources"
+                        "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
                          "-Sdeps" classpath "-M" "-e" expression)]
@@ -717,7 +722,8 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources" "generated/tigerbeetle"])})
+                       ["src" "resources"
+                        "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
                          "-Sdeps" classpath "-M" "-e" expression)]
@@ -792,7 +798,8 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources" "generated/tigerbeetle"])})
+                       ["src" "resources"
+                        "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
                          "-Sdeps" classpath "-M" "-e" expression)]
@@ -816,7 +823,7 @@
                   "aguafria-tigerbeetle-materialized"
                   (make-array java.nio.file.attribute.FileAttribute 0)))
         report (convert/convert-tree!
-                "vendor/tigerbeetle" output
+                "examples/tigerbeetle-agua/vendor/tigerbeetle" output
                 {:namespace-prefix 'tigerbeetle
                  :overwrite? true
                  :bundle-assets? true})
@@ -827,12 +834,12 @@
         git-result (shell/sh "git" "rev-parse" "--verify" "HEAD"
                              :dir (.getAbsolutePath
                                    (.getCanonicalFile
-                                    (io/file "vendor/tigerbeetle"))))
+                                    (io/file "examples/tigerbeetle-agua/vendor/tigerbeetle"))))
         git-commit (str/trim (:out git-result))
         git-dir-result (shell/sh "git" "rev-parse" "--absolute-git-dir"
                                  :dir (.getAbsolutePath
                                        (.getCanonicalFile
-                                        (io/file "vendor/tigerbeetle"))))
+                                        (io/file "examples/tigerbeetle-agua/vendor/tigerbeetle"))))
         git-dir (str/trim (:out git-dir-result))
         build-env (assoc (into {} (System/getenv))
                          "GIT_DIR" git-dir
@@ -842,7 +849,8 @@
                                "check"
                                :dir (.getAbsolutePath project)
                                :env build-env)
-        original-root (.getCanonicalFile (io/file "vendor/tigerbeetle"))
+        original-root (.getCanonicalFile
+                       (io/file "examples/tigerbeetle-agua/vendor/tigerbeetle"))
         original-build (shell/sh "zig" "build"
                                  (str "-Dgit-commit=" git-commit)
                                  :dir (.getAbsolutePath original-root))
@@ -873,8 +881,8 @@
                      (filter #(.isFile ^java.io.File %))
                      (filter #(str/ends-with? (.getName ^java.io.File %) ".clj")))))
     (is (= 245 (:zig-file-count materialized)))
-    (is (= 374 (:asset-file-count materialized)))
-    (is (= 619 (:file-count materialized)))
+    (is (= 372 (:asset-file-count materialized)))
+    (is (= 617 (:file-count materialized)))
     (is (= 4483 (:declaration-count materialized)))
     (is (zero? (:exit git-result)) (:err git-result))
     (is (zero? (:exit git-dir-result)) (:err git-dir-result))

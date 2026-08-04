@@ -231,6 +231,11 @@
   (load!)
   (status)
 
+  ;; Measure a leaf, a concrete comptime caller, and the real generated
+  ;; QueueType factory in this same JVM. Each edit is verified and restored.
+  (require '[tigerbeetle-agua.hot-reload-benchmark :as hot])
+  (hot/run-all!)
+
   ;; Run a finite command using the generated main Var.
   (version!)
 
@@ -335,7 +340,7 @@
 
   ;; Open this generated Clojure namespace in the same editor:
   ;;
-  ;;   ../../generated/tigerbeetle/tigerbeetle/src/repl/parser.clj
+  ;;   generated/tigerbeetle/src/repl/parser.clj
   ;;
   ;; Find the `az/defn object_default` form and change only its
   ;; `:.create_transfers` case from:

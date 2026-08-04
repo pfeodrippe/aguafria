@@ -163,8 +163,16 @@
         newest-input (reduce max (.lastModified (io/file box3d-include
                                                          "box3d/box3d.h"))
                              (map #(.lastModified ^java.io.File %) sources))
+        build-key (pr-str {:version 2
+                           :mode mode
+                           :assertions? (= :shared mode)
+                           :newest-input newest-input})
+        build-key-file (io/file (str (.getAbsolutePath ^java.io.File output)
+                                     ".aguafria-build"))
         current? (and (.isFile output)
-                      (>= (.lastModified output) newest-input))]
+                      (>= (.lastModified output) newest-input)
+                      (.isFile build-key-file)
+                      (= build-key (slurp build-key-file)))]
     (if current?
       {:status :cached :mode mode :output-path (.getAbsolutePath output)}
       (do
@@ -178,11 +186,13 @@
                  (str "-I" (.getAbsolutePath box3d-include))
                  (str "-I" (.getAbsolutePath box3d-source-root))
                  (str "-femit-bin=" (.getAbsolutePath output))]
-                (when (= :shared mode) ["-Dbox3d_EXPORTS"])
+                (when (= :shared mode)
+                  ["-Dbox3d_EXPORTS" "-DB3_ENABLE_ASSERT=1"])
                 ["-cflags" "-std=c17" "--"]
                 (map #(.getAbsolutePath ^java.io.File %) sources)
                 ["-lc"]))
               result (run-command! command root)]
+          (spit build-key-file build-key)
           {:status :built
            :mode mode
            :output-path (.getAbsolutePath output)

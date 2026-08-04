@@ -17,8 +17,10 @@
       (require 'tigerbeetle.src.vsr)
       (let [floor (ns-resolve 'tigerbeetle.src.vsr 'sector_floor)
             ceil (ns-resolve 'tigerbeetle.src.vsr 'sector_ceil)
-            before-floor (:requested-generation
-                          (aguafria.zig/module-info 'tigerbeetle.src.vsr))]
+            before-floor (or (:requested-generation
+                              (aguafria.zig/module-info
+                               'tigerbeetle.src.vsr))
+                             0)]
         (is (= 4096 (floor 4097)))
         (let [after-first-floor (:requested-generation
                                  (aguafria.zig/module-info

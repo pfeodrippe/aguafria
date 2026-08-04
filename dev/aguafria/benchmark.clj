@@ -194,7 +194,7 @@
   {:sample {:input "test/fixtures/import_tree"
             :namespace-prefix 'aguafria.benchmark.sample
             :options {}}
-   :tigerbeetle {:input "vendor/tigerbeetle"
+   :tigerbeetle {:input "examples/tigerbeetle-agua/vendor/tigerbeetle"
                  :namespace-prefix 'aguafria.benchmark.tigerbeetle
                  :options {:build-profiles [[] ["vopr"]]}}})
 

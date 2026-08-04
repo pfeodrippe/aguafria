@@ -1,5 +1,5 @@
-[submodule "vendor/tigerbeetle"]
-	path = vendor/tigerbeetle
+[submodule "examples/tigerbeetle-agua/vendor/tigerbeetle"]
+	path = examples/tigerbeetle-agua/vendor/tigerbeetle
 	url = https://github.com/tigerbeetle/tigerbeetle.git
 [submodule "examples/simple-game/vendor/flecs"]
 	path = examples/simple-game/vendor/flecs

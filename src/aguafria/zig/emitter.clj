@@ -2093,6 +2093,11 @@
   (or (true? (:export attributes))
       (contains? (set (:attrs attributes)) :export)))
 
+(defn- generic-function-argument?
+  [{:keys [type properties]}]
+  (or (= "comptime" (:zig/prefix properties))
+      (contains? #{:anytype 'anytype :type 'type} type)))
+
 (defn- dependency-declaration
   [declaration]
   (if (and (= :fn (:kind declaration))
@@ -2260,7 +2265,8 @@
             (when (seq zig-qualifiers) (str " " zig-qualifiers))
             (when (and (or export? dependency-default-export?)
                        (nil? zig-prefix)
-                       (not (seq zig-qualifiers)))
+                       (not (seq zig-qualifiers))
+                       (not-any? generic-function-argument? args))
               " callconv(.c)")
             " " (emit-type return) " {\n"
             (when (seq body-source) (str (indent 1 body-source) "\n"))
@@ -2290,8 +2296,15 @@
 (defn- emit-reloadable-function
   [declaration {:keys [implementation dispatch-type dispatch getter setter
                        active-counter active-depth active-tracking
-                       publication-epoch emit-getter?]}]
-  (let [arguments (mapv :name (:args declaration))
+                       publication-epoch emit-getter? linkable?]}]
+  (let [reload-args
+        (mapv (fn [index argument]
+                (if (= "_" (str (:name argument)))
+                  (assoc argument :name
+                         (symbol (str "__aguafria_discard_" index)))
+                  argument))
+              (range) (:args declaration))
+        arguments (mapv :name reload-args)
         target (str dispatch "_target")
         target-address (str dispatch "_target_address")
         track-active (str implementation "_track_active")
@@ -2300,6 +2313,7 @@
         wrapper-body [(list 'return call)]
         implementation-declaration
         (assoc declaration
+               :args reload-args
                :name (symbol implementation)
                :zig-name implementation
                :export? false
@@ -2334,6 +2348,7 @@
         (emit-declaration implementation-declaration)
         wrapper-declaration
         (assoc declaration
+               :args reload-args
                :body wrapper-body
                :implicit-return? false
                :body-prefix-source
@@ -2366,33 +2381,41 @@
            (str "export fn " getter "() callconv(.c) usize {\n"
                 "    return @intFromPtr(&" implementation ");\n"
                 "}\n\n"))
+         (when linkable? "pub ")
          "export fn " setter "(address: usize) callconv(.c) void {\n"
          "    @atomicStore(usize, &" dispatch ", address, .release);\n"
          "}\n\n"
          wrapper-source)))
 
 (defn- emit-reloadable-state
-  [declaration {:keys [accessor getter setter size-getter align-getter]}]
+  [declaration {:keys [accessor getter setter size-getter align-getter
+                       linkable? emit-native-helpers?]}]
   (let [name (identifier (or (:zig-name declaration) (:name declaration)))]
     (str (emit-declaration declaration) "\n\n"
          "var " accessor "_pointer: @TypeOf(&" name ") = &" name ";\n\n"
          "pub fn " accessor "() @TypeOf(&" name ") {\n"
          "    return @atomicLoad(@TypeOf(&" name "), &" accessor
          "_pointer, .acquire);\n"
-         "}\n\n"
-         "export fn " getter "() callconv(.c) usize {\n"
-         "    return @intFromPtr(&" name ");\n"
-         "}\n\n"
-         "export fn " setter "(address: usize) callconv(.c) void {\n"
-         "    @atomicStore(@TypeOf(&" name "), &" accessor
-         "_pointer, @ptrFromInt(address), .release);\n"
-         "}\n\n"
-         "export fn " size-getter "() callconv(.c) usize {\n"
-         "    return @sizeOf(@TypeOf(" name "));\n"
-         "}\n\n"
-         "export fn " align-getter "() callconv(.c) usize {\n"
-         "    return @alignOf(@TypeOf(" name "));\n"
-         "}")))
+         "}"
+         (when emit-native-helpers?
+           (str "\n\n"
+                (when linkable? "pub ")
+                "export fn " getter "() callconv(.c) usize {\n"
+                "    return @intFromPtr(&" name ");\n"
+                "}\n\n"
+                (when linkable? "pub ")
+                "export fn " setter "(address: usize) callconv(.c) void {\n"
+                "    @atomicStore(@TypeOf(&" name "), &" accessor
+                "_pointer, @ptrFromInt(address), .release);\n"
+                "}\n\n"
+                (when linkable? "pub ")
+                "export fn " size-getter "() callconv(.c) usize {\n"
+                "    return @sizeOf(@TypeOf(" name "));\n"
+                "}\n\n"
+                (when linkable? "pub ")
+                "export fn " align-getter "() callconv(.c) usize {\n"
+                "    return @alignOf(@TypeOf(" name "));\n"
+                "}")))))
 
 (defn emit-reloadable-module
   "Emit a development shared-library module with stable function dispatch and
@@ -2403,7 +2426,7 @@
   ([module-name declarations dispatch-specs state-specs]
    (emit-reloadable-module module-name declarations dispatch-specs state-specs {}))
   ([module-name declarations dispatch-specs state-specs
-    {:keys [dependency?]}]
+    {:keys [dependency? linkable-declaration-keys]}]
    (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
      (binding [*source-mapping?* true
                *keyword-context* context-ns
@@ -2414,23 +2437,27 @@
              {:keys [active-counter active-depth active-tracking
                      active-tracking-setter active-getter publication-epoch
                      publication-epoch-setter]}
-             (some-> dispatch-specs first val)]
+             (some-> dispatch-specs first val)
+             linkable? (boolean (seq linkable-declaration-keys))]
          (str "// Generated by Aguafria for reloadable development.\n"
               "// Module: " module-name "\n\n"
               (when active-counter
                 (str "var " active-counter ": usize = 0;\n"
                      "threadlocal var " active-depth ": usize = 0;\n\n"
                      "var " active-tracking ": bool = true;\n\n"
+                     (when linkable? "pub ")
                      "export fn " active-tracking-setter
                      "(enabled: u8) callconv(.c) void {\n"
                      "    @atomicStore(bool, &" active-tracking
                      ", enabled != 0, .release);\n"
                      "}\n\n"
+                     (when linkable? "pub ")
                      "export fn " active-getter "() callconv(.c) usize {\n"
                      "    return @atomicLoad(usize, &" active-counter
                      ", .acquire);\n"
                      "}\n\n"
                      "var " publication-epoch ": ?*const usize = null;\n\n"
+                     (when linkable? "pub ")
                      "export fn " publication-epoch-setter
                      "(address: usize) callconv(.c) void {\n"
                      "    " publication-epoch " = @ptrFromInt(address);\n"
@@ -2446,12 +2473,30 @@
                             (get dispatch-specs (:declaration-key declaration))
                             (emit-reloadable-function
                              declaration
-                             (get dispatch-specs (:declaration-key declaration)))
+                             (cond->
+                              (get dispatch-specs
+                                   (:declaration-key declaration))
+                               (contains? linkable-declaration-keys
+                                          (:declaration-key declaration))
+                               (assoc :linkable? true)))
 
                             (get state-specs (:declaration-key declaration))
                             (emit-reloadable-state
                              declaration
-                             (get state-specs (:declaration-key declaration)))
+                             (let [linkable?
+                                   (contains? linkable-declaration-keys
+                                              (:declaration-key declaration))]
+                               (assoc
+                                (get state-specs
+                                     (:declaration-key declaration))
+                                :linkable? linkable?
+                                ;; A dependency source needs stable accessors
+                                ;; for its own bodies, but only an exact live
+                                ;; state unit needs exported address/layout
+                                ;; helpers. Root-owned state always needs them
+                                ;; so the JVM can initialize/preserve storage.
+                                :emit-native-helpers?
+                                (or (not dependency?) linkable?))))
 
                             :else
                             (emit-declaration declaration)))))

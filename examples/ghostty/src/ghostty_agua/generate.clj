@@ -2,7 +2,7 @@
   "Ghostty conversion and standalone-project tooling.
 
   This namespace deliberately has no dependency on generated output, so it can
-  be required from a clean checkout before `generated/ghostty` exists."
+  be required from a clean checkout before `examples/ghostty/generated` exists."
   (:require [aguafria.zig.convert :as convert]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]))
@@ -45,9 +45,11 @@
     {:repository-root (.getAbsolutePath root)
      :input-root (.getAbsolutePath
                   (io/file root "examples/ghostty/vendor/ghostty"))
-     :output-root (.getAbsolutePath (io/file root "generated/ghostty"))
+     :output-root (.getAbsolutePath
+                   (io/file root "examples/ghostty/generated"))
      :report-output (.getAbsolutePath
-                     (io/file root "generated/ghostty-report.edn"))
+                     (io/file root
+                              "examples/ghostty/generated/ghostty-report.edn"))
      :standalone-root (.getAbsolutePath
                        (io/file root "examples/ghostty/build/standalone"))}))
 

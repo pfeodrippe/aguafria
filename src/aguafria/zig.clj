@@ -343,7 +343,28 @@
     (when-not (= marker ':-)
       (throw (ex-info "az/defn expects: name :- return-type [typed args] body..."
                       {:form form :name name :declaration declaration})))
-    (let [qualified-name (symbol (str *ns*) (str name))]
+    (let [qualified-name (symbol (str *ns*) (str name))
+          args (emitter/parse-typed-bindings bindings)
+          generic?
+          (boolean
+           (some (fn [{:keys [type properties]}]
+                   (or (= "comptime" (:zig/prefix properties))
+                       (contains? #{:anytype 'anytype :type 'type} type)))
+                 args))
+          attrs (set (:attrs attributes))
+          explicit-export?
+          (or (contains? attrs :export)
+              (true? (:export attributes)))
+          _ (when (and generic? explicit-export?)
+              (throw
+               (ex-info
+                "A generic/comptime Zig function cannot use :export"
+                {:form form
+                 :name name
+                 :arguments args
+                 :hint "Remove :export; concrete Aguafria callers remain hot-reloadable."})))
+          options (cond-> (declaration-options name attributes)
+                    generic? (assoc :export? false))]
       (emitter/prepare-declaration
        *ns*
        (merge {:kind :fn
@@ -353,11 +374,11 @@
                :module (str *ns*)
                :doc docstring
                :return return
-               :args (emitter/parse-typed-bindings bindings)
+               :args args
                :body (vec body)
                :clojure-form form
                :source (source-location form)}
-              (declaration-options name attributes))))))
+              options)))))
 
 (defmacro defn
   "Define, compile, and expose a Zig function.
@@ -366,10 +387,11 @@
         [a :- :i32 b :- :i32]
         (+ a b))
 
-  The generated function is exported with the C calling convention by
-  default, making supported scalar signatures callable from Clojure. Attach
-  `^{:export false}` to the name for a Zig-only function. Non-void functions
-  implicitly return their final expression."
+  A concrete supported signature is exported with the C calling convention by
+  default, making it callable from Clojure. Generic/comptime functions retain
+  Zig's native ABI and are reached through concrete callers. Attach
+  `^{:export false}` to the name for another Zig-only function. Non-void
+  functions implicitly return their final expression."
   [name & declaration]
   (let [descriptor (parse-defn-declaration &form name declaration)
         qualified-name (:qualified-name descriptor)

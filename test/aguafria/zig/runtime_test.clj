@@ -41,6 +41,98 @@
       (is (not= (:abi-fingerprint baseline)
                 (:abi-fingerprint signature-change))))))
 
+(deftest source-fingerprint-covers-emission-without-churning-type-identity-test
+  (let [reference
+        (fn [alias]
+          (with-meta 'dependency/value
+            {:aguafria/zig-reference
+             {:kind :const
+              :module "fixture.dependency"
+              :zig-name "value"
+              :import-name "fixture.dependency"
+              :import-alias alias
+              :logical-id ["fixture.dependency" :const "value"]}}))
+        baseline (runtime/declaration-info
+                  (assoc function-declaration :body [(reference "dep")]))
+        documentation-change
+        (runtime/declaration-info
+         (assoc function-declaration
+                :doc "New generated Zig documentation"
+                :body [(reference "dep")]))
+        reference-change
+        (runtime/declaration-info
+         (assoc function-declaration :body [(reference "dependency")]))]
+    (is (= 64 (count (:source-fingerprint baseline))))
+    (is (= (:source-fingerprint baseline)
+           (:source-fingerprint (runtime/declaration-info baseline))))
+    (is (= (:abi-fingerprint baseline)
+           (:abi-fingerprint documentation-change)
+           (:abi-fingerprint reference-change)))
+    (is (not= (:source-fingerprint baseline)
+              (:source-fingerprint documentation-change)))
+    (is (not= (:source-fingerprint baseline)
+              (:source-fingerprint reference-change)))))
+
+(deftest bounded-module-source-cache-reuses-and-invalidates-plans-test
+  (let [cache (var-get #'aguafria.zig.runtime/module-source-cache)
+        empty-cache (var-get #'aguafria.zig.runtime/empty-module-source-cache)
+        module-sources (var-get #'aguafria.zig.runtime/module-sources)
+        baseline (runtime/declaration-info function-declaration)
+        changed (runtime/declaration-info
+                 (assoc function-declaration :body '[(+ value 1)]))]
+    (reset! cache empty-cache)
+    (try
+      (let [first-plan (module-sources "fixture.live" [baseline])
+            repeated-plan (module-sources "fixture.live" [baseline])
+            current-implementation (apply str (repeat 64 "f"))
+            identity-only-plan
+            (module-sources
+             "fixture.live"
+             [(assoc baseline
+                     :implementation-fingerprint current-implementation)])
+            changed-plan (module-sources "fixture.live" [changed])
+            getter-plan (module-sources "fixture.live" [changed]
+                                        #{(:declaration-key changed)})
+            cache-stats (:module-source-cache (runtime/stats))]
+        (is (= first-plan repeated-plan))
+        (is (= current-implementation
+               (get-in identity-only-plan
+                       [:reload-source-dispatch-specs
+                        (:declaration-key baseline)
+                        :implementation-fingerprint])))
+        (is (not= (:source first-plan) (:source changed-plan)))
+        (is (not= (:compile-source changed-plan)
+                  (:compile-source getter-plan)))
+        (is (= 2 (:hit-count cache-stats)))
+        (is (= 3 (:miss-count cache-stats)))
+        (is (= 3 (:entry-count cache-stats)))
+        (is (<= (:entry-count cache-stats) (:entry-limit cache-stats)))
+        (is (<= (:weight-chars cache-stats)
+                (:weight-limit-chars cache-stats))))
+      (finally
+        (reset! cache empty-cache)))))
+
+(deftest module-source-cache-evicts-oldest-rendered-plan-test
+  (let [cache (var-get #'aguafria.zig.runtime/module-source-cache)
+        empty-cache (var-get #'aguafria.zig.runtime/empty-module-source-cache)
+        module-sources (var-get #'aguafria.zig.runtime/module-sources)]
+    (reset! cache empty-cache)
+    (try
+      (with-redefs-fn
+        {#'aguafria.zig.runtime/module-source-cache-entry-limit 2}
+        (fn []
+          (doseq [increment [1 2 3]]
+            (module-sources
+             "fixture.live"
+             [(runtime/declaration-info
+               (assoc function-declaration
+                      :body `[(+ value ~increment)]))]))))
+      (let [cache-stats (:module-source-cache (runtime/stats))]
+        (is (= 2 (:entry-count cache-stats)))
+        (is (= 1 (:eviction-count cache-stats))))
+      (finally
+        (reset! cache empty-cache)))))
+
 (deftest struct-schema-fingerprint-test
   (let [baseline (runtime/declaration-info struct-declaration)
         documentation-change
@@ -128,5 +220,58 @@
     (is (= 64 (count (:schema-fingerprint baseline))))
     (is (= (:schema-fingerprint baseline)
            (:schema-fingerprint method-change)))
+    (is (not= (:implementation-fingerprint baseline)
+              (:implementation-fingerprint method-change)))
     (is (not= (:schema-fingerprint baseline)
               (:schema-fingerprint field-change)))))
+
+(deftest referenced-type-shapes-are-stable-and-layout-sensitive-test
+  (let [logical-id ["fixture.live" :struct "Node"]
+        node-reference
+        (fn [schema]
+          (with-meta 'Node
+            {:aguafria/zig-reference
+             {:kind :struct
+              :module "fixture.live"
+              :logical-id logical-id
+              :schema-fingerprint schema
+              :shape-fingerprint "node-shape"}}))
+        node
+        (fn [schema]
+          (runtime/declaration-info
+           {:module "fixture.live"
+            :kind :struct
+            :name 'Node
+            :declaration-key [:struct 'Node]
+            :layout :extern
+            :type-dependency-fingerprints
+            [[logical-id schema nil "node-shape"]]
+            :fields [{:name :next
+                      :type [:optional [:* (node-reference schema)]]
+                      :properties {}}]}))
+        dependency-id ["fixture.types" :struct "Payload"]
+        wrapper
+        (fn [shape]
+          (runtime/declaration-info
+           {:module "fixture.live"
+            :kind :struct
+            :name 'Wrapper
+            :declaration-key [:struct 'Wrapper]
+            :layout :extern
+            :type-dependency-fingerprints
+            [[dependency-id "published-schema" nil shape]]
+            :fields [{:name :payload
+                      :type (with-meta 'fixture.types/Payload
+                              {:aguafria/zig-reference
+                               {:kind :struct
+                                :module "fixture.types"
+                                :logical-id dependency-id
+                                :schema-fingerprint "published-schema"
+                                :shape-fingerprint shape}})
+                      :properties {}}]}))]
+    (testing "a self reference does not recursively churn its own schema"
+      (is (= (:schema-fingerprint (node "generation-one"))
+             (:schema-fingerprint (node "generation-two")))))
+    (testing "a direct dependency layout change still versions the owner"
+      (is (not= (:schema-fingerprint (wrapper "payload-v1"))
+                (:schema-fingerprint (wrapper "payload-v2")))))))

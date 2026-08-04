@@ -28,7 +28,7 @@ clojure -M:macos-app
 clojure -M:test --config-file tests.edn
 ```
 
-The generated Clojure tree is `../../generated/ghostty`. The independent
+The generated Clojure tree is `generated/`. The independent
 source tree and artifacts are under `build/standalone`; it does not read the
 original Ghostty `.zig` files while materializing or building.
 

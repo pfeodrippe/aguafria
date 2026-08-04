@@ -11,7 +11,9 @@
    (some
     (fn [^java.io.File directory]
       (when (and (.isFile (io/file directory "src/aguafria/zig.clj"))
-                 (.isDirectory (io/file directory "vendor/tigerbeetle")))
+                 (.isDirectory
+                  (io/file directory
+                           "examples/tigerbeetle-agua/vendor/tigerbeetle")))
         (.getCanonicalFile directory)))
     (take-while some?
                 (iterate #(.getParentFile ^java.io.File %)
@@ -27,10 +29,14 @@
   []
   (let [root (repository-root)]
     {:repository-root (.getAbsolutePath root)
-     :input-root (.getAbsolutePath (io/file root "vendor/tigerbeetle"))
-     :output-root (.getAbsolutePath (io/file root "generated/tigerbeetle"))
+     :input-root (.getAbsolutePath
+                  (io/file root
+                           "examples/tigerbeetle-agua/vendor/tigerbeetle"))
+     :output-root (.getAbsolutePath
+                   (io/file root "examples/tigerbeetle-agua/generated"))
      :report-output (.getAbsolutePath
-                     (io/file root "generated/tigerbeetle-report.edn"))}))
+                     (io/file root
+                              "examples/tigerbeetle-agua/generated/tigerbeetle-report.edn"))}))
 
 (defn generated?
   "True when the generated TigerBeetle main namespace exists."

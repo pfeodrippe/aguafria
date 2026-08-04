@@ -56,6 +56,11 @@
   (az/await! 'simple-game.vulkan)
   (status)
 
+  ;; Measure real declaration edits in this same JVM. Each scenario verifies
+  ;; changed behavior/live state and restores the original Var automatically.
+  (require '[simple-game.hot-reload-benchmark :as hot])
+  (hot/run-all!)
+
   ;; Live-edit ABI rules:
   ;;
   ;; - An az/defn body edit with the same parameter/return ABI publishes into

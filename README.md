@@ -441,7 +441,7 @@ catalog never retains an absolute original-checkout or `.zig-cache` path.
 
 `load-tree!` adds that generated root to the current dynamic classloader before
 loading it. In this repository, `clojure -M:nrepl` already includes
-`generated/tigerbeetle`, so `require` and editor namespace evaluation work in a
+`examples/tigerbeetle-agua/generated`, so `require` and editor namespace evaluation work in a
 fresh development REPL.
 
 With `:bundle-assets? true`, the generated tree also contains a manifest-backed

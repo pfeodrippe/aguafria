@@ -1737,6 +1737,82 @@
           (remove-ns caller-symbol)
           (remove-ns generic-symbol))))))
 
+(deftest generic-function-fanout-publishes-independent-callers-in-parallel-test
+  (testing "independent affected SCCs prepare concurrently and publish as one frontier"
+    (let [old-config (az/configuration)
+          suffix fixture-suffix
+          generic-symbol (symbol (str "aguafria.fanout-generic-" suffix))
+          left-symbol (symbol (str "aguafria.fanout-left-" suffix))
+          right-symbol (symbol (str "aguafria.fanout-right-" suffix))
+          join-symbol (symbol (str "aguafria.fanout-join-" suffix))
+          generic-ns (create-ns generic-symbol)
+          left-ns (create-ns left-symbol)
+          right-ns (create-ns right-symbol)
+          join-ns (create-ns join-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (doseq [target [generic-ns left-ns right-ns join-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* generic-ns]
+          (eval
+           '(az/defn fanout-add
+              {:attrs #{:public :implicit-return}}
+              :- T
+              [[T {:zig/prefix "comptime"} :type]
+               [x T]]
+              (+ x 1))))
+        (doseq [[target alias-name function-name offset]
+                [[left-ns 'generic-left 'left-step 10]
+                 [right-ns 'generic-right 'right-step 20]]]
+          (binding [*ns* target]
+            (alias alias-name generic-symbol)
+            (eval
+             (list 'az/defn function-name
+                   {:attrs #{:public :implicit-return}}
+                   ':- 'T
+                   '[[T {:zig/prefix "comptime"} :type]
+                     [x T]]
+                   (list '+
+                         (list (symbol (str alias-name) "fanout-add")
+                               'T 'x)
+                         offset)))))
+        (binding [*ns* join-ns]
+          (alias 'left left-symbol)
+          (alias 'right right-symbol)
+          (eval
+           '(az/defn joined-value :- :i32
+              [x :- :i32]
+              (+ (left/left-step :i32 x)
+                 (right/right-step :i32 x)))))
+        (is (= 42 ((ns-resolve join-ns 'joined-value) 5)))
+        (let [generic-var (ns-resolve generic-ns 'fanout-add)
+              original (:aguafria/declaration (meta generic-var))
+              changed (runtime/declaration-info
+                       (assoc original :body '[(+ x 2)]))
+              result (runtime/register-declaration! changed)
+              affected (:affected result)]
+          (is (= 44 ((ns-resolve join-ns 'joined-value) 5)))
+          (is (= 3 (:component-count affected)))
+          (is (= 1 (:parallel-frontier-count affected)))
+          (is (= 2 (:parallel-component-count affected)))
+          (is (= #{(str left-symbol) (str right-symbol) (str join-symbol)}
+                 (->> (:publications affected)
+                      (mapcat :modules)
+                      set)))
+          (is (= #{(str left-symbol) (str right-symbol)}
+                 (->> (:publications affected)
+                      (filter :parallel-prepared?)
+                      (mapcat :modules)
+                      set))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns join-symbol)
+          (remove-ns right-symbol)
+          (remove-ns left-symbol)
+          (remove-ns generic-symbol))))))
+
 (deftest composite-zig-signature-hot-dispatch-test
   (testing "Zig callers hot-swap native functions whose ABI is not JVM-scalar"
     (let [old-config (az/configuration)
@@ -1801,6 +1877,45 @@
           (az/configure! old-config)
           (remove-ns b-symbol)
           (remove-ns a-symbol))))))
+
+(deftest transitive-source-only-dispatch-cell-is-wired-test
+  (testing "a live outer generation observes a leaf edit through an embedded source-only module"
+    (let [old-config (az/configuration)
+          suffix fixture-suffix
+          leaf-symbol (symbol (str "aguafria.transitive-leaf-" suffix))
+          middle-symbol (symbol (str "aguafria.transitive-middle-" suffix))
+          outer-symbol (symbol (str "aguafria.transitive-outer-" suffix))
+          leaf-ns (create-ns leaf-symbol)
+          middle-ns (create-ns middle-symbol)
+          outer-ns (create-ns outer-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (doseq [target [leaf-ns middle-ns outer-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [runtime/*source-only-registration?* true]
+          (binding [*ns* leaf-ns]
+            (eval '(az/defn leaf-value :- :i32 [] 1)))
+          (binding [*ns* middle-ns]
+            (alias 'leaf leaf-symbol)
+            (eval '(az/defn middle-value :- :i32 [] (leaf/leaf-value))))
+          (binding [*ns* outer-ns]
+            (alias 'middle middle-symbol)
+            (eval '(az/defn outer-value :- :i32 [] (middle/middle-value)))))
+        (is (= 1 ((ns-resolve outer-ns 'outer-value))))
+        (let [outer-generation (:generation (az/module-info outer-symbol))]
+          (binding [*ns* leaf-ns]
+            (eval '(az/defn leaf-value :- :i32 [] 2)))
+          (is (= 2 ((ns-resolve outer-ns 'outer-value))))
+          (is (= outer-generation (:generation (az/module-info outer-symbol))))
+          (is (empty? (:native-generations
+                       (az/module-info middle-symbol)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns outer-symbol)
+          (remove-ns middle-symbol)
+          (remove-ns leaf-symbol))))))
 
 (deftest handwritten-cyclic-module-hot-reload-test
   (testing "ordinary Aguafria namespaces can form and hot-reload a Zig cycle"
@@ -2020,6 +2135,43 @@
         (finally
           (az/configure! old-config)
           (remove-ns module-symbol))))))
+
+(deftest top-level-comptime-function-keeps-zig-abi-and-republishes-callers-test
+  (testing "generic functions are Zig templates and concrete callers are hot units"
+    (let [old-config (az/configuration)
+          suffix fixture-suffix
+          generic-symbol (symbol (str "aguafria.comptime-generic-" suffix))
+          caller-symbol (symbol (str "aguafria.comptime-caller-" suffix))
+          generic-ns (create-ns generic-symbol)
+          caller-ns (create-ns caller-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (doseq [target [generic-ns caller-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* generic-ns]
+          (eval '(az/defn scale :- :u32
+                   [[value {:zig/prefix "comptime"} :u32]]
+                   (* value 2))))
+        (is (false?
+             (:export?
+              (:aguafria/declaration
+               (meta (ns-resolve generic-ns 'scale))))))
+        (binding [*ns* caller-ns]
+          (alias 'generic generic-symbol)
+          (eval '(az/defn answer :- :u32 [] (generic/scale 5))))
+        (is (= 10 ((ns-resolve caller-ns 'answer))))
+
+        (binding [*ns* generic-ns]
+          (eval '(az/defn scale :- :u32
+                   [[value {:zig/prefix "comptime"} :u32]]
+                   (* value 3))))
+        (is (= 15 ((ns-resolve caller-ns 'answer))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns caller-symbol)
+          (remove-ns generic-symbol))))))
 
 (deftest composite-return-materializes-through-a-complete-wrapper-generation-test
   (testing "a native result requests a full-module JVM trampoline"
@@ -2278,7 +2430,15 @@
         (runtime/register-declaration!
          (declaration [(list '+ 'x 1)]))
         (is (= 8 (runtime/invoke! qualified-name [7])))
-        (let [module-stats (az/stats module)
+        (let [module-stats
+              (loop [attempt 0]
+                (let [stats (az/stats module)]
+                  (if (or (= 1 (:retired-generation-count stats))
+                          (= attempt 500))
+                    stats
+                    (do
+                      (Thread/sleep 2)
+                      (recur (inc attempt))))))
               retired (last (:retired-generations module-stats))]
           (is (= 1 (:native-generation-count module-stats)))
           (is (= 1 (:retired-generation-count module-stats)))
@@ -2658,8 +2818,16 @@
           suffix fixture-suffix
           type-symbol (symbol (str "aguafria.live-type-factory-" suffix))
           caller-symbol (symbol (str "aguafria.live-type-caller-" suffix))
+          irrelevant-symbol
+          (symbol (str "aguafria.live-type-irrelevant-" suffix))
+          downstream-symbol
+          (symbol (str "aguafria.live-type-downstream-" suffix))
+          dormant-symbol (symbol (str "aguafria.live-type-dormant-" suffix))
           type-ns (create-ns type-symbol)
           caller-ns (create-ns caller-symbol)
+          irrelevant-ns (create-ns irrelevant-symbol)
+          downstream-ns (create-ns downstream-symbol)
+          dormant-ns (create-ns dormant-symbol)
           pre-break-answer-abi (atom nil)
           define-options!
           (fn [field-type answer]
@@ -2682,12 +2850,15 @@
                        (ak/return aguafria-test/answer-value)))))))))]
       (try
         (az/configure! {:async? true :modules {}})
-        (doseq [target [type-ns caller-ns]]
+        (doseq [target [type-ns caller-ns irrelevant-ns downstream-ns
+                        dormant-ns]]
           (binding [*ns* target]
             (refer 'clojure.core)
             (alias 'az 'aguafria.zig)
             (alias 'ak 'aguafria.keyword)))
         (define-options! :u32 1)
+        (binding [*ns* type-ns]
+          (eval '(az/defn ping :- :u32 [] 7)))
         (az/await! type-symbol)
         (binding [*ns* caller-ns]
           (alias 'types type-symbol)
@@ -2696,17 +2867,62 @@
               (ak/return (ak/sizeOf (types/OptionsType)))))
           (eval
            '(az/defn option-answer :- :u32 []
+              (ak/return ((az/field (types/OptionsType) answer)))))
+          (eval '(az/defn unrelated-local :- :u32 [] 99)))
+        (binding [*ns* irrelevant-ns]
+          (alias 'types type-symbol)
+          (eval '(az/defn ping-caller :- :u32 [] (types/ping))))
+        (binding [*ns* downstream-ns]
+          (alias 'caller caller-symbol)
+          (eval '(az/defn stable-dispatch-caller :- :u32 []
+                   (caller/option-answer))))
+        (binding [runtime/*source-only-registration?* true
+                  *ns* dormant-ns]
+          (alias 'types type-symbol)
+          (eval
+           '(az/defn dormant-answer :- :u32 []
               (ak/return ((az/field (types/OptionsType) answer))))))
         (is (= 4 ((ns-resolve caller-ns 'option-size))))
         (is (= 1 ((ns-resolve caller-ns 'option-answer))))
+        (is (= 99 ((ns-resolve caller-ns 'unrelated-local))))
+        (is (= 7 ((ns-resolve irrelevant-ns 'ping-caller))))
+        (is (= 1 ((ns-resolve downstream-ns 'stable-dispatch-caller))))
 
         (let [before-generation
-              (:published-generation (az/module-info caller-symbol))]
+              (:published-generation (az/module-info caller-symbol))
+              irrelevant-generation
+              (:published-generation (az/module-info irrelevant-symbol))
+              downstream-generation
+              (:published-generation (az/module-info downstream-symbol))
+              before-build-generation
+              (reduce max 0
+                      (keep #(when (= (str caller-symbol) (:module %))
+                               (:generation %))
+                            (:builds (az/stats))))]
           (define-options! :u32 2)
           (az/await! type-symbol)
           (is (= 2 ((ns-resolve caller-ns 'option-answer))))
           (is (< before-generation
                  (:published-generation (az/module-info caller-symbol))))
+          (is (= irrelevant-generation
+                 (:published-generation (az/module-info irrelevant-symbol))))
+          (is (= 7 ((ns-resolve irrelevant-ns 'ping-caller))))
+          ;; The direct caller was republished, but its stable dispatch slot
+          ;; means callers one hop farther out require no native rebuild.
+          (is (= downstream-generation
+                 (:published-generation (az/module-info downstream-symbol))))
+          (is (= 2 ((ns-resolve downstream-ns 'stable-dispatch-caller))))
+          (let [dependent-builds
+                (->> (:builds (az/stats))
+                     (filter #(and (= (str caller-symbol) (:module %))
+                                   (> (:generation %) before-build-generation))))]
+            (is (= 2 (count dependent-builds)))
+            (is (every? #(= 1 (:compiled-declaration-count %))
+                        dependent-builds)))
+          (is (= 99 ((ns-resolve caller-ns 'unrelated-local))))
+          (is (:source-only? (az/module-info dormant-symbol)))
+          (is (nil? (:published-generation
+                     (az/module-info dormant-symbol))))
           (reset! pre-break-answer-abi
                   (:abi-fingerprint
                    (some #(when (:current? %) %)
@@ -2753,6 +2969,9 @@
                       (ns-resolve type-ns 'OptionsType)))))
         (finally
           (az/configure! old-config)
+          (remove-ns dormant-symbol)
+          (remove-ns downstream-symbol)
+          (remove-ns irrelevant-symbol)
           (remove-ns caller-symbol)
           (remove-ns type-symbol))))))
 
@@ -2910,25 +3129,22 @@
                  (:aguafria/phase (ex-data state-error))))
           (is (= 41 ((ns-resolve test-ns 'read-value)))))
 
+        ;; The migration function is an independent declaration unit. It can
+        ;; publish while the new state capsule is deliberately blocked; only
+        ;; `migrate-state!` is allowed to make that layout reachable.
         (binding [*ns* test-ns]
-          (let [migration-error
-                (try
-                  (eval '(az/defn migrate-struct-state :- :void
-                           [old-address :- :usize new-address :- :usize]
-                           (ak/const old-state [:*const OldCounterState]
-                             (ak/ptrFromInt old-address))
-                           (ak/const new-state [:* CounterState]
-                             (ak/ptrFromInt new-address))
-                           (az/assign "="
-                             (az/field (az/deref new-state) value)
-                             (az/field (az/deref old-state) value))
-                           (az/assign "="
-                             (az/field (az/deref new-state) extra)
-                             99)))
-                  nil
-                  (catch clojure.lang.ExceptionInfo error error))]
-            (is (= :zig-state-migration-required
-                   (:aguafria/phase (ex-data migration-error))))))
+          (eval '(az/defn migrate-struct-state :- :void
+                   [old-address :- :usize new-address :- :usize]
+                   (ak/const old-state [:*const OldCounterState]
+                     (ak/ptrFromInt old-address))
+                   (ak/const new-state [:* CounterState]
+                     (ak/ptrFromInt new-address))
+                   (az/assign "="
+                     (az/field (az/deref new-state) value)
+                     (az/field (az/deref old-state) value))
+                   (az/assign "="
+                     (az/field (az/deref new-state) extra)
+                     99))))
 
         (az/migrate-state!
          (symbol (str test-symbol) "state")

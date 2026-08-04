@@ -5,7 +5,7 @@ TigerBeetle code through Aguafria. Its classpath contains:
 
 - this example's `src` and `resources`;
 - Aguafria itself through the local `../..` dependency;
-- `../../generated/tigerbeetle`, whose `.clj` files are ordinary namespaces.
+- `generated/`, whose `.clj` files are ordinary namespaces.
 
 Development stays in one JVM/PID. Aguafria loads generated Zig libraries into
 that JVM and runs long-lived Zig mains on native threads; it does not launch a
@@ -57,8 +57,8 @@ when the generated namespaces are not:
 (generate/ensure-generated!)
 ```
 
-The command converts `../../vendor/tigerbeetle` to
-`../../generated/tigerbeetle`, including both the default and VOPR build
+The command converts `vendor/tigerbeetle` to `generated/`, including both the
+default and VOPR build
 profiles. Explicit input and output directories may be supplied as the first
 and second arguments.
 

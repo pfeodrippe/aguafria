@@ -196,7 +196,7 @@
   ;;    reached through the republished existing function.
 
   ;; HOT EDIT 3: edit converted Ghostty itself.
-  ;; Open ../../generated/ghostty/ghostty/src/terminal/focus.clj, find its
+  ;; Open generated/ghostty/src/terminal/focus.clj, find its
   ;; `az/defn encode`, change the gained sequence's final `I` byte to `X`, and
   ;; evaluate only that form. Await that generated module and the bridge:
   (az/await! 'ghostty.src.terminal.focus)
@@ -206,4 +206,10 @@
   ;;    upstream value. The terminal above stays open across both publications.
 
   (status)
+
+  ;; Measure a leaf, converted cross-namespace function, and real comptime
+  ;; type factory in this same JVM; every scenario restores its original Var.
+  (require '[ghostty-agua.hot-reload-benchmark :as hot])
+  (hot/run-all!)
+
   (stop!))

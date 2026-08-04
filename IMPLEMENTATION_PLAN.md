@@ -310,7 +310,7 @@ is an implicit return for the final expression of a non-void function.
    - Convert every `.zig` file under `sample/` into checked-in generated
      Clojure namespaces, require them, run the equivalent Zig tests/build, and
      demonstrate that reevaluating a translated declaration hot reloads it.
-   - Pin TigerBeetle as `vendor/tigerbeetle`, convert its complete Zig corpus,
+   - Pin TigerBeetle as `examples/tigerbeetle-agua/vendor/tigerbeetle`, convert its complete Zig corpus,
      and publish aggregate structural/fallback/round-trip statistics. Keep the
      upstream source behavior unchanged. Zig 0.14.1-to-0.16.0 compatibility
      changes live directly in the submodule and must remain an explicit,
@@ -393,7 +393,7 @@ is an implicit return for the final expression of a non-void function.
   hosts. The .NET 10 SDK installs and the unmodified suite reaches its live
   integration tests, but the bounded local attempt produced no final result;
   every native Zig artifact build already passes.
-- [x] Refresh `vendor/tigerbeetle-zig-0.16.patch` from the complete current
+- [x] Refresh `examples/tigerbeetle-agua/vendor/tigerbeetle-zig-0.16.patch` from the complete current
   tracked submodule diff: 1,666 lines across 21 compatibility-only files. It
   applies cleanly to a fresh local clone of pinned commit `40868ce…`, passes
   `git diff --check`, and produces byte-identical files, without staging or

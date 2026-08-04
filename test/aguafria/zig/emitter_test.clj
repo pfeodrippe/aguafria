@@ -260,6 +260,23 @@
          "pub fn callback(value: i32) callconv(.c) void"))
     (is (not (str/includes? source "export fn callback")))))
 
+(deftest dependency-module-keeps-generic-functions-on-the-zig-abi-test
+  (let [source
+        (emit/emit-dependency-module
+         "demo.generic"
+         [{:kind :fn
+           :name 'scale
+           :return :u32
+           :export? true
+           :public? true
+           :attributes {}
+           :args [{:name 'value
+                   :type :u32
+                   :properties {:zig/prefix "comptime"}}]
+           :body ['(* value 2)]}])]
+    (is (str/includes? source "pub fn scale(comptime value: u32) u32"))
+    (is (not (str/includes? source "callconv(.c)")))))
+
 (deftest reloadable-module-publication-epoch-test
   (let [declaration {:kind :fn :name 'increment :return :i32 :export? true
                      :declaration-key [:fn 'increment]
@@ -288,6 +305,32 @@
                        "if (before == after) break :publication candidate;"))
     (is (< (.indexOf source "if (@inComptime())")
            (.indexOf source "const __dispatch_target")))))
+
+(deftest reloadable-discard-arguments-get-callable-internal-names-test
+  (let [declaration {:kind :fn :name 'visit :return :i32 :export? true
+                     :declaration-key [:fn 'visit]
+                     :args [{:name '_ :type :i32}
+                            {:name 'value :type :i32}]
+                     :body ['value]}
+        source
+        (emit/emit-reloadable-module
+         "demo.discard" [declaration]
+         {[:fn 'visit]
+          {:implementation "__impl"
+           :dispatch-type "__fn_type"
+           :dispatch "__dispatch"
+           :getter "__implementation_address"
+           :setter "__set_dispatch"
+           :active-counter "__active_calls"
+           :active-depth "__active_depth"
+           :active-tracking "__track_active_calls"
+           :active-getter "__active_call_count"
+           :publication-epoch "__publication_epoch"
+           :publication-epoch-setter "__set_publication_epoch"}})]
+    (is (str/includes? source "__aguafria_discard_0: i32"))
+    (is (str/includes? source
+                       "__impl(__aguafria_discard_0, value)"))
+    (is (not (str/includes? source "__impl(_, value)")))))
 
 (deftest source-metadata-safety-test
   (let [source (emit/emit-module
