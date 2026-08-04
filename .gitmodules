@@ -37,3 +37,7 @@
 	path = examples/ghostty/vendor/ghostty
 	url = https://github.com/ghostty-org/ghostty.git
 	branch = main
+[submodule "examples/lightpanda/vendor/lightpanda"]
+	path = examples/lightpanda/vendor/lightpanda
+	url = https://github.com/lightpanda-io/browser
+	branch = main
