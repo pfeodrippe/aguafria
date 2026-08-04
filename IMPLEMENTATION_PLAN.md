@@ -502,6 +502,10 @@ is an implicit return for the final expression of a non-void function.
 - [x] Allow `materialize-project!` to create a nonexistent destination root;
   cover that public API path with a focused Kaocha regression rather than
   requiring callers to create an empty directory first.
+- [x] Resolve bare build-module imports such as `@import("stdx")` to a unique
+  converted Zig basename when possible. A focused three-file project covers
+  ordinary `.zig` relative imports, bare module imports, namespace loading,
+  independent materialization, formatting, and native compilation.
 - [x] Run every materialized Zig module through the configured `zig fmt` by
   default and surface formatter failures as Aguafria diagnostics. Preserve
   clean original declaration/import placement in the EDN catalog rather than
@@ -820,6 +824,10 @@ is an implicit return for the final expression of a non-void function.
   `A@v1`/`A@v2` coexistence across two Clojure namespaces in the same PID.
 - [x] Redefine ABI-compatible `A` only and prove existing compiled `B` follows
   the swapped `A` dispatch pointer without recompiling.
+- [x] Preserve the complete logical `:loaded-declarations` view after a partial
+  live-slice publication. A regression first publishes an unrelated slice,
+  then changes a non-exported callee and proves its existing caller follows the
+  new implementation cell without an explicit await or restart.
 - [x] Break scalar `A`'s signature within one namespace and across two
   namespaces; prove old `B` continues through `A@v1`, then publish corrected
   `B@v2` through `A@v2` while both generations coexist.
@@ -905,7 +913,7 @@ is an implicit return for the final expression of a non-void function.
   dependency components, 135 finished builds, 36 stale superseded builds, and
   zero active/queued/compiling builds or active native hosts. After adding the
   cache, fresh generated-classpath, and migration-monitor regressions, the
-  current complete command-line Kaocha run passes 96 tests and 3,035
+  current complete command-line Kaocha run passes 108 tests and 3,099
   assertions with zero failures.
 
 ## Deferred ideas from `todo.md`

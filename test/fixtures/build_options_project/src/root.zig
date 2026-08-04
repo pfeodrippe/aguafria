@@ -1,7 +1,12 @@
 const build_options = @import("build_options");
+const generated_code = @import("generated_code");
 
 pub export fn answer() callconv(.c) u32 {
     return build_options.answer;
+}
+
+pub export fn generated_answer() callconv(.c) u32 {
+    return generated_code.answer;
 }
 
 pub export fn data_path_length() callconv(.c) usize {

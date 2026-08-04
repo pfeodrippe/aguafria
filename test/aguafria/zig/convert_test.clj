@@ -118,6 +118,21 @@
     (is (str/includes? clojure-source "(az/case-else"))
     (is (:success? verification))))
 
+(deftest ghostty-zig-syntax-is-structural-test
+  (let [path "test/fixtures/ghostty_syntax.zig"
+        {:keys [report clojure-source]}
+        (convert/convert-file path {:namespace 'fixture.ghostty-syntax})
+        verification (convert/verify-file
+                      path {:namespace 'fixture.ghostty-syntax
+                            :mode :ast-check})]
+    (is (zero? (:fallback-count report)))
+    (is (not (str/includes? clojure-source "(raw")))
+    (is (str/includes? clojure-source "(ak/asm"))
+    (is (str/includes? clojure-source "(ak/nosuspend"))
+    (is (str/includes? clojure-source "exactIdentifier"))
+    (is (str/includes? clojure-source "nestedExternValue"))
+    (is (:success? verification))))
+
 (deftest converted-relative-imports-are-normal-requires-test
   (let [output (.toFile
                 (java.nio.file.Files/createTempDirectory
@@ -141,16 +156,21 @@
                           (:files report))
         main-report (some #(when (str/ends-with? (str (:namespace %)) ".main") %)
                           (:files report))
+        bare-report (some #(when (str/ends-with? (str (:namespace %)) ".bare") %)
+                          (:files report))
         math-file (:output-path math-report)
         main-file (:output-path main-report)
-        main-source (slurp main-file)]
-    (is (= 2 (:file-count report)))
+        main-source (slurp main-file)
+        bare-source (slurp (:output-path bare-report))]
+    (is (= 3 (:file-count report)))
     (is (zero? (:conversion-cache-hit-count report)))
-    (is (= 2 (:conversion-cache-hit-count repeat-report)))
+    (is (= 3 (:conversion-cache-hit-count repeat-report)))
     (is (not (str/includes? main-source "az/defimport")))
     (is (str/includes? main-source
                        (str "[" namespace-prefix ".math :as math]")))
-    (is (not (re-find #"\(az/defconst\s+math\b" main-source)))
+    ;; The imported module is both a normal require alias and an inspectable
+    ;; Clojure Var; the emitter collapses both views to one Zig @import.
+    (is (re-find #"\(az/defconst\s+math\s+math\)" main-source))
     (is (not (str/includes? main-source "math.zig")))
     (is (str/includes? main-source "math/double"))
     (is (not (str/includes? main-source ":aguafria/zig-imports")))
@@ -159,11 +179,16 @@
     ;; materialization can recreate the source graph without the input tree.
     (is (str/includes? (slurp (:catalog-path report)) "math.zig"))
     (is (str/includes? (slurp (:catalog-path report)) ":require-mode :as"))
+    (is (str/includes? bare-source
+                       (str "[" namespace-prefix ".math :as math_module]")))
+    (is (re-find #"\(az/defconst\s+math_module\s+math_module\)"
+                 bare-source))
+    (is (not (str/includes? bare-source "(ak/import \"math\")")))
     ;; `main.clj` sorts before `math.clj`, so this proves a freshly generated
     ;; root outside deps.edn is visible to eager dependency requires.
     (let [loaded (convert/load-tree! output)]
-      (is (= 2 (:file-count loaded)))
-      (is (= 2 (:declaration-count loaded))))
+      (is (= 3 (:file-count loaded)))
+      (is (= 5 (:declaration-count loaded))))
     (is (var? (ns-resolve (the-ns (:namespace math-report)) 'double)))
     (let [_ (runtime/recompile! (:namespace main-report))
           _ (runtime/await! (:namespace main-report))
@@ -199,9 +224,12 @@
           captured-module
           (get-in catalog [:modules (str (:namespace root-report))
                            :generated-modules "build_options"])
+          captured-generated-source
+          (get-in catalog [:modules (str (:namespace root-report))
+                           :generated-modules "generated_code"])
           captured-source (:source-template captured-module)]
       (try
-        (is (= 1 (:module-count graph)))
+        (is (= 2 (:module-count graph)))
         (is (= 2 (:path-value-count graph)))
         (is (zero? (:conflict-count graph)))
         (is (zero? (:conflict-count alternate-graph)))
@@ -209,13 +237,15 @@
              (get-in alternate-graph
                      [:modules-by-path "src/root.zig" "build_options"])
              "pub const answer: u32 = 99;"))
-        (is (= 1 (:generated-module-count report)))
+        (is (= 2 (:generated-module-count report)))
         (is (= 2 (:generated-module-path-value-count report)))
         (is (= 2 (:generated-module-bundled-path-count report)))
         (is (= 2 (:generated-module-bundled-file-count report)))
         (is (str/includes? captured-source "pub const answer: u32 = 42;"))
         (is (str/includes? captured-source
                            "pub const message: []const u8 = \"captured by Zig\";"))
+        (is (str/includes? captured-generated-source
+                           "pub const answer: u32 = 7;"))
         (is (str/includes? captured-source "__AGUAFRIA_BUILD_PATH_"))
         (is (not (str/includes? captured-source
                                 (.getCanonicalPath (io/file input)))))
@@ -231,6 +261,8 @@
         (convert/load-converted! (:output-path root-report))
         (runtime/recompile! (:namespace root-report))
         (let [answer (ns-resolve (the-ns (:namespace root-report)) 'answer)
+              generated-answer
+              (ns-resolve (the-ns (:namespace root-report)) 'generated_answer)
               data-path-length
               (ns-resolve (the-ns (:namespace root-report)) 'data_path_length)
               tool-path-length
@@ -242,6 +274,7 @@
               (get (project/generated-modules (:namespace root-report))
                    "build_options")]
           (is (= 42 value))
+          (is (= 7 (generated-answer)))
           (is (= (count
                   (.getCanonicalPath
                    (io/file output
@@ -262,6 +295,8 @@
           (is (= :finished (get-in info [:last-build :status])))
           (is (some? (:published-generation info)))
           (is (some #(str/starts-with? % "-Mbuild_options=")
+                    (:command module-info)))
+          (is (some #(str/starts-with? % "-Mgenerated_code=")
                     (:command module-info)))
           (is (= 1 (count (filter #{"build_options"}
                                   (:command module-info))))
@@ -319,9 +354,9 @@
                          :dir (.getAbsolutePath project))
         unchanged (convert/materialize-project! independent-report project)]
     (is (.isDirectory project))
-    (is (= 2 (:zig-file-count materialized)))
+    (is (= 3 (:zig-file-count materialized)))
     (is (= 1 (:asset-file-count materialized)))
-    (is (= 3 (:written-count materialized)))
+    (is (= 4 (:written-count materialized)))
     (is (str/includes? main-source "const math = @import(\"math.zig\");"))
     (is (str/includes? main-source "math.double(math.double(value))"))
     (is (zero? (:exit (shell/sh "zig" "fmt" "--check" "."
@@ -330,7 +365,7 @@
            project-note))
     (is (zero? (:exit result)) (:err result))
     (is (zero? (:written-count unchanged)))
-    (is (= 3 (:unchanged-count unchanged)))))
+    (is (= 4 (:unchanged-count unchanged)))))
 
 (deftest nested-zig-containers-are-structural-test
   (let [path "test/fixtures/container.zig"
@@ -826,7 +861,7 @@
         original-help (shell/sh original-executable "--help")
         converted-help (shell/sh converted-executable "--help")]
     (is (= 245 (:file-count report)))
-    (is (= 4032 (:declaration-count report)))
+    (is (= 4483 (:declaration-count report)))
     (is (= (:declaration-count report)
            (:structural-declaration-count report)))
     (is (zero? (:raw-declaration-count report)))
@@ -840,7 +875,7 @@
     (is (= 245 (:zig-file-count materialized)))
     (is (= 374 (:asset-file-count materialized)))
     (is (= 619 (:file-count materialized)))
-    (is (= 4032 (:declaration-count materialized)))
+    (is (= 4483 (:declaration-count materialized)))
     (is (zero? (:exit git-result)) (:err git-result))
     (is (zero? (:exit git-dir-result)) (:err git-dir-result))
     (is (= 40 (count git-commit)))

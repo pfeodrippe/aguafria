@@ -20,7 +20,8 @@
 (def ^:private ast-resource "aguafria/zig-ast.zig")
 (def ^:private build-graph-resource "aguafria/build-graph-dump.zig")
 (def ^:private build-graph-marker "__AGUAFRIA_BUILD_OPTION__")
-(def ^:private ast-schema-version 3)
+(def ^:private ast-schema-version 4)
+(def ^:private materialized-format-cache-version 1)
 (defonce ^:private helper-lock (Object.))
 (defonce ^:private build-graph-lock (Object.))
 (defonce ^:private conversion-history (atom []))
@@ -201,7 +202,8 @@
 
   Returns serializable data grouped by the project-relative Zig module that
   imports each generated module. `:build-steps` selects a build profile; an
-  empty vector uses the project's default step. No build step is executed."
+  empty vector uses the project's default step. Only producers needed to
+  resolve captured generated source and path values are executed."
   ([project-root] (build-generated-modules project-root {}))
   ([project-root {:keys [zig build-steps build-file]
                   :or {zig "zig" build-steps [] build-file "build.zig"}
@@ -458,6 +460,7 @@
                     :for-index (index-by-first (:fors raw))
                     :switch-index (index-by-first (:switches raw))
                     :switch-case-index (index-by-first (:switch-cases raw))
+                    :asm-index (index-by-first (:asms raw))
                     :array-type-index (index-by-first (:array-types raw))
                     :ptr-type-index (index-by-first (:ptr-types raw))
                     :slice-index (index-by-first (:slices raw))
@@ -691,7 +694,7 @@
              (get (:import-bindings context) (first segments))]
     (when-let [member-name (second segments)]
       (when-let [clojure-name (get declarations member-name)]
-        (swap! (:project-aliases context) assoc namespace alias)
+        (swap! (:project-aliases context) assoc alias namespace)
         (reduce (fn [target field-name]
                   (list 'field target
                         (or (safe-identifier field-name)
@@ -705,6 +708,7 @@
          translate-function-type
          docstring-from-leading
          capture-forms
+         import-initializer
          translate-function-declaration translate-var-declaration
          translate-test-declaration translate-comptime-declaration
          translate-container-field-declaration translate-function-prototype)
@@ -730,7 +734,7 @@
             (if self?
               clojure-name
               (do
-                (swap! (:project-aliases context) assoc namespace alias)
+                (swap! (:project-aliases context) assoc alias namespace)
                 (symbol (str alias) (str clojure-name))))))
         (std-reference context segments)
         (project-reference context segments)
@@ -829,7 +833,7 @@
       (if self?
         (list 'ak/This)
         (do
-          (swap! (:project-aliases context) assoc namespace alias)
+          (swap! (:project-aliases context) assoc alias namespace)
           alias))
       (if-let [builtin (get @builtin-symbols zig-name)]
         (apply list builtin (map #(translate-expr context %) argument-nodes))
@@ -932,6 +936,60 @@
         true vec
         true seq))))
 
+(defn- asm-constraint
+  [context item-node]
+  (let [constraint-token (+ 2 (:main-token (node context item-node)))
+        source (token-text context constraint-token)]
+    (or (parse-string source)
+        (throw (ex-info "Zig AST returned an unreadable asm constraint"
+                        {:aguafria/phase :zig-convert
+                         :path (:path context)
+                         :node item-node
+                         :constraint source})))))
+
+(defn- translate-asm-output
+  [context output-node]
+  (let [{:keys [main-token a]} (node context output-node)
+        binding (clojure-identifier (token-text context main-token))
+        arrow? (= :arrow (first (token context (+ main-token 4))))]
+    (when (and arrow? (nil? a))
+      (throw (ex-info "Zig asm output has no value or result type"
+                      {:aguafria/phase :zig-convert
+                       :path (:path context)
+                       :node output-node})))
+    [binding
+     (asm-constraint context output-node)
+     (if arrow?
+       {:type (translate-type context a)}
+       ;; For an lvalue output Zig stores the name directly as a token; only
+       ;; the `(-> T)` form carries an AST node in `asm_output`.
+       {:value (clojure-identifier
+                (token-text context (+ main-token 4)))})]))
+
+(defn- translate-asm-input
+  [context input-node]
+  (let [{:keys [main-token a]} (node context input-node)]
+    [(clojure-identifier (token-text context main-token))
+     (asm-constraint context input-node)
+     (translate-expr context a)]))
+
+(defn- translate-asm
+  [context node-index]
+  (let [[_ template-node volatile-token output-nodes input-nodes clobbers-node]
+        (get (:asm-index context) node-index)
+        options (cond-> {}
+                  volatile-token (assoc :attrs #{:volatile})
+                  (seq output-nodes)
+                  (assoc :outputs
+                         (mapv #(translate-asm-output context %) output-nodes))
+                  (seq input-nodes)
+                  (assoc :inputs
+                         (mapv #(translate-asm-input context %) input-nodes))
+                  clobbers-node
+                  (assoc :clobbers (translate-expr context clobbers-node)))]
+    (apply list 'ak/asm (translate-expr context template-node)
+           (when (seq options) [options]))))
+
 (defn- translate-expr*
   "Translate one parsed Zig expression node into Aguafria form data."
   [context node-index]
@@ -951,6 +1009,9 @@
 
       (contains? (:slice-index context) node-index)
       (translate-slice context node-index)
+
+      (contains? (:asm-index context) node-index)
+      (translate-asm context node-index)
 
       (contains? (:if-index context) node-index)
       (translate-if context node-index)
@@ -1208,23 +1269,29 @@
          type-node align-node addrspace-node section-node init-node]
         (get (:var-index context) node-index)
         kind (first (token context mut-token))
-        name (clojure-identifier (token-text context (inc mut-token)))]
+        name (clojure-identifier (token-text context (inc mut-token)))
+        import-name (import-initializer context init-node)]
     (if (or visibility extern-token threadlocal (nil? name) (nil? init-node))
       (record-statement-fallback! context node-index :qualified-local-declaration)
-      (let [operator (if (= :keyword_const kind) 'const 'var)
-            value (translate-expr context init-node)
-            options (cond-> {}
-                      comptime-token
-                      (assoc :prefix (token-text context comptime-token))
-                      align-node (assoc :align (translate-expr context align-node))
-                      addrspace-node
-                      (assoc :addrspace (translate-expr context addrspace-node))
-                      section-node
-                      (assoc :linksection (translate-expr context section-node)))]
-        (apply list operator name
-               (concat (when (seq options) [options])
-                       (when type-node [(translate-type context type-node)])
-                       [value]))))))
+      ;; Nested std imports are represented by Aguafria's ordinary generated
+      ;; std namespaces. Keeping the local alias as well would leave an unused
+      ;; declaration after its uses are structurally qualified.
+      (if (= "std" import-name)
+        ::omit-statement
+        (let [operator (if (= :keyword_const kind) 'const 'var)
+              value (translate-expr context init-node)
+              options (cond-> {}
+                        comptime-token
+                        (assoc :prefix (token-text context comptime-token))
+                        align-node (assoc :align (translate-expr context align-node))
+                        addrspace-node
+                        (assoc :addrspace (translate-expr context addrspace-node))
+                        section-node
+                        (assoc :linksection (translate-expr context section-node)))]
+          (apply list operator name
+                 (concat (when (seq options) [options])
+                         (when type-node [(translate-type context type-node)])
+                         [value])))))))
 
 (defn- prefixed-statement-child
   [context node-index]
@@ -1277,8 +1344,12 @@
         error (capture-forms context error-token)]
     (if qualified?
       (record-statement-fallback! context node-index :qualified-while)
-      (let [body (if (contains? (:block-index context) then-node)
-                   (rest (translate-block context then-node))
+      (let [block-form (when (contains? (:block-index context) then-node)
+                         (translate-block context then-node))
+            body-label (when (= 'labeled-block (first block-form))
+                         (second block-form))
+            body (if block-form
+                   (if body-label (nnext block-form) (rest block-form))
                    [(translate-stmt context then-node)])
             else-block? (and else-node
                              (contains? (:block-index context) else-node))
@@ -1286,6 +1357,7 @@
                         (vec (rest (translate-block context else-node))))
             options (cond-> {}
                       label (assoc :label label)
+                      body-label (assoc :body-label body-label)
                       inline? (assoc :inline? true)
                       (seq payload) (assoc :payload payload)
                       continue-node
@@ -1376,6 +1448,7 @@
   {'az/defn 'fn-decl
    'az/defconst 'const-decl
    'az/defvar 'var-decl
+   'az/defexternvar 'extern-var-decl
    'az/defstruct 'struct-decl
    'az/defimport 'import-decl
    'az/deffield 'field-decl
@@ -1540,8 +1613,12 @@
     (if (or qualified? (empty? inputs)
             (not= (count inputs) (count captures)))
       (record-statement-fallback! context node-index :qualified-for)
-      (let [body (if (contains? (:block-index context) then-node)
-                   (rest (translate-block context then-node))
+      (let [block-form (when (contains? (:block-index context) then-node)
+                         (translate-block context then-node))
+            body-label (when (= 'labeled-block (first block-form))
+                         (second block-form))
+            body (if block-form
+                   (if body-label (nnext block-form) (rest block-form))
                    [(translate-stmt context then-node)])
             else-form (when else-node
                         (if (contains? (:block-index context) else-node)
@@ -1552,11 +1629,13 @@
             bindings (mapv (fn [capture input]
                              [capture (translate-expr context input)])
                            captures inputs)
-            operator (cond
-                       label 'for-loop
-                       inline? 'inline-for
-                       :else 'for)
-            prefix-arguments (when label [{:label label :inline? inline?}])]
+            operator (if (or label body-label) 'for-loop
+                         (if inline? 'inline-for 'for))
+            prefix-arguments
+            (when (or label body-label)
+              [(cond-> {:inline? inline?}
+                 label (assoc :label label)
+                 body-label (assoc :body-label body-label))])]
         (apply list operator
                (concat prefix-arguments [bindings] body
                        (when else-form [else-form])))))))
@@ -1691,7 +1770,9 @@
                                 (instance? clojure.lang.IObj form))
                            (vary-meta assoc :aguafria/blank-lines-before
                                       blank-lines-before))]
-                (recur (next remaining) statement (conj result form)))
+                (recur (next remaining) statement
+                       (cond-> result
+                         (not= ::omit-statement form) (conj form))))
               result))
           trailing-start (if-let [statement (last statements)]
                            (node-end-after-separator context statement)
@@ -1908,18 +1989,16 @@
             (get (:import-bindings context) zig-name)
             (let [{:keys [alias namespace public?]}
                   (get (:import-bindings context) zig-name)]
-              (swap! (:project-aliases context) assoc namespace alias)
-              (if public?
-                (apply list 'az/defconst declaration-name
-                       (concat (when docstring [docstring])
-                               [attributes alias]))
-                ::omit-declaration))
+              (swap! (:project-aliases context) assoc alias namespace)
+              (apply list 'az/defconst declaration-name
+                     (concat (when docstring [docstring])
+                             [attributes alias])))
 
             (get (:project-imports-by-node context) init-node)
             (let [{:keys [alias namespace self?]}
                   (get (:project-imports-by-node context) init-node)]
               (when-not self?
-                (swap! (:project-aliases context) assoc namespace alias))
+                (swap! (:project-aliases context) assoc alias namespace))
               (apply list 'az/defconst declaration-name
                      (concat (when docstring [docstring])
                              [attributes (translate-expr context init-node)])))
@@ -2241,7 +2320,7 @@
       ;; Prefer ordinary eager Clojure requires. Only an edge inside a Zig
       ;; import cycle uses `:as-alias`, because Clojure cannot eagerly load a
       ;; recursive namespace graph. `convert-tree!` computes this per edge.
-      (map (fn [[namespace-symbol alias]]
+      (map (fn [[alias namespace-symbol]]
              [namespace-symbol
               (get project-require-modes namespace-symbol :as-alias)
               alias])
@@ -2263,7 +2342,7 @@
 (defn- used-project-imports
   [context project-aliases]
   (into (sorted-map)
-        (map (fn [[namespace-symbol alias]]
+        (map (fn [[alias namespace-symbol]]
                (let [{:keys [import-name declarations source-order]}
                      (some (fn [[_ binding]]
                              (when (and (= alias (:alias binding))
@@ -2564,7 +2643,7 @@
      :source-orders source-orders
      :leading-trivia leading-trivia
      :std-namespaces (->> @(:std-aliases context) keys sort vec)
-     :project-namespaces (->> @(:project-aliases context) keys sort vec)
+     :project-namespaces (->> @(:project-aliases context) vals distinct sort vec)
      :elapsed-ms elapsed-ms}))
 
 (defn convert-file
@@ -2838,21 +2917,36 @@
     (when (zero? (:exit result)) (:out result))))
 
 (defn- format-materialized-zig
-  [zig source directory relative]
-  (let [result (run-command-input [zig "fmt" "--stdin"] directory source)]
-    (if (zero? (:exit result))
-      (:out result)
-      (throw
-       (ex-info
-        (str "error[aguafria::zig-format]: generated Zig formatting failed\n"
-             " --> " relative "\n"
-             "  |\n"
-             "  = Zig rejected the source emitted from the converted namespace\n"
-             (when-not (str/blank? (:err result))
-               (str "\n" (:err result))))
-        (assoc result
-               :aguafria/phase :zig-format
-               :relative-path (str relative)))))))
+  [zig zig-version source directory relative]
+  (let [cache-root (io/file (:cache-dir (runtime/configuration))
+                            "materialized-format")
+        cache-key (sha256 [materialized-format-cache-version
+                           (str zig) (str zig-version) source])
+        cache-file (io/file cache-root (str cache-key ".zig"))]
+    (if (.isFile cache-file)
+      (slurp cache-file)
+      (let [result (run-command-input [zig "fmt" "--stdin"] directory source)]
+        (if (zero? (:exit result))
+          (let [formatted (:out result)]
+            (.mkdirs cache-root)
+            (Files/writeString
+             (.toPath cache-file) formatted StandardCharsets/UTF_8
+             (into-array StandardOpenOption
+                         [StandardOpenOption/CREATE
+                          StandardOpenOption/TRUNCATE_EXISTING
+                          StandardOpenOption/WRITE]))
+            formatted)
+          (throw
+           (ex-info
+            (str "error[aguafria::zig-format]: generated Zig formatting failed\n"
+                 " --> " relative "\n"
+                 "  |\n"
+                 "  = Zig rejected the source emitted from the converted namespace\n"
+                 (when-not (str/blank? (:err result))
+                   (str "\n" (:err result))))
+            (assoc result
+                   :aguafria/phase :zig-format
+                   :relative-path (str relative)))))))))
 
 (defn verify-file
   "Round-trip one Zig file through Aguafria and ask Zig to verify the result.
@@ -3257,42 +3351,64 @@
   (mapv str (iterator-seq (.iterator relative))))
 
 (defn- excluded-project-path?
-  [^Path relative]
-  (boolean (some excluded-project-segments (relative-path-segments relative))))
+  ([^Path relative]
+   (excluded-project-path? relative #{}))
+  ([^Path relative extra-segments]
+   (let [excluded (into excluded-project-segments (map str) extra-segments)]
+     (boolean (some excluded (relative-path-segments relative))))))
 
 (defn- project-input-files
-  [^File input-root]
+  [^File input-root excluded-directories]
   (let [git-result (run-command ["git" "-C" (.getAbsolutePath input-root)
                                  "ls-files" "-z" "--cached" "--others"
                                  "--exclude-standard"]
-                                input-root)]
-    (if (zero? (:exit git-result))
-      (->> (str/split (:out git-result) #"\u0000")
-           (remove str/blank?)
-           (map #(.toPath (io/file input-root %)))
-           (filter #(Files/isRegularFile ^Path %
-                                         (make-array java.nio.file.LinkOption 0)))
-           (sort-by str)
-           vec)
-      (let [root-path (.toPath input-root)]
+                                input-root)
+        root-path (.toPath input-root)
+        package-manifests
         (with-open [paths (Files/walk root-path
                                       (make-array java.nio.file.FileVisitOption 0))]
           (->> (iterator-seq (.iterator paths))
-               (filter #(Files/isRegularFile ^Path %
-                                             (make-array java.nio.file.LinkOption 0)))
-               (remove #(excluded-project-path? (.relativize root-path ^Path %)))
-               (sort-by str)
-               vec))))))
+               (filter #(and (Files/isRegularFile
+                              ^Path % (make-array java.nio.file.LinkOption 0))
+                             (= "build.zig.zon" (str (.getFileName ^Path %)))))
+               (remove #(excluded-project-path? (.relativize root-path ^Path %)
+                                                excluded-directories))
+               vec))]
+    (if (zero? (:exit git-result))
+      (->> (concat
+            (->> (str/split (:out git-result) #"\u0000")
+                 (remove str/blank?)
+                 (map #(.toPath (io/file input-root %)))
+                 (filter #(or (Files/isRegularFile
+                               ^Path % (make-array java.nio.file.LinkOption 0))
+                              (Files/isSymbolicLink ^Path %)))
+                 (remove #(excluded-project-path?
+                           (.relativize root-path ^Path %)
+                           excluded-directories)))
+            package-manifests)
+           distinct
+           (sort-by str)
+           vec)
+      (with-open [paths (Files/walk root-path
+                                    (make-array java.nio.file.FileVisitOption 0))]
+        (->> (iterator-seq (.iterator paths))
+             (filter #(or (Files/isRegularFile
+                           ^Path % (make-array java.nio.file.LinkOption 0))
+                          (Files/isSymbolicLink ^Path %)))
+             (remove #(excluded-project-path? (.relativize root-path ^Path %)
+                                              excluded-directories))
+             (sort-by str)
+             vec)))))
 
 (defn- bundle-project-assets!
-  [^File input-root ^File generated-root]
+  [^File input-root ^File generated-root excluded-directories]
   (let [input-path (.toPath input-root)
         generated-path (.toPath generated-root)
         asset-root (.getCanonicalFile
                     (io/file generated-root bundled-assets-directory))
         asset-path (.toPath asset-root)
         assets
-        (->> (project-input-files input-root)
+        (->> (project-input-files input-root excluded-directories)
              (remove #(str/ends-with? (str %) ".zig"))
              ;; When generated output is inside the input project (as in the
              ;; checked sample), never recursively bundle generated files.
@@ -3301,33 +3417,68 @@
         files
         (mapv
          (fn [^Path source]
-           (when (Files/isSymbolicLink source)
-             (throw (ex-info "Bundled project assets cannot be symbolic links"
-                             {:asset (str source)
-                              :hint "Replace the link with an explicit project asset."})))
            (let [relative (.relativize input-path source)
-                 target (.resolve asset-path relative)
-                 same? (and (Files/isRegularFile
-                             target (make-array java.nio.file.LinkOption 0))
-                            (= -1 (Files/mismatch source target)))]
-             (when-not same?
-               (when-let [parent (.getParent target)]
-                 (Files/createDirectories
-                  parent (make-array java.nio.file.attribute.FileAttribute 0)))
-               (Files/copy source target
-                           (into-array CopyOption
-                                       [StandardCopyOption/REPLACE_EXISTING
-                                        StandardCopyOption/COPY_ATTRIBUTES])))
-             {:relative (str relative) :written? (not same?)}))
+                 target (.normalize (.resolve asset-path relative))]
+             (when-not (.startsWith target asset-path)
+               (throw (ex-info "Bundled project asset escapes its output root"
+                               {:asset (str source) :relative (str relative)})))
+             (if (Files/isSymbolicLink source)
+               (let [link (Files/readSymbolicLink source)
+                     resolved (.normalize (.resolve (.getParent source) link))
+                     source-root-real (.toRealPath input-path
+                                                  (make-array java.nio.file.LinkOption 0))
+                     resolved-real (.toRealPath resolved
+                                                (make-array java.nio.file.LinkOption 0))
+                     _ (when (or (.isAbsolute link)
+                                 (not (.startsWith resolved-real source-root-real)))
+                         (throw
+                          (ex-info "Bundled project symlink must target the same project"
+                                   {:asset (str source)
+                                    :target (str link)
+                                    :resolved (str resolved-real)})))
+                     same? (and (Files/isSymbolicLink target)
+                                (= link (Files/readSymbolicLink target)))]
+                 (when-not same?
+                   (when-let [parent (.getParent target)]
+                     (Files/createDirectories
+                      parent (make-array java.nio.file.attribute.FileAttribute 0)))
+                   (Files/deleteIfExists target)
+                   (Files/createSymbolicLink
+                    target link (make-array java.nio.file.attribute.FileAttribute 0)))
+                 {:relative (str relative)
+                  :kind :symlink
+                  :target (str link)
+                  :written? (not same?)})
+               (let [same? (and (Files/isRegularFile
+                                 target (make-array java.nio.file.LinkOption 0))
+                                (= -1 (Files/mismatch source target)))]
+                 (when-not same?
+                   (when-let [parent (.getParent target)]
+                     (Files/createDirectories
+                      parent (make-array java.nio.file.attribute.FileAttribute 0)))
+                   (Files/copy source target
+                               (into-array CopyOption
+                                           [StandardCopyOption/REPLACE_EXISTING
+                                            StandardCopyOption/COPY_ATTRIBUTES])))
+                 {:relative (str relative) :kind :file
+                  :written? (not same?)}))))
          assets)]
     {:asset-root (.getAbsolutePath asset-root)
      :asset-file-count (count files)
      :asset-files (mapv :relative files)
+     :asset-symlinks
+     (into (sorted-map)
+           (keep (fn [{:keys [relative kind target]}]
+                   (when (= :symlink kind) [relative target])))
+           files)
      :asset-written-count (count (filter :written? files))}))
 
 (defn- ensure-materialized-write!
   [^Path target same? overwrite? details write!]
-  (let [exists? (Files/exists target (make-array java.nio.file.LinkOption 0))]
+  (let [exists? (Files/exists
+                 target
+                 (into-array java.nio.file.LinkOption
+                             [java.nio.file.LinkOption/NOFOLLOW_LINKS]))]
     (when (and exists? (not same?) (not overwrite?))
       (throw (ex-info "Refusing to replace a materialized project file"
                       (assoc details
@@ -3408,6 +3559,7 @@
          generated-root (.getCanonicalFile (io/file (:output-root report)))
          bundled? (and (string? (:asset-root report))
                        (sequential? (:asset-files report)))
+         asset-symlinks (or (:asset-symlinks report) {})
          asset-root (when bundled?
                       (.getCanonicalFile (io/file (:asset-root report))))
          output-root (.getCanonicalFile (io/file output-root))
@@ -3449,20 +3601,32 @@
                    (sort (keys converted)))
               (map (fn [relative]
                      {:relative relative
-                      :kind :asset
+                      :kind (if (contains? asset-symlinks relative)
+                              :symlink
+                              :asset)
+                      :link-target (get asset-symlinks relative)
                       :source-path (.resolve (.toPath asset-root) relative)})
                    (:asset-files report)))
              (map (fn [^Path source-path]
                     (let [relative (str (.relativize input-path source-path))]
                       {:relative relative
-                       :kind (if (contains? converted relative) :zig :asset)
+                       :kind (cond
+                               (contains? converted relative) :zig
+                               (Files/isSymbolicLink source-path) :symlink
+                               :else :asset)
+                       :link-target (when (Files/isSymbolicLink source-path)
+                                      (str (Files/readSymbolicLink source-path)))
                        :source-path source-path}))
-                  (project-input-files input-root)))
+                  (project-input-files input-root #{})))
            results
            (mapv
-            (fn [{:keys [relative kind source-path]}]
-              (let [target (.resolve output-path relative)]
-                (if (= :zig kind)
+            (fn [{:keys [relative kind source-path link-target]}]
+              (let [target (.normalize (.resolve output-path relative))]
+                (when-not (.startsWith target output-path)
+                  (throw (ex-info "Materialized project path escapes its output root"
+                                  {:relative relative :output-root (str output-path)})))
+                (cond
+                  (= :zig kind)
                   (let [{:keys [namespace source leading-trivia]}
                         (get converted relative)]
                     (do
@@ -3478,7 +3642,8 @@
                                        (str leading-trivia source)))
                             source (if format?
                                      (format-materialized-zig
-                                      zig source output-root relative)
+                                      zig (:zig-version report) source
+                                      output-root relative)
                                      source)]
                         {:relative relative
                          :kind :zig
@@ -3491,12 +3656,41 @@
                                (= source (slurp (.toFile target))))
                           overwrite?
                           {:relative relative :namespace namespace}
-                          #(Files/writeString
-                            target source StandardCharsets/UTF_8
-                            (into-array StandardOpenOption
-                                        [StandardOpenOption/CREATE
-                                         StandardOpenOption/TRUNCATE_EXISTING
-                                         StandardOpenOption/WRITE])))})))
+                          #(do
+                             (when (Files/isSymbolicLink target)
+                               (Files/delete target))
+                             (Files/writeString
+                              target source StandardCharsets/UTF_8
+                              (into-array StandardOpenOption
+                                          [StandardOpenOption/CREATE
+                                           StandardOpenOption/TRUNCATE_EXISTING
+                                           StandardOpenOption/WRITE]))))})))
+
+                  (= :symlink kind)
+                  (let [link (java.nio.file.Path/of
+                              link-target (make-array String 0))]
+                    (when (or (str/blank? link-target) (.isAbsolute link))
+                      (throw (ex-info "Materialized symlink target must be relative"
+                                      {:relative relative
+                                       :target link-target})))
+                    {:relative (str relative)
+                     :kind :symlink
+                     :target link-target
+                     :written?
+                     (ensure-materialized-write!
+                      target
+                      (and (Files/isSymbolicLink target)
+                           (= link (Files/readSymbolicLink target)))
+                      overwrite?
+                      {:relative relative :target link-target}
+                      #(do
+                         (Files/deleteIfExists target)
+                         (Files/createSymbolicLink
+                          target link
+                          (make-array java.nio.file.attribute.FileAttribute
+                                      0))))})
+
+                  :else
                   {:relative (str relative)
                    :kind :asset
                    :written?
@@ -3507,11 +3701,14 @@
                         (= -1 (Files/mismatch source-path target)))
                     overwrite?
                     {:input (str source-path) :relative relative}
-                    #(Files/copy
-                      source-path target
-                      (into-array CopyOption
-                                  [StandardCopyOption/REPLACE_EXISTING
-                                   StandardCopyOption/COPY_ATTRIBUTES]))) })))
+                    #(do
+                       (when (Files/isSymbolicLink target)
+                         (Files/delete target))
+                       (Files/copy
+                        source-path target
+                        (into-array CopyOption
+                                    [StandardCopyOption/REPLACE_EXISTING
+                                     StandardCopyOption/COPY_ATTRIBUTES]))))})))
             inputs)
            zig-count (count (filter #(= :zig (:kind %)) results))
            asset-count (- (count results) zig-count)
@@ -3548,14 +3745,14 @@
     (symbol (str/join "." (concat [(str prefix)] segments)))))
 
 (defn- zig-files
-  [root]
+  [root excluded-directories]
   (let [root-path (.toPath (.getCanonicalFile (io/file root)))]
     (with-open [paths (Files/walk root-path (make-array java.nio.file.FileVisitOption 0))]
       (->> (iterator-seq (.iterator paths))
            (filter #(Files/isRegularFile ^Path % (make-array java.nio.file.LinkOption 0)))
            (filter #(str/ends-with? (str %) ".zig"))
-           (remove #(some #{".git" ".zig-cache" "zig-out"}
-                          (map str (iterator-seq (.iterator (.relativize root-path ^Path %))))))
+           (remove #(excluded-project-path? (.relativize root-path ^Path %)
+                                            excluded-directories))
            (sort-by str)
            vec))))
 
@@ -3593,7 +3790,7 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
-(def ^:private rendered-conversion-cache-version 1)
+(def ^:private rendered-conversion-cache-version 4)
 
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]
@@ -3708,7 +3905,13 @@
           (.getCanonicalPath (io/file input-root-file (str import-name ".zig"))))]
     (or (get plan-by-path relative-path)
         (when root-module-path (get plan-by-path root-module-path))
-        (get module-index import-name))))
+        ;; Build-system module names such as `@import("stdx")` have no path
+        ;; suffix. When exactly one converted file owns that basename, resolve
+        ;; it to the same ordinary namespace graph instead of leaving a magic
+        ;; external import behind. Ambiguous basenames deliberately remain
+        ;; unresolved so build metadata can disambiguate them.
+        (when-not (str/ends-with? import-name ".zig")
+          (get module-index import-name)))))
 
 (declare generated-module-alias)
 
@@ -3806,26 +4009,46 @@
    (let [defaults-by-namespace
          (into {} (map (juxt (comp str :namespace) :compact-defaults)) reports)
          source-orders-by-namespace
-         (into {} (map (juxt (comp str :namespace) :source-orders)) reports)]
+         (into {} (map (juxt (comp str :namespace) :source-orders)) reports)
+         ;; A build can attach one anonymous generated module to its root Zig
+         ;; module while project files import that name lexically beneath the
+         ;; root (Ghostty's unicode_tables is one example). Aguafria splits
+         ;; those files into independent Zig modules, so propagate an
+         ;; unambiguous generated name to every converted file that imports it.
+         generated-by-name
+         (->> generated-modules-by-path
+              vals
+              (mapcat seq)
+              (group-by key)
+              (keep (fn [[module-name entries]]
+                      (let [sources (distinct (map val entries))]
+                        (when (= 1 (count sources))
+                          [module-name (first sources)]))))
+              (into {}))
+         generated-for-plan
+         (fn [{:keys [relative imports import-calls]}]
+           (let [owner (get generated-modules-by-path
+                            (str/replace (str relative) "\\" "/"))
+                 imported-names (set (concat (map :import-name (vals imports))
+                                             (vals import-calls)))]
+             (merge (select-keys generated-by-name imported-names) owner)))]
   {:schema-version 1
    :modules
    (into (sorted-map)
          (map (fn [{:keys [namespace declaration-names relative] :as plan}]
-                [(str namespace)
-                 (cond-> {:relative-path (str relative)
-                          :renames (compact-declaration-renames declaration-names)
-                          :imports (catalog-imports plan)
-                          :source-orders
-                          (or (get source-orders-by-namespace (str namespace))
-                              {})}
-                   (seq (get generated-modules-by-path
-                             (str/replace (str relative) "\\" "/")))
-                   (assoc :generated-modules
-                          (get generated-modules-by-path
-                               (str/replace (str relative) "\\" "/")))
-                   (seq (get defaults-by-namespace (str namespace)))
-                   (assoc :compact-defaults
-                          (get defaults-by-namespace (str namespace))))]))
+                (let [generated-modules (generated-for-plan plan)]
+                  [(str namespace)
+                   (cond-> {:relative-path (str relative)
+                            :renames (compact-declaration-renames declaration-names)
+                            :imports (catalog-imports plan)
+                            :source-orders
+                            (or (get source-orders-by-namespace (str namespace))
+                                {})}
+                     (seq generated-modules)
+                     (assoc :generated-modules generated-modules)
+                     (seq (get defaults-by-namespace (str namespace)))
+                     (assoc :compact-defaults
+                            (get defaults-by-namespace (str namespace))))])))
          plans)})))
 
 (defn- project-module-imports
@@ -3923,7 +4146,7 @@
               :imports (parsed-imports parsed)
               :import-calls (parsed-import-calls parsed)
               :declaration-names (declaration-name-map parsed)}))
-         (zig-files input-root))
+         (zig-files input-root (:exclude-directories options)))
         plan-by-path (into {} (map (juxt #(-> ^File (:file %) .getCanonicalPath)
                                          identity)
                                    plans))
@@ -4028,7 +4251,9 @@
                                        StandardOpenOption/TRUNCATE_EXISTING
                                        StandardOpenOption/WRITE]))
         asset-bundle (when bundle-assets?
-                       (bundle-project-assets! input-root-file output-file))
+                       (bundle-project-assets!
+                        input-root-file output-file
+                        (:exclude-directories options)))
         report (merge
                 {:input-root (.getAbsolutePath (.getCanonicalFile (io/file input-root)))
                 :output-root (.getAbsolutePath output-file)

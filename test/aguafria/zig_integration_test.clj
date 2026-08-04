@@ -1447,6 +1447,17 @@
   (testing "a non-C-exported Zig helper repoints its already-compiled Zig caller"
     (try
       (is (= 14 (zig-only-composed 3)))
+      ;; Publish an unrelated live slice first. The module must retain its full
+      ;; logical loaded-declaration view so the following non-exported edit can
+      ;; still emit an implementation getter for its existing dispatch cell.
+      (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
+        (eval
+         '(az/defn zig-only-partial-primer :- :i32
+            [x :- :i32]
+            (+ x 17))))
+      (is (= 20 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
+                             'zig-only-partial-primer)
+                 3)))
       (let [callee-before (declaration-stat "zig-only-base")
             caller-before (declaration-stat "zig-only-composed")]
         (binding [*ns* (the-ns 'aguafria.zig-integration-test)]

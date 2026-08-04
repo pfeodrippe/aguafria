@@ -1,0 +1,49 @@
+{:paths ["src"
+         "resources"
+         "../../generated/ghostty"]
+
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        aguafria/aguafria {:local/root "../.."}}
+
+ :aliases
+ {:dev
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"]}
+
+  :nrepl
+  {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"]
+   :main-opts ["-m" "nrepl.cmdline"]}
+
+  :generate
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Xmx8g"]
+   :main-opts ["-m" "ghostty-agua.generate" "generate"]}
+
+  :materialize
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Xmx8g"]
+   :main-opts ["-m" "ghostty-agua.generate" "materialize"]}
+
+  :standalone
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Xmx8g"]
+   :main-opts ["-m" "ghostty-agua.generate" "standalone"]}
+
+  :macos-app
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Xmx8g"]
+   :main-opts ["-m" "ghostty-agua.generate" "macos-app"]}
+
+  :check
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"]
+   :main-opts ["-m" "ghostty-agua.core" "check"]}
+
+  :test
+  {:extra-paths ["test"]
+   :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"]
+   :main-opts ["-m" "kaocha.runner"]}}}

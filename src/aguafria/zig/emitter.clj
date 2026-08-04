@@ -46,7 +46,7 @@
      pointer-capture else-clause else-expression catch-capture
      switch labeled-switch switch-stmt labeled-switch-stmt
      case inline-case case-else inline-case-else
-     container fn-decl const-decl var-decl struct-decl import-decl
+     container fn-decl const-decl var-decl extern-var-decl struct-decl import-decl
      field-decl enum-field-decl tuple-field-decl comptime-decl
      test-decl fn-proto-decl
      if when when-not if-capture if-capture-stmt
@@ -281,7 +281,7 @@
                   cause)))))))
 
 (def ^:private declaration-name-operators
-  '#{fn-decl fn-proto-decl const-decl var-decl struct-decl import-decl
+  '#{fn-decl fn-proto-decl const-decl var-decl extern-var-decl struct-decl import-decl
      field-decl enum-field-decl comptime-decl test-decl})
 
 (defn- qualify-seq
@@ -615,7 +615,7 @@
    "+%" "+%", "-%" "-%", "*%" "*%"
    "+|" "+|", "-|" "-|", "*|" "*|"
    "==" "==", "!=" "!=", "<" "<", "<=" "<=", ">" ">", ">=" ">="
-   "and" "and", "or" "or", "xor" "xor"
+   "and" "and", "or" "or"
    "&" "&", "|" "|", "^" "^", "<<" "<<", ">>" ">>"
    "orelse" "orelse", "catch" "catch"})
 
@@ -647,9 +647,14 @@
   [form]
   (if (and (seq? form) (= 'identifier-literal (first form)))
     (let [source (one-string-argument "identifier-literal" (rest form) form)]
-      (if (re-matches #"@\"(?:[^\"\\\r\n]|\\.)*\"" source)
+      ;; Zig permits keyword spellings after a field dot (`Enum.false`). Such
+      ;; names cannot be represented by a Clojure symbol because `false` reads
+      ;; as a boolean, so the explicit fragment form also accepts a plain Zig
+      ;; identifier in addition to `@"quoted"` identifiers.
+      (if (or (re-matches #"[A-Za-z_][A-Za-z0-9_]*" source)
+              (re-matches #"@\"(?:[^\"\\\r\n]|\\.)*\"" source))
         source
-        (fail! "identifier-literal expects one quoted Zig identifier" form)))
+        (fail! "identifier-literal expects one exact Zig identifier" form)))
     (identifier form)))
 
 (defn- emit-lexical-literal
@@ -734,8 +739,8 @@
 
 (defn- emit-if-expr
   [[test then else :as args] form]
-  (when-not (= 3 (count args))
-    (fail! "Zig if expression expects test, then, and else" form))
+  (when-not (<= 2 (count args) 3)
+    (fail! "Zig if expression expects test, then, and optional else" form))
   (let [branch-source
         (fn [branch]
           (cond
@@ -750,7 +755,9 @@
             :else
             (emit-expr branch)))]
     (str "(if (" (emit-expr test) ") " (branch-source then)
-         " else " (branch-source else) ")")))
+         (when (= 3 (count args))
+           (str " else " (branch-source else)))
+         ")")))
 
 (defn- captures-source
   [captures form]
@@ -855,6 +862,76 @@
          "switch (" (emit-expr condition) ") {\n"
          (indent 1 (str/join ",\n" (map emit-switch-case clauses)))
          "\n}")))
+
+(defn- emit-asm
+  [args form]
+  (let [[template options :as all] args
+        options (or options {})]
+    (when-not (and (<= 1 (count all) 2)
+                   (map? options))
+      (fail! "asm expects a template and an optional options map" form))
+    (let [{:keys [attrs outputs inputs clobbers]
+           :or {attrs #{} outputs [] inputs []}} options
+          unknown-options (seq (remove #{:attrs :outputs :inputs :clobbers}
+                                       (keys options)))
+          unknown-attrs (seq (remove #{:volatile} attrs))]
+      (when-not (set? attrs)
+        (fail! "asm :attrs must be a set" form {:attrs attrs}))
+      (when unknown-options
+        (fail! "asm options contain unsupported keys" form
+               {:unsupported unknown-options}))
+      (when unknown-attrs
+        (fail! "asm :attrs contains unsupported attributes" form
+               {:unsupported unknown-attrs}))
+      (when-not (and (vector? outputs) (vector? inputs))
+        (fail! "asm :outputs and :inputs must be vectors" form))
+      (let [output-source
+            (mapv
+             (fn [output]
+               (when-not (and (vector? output) (= 3 (count output)))
+                 (fail! "Each asm output must be [name constraint {:value x}|{:type T}]"
+                        form {:output output}))
+               (let [[binding constraint result] output]
+                 (when-not (string? constraint)
+                   (fail! "An asm output constraint must be a string"
+                          form {:output output}))
+                 (when-not (and (map? result)
+                                (= 1 (count result))
+                                (or (contains? result :value)
+                                    (contains? result :type)))
+                   (fail! "An asm output result must contain exactly :value or :type"
+                          form {:output output}))
+                 (str "[" (identifier-fragment binding) "] "
+                      (zig-string constraint) " ("
+                      (if (contains? result :type)
+                        (str "-> " (emit-type (:type result)))
+                        (emit-expr (:value result)))
+                      ")")))
+             outputs)
+            input-source
+            (mapv
+             (fn [input]
+               (when-not (and (vector? input) (= 3 (count input)))
+                 (fail! "Each asm input must be [name constraint value]"
+                        form {:input input}))
+               (let [[binding constraint value] input]
+                 (when-not (string? constraint)
+                   (fail! "An asm input constraint must be a string"
+                          form {:input input}))
+                 (str "[" (identifier-fragment binding) "] "
+                      (zig-string constraint) " (" (emit-expr value) ")")))
+             inputs)
+            full? (or (seq outputs) (seq inputs)
+                      (contains? options :clobbers))]
+        (str "asm" (when (contains? attrs :volatile) " volatile")
+             " (" (emit-expr template)
+             (when full?
+               (str "\n    : " (str/join ",\n      " output-source)
+                    (when (or (seq inputs) (contains? options :clobbers))
+                      (str "\n    : " (str/join ",\n      " input-source)))
+                    (when (contains? options :clobbers)
+                      (str "\n    : " (emit-expr clobbers)))))
+             ")")))))
 
 (defn- emit-keyword-expr
   [token args form]
@@ -985,7 +1062,7 @@
         (= op 'container)
         (emit-container form)
 
-        (contains? #{'fn-decl 'const-decl 'var-decl 'struct-decl
+        (contains? #{'fn-decl 'const-decl 'var-decl 'extern-var-decl 'struct-decl
                      'import-decl 'field-decl 'enum-field-decl
                      'tuple-field-decl 'comptime-decl 'test-decl
                      'fn-proto-decl} op)
@@ -1003,6 +1080,9 @@
 
         (= op 'multiline-string)
         (emit-multiline-string args form)
+
+        (= op 'asm)
+        (emit-asm args form)
 
         (= op 'object)
         (let [[fields & extra] args]
@@ -1212,7 +1292,7 @@
 
         (= op 'comptime)
         (if (= 1 (count args))
-          (str "comptime " (emit-expr (first args)))
+          (str "(comptime " (emit-expr (first args)) ")")
           (fail! "comptime expects one expression" form))
 
         (= op 'nosuspend)
@@ -1295,6 +1375,12 @@
   (if (and (seq? form) (contains? #{'do 'block} (first form)))
     (rest form)
     [form]))
+
+(defn- emit-statement-branch
+  [form level]
+  (if (and (seq? form) (= 'labeled-block (first form)))
+    (emit-expr form)
+    (braced (branch-forms form) level)))
 
 (defn- expression-terminator
   [rendered]
@@ -1426,11 +1512,11 @@
     (when-not (<= 2 (count all) 3)
       (fail! "Zig if statement expects test, then, and optional else" form))
     (str "if (" (emit-expr test) ") "
-         (braced (branch-forms then) level)
+         (emit-statement-branch then level)
          (when (some? else)
            (str " else " (if (and (seq? else) (= 'if (first else)))
                             (emit-if-stmt (rest else) level else)
-                            (braced (branch-forms else) level)))))))
+                            (emit-statement-branch else level)))))))
 
 (defn- emit-if-capture-stmt
   [args level form]
@@ -1442,7 +1528,7 @@
       (fail! "An error capture requires an else branch" form))
     (str "if (" (emit-expr test) ") "
          (captures-source (:payload options) form)
-         (braced (branch-forms then) level)
+         (emit-statement-branch then level)
          (when (some? else)
            (str " else "
                 (captures-source (:error options) form)
@@ -1454,7 +1540,19 @@
                   (emit-if-capture-stmt (rest else) level else)
 
                   :else
-                  (braced (branch-forms else) level)))))))
+                  (emit-statement-branch else level)))))))
+
+(defn- emit-control-flow-target
+  [target level]
+  (cond
+    (and (seq? target) (= 'if (first target)))
+    (emit-if-stmt (rest target) level target)
+
+    (and (seq? target) (= 'if-capture-stmt (first target)))
+    (emit-if-capture-stmt (rest target) level target)
+
+    :else
+    (emit-expr target)))
 
 (defn- emit-loop
   [kind args level form]
@@ -1468,7 +1566,8 @@
   (let [[options condition & body] args]
     (when-not (and (map? options) (some? condition))
       (fail! "while-loop expects an options map and condition" form))
-    (let [{:keys [label inline? payload continue error else else-expression]} options
+    (let [{:keys [label body-label inline? payload continue error else
+                  else-expression]} options
           else-expression? (contains? options :else-expression)]
       (when-not (or (nil? label)
                     (symbol? label) (keyword? label) (string? label))
@@ -1480,19 +1579,26 @@
                {:else else}))
       (when-not (or (nil? inline?) (boolean? inline?))
         (fail! "while-loop :inline? must be boolean" form {:inline? inline?}))
+      (when-not (or (nil? body-label)
+                    (symbol? body-label) (keyword? body-label)
+                    (string? body-label))
+        (fail! "while-loop :body-label must be an identifier"
+               form {:body-label body-label}))
       (str (when label (str (identifier label) ": "))
            (when inline? "inline ")
            "while (" (emit-expr condition) ") "
            (captures-source payload form)
            (when (some? continue)
              (str ": (" (emit-expr continue) ") "))
-           (braced body level)
+           (if body-label
+             (str (identifier body-label) ": " (braced body level))
+             (braced body level))
            (when (some? else)
              (str " else " (captures-source error form)
                   (braced else level)))
            (when else-expression?
              (str " else " (captures-source error form)
-                  (emit-expr else-expression)))))))
+                  (emit-control-flow-target else-expression level)))))))
 
 (defn- for-bindings
   [bindings form]
@@ -1533,23 +1639,30 @@
                                         (first (last body))))
                     (last body))
         body (if else-form (butlast body) body)
-        {:keys [label inline?]} options]
+        {:keys [label body-label inline?]} options]
       (when-not (or (nil? label) (symbol? label) (keyword? label) (string? label))
         (fail! "for-loop :label must be an identifier" form {:label label}))
       (when-not (or (nil? inline?) (boolean? inline?))
         (fail! "for-loop :inline? must be boolean" form {:inline? inline?}))
+      (when-not (or (nil? body-label)
+                    (symbol? body-label) (keyword? body-label)
+                    (string? body-label))
+        (fail! "for-loop :body-label must be an identifier"
+               form {:body-label body-label}))
       (str (when label (str (identifier label) ": "))
            (when inline? "inline ")
            "for (" (str/join ", " (map (comp emit-expr second) pairs)) ") |"
            (str/join ", " (map #(capture-source (first %) form) pairs)) "| "
-           (braced body level)
+           (if body-label
+             (str (identifier body-label) ": " (braced body level))
+             (braced body level))
            (when else-form
              (str " else "
                   (case (first else-form)
                     else-clause (braced (rest else-form) level)
                     else-expression
                     (if (= 2 (count else-form))
-                      (emit-expr (second else-form))
+                      (emit-control-flow-target (second else-form) level)
                       (fail! "else-expression expects exactly one expression"
                              else-form))))))))
 
@@ -1573,10 +1686,11 @@
       (fail! "for-loop expects an options map and bindings" form))
     (emit-for-source options bindings body level form)))
 
-(defn- for-else-expression?
+(defn- for-else-expression
   [body]
   (let [else-form (last body)]
-    (and (seq? else-form) (= 'else-expression (first else-form)))))
+    (when (and (seq? else-form) (= 'else-expression (first else-form)))
+      (second else-form))))
 
 (defn emit-stmt
   "Emit one Zig statement. `level` is used only for nested block indentation."
@@ -1629,6 +1743,11 @@
                               (fail! "set! expects a target and value" form))
                (contains? #{'switch-stmt 'labeled-switch-stmt} op)
                (emit-expr form)
+               (contains? #{'switch 'labeled-switch} op)
+               ;; A value-producing switch used only for side effects must be
+               ;; parenthesized before its semicolon. Without the grouping Zig
+               ;; parses it as a switch statement, where `};` is invalid.
+               (str "(" (emit-expr form) ");")
                (= op 'assign)
                (let [[operator target value :as assignment] args]
                  (when-not (and (= 3 (count assignment))
@@ -1669,13 +1788,21 @@
                    ensure-semicolon))
                (contains? #{'for 'inline-for} op)
                (let [[_bindings & body] args
-                     source (emit-for args level form)]
-                 (cond-> source (for-else-expression? body) ensure-semicolon))
+                     source (emit-for args level form)
+                     else-expression (for-else-expression body)]
+                 (cond-> source
+                   (and else-expression
+                        (expression-statement-needs-semicolon? else-expression))
+                   ensure-semicolon))
                (= op 'dotimes) (emit-dotimes args level form)
                (= op 'for-loop)
                (let [[_options _bindings & body] args
-                     source (emit-for-loop args level form)]
-                 (cond-> source (for-else-expression? body) ensure-semicolon))
+                     source (emit-for-loop args level form)
+                     else-expression (for-else-expression body)]
+                 (cond-> source
+                   (and else-expression
+                        (expression-statement-needs-semicolon? else-expression))
+                   ensure-semicolon))
                (= op 'else-clause)
                (fail! "else-clause can only be the final form of a for" form)
                (= op 'else-expression)
@@ -1705,6 +1832,14 @@
                         (ensure-semicolon
                          (emit-stmt (first args) level))))
                  (fail! "comptime-stmt expects one statement" form))
+               (= op 'nosuspend)
+               (if (= 1 (count args))
+                 (let [nested (first args)]
+                   (if (and (seq? nested)
+                            (contains? #{'do 'block} (first nested)))
+                     (str "nosuspend " (braced (rest nested) level))
+                     (str (emit-expr form) ";")))
+                 (fail! "nosuspend expects one expression or block" form))
                (= op 'errdefer) (if (= 1 (count args))
                                   (let [nested (first args)]
                                     (str "errdefer "
@@ -1986,6 +2121,17 @@
   (str (comment-lines "///" doc)
        (comment-lines "//" comments)))
 
+(defn- namespace-root-import
+  [{:keys [name zig-name value]}]
+  (let [reference (and (symbol? value)
+                       (:aguafria/zig-reference (meta value)))
+        declaration-name (identifier (or zig-name name))]
+    (when (and (= :namespace-root (:kind reference))
+               (string? (:import-name reference))
+               (= declaration-name
+                  (or (:import-alias reference) (:zig-name reference))))
+      reference)))
+
 (defn emit-declaration
   "Emit a normalized declaration descriptor."
   [{:keys [kind name type value fields body args return export? public? layout
@@ -2010,7 +2156,9 @@
      (if (string? code) code (fail! "Raw declaration requires string :code" declaration))
 
      :const
-     (let [rendered (emit-expr value)]
+     (let [rendered (if-let [import (namespace-root-import declaration)]
+                      (str "@import(" (zig-string (:import-name import)) ")")
+                      (emit-expr value))]
        (str (declaration-prefix zig-prefix
                                 (when (not= false public?) "pub "))
             "const " (identifier declaration-name)
@@ -2404,6 +2552,16 @@
         (merge (nested-base :var name attributes)
                {:doc doc :type (when-not (= '_ type) type) :value value}))
 
+      extern-var-decl
+      (let [[name & declaration] declaration
+            [doc attributes declaration] (nested-doc-attributes declaration)
+            [marker type] declaration]
+        (when-not (and (= marker ':-) type (= 2 (count declaration)))
+          (fail! "extern-var-decl expects name, optional attributes, :-, and type"
+                 form))
+        (merge (nested-base :extern-var name attributes)
+               {:doc doc :type type}))
+
       struct-decl
       (let [[name & declaration] declaration
             [doc attributes declaration] (nested-doc-attributes declaration)
@@ -2604,12 +2762,19 @@
   ([declarations development?]
    (let [explicit (into {}
                        (keep (fn [{:keys [kind name zig-name import-name
-                                         attributes]}]
+                                         attributes]
+                                  :as declaration}]
                                (let [ordinary-import
-                                     (:zig/import-name attributes)]
+                                     (:zig/import-name attributes)
+                                     root-import
+                                     (namespace-root-import declaration)]
                                  (cond
                                    (= :import kind)
                                    [(identifier (or zig-name name)) import-name]
+
+                                   root-import
+                                   [(identifier (or zig-name name))
+                                    (:import-name root-import)]
 
                                    (string? ordinary-import)
                                    [(identifier (or zig-name name))

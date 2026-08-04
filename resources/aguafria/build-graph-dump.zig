@@ -13,7 +13,16 @@ const Capture = struct {
     options: *Step.Options,
 };
 
+const GeneratedCapture = struct {
+    builder: *Build,
+    asking_step: *Step,
+    owner_path: []const u8,
+    import_name: []const u8,
+    source: Build.LazyPath,
+};
+
 var captures: std.ArrayListUnmanaged(Capture) = .empty;
+var generated_captures: std.ArrayListUnmanaged(GeneratedCapture) = .empty;
 
 /// Select the generated option modules reachable from the requested profile,
 /// then replace that profile with one synthetic step that executes only those
@@ -39,6 +48,9 @@ pub fn prepare(builder: *Build, target_names: []const []const u8) !void {
 pub fn dumpResolved() void {
     for (captures.items) |capture| {
         printHexRecord(capture);
+    }
+    for (generated_captures.items) |capture| {
+        printGeneratedHexRecord(capture);
     }
 }
 
@@ -80,10 +92,32 @@ fn visitModule(
                 .options = options.options,
             });
             capture_step.dependOn(&options.options.step);
+        } else if (generatedSource(imported)) |source| {
+            try generated_captures.append(builder.allocator, .{
+                .builder = builder,
+                .asking_step = capture_step,
+                .owner_path = owner_path,
+                .import_name = import_name,
+                .source = source,
+            });
+            const generated = switch (source) {
+                .generated => |value| value,
+                else => unreachable,
+            };
+            capture_step.dependOn(generated.file.step);
+            try visitModule(builder, imported, capture_step, seen_modules);
         } else {
             try visitModule(builder, imported, capture_step, seen_modules);
         }
     }
+}
+
+fn generatedSource(module: *Module) ?Build.LazyPath {
+    const source = module.root_source_file orelse return null;
+    return switch (source) {
+        .generated => source,
+        else => null,
+    };
 }
 
 fn moduleSourcePath(module: *Module) ?[]const u8 {
@@ -130,6 +164,24 @@ fn printHexRecord(capture: Capture) void {
         printHex(resolvedPath(arg.path, capture.options.step.owner));
     }
     std.debug.print("\n", .{});
+}
+
+fn printGeneratedHexRecord(capture: GeneratedCapture) void {
+    const path = capture.source.getPath2(capture.builder, capture.asking_step);
+    const source = std.Io.Dir.cwd().readFileAlloc(
+        capture.builder.graph.io,
+        path,
+        capture.builder.allocator,
+        .unlimited,
+    ) catch |err| @panic(@errorName(err));
+
+    std.debug.print("{s}\t", .{marker});
+    printHex(capture.owner_path);
+    std.debug.print("\t", .{});
+    printHex(capture.import_name);
+    std.debug.print("\t", .{});
+    printHex(source);
+    std.debug.print("\t0\n", .{});
 }
 
 fn resolvedPath(path: std.Build.LazyPath, builder: *Build) []const u8 {

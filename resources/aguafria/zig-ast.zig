@@ -114,6 +114,18 @@ fn writeNodeData(tree: *const Ast, node: Ast.Node.Index, writer: *Io.Writer) !vo
             try writer.print(":node-token {} {}", .{ nodeInt(data[0]), data[1] });
         },
 
+        .asm_input => {
+            const data = tree.nodeData(node).node_and_token;
+            try writer.print(":node-token {} {}", .{ nodeInt(data[0]), data[1] });
+        },
+
+        .asm_output => {
+            const data = tree.nodeData(node).opt_node_and_token;
+            try writer.writeAll(":opt-node-token ");
+            try writeOptional(writer, optNodeInt(data[0]));
+            try writer.print(" {}", .{data[1]});
+        },
+
         .bool_not,
         .negation,
         .bit_not,
@@ -498,6 +510,30 @@ fn writeControlNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n");
 }
 
+fn writeAsmNodes(tree: *const Ast, writer: *Io.Writer) !void {
+    try writer.writeAll(":asms [");
+    var first = true;
+    for (0..tree.nodes.len) |raw_index| {
+        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const full = tree.fullAsm(node) orelse continue;
+        if (!first) try writer.writeByte(' ');
+        first = false;
+        try writer.print("[{} {} ", .{
+            raw_index,
+            nodeInt(full.ast.template),
+        });
+        try writeOptional(writer, full.volatile_token);
+        try writer.writeByte(' ');
+        try writeNodeIndices(writer, full.outputs);
+        try writer.writeByte(' ');
+        try writeNodeIndices(writer, full.inputs);
+        try writer.writeByte(' ');
+        try writeOptional(writer, optNodeInt(full.ast.clobbers));
+        try writer.print(" {}]", .{full.ast.rparen});
+    }
+    try writer.writeAll("]\n");
+}
+
 fn writeTypeNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":array-types [");
     var first = true;
@@ -614,7 +650,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout_buffer: [64 * 1024]u8 = undefined;
     var stdout_writer = Io.File.stdout().writer(init.io, &stdout_buffer);
     const writer = &stdout_writer.interface;
-    try writer.writeAll("{:schema-version 3\n");
+    try writer.writeAll("{:schema-version 4\n");
     try writeErrors(&tree, writer);
     try writeTokens(&tree, writer);
     try writeNodes(&tree, writer);
@@ -629,6 +665,7 @@ pub fn main(init: std.process.Init) !void {
     try writeAssignDestructures(&tree, writer);
     try writeSemanticNodes(&tree, writer);
     try writeControlNodes(&tree, writer);
+    try writeAsmNodes(&tree, writer);
     try writeTypeNodes(&tree, writer);
     try writeContainerNodes(&tree, writer);
     try writer.writeAll("}\n");

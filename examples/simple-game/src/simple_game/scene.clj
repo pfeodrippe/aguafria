@@ -3,7 +3,10 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std.math :as std-math]
             [aguafria.zig :as az]
+            [simple-game.animation :as animation]
+            [simple-game.font :as font]
             [simple-game.game :as game]
+            [simple-game.host :as host]
             [simple-game.physics :as physics]))
 
 (az/defstruct Color
@@ -255,6 +258,127 @@
     (draw-small-digit draw-rect (mod fps 10)
                       color (+ digits-x 44) y 16 24 3)))
 
+(az/defn draw-frame-timing
+  "Draw 120-frame CPU work average, excluding pacing and presentation waits."
+  {:attrs #{:public}}
+  :-
+  :void
+  [[draw-rect DrawRect]
+   [frame-height :i32]]
+  (let [timing (host/frame-timing)
+        average-ms (az/field timing work_average_ms)
+        measured-tenths
+        (ak/as :u32 (ak/intFromFloat (+ (* average-ms 10.0) 0.5)))
+        tenths (if (> measured-tenths 999) 999 measured-tenths)
+        whole (ak/divTrunc tenths 10)
+        y (- frame-height 32)
+        color (Color {:r 0.96 :g 0.66 :b 0.46 :a 1.0})]
+    (when (>= whole 10)
+      (draw-small-digit draw-rect (ak/divTrunc whole 10)
+                        color 64 y 13 24 3))
+    (draw-small-digit draw-rect (mod whole 10)
+                      color 82 y 13 24 3)
+    (draw-rect color 99 (+ y 20) 3 3)
+    (draw-small-digit draw-rect (mod tenths 10)
+                      color 107 y 13 24 3)))
+
+(az/defn font-color
+  {:attrs #{:public :implicit-return}}
+  :-
+  Color
+  [[palette :u8]]
+  (cond
+    (ak/== palette 0) (Color {:r 0.94 :g 0.76 :b 0.38 :a 1.0})
+    (ak/== palette 1) (Color {:r 0.46 :g 0.88 :b 0.72 :a 1.0})
+    (ak/== palette 2) (Color {:r 0.73 :g 0.68 :b 0.98 :a 1.0})
+    :else (Color {:r 0.96 :g 0.66 :b 0.46 :a 1.0})))
+
+(az/defn draw-loaded-fonts
+  "Draw cached spans produced from three runtime-loaded TrueType fonts."
+  {:attrs #{:public}}
+  :-
+  :void
+  [[draw-rect DrawRect]
+   [frame-width :i32]
+   [frame-height :i32]]
+  (let [scale-x (/ (ak/as :f32 (ak/floatFromInt frame-width)) 720.0)
+        scale-y (/ (ak/as :f32 (ak/floatFromInt frame-height)) 540.0)]
+    (dotimes [index (font/rect-count)]
+      (let [rectangle (font/rect-at index)
+            x (ak/as :i32
+                     (ak/intFromFloat
+                      (* (ak/as :f32
+                                (ak/floatFromInt (az/field rectangle x)))
+                         scale-x)))
+            y (ak/as :i32
+                     (ak/intFromFloat
+                      (* (ak/as :f32
+                                (ak/floatFromInt (az/field rectangle y)))
+                         scale-y)))
+            width (ak/as :i32
+                         (ak/intFromFloat
+                          (* (ak/as :f32
+                                    (ak/floatFromInt (az/field rectangle width)))
+                             scale-x)))
+            height (ak/as :i32
+                          (ak/intFromFloat
+                           (* (ak/as :f32
+                                     (ak/floatFromInt (az/field rectangle height)))
+                              scale-y)))]
+        (draw-rect (font-color (az/field rectangle palette))
+                   x y (ak/max width 1) (ak/max height 1))))))
+
+(az/defn sprite-color
+  {:attrs #{:public :implicit-return}}
+  :-
+  Color
+  [[span animation/SpriteSpan]]
+  (Color
+   {:r (/ (ak/as :f32 (ak/floatFromInt (az/field span red))) 255.0)
+    :g (/ (ak/as :f32 (ak/floatFromInt (az/field span green))) 255.0)
+    :b (/ (ak/as :f32 (ak/floatFromInt (az/field span blue))) 255.0)
+    :a (/ (ak/as :f32 (ak/floatFromInt (az/field span alpha))) 255.0)}))
+
+(az/defn draw-sprite-animation
+  "Draw the same native animation pack through either graphics backend."
+  {:attrs #{:public}}
+  :-
+  :void
+  [[draw-rect DrawRect]
+   [frame-width :i32]
+   [frame-height :i32]]
+  (let [frame (animation/current-frame-view)
+        screen-x (/ (ak/as :f32 (ak/floatFromInt frame-width)) 720.0)
+        screen-y (/ (ak/as :f32 (ak/floatFromInt frame-height)) 540.0)
+        sprite-scale 2.5
+        first (az/field frame first_span)]
+    (dotimes [offset (az/field frame span_count)]
+      (let [span (animation/span-at (+ first offset))
+            x (ak/as :i32
+                     (ak/intFromFloat
+                      (* (+ 570.0
+                            (* (ak/as :f32
+                                      (ak/floatFromInt (az/field span x)))
+                               sprite-scale))
+                         screen-x)))
+            y (ak/as :i32
+                     (ak/intFromFloat
+                      (* (+ 112.0
+                            (* (ak/as :f32
+                                      (ak/floatFromInt (az/field span y)))
+                               sprite-scale))
+                         screen-y)))
+            width (ak/as :i32
+                         (ak/intFromFloat
+                          (* (ak/as :f32
+                                    (ak/floatFromInt (az/field span width)))
+                             sprite-scale
+                             screen-x)))
+            height (ak/as :i32
+                          (ak/intFromFloat (* sprite-scale screen-y)))]
+        (draw-rect (sprite-color span)
+                   x y (ak/max width 1) (ak/max height 1))))))
+
 (az/defn draw-frame
   "Construct the complete scene once and dispatch rectangles to a backend."
   {:attrs #{:public}}
@@ -267,4 +391,7 @@
   (draw-circle draw-rect packet frame-width frame-height)
   (draw-particles draw-rect packet frame-width frame-height)
   (draw-counter draw-rect packet frame-width frame-height)
+  (draw-sprite-animation draw-rect frame-width frame-height)
+  (draw-loaded-fonts draw-rect frame-width frame-height)
+  (draw-frame-timing draw-rect frame-height)
   (draw-fps draw-rect frame-width frame-height))

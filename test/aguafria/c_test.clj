@@ -21,6 +21,9 @@
       (is (.isFile output))
       (is (false? (:cache-hit? first-report)))
       (is (true? (:cache-hit? second-report)))
+      (is (false? (:conversion-cache-hit? first-report)))
+      (is (true? (:conversion-cache-hit? second-report)))
+      (is (false? (:written? second-report)))
       (is (zero? (:fallback-count first-report)))
       (is (not (str/includes? (slurp output) "az/defraw"))))
 

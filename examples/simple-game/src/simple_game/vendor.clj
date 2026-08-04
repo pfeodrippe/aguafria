@@ -35,8 +35,9 @@
   []
   (let [root (:root (build/paths))]
     (into (sorted-map)
-          (map (fn [[name descriptor]]
-                 (let [directory (io/file root "vendor" (clojure.core/name name))]
+          (map (fn [[name {:keys [path] :as descriptor}]]
+                 (let [directory (io/file root "vendor"
+                                          (or path (clojure.core/name name)))]
                    [name (assoc descriptor
                                 :path (.getAbsolutePath directory)
                                 :checked-out (git! directory "rev-parse" "HEAD")
@@ -52,8 +53,9 @@
         dependencies
         (into (sorted-map)
               (map
-               (fn [[name {:keys [branch] :as descriptor}]]
-                 (let [directory (io/file root "vendor" (clojure.core/name name))]
+               (fn [[name {:keys [branch path] :as descriptor}]]
+                 (let [directory (io/file root "vendor"
+                                          (or path (clojure.core/name name)))]
                    (when-not (str/blank? (git! directory "status" "--porcelain"))
                      (throw (ex-info "Refusing to update a dirty vendor checkout"
                                      {:dependency name

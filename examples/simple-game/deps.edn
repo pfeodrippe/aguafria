@@ -31,6 +31,10 @@
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
    :main-opts ["-m" "simple-game.build" "standalone"]}
 
+  :behavior
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "simple-game.build" "behavior"]}
+
   :web
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
    :main-opts ["-m" "simple-game.build" "web"]}

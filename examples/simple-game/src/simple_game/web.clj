@@ -4,6 +4,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as std-debug]
             [aguafria.zig :as az]
+            [simple-game.audio :as audio]
             [simple-game.web-bindings]
             [simple-game.bindings.emscripten :as emscripten]
             [simple-game.bindings.glfw :as glfw]
@@ -40,7 +41,8 @@
   :-
   :void
   [[packet game/RenderPacket]]
-  (let [^{:var true :zig/type :i32} frame-width 0]
+  (let [^{:var true :zig/type :i32} frame-width 0
+        render-start (glfw/glfwGetTime)]
     (glfw/glfwGetFramebufferSize (az/unwrap window)
                                  (ak/& frame-width)
                                  (ak/& frame-height))
@@ -52,7 +54,9 @@
     (scene/draw-frame (ak/& backend-clear-rect)
                       packet frame-width frame-height)
     (gl/glFlush)
-    (glfw/glfwSwapBuffers (az/unwrap window))))
+    (let [render-work (ak/max 0.0 (- (glfw/glfwGetTime) render-start))]
+      (glfw/glfwSwapBuffers (az/unwrap window))
+      (host/finish-frame! render-work))))
 
 (az/defn web-frame
   "Emscripten callback: the same shared GLFW input and Flecs frame as desktop."
@@ -91,5 +95,6 @@
   (glfw/glfwMakeContextCurrent (az/unwrap window))
   (host/reset-input! (az/unwrap window))
   (set! _ (game/initialize!))
+  (set! _ (audio/initialize!))
   (gl/glEnable gl/GL_SCISSOR_TEST)
   (emscripten/emscripten_set_main_loop (ak/& web-frame) 0 false))

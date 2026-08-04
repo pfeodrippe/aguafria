@@ -8,6 +8,7 @@
             [simple-game.desktop-bindings]
             [simple-game.bindings.glfw :as vk]
             [simple-game.game :as game]
+            [simple-game.host :as host]
             [simple-game.scene :as scene]))
 
 (az/defconst Color
@@ -439,32 +440,35 @@
     (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
     (check (vk/vkAcquireNextImageKHR
             device swapchain vk/VK_WHOLE_SIZE image-available null (ak/& image-index)))
-    (check (vk/vkResetFences device 1 (ak/& in-flight)))
-    (record-frame image-index packet)
-    (let [^{:zig/type :u32} wait-stage
-          (ak/intCast vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
-          command-buffer (az/index command-buffers image-index)
-          submit-info
-          (vk/VkSubmitInfo
-           {:sType vk/VK_STRUCTURE_TYPE_SUBMIT_INFO
-            :waitSemaphoreCount 1
-            :pWaitSemaphores (ak/& image-available)
-            :pWaitDstStageMask (ak/& wait-stage)
-            :commandBufferCount 1
-            :pCommandBuffers (ak/& command-buffer)
-            :signalSemaphoreCount 1
-            :pSignalSemaphores (ak/& render-finished)})
-          present-info
-          (vk/VkPresentInfoKHR
-           {:sType vk/VK_STRUCTURE_TYPE_PRESENT_INFO_KHR
-            :waitSemaphoreCount 1
-            :pWaitSemaphores (ak/& render-finished)
-            :swapchainCount 1
-            :pSwapchains (ak/& swapchain)
-            :pImageIndices (ak/& image-index)})]
-      (check (vk/vkQueueSubmit graphics-queue 1 (ak/& submit-info) in-flight))
-      (check (vk/vkQueuePresentKHR graphics-queue (ak/& present-info)))
-      (set! frame-count (+ frame-count 1))))
+    (let [render-start (vk/glfwGetTime)]
+      (check (vk/vkResetFences device 1 (ak/& in-flight)))
+      (record-frame image-index packet)
+      (let [^{:zig/type :u32} wait-stage
+            (ak/intCast vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+            command-buffer (az/index command-buffers image-index)
+            submit-info
+            (vk/VkSubmitInfo
+             {:sType vk/VK_STRUCTURE_TYPE_SUBMIT_INFO
+              :waitSemaphoreCount 1
+              :pWaitSemaphores (ak/& image-available)
+              :pWaitDstStageMask (ak/& wait-stage)
+              :commandBufferCount 1
+              :pCommandBuffers (ak/& command-buffer)
+              :signalSemaphoreCount 1
+              :pSignalSemaphores (ak/& render-finished)})
+            present-info
+            (vk/VkPresentInfoKHR
+             {:sType vk/VK_STRUCTURE_TYPE_PRESENT_INFO_KHR
+              :waitSemaphoreCount 1
+              :pWaitSemaphores (ak/& render-finished)
+              :swapchainCount 1
+              :pSwapchains (ak/& swapchain)
+              :pImageIndices (ak/& image-index)})]
+        (check (vk/vkQueueSubmit graphics-queue 1 (ak/& submit-info) in-flight))
+        (let [render-work (ak/max 0.0 (- (vk/glfwGetTime) render-start))]
+          (check (vk/vkQueuePresentKHR graphics-queue (ak/& present-info)))
+          (set! frame-count (+ frame-count 1))
+          (host/finish-frame! render-work)))))
   true)
 
 (az/defn renderer-snapshot

@@ -17,12 +17,20 @@ pub fn build(b: *std.Build) void {
     options.addOptionPath("data_path", b.path("data.txt"));
     options.addOptionPath("tool_path", tool.getEmittedBin());
 
+    const generated_source = b.addWriteFiles().add(
+        "generated_code.zig",
+        "pub const answer: u32 = 7;\n",
+    );
+
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
         .optimize = .Debug,
     });
     root_module.addOptions("build_options", options);
+    root_module.addAnonymousImport("generated_code", .{
+        .root_source_file = generated_source,
+    });
 
     const executable = b.addExecutable(.{
         .name = "build-options-fixture",
@@ -40,6 +48,9 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
     });
     alternate_module.addOptions("build_options", alternate_options);
+    alternate_module.addAnonymousImport("generated_code", .{
+        .root_source_file = generated_source,
+    });
 
     const alternate_executable = b.addExecutable(.{
         .name = "build-options-fixture-alternate",

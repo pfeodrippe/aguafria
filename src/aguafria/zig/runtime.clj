@@ -1454,8 +1454,9 @@
 (defn- load-converted-source-only!
   [^File root module]
   (let [module (str module)]
-    (when-not (or (string? (:source (get @registry module)))
-                  (contains? *converted-dependency-loading* module))
+    (when-not (or (contains? *converted-dependency-loading* module)
+                  (true? (get-in @registry
+                                 [module :converted-dependency-closure-loaded?])))
       (binding [*converted-dependency-loading*
                 (conj *converted-dependency-loading* module)]
         ;; Load dependencies first. Eager `:as` edges then find normal loaded
@@ -1482,16 +1483,37 @@
                 (register-batch! declarations
                                  {:module loaded-module
                                   :compile? false
-                                  :replace? true})))))))))
+                                  :replace? true})))))
+        (swap! registry assoc-in
+               [module :converted-dependency-closure-loaded?] true)))))
 
 (defn- ensure-converted-dependency-sources!
   [module declarations]
-  (when (project/converted-module? module)
-    (when-let [root (converted-source-root module declarations)]
-      (locking converted-load-lock
-        (binding [*converted-dependency-loading* #{(str module)}]
-          (doseq [dependency (converted-project-dependencies module)]
-            (load-converted-source-only! root dependency)))))))
+  (let [converted-roots
+        (if (project/converted-module? module)
+          [[module declarations]]
+          (into []
+                (keep
+                 (fn [dependency]
+                   (when (project/converted-module? dependency)
+                     [dependency
+                      (vec (vals (get-in @registry
+                                         [(str dependency) :definitions])))])))
+                (->> (emit/declaration-imports declarations)
+                     vals
+                     (keep :namespace)
+                     distinct)))]
+    (locking converted-load-lock
+      (doseq [[converted-module converted-declarations] converted-roots
+              :let [root (converted-source-root converted-module
+                                                converted-declarations)]
+              :when root]
+        ;; Traverse even when the direct converted module already has source:
+        ;; a hand-written namespace can require that module before any of its
+        ;; `:as-alias` cycle edges have been loaded. The traversal is cycle-safe
+        ;; and only evaluates source for modules absent from the registry.
+        (binding [*converted-dependency-loading* #{}]
+          (load-converted-source-only! root converted-module))))))
 
 (defn- compile-source!
   ([module-name source declarations]
@@ -3114,6 +3136,28 @@
      :declaration declaration
      :definitions (assoc definitions (:declaration-key declaration) declaration)}))
 
+(defn- published-loaded-declarations
+  "Keep the complete logical module view after publishing a native live slice.
+
+  The new generation owns only its compiled slice, while unchanged declarations
+  remain callable through retained generations. Merge by Zig declaration name
+  so a later edit can compare against the complete published program and emit
+  the implementation getter required to repoint its dispatch cell."
+  [current loaded partial-publication?]
+  (if-not partial-publication?
+    (vec (:loaded-declarations loaded))
+    (let [initial (into {}
+                        (map (juxt :declaration-key identity))
+                        (:loaded-declarations current))]
+      (->> (:loaded-declarations loaded)
+           (reduce (fn [definitions declaration]
+                     (:definitions
+                      (replacement-declaration-state definitions declaration)))
+                   initial)
+           vals
+           (sort-by (juxt :source-order (comp str :name)))
+           vec))))
+
 (defn- ordered-batch
   [declarations]
   (mapv (fn [index declaration]
@@ -4693,6 +4737,9 @@
                   functions (if partial-publication?
                               (merge (:functions current) (:functions loaded))
                               (:functions loaded))
+                  loaded-declarations
+                  (published-loaded-declarations current loaded
+                                                 partial-publication?)
                   published-dispatch-specs dispatch-specs]
               (reset! published? true)
               (swap! registry assoc module
@@ -4721,6 +4768,7 @@
                                (merge (:definitions current)
                                       compiled-definitions)
                                compiled-definitions)
+                             :loaded-declarations loaded-declarations
                              :functions functions
                              :partial-publication? partial-publication?
                              :full-compile-error (:full-compile-error compiled)
@@ -5055,7 +5103,9 @@
       (record-build! job false)
       (mark-build-started! module generation)
       (try
-        (let [{compiled-declarations :declarations
+        (let [_ (ensure-converted-dependency-sources! module declarations)
+              plan (refresh-plan-dependency-snapshots plan)
+              {compiled-declarations :declarations
                :keys [compiled compile-source reload-source dispatch-specs
                       reload-source-dispatch-specs
                       partial-publication? dependency-snapshot
@@ -5080,6 +5130,9 @@
               functions (if partial-publication?
                           (merge (:functions old-module) (:functions loaded))
                           (:functions loaded))
+              loaded-declarations
+              (published-loaded-declarations old-module loaded
+                                             partial-publication?)
               published-dispatch-specs dispatch-specs
               new-module
               (merge old-module loaded dispatch
@@ -5098,6 +5151,7 @@
                       (get-in plan
                               [:primary :reload-source-dispatch-specs])
                       :functions functions
+                      :loaded-declarations loaded-declarations
                       :partial-publication? partial-publication?
                       :full-compile-error (:full-compile-error compiled)
                       :pending nil
@@ -5229,7 +5283,9 @@
   (let [dispatch (reconcile-dispatch old-module loaded generation)
         functions (if partial-publication?
                     (merge (:functions old-module) (:functions loaded))
-                    (:functions loaded))]
+                    (:functions loaded))
+        loaded-declarations
+        (published-loaded-declarations old-module loaded partial-publication?)]
     (merge old-module loaded dispatch
            {:module module
             :generation generation
@@ -5243,6 +5299,7 @@
             :dependency-dispatch-specs
             (get-in job [:plan :primary :reload-source-dispatch-specs])
             :functions functions
+            :loaded-declarations loaded-declarations
             :partial-publication? partial-publication?
             :full-compile-error (:full-compile-error compiled)
             :pending nil

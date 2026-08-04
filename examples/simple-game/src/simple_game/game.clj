@@ -1,7 +1,10 @@
 (ns simple-game.game
   "Hot-reloadable Flecs gameplay, written entirely as Aguafria Zig forms."
   (:require [aguafria.keyword :as ak]
+            [aguafria.std]
+            [aguafria.std.atomic :as std-atomic]
             [aguafria.zig :as az]
+            [simple-game.animation :as animation]
             [simple-game.audio :as audio]
             [simple-game.bindings]
             [simple-game.bindings.flecs :as flecs]
@@ -73,6 +76,18 @@
 
 (az/defvar installed_callback :usize 0)
 
+(az/defvar state-lock :u8 0)
+
+(az/defvar frame-count :u32 0)
+
+(az/defvar requested-clicks :u32 0)
+
+(az/defvar completed-clicks :u32 0)
+
+(az/defvar last-requested-click-counter :u32 0)
+
+(az/defvar last-frame-work-seconds-value :f64 0.0)
+
 (az/defconst target-fps :f32 120.0)
 
 (az/defvar current_input Input
@@ -83,6 +98,23 @@
           :delta_seconds 0.0
           :pointer_down false
           :pointer_pressed false}))
+
+(az/defn lock-state!
+  "Serialize nREPL state access with the native frame thread."
+  {:export false}
+  :-
+  :void
+  []
+  (ak/while
+   (ak/!= (ak/atomicRmw :u8 (ak/& state-lock) :.Xchg 1 :.acquire) 0)
+   (std-atomic/spinLoopHint)))
+
+(az/defn unlock-state!
+  {:export false}
+  :-
+  :void
+  []
+  (ak/atomicStore :u8 (ak/& state-lock) 0 :.release))
 
 (az/defn register-component
   {:attrs #{:public :implicit-return}}
@@ -146,6 +178,25 @@
     (physics/emit! (shader-for-count next-count))
     (audio/play-click! next-count)
     next-count))
+
+(az/defn run-requested-clicks!
+  "Execute nREPL click requests on the frame thread through the shared transition."
+  {:export false}
+  :-
+  :void
+  [[flecs-world [:* flecs/ecs_world_t]]]
+  (let [target (ak/atomicLoad :u32 (ak/& requested-clicks) :.acquire)
+        counter (-> flecs-world
+                    (flecs/ecs_get_mut_id circle_entity counter_component)
+                    (az/cast [:* Counter]))
+        ^{:var true :zig/type :u32}
+        completed (ak/atomicLoad :u32 (ak/& completed-clicks) :.monotonic)]
+    (ak/while (< completed target)
+      (let [result (advance-counter! counter)]
+        (ak/atomicStore :u32 (ak/& last-requested-click-counter)
+                        result :.release)
+        (set! completed (+ completed 1))
+        (ak/atomicStore :u32 (ak/& completed-clicks) completed :.release)))))
 
 (az/defn update-circle-system
   "Flecs invokes this stable Aguafria dispatch function for matching entities."
@@ -229,19 +280,31 @@
   :-
   :f32
   []
-  (if (ak/== world null)
-    0.0
-    (let [info (flecs/ecs_get_world_info world)
-          delta-time (az/field (az/deref info) delta_time_raw)]
-      (if (> delta-time 0.0)
-        (/ 1.0 delta-time)
-        0.0))))
+  (lock-state!)
+  (let [result (if (ak/== world null)
+                 0.0
+                 (let [info (flecs/ecs_get_world_info world)
+                       delta-time (az/field (az/deref info) delta_time_raw)]
+                   (if (> delta-time 0.0)
+                     (/ 1.0 delta-time)
+                     0.0)))]
+    (unlock-state!)
+    result))
+
+(az/defn last-frame-work-seconds
+  "Return CPU simulation work for the latest frame, excluding Flecs pacing."
+  {:attrs #{:public :implicit-return}}
+  :-
+  :f64
+  []
+  last-frame-work-seconds-value)
 
 (az/defn initialize!
   "Create the live Flecs world once. Repeated REPL calls preserve its state."
   :-
   :bool
   []
+  (set! _ (animation/initialize!))
   (when (ak/== world null)
     (set! world (flecs/ecs_init))
     (configure-target-fps!)
@@ -283,37 +346,62 @@
    [pointer-down :bool]
    [pointer-pressed :bool]]
   (set! _ (initialize!))
-  (set! current_input
-        (az/object [[:pointer_x pointer-x]
-                    [:pointer_y pointer-y]
-                    [:viewport_width viewport-width]
-                    [:viewport_height viewport-height]
-                    [:delta_seconds delta-seconds]
-                    [:pointer_down pointer-down]
-                    [:pointer_pressed pointer-pressed]]))
-  (let [flecs-world (az/unwrap world)]
-    (when (ak/== (az/field (ak/import "builtin") mode) :.Debug)
-      (refresh-system-callback! flecs-world))
-    (set! _ (flecs/ecs_progress flecs-world delta-seconds))
-    (let [frame-info (flecs/ecs_get_world_info flecs-world)]
-      (physics/step! (az/field (az/deref frame-info) delta_time)))
-    (let [position (-> flecs-world
-                       (flecs/ecs_get_mut_id circle_entity position_component)
-                       (az/cast [:* Position]))
-          circle (-> flecs-world
-                     (flecs/ecs_get_mut_id circle_entity circle_component)
-                     (az/cast [:* Circle]))
-          counter (-> flecs-world
-                      (flecs/ecs_get_mut_id circle_entity counter_component)
-                      (az/cast [:* Counter]))]
-      (RenderPacket
-       {:center_x (az/field (az/deref position) x)
-        :center_y (az/field (az/deref position) y)
-        :radius (az/field (az/deref circle) radius)
-        :phase (az/field (az/deref circle) phase)
-        :counter (az/field (az/deref counter) value)
-        :shader_index (az/field (az/deref counter) shader_index)
-        :hovered (az/field (az/deref circle) hovered)}))))
+  (lock-state!)
+  (let [^{:var true}
+        work-clock (flecs/ecs_time_t {:sec 0 :nanosec 0})]
+    (set! _ (flecs/ecs_time_measure (ak/& work-clock)))
+    (set! current_input
+          (az/object [[:pointer_x pointer-x]
+                      [:pointer_y pointer-y]
+                      [:viewport_width viewport-width]
+                      [:viewport_height viewport-height]
+                      [:delta_seconds delta-seconds]
+                      [:pointer_down pointer-down]
+                      [:pointer_pressed pointer-pressed]]))
+    (let [flecs-world (az/unwrap world)
+          before-info (flecs/ecs_get_world_info flecs-world)
+          before-frame-time (az/field (az/deref before-info) frame_time_total)]
+      (run-requested-clicks! flecs-world)
+      (when (ak/== (az/field (ak/import "builtin") mode) :.Debug)
+        (refresh-system-callback! flecs-world))
+      (let [pre-work (flecs/ecs_time_measure (ak/& work-clock))]
+        (set! _ (flecs/ecs_progress flecs-world delta-seconds))
+        (let [frame-info (flecs/ecs_get_world_info flecs-world)
+              frame-work
+              (ak/max
+               0.0
+               (ak/as :f64
+                      (ak/floatCast
+                       (- (az/field (az/deref frame-info) frame_time_total)
+                          before-frame-time))))]
+          ;; Reset the local clock after ecs_progress; Flecs' cumulative frame
+          ;; measurement above excludes its target-FPS sleep.
+          (set! _ (flecs/ecs_time_measure (ak/& work-clock)))
+          (physics/step! (az/field (az/deref frame-info) delta_time))
+          (animation/tick! (az/field (az/deref frame-info) delta_time))
+          (let [position (-> flecs-world
+                             (flecs/ecs_get_mut_id circle_entity position_component)
+                             (az/cast [:* Position]))
+                circle (-> flecs-world
+                           (flecs/ecs_get_mut_id circle_entity circle_component)
+                           (az/cast [:* Circle]))
+                counter (-> flecs-world
+                            (flecs/ecs_get_mut_id circle_entity counter_component)
+                            (az/cast [:* Counter]))
+                result (RenderPacket
+                        {:center_x (az/field (az/deref position) x)
+                         :center_y (az/field (az/deref position) y)
+                         :radius (az/field (az/deref circle) radius)
+                         :phase (az/field (az/deref circle) phase)
+                         :counter (az/field (az/deref counter) value)
+                         :shader_index (az/field (az/deref counter) shader_index)
+                         :hovered (az/field (az/deref circle) hovered)})
+                post-work (flecs/ecs_time_measure (ak/& work-clock))]
+            (set! last-frame-work-seconds-value
+                  (+ (+ pre-work frame-work) post-work))
+            (unlock-state!)
+            (set! _ (ak/atomicRmw :u32 (ak/& frame-count) :.Add 1 :.release))
+            result))))))
 
 (az/defn tick-auto
   "Run one platform-timed Flecs frame; Flecs measures the authoritative delta."
@@ -329,43 +417,59 @@
         0.0 pointer-down pointer-pressed))
 
 (az/defn click!
-  "Apply one click to the live Flecs entity from nREPL and return its counter."
+  "Apply the shared click transition on the engine thread and return its counter."
   :- :u32
   []
   (set! _ (initialize!))
-  (let [flecs-world (az/unwrap world)
-        counter (-> flecs-world
-                    (flecs/ecs_get_mut_id circle_entity counter_component)
-                    (az/cast [:* Counter]))]
-    (advance-counter! counter)))
+  (if (ak/== (ak/atomicLoad :u32 (ak/& frame-count) :.acquire) 0)
+    (do
+      (lock-state!)
+      (let [flecs-world (az/unwrap world)
+            counter (-> flecs-world
+                        (flecs/ecs_get_mut_id circle_entity counter_component)
+                        (az/cast [:* Counter]))
+            result (advance-counter! counter)]
+        (unlock-state!)
+        result))
+    (let [request (+ (ak/atomicRmw :u32 (ak/& requested-clicks)
+                                   :.Add 1 :.acq_rel)
+                     1)]
+      (ak/while
+       (< (ak/atomicLoad :u32 (ak/& completed-clicks) :.acquire) request)
+       (std-atomic/spinLoopHint))
+      (ak/atomicLoad :u32 (ak/& last-requested-click-counter) :.acquire))))
 
 (az/defn snapshot
   "Inspect authoritative live native state without advancing the game."
   :- WorldSnapshot
   []
-  (if (ak/== world null)
-    (WorldSnapshot {:initialized false
-                    :entity 0
-                    :system 0
-                    :counter 0
-                    :shader_index 0
-                    :phase 0.0
-                    :hovered false})
-    (let [flecs-world (az/unwrap world)
-          circle (-> flecs-world
-                     (flecs/ecs_get_mut_id circle_entity circle_component)
-                     (az/cast [:* Circle]))
-          counter (-> flecs-world
-                      (flecs/ecs_get_mut_id circle_entity counter_component)
-                      (az/cast [:* Counter]))]
-      (WorldSnapshot
-       {:initialized true
-        :entity circle_entity
-        :system update_system
-        :counter (az/field (az/deref counter) value)
-        :shader_index (az/field (az/deref counter) shader_index)
-        :phase (az/field (az/deref circle) phase)
-        :hovered (az/field (az/deref circle) hovered)}))))
+  (lock-state!)
+  (let [result
+        (if (ak/== world null)
+          (WorldSnapshot {:initialized false
+                          :entity 0
+                          :system 0
+                          :counter 0
+                          :shader_index 0
+                          :phase 0.0
+                          :hovered false})
+          (let [flecs-world (az/unwrap world)
+                circle (-> flecs-world
+                           (flecs/ecs_get_mut_id circle_entity circle_component)
+                           (az/cast [:* Circle]))
+                counter (-> flecs-world
+                            (flecs/ecs_get_mut_id circle_entity counter_component)
+                            (az/cast [:* Counter]))]
+            (WorldSnapshot
+             {:initialized true
+              :entity circle_entity
+              :system update_system
+              :counter (az/field (az/deref counter) value)
+              :shader_index (az/field (az/deref counter) shader_index)
+              :phase (az/field (az/deref circle) phase)
+              :hovered (az/field (az/deref circle) hovered)})))]
+    (unlock-state!)
+    result))
 
 (az/defn shutdown
   "Destroy the live Flecs world. The normal hot-reload workflow does not call this."
@@ -379,5 +483,11 @@
     (set! circle_entity 0)
     (set! update_system 0)
     (set! installed_callback 0))
+  (ak/atomicStore :u32 (ak/& frame-count) 0 :.release)
+  (ak/atomicStore :u32 (ak/& requested-clicks) 0 :.release)
+  (ak/atomicStore :u32 (ak/& completed-clicks) 0 :.release)
+  (ak/atomicStore :u32 (ak/& last-requested-click-counter) 0 :.release)
+  (set! last-frame-work-seconds-value 0.0)
+  (animation/shutdown!)
   (physics/shutdown!)
   (audio/shutdown!))

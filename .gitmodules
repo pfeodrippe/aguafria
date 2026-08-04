@@ -21,3 +21,19 @@
 	path = examples/simple-game/vendor/vulkan-headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
 	branch = main
+[submodule "examples/simple-game/vendor/fonts/source-sans"]
+	path = examples/simple-game/vendor/fonts/source-sans
+	url = https://github.com/adobe-fonts/source-sans.git
+	branch = release
+[submodule "examples/simple-game/vendor/fonts/source-serif"]
+	path = examples/simple-game/vendor/fonts/source-serif
+	url = https://github.com/adobe-fonts/source-serif.git
+	branch = release
+[submodule "examples/simple-game/vendor/fonts/source-code-pro"]
+	path = examples/simple-game/vendor/fonts/source-code-pro
+	url = https://github.com/adobe-fonts/source-code-pro.git
+	branch = release
+[submodule "examples/ghostty/vendor/ghostty"]
+	path = examples/ghostty/vendor/ghostty
+	url = https://github.com/ghostty-org/ghostty.git
+	branch = main

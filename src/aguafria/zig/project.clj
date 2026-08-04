@@ -12,6 +12,7 @@
 (def ^:private resource-name "aguafria-project.edn")
 (defonce ^:private catalogs (atom {}))
 (defonce ^:private loaded-resources (atom #{}))
+(defonce ^:private resource-scan-complete? (atom false))
 (defonce ^:private loaded-source-catalogs (atom #{}))
 (defonce ^:private source-declaration-counts (atom {}))
 (defonce ^:private resource-lock (Object.))
@@ -67,12 +68,19 @@
 (defn ensure-resource-catalogs!
   "Discover every `aguafria-project.edn` resource currently on the classpath."
   []
-  (locking resource-lock
-    (doseq [^URL resource (resource-urls)
-            :let [id (str resource)]
-            :when (not (contains? @loaded-resources id))]
-      (load-catalog! resource)
-      (swap! loaded-resources conj id)))
+  (when-not @resource-scan-complete?
+    (locking resource-lock
+      (when-not @resource-scan-complete?
+        ;; One enumeration sees every catalog on the process classpath. Trees
+        ;; added later through converter/load-tree! or editor load-file use the
+        ;; explicit catalog loaders below, so rescanning for every declaration
+        ;; only burns time in large generated projects.
+        (doseq [^URL resource (resource-urls)
+                :let [id (str resource)]
+                :when (not (contains? @loaded-resources id))]
+          (load-catalog! resource)
+          (swap! loaded-resources conj id))
+        (reset! resource-scan-complete? true))))
   nil)
 
 (defn ensure-source-catalog!

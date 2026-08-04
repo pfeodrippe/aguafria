@@ -21,6 +21,8 @@
 
 (def ^:private project-catalog-name "aguafria-project.edn")
 
+(def ^:private rendered-binding-cache-version 1)
+
 (defn- canonical-file
   [path description]
   (let [file (.getCanonicalFile (io/file path))]
@@ -263,23 +265,81 @@
                (= output (.getCanonicalFile (io/file root relative))))
       root)))
 
+(defn- project-catalog-file
+  [^File output namespace]
+  (when-let [root (namespace-output-root output namespace)]
+    (io/file root project-catalog-name)))
+
+(defn- project-catalog-has-module?
+  [^File catalog-file namespace]
+  (and catalog-file
+       (.isFile catalog-file)
+       (str/includes? (slurp catalog-file) (pr-str (str namespace)))))
+
 (defn- write-project-catalog!
   [^File output namespace catalog-module]
-  (when-let [root (namespace-output-root output namespace)]
-    (let [catalog-file (io/file root project-catalog-name)
-          existing
+  (when-let [catalog-file (project-catalog-file output namespace)]
+    (let [existing
           (if (.isFile catalog-file)
             (edn/read-string (slurp catalog-file))
             {:schema-version 1 :modules {}})
           catalog (assoc-in existing [:modules (str namespace)] catalog-module)
           source (with-out-str (pprint/pprint catalog))]
+      (when-not (= source (when (.isFile catalog-file) (slurp catalog-file)))
+        (Files/writeString
+         (.toPath catalog-file) source StandardCharsets/UTF_8
+         (into-array StandardOpenOption
+                     [StandardOpenOption/CREATE
+                      StandardOpenOption/TRUNCATE_EXISTING
+                      StandardOpenOption/WRITE])))
+      (.getAbsolutePath catalog-file))))
+
+(defn- read-rendered-binding-cache
+  [^File cache-file cache-key]
+  (when (.isFile cache-file)
+    (try
+      (let [value (edn/read-string (slurp cache-file))]
+        (when (and (= rendered-binding-cache-version
+                      (:cache-version value))
+                   (= cache-key (:cache-key value))
+                   (string? (:clojure-source value))
+                   (map? (:conversion value)))
+          value))
+      (catch Throwable _ nil))))
+
+(defn- write-rendered-binding-cache!
+  [^File cache-file cache-key clojure-source conversion]
+  (io/make-parents cache-file)
+  (Files/writeString
+   (.toPath cache-file)
+   (pr-str {:cache-version rendered-binding-cache-version
+            :cache-key cache-key
+            :clojure-source clojure-source
+            :conversion (dissoc conversion :elapsed-ms :written?
+                                :output-path :conversion-cache-hit?)})
+   StandardCharsets/UTF_8
+   (into-array StandardOpenOption
+               [StandardOpenOption/CREATE
+                StandardOpenOption/TRUNCATE_EXISTING
+                StandardOpenOption/WRITE])))
+
+(defn- write-rendered-binding-output!
+  [^File output clojure-source overwrite? ^File header]
+  (let [existing (when (.isFile output) (slurp output))]
+    (when (and existing (not= existing clojure-source) (not overwrite?))
+      (throw (ex-info "Refusing to overwrite an existing converted namespace"
+                      {:input (.getAbsolutePath header)
+                       :output (.getAbsolutePath output)
+                       :hint "Pass :overwrite? true to replace it."})))
+    (io/make-parents output)
+    (when-not (= existing clojure-source)
       (Files/writeString
-       (.toPath catalog-file) source StandardCharsets/UTF_8
+       (.toPath output) clojure-source StandardCharsets/UTF_8
        (into-array StandardOpenOption
                    [StandardOpenOption/CREATE
                     StandardOpenOption/TRUNCATE_EXISTING
-                    StandardOpenOption/WRITE]))
-      (.getAbsolutePath catalog-file))))
+                    StandardOpenOption/WRITE])))
+    (not= existing clojure-source)))
 
 (defn translate-header!
   "Translate a C `header` into a well-formatted Aguafria namespace at `output`.
@@ -314,6 +374,7 @@
          generation-dir (io/file cache-dir cache-key)
          translated-file (io/file generation-dir "translated.zig")
          partial-file (io/file generation-dir "translated.partial.zig")
+         rendered-cache-file (io/file generation-dir "rendered.edn")
          cache-hit? (.isFile translated-file)
          command (vec
                   (concat [zig "translate-c" "--color" "off"]
@@ -337,18 +398,40 @@
                          (into-array StandardCopyOption
                                      [StandardCopyOption/REPLACE_EXISTING])))
          normalization (normalize-translated-c! translated-file)
+         rendered-cache (when cache-hit?
+                          (read-rendered-binding-cache rendered-cache-file
+                                                       cache-key))
          conversion
-         (convert/convert-file!
-          translated-file output
-          {:namespace (:namespace options)
-           :source-display-path (.getAbsolutePath header)
-           :declaration-docs declaration-docs
-           :zig zig
-           :cache-dir (.getAbsolutePath (io/file cache-dir "zig-conversion"))
-           :overwrite? (boolean (:overwrite? options))})
+         (if rendered-cache
+           (let [written?
+                 (write-rendered-binding-output!
+                  output (:clojure-source rendered-cache)
+                  (boolean (:overwrite? options)) header)]
+             (assoc (:conversion rendered-cache)
+                    :output-path (.getAbsolutePath output)
+                    :written? written?
+                    :conversion-cache-hit? true))
+           (let [conversion
+                 (convert/convert-file!
+                  translated-file output
+                  {:namespace (:namespace options)
+                   :source-display-path (.getAbsolutePath header)
+                   :declaration-docs declaration-docs
+                   :zig zig
+                   :cache-dir (.getAbsolutePath (io/file cache-dir
+                                                          "zig-conversion"))
+                   :overwrite? (boolean (:overwrite? options))})]
+             (write-rendered-binding-cache!
+              rendered-cache-file cache-key (slurp output) conversion)
+             (assoc conversion :conversion-cache-hit? false)))
+         catalog-file (project-catalog-file output (:namespace options))
          catalog-path
-         (write-project-catalog! output (:namespace options)
-                                 (:catalog-module conversion))
+         (if (and (:conversion-cache-hit? conversion)
+                  (project-catalog-has-module? catalog-file
+                                               (:namespace options)))
+           (.getAbsolutePath catalog-file)
+           (write-project-catalog! output (:namespace options)
+                                   (:catalog-module conversion)))
          report
          (merge
           {:header (.getAbsolutePath header)
@@ -368,7 +451,7 @@
           (select-keys conversion
                        [:written? :declaration-count
                         :structural-declaration-count :fallback-count
-                        :unresolved-syntax-count]))]
+                        :unresolved-syntax-count :conversion-cache-hit?]))]
      (swap! generation-history
             (fn [history]
               (->> (conj history (assoc report :finished-at-ms

@@ -12,6 +12,21 @@
   :miniaudio {:repository "https://github.com/mackron/miniaudio.git"
               :branch "master"
               :commit "9634bedb5b5a2ca38c1ee7108a9358a4e233f14d"}
+  :source-code-pro
+  {:repository "https://github.com/adobe-fonts/source-code-pro.git"
+   :branch "release"
+   :path "fonts/source-code-pro"
+   :commit "803b7e23ec97ae58b6232ea76519a76d428ba268"}
+  :source-sans
+  {:repository "https://github.com/adobe-fonts/source-sans.git"
+   :branch "release"
+   :path "fonts/source-sans"
+   :commit "87b37a2daaed80fcb8e8ccb0085c4d72ddade12e"}
+  :source-serif
+  {:repository "https://github.com/adobe-fonts/source-serif.git"
+   :branch "release"
+   :path "fonts/source-serif"
+   :commit "5f220b17d27ed64873f22cde0dd593685387bd19"}
   :vulkan-headers
   {:repository "https://github.com/KhronosGroup/Vulkan-Headers.git"
    :branch "main"

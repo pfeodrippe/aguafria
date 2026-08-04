@@ -6,7 +6,8 @@
 
 (defn binding-specs
   []
-  (let [root (:root (build/paths))]
+  (let [root (:root (build/paths))
+        emscripten-include (io/file (build/emscripten-sysroot) "include")]
     [{:name :flecs
       :header (io/file root "vendor/flecs/distr/flecs.h")
       :output (io/file root "generated/simple_game/bindings/flecs.clj")
@@ -22,6 +23,17 @@
       :output (io/file root "generated/simple_game/bindings/miniaudio.clj")
       :namespace 'simple-game.bindings.miniaudio
       :include-dirs [(io/file root "vendor/miniaudio")]}
+     {:name :stb-truetype
+      :header (io/file root "vendor/box3d/samples/stb_truetype.h")
+      :output (io/file root "generated/simple_game/bindings/stb_truetype.clj")
+      :namespace 'simple-game.bindings.stb-truetype
+      :include-dirs [(io/file root "vendor/box3d/samples")]}
+     {:name :stdio
+      :header (io/file emscripten-include "stdio.h")
+      :output (io/file root "generated/simple_game/bindings/stdio.clj")
+      :namespace 'simple-game.bindings.stdio
+      :include-dirs [emscripten-include]
+      :target "wasm32-emscripten"}
      {:name :vulkan
       :header (io/file root "vendor/vulkan-headers/include/vulkan/vulkan.h")
       :output (io/file root "generated/simple_game/bindings/vulkan.clj")
@@ -40,8 +52,11 @@
   (let [root (:root (build/paths))
         sysroot (build/emscripten-sysroot)
         include (io/file sysroot "include")
-        glfw (some #(when (= :glfw (:name %)) %) (binding-specs))]
-    [glfw
+        base-specs (binding-specs)
+        glfw (some #(when (= :glfw (:name %)) %) base-specs)
+        stb (some #(when (= :stb-truetype (:name %)) %) base-specs)
+        stdio (some #(when (= :stdio (:name %)) %) base-specs)]
+    [glfw stb stdio
      {:name :webgl
       :header (io/file include "GLES3/gl3.h")
       :output (io/file root "generated/simple_game/bindings/webgl.clj")
@@ -89,7 +104,8 @@
 (defn summary
   [reports]
   (mapv #(select-keys % [:binding :namespace :declaration-count
-                          :fallback-count :cache-hit? :elapsed-ms])
+                          :fallback-count :cache-hit?
+                          :conversion-cache-hit? :written? :elapsed-ms])
         reports))
 
 (defn -main
