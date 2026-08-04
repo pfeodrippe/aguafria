@@ -3,7 +3,7 @@
 
   Require this namespace as `az`. Declaration macros capture their bodies;
   the bodies are emitted as Zig and are never evaluated as Clojure."
-  (:refer-clojure :exclude [defn defstruct])
+  (:refer-clojure :exclude [cast defn defstruct])
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
@@ -317,8 +317,11 @@
       (assoc :state-accessor (:accessor (runtime/state-reference declaration)))
       (or (= :struct kind)
           (and (= :const kind)
-               (seq? value)
-               (= 'container (first value))))
+               (or (and (seq? value)
+                        (= 'container (first value)))
+                   (and (symbol? value)
+                        (-> value meta :aguafria/zig-reference
+                            :type-reference?)))))
       (assoc :type-reference? true))))
 
 (defn- descriptor-expression
@@ -700,6 +703,44 @@
        (runtime/refresh-declaration-var! descriptor#)
        (var ~name)))))
 
+(defmacro defexternvar
+  "Declare an external Zig/C global variable without claiming ownership of
+  its storage. The resulting Var is an inspectable Zig reference; standalone
+  and development links resolve the symbol from the configured native input.
+
+      (az/defexternvar errno :- :c_int)"
+  [name & declaration]
+  (let [[docstring attributes declaration]
+        (leading-doc-and-attributes declaration)
+        [marker type] declaration]
+    (when-not (and (= marker ':-) type (= 2 (count declaration)))
+      (throw (ex-info "az/defexternvar expects: name :- type"
+                      {:form &form :name name})))
+    (let [descriptor (emitter/prepare-declaration
+                      *ns*
+                      (merge {:kind :extern-var
+                              :name name
+                              :declaration-key [:extern-var name]
+                              :module (str *ns*)
+                              :doc docstring
+                              :type type
+                              :clojure-form &form
+                              :source (source-location &form)}
+                             (declaration-options name attributes)))
+          descriptor-form (descriptor-expression descriptor)]
+      `(let [descriptor# ~descriptor-form]
+         (runtime/register-declaration! descriptor#)
+         (def ~(with-meta name (assoc (meta name) :doc
+                                      (or docstring
+                                          "An external Zig/C global variable.")))
+           {:aguafria/declaration descriptor#})
+         (alter-meta! (var ~name) merge
+                      {:aguafria/declaration descriptor#
+                       :aguafria/zig-reference
+                       '~(declaration-reference descriptor)})
+         (runtime/refresh-declaration-var! descriptor#)
+         (var ~name)))))
+
 (defmacro deftest
   "Define a Zig `test` declaration. The name may be a string, symbol, or nil.
   A leading attr-map supports the same compact `:attrs` set as declarations."
@@ -733,6 +774,23 @@
     (throw (ex-info (str "`az/" operator "` is Aguafria Zig syntax and can only "
                          "be used inside an Aguafria declaration")
                     {:operator operator :arguments arguments}))))
+
+(defmacro cast
+  "Cast an optional opaque/C pointer to `output-type`, checking alignment.
+
+  Inside an Aguafria declaration:
+
+      (-> optional-pointer
+          (az/cast [:* Widget]))
+
+  rewrites to existing Aguafria forms for Zig's optional unwrap, `@alignCast`,
+  `@ptrCast`, and `@as`. It creates no runtime wrapper or new emitter syntax."
+  [value output-type]
+  (list 'aguafria.keyword/as
+        (list 'type output-type)
+        (list 'aguafria.keyword/ptrCast
+              (list 'aguafria.keyword/alignCast
+                    (list 'unwrap value)))))
 
 ;; Structural forms are real, documented Vars so generated Clojure never
 ;; relies on an unresolved list head. Clojure-native forms (`if`, `do`, `for`,

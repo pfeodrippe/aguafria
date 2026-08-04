@@ -1313,6 +1313,80 @@
           (az/configure! old-config)
           (remove-ns test-symbol))))))
 
+(deftest unchanged-and-incremental-registration-test
+  (testing "identical declarations skip Zig and body edits publish a live slice"
+    (let [old-config (az/configuration)
+          module (str "aguafria.incremental-fixture-" fixture-suffix)
+          qualified-name (symbol module "calculate")
+          declaration
+          (fn [doc amount]
+            (runtime/declaration-info
+             {:kind :fn
+              :name 'calculate
+              :qualified-name qualified-name
+              :declaration-key [:fn 'calculate]
+              :module module
+              :args [{:name 'x :type :i32 :properties {}}]
+              :return :i32
+              :body [(list '+ 'x amount)]
+              :doc doc
+              :export? true
+              :public? true
+              :implicit-return? true
+              :source {:file "test/aguafria/zig_integration_test.clj"
+                       :line (:line (meta #'unchanged-and-incremental-registration-test))
+                       :column 1}}))]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (runtime/register-declaration! (declaration "v1" 1))
+        (is (= 8 (runtime/invoke! qualified-name [7])))
+        (let [before (:published-generation (az/stats module))
+              unchanged
+              (runtime/register-declaration! (declaration "updated docs" 1))]
+          (is (:unchanged? unchanged))
+          (is (= before (:published-generation (az/stats module)))))
+
+        (runtime/register-declaration! (declaration "v2" 5))
+        (is (= 12 (runtime/invoke! qualified-name [7])))
+        (is (:partial-publication? (az/stats module)))
+        (finally
+          (az/configure! old-config))))))
+
+(deftest partial-publication-retains-complete-dependency-source-test
+  (testing "a downstream edit sees every declaration after an unrelated live slice"
+    (let [old-config (az/configuration)
+          provider-symbol (symbol (str "aguafria.partial-provider-" fixture-suffix))
+          caller-symbol (symbol (str "aguafria.partial-caller-" fixture-suffix))
+          provider-ns (create-ns provider-symbol)
+          caller-ns (create-ns caller-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (doseq [target [provider-ns caller-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* provider-ns]
+          (eval '(az/defstruct Point [[:x :u32]]))
+          (eval '(az/defn ^{:export false :public true} read-point
+                   :- :u32 [point :- Point]
+                   (az/field point x)))
+          ;; This newest slice deliberately has no reference to Point or
+          ;; read-point. Dependency materialization must still use the complete
+          ;; provider source rather than this implementation slice.
+          (eval '(az/defn ^{:export false :public true} unrelated
+                   :- :u32 [] 7)))
+        (is (:partial-publication? (az/stats provider-symbol)))
+        (binding [*ns* caller-ns]
+          (alias 'provider provider-symbol)
+          (eval '(az/defn ^{:export false :public true} use-point
+                   :- :u32 [point :- provider/Point]
+                   (provider/read-point point))))
+        (is (= :finished (:status (az/stats caller-symbol))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns caller-symbol)
+          (remove-ns provider-symbol))))))
+
 (deftest hot-reload-test
   (testing "a compatible callee edit repoints an already-compiled Zig caller"
     (try
@@ -2866,6 +2940,56 @@
                          :native-build-ms :count])))
       (is (nat-int? (get-in module-stats
                             [:timings :cache :hit-count]))))))
+
+(deftest source-only-transitive-standalone-build-test
+  (testing "a build collects declarations without dev dylibs and links the full static graph"
+    (let [old-config (az/configuration)
+          suffix fixture-suffix
+          leaf-symbol (symbol (str "aguafria.static-leaf-" suffix))
+          middle-symbol (symbol (str "aguafria.static-middle-" suffix))
+          root-symbol (symbol (str "aguafria.static-root-" suffix))
+          leaf-ns (create-ns leaf-symbol)
+          middle-ns (create-ns middle-symbol)
+          root-ns (create-ns root-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (doseq [target [leaf-ns middle-ns root-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [runtime/*source-only-registration?* true]
+          (binding [*ns* leaf-ns]
+            (eval '(az/defn answer :- :u32 [] 42)))
+          (binding [*ns* middle-ns]
+            (alias 'leaf leaf-symbol)
+            (eval '(az/defn forwarded :- :u32 [] (leaf/answer))))
+          (binding [*ns* root-ns]
+            (alias 'middle middle-symbol)
+            (eval '(az/defn main {:attrs #{:public}} :- :void []
+                     (set! _ (middle/forwarded))))))
+        (is (every? :source-only?
+                    (map #(runtime/module-info %)
+                         [leaf-symbol middle-symbol root-symbol])))
+        (is (empty?
+             (mapcat #(get-in (az/stats %) [:native-generations])
+                     [leaf-symbol middle-symbol root-symbol])))
+        (let [artifact (az/build! root-symbol
+                                  {:kind :exe
+                                   :name (str "aguafria-static-" suffix)
+                                   :optimize "ReleaseFast"})
+              execution (shell/sh (:output-path artifact))]
+          (is (zero? (:exit execution)))
+          (is (some #(str/starts-with? % (str "-M" middle-symbol "="))
+                    (:command artifact)))
+          (is (some #(str/starts-with? % (str "-M" leaf-symbol "="))
+                    (:command artifact)))
+          (is (not (str/includes? (slurp (:source-path artifact))
+                                  "__aguafria_"))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns root-symbol)
+          (remove-ns middle-symbol)
+          (remove-ns leaf-symbol))))))
 
 (deftest scalar-boundary-test
   (binding [*ns* (the-ns 'aguafria.zig-integration-test)]

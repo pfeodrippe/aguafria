@@ -59,6 +59,14 @@
 
 (def ^:dynamic *converted-dependency-loading* #{})
 
+(def ^:dynamic *force-recompile?* false)
+
+(def ^:dynamic *source-only-registration?*
+  "When true, declaration macros update complete module source without asking
+  Zig for a development library. Standalone build tooling binds this while it
+  loads a project, then performs one final program build."
+  false)
+
 (def ^:dynamic *propagate-dependent-changes?*
   "Internal publication policy. Ordinary declaration edits propagate; a
   development-only JVM-call trampoline does not change Zig behavior and must
@@ -148,6 +156,7 @@
          :zig-args []
          :modules {}
          :build-history-limit 100
+         :compile-debounce-ms 75
          :converted-compile-debounce-ms 25
          :reloadable? true
          :async? (env-true? (or (System/getProperty "aguafria.async-compile")
@@ -208,6 +217,10 @@
   (when-let [debounce-ms (:converted-compile-debounce-ms options)]
     (when-not (and (integer? debounce-ms) (not (neg? debounce-ms)))
       (throw (ex-info ":converted-compile-debounce-ms must be a non-negative integer"
+                      {:value debounce-ms}))))
+  (when-let [debounce-ms (:compile-debounce-ms options)]
+    (when-not (and (integer? debounce-ms) (not (neg? debounce-ms)))
+      (throw (ex-info ":compile-debounce-ms must be a non-negative integer"
                       {:value debounce-ms}))))
   (swap! config merge options))
 
@@ -984,12 +997,28 @@
                                       StandardOpenOption/WRITE])))
     (.getAbsolutePath source-file)))
 
+(defn- ensure-static-module-source!
+  [module]
+  (let [module (str module)]
+    (locking compile-lock
+      (let [module-state (get @registry module)]
+        (when (and module-state
+                   (or (:source-dirty? module-state)
+                       (not (string? (:source module-state)))))
+          (let [declarations (vec (vals (:definitions module-state)))
+                source (emit-source! module declarations)]
+            (swap! registry update module assoc
+                   :declarations declarations
+                   :source source
+                   :source-dirty? false)))
+        (get @registry module)))))
+
 (defn- materialize-registered-module-source!
   [module development-dependencies?]
-  (let [{:keys [source reload-source] :as module-state}
-        (get @registry (str module))
+  (let [{:keys [source reload-source dependency-source] :as module-state}
+        (ensure-static-module-source! module)
         source (if development-dependencies?
-                 (or reload-source source)
+                 (or dependency-source reload-source source)
                  source)]
     (when-not module-state
       (throw
@@ -1046,11 +1075,13 @@
         (if (contains? seen module)
           (recur (next pending) seen snapshot)
           (let [module-state (get module-states module)
-                source (or (:reload-source module-state)
+                source (or (:dependency-source module-state)
+                           (:reload-source module-state)
                            (:source module-state))
                 dependencies
                 (direct-dependencies (vals (:definitions module-state)))
-                specs (or (:reload-source-dispatch-specs module-state)
+                specs (or (:dependency-dispatch-specs module-state)
+                          (:reload-source-dispatch-specs module-state)
                           (:dispatch-specs module-state))
                 entries
                 (->> specs
@@ -1093,6 +1124,45 @@
                    snapshot)))
         snapshot)))))
 
+(defn- static-dependency-snapshot
+  "Capture the complete ordinary Zig module graph for a standalone build.
+  Unlike development dependencies, these sources contain no dispatch cells or
+  JVM-call wrappers, so optimizer-visible calls remain normal Zig calls."
+  [declarations]
+  (let [root-module (some-> declarations first :module str)
+        direct-dependencies
+        (fn [module-declarations]
+          (->> (emit/declaration-imports module-declarations)
+               vals
+               (keep :namespace)
+               (map str)
+               distinct
+               sort
+               vec))]
+    (loop [pending (direct-dependencies declarations)
+           seen (cond-> #{} root-module (conj root-module))
+           snapshot (sorted-map)]
+      (if-let [module (first pending)]
+        (if (contains? seen module)
+          (recur (next pending) seen snapshot)
+          (let [module-state (ensure-static-module-source! module)
+                module-declarations (vec (vals (:definitions module-state)))
+                dependencies (direct-dependencies module-declarations)]
+            (recur
+             (concat (next pending) dependencies)
+             (conj seen module)
+             (cond-> snapshot
+               (string? (:source module-state))
+               (assoc module
+                      {:module module
+                       :source (:source module-state)
+                       :dependencies dependencies
+                       :named-module-imports
+                       (declaration-named-module-imports module-declarations)
+                       :dispatch-entries []
+                       :state-entries []})))))
+        snapshot))))
+
 (defn- project-generated-module-sources
   [modules overridden-names]
   (reduce
@@ -1134,11 +1204,15 @@
   [compiler-options declarations]
   (let [development-dependencies?
         (boolean (:development-dependencies? compiler-options))
+        transitive-dependencies?
+        (or development-dependencies?
+            (boolean (:transitive-dependencies? compiler-options)))
         dependency-snapshot (:dependency-snapshot compiler-options)
         development-root-source (:development-root-source compiler-options)
         development-root-module (some-> declarations first :module str)
         development-profile-module (development-profile-module declarations)
         compiler-options (dissoc compiler-options :development-dependencies?
+                                 :transitive-dependencies?
                                  :dependency-snapshot
                                  :development-root-source)
         root-dependencies
@@ -1152,7 +1226,7 @@
         root-named-module-imports
         (declaration-named-module-imports declarations)
         automatic
-        (if development-dependencies?
+        (if transitive-dependencies?
           (into {}
                 (map (fn [[module {:keys [source]}]]
                        [module (materialize-module-source! module source)]))
@@ -1165,13 +1239,14 @@
                             namespace false)])))
                 (emit/declaration-imports declarations)))
         automatic
-        (if development-dependencies?
+        (if transitive-dependencies?
           (reduce
            (fn [modules module]
              (if (contains? modules module)
                modules
                (assoc modules module
-                      (materialize-registered-module-source! module true))))
+                      (materialize-registered-module-source!
+                       module development-dependencies?))))
            automatic
            root-dependencies)
           automatic)
@@ -1229,9 +1304,13 @@
         external (select-keys external-candidates required-external-names)
         external-names (set (keys external))
         module-dependencies
-        (when development-dependencies?
-          (into {:root (->> (concat [development-root-module
-                                     development-profile-module])
+        (when transitive-dependencies?
+          (into {:root (->> (concat
+                             (when development-dependencies?
+                               [development-root-module
+                                development-profile-module])
+                             (when-not development-dependencies?
+                               root-dependencies))
                             distinct
                             (remove nil?)
                             (sort-by str)
@@ -2526,6 +2605,17 @@
   [{:keys [kind schema-fingerprint]}]
   (and schema-fingerprint (not= :var kind)))
 
+(defn- constructor-type-reference?
+  [kind value]
+  (or (= :struct kind)
+      (and (= :const kind)
+           (or (and (seq? value)
+                    (symbol? (first value))
+                    (= "container" (name (first value))))
+               (and (symbol? value)
+                    (-> value meta :aguafria/zig-reference
+                        :type-reference?))))))
+
 (defn- declaration-reference-view
   [{:keys [kind module name zig-name logical-id abi-fingerprint
            schema-fingerprint implementation-fingerprint value]
@@ -2545,11 +2635,7 @@
     ;; `:type-reference?` means the Var itself is usable with Zig's
     ;; `Type{...}` constructor syntax. A function returning `type` is invoked
     ;; normally and must not be rewritten to `function{...}`.
-    (or (= :struct kind)
-        (and (= :const kind)
-             (seq? value)
-             (symbol? (first value))
-             (= "container" (name (first value)))))
+    (constructor-type-reference? kind value)
     (assoc :type-reference? true)))
 
 (defn- publish-clojure-declaration-metadata!
@@ -2566,8 +2652,8 @@
     (alter-meta! v
                  (fn [metadata]
                    (cond-> (assoc metadata :aguafria/declaration declaration)
-                     (contains? #{:fn :fn-proto :const :var :struct :import
-                                  :raw :field}
+                     (contains? #{:fn :fn-proto :const :var :extern-var
+                                  :struct :import :raw :field}
                                 (:kind declaration))
                      (assoc :aguafria/zig-reference
                             (declaration-reference-view declaration)))))
@@ -2911,6 +2997,39 @@
                                         :source-order])]
       (assoc declaration :source-order order)
       (assoc declaration :source-order (next-source-order definitions)))))
+
+(defn- replacement-declaration-state
+  "Prepare one top-level replacement by Zig name, not only declaration kind.
+
+  A REPL edit may legitimately change `(az/defstruct Value ...)` into a type
+  alias `(az/defconst Value OtherValue)`. The old native generation remains
+  retained for active callers, while the new module snapshot must contain
+  exactly one `Value` declaration."
+  [definitions declaration]
+  (let [declaration-name (declaration-zig-name declaration)
+        exact (get definitions (:declaration-key declaration))
+        conflict
+        (some (fn [[key candidate]]
+                (when (and (not= key (:declaration-key declaration))
+                           (= declaration-name
+                              (declaration-zig-name candidate)))
+                  candidate))
+              definitions)
+        old-declaration (or exact conflict)
+        declaration
+        (if (or (some? (:source-order declaration))
+                (nil? (:source-order old-declaration)))
+          (stable-source-order definitions declaration)
+          (assoc declaration :source-order (:source-order old-declaration)))
+        definitions
+        (into {}
+              (remove (fn [[_ candidate]]
+                        (= declaration-name
+                           (declaration-zig-name candidate))))
+              definitions)]
+    {:old-declaration old-declaration
+     :declaration declaration
+     :definitions (assoc definitions (:declaration-key declaration) declaration)}))
 
 (defn- ordered-batch
   [declarations]
@@ -3913,6 +4032,31 @@
                    (:declaration-key declaration))))))
           declarations)))
 
+(defn- changed-dispatch-declarations
+  "Return only concrete function implementations absent from or different
+  from the published module. Unlike implementation-address getter emission,
+  this excludes unchanged exported wrappers."
+  [module-state declarations]
+  (let [published
+        (into {}
+              (comp
+               (filter dispatchable-declaration?)
+               (map (fn [declaration]
+                      [[(:logical-id declaration)
+                        (:abi-fingerprint declaration)]
+                       declaration])))
+              (:loaded-declarations module-state))]
+    (filterv
+     (fn [declaration]
+       (when (dispatchable-declaration? declaration)
+         (let [previous
+               (get published [(:logical-id declaration)
+                               (:abi-fingerprint declaration)])]
+           (or (nil? previous)
+               (not= (:implementation-fingerprint previous)
+                     (:implementation-fingerprint declaration))))))
+     declarations)))
+
 (defn- breaking-callable-change?
   [old-declaration declaration]
   (and old-declaration
@@ -3921,6 +4065,21 @@
        (dispatchable-declaration? declaration)
        (not= (:abi-fingerprint old-declaration)
              (:abi-fingerprint declaration))))
+
+(defn- incremental-dispatch-publication?
+  "A new or ABI-compatible concrete function can be published as a small
+  declaration slice. Existing callers already enter through its stable cell."
+  [module-state old-declaration declaration]
+  (and (:published-generation module-state)
+       (= :fn (:kind declaration))
+       (dispatchable-declaration? declaration)
+       (or (nil? old-declaration)
+           (and (= :fn (:kind old-declaration))
+                (dispatchable-declaration? old-declaration)
+                (= (:abi-fingerprint old-declaration)
+                   (:abi-fingerprint declaration))
+                (not= (:implementation-fingerprint old-declaration)
+                      (:implementation-fingerprint declaration))))))
 
 (defn- breaking-state-change?
   [old-declaration declaration]
@@ -4200,8 +4359,12 @@
                        :declarations declarations
                        :dependency-snapshot primary-dependencies
                        :partial-publication? false)
+        incremental-publication?
+        (incremental-dispatch-publication?
+         module-state old-declaration declaration)
         fallback
-        (when (or (breaking-callable-change? old-declaration declaration)
+        (when (or incremental-publication?
+                  (breaking-callable-change? old-declaration declaration)
                   (breaking-state-change? old-declaration declaration)
                   (breaking-type-change? old-declaration declaration))
           (let [refreshed-declaration
@@ -4211,7 +4374,22 @@
                           declarations)
                     declaration)
                 fallback-declarations
-                (declaration-live-slice declarations refreshed-declaration)
+                (->> (concat
+                      (filter #(= :import (:kind %)) declarations)
+                      (if incremental-publication?
+                        (mapcat #(declaration-live-slice declarations %)
+                                (changed-dispatch-declarations
+                                 module-state declarations))
+                        (declaration-live-slice
+                         declarations refreshed-declaration)))
+                     (reduce (fn [selected candidate]
+                               (assoc selected
+                                      (:declaration-key candidate)
+                                      candidate))
+                             {})
+                     vals
+                     (sort-by (juxt :source-order (comp str :name)))
+                     vec)
                 fallback-dependencies
                 (development-dependency-snapshot fallback-declarations)]
             (assoc (module-sources module fallback-declarations
@@ -4227,7 +4405,8 @@
      ;; namespace here would silently redirect untouched dependents to it.
      ;; Publish only the edited Var and its declaration dependencies; each
      ;; caller/state owner adopts the new schema when explicitly reevaluated.
-     :prefer-fallback? (breaking-type-change? old-declaration declaration)}))
+     :prefer-fallback? (or incremental-publication?
+                           (breaking-type-change? old-declaration declaration))}))
 
 (defn- complete-compilation-plan
   [module module-state declarations]
@@ -4341,9 +4520,14 @@
                              :scheduled nil
                              :source source
                              :reload-source reload-source
+                             :dependency-source
+                             (get-in plan [:primary :reload-source])
                              :dispatch-specs published-dispatch-specs
                              :reload-source-dispatch-specs
                              reload-source-dispatch-specs
+                             :dependency-dispatch-specs
+                             (get-in plan
+                                     [:primary :reload-source-dispatch-specs])
                              :definitions
                              (if partial-publication?
                                (merge (:definitions current)
@@ -4425,10 +4609,8 @@
         (locking compile-lock
           (let [old-module (get @registry module)
                 old-definitions (or (:definitions old-module) {})
-                old-declaration (get old-definitions declaration-key)
-                declaration (stable-source-order old-definitions declaration)
-                definitions (assoc old-definitions
-                                   declaration-key declaration)
+                {:keys [old-declaration declaration definitions]}
+                (replacement-declaration-state old-definitions declaration)
                 declarations (vec (vals definitions))
                 plan (compilation-plan module old-module declarations
                                        old-declaration declaration)
@@ -4463,8 +4645,11 @@
                            :definitions definitions
                            :source source
                            :reload-source reload-source
+                           :dependency-source reload-source
                            :dispatch-specs dispatch-specs
                            :reload-source-dispatch-specs
+                           reload-source-dispatch-specs
+                           :dependency-dispatch-specs
                            reload-source-dispatch-specs
                            :requested-generation generation
                            :pending completion
@@ -4492,7 +4677,9 @@
   ;; contains the old layout, so it must become an inspectable retained
   ;; generation before the new schema is queued.
   (let [{:keys [definitions pending]} (get @registry module)
-        old-declaration (get definitions declaration-key)
+        old-declaration
+        (:old-declaration
+         (replacement-declaration-state definitions declaration))
         hosted-type-change?
         (and (native-host-active?)
              (type-producing-change? old-declaration declaration))]
@@ -4535,9 +4722,8 @@
         (locking compile-lock
           (let [old-module (get @registry module)
                 old-definitions (or (:definitions old-module) {})
-                old-declaration (get old-definitions declaration-key)
-                declaration (stable-source-order old-definitions declaration)
-                definitions (assoc old-definitions declaration-key declaration)
+                {:keys [old-declaration declaration definitions]}
+                (replacement-declaration-state old-definitions declaration)
                 declarations (vec (vals definitions))
                 plan (compilation-plan module old-module declarations
                                        old-declaration declaration)
@@ -4630,7 +4816,9 @@
                      (mark-build-finished! module (:generation job) :stale {})
                      (deliver (:completion job)
                               {:status :success :stale? true})))))
-             (long (:converted-compile-debounce-ms @config))
+             (long (if (project/converted-module? module)
+                     (:converted-compile-debounce-ms @config)
+                     (:compile-debounce-ms @config)))
              TimeUnit/MILLISECONDS)]
         ;; A zero-delay job may already have finished. Never put its completed
         ;; scheduler handle back into a published module state.
@@ -4652,10 +4840,8 @@
   (locking compile-lock
     (let [old-module (get @registry module)
           old-definitions (or (:definitions old-module) {})
-          old-declaration (get old-definitions declaration-key)
-          declaration (stable-source-order old-definitions declaration)
-          definitions (assoc old-definitions
-                             declaration-key declaration)
+          {:keys [old-declaration declaration definitions]}
+          (replacement-declaration-state old-definitions declaration)
           declarations (vec (vals definitions))
           plan (compilation-plan module old-module declarations
                                  old-declaration declaration)
@@ -4711,9 +4897,14 @@
                       :requested-generation generation
                       :source source
                       :reload-source reload-source
+                      :dependency-source
+                      (get-in plan [:primary :reload-source])
                       :dispatch-specs published-dispatch-specs
                       :reload-source-dispatch-specs
                       reload-source-dispatch-specs
+                      :dependency-dispatch-specs
+                      (get-in plan
+                              [:primary :reload-source-dispatch-specs])
                       :functions functions
                       :partial-publication? partial-publication?
                       :full-compile-error (:full-compile-error compiled)
@@ -4849,8 +5040,11 @@
             :requested-generation generation
             :source (get-in job [:plan :primary :source])
             :reload-source reload-source
+            :dependency-source (get-in job [:plan :primary :reload-source])
             :dispatch-specs dispatch-specs
             :reload-source-dispatch-specs reload-source-dispatch-specs
+            :dependency-dispatch-specs
+            (get-in job [:plan :primary :reload-source-dispatch-specs])
             :functions functions
             :partial-publication? partial-publication?
             :full-compile-error (:full-compile-error compiled)
@@ -5260,6 +5454,66 @@
 
 (declare recompile!)
 
+(defn- native-declaration-source
+  [declaration]
+  (emit/emit-declaration
+   (assoc declaration
+          :doc nil
+          :comments nil
+          :leading-source nil
+          :source nil
+          :emit-source-comment? false)))
+
+(defn- native-declaration-equivalent?
+  [old-declaration declaration]
+  (and old-declaration
+       (= (:logical-id old-declaration) (:logical-id declaration))
+       (try
+         (= (native-declaration-source old-declaration)
+            (native-declaration-source declaration))
+         (catch Throwable _
+           false))))
+
+(defn- register-unchanged-declaration!
+  [module declaration-key declaration]
+  (locking compile-lock
+    (let [current (get @registry module)
+          declaration (stable-source-order (:definitions current) declaration)]
+      (swap! registry assoc-in [module :definitions declaration-key] declaration)
+      (publish-clojure-declaration-metadata! [declaration])
+      {:module module
+       :declaration-key declaration-key
+       :generation (or (:requested-generation current) (:generation current))
+       :async? (:async? @config)
+       :pending? (boolean (:pending current))
+       :unchanged? true
+       :compiled? false})))
+
+(defn- register-source-only-declaration!
+  [module declaration-key declaration]
+  (locking compile-lock
+    (let [current (get @registry module)
+          definitions (or (:definitions current) {})
+          declaration (stable-source-order definitions declaration)
+          definitions (assoc definitions declaration-key declaration)]
+      (swap! registry assoc module
+             (merge current
+                    {:module module
+                     :definitions definitions
+                     :declarations (vec (vals definitions))
+                     :source nil
+                     :source-dirty? true
+                     :source-only? true
+                     :pending nil
+                     :scheduled nil
+                     :last-error nil
+                     :failed-generation nil}))
+      (publish-clojure-declaration-metadata! [declaration])
+      {:module module
+       :declaration-key declaration-key
+       :source-only? true
+       :compiled? false})))
+
 (defn register-declaration!
   "Add or replace a declaration and rebuild its namespace module.
 
@@ -5278,15 +5532,27 @@
         {:module module :declaration-key declaration-key :batched? true})
       (do
         (project/ensure-source-catalog! (get-in declaration [:source :file]))
-        (cond
-          (project/converted-module? module)
-          (register-converted-async! declaration)
+        (let [current (get @registry module)
+              old-declaration (get-in current [:definitions declaration-key])]
+          (cond
+            *source-only-registration?*
+            (register-source-only-declaration!
+             module declaration-key declaration)
 
-          (:async? @config)
-          (register-async! declaration)
+            (and (not *force-recompile?*)
+                 (nil? (:last-error current))
+                 (native-declaration-equivalent? old-declaration declaration))
+            (register-unchanged-declaration!
+             module declaration-key declaration)
 
-          :else
-          (register-sync! declaration))))))
+            (project/converted-module? module)
+            (register-converted-async! declaration)
+
+            (:async? @config)
+            (register-converted-async! declaration)
+
+            :else
+            (register-sync! declaration)))))))
 
 (defn register-batch!
   "Register a complete declaration batch without intermediate compilations.
@@ -5350,7 +5616,8 @@
      (when-not declaration
        (throw (ex-info "Cannot recompile a module with no declarations"
                        {:module module :known-modules (sort (keys @registry))})))
-     (register-declaration! declaration))))
+     (binding [*force-recompile?* true]
+       (register-declaration! declaration)))))
 
 (defn await!
   "Wait for the newest asynchronous compilation of one module. With no
@@ -5415,13 +5682,17 @@
   ([module options]
    (let [module (str module)
          _ (await! module)
-         module-state (get @registry module)]
+         module-state (ensure-static-module-source! module)]
      (when-not module-state
        (throw (ex-info "Cannot build an unknown Aguafria module"
                        {:module module :known-modules (sort (keys @registry))})))
      (let [declarations (vec (vals (:definitions module-state)))
+           dependency-snapshot (static-dependency-snapshot declarations)
            compiler-options (compiler-options-for-declarations
-                             (merge @config options) declarations)
+                             (assoc (merge @config options)
+                                    :transitive-dependencies? true
+                                    :dependency-snapshot dependency-snapshot)
+                             declarations)
            kind (or (:kind options) :exe)
            name (safe-path-component (or (:name options) module))
            command-name ({:exe "build-exe"

@@ -1,0 +1,44 @@
+{:paths ["src" "resources" "generated"]
+
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        aguafria/aguafria {:local/root "../.."}}
+
+ :aliases
+ {:generate
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "simple-game.generate"]}
+
+  :prepare
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "simple-game.build" "prepare"]}
+
+  :nrepl
+  {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "nrepl.cmdline"]}
+
+  :desktop
+  {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-XstartOnFirstThread"
+              "-Xdock:name=Aguafria Simple Game"]
+   :main-opts ["-m" "simple-game.desktop-main"]}
+
+  :standalone
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "simple-game.build" "standalone"]}
+
+  :web
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "simple-game.build" "web"]}
+
+  :serve-web
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "simple-game.web-server"]}
+
+  :test
+  {:extra-paths ["test"]
+   :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"]
+   :main-opts ["-m" "kaocha.runner"]}}}

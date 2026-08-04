@@ -30,11 +30,13 @@
               :else (fail! "Expected a Zig identifier" x))]
       (-> s
           (str/replace "-" "_")
+          (str/replace "?" "_q")
+          (str/replace "!" "_bang")
           (str/replace "/" "__")))))
 
 (declare emit-expr emit-stmt emit-statements emit-type emit-block-expr
          postfix-source multiline-string-tail? indent braced capture-source
-         emit-container emit-while-loop emit-for emit-for-loop)
+         emit-container emit-while-loop emit-for emit-for-loop emit-let-expr)
 
 (def ^:private structural-operators
   '#{raw raw-chunks raw-statements raw-statement-chunks
@@ -47,9 +49,9 @@
      container fn-decl const-decl var-decl struct-decl import-decl
      field-decl enum-field-decl tuple-field-decl comptime-decl
      test-decl fn-proto-decl
-     if if-capture if-capture-stmt
+     if when when-not if-capture if-capture-stmt
      field deref unwrap index slice slice-sentinel try comptime comptime-stmt nosuspend
-     comment return const var set! assign assign-expr destructure while for defer errdefer
+     comment return const var let set! assign assign-expr destructure while for dotimes defer errdefer
      inline-for for-loop while-loop
      break break-label continue unreachable})
 
@@ -101,8 +103,16 @@
     (let [target-ns (get (ns-aliases context-ns) requested-alias)
           clojure-name (name sym)
           target-module (some-> target-ns ns-name str)
-          zig-name (when target-module
-                     (project/declaration-zig-name target-module clojure-name))]
+          catalog-name (when target-module
+                         (project/declaration-zig-name target-module clojure-name))
+          ;; A generated catalog records exact Zig spellings only when they
+          ;; differ. For a hand-written namespace whose target Var has not yet
+          ;; been evaluated in this REPL, the catalog falls back to its Clojure
+          ;; name; normalize that fallback exactly like a loaded Var reference.
+          zig-name (when catalog-name
+                     (if (= catalog-name clojure-name)
+                       (identifier (symbol clojure-name))
+                       catalog-name))]
       (when (and zig-name target-module)
         (merge
          {:kind :declaration
@@ -145,6 +155,18 @@
                 :aguafria/zig-reference))
       (declared-project-reference context-ns sym)
       (namespace-root-reference context-ns sym)
+      ;; Converted declarations whose Zig spelling is not reader-safe (for
+      ;; example `@"false"`) have a deliberately different Clojure name.
+      ;; Preserve that Var reference when a later declaration uses the safe
+      ;; name. Ordinary unqualified names remain lexical/container names and
+      ;; are intentionally not captured here.
+      (when (and (symbol? sym)
+                 (nil? (namespace sym))
+                 (not (contains? *lexical-bindings* sym)))
+        (some-> (resolve-context-var context-ns sym)
+                meta
+                :aguafria/zig-reference
+                (#(when (not= (:zig-name %) (identifier sym)) %))))
       (when (and (symbol? sym) (nil? (namespace sym)))
         (let [module (str (or project/*catalog-namespace*
                               (ns-name context-ns)))
@@ -225,6 +247,39 @@
 
 (declare qualify-form)
 
+(def ^:private preserved-clojure-macro-operators
+  "Clojure macros whose spelling is also a direct, zero-cost Zig operator.
+  Structural Aguafria forms are preserved separately."
+  #{"and" "or"})
+
+(defn- expand-clojure-macro-once
+  [context-ns form]
+  (let [op (first form)
+        structural? (some? (resolved-syntax-operator context-ns op))
+        token (when-not structural? (keyword/resolve-token context-ns op))
+        macro-var (when (and (symbol? op) (nil? token))
+                    (resolve-context-var context-ns op))]
+    (when (and (not structural?)
+               (not (contains? preserved-clojure-macro-operators
+                               (when (symbol? op) (name op))))
+               (:macro (meta macro-var)))
+      (try
+        (binding [*ns* context-ns]
+          (let [expanded (macroexpand-1 form)]
+            ;; Macroexpansion may legitimately produce nil or false (the
+            ;; terminating `(cond)`, for example). Wrap the value so those
+            ;; results remain distinguishable from "not a Clojure macro".
+            (when-not (= expanded form) {:expanded expanded})))
+        (catch Throwable cause
+          (throw (ex-info
+                  (str "Clojure macro expansion failed inside an Aguafria declaration: `"
+                       op "`")
+                  {:form form
+                   :operator op
+                   :context-ns (ns-name context-ns)
+                   :aguafria/phase :clojure-macroexpansion}
+                  cause)))))))
+
 (def ^:private declaration-name-operators
   '#{fn-decl fn-proto-decl const-decl var-decl struct-decl import-decl
      field-decl enum-field-decl comptime-decl test-decl})
@@ -284,7 +339,18 @@
   emitter to consume generated keyword Vars directly."
   [context-ns form]
   (cond
-    (seq? form) (qualify-seq context-ns form)
+    (seq? form) (if-let [expansion (expand-clojure-macro-once context-ns form)]
+                  (let [expanded (:expanded expansion)]
+                    ;; `cond` expands its conventional `:else` clause to
+                    ;; `(if :else value (cond))`. In Clojure the keyword is
+                    ;; unconditionally truthy; simplify it before Zig sees an
+                    ;; `else` keyword in expression position or the nil tail.
+                    (if (and (seq? expanded)
+                             (= 'if (first expanded))
+                             (= :else (second expanded)))
+                      (qualify-form context-ns (nth expanded 2))
+                      (qualify-form context-ns expanded)))
+                  (qualify-seq context-ns form))
     (vector? form) (with-meta (mapv #(qualify-form context-ns %) form)
                               (meta form))
     (map? form) (with-meta
@@ -327,13 +393,25 @@
 (defn- declaration-local-bindings
   [context-ns declaration]
   (into (set (map :name (:args declaration)))
-        (keep (fn [value]
-                (when (seq? value)
-                  (let [operator (resolved-syntax-operator context-ns
-                                                           (first value))]
-                    (when (and (contains? #{'const 'var} operator)
-                               (symbol? (second value)))
-                      (second value))))))
+        (mapcat (fn [value]
+                  (if-not (seq? value)
+                    []
+                    (let [operator (resolved-syntax-operator context-ns
+                                                             (first value))
+                          bindings (second value)]
+                      (cond
+                        (and (contains? #{'const 'var} operator)
+                             (symbol? bindings))
+                        [bindings]
+
+                        (and (= 'let operator) (vector? bindings))
+                        (filterv symbol? (take-nth 2 bindings))
+
+                        (and (= 'dotimes operator) (vector? bindings)
+                             (symbol? (first bindings)))
+                        [(first bindings)]
+
+                        :else [])))))
         (tree-seq coll? seq (:body declaration))))
 
 (defn prepare-declaration
@@ -805,6 +883,31 @@
 
     (fail! "Unknown generated Zig keyword kind" form {:token token})))
 
+(defn- expand-thread
+  [thread-last? args form]
+  (when-not (seq args)
+    (fail! (str (if thread-last? "->>" "->")
+                " expects an initial value and optional steps")
+           form))
+  (reduce
+   (fn [value step]
+     (cond
+       (seq? step)
+       (with-meta
+         (if thread-last?
+           (apply list (first step) (concat (rest step) [value]))
+           (apply list (first step) value (rest step)))
+         (meta step))
+
+       (or (symbol? step) (keyword? step))
+       (list step value)
+
+       :else
+       (fail! "Clojure thread steps must be symbols or lists"
+              form {:step step})))
+   (first args)
+   (rest args)))
+
 (defn- emit-expr*
   [form]
   (cond
@@ -819,6 +922,18 @@
                             \' "\\'"
                             \\ "\\\\"
                             (str form)) "'")
+    (and (instance? Double form) (Double/isNaN ^double form))
+    "@as(f64, @bitCast(@as(u64, 0x7ff8000000000000)))"
+    (and (instance? Double form) (Double/isInfinite ^double form))
+    (if (neg? form)
+      "@as(f64, @bitCast(@as(u64, 0xfff0000000000000)))"
+      "@as(f64, @bitCast(@as(u64, 0x7ff0000000000000)))")
+    (and (instance? Float form) (Float/isNaN ^float form))
+    "@as(f32, @bitCast(@as(u32, 0x7fc00000)))"
+    (and (instance? Float form) (Float/isInfinite ^float form))
+    (if (neg? form)
+      "@as(f32, @bitCast(@as(u32, 0xff800000)))"
+      "@as(f32, @bitCast(@as(u32, 0x7f800000)))")
     (number? form) (str form)
     (symbol? form)
     (if-let [reference (current-zig-reference form)]
@@ -852,6 +967,12 @@
       (cond
         token
         (emit-keyword-expr token args form)
+
+        (= "->" (operator-name op))
+        (emit-expr (expand-thread false args form))
+
+        (= "->>" (operator-name op))
+        (emit-expr (expand-thread true args form))
 
         (= op 'raw)
         (if (and (= 1 (count args)) (string? (first args)))
@@ -896,6 +1017,9 @@
 
         (contains? #{'do 'block} op)
         (emit-block-expr nil args)
+
+        (= op 'let)
+        (emit-let-expr args form)
 
         (= op 'labeled-block)
         (let [[label & forms] args]
@@ -1096,6 +1220,12 @@
           (str "nosuspend " (emit-expr (first args)))
           (fail! "nosuspend expects one expression" form))
 
+        (= "mod" (operator-name op))
+        (if (= 2 (count args))
+          (str "@mod(" (emit-expr (first args)) ", "
+               (emit-expr (second args)) ")")
+          (fail! "Clojure mod expects a numerator and denominator" form))
+
         (contains? infix-operators (operator-name op))
         (if (and (= 1 (count args))
                  (contains? prefix-operators (operator-name op)))
@@ -1199,6 +1329,60 @@
            " = " rendered
            (expression-terminator rendered)))))
 
+(defn- let-parts
+  [args form]
+  (let [[bindings & body] args]
+    (when-not (and (vector? bindings) (even? (count bindings)))
+      (fail! "let expects an even Clojure binding vector and a body" form))
+    (let [pairs (mapv vec (partition 2 bindings))]
+      (doseq [[binding] pairs]
+        (when-not (symbol? binding)
+          (fail! "Aguafria let currently binds names, not destructuring forms"
+                 form {:binding binding})))
+      {:pairs pairs :body body})))
+
+(defn- let-local-form
+  [[binding value]]
+  (let [kind (if (:var (meta binding)) 'var 'const)
+        type (or (:zig/type (meta binding))
+                 (:tag (meta binding)))]
+    (if type
+      (list kind binding type value)
+      (list kind binding value))))
+
+(defn- emit-let-stmt
+  [args level form]
+  (let [{:keys [pairs body]} (let-parts args form)]
+    (braced (concat (map let-local-form pairs) body) level)))
+
+(defn- emit-let-expr
+  [args form]
+  (let [{:keys [pairs body]} (let-parts args form)]
+    (when-not (seq body)
+      (fail! "A let used as a value requires a result expression" form))
+    (let [label (str "aguafria_let_"
+                     (Integer/toUnsignedString (hash form) 16))
+          preceding (concat (map let-local-form pairs) (butlast body))
+          result (last body)]
+      (str label ": {\n"
+           (when (seq preceding)
+             (str (indent 1 (emit-statements preceding 1)) "\n"))
+           (indent 1 (str "break :" label " " (emit-expr result) ";"))
+           "\n}"))))
+
+(defn- emit-dotimes
+  [args level form]
+  (let [[bindings & body] args]
+    (when-not (and (vector? bindings)
+                   (= 2 (count bindings))
+                   (symbol? (first bindings)))
+      (fail! "dotimes expects [name count] followed by its body" form))
+    (let [[binding count-expression] bindings]
+      (str "for (0..@as(usize, @intCast("
+           (emit-expr count-expression)
+           "))) |" (identifier binding) "| "
+           (braced body level)))))
+
 (defn- ensure-semicolon
   [source]
   (if (str/ends-with? (str/trimr source) ";")
@@ -1206,7 +1390,8 @@
     (str source ";")))
 
 (def ^:private block-like-expression-ops
-  #{"block" "labeled-block" "if" "if-capture" "switch" "labeled-switch"})
+  #{"block" "labeled-block" "let" "if" "when" "when-not" "if-capture"
+    "switch" "labeled-switch" "dotimes"})
 
 (defn- expression-statement-needs-semicolon?
   [form]
@@ -1437,6 +1622,7 @@
                                 (fail! "return expects zero or one expression" form))
                (= op 'const) (emit-local "const" args form)
                (= op 'var) (emit-local "var" args form)
+               (= op 'let) (emit-let-stmt args level form)
                (= op 'set!) (if (= 2 (count args))
                               (str (emit-expr (first args)) " = "
                                    (emit-expr (second args)) ";")
@@ -1459,6 +1645,16 @@
                  (fail! "Assignment operator expects a target and value" form
                         {:operator op}))
                (= op 'if) (emit-if-stmt args level form)
+               (= op 'when)
+               (let [[test & body] args]
+                 (when (or (nil? test) (empty? body))
+                   (fail! "when expects a condition and body" form))
+                 (str "if (" (emit-expr test) ") " (braced body level)))
+               (= op 'when-not)
+               (let [[test & body] args]
+                 (when (or (nil? test) (empty? body))
+                   (fail! "when-not expects a condition and body" form))
+                 (str "if (!(" (emit-expr test) ")) " (braced body level)))
                (= op 'if-capture-stmt)
                (emit-if-capture-stmt args level form)
                (= op 'while) (emit-loop "while" args level form)
@@ -1475,6 +1671,7 @@
                (let [[_bindings & body] args
                      source (emit-for args level form)]
                  (cond-> source (for-else-expression? body) ensure-semicolon))
+               (= op 'dotimes) (emit-dotimes args level form)
                (= op 'for-loop)
                (let [[_options _bindings & body] args
                      source (emit-for-loop args level form)]
@@ -1574,6 +1771,7 @@
 
 (def ^:private non-value-statement-ops
   #{"const" "var" "set!" "assign" "while" "while-loop" "for" "inline-for" "for-loop"
+    "dotimes" "when" "when-not"
     "if-capture-stmt"
     "switch-stmt" "labeled-switch-stmt" "block" "labeled-block"
     "defer" "comptime-stmt" "errdefer" "break" "break-label" "continue"
@@ -1594,6 +1792,20 @@
 
               (= op 'do)
               (emit-returning-statements args level)
+
+              (= op 'let)
+              (let [{:keys [pairs body]} (let-parts args form)]
+                (when-not (seq body)
+                  (fail! "A tail let in a non-void function requires a result expression"
+                         form))
+                (str "{\n"
+                     (indent (inc level)
+                             (str/join
+                              "\n"
+                              (concat
+                               (map #(emit-stmt (let-local-form %) (inc level)) pairs)
+                               [(emit-returning-statements body (inc level))])))
+                     "\n" (indent level "}")))
 
               (= op 'if)
               (let [[test then else :as all] args]
@@ -1731,8 +1943,8 @@
   [{:keys [kind name source-order]}]
   (if (some? source-order)
     [0 source-order]
-    [1 ({:import 0 :raw 1 :struct 2 :const 3 :var 4 :field 5
-         :comptime 6 :test 7 :fn-proto 8 :fn 9} kind 12)
+    [1 ({:import 0 :raw 1 :struct 2 :const 3 :var 4 :extern-var 5 :field 6
+         :comptime 7 :test 8 :fn-proto 9 :fn 10} kind 12)
      (str name)]))
 
 (defn- declaration-prefix
@@ -1795,6 +2007,14 @@
             (when (seq zig-qualifiers) (str " " zig-qualifiers))
             " = " rendered
             (expression-terminator rendered)))
+
+     :extern-var
+     (str (declaration-prefix zig-prefix
+                              (when public? "pub extern "))
+          "var " (identifier declaration-name)
+          (when type (str ": " (emit-type type)))
+          (when (seq zig-qualifiers) (str " " zig-qualifiers))
+          ";")
 
      :struct
      (str (declaration-prefix zig-prefix

@@ -140,7 +140,7 @@
 (def ^:private qualified-clojure-collisions
   "Zig keywords whose unqualified spelling has a substantially different
   Clojure meaning. They remain real, qualified `ak/...` Vars."
-  #{"var"})
+  #{"var" "while"})
 
 (defn- intern-token!
   [token metadata]

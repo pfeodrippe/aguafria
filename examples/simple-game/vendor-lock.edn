@@ -1,0 +1,12 @@
+{:generated-at "2026-08-03"
+ :dependencies
+ {:flecs {:repository "https://github.com/SanderMertens/flecs.git"
+          :branch "master"
+          :commit "14ad7136f550079b9c1efe15cc669b737a4bd1fd"}
+  :glfw {:repository "https://github.com/glfw/glfw.git"
+         :branch "master"
+         :commit "d9d6f0f1f967807ffade6598ea9a631ebaf37a56"}
+  :vulkan-headers
+  {:repository "https://github.com/KhronosGroup/Vulkan-Headers.git"
+   :branch "main"
+   :commit "11d6898377797e07dbd543aaaa367e4465074597"}}}

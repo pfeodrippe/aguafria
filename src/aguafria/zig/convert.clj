@@ -1874,7 +1874,7 @@
 
 (defn- translate-var-declaration
   [context node-index order leading]
-  (let [[_ _visibility _extern _lib _threadlocal _comptime mut-token type-node
+  (let [[_ _visibility extern-token _lib _threadlocal _comptime mut-token type-node
          _align _addrspace _section init-node]
         (get (:var-index context) node-index)
         name-token (inc mut-token)
@@ -1882,7 +1882,7 @@
         name (or (get (:declaration-names context) zig-name)
                  (clojure-identifier zig-name))
         prefix (prefix-before-token context node-index mut-token)]
-    (when (and name init-node)
+    (when (and name (or init-node extern-token))
       (let [metadata {:export false
                       :public (words-contain? prefix "pub")
                       :source-comment false
@@ -1898,6 +1898,11 @@
                  (contains? (:container-index context) init-node)
                  (simple-struct-fields context init-node))]
         (cond
+          (and extern-token (nil? init-node) type-node)
+          (apply list 'az/defexternvar declaration-name
+                 (concat (when docstring [docstring])
+                         [attributes ':- (translate-type context type-node)]))
+
           import-name
           (cond
             (get (:import-bindings context) zig-name)
@@ -2107,7 +2112,7 @@
 
 (def ^:private declaration-form-operators
   '#{az/defn az/defconst az/defvar az/defstruct az/defcomptime
-     az/defextern az/deffield az/deftest
+     az/defextern az/defexternvar az/deffield az/deftest
      fn-decl fn-proto-decl const-decl var-decl struct-decl comptime-decl
      field-decl enum-field-decl tuple-field-decl test-decl container
      az/fn-decl az/fn-proto-decl az/const-decl az/var-decl az/struct-decl
@@ -2565,9 +2570,12 @@
 (defn convert-file
   "Convert a Zig file and return its formatted Clojure namespace plus report.
 
-  Options include `:namespace`, `:zig`, and `:cache-dir`. No file is written."
+  Options include `:namespace`, `:zig`, `:cache-dir`, and
+  `:declaration-docs`. The latter maps Zig declaration names to documentation
+  strings and is used by C-header translation, because Zig `translate-c`
+  intentionally does not retain source comments. No file is written."
   ([path] (convert-file path {}))
-  ([path {:keys [namespace source-display-path] :as options}]
+  ([path {:keys [namespace source-display-path declaration-docs] :as options}]
    (let [started (System/nanoTime)
          parsed (or (::parsed options) (parse-file path options))
          context (conversion-context parsed options)
@@ -2576,7 +2584,24 @@
                                       (-> (io/file path) .getName
                                           (str/replace #"\.zig$" "")
                                           (str/replace "_" "-"))))
-         translated-forms (translate-declarations context)
+         translated-forms
+         (mapv
+          (fn [form]
+            (let [declaration-name (second form)
+                  zig-name (or (:zig/name (meta declaration-name))
+                               (some-> declaration-name str))
+                  doc (or (get declaration-docs zig-name)
+                          (get declaration-docs (some-> declaration-name str)))]
+              (if (and doc
+                       (seq? form)
+                       (symbol? declaration-name)
+                       (str/starts-with? (str (first form)) "az/def")
+                       (not (string? (nth form 2 nil))))
+                (with-meta
+                  (apply list (first form) declaration-name doc (nnext form))
+                  (meta form))
+                form)))
+          (translate-declarations context))
          ordinary-source-orders
          (into
           (sorted-map)

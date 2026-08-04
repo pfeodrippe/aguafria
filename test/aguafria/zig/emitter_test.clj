@@ -1,6 +1,8 @@
 (ns aguafria.zig.emitter-test
   (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]
             [aguafria.zig.emitter :as emit]
+            [aguafria.zig.project :as project]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
@@ -19,8 +21,78 @@
                         #"Unknown composite Zig type"
                         (emit/emit-type [:mystery :i32]))))
 
+(deftest clojure-identifier-emission-test
+  (is (= "circle_contains_q" (emit/identifier 'circle-contains?)))
+  (is (= "reset_bang" (emit/identifier 'reset!))))
+
+(deftest unevaluated-cross-namespace-name-is-normalized-test
+  (let [provider-symbol 'aguafria.emitter-forward-provider
+        caller-symbol 'aguafria.emitter-forward-caller
+        provider-ns (create-ns provider-symbol)
+        caller-ns (create-ns caller-symbol)]
+    (try
+      (project/register-catalog!
+       {:schema-version 1
+        :modules {(str provider-symbol) {}}})
+      (binding [*ns* caller-ns]
+        (alias 'provider provider-symbol)
+        (let [declaration
+              (emit/prepare-declaration
+               caller-ns
+               {:kind :fn
+                :name 'run
+                :args []
+                :return :u32
+                :body '((provider/tick-auto))
+                :public? true
+                :implicit-return? true})]
+          (is (str/includes? (emit/emit-declaration declaration)
+                             "return provider.tick_auto();"))))
+      (finally
+        (remove-ns caller-symbol)
+        (remove-ns provider-symbol)))))
+
+(deftest clojure-macros-expand-in-declaration-test
+  (let [context-ns (the-ns 'aguafria.zig.emitter-test)]
+    (is (= '[(transform value 1)]
+           (:body
+            (emit/prepare-declaration
+             context-ns
+             {:kind :fn
+              :name 'threaded
+              :args []
+              :return :i32
+              :body '((-> value (transform 1)))})))))
+  (let [context-ns (the-ns 'aguafria.zig.emitter-test)
+        declaration
+        (emit/prepare-declaration
+         context-ns
+         {:kind :fn
+          :name 'cast-pointer
+          :args []
+          :return :void
+          :body '((-> pointer (az/cast [:* Widget])))})]
+    (is (= "@as(*Widget, @ptrCast(@alignCast(pointer.?)))"
+           (emit/emit-expr context-ns (first (:body declaration))))))
+  (let [context-ns (the-ns 'aguafria.zig.emitter-test)
+        declaration
+        (emit/prepare-declaration
+         context-ns
+         {:kind :fn
+          :name 'choose
+          :args []
+          :return :i32
+          :body '((cond (= value 0) 10
+                        (= value 1) 20
+                        :else 30))})]
+    (is (= '(if (= value 0)
+              10
+              (if (= value 1) 20 30))
+           (first (:body declaration))))))
+
 (deftest expression-emission-test
   (is (= "(a + (b * 2))" (emit/emit-expr '(+ a (* b 2)))))
+  (is (= "@mod(counter, 5)" (emit/emit-expr '(mod counter 5))))
   (is (= "@max(a, b)"
          (emit/emit-expr (the-ns 'aguafria.zig.emitter-test)
                          '(ak/max a b))))
@@ -81,6 +153,19 @@
   (is (= "errdefer cleanup();" (emit/emit-stmt '(errdefer (cleanup)))))
   (is (= "comptime validate();"
          (emit/emit-stmt '(comptime-stmt (validate)))))
+  (testing "Clojure-shaped locals are immutable unless explicitly marked mutable"
+    (let [source (emit/emit-stmt
+                  '(let [a 4
+                         ^:var b 10
+                         ^{:zig/type :u8} c 2]
+                     (set! b (+ a c))))]
+      (is (str/includes? source "const a = 4;"))
+      (is (str/includes? source "var b = 10;"))
+      (is (str/includes? source "const c: u8 = 2;"))))
+  (is (= (str "for (0..@as(usize, @intCast(count))) |row| {\n"
+              "    use(row);\n"
+              "}")
+         (emit/emit-stmt '(dotimes [row count] (use row)))))
   (is (= "continue :dispatch self.producer;"
          (emit/emit-stmt '(continue dispatch (field self producer)))))
   (is (= (str "while ((i < n)) {\n"
@@ -213,6 +298,14 @@
               "}")
          (emit/emit-function-body '((if (< x 0) (- x) x)) :i32)))
   (is (= "value;" (emit/emit-function-body '(value) :void)))
+  (is (= (str "{\n"
+              "    const x = (a + 1);\n"
+              "    const y = (x * 2);\n"
+              "    return (x + y);\n"
+              "}")
+         (emit/emit-function-body
+          '((let [x (+ a 1) y (* x 2)] (+ x y)))
+          :i32)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"must produce a value"
                         (emit/emit-function-body '((while ready (continue))) :i32))))
