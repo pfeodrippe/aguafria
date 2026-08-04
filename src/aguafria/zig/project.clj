@@ -13,7 +13,12 @@
 (defonce ^:private catalogs (atom {}))
 (defonce ^:private loaded-resources (atom #{}))
 (defonce ^:private loaded-source-catalogs (atom #{}))
+(defonce ^:private source-declaration-counts (atom {}))
 (defonce ^:private resource-lock (Object.))
+
+(def ^:private declaration-macro-names
+  #{"defn" "defconst" "defvar" "defstruct" "defimport" "defraw"
+    "deffield" "defcomptime" "defextern" "defexternvar" "deftest"})
 
 (def ^:dynamic *catalog-namespace*
   "Optional source namespace used while converter forms are evaluated in a
@@ -220,6 +225,66 @@
   [module]
   (when-let [source-orders (:source-orders (module-data module))]
     (count source-orders)))
+
+(defn- source-url
+  [source-file]
+  (let [file (io/file source-file)]
+    (if (.isFile file)
+      (.toURL (.toURI file))
+      (io/resource source-file))))
+
+(defn- zig-require-aliases
+  [namespace-form]
+  (into #{"aguafria.zig"}
+        (keep
+         (fn [form]
+           (when (and (vector? form) (= 'aguafria.zig (first form)))
+             (some->> (partition 2 1 form)
+                      (some (fn [[marker value]]
+                              (when (= :as marker) value)))
+                      str)))
+        (tree-seq coll? seq namespace-form))))
+
+(defn- read-source-declaration-count
+  [source-url expected-module]
+  (with-open [reader (PushbackReader. (io/reader source-url))]
+    (loop [forms []]
+      (let [form (read {:eof ::eof :read-cond :allow :features #{:clj}}
+                       reader)]
+        (if (= ::eof form)
+          (let [namespace-form
+                (some #(when (and (seq? %) (= 'ns (first %))) %) forms)
+                module (some-> namespace-form second str)
+                aliases (zig-require-aliases namespace-form)]
+            (when (= (str expected-module) module)
+              (count
+               (filter
+                (fn [candidate]
+                  (let [head (when (seq? candidate) (first candidate))]
+                    (and (symbol? head)
+                         (contains? aliases (or (namespace head) ""))
+                         (contains? declaration-macro-names (name head)))))
+                forms))))
+          (recur (conj forms form)))))))
+
+(defn ^:no-doc expected-source-declaration-count
+  "Count ordinary top-level Aguafria declarations in a namespace source file.
+  This is used only while Clojure is loading the complete file; individual
+  editor/REPL evaluations are never held back waiting for sibling forms."
+  [module source-file]
+  (when (and (string? source-file) (not (str/blank? source-file)))
+    (when-let [url (source-url source-file)]
+      (let [connection (.openConnection url)
+            stamp [(.getLastModified connection) (.getContentLengthLong connection)]
+            cache-key [(str url) (str module)]]
+        (if-let [cached (when (= stamp (:stamp (get @source-declaration-counts
+                                                    cache-key)))
+                          (:count (get @source-declaration-counts cache-key)))]
+          cached
+          (let [count (read-source-declaration-count url module)]
+            (swap! source-declaration-counts assoc cache-key
+                   {:stamp stamp :count count})
+            count))))))
 
 (defn stats
   "Return serializable project-catalog inspection data."

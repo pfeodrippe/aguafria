@@ -30,6 +30,16 @@
      :flecs-web-object (io/file root "build/web/flecs-game.o")
      :flecs-shared-library (io/file root "build/native"
                                     (System/mapLibraryName "flecs"))
+     :box3d-source-root (io/file root "vendor/box3d/src")
+     :box3d-include (io/file root "vendor/box3d/include")
+     :box3d-static-library (io/file root "build/native/libbox3d.a")
+     :box3d-shared-library (io/file root "build/native"
+                                    (System/mapLibraryName "box3d"))
+     :miniaudio-source (io/file root "vendor/miniaudio/miniaudio.c")
+     :miniaudio-include (io/file root "vendor/miniaudio")
+     :miniaudio-static-library (io/file root "build/native/libminiaudio.a")
+     :miniaudio-shared-library (io/file root "build/native"
+                                        (System/mapLibraryName "miniaudio"))
      :glfw-include (io/file root "vendor/glfw/include")
      :glfw-source-root (io/file root "vendor/glfw/src")
      :glfw-static-library (io/file root "build/native/libglfw.a")
@@ -121,6 +131,92 @@
   (let [{:keys [flecs-static-library flecs-shared-library]} (paths)]
     {:shared (prepare-flecs-library! :shared flecs-shared-library)
      :static (prepare-flecs-library! :static flecs-static-library)}))
+
+(defn- box3d-sources
+  []
+  (->> (.listFiles ^java.io.File (:box3d-source-root (paths)))
+       (filter #(and (.isFile ^java.io.File %)
+                     (str/ends-with? (.getName ^java.io.File %) ".c")))
+       (sort-by #(.getName ^java.io.File %))
+       vec))
+
+(defn- prepare-box3d-library!
+  [mode output]
+  (let [{:keys [root box3d-source-root box3d-include]} (paths)
+        sources (box3d-sources)
+        newest-input (reduce max (.lastModified (io/file box3d-include
+                                                         "box3d/box3d.h"))
+                             (map #(.lastModified ^java.io.File %) sources))
+        current? (and (.isFile output)
+                      (>= (.lastModified output) newest-input))]
+    (if current?
+      {:status :cached :mode mode :output-path (.getAbsolutePath output)}
+      (do
+        (io/make-parents output)
+        (let [command
+              (vec
+               (concat
+                ["zig" "build-lib"
+                 (case mode :shared "-dynamic" :static "-static")
+                 "-OReleaseFast" "-fPIC"
+                 (str "-I" (.getAbsolutePath box3d-include))
+                 (str "-I" (.getAbsolutePath box3d-source-root))
+                 (str "-femit-bin=" (.getAbsolutePath output))]
+                (when (= :shared mode) ["-Dbox3d_EXPORTS"])
+                ["-cflags" "-std=c17" "--"]
+                (map #(.getAbsolutePath ^java.io.File %) sources)
+                ["-lc"]))
+              result (run-command! command root)]
+          {:status :built
+           :mode mode
+           :output-path (.getAbsolutePath output)
+           :command (:command result)})))))
+
+(defn prepare-box3d!
+  "Compile unmodified Box3D C sources with Zig for dev and standalone use."
+  []
+  (let [{:keys [box3d-static-library box3d-shared-library]} (paths)]
+    {:shared (prepare-box3d-library! :shared box3d-shared-library)
+     :static (prepare-box3d-library! :static box3d-static-library)}))
+
+(defn- prepare-miniaudio-library!
+  [mode output]
+  (let [{:keys [root miniaudio-source miniaudio-include]} (paths)
+        newest-input (max (.lastModified miniaudio-source)
+                          (.lastModified (io/file miniaudio-include
+                                                  "miniaudio.h")))
+        current? (and (.isFile output)
+                      (>= (.lastModified output) newest-input))]
+    (if current?
+      {:status :cached :mode mode :output-path (.getAbsolutePath output)}
+      (do
+        (io/make-parents output)
+        (let [command
+              (vec
+               (concat
+                ["zig" "build-lib"
+                 (case mode :shared "-dynamic" :static "-static")
+                 "-OReleaseFast" "-fPIC"
+                 (str "-I" (.getAbsolutePath miniaudio-include))
+                 (str "-femit-bin=" (.getAbsolutePath output))
+                 (.getAbsolutePath miniaudio-source)
+                 "-lc"]
+                (when (= "Mac OS X" (System/getProperty "os.name"))
+                  ["-framework" "CoreAudio"
+                   "-framework" "AudioToolbox"
+                   "-framework" "CoreFoundation"])))
+              result (run-command! command root)]
+          {:status :built
+           :mode mode
+           :output-path (.getAbsolutePath output)
+           :command (:command result)})))))
+
+(defn prepare-miniaudio!
+  "Compile unmodified miniaudio C implementation with Zig."
+  []
+  (let [{:keys [miniaudio-static-library miniaudio-shared-library]} (paths)]
+    {:shared (prepare-miniaudio-library! :shared miniaudio-shared-library)
+     :static (prepare-miniaudio-library! :static miniaudio-static-library)}))
 
 (defn prepare-web-flecs!
   "Compile unmodified Flecs for the browser with only the addons the game uses."
@@ -226,30 +322,42 @@
                 {:candidates (mapv str candidates)})))))
 
 (defn link-arguments
-  "Development link arguments. The one upstream Flecs dylib owns C globals."
+  "Development links. Each upstream dylib owns its long-lived native globals."
   []
-  (let [{:keys [flecs-shared-library]} (paths)]
-    [(.getAbsolutePath flecs-shared-library) "-lc"]))
+  (let [{:keys [flecs-shared-library box3d-shared-library
+                miniaudio-shared-library]} (paths)]
+    [(.getAbsolutePath flecs-shared-library)
+     (.getAbsolutePath box3d-shared-library)
+     (.getAbsolutePath miniaudio-shared-library)
+     "-lc"]))
 
 (defn standalone-link-arguments
   "Release/standalone link arguments; no development shared library required."
   []
-  (let [{:keys [flecs-static-library glfw-static-library]} (paths)]
+  (let [{:keys [flecs-static-library glfw-static-library box3d-static-library
+                miniaudio-static-library]} (paths)]
     [(.getAbsolutePath flecs-static-library)
      (.getAbsolutePath glfw-static-library)
+     (.getAbsolutePath box3d-static-library)
+     (.getAbsolutePath miniaudio-static-library)
      (vulkan-loader)
      "-framework" "Cocoa"
      "-framework" "IOKit"
      "-framework" "CoreFoundation"
      "-framework" "QuartzCore"
+     "-framework" "CoreAudio"
+     "-framework" "AudioToolbox"
      "-lc"]))
 
 (defn desktop-link-arguments
   "Development links for game logic, GLFW, and the system Vulkan loader."
   []
-  (let [{:keys [flecs-shared-library glfw-shared-library]} (paths)]
+  (let [{:keys [flecs-shared-library glfw-shared-library box3d-shared-library
+                miniaudio-shared-library]} (paths)]
     [(.getAbsolutePath flecs-shared-library)
      (.getAbsolutePath glfw-shared-library)
+     (.getAbsolutePath box3d-shared-library)
+     (.getAbsolutePath miniaudio-shared-library)
      (vulkan-loader)
      "-lc"]))
 
@@ -258,6 +366,8 @@
   Clojure is only the build frontend; the artifact has no JVM dependency."
   []
   (prepare-flecs!)
+  (prepare-box3d!)
+  (prepare-miniaudio!)
   (prepare-static-glfw!)
   (zig-build/load-source-only! 'simple-game.standalone)
   (let [output (io/file (:root (paths)) "build/standalone/simple-game")]
@@ -340,12 +450,18 @@
   [& [command]]
   (case (or command "prepare")
     "prepare" (prn {:flecs (prepare-flecs!)
+                    :box3d (prepare-box3d!)
+                    :miniaudio (prepare-miniaudio!)
                     :glfw (prepare-glfw!)
                     :vulkan-loader (vulkan-loader)})
     "desktop" (prn {:flecs (prepare-flecs!)
+                     :box3d (prepare-box3d!)
+                     :miniaudio (prepare-miniaudio!)
                      :glfw (prepare-glfw!)
                      :vulkan-loader (vulkan-loader)})
     "standalone" (prn {:flecs (prepare-flecs!)
+                        :box3d (prepare-box3d!)
+                        :miniaudio (prepare-miniaudio!)
                         :glfw (prepare-static-glfw!)
                         :vulkan-loader (vulkan-loader)
                         :artifact (build-standalone!)})

@@ -243,6 +243,23 @@
     (is (re-find #"export fn add\(a: i32, b: i32\) callconv\(\.c\) i32" source))
     (is (str/includes? source "return (a + b);"))))
 
+(deftest dependency-module-preserves-default-function-abi-test
+  (let [source
+        (emit/emit-dependency-module
+         "demo.callback"
+         [{:kind :fn
+           :name 'callback
+           :return :void
+           :export? true
+           :public? true
+           :attributes {}
+           :args [{:name 'value :type :i32}]
+           :body []}])]
+    (is (str/includes?
+         source
+         "pub fn callback(value: i32) callconv(.c) void"))
+    (is (not (str/includes? source "export fn callback")))))
+
 (deftest reloadable-module-publication-epoch-test
   (let [declaration {:kind :fn :name 'increment :return :i32 :export? true
                      :declaration-key [:fn 'increment]

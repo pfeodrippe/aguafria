@@ -775,6 +775,35 @@
                          "be used inside an Aguafria declaration")
                     {:operator operator :arguments arguments}))))
 
+(clojure.core/defn- resolved-declaration
+  [symbol]
+  (when (symbol? symbol)
+    (some-> (ns-resolve *ns* symbol) meta :aguafria/declaration)))
+
+(clojure.core/defn- expression-zig-type
+  [form]
+  (cond
+    (symbol? form)
+    (:type (resolved-declaration form))
+
+    (seq? form)
+    (let [operator (first form)
+          operator-name (some-> operator name)
+          declaration (resolved-declaration operator)]
+      (cond
+        (= "&" operator-name)
+        (when-let [child-type (expression-zig-type (second form))]
+          [:* child-type])
+
+        declaration
+        (:return declaration)))
+
+    :else nil))
+
+(clojure.core/defn- optional-zig-type?
+  [type]
+  (and (vector? type) (= "optional" (some-> type first name))))
+
 (defmacro cast
   "Cast an optional opaque/C pointer to `output-type`, checking alignment.
 
@@ -786,11 +815,19 @@
   rewrites to existing Aguafria forms for Zig's optional unwrap, `@alignCast`,
   `@ptrCast`, and `@as`. It creates no runtime wrapper or new emitter syntax."
   [value output-type]
-  (list 'aguafria.keyword/as
-        (list 'type output-type)
-        (list 'aguafria.keyword/ptrCast
-              (list 'aguafria.keyword/alignCast
-                    (list 'unwrap value)))))
+  (let [input-type (expression-zig-type value)
+        ;; Preserve the original convenience for an untyped opaque expression:
+        ;; those C APIs conventionally return optionals. When Aguafria can
+        ;; prove the input is non-optional (for example `&waveform`), avoid
+        ;; emitting the invalid `.?` unwrap.
+        pointer (if (or (nil? input-type)
+                        (optional-zig-type? input-type))
+                  (list 'unwrap value)
+                  value)]
+    (list 'aguafria.keyword/as
+          (list 'type output-type)
+          (list 'aguafria.keyword/ptrCast
+                (list 'aguafria.keyword/alignCast pointer)))))
 
 ;; Structural forms are real, documented Vars so generated Clojure never
 ;; relies on an unresolved list head. Clojure-native forms (`if`, `do`, `for`,

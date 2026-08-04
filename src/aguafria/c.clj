@@ -9,6 +9,7 @@
   (:require [aguafria.zig.convert :as convert]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import (java.io File)
            (java.nio.charset StandardCharsets)
@@ -17,6 +18,8 @@
            (java.util HexFormat)))
 
 (defonce ^:private generation-history (atom []))
+
+(def ^:private project-catalog-name "aguafria-project.edn")
 
 (defn- canonical-file
   [path description]
@@ -247,6 +250,37 @@
        (when-not (str/blank? (:stderr result))
          (str "\n" (:stderr result)))))
 
+(defn- namespace-output-root
+  [^File output namespace]
+  (let [segments (str/split (str namespace) #"\.")
+        root (nth (iterate #(.getParentFile ^File %) output)
+                  (count segments)
+                  nil)
+        relative (str (str/join File/separator
+                                (map #(str/replace % "-" "_") segments))
+                      ".clj")]
+    (when (and root
+               (= output (.getCanonicalFile (io/file root relative))))
+      root)))
+
+(defn- write-project-catalog!
+  [^File output namespace catalog-module]
+  (when-let [root (namespace-output-root output namespace)]
+    (let [catalog-file (io/file root project-catalog-name)
+          existing
+          (if (.isFile catalog-file)
+            (edn/read-string (slurp catalog-file))
+            {:schema-version 1 :modules {}})
+          catalog (assoc-in existing [:modules (str namespace)] catalog-module)
+          source (with-out-str (pprint/pprint catalog))]
+      (Files/writeString
+       (.toPath catalog-file) source StandardCharsets/UTF_8
+       (into-array StandardOpenOption
+                   [StandardOpenOption/CREATE
+                    StandardOpenOption/TRUNCATE_EXISTING
+                    StandardOpenOption/WRITE]))
+      (.getAbsolutePath catalog-file))))
+
 (defn translate-header!
   "Translate a C `header` into a well-formatted Aguafria namespace at `output`.
 
@@ -312,6 +346,9 @@
            :zig zig
            :cache-dir (.getAbsolutePath (io/file cache-dir "zig-conversion"))
            :overwrite? (boolean (:overwrite? options))})
+         catalog-path
+         (write-project-catalog! output (:namespace options)
+                                 (:catalog-module conversion))
          report
          (merge
           {:header (.getAbsolutePath header)
@@ -326,6 +363,7 @@
            :command command
            :translation-duration-ms (or (:duration-ms translation) 0.0)
            :normalization normalization
+           :catalog-path catalog-path
            :elapsed-ms (/ (- (System/nanoTime) started) 1e6)}
           (select-keys conversion
                        [:written? :declaration-count

@@ -2,8 +2,10 @@
   "Hot-reloadable Flecs gameplay, written entirely as Aguafria Zig forms."
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]
+            [simple-game.audio :as audio]
             [simple-game.bindings]
-            [simple-game.bindings.flecs :as flecs]))
+            [simple-game.bindings.flecs :as flecs]
+            [simple-game.physics :as physics]))
 
 (az/defstruct Position
   "Circle center in framebuffer pixels."
@@ -141,6 +143,8 @@
     (set! (az/field (az/deref counter) value) next-count)
     (set! (az/field (az/deref counter) shader_index)
           (shader-for-count next-count))
+    (physics/emit! (shader-for-count next-count))
+    (audio/play-click! next-count)
     next-count))
 
 (az/defn update-circle-system
@@ -291,6 +295,8 @@
     (when (ak/== (az/field (ak/import "builtin") mode) :.Debug)
       (refresh-system-callback! flecs-world))
     (set! _ (flecs/ecs_progress flecs-world delta-seconds))
+    (let [frame-info (flecs/ecs_get_world_info flecs-world)]
+      (physics/step! (az/field (az/deref frame-info) delta_time)))
     (let [position (-> flecs-world
                        (flecs/ecs_get_mut_id circle_entity position_component)
                        (az/cast [:* Position]))
@@ -372,4 +378,6 @@
     (set! world null)
     (set! circle_entity 0)
     (set! update_system 0)
-    (set! installed_callback 0)))
+    (set! installed_callback 0))
+  (physics/shutdown!)
+  (audio/shutdown!))

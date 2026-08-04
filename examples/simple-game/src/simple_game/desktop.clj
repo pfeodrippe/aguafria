@@ -5,6 +5,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as std-debug]
             [aguafria.zig :as az]
+            [simple-game.audio :as audio]
             [simple-game.desktop-bindings]
             [simple-game.bindings.glfw :as glfw]
             [simple-game.game :as game]
@@ -51,6 +52,7 @@
   (enable-sticky-input!)
   (std-debug/assert (renderer/initialize-renderer! window))
   (set! _ (game/initialize!))
+  (std-debug/assert (audio/initialize!))
   (set! running true)
   (ak/while (and running (ak/== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE))
     (set! _ (renderer/render! (host/frame! (az/unwrap window)))))

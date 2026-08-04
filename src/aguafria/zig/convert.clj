@@ -2686,8 +2686,20 @@
               (str/join "\n\n" (map pprint-code forms))
               (when (seq forms) "\n")
               "")
-         report (conversion-report context namespace-symbol forms source-orders
-                                   (/ (- (System/nanoTime) started) 1e6))]
+         base-report
+         (conversion-report context namespace-symbol forms source-orders
+                            (/ (- (System/nanoTime) started) 1e6))
+         catalog-module
+         {:renames
+          (into (sorted-map)
+                (keep (fn [[zig-name clojure-name]]
+                        (when (not= zig-name (str clojure-name))
+                          [(str clojure-name) zig-name])))
+                (:declaration-names context))
+          :compact-defaults (:compact-defaults base-report)
+          :source-orders source-orders
+          :imports project-imports}
+         report (assoc base-report :catalog-module catalog-module)]
      ;; `render-zig` evaluates forms in a temporary namespace. Register both
      ;; reader-safe declaration renames and compact defaults here so an
      ;; individual file round-trips exactly like the same file in a converted
@@ -2698,16 +2710,7 @@
      (project/register-catalog!
       {:schema-version 1
        :modules
-       {(str namespace-symbol)
-        {:renames
-         (into (sorted-map)
-               (keep (fn [[zig-name clojure-name]]
-                       (when (not= zig-name (str clojure-name))
-                         [(str clojure-name) zig-name])))
-               (:declaration-names context))
-         :compact-defaults (:compact-defaults report)
-         :source-orders source-orders
-         :imports project-imports}}})
+       {(str namespace-symbol) catalog-module}})
      (when (pos? (:unresolved-syntax-count report))
        (throw (ex-info "Generated Clojure contains unresolved Aguafria/Zig syntax"
                        {:path (str path)

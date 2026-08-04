@@ -3,25 +3,16 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std.math :as std-math]
             [aguafria.zig :as az]
-            [simple-game.game :as game]))
+            [simple-game.game :as game]
+            [simple-game.physics :as physics]))
 
-(az/defn ColorType
-  "Produce the cross-backend color type at Zig comptime."
-  {:attrs #{:public :implicit-return}}
-  :-
-  :type
-  []
-  (az/container
-   {:kind :struct :layout :extern}
-   (az/field-decl r :f32)
-   (az/field-decl g :f32)
-   (az/field-decl b :f32)
-   (az/field-decl a :f32)))
-
-(az/defconst Color
+(az/defstruct Color
   "Linear RGBA color consumed by every graphics backend."
-  {:attrs #{:public}}
-  (ColorType))
+  {:layout :extern}
+  [[:r :f32]
+   [:g :f32]
+   [:b :f32]
+   [:a :f32]])
 
 (az/defconst DrawRect
   {:attrs #{:public}}
@@ -123,7 +114,7 @@
   (let [scale-x (/ (ak/as :f32 (ak/floatFromInt frame-width)) 720.0)
         scale-y (/ (ak/as :f32 (ak/floatFromInt frame-height)) 540.0)
         radius (az/field packet radius)
-        ^{:var true :zig/type :i32} row (ak/intFromFloat (- 0.0 radius))]
+        ^{:var true} row (ak/as :i32 (ak/intFromFloat (- 0.0 radius)))]
     (ak/while (< row (ak/as :i32 (ak/intFromFloat radius)))
       (let [row-float (ak/as :f32 (ak/floatFromInt row))
             half-width (std-math/sqrt (- (* radius radius) (* row-float row-float)))
@@ -141,6 +132,58 @@
             height (ak/as :i32 (ak/intFromFloat scale-y))]
         (draw-rect color x y width height))
       (set! row (+ row 1)))))
+
+(az/defn draw-particle
+  "Project one real Box3D sphere into the shared 2D scene."
+  {:attrs #{:public}}
+  :-
+  :void
+  [[draw-rect DrawRect]
+   [particle physics/ParticleView]
+   [packet game/RenderPacket]
+   [frame-width :i32]
+   [frame-height :i32]]
+  (when (az/field particle active)
+    (let [scale-x (/ (ak/as :f32 (ak/floatFromInt frame-width)) 720.0)
+          scale-y (/ (ak/as :f32 (ak/floatFromInt frame-height)) 540.0)
+          depth-scale (+ 1.0 (* (az/field particle z) 0.06))
+          radius (* (az/field particle radius) 28.0 depth-scale)
+          center-x (+ (az/field packet center_x)
+                      (* (az/field particle x) 28.0))
+          center-y (+ (az/field packet center_y)
+                      (* (az/field particle y) 28.0)
+                      (* (az/field particle z) 3.0))
+          ^{:var true} row (ak/as :i32 (ak/intFromFloat (- 0.0 radius)))]
+      (ak/while (< row (ak/as :i32 (ak/intFromFloat radius)))
+        (let [row-float (ak/as :f32 (ak/floatFromInt row))
+              half-width (std-math/sqrt
+                          (- (* radius radius) (* row-float row-float)))
+              normalized (/ (+ row-float radius) (* radius 2.0))
+              color (effect-color (az/field particle tint)
+                                  (+ (az/field particle age) normalized)
+                                  normalized)
+              x (ak/as :i32
+                       (ak/intFromFloat (* (- center-x half-width) scale-x)))
+              y (ak/as :i32
+                       (ak/intFromFloat (* (+ center-y row-float) scale-y)))
+              width (ak/as :i32
+                           (ak/intFromFloat (* half-width 2.0 scale-x)))
+              height (ak/as :i32 (ak/intFromFloat scale-y))]
+          (draw-rect color x y width height))
+        (set! row (+ row 1))))))
+
+(az/defn draw-particles
+  "Render the bounded Box3D pool through the same backend callback."
+  {:attrs #{:public}}
+  :-
+  :void
+  [[draw-rect DrawRect]
+   [packet game/RenderPacket]
+   [frame-width :i32]
+   [frame-height :i32]]
+  (dotimes [slot physics/particle-capacity]
+    (draw-particle draw-rect (physics/particle-view slot)
+                   packet frame-width frame-height)))
 
 (az/defn draw-counter
   {:attrs #{:public}}
@@ -222,5 +265,6 @@
    [frame-width :i32]
    [frame-height :i32]]
   (draw-circle draw-rect packet frame-width frame-height)
+  (draw-particles draw-rect packet frame-width frame-height)
   (draw-counter draw-rect packet frame-width frame-height)
   (draw-fps draw-rect frame-width frame-height))

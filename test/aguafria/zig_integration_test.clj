@@ -2010,6 +2010,34 @@
           (az/configure! old-config)
           (remove-ns module-symbol))))))
 
+(deftest composite-return-materializes-through-a-complete-wrapper-generation-test
+  (testing "a native result requests a full-module JVM trampoline"
+    (let [old-config (az/configuration)
+          module-symbol (symbol (str "aguafria.composite-return-"
+                                     fixture-suffix))
+          module-ns (create-ns module-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* module-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval
+           '(az/defstruct Snapshot
+              {:layout :extern}
+              [[:count :u32]
+               [:ready :bool]]))
+          (eval
+           '(az/defn snapshot
+              :- Snapshot
+              []
+              (Snapshot {:count 7 :ready true}))))
+        (let [snapshot ((ns-resolve module-ns 'snapshot))]
+          (is (az/zig-value? snapshot))
+          (is (= {:count 7 :ready true} (az/value snapshot))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns module-symbol))))))
+
 (deftest cyclic-component-atomic-publication-and-rollback-test
   (testing "every prepared SCC member publishes together and a failed prepare publishes none"
     (let [old-config (az/configuration)

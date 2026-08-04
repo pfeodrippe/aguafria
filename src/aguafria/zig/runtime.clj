@@ -73,7 +73,7 @@
   not rebuild otherwise-unchanged dependents."
   true)
 
-(declare register-batch!)
+(declare register-batch! recompile-component!)
 
 (declare declaration-info declaration-type-value
          materialize-constant! materialize-state!
@@ -963,6 +963,13 @@
                           error)))))
     (emit-source! module declarations)))
 
+(defn- emit-dependency-reload-source!
+  [module declarations dispatch-specs state-specs]
+  (if (:reloadable? @config)
+    (emit/emit-reloadable-module module declarations dispatch-specs state-specs
+                                 {:dependency? true})
+    (emit-source! module declarations)))
+
 (defn- zig-version
   []
   (let [{:keys [exit out err command] :as result}
@@ -1197,15 +1204,17 @@
           (recur (next pending) seen snapshot)
           (let [module-state (ensure-static-module-source! module)
                 module-declarations (vec (vals (:definitions module-state)))
-                dependencies (direct-dependencies module-declarations)]
+                dependencies (direct-dependencies module-declarations)
+                dependency-source
+                (emit/emit-dependency-module module module-declarations)]
             (recur
              (concat (next pending) dependencies)
              (conj seen module)
              (cond-> snapshot
-               (string? (:source module-state))
+               (string? dependency-source)
                (assoc module
                       {:module module
-                       :source (:source module-state)
+                       :source dependency-source
                        :dependencies dependencies
                        :named-module-imports
                        (declaration-named-module-imports module-declarations)
@@ -1259,12 +1268,15 @@
             (boolean (:transitive-dependencies? compiler-options)))
         dependency-snapshot (:dependency-snapshot compiler-options)
         development-root-source (:development-root-source compiler-options)
+        development-root-dependencies
+        (:development-root-dependencies compiler-options)
         development-root-module (some-> declarations first :module str)
         development-profile-module (development-profile-module declarations)
         compiler-options (dissoc compiler-options :development-dependencies?
                                  :transitive-dependencies?
                                  :dependency-snapshot
-                                 :development-root-source)
+                                 :development-root-source
+                                 :development-root-dependencies)
         root-dependencies
         (->> (emit/declaration-imports declarations)
              vals
@@ -1360,13 +1372,16 @@
                                [development-root-module
                                 development-profile-module])
                              (when-not development-dependencies?
-                               root-dependencies))
+                               (concat root-dependencies
+                                       (filter external-names
+                                               root-named-module-imports))))
                             distinct
                             (remove nil?)
                             (sort-by str)
                             vec)
                  development-root-module
-                 (->> (concat root-dependencies
+                 (->> (concat (or development-root-dependencies
+                                   root-dependencies)
                               (filter external-names
                                       root-named-module-imports))
                       distinct
@@ -1482,13 +1497,22 @@
   ([module-name source declarations]
    (compile-source! module-name source declarations nil))
   ([module-name source declarations dependency-snapshot]
+   (compile-source! module-name source declarations dependency-snapshot source
+                    nil))
+  ([module-name source declarations dependency-snapshot development-root-source]
+   (compile-source! module-name source declarations dependency-snapshot
+                    development-root-source nil))
+  ([module-name source declarations dependency-snapshot development-root-source
+    development-root-dependencies]
    (let [development-dependencies? true
          profile-module (development-profile-module declarations)
          {:keys [cache-dir optimize zig] :as compiler-options}
          (compiler-options-for-declarations
           (cond-> (assoc @config
                          :development-dependencies? development-dependencies?
-                         :development-root-source source)
+                         :development-root-source development-root-source
+                         :development-root-dependencies
+                         development-root-dependencies)
             dependency-snapshot (assoc :dependency-snapshot dependency-snapshot))
           declarations)
         compiler-version (zig-version)
@@ -1501,7 +1525,8 @@
         module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
         source-file (io/file module-dir "module.zig")
         profile-root-declarations
-        (if (= (str module-name) profile-module)
+        (if (and (= (str module-name) profile-module)
+                 (= source development-root-source))
           ;; A breaking declaration may compile as an intentionally small
           ;; live slice of the profile root. Re-exporting every declaration
           ;; registered in the full module would reference names that are not
@@ -2054,6 +2079,16 @@
 (defn- dependency-state-entries
   [dependency-snapshot]
   (->> dependency-snapshot vals (mapcat :state-entries) vec))
+
+(defn- compilation-dependency-dispatch-entries
+  [compilation]
+  (into (dependency-dispatch-entries (:dependency-snapshot compilation))
+        (:embedded-root-dispatch-entries compilation)))
+
+(defn- compilation-dependency-state-entries
+  [compilation]
+  (into (dependency-state-entries (:dependency-snapshot compilation))
+        (:embedded-root-state-entries compilation)))
 
 (defn- bind-jvm-value
   [^Linker linker ^SymbolLookup lookup
@@ -3997,7 +4032,10 @@
          jvm-type-source (emit-jvm-type-wrappers jvm-type-specs)
          reload-source
          (emit-reload-source! module declarations reload-source-dispatch-specs
-                              state-specs)]
+                              state-specs)
+         dependency-source
+         (emit-dependency-reload-source!
+          module declarations reload-source-dispatch-specs state-specs)]
      {:source source
       :dispatch-specs dispatch-specs
       :reload-source-dispatch-specs reload-source-dispatch-specs
@@ -4006,6 +4044,7 @@
       ;; but never an exported implementation-address getter. This preserves
       ;; Zig's lazy/platform analysis when another module imports this source.
       :reload-source reload-source
+      :dependency-source dependency-source
       :jvm-callable-specs jvm-callable-specs
       :jvm-value-specs jvm-value-specs
       :jvm-type-specs jvm-type-specs
@@ -4386,6 +4425,16 @@
              (sort-by (juxt :source-order (comp str :name)))
              vec)))))
 
+(defn- direct-declaration-dependencies
+  [declarations]
+  (->> (emit/declaration-imports declarations)
+       vals
+       (keep :namespace)
+       (map str)
+       distinct
+       sort
+       vec))
+
 (defn- compilation-plan
   [module module-state declarations old-declaration declaration]
   (let [declarations (refresh-live-declaration-references declarations)
@@ -4402,6 +4451,18 @@
         getter-declaration-keys
         (changed-dispatch-declaration-keys module-state declarations)
         primary-dependencies (development-dependency-snapshot declarations)
+        cyclic-root?
+        (boolean
+         (some (fn [{:keys [dependencies]}]
+                 (some #{(str module)} dependencies))
+               (vals primary-dependencies)))
+        root-context-required?
+        (boolean
+         (some (fn [{:keys [named-module-imports]}]
+                 (some #{"root"} named-module-imports))
+               (vals primary-dependencies)))
+        complete-development-root?
+        (or cyclic-root? root-context-required?)
         primary (assoc (module-sources module declarations
                                        getter-declaration-keys)
                        :declarations declarations
@@ -4445,27 +4506,93 @@
                    :declarations fallback-declarations
                    :dependency-snapshot fallback-dependencies
                    :partial-publication? true)))]
-    {:primary primary
-     :fallback fallback
+    {:primary (assoc primary
+                     :development-root-source (:compile-source primary)
+                     :development-root-dependencies
+                     (direct-declaration-dependencies declarations))
+     :fallback (when fallback
+                 (let [fallback-dispatch-keys
+                       (set (keys (:reload-source-dispatch-specs fallback)))
+                       fallback-state-keys
+                       (set (keys (:state-specs fallback)))
+                       declarations-by-key
+                       (into {} (map (juxt :declaration-key identity))
+                             declarations)]
+                   (assoc fallback
+                        ;; A partial generation remains the callable root, but
+                        ;; cyclic dependencies must import the complete module
+                        ;; namespace. Otherwise an untouched type/function can
+                        ;; disappear merely because this edit publishes one
+                        ;; live slice.
+                        :development-root-source
+                        (if complete-development-root?
+                          (:compile-source primary)
+                          (:compile-source fallback))
+                        :development-root-dependencies
+                        (direct-declaration-dependencies
+                         (if complete-development-root?
+                           declarations
+                           (:declarations fallback)))
+                        :complete-development-root?
+                        complete-development-root?
+                        ;; The complete root source can retain imports that
+                        ;; are intentionally absent from the edited live
+                        ;; slice, so it needs the complete dependency graph as
+                        ;; well.
+                        :dependency-snapshot
+                        (if complete-development-root?
+                          (:dependency-snapshot primary)
+                          (:dependency-snapshot fallback))
+                        :embedded-root-dispatch-entries
+                        (when complete-development-root?
+                          (->> (:reload-source-dispatch-specs primary)
+                               (remove (comp fallback-dispatch-keys key))
+                               (keep (fn [[declaration-key spec]]
+                                       (when-let [embedded
+                                                  (get declarations-by-key
+                                                       declaration-key)]
+                                         {:declaration embedded
+                                          :spec spec
+                                          :owned? false})))
+                               vec))
+                        :embedded-root-state-entries
+                        (when complete-development-root?
+                          (->> (:state-specs primary)
+                               (remove (comp fallback-state-keys key))
+                               (keep (fn [[declaration-key spec]]
+                                       (when-let [embedded
+                                                  (get declarations-by-key
+                                                       declaration-key)]
+                                         {:declaration embedded
+                                          :spec spec
+                                          :owned? false})))
+                               vec)))))
      :old-declaration old-declaration
      :declaration declaration
      ;; A breaking type is a new logical generation. Compiling the complete
      ;; namespace here would silently redirect untouched dependents to it.
      ;; Publish only the edited Var and its declaration dependencies; each
      ;; caller/state owner adopts the new schema when explicitly reevaluated.
-     :prefer-fallback? (or incremental-publication?
+     :prefer-fallback? (or (and incremental-publication?
+                                (or (not (:partial-publication? module-state))
+                                    (nil? (:full-compile-error module-state))))
                            (breaking-type-change? old-declaration declaration))}))
 
 (defn- complete-compilation-plan
   [module module-state declarations]
   (let [declarations (refresh-live-declaration-references declarations)]
-    {:primary
-     (assoc (module-sources
-             module declarations
-             (changed-dispatch-declaration-keys module-state declarations))
-            :declarations declarations
-            :dependency-snapshot (development-dependency-snapshot declarations)
-            :partial-publication? false)}))
+    (let [primary
+          (assoc (module-sources
+                  module declarations
+                  (changed-dispatch-declaration-keys module-state declarations))
+                 :declarations declarations
+                 :dependency-snapshot
+                 (development-dependency-snapshot declarations)
+                 :partial-publication? false)]
+      {:primary (assoc primary
+                       :development-root-source (:compile-source primary)
+                       :development-root-dependencies
+                       (direct-declaration-dependencies declarations))})))
 
 (defn- compile-plan!
   [module {:keys [primary fallback prefer-fallback?]}]
@@ -4473,20 +4600,27 @@
     (assoc fallback :compiled
            (assoc (compile-source! module (:compile-source fallback)
                                    (:declarations fallback)
-                                   (:dependency-snapshot fallback))
+                                   (:dependency-snapshot fallback)
+                                   (:development-root-source fallback)
+                                   (:development-root-dependencies fallback))
                   :partial-publication? true))
     (try
       (assoc primary :compiled
              (compile-source! module (:compile-source primary)
                               (:declarations primary)
-                              (:dependency-snapshot primary)))
+                              (:dependency-snapshot primary)
+                              (:development-root-source primary)
+                              (:development-root-dependencies primary)))
       (catch Throwable full-error
         (if-not fallback
           (throw full-error)
           (try
             (let [compiled (compile-source! module (:compile-source fallback)
                                             (:declarations fallback)
-                                            (:dependency-snapshot fallback))]
+                                            (:dependency-snapshot fallback)
+                                            (:development-root-source fallback)
+                                            (:development-root-dependencies
+                                             fallback))]
               (assoc fallback :compiled
                      (assoc compiled
                             :partial-publication? true
@@ -4501,17 +4635,22 @@
 
 (defn- refresh-plan-dependency-snapshots
   [plan]
-  (reduce
-   (fn [plan branch]
-     (if-let [compilation (get plan branch)]
-       (assoc plan branch
-              (assoc compilation
-                     :dependency-snapshot
-                     (development-dependency-snapshot
-                      (:declarations compilation))))
-       plan))
-   plan
-   [:primary :fallback]))
+  (if-let [primary (:primary plan)]
+    (let [primary-snapshot
+          (development-dependency-snapshot (:declarations primary))]
+      (cond-> (assoc-in plan [:primary :dependency-snapshot]
+                        primary-snapshot)
+        (:fallback plan)
+        (assoc-in
+         [:fallback :dependency-snapshot]
+         (if (get-in plan [:fallback :complete-development-root?])
+           ;; A cyclic fallback's development root is the complete primary
+           ;; source, so refresh its complete graph from the same immutable
+           ;; registry view.
+           primary-snapshot
+           (development-dependency-snapshot
+            (get-in plan [:fallback :declarations]))))))
+    plan))
 
 (declare recompile-component! recompile-dependent-components!)
 
@@ -4526,17 +4665,18 @@
            :keys [compiled compile-source reload-source dispatch-specs
                   reload-source-dispatch-specs partial-publication?
                   dependency-snapshot jvm-callable-specs jvm-value-specs
-                  jvm-type-specs]}
+                  jvm-type-specs]
+           :as compilation}
           (compile-plan! module plan)
           ;; Stale snapshots are useful compiler work/history, but loading each
           ;; one would waste native-library arenas during a large REPL reload.
           loaded (when (= generation
                           (get-in @registry [module :requested-generation]))
                    (-> (load-module compiled compiled-declarations dispatch-specs
-                                    (dependency-dispatch-entries
-                                     dependency-snapshot)
-                                    (dependency-state-entries
-                                     dependency-snapshot)
+                                    (compilation-dependency-dispatch-entries
+                                     compilation)
+                                    (compilation-dependency-state-entries
+                                     compilation)
                                     jvm-callable-specs
                                     jvm-value-specs
                                     jvm-type-specs)
@@ -4569,7 +4709,7 @@
                              :source source
                              :reload-source reload-source
                              :dependency-source
-                             (get-in plan [:primary :reload-source])
+                             (get-in plan [:primary :dependency-source])
                              :dispatch-specs published-dispatch-specs
                              :reload-source-dispatch-specs
                              reload-source-dispatch-specs
@@ -4668,7 +4808,8 @@
                              (breaking-type-change? plan-old-declaration
                                                     plan-declaration))
                     (freeze-active-host-dispatch! plan-declaration))
-                {:keys [source compile-source reload-source dispatch-specs
+                {:keys [source compile-source reload-source dependency-source
+                        dispatch-specs
                         reload-source-dispatch-specs]} (:primary plan)
                 generation (inc (or (:requested-generation old-module)
                                     (:generation old-module) 0))
@@ -4693,7 +4834,7 @@
                            :definitions definitions
                            :source source
                            :reload-source reload-source
-                           :dependency-source reload-source
+                           :dependency-source dependency-source
                            :dispatch-specs dispatch-specs
                            :reload-source-dispatch-specs
                            reload-source-dispatch-specs
@@ -4781,7 +4922,8 @@
                              (breaking-type-change? plan-old-declaration
                                                     plan-declaration))
                     (freeze-active-host-dispatch! plan-declaration))
-                {:keys [source compile-source reload-source dispatch-specs
+                {:keys [source compile-source reload-source dependency-source
+                        dispatch-specs
                         reload-source-dispatch-specs]} (:primary plan)
                 generation (inc (or (:requested-generation old-module)
                                     (:generation old-module) 0))
@@ -4813,6 +4955,7 @@
                            :declarations declarations
                            :source source
                            :reload-source reload-source
+                           :dependency-source dependency-source
                            :dispatch-specs dispatch-specs
                            :reload-source-dispatch-specs
                            reload-source-dispatch-specs
@@ -4916,13 +5059,14 @@
                :keys [compiled compile-source reload-source dispatch-specs
                       reload-source-dispatch-specs
                       partial-publication? dependency-snapshot
-                      jvm-callable-specs jvm-value-specs jvm-type-specs]}
+                      jvm-callable-specs jvm-value-specs jvm-type-specs]
+               :as compilation}
               (compile-plan! module plan)
               loaded (-> (load-module compiled compiled-declarations dispatch-specs
-                                      (dependency-dispatch-entries
-                                       dependency-snapshot)
-                                      (dependency-state-entries
-                                       dependency-snapshot)
+                                      (compilation-dependency-dispatch-entries
+                                       compilation)
+                                      (compilation-dependency-state-entries
+                                       compilation)
                                       jvm-callable-specs
                                       jvm-value-specs
                                       jvm-type-specs)
@@ -4946,7 +5090,7 @@
                       :source source
                       :reload-source reload-source
                       :dependency-source
-                      (get-in plan [:primary :reload-source])
+                      (get-in plan [:primary :dependency-source])
                       :dispatch-specs published-dispatch-specs
                       :reload-source-dispatch-specs
                       reload-source-dispatch-specs
@@ -5055,6 +5199,7 @@
             {:definitions definitions
              :source (:source sources)
              :reload-source (:reload-source sources)
+             :dependency-source (:dependency-source sources)
              :dispatch-specs (:dispatch-specs sources)
              :reload-source-dispatch-specs
              (:reload-source-dispatch-specs sources)})}))
@@ -5069,7 +5214,11 @@
                    :dependency-snapshot
                    (development-dependency-snapshot
                     (:declarations job) staged-module-states)
-                   :partial-publication? false)})))
+                   :partial-publication? false
+                   :development-root-source (:compile-source sources)
+                   :development-root-dependencies
+                   (direct-declaration-dependencies
+                    (:declarations job)))})))
 
 (defn- prepared-component-module-state
   [old-module {:keys [module generation definitions] :as job}
@@ -5088,7 +5237,7 @@
             :requested-generation generation
             :source (get-in job [:plan :primary :source])
             :reload-source reload-source
-            :dependency-source (get-in job [:plan :primary :reload-source])
+            :dependency-source (get-in job [:plan :primary :dependency-source])
             :dispatch-specs dispatch-specs
             :reload-source-dispatch-specs reload-source-dispatch-specs
             :dependency-dispatch-specs
@@ -5204,10 +5353,10 @@
                   compilation
                   loaded
                   (-> (load-module compiled compiled-declarations dispatch-specs
-                                   (dependency-dispatch-entries
-                                    dependency-snapshot)
-                                   (dependency-state-entries
-                                    dependency-snapshot)
+                                   (compilation-dependency-dispatch-entries
+                                    compilation)
+                                   (compilation-dependency-state-entries
+                                    compilation)
                                    jvm-callable-specs
                                    jvm-value-specs
                                    jvm-type-specs)
@@ -5516,6 +5665,15 @@
   [old-declaration declaration]
   (and old-declaration
        (= (:logical-id old-declaration) (:logical-id declaration))
+       ;; Identical-looking Zig can close over a newer cross-namespace type or
+       ;; non-dispatchable comptime implementation. Those fingerprints are
+       ;; semantic inputs even when the local expression text is unchanged.
+       (= (:abi-fingerprint old-declaration)
+          (:abi-fingerprint declaration))
+       (= (:schema-fingerprint old-declaration)
+          (:schema-fingerprint declaration))
+       (= (:implementation-fingerprint old-declaration)
+          (:implementation-fingerprint declaration))
        (try
          (= (native-declaration-source old-declaration)
             (native-declaration-source declaration))
@@ -5580,10 +5738,46 @@
         {:module module :declaration-key declaration-key :batched? true})
       (do
         (project/ensure-source-catalog! (get-in declaration [:source :file]))
-        (let [current (get @registry module)
-              old-declaration (get-in current [:definitions declaration-key])]
+        (let [declaration
+              ;; Registering/evaluating an existing descriptor is an explicit
+              ;; adoption point. Refresh its referenced Vars before the
+              ;; unchanged fast path so stored generated descriptors adopt
+              ;; the same current type identities as freshly macroexpanded
+              ;; hand-written forms.
+              (first (refresh-live-declaration-references [declaration]))
+              current (get @registry module)
+              old-declaration (get-in current [:definitions declaration-key])
+              file-load-registration?
+              (boolean
+               (some (fn [^StackTraceElement frame]
+                       (and (= "clojure.lang.Compiler"
+                               (.getClassName frame))
+                            (= "load" (.getMethodName frame))))
+                     (.getStackTrace (Thread/currentThread))))
+              expected-declaration-count
+              (when file-load-registration?
+                (or (when (project/converted-module? module)
+                      (project/expected-declaration-count module))
+                    (project/expected-source-declaration-count
+                     module (get-in declaration [:source :file]))))
+              complete-namespace-loading?
+              (and file-load-registration?
+                   expected-declaration-count
+                   (< (count (assoc (or (:definitions current) {})
+                                    declaration-key declaration))
+                      expected-declaration-count))]
           (cond
             *source-only-registration?*
+            (register-source-only-declaration!
+             module declaration-key declaration)
+
+            ;; Generated namespaces are ordinary Clojure source and each Var
+            ;; remains available immediately. During the first namespace load,
+            ;; however, its EDN catalog gives us the exact declaration count.
+            ;; Collect the incomplete prefix without repeatedly emitting and
+            ;; dependency-scanning it; the final form schedules one complete
+            ;; immutable compilation snapshot.
+            complete-namespace-loading?
             (register-source-only-declaration!
              module declaration-key declaration)
 
@@ -5793,7 +5987,8 @@
        (swap! build-registry
               (fn [builds]
                 (-> builds (assoc build-key build-record) trim-build-history)))
-       (let [result (run-command command (.getAbsolutePath (.getParentFile output-file)))
+       (let [result (run-command command
+                                 (.getAbsolutePath (.getParentFile output-file)))
              finished-at (System/currentTimeMillis)]
          (if (zero? (:exit result))
            (let [artifact {:module module
@@ -6546,7 +6741,7 @@
           (swap! registry update-in [module :jvm-callable-declaration-keys]
                  (fnil conj #{}) (:declaration-key declaration)))
         (binding [*propagate-dependent-changes?* false]
-          (recompile! module))
+          (recompile-component! module))
         (await-callable-generation! module)))))
 
 (defn- current-value-binding
@@ -7064,7 +7259,7 @@
           (swap! registry update-in [target-module :jvm-type-declaration-keys]
                  (fnil conj #{}) (:declaration-key declaration)))
         (binding [*propagate-dependent-changes?* false]
-          (recompile! target-module))
+          (recompile-component! target-module))
         (await-callable-generation! target-module)
         true))))
 
@@ -7149,7 +7344,7 @@
         (swap! registry update-in [module :jvm-value-declaration-keys]
                (fnil conj #{}) (:declaration-key declaration)))
       (binding [*propagate-dependent-changes?* false]
-        (recompile! module))
+        (recompile-component! module))
       (await-callable-generation! module))
     (when (and (not (contains? scalar-layouts (scalar-key (:type declaration))))
                (nil? (native-type-schema module (:type declaration))))
@@ -7220,7 +7415,7 @@
         (swap! registry update-in [module :jvm-value-declaration-keys]
                (fnil conj #{}) (:declaration-key declaration)))
       (binding [*propagate-dependent-changes?* false]
-        (recompile! module))
+        (recompile-component! module))
       (await-callable-generation! module))
     (when (nil? (native-type-schema module type))
       (ensure-native-type-binding! module type))

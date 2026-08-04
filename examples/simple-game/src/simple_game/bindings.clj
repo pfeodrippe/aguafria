@@ -16,15 +16,22 @@
       (when (seq missing)
         (generate/generate!))
       (build/prepare-flecs!)
-      ;; Flecs participates in game compilation. Vulkan/GLFW are loaded by the
-      ;; desktop namespace only, keeping headless game-logic edits small.
-      (let [flecs (first specs)]
-        (ac/load-bindings! (:output flecs)))
+      (build/prepare-box3d!)
+      (build/prepare-miniaudio!)
+      ;; Game/Flecs, particle physics, and click audio are all ordinary,
+      ;; inspectable Aguafria dependencies. Vulkan/GLFW stay desktop-only.
+      (doseq [name [:flecs :box3d :miniaudio]
+              :let [spec (some #(when (= name (:name %)) %) specs)]]
+        (ac/load-bindings! (:output spec)))
       (az/configure! {:zig-args (build/link-arguments)
                       :reloadable? true})
       (reset! loaded? true)))
   {:loaded? @loaded?
    :flecs-bindings
-   (when @loaded? (ac/namespace-info 'simple-game.bindings.flecs))})
+   (when @loaded? (ac/namespace-info 'simple-game.bindings.flecs))
+   :box3d-bindings
+   (when @loaded? (ac/namespace-info 'simple-game.bindings.box3d))
+   :miniaudio-bindings
+   (when @loaded? (ac/namespace-info 'simple-game.bindings.miniaudio))})
 
 (ensure-loaded!)
