@@ -55,6 +55,7 @@
   (ak/while (and running (ak/== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE))
     (set! _ (renderer/render! (host/frame! (az/unwrap window)))))
   (renderer/shutdown-renderer!)
+  (game/shutdown)
   (glfw/glfwDestroyWindow window)
   (set! window null)
   (glfw/glfwTerminate)

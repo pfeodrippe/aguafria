@@ -12,6 +12,16 @@
       :output (io/file root "generated/simple_game/bindings/flecs.clj")
       :namespace 'simple-game.bindings.flecs
       :include-dirs [(io/file root "vendor/flecs/distr")]}
+     {:name :box3d
+      :header (io/file root "vendor/box3d/include/box3d/box3d.h")
+      :output (io/file root "generated/simple_game/bindings/box3d.clj")
+      :namespace 'simple-game.bindings.box3d
+      :include-dirs [(io/file root "vendor/box3d/include")]}
+     {:name :miniaudio
+      :header (io/file root "vendor/miniaudio/miniaudio.h")
+      :output (io/file root "generated/simple_game/bindings/miniaudio.clj")
+      :namespace 'simple-game.bindings.miniaudio
+      :include-dirs [(io/file root "vendor/miniaudio")]}
      {:name :vulkan
       :header (io/file root "vendor/vulkan-headers/include/vulkan/vulkan.h")
       :output (io/file root "generated/simple_game/bindings/vulkan.clj")

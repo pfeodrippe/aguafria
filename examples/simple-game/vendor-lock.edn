@@ -1,11 +1,17 @@
 {:generated-at "2026-08-03"
  :dependencies
- {:flecs {:repository "https://github.com/SanderMertens/flecs.git"
+ {:box3d {:repository "https://github.com/erincatto/box3d.git"
+          :branch "main"
+          :commit "3fc20f5b453ba9e14cdf54ecafa87a2a4bcdf53c"}
+  :flecs {:repository "https://github.com/SanderMertens/flecs.git"
           :branch "master"
           :commit "14ad7136f550079b9c1efe15cc669b737a4bd1fd"}
   :glfw {:repository "https://github.com/glfw/glfw.git"
          :branch "master"
          :commit "d9d6f0f1f967807ffade6598ea9a631ebaf37a56"}
+  :miniaudio {:repository "https://github.com/mackron/miniaudio.git"
+              :branch "master"
+              :commit "9634bedb5b5a2ca38c1ee7108a9358a4e233f14d"}
   :vulkan-headers
   {:repository "https://github.com/KhronosGroup/Vulkan-Headers.git"
    :branch "main"

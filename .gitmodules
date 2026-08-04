@@ -1,3 +1,23 @@
 [submodule "vendor/tigerbeetle"]
 	path = vendor/tigerbeetle
 	url = https://github.com/tigerbeetle/tigerbeetle.git
+[submodule "examples/simple-game/vendor/flecs"]
+	path = examples/simple-game/vendor/flecs
+	url = https://github.com/SanderMertens/flecs.git
+	branch = master
+[submodule "examples/simple-game/vendor/glfw"]
+	path = examples/simple-game/vendor/glfw
+	url = https://github.com/glfw/glfw.git
+	branch = master
+[submodule "examples/simple-game/vendor/box3d"]
+	path = examples/simple-game/vendor/box3d
+	url = https://github.com/erincatto/box3d.git
+	branch = main
+[submodule "examples/simple-game/vendor/miniaudio"]
+	path = examples/simple-game/vendor/miniaudio
+	url = https://github.com/mackron/miniaudio.git
+	branch = master
+[submodule "examples/simple-game/vendor/vulkan-headers"]
+	path = examples/simple-game/vendor/vulkan-headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+	branch = main

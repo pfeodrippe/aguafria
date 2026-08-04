@@ -5,13 +5,23 @@
             [aguafria.zig :as az]
             [simple-game.game :as game]))
 
-(az/defstruct Color
+(az/defn ColorType
+  "Produce the cross-backend color type at Zig comptime."
+  {:attrs #{:public :implicit-return}}
+  :-
+  :type
+  []
+  (az/container
+   {:kind :struct :layout :extern}
+   (az/field-decl r :f32)
+   (az/field-decl g :f32)
+   (az/field-decl b :f32)
+   (az/field-decl a :f32)))
+
+(az/defconst Color
   "Linear RGBA color consumed by every graphics backend."
-  {:layout :extern}
-  [[:r :f32]
-   [:g :f32]
-   [:b :f32]
-   [:a :f32]])
+  {:attrs #{:public}}
+  (ColorType))
 
 (az/defconst DrawRect
   {:attrs #{:public}}

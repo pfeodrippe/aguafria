@@ -40,4 +40,10 @@
   ;; Build the same sources as one optimized executable, outside the REPL:
   ;;   clojure -M:standalone
   ;;   ./build/standalone/simple-game
+
+  ;; Cross-compile the same game/host/scene code to WebAssembly. GLFW owns
+  ;; browser input and the main loop; JavaScript only instantiates the module.
+  ;;   clojure -M:web
+  ;;   clojure -M:serve-web
+  ;;   open http://127.0.0.1:8787/
   )

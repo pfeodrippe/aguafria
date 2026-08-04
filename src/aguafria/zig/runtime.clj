@@ -83,12 +83,64 @@
          native-type-schema
          scalar-key scalar-layouts)
 
+(defn- referenced-declaration
+  [context-module reference]
+  (when (symbol? reference)
+    (let [zig-reference (-> reference meta :aguafria/zig-reference)
+          target-symbol (:symbol zig-reference)
+          target-module (or (:module zig-reference)
+                            (some-> target-symbol namespace)
+                            (namespace reference)
+                            context-module)
+          target-name (or (some-> target-symbol name)
+                          (name reference))]
+      (some #(when (= target-name (str (:name %))) %)
+            (vals (get-in @registry [target-module :definitions]))))))
+
+(defn- type-factory-call
+  [{:keys [kind module value]}]
+  (when (and (= :const kind) (seq? value) (symbol? (first value)))
+    (let [factory (referenced-declaration module (first value))]
+      (when (and (= :fn (:kind factory)) (= :type (:return factory)))
+        {:factory factory :arguments (vec (rest value))}))))
+
+(defn- returned-type-form
+  [body]
+  (let [candidate (last body)]
+    (cond
+      (and (seq? candidate)
+           (contains? #{"return" "comptime"} (name (first candidate))))
+      (second candidate)
+
+      (and (seq? candidate)
+           (contains? #{"do" "block"} (name (first candidate))))
+      (returned-type-form (rest candidate))
+
+      :else candidate)))
+
+(defn- container-type-form
+  [{:keys [kind module value] :as declaration}]
+  (when (= :const kind)
+    (or
+     (when (and (seq? value) (symbol? (first value))
+                (= "container" (name (first value))))
+       value)
+     (when-let [{:keys [factory arguments]} (type-factory-call declaration)]
+       (let [parameters (mapv :name (:args factory))]
+         (when (= (count parameters) (count arguments))
+           (let [returned (walk/postwalk-replace
+                           (zipmap parameters arguments)
+                           (returned-type-form (:body factory)))]
+             (when (and (seq? returned) (symbol? (first returned))
+                        (= "container" (name (first returned))))
+               returned))))))))
+
 (defn- container-type-description
   [declaration]
-  (when (= :const (:kind declaration))
+  (when-let [form (container-type-form declaration)]
     (emit/container-description
      (or (some-> (:module declaration) symbol find-ns) *ns*)
-     (:value declaration))))
+     form)))
 
 (defn declaration-root-value
   "Return the public Clojure root for a Zig constant. Literal values retain
@@ -555,11 +607,8 @@
                 (mapv type-factory-schema-value arguments)}))))}))
 
 (defn- container-type-declaration?
-  [{:keys [kind value]}]
-  (and (= :const kind)
-       (seq? value)
-       (symbol? (first value))
-       (= "container" (name (first value)))))
+  [declaration]
+  (boolean (container-type-form declaration)))
 
 (defn- type-factory-schema-value
   [value]
@@ -616,7 +665,8 @@
       (assoc :schema-fingerprint
              (data-fingerprint
               {:symbol (declaration-zig-name declaration)
-               :schema (container-value-schema (:value declaration))})
+               :schema (container-value-schema
+                        (container-type-form declaration))})
              ;; The schema deliberately excludes nested method bodies, but a
              ;; compatible method edit still changes every monomorphization
              ;; that copied that method at comptime.
@@ -2606,12 +2656,10 @@
   (and schema-fingerprint (not= :var kind)))
 
 (defn- constructor-type-reference?
-  [kind value]
+  [{:keys [kind value] :as declaration}]
   (or (= :struct kind)
       (and (= :const kind)
-           (or (and (seq? value)
-                    (symbol? (first value))
-                    (= "container" (name (first value))))
+           (or (container-type-declaration? declaration)
                (and (symbol? value)
                     (-> value meta :aguafria/zig-reference
                         :type-reference?))))))
@@ -2635,7 +2683,7 @@
     ;; `:type-reference?` means the Var itself is usable with Zig's
     ;; `Type{...}` constructor syntax. A function returning `type` is invoked
     ;; normally and must not be rewritten to `function{...}`.
-    (constructor-type-reference? kind value)
+    (constructor-type-reference? declaration)
     (assoc :type-reference? true)))
 
 (defn- publish-clojure-declaration-metadata!
@@ -5494,8 +5542,8 @@
   (locking compile-lock
     (let [current (get @registry module)
           definitions (or (:definitions current) {})
-          declaration (stable-source-order definitions declaration)
-          definitions (assoc definitions declaration-key declaration)]
+          {:keys [declaration definitions]}
+          (replacement-declaration-state definitions declaration)]
       (swap! registry assoc module
              (merge current
                     {:module module

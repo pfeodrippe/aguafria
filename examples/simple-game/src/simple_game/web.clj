@@ -62,6 +62,19 @@
   []
   (render! (host/frame! (az/unwrap window))))
 
+(az/defn web-stop
+  "Stop the browser loop and release Flecs and GLFW resources."
+  {:attrs #{:public :export}}
+  :-
+  :void
+  []
+  (emscripten/emscripten_cancel_main_loop)
+  (game/shutdown)
+  (when (ak/!= window null)
+    (glfw/glfwDestroyWindow window)
+    (set! window null))
+  (glfw/glfwTerminate))
+
 (az/defn web-start
   "Create the GLFW ES context and enter Emscripten's native main loop."
   {:attrs #{:public :export}}

@@ -1387,6 +1387,26 @@
           (remove-ns caller-symbol)
           (remove-ns provider-symbol))))))
 
+(deftest declaration-kind-change-replaces-same-zig-name-test
+  (testing "a new type kind replaces its name while retaining old native generations"
+    (let [old-config (az/configuration)
+          module-symbol (symbol (str "aguafria.kind-change-" fixture-suffix))
+          module-ns (create-ns module-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* module-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defstruct Value [[:x :u32]]))
+          (eval '(az/defconst Value :u32)))
+        (let [source (az/source module-symbol)]
+          (is (= :finished (:status (az/stats module-symbol))))
+          (is (= 1 (count (re-seq #"pub const Value" source))))
+          (is (not (str/includes? source "Value = struct"))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns module-symbol))))))
+
 (deftest hot-reload-test
   (testing "a compatible callee edit repoints an already-compiled Zig caller"
     (try
@@ -1948,6 +1968,47 @@
           (az/configure! old-config)
           (remove-ns b-symbol)
           (remove-ns a-symbol))))))
+
+(deftest comptime-type-factory-alias-is-a-constructor-test
+  (testing "a const initialized by a type factory is known as a real Zig type"
+    (let [old-config (az/configuration)
+          module-symbol (symbol (str "aguafria.factory-constructor-"
+                                     fixture-suffix))
+          module-ns (create-ns module-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* module-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval
+           '(az/defn ColorType
+              {:attrs #{:public :implicit-return}}
+              :- :type
+              []
+              (az/container
+               {:kind :struct :layout :extern}
+               (az/field-decl r :f32)
+               (az/field-decl g :f32))))
+          (eval '(az/defconst Color {:attrs #{:public}} (ColorType)))
+          (eval
+           '(az/defn sum-color :- :f32
+              [[color Color]]
+              (+ (az/field color r) (az/field color g))))
+          (eval
+           '(az/defn constructed-sum :- :f32
+              []
+              (sum-color (Color {:r 1.25 :g 2.5})))))
+        (let [constructor @(ns-resolve module-ns 'Color)
+              color (constructor {:r 1.25 :g 2.5})]
+          (is (az/zig-type? constructor))
+          (is (= {:r 1.25 :g 2.5} (az/value color)))
+          (is (= 3.75 ((ns-resolve module-ns 'sum-color) color)))
+          (is (= 3.75 ((ns-resolve module-ns 'constructed-sum)))))
+        (is (str/includes? (az/source module-symbol)
+                           "Color{.g = 2.5, .r = 1.25}"))
+        (finally
+          (az/configure! old-config)
+          (remove-ns module-symbol))))))
 
 (deftest cyclic-component-atomic-publication-and-rollback-test
   (testing "every prepared SCC member publishes together and a failed prepare publishes none"

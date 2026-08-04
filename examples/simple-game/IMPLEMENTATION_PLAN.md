@@ -11,6 +11,8 @@ The first playable scene contains one circle and a counter:
 - The circle is idle until the pointer enters it.
 - Hovering animates the circle continuously.
 - Clicking the circle increments a counter rendered to its right.
+- Every click emits a small bounded burst of Box3D sphere particles from the
+  large circle and plays a short miniaudio sound.
 - Counter values select five visibly different fragment-shader effects; the
   shader selection repeats with `counter % 5`.
 - Gameplay, GLFW input, Flecs timing, scene construction, effects, counter
@@ -26,6 +28,10 @@ Clojure/nREPL
 Aguafria Vars (components, systems, frame, platform backends, shaders)
     |
     +---- generated Flecs bindings ---- upstream Flecs C master
+    |
+    +---- generated Box3D bindings --- upstream Box3D C API/main
+    |
+    +---- generated miniaudio bindings + implementation
     |
     +---- generated platform bindings
               |
@@ -60,7 +66,9 @@ and hot-reloadable as Aguafria Vars.
 - [x] Vendor the current `master` of GLFW for native window/input/Vulkan surface
   creation and record its exact commit.
 - [x] Vendor current Khronos Vulkan headers and record their exact commit.
-- [ ] Provide an idempotent update command which fetches the newest configured
+- [x] Add Box3D `main` and miniaudio `master` as real submodules and record
+  their exact commits.
+- [x] Provide an idempotent update command which fetches the newest configured
   branches, updates the lock data, and regenerates bindings.
 - [x] Never require an existing JVM Flecs wrapper or pre-generated Flecs binding.
 - [x] Keep dependencies inside `examples/simple-game/vendor`; do not change the
@@ -96,6 +104,15 @@ and hot-reloadable as Aguafria Vars.
 - [x] Make live world/counter/shader state inspectable from Clojure.
 - [x] Keep frame-time-independent animation and handle window resizing and
   high-DPI pointer coordinates.
+- [ ] Create a bounded Box3D world and sphere-particle pool whose bodies retain
+  real X/Y/Z positions and velocities while the current renderer projects them
+  to the shared 2D scene.
+- [ ] Emit particles from the circle on the same authoritative Flecs click
+  transition used by GLFW and nREPL.
+- [ ] Initialize miniaudio once and play a generated, dependency-free click
+  waveform from that same transition.
+- [ ] Make Box3D bodies, particle slots, and audio engine/device state
+  inspectable from Clojure without putting either dependency in the final JVM.
 
 ## Graphics and input
 
@@ -111,11 +128,11 @@ and hot-reloadable as Aguafria Vars.
 
 ## Development and standalone workflows
 
-- [ ] Provide `deps.edn` aliases for dependency sync, binding generation, native
+- [x] Provide `deps.edn` aliases for dependency sync, binding generation, native
   preparation, nREPL, tests, desktop run/build, and web build/serve.
 - [x] In development, load Flecs/platform native libraries once and let compatible
   Aguafria function edits publish through stable dispatch without rebuilding C.
-- [ ] Demonstrate three live edits while the same game window and Flecs world stay
+- [x] Demonstrate three live edits while the same game window and Flecs world stay
   alive: shader math, click/counter behavior, and a comptime-produced render type.
 - [x] Show active compilation/version statistics from the REPL.
 - [x] Build a ReleaseFast desktop executable with no JVM/runtime dependency.

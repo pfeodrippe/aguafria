@@ -4,7 +4,10 @@
         aguafria/aguafria {:local/root "../.."}}
 
  :aliases
- {:generate
+ {:vendor
+  {:main-opts ["-m" "simple-game.vendor"]}
+
+  :generate
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
    :main-opts ["-m" "simple-game.generate"]}
 

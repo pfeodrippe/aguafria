@@ -324,7 +324,7 @@
              "-sUSE_GLFW=3"
              "-sNO_EXIT_RUNTIME=1"
              "--no-entry"
-             "-sEXPORTED_FUNCTIONS=['_web_start']"]
+             "-sEXPORTED_FUNCTIONS=['_web_start','_web_stop']"]
             package (run-command! emcc-command root)]
         (copy-web-assets! web-build-root)
         {:flecs flecs
