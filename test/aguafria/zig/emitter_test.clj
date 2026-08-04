@@ -25,6 +25,27 @@
   (is (= "circle_contains_q" (emit/identifier 'circle-contains?)))
   (is (= "reset_bang" (emit/identifier 'reset!))))
 
+(deftest static-dependency-demotes-default-exports-without-development-containers-test
+  (let [source
+        (emit/emit-static-dependency-module
+         "demo.dependency"
+         [{:kind :fn
+           :module "demo.dependency"
+           :name 'initialize!
+           :declaration-key [:fn 'initialize!]
+           :args []
+           :return :bool
+           :body [true]
+           :public? true
+           :export? true
+           :source {:file "demo/dependency.clj" :line 7 :column 1}}])]
+    (is (str/includes? source
+                       "pub fn initialize_bang() callconv(.c) bool"))
+    (is (not (str/includes? source "export fn initialize_bang")))
+    (is (not (str/includes? source "__aguafria_type__")))
+    (is (str/includes? source
+                       "Aguafria declaration: demo.dependency/initialize!"))))
+
 (deftest unevaluated-cross-namespace-name-is-normalized-test
   (let [provider-symbol 'aguafria.emitter-forward-provider
         caller-symbol 'aguafria.emitter-forward-caller
@@ -89,6 +110,34 @@
               10
               (if (= value 1) 20 30))
            (first (:body declaration))))))
+
+(deftest local-callable-shadows-clojure-core-macro-test
+  (let [context-ns (the-ns 'aguafria.zig.emitter-test)
+        declaration
+        (emit/prepare-declaration
+         context-ns
+         {:kind :fn
+          :name 'check
+          :args []
+          :return :void
+          :body '((ak/const assert checker)
+                  (assert true "from Zig"))})]
+    (is (= '[(const assert checker)
+             (assert true "from Zig")]
+           (:body declaration))))
+  (let [context-ns (the-ns 'aguafria.zig.emitter-test)
+        declaration
+        (emit/prepare-declaration
+         context-ns
+         {:kind :fn
+          :name 'factory
+          :args []
+          :return :type
+          :body '((az/container
+                   {:kind :struct :layout :normal}
+                   (az/fn-decl sync :- :void []))
+                  (sync self frame))})]
+    (is (= '(sync self frame) (second (:body declaration))))))
 
 (deftest expression-emission-test
   (is (= "(a + (b * 2))" (emit/emit-expr '(+ a (* b 2)))))
@@ -277,6 +326,46 @@
     (is (str/includes? source "pub fn scale(comptime value: u32) u32"))
     (is (not (str/includes? source "callconv(.c)")))))
 
+(deftest named-dependencies-preserve-per-module-type-identity-test
+  (let [alpha-container (emit/named-module-container "demo.alpha")
+        beta-container (emit/named-module-container "demo.beta")
+        imported-alpha
+        (with-meta 'alpha
+          {:aguafria/zig-reference
+           {:kind :namespace-root
+            :module "demo.alpha"
+            :import-name "demo.alpha"
+            :import-namespace 'demo.alpha
+            :zig-name "alpha"
+            :symbol 'alpha}})
+        dependency-source
+        (emit/emit-dependency-module
+         "demo.alpha"
+         [{:kind :const
+           :name 'Thing
+           :public? true
+           :value '(container {:kind :struct})}])
+        root-source
+        (emit/emit-named-module
+         "demo.root"
+         [{:kind :const :name 'alpha :value imported-alpha}
+          {:kind :const :name 'type-name
+           :value '(ak/typeName :u32)}])]
+    (testing "containers are deterministic and differ across source modules"
+      (is (not= alpha-container beta-container))
+      (is (str/includes? dependency-source
+                         (str "pub const " alpha-container " = struct")))
+      (is (str/includes? dependency-source
+                         "inline fn __aguafria_type_name(comptime T: type) [:0]const u8"))
+      (is (str/includes? dependency-source
+                         "if (comptime @import(\"std\").mem.startsWith")))
+    (testing "compiler roots select the dependency container"
+      (is (str/includes?
+           root-source
+           (str "@import(\"demo.alpha\")." alpha-container)))
+      (is (str/includes? root-source
+                         "__aguafria_type_name(u32)")))))
+
 (deftest reloadable-module-publication-epoch-test
   (let [declaration {:kind :fn :name 'increment :return :i32 :export? true
                      :declaration-key [:fn 'increment]
@@ -328,9 +417,50 @@
            :publication-epoch "__publication_epoch"
            :publication-epoch-setter "__set_publication_epoch"}})]
     (is (str/includes? source "__aguafria_discard_0: i32"))
+    (is (str/includes? source "_ = __aguafria_discard_0;"))
     (is (str/includes? source
                        "__impl(__aguafria_discard_0, value)"))
     (is (not (str/includes? source "__impl(_, value)")))))
+
+(deftest reloadable-const-keeps-comptime-state-reference-direct-test
+  (let [state-symbol
+        (with-meta 'io-threaded
+          {:aguafria/zig-reference
+           {:symbol 'io-threaded
+            :zig-name "io_threaded"
+            :declaration-kind :var
+            :state-accessor "__state_io_threaded_reference"}})
+        state {:kind :var
+               :name 'io-threaded
+               :zig-name "io_threaded"
+               :type :u32
+               :value 41
+               :declaration-key [:var 'io-threaded]}
+        derived {:kind :const
+                 :name 'answer
+                 :type :u32
+                 :value (list 'aguafria.keyword/+ state-symbol 1)
+                 :declaration-key [:const 'answer]}
+        runtime-reader {:kind :fn
+                        :name 'read-answer
+                        :return :u32
+                        :args []
+                        :body [state-symbol]
+                        :declaration-key [:fn 'read-answer]}
+        source
+        (emit/emit-reloadable-module
+         "demo.comptime-state"
+         [state derived runtime-reader]
+         {}
+         {[:var 'io-threaded]
+          {:accessor "__state_io_threaded_reference"
+           :getter "__state_io_threaded_address"
+           :setter "__state_io_threaded_set_address"
+           :size-getter "__state_io_threaded_size"
+           :align-getter "__state_io_threaded_alignment"}})]
+    (is (str/includes? source "const answer: u32 = (io_threaded + 1);"))
+    (is (str/includes? source
+                       "return __state_io_threaded_reference().*;"))))
 
 (deftest source-metadata-safety-test
   (let [source (emit/emit-module

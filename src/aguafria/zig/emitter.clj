@@ -74,6 +74,52 @@
 
 (def ^:dynamic *reloadable-state-references?* false)
 (def ^:dynamic *lexical-bindings* #{})
+(def ^:dynamic *named-module-imports?* false)
+(def ^:dynamic *logical-type-names?* false)
+
+(defn logical-module-type-name
+  "Return the type-name prefix Zig assigned to a file in its original tree."
+  [module-name]
+  (if-let [relative-path (project/module-relative-path module-name)]
+    (-> relative-path
+        (str/replace "\\" "/")
+        (str/replace #"^src/" "")
+        (str/replace #"\.zig$" "")
+        (str/replace "/" "."))
+    (str module-name)))
+
+(defn named-module-container
+  "Return the stable Zig container used for a converted named module.
+
+  Zig reports a nested type declared directly in every named module root as
+  `module.Type`. Large projects commonly use `@typeName` as a compile-time
+  identity. The quoted container retains the file's original logical path so
+  Aguafria can remove only Zig's synthetic `module.` cache-file prefix."
+  [module-name]
+  (let [logical-name (logical-module-type-name module-name)]
+    (str "@\"__aguafria_type__"
+         (str/escape logical-name {\\ "\\\\" \" "\\\""})
+         "\"")))
+
+(defn- named-module-selector
+  [module-name]
+  (when (and *named-module-imports?* module-name)
+    (str "." (named-module-container module-name))))
+
+(def ^:private logical-type-name-helper
+  (str "inline fn __aguafria_type_name(comptime T: type) [:0]const u8 {\n"
+       ;; Reconstructing logical names adds comptime work to projects that
+       ;; reflect over hundreds of types.  Keep this helper from consuming a
+       ;; caller's deliberately tight quota; one million remains only an
+       ;; upper bound and has no runtime cost.
+       "    @setEvalBranchQuota(1_000_000);\n"
+       "    const type_name = @typeName(T);\n"
+       "    const cache_prefix = \"module.__aguafria_type__\";\n"
+       "    if (comptime @import(\"std\").mem.startsWith(u8, type_name, cache_prefix)) {\n"
+       "        return type_name[cache_prefix.len.. :0];\n"
+       "    }\n"
+       "    return type_name;\n"
+       "}"))
 
 (defn- current-keyword-token
   [op]
@@ -257,7 +303,9 @@
   (let [op (first form)
         structural? (some? (resolved-syntax-operator context-ns op))
         token (when-not structural? (keyword/resolve-token context-ns op))
-        macro-var (when (and (symbol? op) (nil? token))
+        macro-var (when (and (symbol? op)
+                             (nil? token)
+                             (not (contains? *lexical-bindings* op)))
                     (resolve-context-var context-ns op))]
     (when (and (not structural?)
                (not (contains? preserved-clojure-macro-operators
@@ -396,11 +444,19 @@
         (mapcat (fn [value]
                   (if-not (seq? value)
                     []
-                    (let [operator (resolved-syntax-operator context-ns
-                                                             (first value))
+                    (let [form-operator (first value)
+                          token (keyword/resolve-token context-ns form-operator)
+                          operator (or (resolved-syntax-operator context-ns
+                                                                 form-operator)
+                                       (when (= :keyword (:kind token))
+                                         (symbol (:zig-token token))))
                           bindings (second value)]
                       (cond
                         (and (contains? #{'const 'var} operator)
+                             (symbol? bindings))
+                        [bindings]
+
+                        (and (contains? declaration-name-operators operator)
                              (symbol? bindings))
                         [bindings]
 
@@ -938,8 +994,14 @@
   (keyword/validate-call! token args form)
   (case (:kind token)
     :call
-    (str (:zig-name token) "("
-         (str/join ", " (map emit-expr args)) ")")
+    (let [logical-type-name? (and *logical-type-names?*
+                                  (= "@typeName" (:zig-name token)))
+          call-source
+          (str (if logical-type-name?
+                 "__aguafria_type_name"
+                 (:zig-name token))
+               "(" (str/join ", " (map emit-expr args)) ")")]
+      call-source)
 
     :operator
     (let [operator (:zig-token token)]
@@ -2074,6 +2136,16 @@
          (when line (str ":" line))
          (when column (str ":" column)) "\n"))))
 
+(defn- declaration-source-comment
+  [{:keys [module name qualified-name]}]
+  (let [declaration-name (or (some-> qualified-name str)
+                             (when (and module name)
+                               (str module "/" name)))]
+    (when (and (seq declaration-name)
+               (< (count declaration-name) 4096)
+               (not (re-find #"[\r\n]" declaration-name)))
+      (str "// Aguafria declaration: " declaration-name "\n"))))
+
 (defn- declaration-sort-key
   [{:keys [kind name source-order]}]
   (if (some? source-order)
@@ -2143,18 +2215,23 @@
            source code import-name leading-source zig-prefix zig-qualifiers
            zig-name implicit-return? emit-source-comment? test-name
            has-value? align doc comments body-prefix-source
-           dependency-default-export?]
+           dependency-default-export? import-container]
     :as declaration}]
   (let [declaration-name (or zig-name name)]
     (str
      leading-source
      (declaration-notes {:doc doc :comments comments})
-     (when (not= false emit-source-comment?) (source-comment source))
+     (when (or *source-mapping?* (not= false emit-source-comment?))
+       (str (declaration-source-comment declaration)
+            (source-comment source)))
      (case kind
      :import
      (if (string? import-name)
        (str (declaration-prefix zig-prefix "") "const "
-            (identifier declaration-name) " = @import(" (zig-string import-name) ");")
+            (identifier declaration-name) " = @import(" (zig-string import-name) ")"
+            (when import-container
+              (str "." (identifier import-container)))
+            ";")
        (fail! "Import declaration requires string :import-name" declaration))
 
      :raw
@@ -2162,7 +2239,8 @@
 
      :const
      (let [rendered (if-let [import (namespace-root-import declaration)]
-                      (str "@import(" (zig-string (:import-name import)) ")")
+                      (str "@import(" (zig-string (:import-name import)) ")"
+                           (named-module-selector (:import-namespace import)))
                       (emit-expr value))]
        (str (declaration-prefix zig-prefix
                                 (when (not= false public?) "pub "))
@@ -2304,6 +2382,16 @@
                          (symbol (str "__aguafria_discard_" index)))
                   argument))
               (range) (:args declaration))
+        discarded-arguments
+        (->> (map vector (:args declaration) reload-args)
+             (keep (fn [[original renamed]]
+                     (when (= "_" (str (:name original)))
+                       (:name renamed))))
+             vec)
+        discard-source
+        (apply str
+               (map #(str "_ = " (identifier %) ";\n")
+                    discarded-arguments))
         arguments (mapv :name reload-args)
         target (str dispatch "_target")
         target-address (str dispatch "_target_address")
@@ -2329,7 +2417,8 @@
                :source nil
                :emit-source-comment? false
                :body-prefix-source
-               (str "const " track-active " = !@inComptime() and @atomicLoad(bool, &"
+               (str discard-source
+                    "const " track-active " = !@inComptime() and @atomicLoad(bool, &"
                     active-tracking ", .acquire);\n"
                     "const " track-active "_outermost = if (" track-active
                     ") " active-depth " == 0 else false;\n"
@@ -2417,6 +2506,20 @@
                 "    return @alignOf(@TypeOf(" name "));\n"
                 "}")))))
 
+(defn- emit-development-declaration
+  "Emit one non-dispatched declaration in a reloadable module.
+
+  Container-level constants and comptime blocks must preserve Zig's direct
+  access to module state. Routing a referenced defvar through its atomically
+  swappable runtime pointer makes an otherwise comptime-known initializer a
+  runtime expression (for example `const io = io_threaded.io()`). Runtime
+  function bodies continue to use the stable state accessor."
+  [declaration]
+  (if (contains? #{:const :comptime} (:kind declaration))
+    (binding [*reloadable-state-references?* false]
+      (emit-declaration declaration))
+    (emit-declaration declaration)))
+
 (defn emit-reloadable-module
   "Emit a development shared-library module with stable function dispatch and
   versioned state hooks. Ordinary `emit-module` remains the direct/static Zig
@@ -2426,81 +2529,97 @@
   ([module-name declarations dispatch-specs state-specs]
    (emit-reloadable-module module-name declarations dispatch-specs state-specs {}))
   ([module-name declarations dispatch-specs state-specs
-    {:keys [dependency? linkable-declaration-keys]}]
+   {:keys [dependency? linkable-declaration-keys extra-body-source]}]
    (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
      (binding [*source-mapping?* true
                *keyword-context* context-ns
-               *reloadable-state-references?* true]
+               *reloadable-state-references?* true
+               *named-module-imports?* true
+               *logical-type-names?* true]
        (let [imports (remove nil? (synthesized-import-declarations declarations
                                                                      true))
-             declarations (concat imports declarations)
              {:keys [active-counter active-depth active-tracking
                      active-tracking-setter active-getter publication-epoch
                      publication-epoch-setter]}
              (some-> dispatch-specs first val)
-             linkable? (boolean (seq linkable-declaration-keys))]
+             linkable? (boolean (seq linkable-declaration-keys))
+             imports-source
+             (->> imports
+                  (sort-by declaration-sort-key)
+                  (map emit-development-declaration)
+                  (str/join "\n\n"))
+             helper-source
+             (when active-counter
+               (str "var " active-counter ": usize = 0;\n"
+                    "threadlocal var " active-depth ": usize = 0;\n\n"
+                    "var " active-tracking ": bool = true;\n\n"
+                    (when linkable? "pub ")
+                    "export fn " active-tracking-setter
+                    "(enabled: u8) callconv(.c) void {\n"
+                    "    @atomicStore(bool, &" active-tracking
+                    ", enabled != 0, .release);\n"
+                    "}\n\n"
+                    (when linkable? "pub ")
+                    "export fn " active-getter "() callconv(.c) usize {\n"
+                    "    return @atomicLoad(usize, &" active-counter
+                    ", .acquire);\n"
+                    "}\n\n"
+                    "var " publication-epoch ": ?*const usize = null;\n\n"
+                    (when linkable? "pub ")
+                    "export fn " publication-epoch-setter
+                    "(address: usize) callconv(.c) void {\n"
+                    "    " publication-epoch " = @ptrFromInt(address);\n"
+                    "}"))
+             declarations-source
+             (->> declarations
+                  (sort-by declaration-sort-key)
+                  (map (fn [declaration]
+                         (let [declaration
+                               (if dependency?
+                                 (dependency-declaration declaration)
+                                 declaration)]
+                           (cond
+                             (get dispatch-specs (:declaration-key declaration))
+                             (emit-reloadable-function
+                              declaration
+                              (cond->
+                               (get dispatch-specs
+                                    (:declaration-key declaration))
+                                (contains? linkable-declaration-keys
+                                           (:declaration-key declaration))
+                                (assoc :linkable? true)))
+
+                             (get state-specs (:declaration-key declaration))
+                             (emit-reloadable-state
+                              declaration
+                              (let [linkable?
+                                    (contains? linkable-declaration-keys
+                                               (:declaration-key declaration))]
+                                (assoc
+                                 (get state-specs
+                                      (:declaration-key declaration))
+                                 :linkable? linkable?
+                                 :emit-native-helpers?
+                                 (or (not dependency?) linkable?))))
+
+                             :else
+                             (emit-development-declaration declaration)))))
+                  (str/join "\n\n"))
+             body-source (str/join "\n\n" (remove str/blank?
+                                                   [logical-type-name-helper
+                                                    helper-source
+                                                    declarations-source
+                                                    extra-body-source]))
+             module-source
+             (str (when-not (str/blank? imports-source)
+                    (str imports-source "\n\n"))
+                  "pub const " (named-module-container module-name)
+                  " = struct {\n"
+                  (indent 1 body-source) "\n"
+                  "};")]
          (str "// Generated by Aguafria for reloadable development.\n"
               "// Module: " module-name "\n\n"
-              (when active-counter
-                (str "var " active-counter ": usize = 0;\n"
-                     "threadlocal var " active-depth ": usize = 0;\n\n"
-                     "var " active-tracking ": bool = true;\n\n"
-                     (when linkable? "pub ")
-                     "export fn " active-tracking-setter
-                     "(enabled: u8) callconv(.c) void {\n"
-                     "    @atomicStore(bool, &" active-tracking
-                     ", enabled != 0, .release);\n"
-                     "}\n\n"
-                     (when linkable? "pub ")
-                     "export fn " active-getter "() callconv(.c) usize {\n"
-                     "    return @atomicLoad(usize, &" active-counter
-                     ", .acquire);\n"
-                     "}\n\n"
-                     "var " publication-epoch ": ?*const usize = null;\n\n"
-                     (when linkable? "pub ")
-                     "export fn " publication-epoch-setter
-                     "(address: usize) callconv(.c) void {\n"
-                     "    " publication-epoch " = @ptrFromInt(address);\n"
-                     "}\n\n"))
-              (->> declarations
-                   (sort-by declaration-sort-key)
-                   (map (fn [declaration]
-                          (let [declaration
-                                (if dependency?
-                                  (dependency-declaration declaration)
-                                  declaration)]
-                           (cond
-                            (get dispatch-specs (:declaration-key declaration))
-                            (emit-reloadable-function
-                             declaration
-                             (cond->
-                              (get dispatch-specs
-                                   (:declaration-key declaration))
-                               (contains? linkable-declaration-keys
-                                          (:declaration-key declaration))
-                               (assoc :linkable? true)))
-
-                            (get state-specs (:declaration-key declaration))
-                            (emit-reloadable-state
-                             declaration
-                             (let [linkable?
-                                   (contains? linkable-declaration-keys
-                                              (:declaration-key declaration))]
-                               (assoc
-                                (get state-specs
-                                     (:declaration-key declaration))
-                                :linkable? linkable?
-                                ;; A dependency source needs stable accessors
-                                ;; for its own bodies, but only an exact live
-                                ;; state unit needs exported address/layout
-                                ;; helpers. Root-owned state always needs them
-                                ;; so the JVM can initialize/preserve storage.
-                                :emit-native-helpers?
-                                (or (not dependency?) linkable?))))
-
-                            :else
-                            (emit-declaration declaration)))))
-                   (str/join "\n\n"))
+              module-source
               "\n"))))))
 
 (defn- nested-doc-attributes
@@ -2843,8 +2962,57 @@
           :public? false
           :export? false
           :emit-source-comment? false
-          :import-name import-name})))
+          :import-name import-name
+          :import-container (when (and development? namespace)
+                              (named-module-container namespace))})))
      (declaration-imports declarations)))))
+
+(defn emit-named-module
+  "Emit a compiler root whose converted namespace imports select Aguafria's
+  stable named-module containers.  This is runtime/build plumbing; ordinary
+  `emit-module` remains clean Zig source for inspection and materialization."
+  [module-name declarations]
+  (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
+    (binding [*source-mapping?* true
+              *keyword-context* context-ns
+              *named-module-imports?* true
+              *logical-type-names?* true]
+      (let [imports (remove nil? (synthesized-import-declarations declarations
+                                                                    true))
+            imports-source (->> imports
+                                (sort-by declaration-sort-key)
+                                (map emit-declaration)
+                                (str/join "\n\n"))
+            declarations-source (->> declarations
+                                     (sort-by declaration-sort-key)
+                                     (map emit-declaration)
+                                     (str/join "\n\n"))
+            container (named-module-container module-name)
+            public-aliases
+            (->> declarations
+                 (filter :public?)
+                 (filter #(contains? #{:const :struct :fn :fn-proto}
+                                     (:kind %)))
+                 (map (fn [declaration]
+                        (let [declaration-name
+                              (identifier (or (:zig-name declaration)
+                                              (:name declaration)))]
+                          (str "pub const " declaration-name " = " container "."
+                               declaration-name ";"))))
+                 distinct
+                 sort
+                 (str/join "\n"))]
+        (str "// Generated by Aguafria. Edit the Clojure declarations, not this file.\n"
+             "// Module: " module-name "\n\n"
+             (when-not (str/blank? imports-source)
+               (str imports-source "\n\n"))
+             "pub const " container " = struct {\n"
+             (indent 1 (str logical-type-name-helper "\n\n"
+                            declarations-source)) "\n"
+             "};"
+             (when-not (str/blank? public-aliases)
+               (str "\n\n" public-aliases))
+             "\n")))))
 
 (defn emit-module
   "Emit a complete deterministic Zig source module from declarations."
@@ -2865,20 +3033,53 @@
    (emit-module module-name
                 (mapv (partial prepare-declaration context-ns) declarations))))
 
-(defn emit-dependency-module
-  "Emit an ordinary optimizer-visible module for use below another module.
-  Default REPL exports become namespace-public Zig functions; declarations
-  explicitly marked `:export` retain their requested global ABI symbol."
+(defn emit-static-dependency-module
+  "Emit an ordinary static dependency module without development containers.
+
+  Default REPL exports become namespace-public Zig declarations so separately
+  named Aguafria Vars cannot collide at the final artifact's global ABI.
+  Declarations explicitly marked `:export` retain their requested symbol."
   [module-name declarations]
   (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
     (binding [*source-mapping?* true
               *keyword-context* context-ns]
       (let [imports (remove nil? (synthesized-import-declarations declarations))
             declarations (concat imports (map dependency-declaration declarations))]
-        (str "// Generated by Aguafria for a standalone dependency.\n"
+        (str "// Generated by Aguafria for a static dependency.\n"
              "// Module: " module-name "\n\n"
              (->> declarations
                   (sort-by declaration-sort-key)
                   (map emit-declaration)
                   (str/join "\n\n"))
+             "\n")))))
+
+(defn emit-dependency-module
+  "Emit a development optimizer-visible module for use below another module.
+  Default REPL exports become namespace-public Zig functions; declarations
+  explicitly marked `:export` retain their requested global ABI symbol."
+  [module-name declarations]
+  (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
+    (binding [*source-mapping?* true
+              *keyword-context* context-ns
+              *named-module-imports?* true
+              *logical-type-names?* true]
+      (let [imports (remove nil? (synthesized-import-declarations declarations
+                                                                    true))
+            declarations (map dependency-declaration declarations)
+            imports-source (->> imports
+                                (sort-by declaration-sort-key)
+                                (map emit-declaration)
+                                (str/join "\n\n"))
+            declarations-source (->> declarations
+                                     (sort-by declaration-sort-key)
+                                     (map emit-declaration)
+                                     (str/join "\n\n"))]
+        (str "// Generated by Aguafria for a standalone dependency.\n"
+             "// Module: " module-name "\n\n"
+             (when-not (str/blank? imports-source)
+               (str imports-source "\n\n"))
+             "pub const " (named-module-container module-name) " = struct {\n"
+             (indent 1 (str logical-type-name-helper "\n\n"
+                            declarations-source)) "\n"
+             "};"
              "\n")))))

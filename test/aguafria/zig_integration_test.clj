@@ -184,6 +184,46 @@
           (az/configure! old-config)
           (remove-ns test-symbol))))))
 
+(deftest inferred-error-union-is-callable-from-clojure-test
+  (testing "a converted-style `!` qualifier is bridged as the complete error union"
+    (let [old-config (az/configuration)
+          test-symbol (symbol (str "aguafria.inferred-error-union-"
+                                   fixture-suffix))
+          test-ns (create-ns test-symbol)
+          returned (atom [])]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* test-ns]
+          (refer 'clojure.core)
+          (alias 'ak 'aguafria.keyword)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defn maybe-value
+                   {:zig/qualifiers "!" :attrs #{:public}}
+                   :- :u32
+                   [[fail :bool]]
+                   (if fail
+                     (az/block (ak/return (az/error-value NoValue))))
+                   (ak/return 42)))
+          (eval '(az/defn utf8-size
+                   {:attrs #{:public :implicit-return}}
+                   :- :usize
+                   [[value [:slice-const :u8]]]
+                   (az/field value len))))
+        (let [maybe-value (ns-resolve test-ns 'maybe-value)
+              utf8-size (ns-resolve test-ns 'utf8-size)
+              ok (maybe-value false)
+              error (maybe-value true)]
+          (reset! returned [ok error])
+          (is (= {:ok 42} (az/value ok)))
+          (is (= :NoValue (get-in (az/value error) [:error :name])))
+          (is (= 9 (utf8-size "français"))))
+        (finally
+          (doseq [value @returned
+                  :when (az/zig-value? value)]
+            (az/close! value))
+          (az/configure! old-config)
+          (remove-ns test-symbol))))))
+
 (deftest native-zig-values-round-trip-and-print-as-values-test
   (testing "a non-JVM-shaped integer retains native bytes across a Zig call"
     (let [old-config (az/configuration)
@@ -3343,6 +3383,8 @@
         (is (seq (:diagnostics (ex-data error))))
         (is (str/includes? (ex-message error) "error[aguafria::zig]"))
         (is (str/includes? (ex-message error) "test/aguafria/zig_integration_test.clj"))
+        (is (str/includes? (ex-message error)
+                           "Aguafria declaration: aguafria.error-fixture/broken-constant"))
         (is (str/includes? (ex-message error) "this Clojure form generated the failing Zig"))
         (is (str/includes? (ex-message error) "Zig reported the error here"))
         (is (str/includes? (ex-message error) "compiler command")))

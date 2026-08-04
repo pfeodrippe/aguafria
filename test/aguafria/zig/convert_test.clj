@@ -23,6 +23,21 @@
           forms
           (recur (conj forms form)))))))
 
+(deftest absolute-build-module-path-resolves-to-converted-plan-test
+  (let [input-root (.getCanonicalFile (io/file "test/fixtures"))
+        source (.getCanonicalFile (io/file input-root "container.zig"))
+        target (.getCanonicalFile (io/file input-root "types.zig"))
+        expected {:file target :relative "types.zig"}
+        actual (#'convert/import-target
+                {:file source :relative "container.zig"}
+                "fixture-types"
+                {(.getCanonicalPath target) expected}
+                {}
+                input-root
+                {"container.zig"
+                 {"fixture-types" (.getAbsolutePath target)}})]
+    (is (= expected actual))))
+
 (deftest converted-source-has-compact-attrs-and-spacing-test
   (let [{container-source :clojure-source}
         (convert/convert-file "test/fixtures/container.zig"

@@ -20,6 +20,8 @@
 (def ^:private ast-resource "aguafria/zig-ast.zig")
 (def ^:private build-graph-resource "aguafria/build-graph-dump.zig")
 (def ^:private build-graph-marker "__AGUAFRIA_BUILD_OPTION__")
+(def ^:private build-source-module-marker
+  "__AGUAFRIA_BUILD_SOURCE_MODULE__")
 (def ^:private ast-schema-version 4)
 (def ^:private materialized-format-cache-version 1)
 (defonce ^:private helper-lock (Object.))
@@ -197,6 +199,17 @@
              (partition 4 path-fields))
        :unresolved-path-count 0})))
 
+(defn- parse-build-source-module-record
+  [line]
+  (when (str/starts-with? line (str build-source-module-marker "\t"))
+    (let [[_ owner name source & extra] (str/split line #"\t" -1)]
+      (when (or (seq extra) (some nil? [owner name source]))
+        (throw (ex-info "Malformed Aguafria build source-module record"
+                        {:aguafria/phase :zig-build-graph :line line})))
+      {:relative-path (decode-hex-text owner)
+       :name (decode-hex-text name)
+       :source-path (decode-hex-text source)})))
+
 (defn build-generated-modules
   "Ask Zig's own configure phase for build-generated named option modules.
 
@@ -231,7 +244,8 @@
        (throw (ex-info (str "Unable to inspect Zig build-generated modules\n\n"
                             (:err result))
                        (assoc result :aguafria/phase :zig-build-graph))))
-     (let [records (->> (str/split-lines (:err result))
+     (let [lines (str/split-lines (:err result))
+           records (->> lines
                         (keep parse-build-graph-record)
                         distinct
                         (sort-by (juxt :relative-path :name :source))
@@ -259,7 +273,32 @@
                          (into (sorted-map)
                                (map (juxt :name :source))
                                records)]))
-                 (group-by :relative-path complete-records))]
+                 (group-by :relative-path complete-records))
+           source-records (->> lines
+                               (keep parse-build-source-module-record)
+                               distinct
+                               (sort-by (juxt :relative-path :name
+                                              :source-path))
+                               vec)
+           source-groups (group-by (juxt :relative-path :name)
+                                   source-records)
+           source-conflicts
+           (->> source-groups
+                (keep (fn [[[relative-path name] candidates]]
+                        (let [paths (->> candidates (map :source-path)
+                                         distinct sort vec)]
+                          (when (< 1 (count paths))
+                            {:relative-path relative-path
+                             :name name
+                             :source-paths paths}))))
+                vec)
+           source-modules-by-owner
+           (into (sorted-map)
+                 (map (fn [[owner records]]
+                        [owner (into (sorted-map)
+                                     (map (juxt :name :source-path))
+                                     records)]))
+                 (group-by :relative-path source-records))]
        {:project-root (.getAbsolutePath root)
         :build-file (.getAbsolutePath build-file)
         :build-steps (mapv str build-steps)
@@ -268,6 +307,10 @@
         :owner-count (count modules-by-path)
         :conflict-count (count conflicts)
         :conflicts conflicts
+        :source-module-count (count source-records)
+        :source-module-conflict-count (count source-conflicts)
+        :source-module-conflicts source-conflicts
+        :source-modules-by-owner source-modules-by-owner
         :unresolved-path-module-count (count unresolved-path-modules)
         :unresolved-path-modules unresolved-path-modules
         :path-value-count (reduce + 0 (map (comp count :paths) records))
@@ -3588,7 +3631,13 @@
                                                            (io/file path))))))]
                           [relative
                            {:namespace namespace
-                            :source (runtime/source namespace)
+                            ;; Public runtime source is ordinary/static Zig;
+                            ;; development containers live in reload-source.
+                            ;; Empty Zig files register no declarations, so
+                            ;; synthesize their valid empty module here.
+                            :source
+                            (or (runtime/source namespace)
+                                (emitter/emit-module (str namespace) []))
                             :leading-trivia
                             (:leading-trivia
                              (get reports-by-relative relative))}])))
@@ -3896,14 +3945,40 @@
                (when (= 1 (count matches)) [module-name (first matches)])))
        (into {})))
 
+(defn- canonical-root-path
+  [input-root-file path]
+  (let [path-file (io/file path)]
+    (.getCanonicalPath
+     (if (.isAbsolute path-file)
+       path-file
+       (io/file input-root-file path)))))
+
 (defn- import-target
-  [plan import-name plan-by-path module-index input-root-file]
+  [plan import-name plan-by-path module-index input-root-file
+   source-modules-by-owner]
   (let [relative-path (.getCanonicalPath
                        (io/file (.getParentFile ^File (:file plan)) import-name))
+        build-source-path
+        (or (get-in source-modules-by-owner
+                    [(str (:relative plan)) import-name])
+            ;; Build.Module edges describe the named module at build roots.
+            ;; Zig source imported beneath that root may use the same name
+            ;; without being represented as another Build.Module node. Apply
+            ;; a project-wide mapping only when every captured owner agrees;
+            ;; owner-specific mappings above still handle deliberate aliases.
+            (let [targets (->> (vals source-modules-by-owner)
+                               (keep #(get % import-name))
+                               distinct
+                               vec)]
+              (when (= 1 (count targets)) (first targets))))
+        build-module-path
+        (when build-source-path
+          (canonical-root-path input-root-file build-source-path))
         root-module-path
         (when-not (str/ends-with? import-name ".zig")
           (.getCanonicalPath (io/file input-root-file (str import-name ".zig"))))]
-    (or (get plan-by-path relative-path)
+    (or (when build-module-path (get plan-by-path build-module-path))
+        (get plan-by-path relative-path)
         (when root-module-path (get plan-by-path root-module-path))
         ;; Build-system module names such as `@import("stdx")` have no path
         ;; suffix. When exactly one converted file owns that basename, resolve
@@ -3916,12 +3991,13 @@
 (declare generated-module-alias)
 
 (defn- tree-import-bindings
-  [plan plan-by-path module-index input-root-file]
+  [plan plan-by-path module-index input-root-file source-modules-by-owner]
   (into {}
         (keep
          (fn [[zig-alias {:keys [import-name public? source-order init-node]}]]
            (let [target (import-target plan import-name plan-by-path
-                                       module-index input-root-file)]
+                                       module-index input-root-file
+                                       source-modules-by-owner)]
              (when target
                (let [declaration-name (get (:declaration-names plan) zig-alias)
                      alias (if public?
@@ -3950,7 +4026,8 @@
                  "-" (subs (sha256 namespace-symbol) 0 8)))))
 
 (defn- tree-project-imports
-  [plan plan-by-path module-index input-root-file import-bindings]
+  [plan plan-by-path module-index input-root-file import-bindings
+   source-modules-by-owner]
   (let [aliases-by-namespace
         (into {}
               (map (fn [[_ {:keys [namespace alias]}]] [namespace alias]))
@@ -3959,7 +4036,8 @@
           (keep
            (fn [[node-index import-name]]
              (when-let [target (import-target plan import-name plan-by-path
-                                              module-index input-root-file)]
+                                              module-index input-root-file
+                                              source-modules-by-owner)]
                (let [root-import
                      (some (fn [[_ import]]
                              (when (= node-index (:init-node import)) import))
@@ -4154,13 +4232,14 @@
         plans (mapv (fn [plan]
                       (let [import-bindings
                             (tree-import-bindings plan plan-by-path
-                                                  module-index input-root-file)]
+                                                  module-index input-root-file
+                                                  {})]
                         (assoc plan
                                :import-bindings import-bindings
                                :project-imports
                                (tree-project-imports
                                 plan plan-by-path module-index input-root-file
-                                import-bindings))))
+                                import-bindings {}))))
                     plans)
         import-graph (project-import-graph plans)
         plans (mapv #(assoc % :project-require-modes
@@ -4199,6 +4278,15 @@
                  :build-steps (:build-steps build-graph)
                  :conflicts (:conflicts build-graph)
                  :hint "Select an unambiguous entry in :build-profiles."})))
+            (when (seq (:source-module-conflicts build-graph))
+              (throw
+               (ex-info
+                "Selected Zig build profile produced conflicting source modules"
+                {:aguafria/phase :zig-build-graph
+                 :input-root (.getAbsolutePath input-root-file)
+                 :build-steps (:build-steps build-graph)
+                 :conflicts (:source-module-conflicts build-graph)
+                 :hint "Select a build profile with an unambiguous named source module."})))
             (when (seq (:unresolved-path-modules build-graph))
               (throw
                (ex-info
@@ -4210,6 +4298,50 @@
                  :hint (str "These values are finalized while Zig executes their "
                             "producer steps; select a value-only profile or disable "
                             "capture until build-step path recreation is supported.")}))))
+        source-modules-by-owner
+        (reduce
+         (fn [merged build-graph]
+           (reduce-kv
+            (fn [merged owner modules]
+              (reduce-kv
+               (fn [merged module-name source-path]
+                 (if-let [existing (get-in merged [owner module-name])]
+                   (if (= existing source-path)
+                     merged
+                     (throw
+                      (ex-info
+                       "Selected Zig build profiles disagree on a named source module"
+                       {:aguafria/phase :zig-build-graph
+                        :owner owner
+                        :module-name module-name
+                        :first-source existing
+                        :second-source source-path})))
+                   (assoc-in merged [owner module-name] source-path)))
+               merged modules))
+            merged (:source-modules-by-owner build-graph)))
+         (sorted-map)
+         build-graphs)
+        ;; Re-resolve project imports with the authoritative named modules
+        ;; captured from Zig's actual selected build graph. This disambiguates
+        ;; names such as `lightpanda` even when several project files share the
+        ;; same basename, while preserving the basename fallback for projects
+        ;; without a build file.
+        plans (mapv (fn [plan]
+                      (let [import-bindings
+                            (tree-import-bindings
+                             plan plan-by-path module-index input-root-file
+                             source-modules-by-owner)]
+                        (assoc plan
+                               :import-bindings import-bindings
+                               :project-imports
+                               (tree-project-imports
+                                plan plan-by-path module-index input-root-file
+                                import-bindings source-modules-by-owner))))
+                    plans)
+        import-graph (project-import-graph plans)
+        plans (mapv #(assoc % :project-require-modes
+                            (project-require-modes import-graph %))
+                    plans)
         build-path-bundles
         (mapv #(bundle-build-option-paths! % output-file) build-graphs)
         build-path-bundle
@@ -4236,7 +4368,15 @@
                                   plan source-display-path)
               :relative-path (str relative))))
          plans)
-        catalog (project-catalog plans reports generated-modules-by-path)
+        asset-bundle (when bundle-assets?
+                       (bundle-project-assets!
+                        input-root-file output-file
+                        (:exclude-directories options)))
+        catalog (cond-> (project-catalog plans reports generated-modules-by-path)
+                  asset-bundle
+                  (assoc :asset-root bundled-assets-directory
+                         :asset-files (:asset-files asset-bundle)
+                         :asset-symlinks (:asset-symlinks asset-bundle)))
         _ (project/register-catalog! catalog)
         fallbacks (reduce + (map :fallback-count reports))
         declarations (reduce + (map :declaration-count reports))
@@ -4250,10 +4390,6 @@
                        [StandardOpenOption/CREATE
                                        StandardOpenOption/TRUNCATE_EXISTING
                                        StandardOpenOption/WRITE]))
-        asset-bundle (when bundle-assets?
-                       (bundle-project-assets!
-                        input-root-file output-file
-                        (:exclude-directories options)))
         report (merge
                 {:input-root (.getAbsolutePath (.getCanonicalFile (io/file input-root)))
                 :output-root (.getAbsolutePath output-file)
@@ -4263,6 +4399,8 @@
                  (reduce + 0 (map :module-count build-graphs))
                  :generated-module-owner-count
                  (count (:modules-by-path build-path-bundle))
+                 :source-module-count
+                 (reduce + 0 (map :source-module-count build-graphs))
                  :generated-module-path-value-count
                  (:path-value-count build-path-bundle)
                  :generated-module-bundled-path-count

@@ -7,7 +7,7 @@
             [clojure.string :as str])
   (:import [java.io PushbackReader]
            [java.net URL]
-           [java.nio.file CopyOption Files StandardCopyOption]))
+           [java.nio.file CopyOption Files Paths StandardCopyOption]))
 
 (def ^:private resource-name "aguafria-project.edn")
 (defonce ^:private catalogs (atom {}))
@@ -51,13 +51,16 @@
   (with-open [reader (PushbackReader. (io/reader source))]
     (let [catalog-url (io/as-url source)
           base-url (str (URL. catalog-url "."))
-          catalog (edn/read reader)]
+          catalog (edn/read reader)
+          asset-data (select-keys catalog
+                                  [:asset-root :asset-files :asset-symlinks])]
       (register-catalog!
        (update catalog :modules
                (fn [modules]
                  (into {}
                        (map (fn [[module data]]
-                              [module (assoc data :catalog-base-url base-url)]))
+                              [module (merge asset-data data
+                                             {:catalog-base-url base-url})]))
                        modules)))))))
 
 (defn- resource-urls
@@ -192,6 +195,87 @@
                        source-template
                        paths)))]))
           (or generated-modules {}))))
+
+(def ^:private relative-asset-pattern
+  #"@(?:import|embedFile)\(\"([^\"]+)\"\)")
+
+(def ^:private localized-asset-prefix ".aguafria-assets/")
+
+(defn- normalized-project-asset
+  [module-relative-path import-path]
+  (when-not (or (str/starts-with? import-path "/")
+                (re-find #"^[A-Za-z]:[\\/]" import-path))
+    (let [module-path (Paths/get (str module-relative-path)
+                                 (make-array String 0))
+          parent (or (.getParent module-path)
+                     (Paths/get "" (make-array String 0)))]
+      (-> (str (.normalize (.resolve parent import-path)))
+          (str/replace "\\" "/")))))
+
+(defn ^:no-doc localize-module-assets
+  "Rewrite cataloged `@embedFile` paths into the named module's package root.
+
+  A converted file can originally embed `../data/file.json` because it lives
+  below the project's Zig package root. Once the file becomes an independent
+  `-M` module, Zig deliberately rejects that escape. The generated resource
+  catalog identifies the exact asset, so the runtime can copy it below a
+  deterministic local directory without consulting the original source tree."
+  [module source]
+  (let [{:keys [relative-path asset-files]} (module-data module)
+        known-assets (set asset-files)]
+    (if (and (string? source) relative-path (seq known-assets))
+      (reduce
+       (fn [localized [_ import-path]]
+         (let [asset-relative
+               (when-not (str/starts-with? import-path localized-asset-prefix)
+                 (normalized-project-asset relative-path import-path))]
+           (if (contains? known-assets asset-relative)
+             (str/replace localized
+                          (str "@embedFile(\"" import-path "\")")
+                          (str "@embedFile(\"" localized-asset-prefix
+                               asset-relative "\")"))
+             localized)))
+       source
+       (re-seq #"@embedFile\(\"([^\"]+)\"\)" source))
+      source)))
+
+(defn ^:no-doc materialize-module-assets!
+  "Copy relative non-Zig imports beside one cached converted module.
+
+  Assets are selected from the generated EDN catalog and therefore work from
+  a directory or JAR classpath without consulting the original Zig tree."
+  [module source target-directory]
+  (let [{:keys [relative-path catalog-base-url asset-root asset-files]}
+        (module-data module)
+        known-assets (set asset-files)
+        target-directory (.getCanonicalFile (io/file target-directory))
+        dependency-root (some-> target-directory .getParentFile .getParentFile
+                                .getCanonicalFile)
+        imports (->> (re-seq relative-asset-pattern source)
+                     (map second)
+                     distinct
+                     sort)]
+    (when (and relative-path catalog-base-url asset-root dependency-root)
+      (doseq [import-path imports
+              :let [asset-relative
+                    (if (str/starts-with? import-path localized-asset-prefix)
+                      (subs import-path (count localized-asset-prefix))
+                      (normalized-project-asset relative-path import-path))]
+              :when (contains? known-assets asset-relative)
+              :let [target (.getCanonicalFile
+                            (io/file target-directory import-path))]]
+        (when-not (.startsWith (.toPath target) (.toPath dependency-root))
+          (throw (ex-info "A converted module asset escapes the dependency cache"
+                          {:aguafria/phase :zig-project-asset
+                           :module (str module)
+                           :import-path import-path
+                           :target (.getAbsolutePath target)
+                           :dependency-root (.getAbsolutePath dependency-root)})))
+        (copy-resource!
+         (url-relative catalog-base-url (str asset-root "/" asset-relative))
+         target
+         false)))
+    nil))
 
 (defn declaration-zig-name
   "Resolve a target Clojure Var name to its exact Zig declaration spelling."

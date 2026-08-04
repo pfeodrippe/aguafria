@@ -5,7 +5,8 @@
   (:refer-clojure :exclude [bytes type])
   (:require [clojure.pprint :as pprint])
   (:import [java.lang.ref Cleaner Cleaner$Cleanable]
-           [java.lang.foreign Arena MemorySegment]))
+           [java.lang.foreign Arena MemorySegment]
+           [java.nio.charset StandardCharsets]))
 
 (declare decoded info realize! type type-info
          decode-packed-backing decode-struct decode-value-segment
@@ -695,8 +696,13 @@
    {:keys [element-type element-schema element-size element-alignment set-fn]
     :as schema}
    values]
+  (let [values
+        (if (and (string? values) (= :u8 element-type))
+          (mapv #(bit-and 0xff %)
+                (.getBytes ^String values StandardCharsets/UTF_8))
+          values)]
   (when-not (sequential? values)
-    (throw (ex-info "Zig slices require a sequential Clojure value"
+    (throw (ex-info "Zig slices require a sequential Clojure value; u8 slices also accept UTF-8 strings"
                     {:type zig-type :schema (dissoc schema :read-fn :set-fn)
                      :value values})))
   (when-not *allocation-arena*
@@ -718,7 +724,7 @@
          (.asSlice backing (* index element-size) element-size)
          element-type element-schema value {:index index :slice-type zig-type})))
     (set-fn native-segment backing (count values)))
-  native-segment)
+  native-segment))
 
 (defn- write-error-union!
   [^MemorySegment native-segment zig-type

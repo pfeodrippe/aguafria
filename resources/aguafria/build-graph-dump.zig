@@ -5,6 +5,7 @@ const Module = Build.Module;
 const Step = Build.Step;
 
 const marker = "__AGUAFRIA_BUILD_OPTION__";
+const source_marker = "__AGUAFRIA_BUILD_SOURCE_MODULE__";
 pub const capture_step_name = "__aguafria_capture_build_options";
 
 const Capture = struct {
@@ -21,8 +22,15 @@ const GeneratedCapture = struct {
     source: Build.LazyPath,
 };
 
+const SourceCapture = struct {
+    owner_path: []const u8,
+    import_name: []const u8,
+    source_path: []const u8,
+};
+
 var captures: std.ArrayListUnmanaged(Capture) = .empty;
 var generated_captures: std.ArrayListUnmanaged(GeneratedCapture) = .empty;
+var source_captures: std.ArrayListUnmanaged(SourceCapture) = .empty;
 
 /// Select the generated option modules reachable from the requested profile,
 /// then replace that profile with one synthetic step that executes only those
@@ -51,6 +59,9 @@ pub fn dumpResolved() void {
     }
     for (generated_captures.items) |capture| {
         printGeneratedHexRecord(capture);
+    }
+    for (source_captures.items) |capture| {
+        printSourceHexRecord(capture);
     }
 }
 
@@ -107,6 +118,17 @@ fn visitModule(
             capture_step.dependOn(generated.file.step);
             try visitModule(builder, imported, capture_step, seen_modules);
         } else {
+            if (moduleSourceResolvedPath(builder, imported, capture_step)) |source_path| {
+                try source_captures.append(builder.allocator, .{
+                    .owner_path = moduleSourceResolvedPath(
+                        builder,
+                        module,
+                        capture_step,
+                    ) orelse owner_path,
+                    .import_name = import_name,
+                    .source_path = source_path,
+                });
+            }
             try visitModule(builder, imported, capture_step, seen_modules);
         }
     }
@@ -127,6 +149,18 @@ fn moduleSourcePath(module: *Module) ?[]const u8 {
         .cwd_relative => |path| path,
         .dependency => |path| path.sub_path,
         .generated => null,
+    };
+}
+
+fn moduleSourceResolvedPath(
+    builder: *Build,
+    module: *Module,
+    asking_step: *Step,
+) ?[]const u8 {
+    const source = module.root_source_file orelse return null;
+    return switch (source) {
+        .generated => null,
+        else => source.getPath2(builder, asking_step),
     };
 }
 
@@ -182,6 +216,16 @@ fn printGeneratedHexRecord(capture: GeneratedCapture) void {
     std.debug.print("\t", .{});
     printHex(source);
     std.debug.print("\t0\n", .{});
+}
+
+fn printSourceHexRecord(capture: SourceCapture) void {
+    std.debug.print("{s}\t", .{source_marker});
+    printHex(capture.owner_path);
+    std.debug.print("\t", .{});
+    printHex(capture.import_name);
+    std.debug.print("\t", .{});
+    printHex(capture.source_path);
+    std.debug.print("\n", .{});
 }
 
 fn resolvedPath(path: std.Build.LazyPath, builder: *Build) []const u8 {

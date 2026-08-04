@@ -259,7 +259,9 @@
          :target nil
          :cpu nil
          :zig-args []
+         :zig-args-by-module {}
          :modules {}
+         :module-cache-tokens {}
          :build-history-limit 100
          :compile-debounce-ms 75
          :converted-compile-debounce-ms 25
@@ -284,9 +286,18 @@
 
 (defn configure!
   "Merge compiler configuration. Important keys are `:zig`, `:cache-dir`,
-  `:optimize`, `:target`, `:cpu`, `:zig-args`, `:modules`, and `:async?`.
-  `:modules` maps Zig import names to root source paths. Returns the resulting
-  configuration."
+  `:optimize`, `:target`, `:cpu`, `:zig-args`, `:zig-args-by-module`, `:modules`,
+  `:module-dependencies`, `:module-zig-args`, `:module-cache-tokens`, and
+  `:async?`. `:modules` maps
+  Zig import names to root source paths. `:module-dependencies` maps one
+  configured module name to the other configured module names visible through
+  its local `@import` table. `:module-zig-args` supplies compiler arguments
+  scoped to one `-M` module (for example a C header include path).
+  `:zig-args-by-module` supplies global compiler/linker arguments only when
+  that module is actually present in the compilation slice.
+  `:module-cache-tokens` maps configured modules to immutable version/content
+  identities, allowing artifacts that select them to be reused safely.
+  Returns the resulting configuration."
   [options]
   (when-not (map? options)
     (throw (ex-info "Aguafria configuration must be a map" {:value options})))
@@ -308,6 +319,16 @@
     (when-not (and (sequential? zig-args) (every? string? zig-args))
       (throw (ex-info ":zig-args must be a sequence of strings"
                       {:value zig-args}))))
+  (when-let [arguments-by-module (:zig-args-by-module options)]
+    (when-not
+     (and (map? arguments-by-module)
+          (every? #(or (string? %) (symbol? %) (keyword? %))
+                  (keys arguments-by-module))
+          (every? #(and (sequential? %) (every? string? %))
+                  (vals arguments-by-module)))
+      (throw
+       (ex-info ":zig-args-by-module must map module names to argument sequences"
+                {:value arguments-by-module}))))
   (when-let [modules (:modules options)]
     (when-not (and (map? modules)
                    (every? #(or (string? %) (symbol? %) (keyword? %))
@@ -315,6 +336,44 @@
                    (every? #(or (string? %) (instance? File %)) (vals modules)))
       (throw (ex-info ":modules must map import names to Zig source paths"
                       {:value modules}))))
+  (when-let [cache-tokens (:module-cache-tokens options)]
+    (when-not
+     (and (map? cache-tokens)
+          (every? #(or (string? %) (symbol? %) (keyword? %))
+                  (keys cache-tokens))
+          (every? some? (vals cache-tokens)))
+      (throw
+       (ex-info ":module-cache-tokens must map module names to non-nil identities"
+                {:value cache-tokens}))))
+  (when-let [dependencies (:module-dependencies options)]
+    (when-not
+     (and (map? dependencies)
+          (every? #(or (= :root %)
+                       (string? %)
+                       (symbol? %)
+                       (keyword? %))
+                  (keys dependencies))
+          (every? #(and (sequential? %)
+                        (every? (fn [dependency]
+                                  (or (string? dependency)
+                                      (symbol? dependency)
+                                      (keyword? dependency)))
+                                %))
+                  (vals dependencies)))
+      (throw
+       (ex-info
+        ":module-dependencies must map module names to module-name sequences"
+        {:value dependencies}))))
+  (when-let [module-arguments (:module-zig-args options)]
+    (when-not
+     (and (map? module-arguments)
+          (every? #(or (string? %) (symbol? %) (keyword? %))
+                  (keys module-arguments))
+          (every? #(and (sequential? %) (every? string? %))
+                  (vals module-arguments)))
+      (throw
+       (ex-info ":module-zig-args must map module names to argument sequences"
+                {:value module-arguments}))))
   (when-let [history-limit (:build-history-limit options)]
     (when-not (and (integer? history-limit) (pos? history-limit))
       (throw (ex-info ":build-history-limit must be a positive integer"
@@ -917,16 +976,20 @@
   (reduce
    (fn [location line]
      (if-let [[_ file source-line source-column]
-              (re-matches #"^// Clojure source: (.*):(\d+):(\d+)$" line)]
-       {:file file
-        :line (parse-long source-line)
-        :column (parse-long source-column)}
-       (if-let [[_ form-line form-column]
-                (re-matches #"^\s*// Clojure form: (\d+)(?::(\d+))?$" line)]
-         (assoc location
-                :line (parse-long form-line)
-                :column (some-> form-column parse-long))
-         location)))
+              (re-matches #"^\s*// Clojure source: (.*):(\d+):(\d+)$" line)]
+       (merge location
+              {:file file
+               :line (parse-long source-line)
+               :column (parse-long source-column)})
+       (if-let [[_ declaration]
+                (re-matches #"^\s*// Aguafria declaration: (.+)$" line)]
+         (assoc location :declaration declaration)
+         (if-let [[_ form-line form-column]
+                  (re-matches #"^\s*// Clojure form: (\d+)(?::(\d+))?$" line)]
+           (assoc location
+                  :line (parse-long form-line)
+                  :column (some-> form-column parse-long))
+           location))))
    nil
    (take (or generated-line 0) (str/split-lines source))))
 
@@ -944,18 +1007,41 @@
                   :message message})))
        vec))
 
+(defn- same-file?
+  [left right]
+  (try
+    (= (.getCanonicalFile (io/file left))
+       (.getCanonicalFile (io/file right)))
+    (catch Exception _
+      (= (str left) (str right)))))
+
+(defn- diagnostic-source
+  [root-source root-source-path generated-file]
+  (if (same-file? root-source-path generated-file)
+    root-source
+    (let [file (io/file generated-file)]
+      (when (.isFile file)
+        (slurp file)))))
+
+(defn- enrich-zig-diagnostic
+  [root-source root-source-path diagnostic]
+  (let [{generated-file :file generated-line :line} diagnostic
+        generated-source (diagnostic-source root-source root-source-path
+                                            generated-file)
+        location (when generated-source
+                   (source-location-at generated-source generated-line))]
+    (cond-> (assoc diagnostic :generated-source generated-source)
+      location (assoc :aguafria/source location))))
+
 (defn- format-zig-diagnostic
-  [source source-path diagnostic]
+  [diagnostic]
   (let [{generated-file :file generated-line :line generated-column :column
-         :keys [severity message]} diagnostic
-        root-module? (= (.getName (io/file source-path))
-                        (.getName (io/file generated-file)))
-        {:keys [file line column]} (when root-module?
-                                     (source-location-at source generated-line))
+         :keys [severity message generated-source]} diagnostic
+        {:keys [file line column declaration]} (:aguafria/source diagnostic)
         clojure-line (existing-source-line file line)
-        generated-source-line (if root-module?
-                                (line-at source generated-line)
-                                (existing-source-line generated-file generated-line))]
+        generated-source-line (or (when generated-source
+                                    (line-at generated-source generated-line))
+                                  (existing-source-line generated-file generated-line))]
     (str (name severity) "[aguafria::zig]: " message "\n"
          (when file
            (str "  --> " file
@@ -963,23 +1049,26 @@
                 (when column (str ":" column)) "\n"
                 (code-frame line column clojure-line
                             "this Clojure form generated the failing Zig")))
+         (when declaration
+           (str "  = Aguafria declaration: " declaration "\n"))
          "  ::: " generated-file ":" generated-line ":" generated-column "\n"
          (code-frame generated-line generated-column generated-source-line
                      "Zig reported the error here"))))
 
 (defn- pretty-zig-error
   [module source source-path command stderr]
-  (let [diagnostics (parse-zig-diagnostics stderr)
+  (let [diagnostics (mapv #(enrich-zig-diagnostic source source-path %)
+                          (parse-zig-diagnostics stderr))
         rendered (if (seq diagnostics)
-                   (str/join "\n" (map #(format-zig-diagnostic source source-path %)
-                                          diagnostics))
+                   (str/join "\n" (map format-zig-diagnostic diagnostics))
                    (str "error[aguafria::zig]: Zig compilation failed without a location\n"))]
     {:diagnostics diagnostics
      :message
      (str "Zig compilation failed for " module "\n\n"
           rendered
           "\n  = generated module: " source-path
-          "\n  = compiler command: " (pr-str command)
+          "\n  = compiler command: " (str/join " " (take 2 command))
+          " ... (" (count command) " arguments; full vector is in ex-data :command)"
           (when (str/blank? stderr)
             "\n  = Zig produced no stderr output")
           (when-not (str/blank? stderr)
@@ -1005,6 +1094,9 @@
 (defn- emit-source!
   [module declarations]
   (try
+    ;; This is the public/static source used by `az/source`, standalone
+    ;; builds, and materialization. Named containers and dispatch machinery
+    ;; belong exclusively to reload/dependency compiler variants.
     (emit/emit-module module declarations)
     (catch clojure.lang.ExceptionInfo error
       (let [[declaration cause]
@@ -1127,11 +1219,14 @@
         declarations))
 
 (defn- emit-reload-source!
-  [module declarations dispatch-specs state-specs]
+  ([module declarations dispatch-specs state-specs]
+   (emit-reload-source! module declarations dispatch-specs state-specs nil))
+  ([module declarations dispatch-specs state-specs extra-body-source]
   (if (:reloadable? @config)
     (try
       (emit/emit-reloadable-module module declarations dispatch-specs
-                                   state-specs)
+                                   state-specs
+                                   {:extra-body-source extra-body-source})
       (catch clojure.lang.ExceptionInfo error
         (let [declaration (or (some #(when (contains? dispatch-specs
                                                      (:declaration-key %))
@@ -1144,7 +1239,7 @@
                                   :module module
                                   :declaration declaration})
                           error)))))
-    (emit-source! module declarations)))
+    (emit-source! module declarations))))
 
 (defn- emit-dependency-reload-source!
   ([module declarations dispatch-specs state-specs]
@@ -1157,7 +1252,7 @@
                                   {:dependency? true
                                    :linkable-declaration-keys
                                    (set linkable-declaration-keys)})
-     (emit-source! module declarations))))
+     (emit/emit-dependency-module module declarations))))
 
 (defn- zig-version
   []
@@ -1183,7 +1278,7 @@
 
 (defn- root-module-arguments
   [source-file {:keys [optimize target cpu zig-args modules
-                       module-dependencies]}]
+                       module-dependencies module-zig-args]}]
   (let [modules (sort-by (comp str key) modules)]
     (vec
      (concat
@@ -1198,6 +1293,7 @@
        (fn [[module-name module-path]]
          (concat
           (dependency-arguments (get module-dependencies (str module-name)))
+          (get module-zig-args (str module-name))
           [(str "-M"
                 (if (instance? clojure.lang.Named module-name)
                   (name module-name)
@@ -1230,7 +1326,8 @@
       {:aguafria/phase :zig-dependency
        :module (str module)
        :known-modules (sort (keys @registry))})))
-  (let [source-hash (subs (sha256 source) 0 24)
+  (let [source (project/localize-module-assets module source)
+        source-hash (subs (sha256 source) 0 24)
         directory (io/file (:cache-dir @config) "dependencies"
                            (safe-path-component module) source-hash)
         source-file (io/file directory "module.zig")]
@@ -1244,6 +1341,7 @@
                                      [StandardOpenOption/CREATE
                                       StandardOpenOption/TRUNCATE_EXISTING
                                       StandardOpenOption/WRITE])))
+    (project/materialize-module-assets! module source directory)
     (.getAbsolutePath source-file)))
 
 (defn- ensure-static-module-source!
@@ -1314,13 +1412,14 @@
                           (reloadable-dispatch-specs declarations))
                 state-specs (reloadable-state-specs declarations)
                 source (or (when-not (:source-dirty? module-state)
-                             (:source module-state))
-                           ;; Keep the default dependency graph ordinary and
-                           ;; Zig-lazy. `linkable-development-dependency-snapshot`
-                           ;; replaces only exact referenced Vars with a
-                           ;; reloadable source variant for a live artifact.
+                             (:dependency-source module-state))
+                           ;; Every converted dependency is selected through
+                           ;; its stable namespace container.  The ordinary
+                           ;; source remains the compiler root/inspection form;
+                           ;; exact referenced Vars replace this dependency
+                           ;; variant with reloadable dispatch below.
                            (when (seq declarations)
-                             (emit-source! module declarations)))
+                             (emit/emit-dependency-module module declarations)))
                 entries
                 (->> specs
                      (keep (fn [[declaration-key spec]]
@@ -1428,7 +1527,7 @@
                 module-declarations (vec (vals (:definitions module-state)))
                 dependencies (direct-dependencies module-declarations)
                 dependency-source
-                (emit/emit-dependency-module module module-declarations)]
+                (emit/emit-static-dependency-module module module-declarations)]
             (recur
              (concat (next pending) dependencies)
              (conj seen module)
@@ -1703,11 +1802,25 @@
         development-linkage-modules
         (development-linkage-modules dependency-snapshot
                                      development-linkage-logical-ids)
+        configured-module-dependencies
+        (into {}
+              (map (fn [[module dependencies]]
+                     [(if (= :root module)
+                        :root
+                        (if (instance? clojure.lang.Named module)
+                          (name module)
+                          (str module)))
+                      (mapv #(if (instance? clojure.lang.Named %)
+                               (name %)
+                               (str %))
+                            dependencies)]))
+              (:module-dependencies compiler-options))
         compiler-options (dissoc compiler-options :development-dependencies?
                                  :transitive-dependencies?
                                  :dependency-snapshot
                                  :development-root-source
-                                 :development-root-dependencies)
+                                 :development-root-dependencies
+                                 :module-dependencies)
         root-dependencies
         (->> (emit/declaration-imports declarations)
              vals
@@ -1759,6 +1872,14 @@
                         (str module))
                       path]))
               (:modules compiler-options))
+        configured-cache-tokens
+        (into {}
+              (map (fn [[module token]]
+                     [(if (instance? clojure.lang.Named module)
+                        (name module)
+                        (str module))
+                      token]))
+              (:module-cache-tokens compiler-options))
         ;; A root-specific build profile (for example TigerBeetle's VOPR)
         ;; overrides fallback options captured on dependencies. Direct imports
         ;; are still dependencies here: putting them at the root's rank would
@@ -1785,18 +1906,30 @@
               captured-generated)
         external-candidates (merge generated configured)
         required-external-names
-        (->> (concat root-named-module-imports
-                     (mapcat :named-module-imports
-                             (vals dependency-snapshot)))
-             (filter (set (keys external-candidates)))
-             set)
+        (loop [required
+               (->> (concat root-named-module-imports
+                            (mapcat :named-module-imports
+                                    (vals dependency-snapshot)))
+                    (filter (set (keys external-candidates)))
+                    set)]
+          (let [expanded
+                (into required
+                      (comp
+                       (mapcat #(get configured-module-dependencies %))
+                       (filter (set (keys external-candidates))))
+                      required)]
+            (if (= required expanded) required (recur expanded))))
         ;; Zig 0.16 rejects even an otherwise valid `-Mname=...` module when
         ;; no module in this compilation graph declares it through `--dep`.
         ;; A declaration live-slice therefore carries only the named modules
         ;; it (or its reachable namespace modules) actually imports.
         external (select-keys external-candidates required-external-names)
+        selected-configured-module-names
+        (set (filter #(contains? configured %) (keys external)))
+        external-cache-tokens
+        (select-keys configured-cache-tokens selected-configured-module-names)
         external-names (set (keys external))
-        module-dependencies
+        automatic-module-dependencies
         (when transitive-dependencies?
           (into {:root (->> (concat
                              (when development-dependencies?
@@ -1830,6 +1963,48 @@
                                     (sort-by str)
                                     vec)])
                       dependency-snapshot))))
+        configured-module-dependencies
+        (into {}
+              (keep (fn [[module dependencies]]
+                      (let [dependencies (->> dependencies
+                                              (filter external-names)
+                                              distinct
+                                              (sort-by str)
+                                              vec)]
+                        (when (and (or (= :root module)
+                                       (contains? external-names module))
+                                   (seq dependencies))
+                          [module dependencies]))))
+              configured-module-dependencies)
+        module-dependencies
+        (merge-with (fn [left right]
+                      (->> (concat left right) distinct (sort-by str) vec))
+                    automatic-module-dependencies
+                    configured-module-dependencies)
+        arguments-by-module
+        (into {}
+              (map (fn [[module arguments]]
+                     [(if (instance? clojure.lang.Named module)
+                        (name module)
+                        (str module))
+                      arguments]))
+              (:zig-args-by-module compiler-options))
+        active-module-names
+        (into #{(str development-root-module)}
+              (map str)
+              (concat root-dependencies
+                      (keys automatic)
+                      (keys external)))
+        activated-zig-args
+        (->> arguments-by-module
+             (filter (comp active-module-names key))
+             (sort-by key)
+             (mapcat val)
+             vec)
+        compiler-options
+        (-> compiler-options
+            (update :zig-args #(vec (concat (or % []) activated-zig-args)))
+            (dissoc :zig-args-by-module))
         conflicts (->> (keys automatic)
                        (filter #(contains? external %))
                        sort
@@ -1844,15 +2019,18 @@
                :automatic automatic})))
     (cond-> (assoc compiler-options
                    :modules (merge external automatic)
+                   :module-cache-tokens external-cache-tokens
                    :development-linkage-logical-ids
                    development-linkage-logical-ids
                    ;; Automatic and build-generated modules are materialized
                    ;; beneath content-addressed paths, so they cannot make an
                    ;; otherwise identical artifact stale. User-configured
-                   ;; module paths are mutable and remain deliberately
-                   ;; non-cacheable until their contents are fingerprinted.
-                   :cache-safe? (empty? configured))
-      module-dependencies
+                   ;; modules make only slices that actually select them
+                   ;; non-cacheable; an unrelated leaf keeps its native cache.
+                   :cache-safe?
+                   (every? #(contains? external-cache-tokens %)
+                           selected-configured-module-names))
+      (seq module-dependencies)
       (assoc :module-dependencies module-dependencies))))
 
 (defn- namespace-source-file
@@ -1990,9 +2168,10 @@
     (when (seq modules)
       (str "\n// Retain transitive development dispatch/state hooks.\n"
            (apply str
-                  (map (fn [{:keys [module alias]}]
+                   (map (fn [{:keys [module alias]}]
                          (str "const " alias " = @import("
-                              (emit/emit-expr module) ");\n"))
+                              (emit/emit-expr module) ")."
+                              (emit/named-module-container module) ";\n"))
                        modules))
            "comptime {\n"
            (apply str
@@ -2038,8 +2217,10 @@
          dependency-snapshot development-linkage-logical-ids)
         hash-input [source compiler-version
                     (assoc (select-keys compiler-options
-                                        [:optimize :target :cpu :zig-args
-                                         :modules :module-dependencies])
+                                         [:optimize :target :cpu :zig-args
+                                         :modules :module-dependencies
+                                         :module-zig-args
+                                         :module-cache-tokens])
                            :zig-argument-inputs zig-argument-inputs
                            ;; Hash what Zig actually analyzes, not the larger
                            ;; runtime-only set used to select those references.
@@ -2059,15 +2240,23 @@
           ;; present in that slice (for example VOPR's `std_options`).
           declarations
           (vals (get-in @registry [profile-module :definitions])))
+        module-container (emit/named-module-container module-name)
+        wrapped-development-root?
+        (str/includes? (or development-root-source "")
+                       (str "pub const " module-container " = struct"))
         compiler-source
         (if development-dependencies?
           (str "// Aguafria development loader.\n"
                "const aguafria_module = @import("
-               (emit/emit-expr (str module-name)) ");\n"
+               (emit/emit-expr (str module-name)) ")"
+               (when wrapped-development-root?
+                 (str "." module-container))
+               ";\n"
                (when (and profile-module
                           (not= (str module-name) profile-module))
                  (str "const aguafria_profile_root = @import("
-                      (emit/emit-expr profile-module) ");\n"))
+                      (emit/emit-expr profile-module) ")."
+                      (emit/named-module-container profile-module) ";\n"))
                (->> profile-root-declarations
                     (filter :public?)
                     (filter #(contains? #{:const :struct :fn :fn-proto}
@@ -2089,6 +2278,9 @@
                "comptime { _ = aguafria_module; }\n"
                linkage-source)
           source)
+        asset-module (or profile-module (str module-name))
+        compiler-source (project/localize-module-assets asset-module
+                                                         compiler-source)
         library-name (System/mapLibraryName
                       (str "aguafria_" (safe-path-component module-name) "_" source-hash))
         library-file (io/file module-dir library-name)
@@ -2100,6 +2292,7 @@
     (when-not (= compiler-source
                  (when (.isFile source-file) (slurp source-file)))
       (spit source-file compiler-source))
+    (project/materialize-module-assets! asset-module compiler-source module-dir)
     (let [artifact-lock (get (swap! artifact-locks
                                     #(if (contains? % (.getAbsolutePath library-file))
                                        %
@@ -3769,6 +3962,23 @@
         (nested-storage-wrapper-spec type prefix)
         nil))))
 
+(defn- jvm-callable-result-type
+  "Return the complete Zig result type used by a JVM call bridge.
+
+  Zig's inferred error-set spelling, `!T`, is represented by converted source
+  as a `!` function qualifier plus the payload type `T`. The native bridge must
+  nevertheless store and inspect the complete error union; exposing only `T`
+  would generate an invalid C-callable wrapper."
+  [{:keys [return zig-qualifiers]}]
+  (if (and (string? zig-qualifiers)
+           (re-find #"(?:^|\s)!\s*$" zig-qualifiers))
+    ;; An inferred error set (`!T`) is legal in a function result but not as a
+    ;; standalone storage type (`*!T`). The bridge stores it as `anyerror!T`,
+    ;; which retains the exact runtime error code/name and accepts the inferred
+    ;; function result without constraining or guessing its compile-time set.
+    [:error-union :anyerror return]
+    return))
+
 (defn- jvm-callable-wrapper-specs
   [module declarations]
   (let [requested (get-in @registry [module :jvm-callable-declaration-keys] #{})]
@@ -3786,11 +3996,12 @@
                                :scalar
                                :native))
                            (:args declaration))
+                     result-type (jvm-callable-result-type declaration)
+                     bridge-declaration (assoc declaration :return result-type)
                      return-mode
                      (cond
-                       (= :void (:return declaration)) :void
-                       (contains? scalar-layouts
-                                  (scalar-key (:return declaration))) :scalar
+                       (= :void result-type) :void
+                       (contains? scalar-layouts (scalar-key result-type)) :scalar
                        :else :native)
                      mode (if (and (every? #{:scalar} argument-modes)
                                    (not= :native return-mode))
@@ -3863,7 +4074,6 @@
                                   (nested-child-storage-wrapper-spec
                                    type helper-prefix)})))
                            (range) argument-modes (:args declaration))
-                     result-type (:return declaration)
                      result-optional?
                      (and (= :native return-mode)
                           (vector? result-type)
@@ -3879,7 +4089,7 @@
                           (= "error-union" (some-> result-type first name)))
                      result-helper-prefix (str prefix "_result")]
                  [qualified-name
-                  {:declaration declaration
+                  {:declaration bridge-declaration
                    :mode mode
                    :argument-modes argument-modes
                    :native-argument-specs native-argument-specs
@@ -4610,9 +4820,11 @@
          jvm-callable-source (emit-jvm-callable-wrappers jvm-callable-specs)
          jvm-value-source (emit-jvm-value-wrappers jvm-value-specs)
          jvm-type-source (emit-jvm-type-wrappers jvm-type-specs)
+         jvm-wrapper-source
+         (str jvm-callable-source jvm-value-source jvm-type-source)
          reload-source
          (emit-reload-source! module declarations reload-source-dispatch-specs
-                              state-specs)
+                              state-specs jvm-wrapper-source)
          dependency-source
          (emit-dependency-reload-source!
           module declarations reload-source-dispatch-specs state-specs)]
@@ -4627,12 +4839,10 @@
       ;; Only declarations whose already-published implementation changed
       ;; expose a getter in the owning generation.
       :compile-source
-      (str (if (= dispatch-specs reload-source-dispatch-specs)
-             reload-source
-             (emit-reload-source! module declarations dispatch-specs state-specs))
-           jvm-callable-source
-           jvm-value-source
-           jvm-type-source)}))))
+      (if (= dispatch-specs reload-source-dispatch-specs)
+        reload-source
+        (emit-reload-source! module declarations dispatch-specs state-specs
+                             jvm-wrapper-source))}))))
 
 (defn- module-source-weight
   [sources]
@@ -6060,7 +6270,21 @@
 
 (defn- register-sync!
   [{:keys [module declaration-key] :as declaration}]
-  (locking compile-lock
+  ;; Converted dependency loading evaluates ordinary Clojure namespaces and
+  ;; therefore briefly acquires `compile-lock` through register-batch!. Never
+  ;; hold that lock while waiting for `converted-load-lock`: an async converted
+  ;; compiler takes those locks in the opposite temporal order while loading a
+  ;; cycle-aware dependency closure.
+  (let [dependency-preparation-started-ns (System/nanoTime)
+        dependency-declarations
+        (locking compile-lock
+          (let [definitions (or (:definitions (get @registry module)) {})]
+            (-> (replacement-declaration-state definitions declaration)
+                :definitions vals vec)))
+        _ (ensure-converted-dependency-sources! module dependency-declarations)
+        dependency-preparation-duration-ms
+        (elapsed-nanos-ms dependency-preparation-started-ns)]
+   (locking compile-lock
     (let [planning-started-ns (System/nanoTime)
           old-module (get @registry module)
           old-definitions (or (:definitions old-module) {})
@@ -6095,11 +6319,7 @@
       (record-build! job false)
       (mark-build-started! module generation)
       (try
-        (let [dependency-preparation-started-ns (System/nanoTime)
-              _ (ensure-converted-dependency-sources! module declarations)
-              plan (refresh-plan-dependency-snapshots plan)
-              dependency-preparation-duration-ms
-              (elapsed-nanos-ms dependency-preparation-started-ns)
+        (let [plan (refresh-plan-dependency-snapshots plan)
               compiler-started-ns (System/nanoTime)
               {compiled-declarations :declarations
                :keys [compiled compile-source reload-source dispatch-specs
@@ -6239,7 +6459,7 @@
                    :last-dependent-publication-error error))
           (when-not @published?
             (mark-build-failed! module generation error))
-          (throw error))))))
+          (throw error)))))))
 
 (declare await! dependency-topology)
 
@@ -9226,7 +9446,8 @@
        "// Host module: " host-module "\n"
        "const std = @import(\"std\");\n"
        "const builtin = @import(\"builtin\");\n"
-       "const application = @import(" (emit/emit-expr target-module) ");\n\n"
+       "const application = @import(" (emit/emit-expr target-module) ")."
+       (emit/named-module-container target-module) ";\n\n"
        "comptime {\n"
        "    if (builtin.os.tag == .windows) {\n"
        "        @compileError(\"Aguafria's process-main host does not yet encode Windows UTF-16 argv\");\n"
