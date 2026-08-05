@@ -1,5 +1,5 @@
 (ns simple-game.vulkan
-  "Small hot-reloadable Vulkan renderer used by the desktop game host."
+  "Hot-reloadable Vulkan renderer for the native coco-house factory."
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as std-debug]
@@ -7,13 +7,16 @@
             [aguafria.zig :as az]
             [simple-game.desktop-bindings]
             [simple-game.bindings.glfw :as vk]
+            [simple-game.bindings.stdio :as stdio]
             [simple-game.game :as game]
             [simple-game.host :as host]
-            [simple-game.scene :as scene]))
+            [simple-game.hud :as hud]
+            [simple-game.hud-mesh :as hud-mesh]
+            [simple-game.mesh :as mesh]))
 
 (az/defconst Color
   {:attrs #{:public}}
-  scene/Color)
+  hud/Color)
 
 (az/defstruct RendererSnapshot
   "Inspectable state for the live desktop Vulkan renderer."
@@ -56,6 +59,12 @@
 (az/defvar image-views [:array 8 vk/VkImageView]
   (std-mem/zeroes (az/type [:array 8 vk/VkImageView])))
 
+(az/defvar depth-image vk/VkImage null)
+
+(az/defvar depth-memory vk/VkDeviceMemory null)
+
+(az/defvar depth-view vk/VkImageView null)
+
 (az/defvar render-pass vk/VkRenderPass null)
 
 (az/defvar framebuffers [:array 8 vk/VkFramebuffer]
@@ -73,6 +82,21 @@
 (az/defvar in-flight vk/VkFence null)
 
 (az/defvar active-command-buffer vk/VkCommandBuffer null)
+
+(az/defvar mesh-pipeline vk/VkPipeline null)
+
+(az/defvar mesh-pipeline-layout vk/VkPipelineLayout null)
+
+(az/defvar mesh-vertex-buffer vk/VkBuffer null)
+
+(az/defvar mesh-vertex-memory vk/VkDeviceMemory null)
+
+(az/defvar mapped-mesh-vertices [:optional [:* :anyopaque]] null)
+
+(az/defvar mesh-vertex-count :u32 0)
+
+(az/defvar shader-code [:array 16384 :u32]
+  (std-mem/zeroes (az/type [:array 16384 :u32])))
 
 (az/defn check
   "Assert a Vulkan result and keep the result visible in generated Zig."
@@ -243,37 +267,59 @@
 (az/defn create-render-pass!
   :- :void
   []
-  (let [attachment
-        (vk/VkAttachmentDescription
-         {:format swapchain-format
-          :samples vk/VK_SAMPLE_COUNT_1_BIT
-          :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
-          :storeOp vk/VK_ATTACHMENT_STORE_OP_STORE
-          :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
-          :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
-          :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
-          :finalLayout vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR})
-        attachment-reference
+  (let [attachments
+        (az/array-init
+         [:array 2 vk/VkAttachmentDescription]
+         [(vk/VkAttachmentDescription
+           {:format swapchain-format
+            :samples vk/VK_SAMPLE_COUNT_1_BIT
+            :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
+            :storeOp vk/VK_ATTACHMENT_STORE_OP_STORE
+            :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
+            :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
+            :finalLayout vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR})
+          (vk/VkAttachmentDescription
+           {:format vk/VK_FORMAT_D32_SFLOAT
+            :samples vk/VK_SAMPLE_COUNT_1_BIT
+            :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
+            :storeOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
+            :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
+            :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
+            :finalLayout vk/VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL})])
+        color-reference
         (vk/VkAttachmentReference
          {:attachment 0
           :layout vk/VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL})
+        depth-reference
+        (vk/VkAttachmentReference
+         {:attachment 1
+          :layout vk/VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL})
         subpass
         (vk/VkSubpassDescription
          {:pipelineBindPoint vk/VK_PIPELINE_BIND_POINT_GRAPHICS
           :colorAttachmentCount 1
-          :pColorAttachments (ak/& attachment-reference)})
+          :pColorAttachments (ak/& color-reference)
+          :pDepthStencilAttachment (ak/& depth-reference)})
         dependency
         (vk/VkSubpassDependency
          {:srcSubpass vk/VK_SUBPASS_EXTERNAL
           :dstSubpass 0
-          :srcStageMask vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-          :dstStageMask vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-          :dstAccessMask vk/VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT})
+          :srcStageMask
+          (ak/| vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                vk/VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT)
+          :dstStageMask
+          (ak/| vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                vk/VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT)
+          :dstAccessMask
+          (ak/| vk/VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+                vk/VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)})
         create-info
         (vk/VkRenderPassCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO
-          :attachmentCount 1
-          :pAttachments (ak/& attachment)
+          :attachmentCount 2
+          :pAttachments (ak/& (az/index attachments 0))
           :subpassCount 1
           :pSubpasses (ak/& subpass)
           :dependencyCount 1
@@ -284,13 +330,15 @@
   :- :void
   []
   (dotimes [index image-count]
-    (let [attachment (az/index image-views index)
+    (let [attachments
+          (az/array-init [:array 2 vk/VkImageView]
+                         [(az/index image-views index) depth-view])
           create-info
           (vk/VkFramebufferCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
             :renderPass render-pass
-            :attachmentCount 1
-            :pAttachments (ak/& attachment)
+            :attachmentCount 2
+            :pAttachments (ak/& (az/index attachments 0))
             :width (az/field swapchain-extent width)
             :height (az/field swapchain-extent height)
             :layers 1})]
@@ -326,6 +374,267 @@
             device (ak/& semaphore-info) null (ak/& render-finished)))
     (check (vk/vkCreateFence device (ak/& fence-info) null (ak/& in-flight)))))
 
+(az/defn find-memory-type
+  "Select a physical-device memory type satisfying a Vulkan property mask."
+  {:export false :implicit-return true}
+  :-
+  :u32
+  [[type-bits :u32]
+   [required vk/VkMemoryPropertyFlags]]
+  (let [^{:var true}
+        properties
+        (std-mem/zeroes (az/type vk/VkPhysicalDeviceMemoryProperties))
+        ^{:var true :zig/type :u32} selected 0xffffffff]
+    (vk/vkGetPhysicalDeviceMemoryProperties physical-device (ak/& properties))
+    (dotimes [index (az/field properties memoryTypeCount)]
+      (let [bit (ak/<< (ak/as :u32 1)
+                       (ak/as :u5 (ak/intCast index)))
+            flags (az/field (az/index (az/field properties memoryTypes) index)
+                            propertyFlags)]
+        (when (and (ak/== selected 0xffffffff)
+                   (ak/!= (ak/& type-bits bit) 0)
+                   (ak/== (ak/& flags required) required))
+          (set! selected (ak/intCast index)))))
+    selected))
+
+(az/defn create-depth-resources!
+  "Create the depth attachment shared by the single in-flight frame."
+  {:export false}
+  :-
+  :void
+  []
+  (let [image-info
+        (vk/VkImageCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
+          :imageType vk/VK_IMAGE_TYPE_2D
+          :format vk/VK_FORMAT_D32_SFLOAT
+          :extent
+          (vk/VkExtent3D
+           {:width (az/field swapchain-extent width)
+            :height (az/field swapchain-extent height)
+            :depth 1})
+          :mipLevels 1
+          :arrayLayers 1
+          :samples vk/VK_SAMPLE_COUNT_1_BIT
+          :tiling vk/VK_IMAGE_TILING_OPTIMAL
+          :usage vk/VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+          :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE
+          :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED})
+        ^{:var true}
+        requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))]
+    (check (vk/vkCreateImage device (ak/& image-info) null (ak/& depth-image)))
+    (vk/vkGetImageMemoryRequirements device depth-image (ak/& requirements))
+    (let [memory-type
+          (find-memory-type
+           (az/field requirements memoryTypeBits)
+           vk/VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+          allocation
+          (vk/VkMemoryAllocateInfo
+           {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+            :allocationSize (az/field requirements size)
+            :memoryTypeIndex memory-type})]
+      (std-debug/assert (ak/!= memory-type 0xffffffff))
+      (check (vk/vkAllocateMemory device (ak/& allocation) null
+                                  (ak/& depth-memory)))
+      (check (vk/vkBindImageMemory device depth-image depth-memory 0)))
+    (let [view-info
+          (vk/VkImageViewCreateInfo
+           {:sType vk/VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
+            :image depth-image
+            :viewType vk/VK_IMAGE_VIEW_TYPE_2D
+            :format vk/VK_FORMAT_D32_SFLOAT
+            :subresourceRange
+            (vk/VkImageSubresourceRange
+             {:aspectMask vk/VK_IMAGE_ASPECT_DEPTH_BIT
+              :baseMipLevel 0
+              :levelCount 1
+              :baseArrayLayer 0
+              :layerCount 1})})]
+      (check (vk/vkCreateImageView device (ak/& view-info) null
+                                  (ak/& depth-view))))))
+
+(az/defn create-mesh-buffer!
+  "Create one persistently mapped, bounded vertex stream for the 3D scene."
+  {:export false}
+  :-
+  :void
+  []
+  (let [buffer-size (ak/as vk/VkDeviceSize
+                           (* mesh/frame-capacity (ak/sizeOf mesh/GpuVertex)))
+        buffer-info
+        (vk/VkBufferCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+          :size buffer-size
+          :usage vk/VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+          :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})
+        ^{:var true}
+        requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))]
+    (check (vk/vkCreateBuffer device (ak/& buffer-info) null
+                              (ak/& mesh-vertex-buffer)))
+    (vk/vkGetBufferMemoryRequirements device mesh-vertex-buffer
+                                      (ak/& requirements))
+    (let [properties (ak/| vk/VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                            vk/VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+          memory-type (find-memory-type
+                       (az/field requirements memoryTypeBits) properties)
+          allocate-info
+          (vk/VkMemoryAllocateInfo
+           {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+            :allocationSize (az/field requirements size)
+            :memoryTypeIndex memory-type})]
+      (std-debug/assert (ak/!= memory-type 0xffffffff))
+      (check (vk/vkAllocateMemory device (ak/& allocate-info) null
+                                  (ak/& mesh-vertex-memory)))
+      (check (vk/vkBindBufferMemory device mesh-vertex-buffer
+                                    mesh-vertex-memory 0))
+      (check (vk/vkMapMemory device mesh-vertex-memory 0 buffer-size 0
+                            (ak/& mapped-mesh-vertices))))))
+
+(az/defn load-shader-module
+  "Load one checked-in SPIR-V shader and create its Vulkan module."
+  {:export false}
+  :-
+  vk/VkShaderModule
+  [[path [:pointer {:size :c :const? true} :u8]]]
+  (let [file (stdio/fopen path "rb")
+        ^{:var true} module (ak/as vk/VkShaderModule null)]
+    (std-debug/assert (ak/!= file null))
+    (let [bytes (stdio/fread (ak/& (az/index shader-code 0))
+                              1 (* 16384 (ak/sizeOf :u32)) file)]
+      (set! _ (stdio/fclose file))
+      (std-debug/assert (and (> bytes 0) (ak/== (mod bytes 4) 0)))
+      (let [create-info
+            (vk/VkShaderModuleCreateInfo
+             {:sType vk/VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
+              :codeSize bytes
+              :pCode (ak/& (az/index shader-code 0))})]
+        (check (vk/vkCreateShaderModule device (ak/& create-info) null
+                                        (ak/& module)))))
+    module))
+
+(az/defn create-mesh-pipeline!
+  "Create the Vulkan triangle pipeline used by every Kenney model."
+  {:export false}
+  :-
+  :void
+  []
+  (let [vertex-module (load-shader-module "resources/shaders/mesh.vert.spv")
+        fragment-module (load-shader-module "resources/shaders/mesh.frag.spv")
+        stages
+        (az/array-init
+         [:array 2 vk/VkPipelineShaderStageCreateInfo]
+         [(vk/VkPipelineShaderStageCreateInfo
+           {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+            :stage vk/VK_SHADER_STAGE_VERTEX_BIT
+            :module vertex-module
+            :pName "main"})
+          (vk/VkPipelineShaderStageCreateInfo
+           {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+            :stage vk/VK_SHADER_STAGE_FRAGMENT_BIT
+            :module fragment-module
+            :pName "main"})])
+        binding
+        (vk/VkVertexInputBindingDescription
+         {:binding 0
+          :stride (ak/intCast (ak/sizeOf mesh/GpuVertex))
+          :inputRate vk/VK_VERTEX_INPUT_RATE_VERTEX})
+        attributes
+        (az/array-init
+         [:array 2 vk/VkVertexInputAttributeDescription]
+         [(vk/VkVertexInputAttributeDescription
+           {:location 0 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 0})
+          (vk/VkVertexInputAttributeDescription
+           {:location 1 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 12})])
+        vertex-input
+        (vk/VkPipelineVertexInputStateCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+          :vertexBindingDescriptionCount 1
+          :pVertexBindingDescriptions (ak/& binding)
+          :vertexAttributeDescriptionCount 2
+          :pVertexAttributeDescriptions (ak/& (az/index attributes 0))})
+        input-assembly
+        (vk/VkPipelineInputAssemblyStateCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+          :topology vk/VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+          :primitiveRestartEnable vk/VK_FALSE})
+        viewport
+        (vk/VkViewport
+         {:x 0.0 :y 0.0
+          :width (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent width)))
+          :height (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent height)))
+          :minDepth 0.0 :maxDepth 1.0})
+        scissor
+        (vk/VkRect2D {:offset (vk/VkOffset2D {:x 0 :y 0})
+                      :extent swapchain-extent})
+        viewport-state
+        (vk/VkPipelineViewportStateCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+          :viewportCount 1 :pViewports (ak/& viewport)
+          :scissorCount 1 :pScissors (ak/& scissor)})
+        rasterization
+        (vk/VkPipelineRasterizationStateCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+          :depthClampEnable vk/VK_FALSE
+          :rasterizerDiscardEnable vk/VK_FALSE
+          :polygonMode vk/VK_POLYGON_MODE_FILL
+          :cullMode vk/VK_CULL_MODE_NONE
+          :frontFace vk/VK_FRONT_FACE_COUNTER_CLOCKWISE
+          :depthBiasEnable vk/VK_FALSE
+          :lineWidth 1.0})
+        multisample
+        (vk/VkPipelineMultisampleStateCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+          :rasterizationSamples vk/VK_SAMPLE_COUNT_1_BIT
+          :sampleShadingEnable vk/VK_FALSE})
+        depth-stencil
+        (vk/VkPipelineDepthStencilStateCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+          :depthTestEnable vk/VK_TRUE
+          :depthWriteEnable vk/VK_TRUE
+          :depthCompareOp vk/VK_COMPARE_OP_LESS
+          :depthBoundsTestEnable vk/VK_FALSE
+          :stencilTestEnable vk/VK_FALSE
+          :minDepthBounds 0.0
+          :maxDepthBounds 1.0})
+        color-attachment
+        (vk/VkPipelineColorBlendAttachmentState
+         {:blendEnable vk/VK_FALSE
+          :colorWriteMask
+          (ak/| (ak/| vk/VK_COLOR_COMPONENT_R_BIT
+                       vk/VK_COLOR_COMPONENT_G_BIT)
+                (ak/| vk/VK_COLOR_COMPONENT_B_BIT
+                       vk/VK_COLOR_COMPONENT_A_BIT))})
+        color-blend
+        (vk/VkPipelineColorBlendStateCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+          :logicOpEnable vk/VK_FALSE
+          :attachmentCount 1
+          :pAttachments (ak/& color-attachment)})
+        layout-info
+        (vk/VkPipelineLayoutCreateInfo
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO})]
+    (check (vk/vkCreatePipelineLayout device (ak/& layout-info) null
+                                      (ak/& mesh-pipeline-layout)))
+    (let [pipeline-info
+          (vk/VkGraphicsPipelineCreateInfo
+           {:sType vk/VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
+            :stageCount 2
+            :pStages (ak/& (az/index stages 0))
+            :pVertexInputState (ak/& vertex-input)
+            :pInputAssemblyState (ak/& input-assembly)
+            :pViewportState (ak/& viewport-state)
+            :pRasterizationState (ak/& rasterization)
+            :pMultisampleState (ak/& multisample)
+            :pDepthStencilState (ak/& depth-stencil)
+            :pColorBlendState (ak/& color-blend)
+            :layout mesh-pipeline-layout
+            :renderPass render-pass
+            :subpass 0})]
+      (check (vk/vkCreateGraphicsPipelines device null 1 (ak/& pipeline-info)
+                                           null (ak/& mesh-pipeline))))
+    (vk/vkDestroyShaderModule device fragment-module null)
+    (vk/vkDestroyShaderModule device vertex-module null)))
+
 (az/defn initialize-renderer!
   "Initialize Vulkan against an existing GLFW window."
   :- :bool
@@ -337,7 +646,10 @@
     (create-device!)
     (create-swapchain!)
     (create-image-views!)
+    (create-depth-resources!)
     (create-render-pass!)
+    (create-mesh-buffer!)
+    (create-mesh-pipeline!)
     (create-framebuffers!)
     (create-commands-and-sync!)
     (set! initialized true))
@@ -392,7 +704,7 @@
   {:attrs #{:public}}
   :-
   :void
-  [[color scene/Color]
+  [[color hud/Color]
    [x :i32]
    [y :i32]
    [width :i32]
@@ -403,12 +715,18 @@
   :- :void
   [[image-index :u32]
    [packet game/RenderPacket]]
+  (set! _ packet)
   (let [command-buffer (az/index command-buffers image-index)
         begin-info
         (vk/VkCommandBufferBeginInfo
          {:sType vk/VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO})
         background
-        (clear-value (Color {:r 0.025 :g 0.032 :b 0.055 :a 1.0}))
+        (clear-value (Color {:r 0.055 :g 0.10 :b 0.12 :a 1.0}))
+        depth-clear
+        (vk/VkClearValue
+         {:depthStencil (vk/VkClearDepthStencilValue {:depth 1.0 :stencil 0})})
+        clear-values
+        (az/array-init [:array 2 vk/VkClearValue] [background depth-clear])
         render-area
         (vk/VkRect2D
          {:offset (vk/VkOffset2D {:x 0 :y 0})
@@ -419,16 +737,28 @@
           :renderPass render-pass
           :framebuffer (az/index framebuffers image-index)
           :renderArea render-area
-          :clearValueCount 1
-          :pClearValues (ak/& background)})]
+          :clearValueCount 2
+          :pClearValues (ak/& (az/index clear-values 0))})]
     (check (vk/vkResetCommandBuffer command-buffer 0))
     (check (vk/vkBeginCommandBuffer command-buffer (ak/& begin-info)))
     (vk/vkCmdBeginRenderPass command-buffer (ak/& pass-info) vk/VK_SUBPASS_CONTENTS_INLINE)
     (set! active-command-buffer command-buffer)
-    (scene/draw-frame (ak/& backend-clear-rect)
-                      packet
-                      (ak/as :i32 (ak/intCast (az/field swapchain-extent width)))
-                      (ak/as :i32 (ak/intCast (az/field swapchain-extent height))))
+    (set! mesh-vertex-count
+          (mesh/build-coco-factory-frame!
+           (az/cast mapped-mesh-vertices [:c-pointer mesh/GpuVertex])))
+    (set! mesh-vertex-count
+          (hud-mesh/append-overlay!
+           (az/cast mapped-mesh-vertices [:c-pointer mesh/GpuVertex])
+           mesh-vertex-count
+           (ak/as :i32 (ak/intCast (az/field swapchain-extent width)))
+           (ak/as :i32 (ak/intCast (az/field swapchain-extent height)))))
+    (when (> mesh-vertex-count 0)
+      (let [offset (ak/as vk/VkDeviceSize 0)]
+        (vk/vkCmdBindPipeline command-buffer vk/VK_PIPELINE_BIND_POINT_GRAPHICS
+                              mesh-pipeline)
+        (vk/vkCmdBindVertexBuffers command-buffer 0 1
+                                   (ak/& mesh-vertex-buffer) (ak/& offset))
+        (vk/vkCmdDraw command-buffer mesh-vertex-count 1 0 0)))
     (vk/vkCmdEndRenderPass command-buffer)
     (check (vk/vkEndCommandBuffer command-buffer))))
 
@@ -436,6 +766,7 @@
   "Render one game packet and present it."
   :- :bool
   [[packet game/RenderPacket]]
+  (std-debug/assert initialized)
   (let [^{:var true :zig/type :u32} image-index 0]
     (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
     (check (vk/vkAcquireNextImageKHR
@@ -494,6 +825,11 @@
   []
   (when initialized
     (renderer-wait-idle!)
+    (vk/vkDestroyPipeline device mesh-pipeline null)
+    (vk/vkDestroyPipelineLayout device mesh-pipeline-layout null)
+    (vk/vkUnmapMemory device mesh-vertex-memory)
+    (vk/vkDestroyBuffer device mesh-vertex-buffer null)
+    (vk/vkFreeMemory device mesh-vertex-memory null)
     (vk/vkDestroyFence device in-flight null)
     (vk/vkDestroySemaphore device render-finished null)
     (vk/vkDestroySemaphore device image-available null)
@@ -501,6 +837,9 @@
     (dotimes [index image-count]
       (vk/vkDestroyFramebuffer device (az/index framebuffers index) null)
       (vk/vkDestroyImageView device (az/index image-views index) null))
+    (vk/vkDestroyImageView device depth-view null)
+    (vk/vkDestroyImage device depth-image null)
+    (vk/vkFreeMemory device depth-memory null)
     (vk/vkDestroyRenderPass device render-pass null)
     (vk/vkDestroySwapchainKHR device swapchain null)
     (vk/vkDestroyDevice device null)
@@ -515,7 +854,16 @@
     (set! device null)
     (set! graphics-queue null)
     (set! swapchain null)
+    (set! depth-image null)
+    (set! depth-memory null)
+    (set! depth-view null)
     (set! render-pass null)
+    (set! mesh-pipeline null)
+    (set! mesh-pipeline-layout null)
+    (set! mesh-vertex-buffer null)
+    (set! mesh-vertex-memory null)
+    (set! mapped-mesh-vertices null)
+    (set! mesh-vertex-count 0)
     (set! active-command-buffer null)
     (set! command-pool null)
     (set! image-available null)

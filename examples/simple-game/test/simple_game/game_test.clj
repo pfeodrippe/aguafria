@@ -1,42 +1,48 @@
 (ns simple-game.game-test
   (:require [aguafria.zig :as az]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [simple-game.factory :as factory]
             [simple-game.game :as game]))
 
 (use-fixtures
   :once
   (fn [tests]
     (az/await! 'simple-game.game)
+    (game/shutdown)
     (try
       (tests)
       (finally
         (game/shutdown)))))
 
-(deftest deterministic-game-transitions-test
-  (testing "pure gameplay functions execute as real Zig calls"
-    (is (true? (game/circle-contains? 360.0 270.0 360.0 270.0 90.0)))
-    (is (false? (game/circle-contains? 500.0 270.0 360.0 270.0 90.0)))
-    (is (< (Math/abs (- 3.0 (double (game/animated-phase 2.0 0.25 true))))
-           0.0001))
-    (is (= 2.0 (double (game/animated-phase 2.0 0.25 false))))
-    (is (= [0 1 2 3 4 0 1]
-           (mapv game/shader-for-count (range 7))))))
-
-(deftest real-flecs-world-test
-  (testing "click! and the Flecs input system share one counter transition"
-    (game/shutdown)
+(deftest flecs-owner-test
+  (testing "one native owner exposes the exact factory world to Clojure"
     (is (true? (game/initialize!)))
-    (is (= 0 (:counter (az/value (game/snapshot)))))
-    (is (= 1 (game/click!)))
+    (let [state (az/value (game/snapshot))]
+      (is (true? (:initialized state)))
+      (is (pos? (:world_address state)))
+      (is (= 12 (:buildings state)))
+      (is (= 0 (:houses_completed state)))))
+
+  (testing "a platform tick drives construction through the shared pointer path"
+    ;; Cell 8,8 projects to roughly 380,188 in the factory mesh camera.
+    (is (= factory/building-empty
+           (:building (az/value (factory/cell-view 8 8)))))
     (let [packet (az/value
-                  (game/tick 360.0 270.0 720.0 540.0
+                  (game/tick 380.0 188.0 720.0 540.0
                              0.01 true true))]
-      (is (true? (:hovered packet)))
-      (is (= 2 (:counter packet)))
-      (is (= 2 (:shader_index packet))))
-    (let [packet (az/value
-                  (game/tick 0.0 0.0 720.0 540.0
-                             0.01 false false))]
-      (is (false? (:hovered packet)))
-      (is (= 2 (:counter packet)))
-      (is (= 2 (:shader_index packet))))))
+      (is (pos? (:frame packet)))
+      (is (= factory/building-belt
+             (:building (az/value (factory/cell-view 8 8))))))
+    ;; Holding the button across another cell builds continuously; it does not
+    ;; require a second press edge.
+    (game/tick 399.0 197.0 720.0 540.0 0.01 true false)
+    (is (= factory/building-belt
+           (:building (az/value (factory/cell-view 9 8)))))
+    (let [buildings (:buildings (az/value (factory/snapshot)))]
+      (game/tick 380.0 188.0 720.0 540.0 0.01 false false)
+      (is (= buildings (:buildings (az/value (factory/snapshot)))))))
+
+  (testing "pause is the factory pause, not a detached presentation state"
+    (is (true? (game/toggle-paused!)))
+    (is (true? (:paused (az/value (factory/snapshot)))))
+    (is (false? (game/toggle-paused!)))))

@@ -67,6 +67,12 @@
 
 (az/defvar rectangle-count :usize 0)
 
+(az/defvar dialogue-starts [:array 5 :usize]
+  (std-mem/zeroes (az/type [:array 5 :usize])))
+
+(az/defvar dialogue-counts [:array 5 :usize]
+  (std-mem/zeroes (az/type [:array 5 :usize])))
+
 (az/defn utf8-width-at
   {:export false :implicit-return true}
   :-
@@ -235,25 +241,45 @@
         (set! index (+ index (utf8-width-at text index)))))))
 
 (az/defn initialize!
-  "Load three real fonts and cache the demo's accented UTF-8 text."
+  "Load three real fonts and cache the coco-factory HUD and controls."
   :-
   :bool
   []
   (when (ak/! initialized)
     (ak/memset (std-mem/asBytes (ak/& fonts)) 0)
     (ak/memset (std-mem/asBytes (ak/& rectangles)) 0)
+    (ak/memset (std-mem/asBytes (ak/& dialogue-starts)) 0)
+    (ak/memset (std-mem/asBytes (ak/& dialogue-counts)) 0)
     (set! rectangle-count 0)
     (let [sans (load-font! 0 "build/assets/fonts/source-sans.ttf" 24.0)
           serif (load-font! 1 "build/assets/fonts/source-serif.ttf" 24.0)
           mono (load-font! 2 "build/assets/fonts/source-code-pro.ttf" 22.0)]
       (when (and sans serif mono)
-        (layout-text! 0 "Éclat à Québec" 22 34 0)
-        (layout-text! 1 "Ça brûle très vite !" 22 66 1)
-        (layout-text! 2 "Un Noël déjà prêt" 22 98 2)
-        (layout-text! 0 "MOY" 16 528 3)
-        (layout-text! 0 "MS" 120 528 3)
+        ;; Static factory labels are cached once from the real TTF files. Text
+        ;; is still rasterized once from the real TTF files, never rebuilt per
+        ;; frame.
+        (layout-text! 0 "COCO HOUSE WORKS" 18 40 4)
+        (layout-text! 2 "COCOS" 250 20 5)
+        (layout-text! 2 "PANELS" 360 20 6)
+        (layout-text! 2 "HOUSES" 480 20 7)
+        (layout-text! 2 "GOAL" 610 20 8)
+        (layout-text! 0 "GOAL COMPLETE" 278 96 10)
+        (layout-text! 2 "1 BELT" 24 482 11)
+        (layout-text! 2 "2 HARVEST" 128 482 12)
+        (layout-text! 2 "4 PRESS" 278 482 14)
+        (layout-text! 2 "5 SPLIT" 388 482 15)
+        (layout-text! 2 "6 HOUSE" 500 482 16)
+        (layout-text! 2 "R ROTATE" 614 482 17)
         (set! initialized true))))
   initialized)
+
+(az/defn reload!
+  "Rebuild cached dialogue spans after a live text/font edit."
+  :-
+  :bool
+  []
+  (set! initialized false)
+  (initialize!))
 
 (az/defn rect-count
   {:attrs #{:public :implicit-return}}
@@ -270,6 +296,24 @@
   (if (and (initialize!) (< index rectangle-count))
     (az/index rectangles index)
     (FontRect {:x 0 :y 0 :width 0 :height 0 :palette 0})))
+
+(az/defn dialogue-start
+  {:attrs #{:public :implicit-return}}
+  :-
+  :usize
+  [[dialogue :u8]]
+  (if (and (initialize!) (> dialogue 0) (< dialogue 5))
+    (az/index dialogue-starts dialogue)
+    0))
+
+(az/defn dialogue-rect-count
+  {:attrs #{:public :implicit-return}}
+  :-
+  :usize
+  [[dialogue :u8]]
+  (if (and (initialize!) (> dialogue 0) (< dialogue 5))
+    (az/index dialogue-counts dialogue)
+    0))
 
 (az/defn snapshot
   "Inspect actual font loading and cached layout state."

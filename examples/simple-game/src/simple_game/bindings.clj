@@ -1,5 +1,5 @@
 (ns simple-game.bindings
-  "Load generated external APIs source-only, then configure their Zig link."
+  "Load only the C APIs used by the active coco-factory native graph."
   (:require [aguafria.c :as ac]
             [aguafria.zig :as az]
             [clojure.java.io :as io]
@@ -16,14 +16,9 @@
       (when (seq missing)
         (generate/generate!))
       (build/prepare-flecs!)
-      (build/prepare-box3d!)
-      (build/prepare-miniaudio!)
       (build/prepare-stb-truetype!)
       (build/prepare-font-assets!)
-      (build/prepare-sprite-assets!)
-      ;; Game/Flecs, particle physics, and click audio are all ordinary,
-      ;; inspectable Aguafria dependencies. Vulkan/GLFW stay desktop-only.
-      (doseq [name [:flecs :box3d :miniaudio :stb-truetype :stdio]
+      (doseq [name [:flecs :stb-truetype :stdio]
               :let [spec (some #(when (= name (:name %)) %) specs)]]
         (ac/load-bindings! (:output spec)))
       (az/configure! {:zig-args (build/link-arguments)
@@ -32,10 +27,6 @@
   {:loaded? @loaded?
    :flecs-bindings
    (when @loaded? (ac/namespace-info 'simple-game.bindings.flecs))
-   :box3d-bindings
-   (when @loaded? (ac/namespace-info 'simple-game.bindings.box3d))
-   :miniaudio-bindings
-   (when @loaded? (ac/namespace-info 'simple-game.bindings.miniaudio))
    :stb-truetype-bindings
    (when @loaded? (ac/namespace-info 'simple-game.bindings.stb-truetype))
    :stdio-bindings

@@ -41,6 +41,38 @@
       (is (not= (:abi-fingerprint baseline)
                 (:abi-fingerprint signature-change))))))
 
+(deftest callable-abi-tracks-signature-types-not-body-local-types-test
+  (let [logical-id ["fixture.types" :struct "Payload"]
+        dependency (fn [schema]
+                     [[logical-id schema nil (str schema "-shape")]])
+        body-v1
+        (runtime/declaration-info
+         (assoc function-declaration
+                :type-dependency-fingerprints (dependency "payload-v1")
+                :abi-type-dependency-fingerprints []))
+        body-v2
+        (runtime/declaration-info
+         (assoc function-declaration
+                :type-dependency-fingerprints (dependency "payload-v2")
+                :abi-type-dependency-fingerprints []))
+        signature-v1
+        (runtime/declaration-info
+         (assoc function-declaration
+                :type-dependency-fingerprints (dependency "payload-v1")
+                :abi-type-dependency-fingerprints (dependency "payload-v1")))
+        signature-v2
+        (runtime/declaration-info
+         (assoc function-declaration
+                :type-dependency-fingerprints (dependency "payload-v2")
+                :abi-type-dependency-fingerprints (dependency "payload-v2")))]
+    (testing "a body-local struct edit recompiles without breaking dispatch"
+      (is (= (:abi-fingerprint body-v1) (:abi-fingerprint body-v2)))
+      (is (not= (:implementation-fingerprint body-v1)
+                (:implementation-fingerprint body-v2))))
+    (testing "a struct layout reachable from the signature versions the ABI"
+      (is (not= (:abi-fingerprint signature-v1)
+                (:abi-fingerprint signature-v2))))))
+
 (deftest source-fingerprint-covers-emission-without-churning-type-identity-test
   (let [reference
         (fn [alias]
@@ -72,6 +104,30 @@
               (:source-fingerprint documentation-change)))
     (is (not= (:source-fingerprint baseline)
               (:source-fingerprint reference-change)))))
+
+(deftest local-emission-metadata-invalidates-native-source-test
+  (let [local (fn [metadata] (with-meta 'local metadata))
+        declaration
+        (fn [metadata]
+          (runtime/declaration-info
+           (assoc function-declaration
+                  :body [(list 'let [(local metadata) 1] 'local)])))
+        inferred (declaration {})
+        mutable (declaration {:var true})
+        typed (declaration {:zig/type :i32})]
+    (testing "const/var and local type edits retain the callable ABI"
+      (is (= (:abi-fingerprint inferred)
+             (:abi-fingerprint mutable)
+             (:abi-fingerprint typed))))
+    (testing "metadata read by the emitter changes implementation/source identity"
+      (is (not= (:implementation-fingerprint inferred)
+                (:implementation-fingerprint mutable)))
+      (is (not= (:implementation-fingerprint inferred)
+                (:implementation-fingerprint typed)))
+      (is (not= (:source-fingerprint inferred)
+                (:source-fingerprint mutable)))
+      (is (not= (:source-fingerprint inferred)
+                (:source-fingerprint typed))))))
 
 (deftest bounded-module-source-cache-reuses-and-invalidates-plans-test
   (let [cache (var-get #'aguafria.zig.runtime/module-source-cache)

@@ -4,7 +4,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
-            [simple-game.bindings]
+            [simple-game.legacy-bindings]
             [simple-game.bindings.miniaudio :as miniaudio]))
 
 (az/defstruct AudioSnapshot
@@ -88,6 +88,27 @@
       (set! _ (miniaudio/ma_sound_seek_to_pcm_frame (ak/& sound) 0))
       (set! _ (miniaudio/ma_waveform_set_frequency (ak/& waveform) frequency))
       (set! _ (miniaudio/ma_waveform_set_amplitude (ak/& waveform) 0.32))
+      (miniaudio/ma_sound_set_stop_time_in_pcm_frames
+       (ak/& sound) (+ now duration))
+      (set! _ (miniaudio/ma_sound_start (ak/& sound)))
+      (set! last-frequency frequency)
+      (set! play-count (+ play-count 1)))))
+
+(az/defn play-customer-voice!
+  "Play a short native gibberish chirp when a customer receives a coco."
+  :-
+  :void
+  [[customer :u8]]
+  (when initialized
+    (let [frequency (+ 245.0
+                       (* 68.0
+                          (ak/as :f64 (ak/floatFromInt (mod customer 3)))))
+          now (miniaudio/ma_engine_get_time_in_pcm_frames (ak/& engine))
+          duration (ak/divTrunc sample-rate 3)]
+      (set! _ (miniaudio/ma_sound_stop (ak/& sound)))
+      (set! _ (miniaudio/ma_sound_seek_to_pcm_frame (ak/& sound) 0))
+      (set! _ (miniaudio/ma_waveform_set_frequency (ak/& waveform) frequency))
+      (set! _ (miniaudio/ma_waveform_set_amplitude (ak/& waveform) 0.18))
       (miniaudio/ma_sound_set_stop_time_in_pcm_frames
        (ak/& sound) (+ now duration))
       (set! _ (miniaudio/ma_sound_start (ak/& sound)))

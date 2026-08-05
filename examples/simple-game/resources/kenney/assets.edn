@@ -1,0 +1,47 @@
+{:license "CC0-1.0"
+ :source-bundle "Kenney Game Assets All-in-1 3.6.0"
+ :models
+ [{:id :factory/conveyor
+   :resource "kenney/factory/conveyor.glb"
+   :role :belt-straight
+   :scale 1.0}
+  {:id :factory/conveyor-corner
+   :resource "kenney/factory/conveyor-corner.glb"
+   :role :belt-corner
+   :scale 1.0}
+  {:id :factory/machine
+   :resource "kenney/factory/machine.glb"
+   :role :assembler
+   :scale 1.0}
+  {:id :factory/hopper
+   :resource "kenney/factory/hopper-square.glb"
+   :role :storage
+   :scale 1.0}
+  {:id :factory/box
+   :resource "kenney/factory/box-small.glb"
+   :role :item
+   :scale 0.35}
+  {:id :factory/crane
+   :resource "kenney/factory/crane.glb"
+   :role :extractor
+   :scale 0.8}
+  {:id :recife/palm
+   :resource "kenney/recife/tree_palm.glb"
+   :role :vegetation
+   :scale 0.75}
+  {:id :recife/bridge
+   :resource "kenney/recife/bridge_stone.glb"
+   :role :bridge
+   :scale 1.0}
+  {:id :recife/canoe
+   :resource "kenney/recife/canoe.glb"
+   :role :watercraft
+   :scale 0.55}
+  {:id :recife/building
+   :resource "kenney/recife/building-a.glb"
+   :role :backdrop
+   :scale 0.8}
+  {:id :recife/tank
+   :resource "kenney/recife/detail-tank.glb"
+   :role :industrial-detail
+   :scale 0.65}]}

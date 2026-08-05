@@ -5,7 +5,7 @@
             [aguafria.std.math :as std-math]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
-            [simple-game.bindings]
+            [simple-game.legacy-bindings]
             [simple-game.bindings.box3d :as box3d]))
 
 (az/defconst particle-capacity :usize 32)

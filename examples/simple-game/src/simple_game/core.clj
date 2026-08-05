@@ -1,88 +1,73 @@
 (ns simple-game.core
-  "Small REPL dashboard for the running desktop example."
+  "REPL dashboard and live-development examples for Coco House Works."
   (:require [aguafria.zig :as az]
-            [simple-game.animation :as animation]
-            [simple-game.audio :as audio]
+            [simple-game.assets :as assets]
             [simple-game.desktop :as desktop]
+            [simple-game.factory :as factory]
             [simple-game.font :as font]
             [simple-game.game :as game]
             [simple-game.host :as host]
-            [simple-game.physics :as physics]
+            [simple-game.mesh :as mesh]
             [simple-game.vulkan :as vulkan]))
 
 (defn status
-  "Return live game, renderer, desktop, and compiler state as ordinary data."
+  "Return the live factory, renderer, and compiler state as ordinary data."
   []
   {:desktop (desktop/desktop-snapshot)
    :game (game/snapshot)
-   :animation (animation/snapshot)
-   :physics (physics/snapshot)
-   :audio (audio/snapshot)
+   :factory (factory/snapshot)
+   :assets (assets/snapshot)
+   :meshes (mesh/snapshot)
    :fonts (font/snapshot)
    :renderer (vulkan/renderer-snapshot)
    :fps (game/current-fps)
    :frame-timing (host/frame-timing)
    :compilation
-   {:game (az/stats 'simple-game.game)
+   {:factory (az/stats 'simple-game.factory)
+    :game (az/stats 'simple-game.game)
     :renderer (az/stats 'simple-game.vulkan)}})
 
 (comment
-  ;; Start the desktop+nREPL JVM from this project:
+  ;; Start the game and its nREPL in one JVM:
   ;;   clojure -M:desktop
-  ;; Connect Calva/CIDER to the printed port. The game loop and nREPL share
-  ;; this one JVM and the one authoritative Flecs world.
+  ;; Connect Calva/CIDER to the printed port. The nREPL sees the exact Flecs
+  ;; world, cells, counters, and native functions used by the open window.
 
   (status)
+  (factory/snapshot)
+  (factory/cell-view 15 12)
 
-  ;; Invoke the exact same transition used by the Flecs mouse handler. Both
-  ;; paths call game/advance-counter!; this command only locates the live
-  ;; Counter component first.
-  (game/click!)
-  (game/snapshot)
-
-  ;; The generated demo loads from one spritesheet by default. Switch live to
-  ;; the equivalent pack built from six separate sprite images, change its
-  ;; speed, pause it, or restart it without restarting the JVM or game window.
-  (animation/use-generated-sprite-list!)
-  (animation/set-fps! 12.0)
-  (animation/set-playing! false)
-  (animation/restart!)
-  (animation/snapshot)
-
-  ;; Edit one az/defn, then evaluate only that top-level form in Calva/CIDER.
-  ;; Do not use `(require ... :reload)` for an ordinary edit: that needlessly
-  ;; resubmits every declaration in the namespace.
-  (az/await! 'simple-game.game)
-  (az/await! 'simple-game.vulkan)
-  (status)
-
-  ;; Measure real declaration edits in this same JVM. Each scenario verifies
-  ;; changed behavior/live state and restores the original Var automatically.
-  (require '[simple-game.hot-reload-benchmark :as hot])
-  (hot/run-all!)
-
-  ;; Live-edit ABI rules:
+  ;; Window controls:
   ;;
-  ;; - An az/defn body edit with the same parameter/return ABI publishes into
-  ;;   the existing dispatch slot; the current Flecs world and entities use it.
-  ;; - A new function A can be evaluated first, followed by an existing caller
-  ;;   B; B then publishes a generation that calls A without a JVM restart.
-  ;; - A signature change creates a new function version. Reevaluate its direct
-  ;;   callers (and then their callers) before the new ABI becomes reachable.
-  ;; - A defstruct/layout change creates a new type version. Existing native
-  ;;   allocations keep their old layout; explicitly migrate/recreate that state
-  ;;   before publishing dependents that expect the new layout.
+  ;;   left click   build on the highlighted tile
+  ;;   right click  demolish
+  ;;   1            belt
+  ;;   2            coconut harvester
+  ;;   4            coco-panel press
+  ;;   6            coco-house construction site
+  ;;   R            rotate clockwise
+  ;;   P            pause/resume
+  ;;   N            explicitly reset the world
 
-  ;; Build the same sources as one optimized executable, outside the REPL:
+  ;; The same operations are ordinary callable Clojure Vars. This places a
+  ;; second construction site without restarting the window or copying state.
+  (factory/set-build-kind! factory/building-coco-house)
+  (factory/place! 18 14 factory/building-coco-house factory/direction-east)
+  (factory/cell-view 18 14)
+  (factory/remove! 18 14)
+
+  ;; Ordinary development edit: change the 0.80-second press threshold in
+  ;; factory/press-duration and evaluate that top-level az/defn directly in
+  ;; Calva/CIDER. Watch `:panels_produced` change in the same native world.
+  (factory/press-duration)
+  (factory/snapshot)
+
+  ;; A compatible mesh/HUD body edit is equally local and preserves all cells.
+  (az/await! 'simple-game.mesh)
+  (az/await! 'simple-game.hud)
+  (status)
+
+  ;; Build the same sources as one JVM-free optimized executable:
   ;;   clojure -M:standalone
   ;;   ./build/standalone/simple-game
-
-  ;; Verify the same pure behavior contract in a headless ReleaseFast artifact:
-  ;;   clojure -M:behavior
-
-  ;; Cross-compile the same game/host/scene code to WebAssembly. GLFW owns
-  ;; browser input and the main loop; JavaScript only instantiates the module.
-  ;;   clojure -M:web
-  ;;   clojure -M:serve-web
-  ;;   open http://127.0.0.1:8787/
   )

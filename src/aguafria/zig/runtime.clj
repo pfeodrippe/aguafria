@@ -141,14 +141,29 @@
   (when (symbol? reference)
     (let [zig-reference (-> reference meta :aguafria/zig-reference)
           target-symbol (:symbol zig-reference)
-          target-module (or (:module zig-reference)
-                            (some-> target-symbol namespace)
-                            (namespace reference)
-                            context-module)
+          target-module (some-> (or (:module zig-reference)
+                                    (some-> target-symbol namespace)
+                                    (namespace reference)
+                                    context-module)
+                                str)
           target-name (or (some-> target-symbol name)
-                          (name reference))]
-      (some #(when (= target-name (str (:name %))) %)
-            (vals (get-in @registry [target-module :definitions]))))))
+                          (name reference))
+          module-state (get @registry target-module)
+          name-index (:definition-key-by-zig-name module-state)
+          reference-name-index
+          (get-in @declaration-reference-index
+                  [:by-module target-module :by-name])
+          declaration-key (get name-index target-name)]
+      (or
+       (get-in module-state [:definitions declaration-key])
+       (get reference-name-index target-name)
+       ;; Older/restored registry snapshots may predate both name indexes. Pay
+       ;; the scan only in that compatibility case. A known index miss is a real
+       ;; miss (often an emitter helper such as `field`), and rescanning a large
+       ;; converted namespace for every such form makes loading quadratic.
+       (when-not (or (map? name-index) (map? reference-name-index))
+         (some #(when (= target-name (str (:name %))) %)
+               (vals (:definitions module-state))))))))
 
 (defn- type-factory-call
   [{:keys [kind module value]}]
@@ -616,6 +631,13 @@
   [:kind :module :zig-name :import-name :import-alias :import-namespace
    :source-order :logical-id :type-reference? :state-accessor])
 
+(def ^:private emission-symbol-fingerprint-keys
+  "Symbol metadata read directly by the emitter must participate in source
+  identity. Otherwise changing a local from `const` to `var`, adding/removing
+  a concrete Zig type, or changing a source prefix can incorrectly reuse the
+  previous native generation."
+  [:var :zig/type :tag :zig/prefix])
+
 (defn- canonical-fingerprint-value
   ([value]
    (canonical-fingerprint-value value identity-reference-fingerprint-keys))
@@ -627,6 +649,11 @@
          (:zig/name (meta value))
          (conj [:zig/name (:zig/name (meta value))])
 
+         (seq (select-keys (meta value) emission-symbol-fingerprint-keys))
+         (conj [:zig/emission-meta
+                (select-keys (meta value)
+                             emission-symbol-fingerprint-keys)])
+
          reference
          (conj [:zig/reference (select-keys reference reference-keys)])))
 
@@ -636,16 +663,26 @@
      [:map
       (->> value
            (map (fn [[key nested]]
-                  [(canonical-fingerprint-value key reference-keys)
-                   (canonical-fingerprint-value nested reference-keys)]))
-           (sort-by (comp pr-str first))
-           vec)]
+                  (let [entry
+                        [(canonical-fingerprint-value key reference-keys)
+                         (canonical-fingerprint-value nested reference-keys)]]
+                    ;; Preserve the historical `pr-str` ordering exactly, but
+                    ;; serialize each canonical key once instead of once per
+                    ;; TimSort comparison. Large converted C declarations can
+                    ;; otherwise spend most of their cold-load time printing
+                    ;; the same nested keys repeatedly.
+                    [(pr-str (first entry)) entry])))
+           (sort-by first)
+           (mapv second))]
 
      (set? value)
      [:set (->> value
-                (map #(canonical-fingerprint-value % reference-keys))
-                (sort-by pr-str)
-                vec)]
+                (map (fn [nested]
+                       (let [canonical
+                             (canonical-fingerprint-value nested reference-keys)]
+                         [(pr-str canonical) canonical])))
+                (sort-by first)
+                (mapv second))]
 
      (vector? value)
      [:vector (mapv #(canonical-fingerprint-value % reference-keys) value)]
@@ -694,7 +731,7 @@
    :type-dependencies
    (mapv (fn [[logical-id schema-fingerprint _implementation-fingerprint]]
            [logical-id schema-fingerprint])
-         (:type-dependency-fingerprints declaration))})
+         (:abi-type-dependency-fingerprints declaration))})
 
 (defn- type-dependency-shapes
   [declaration]
@@ -1608,6 +1645,84 @@
                        (when (contains? #{:fn :fn-proto} (:kind candidate))
                          (:logical-id candidate))))))))
      (tree-seq coll? seq declaration))))
+
+(defn- declaration-index-names
+  [declaration]
+  (if declaration
+    (->> [(:name declaration)
+          (:zig-name declaration)
+          (declaration-zig-name declaration)]
+         (remove nil?)
+         (map str)
+         distinct
+         vec)
+    []))
+
+(defn- index-declarations-incrementally!
+  "Advance the immutable reference index for declarations that were just
+  associated into the registry. Generated namespaces arrive one Var at a time;
+  rebuilding every preceding declaration for every Var makes their load
+  quadratic. Persistent definition maps preserve all untouched declaration
+  values, so only the supplied logical rows and names need to change."
+  [declarations]
+  (when (seq declarations)
+    (locking declaration-reference-index
+      (let [before @declaration-reference-index
+            before-references (or (:references before) {})
+            preliminary
+            (reduce
+             (fn [index declaration]
+               (if-let [logical-id (:logical-id declaration)]
+                 (let [module (:module declaration)
+                       definitions (get-in @registry [module :definitions])
+                       old-declaration (get-in index [:by-logical logical-id])
+                       old-names (declaration-index-names old-declaration)
+                       new-names (declaration-index-names declaration)
+                       by-name (reduce dissoc
+                                       (or (get-in index
+                                                   [:by-module module :by-name])
+                                           {})
+                                       old-names)
+                       by-name (into by-name
+                                     (map (fn [declaration-name]
+                                            [declaration-name declaration]))
+                                     new-names)]
+                   (-> index
+                       (assoc-in [:by-module module :definitions] definitions)
+                       (update-in [:by-module module :logical-ids]
+                                  (fnil conj #{}) logical-id)
+                       (assoc-in [:by-module module :by-name] by-name)
+                       (assoc-in [:by-logical logical-id] declaration)))
+                 index))
+             before
+             declarations)
+            ;; Plain same-module forward references need the updated name table
+            ;; while their adjacency rows are extracted.
+            _ (reset! declaration-reference-index preliminary)
+            references
+            (reduce
+             (fn [references declaration]
+               (if-let [logical-id (:logical-id declaration)]
+                 (assoc references logical-id
+                        (declaration-reference-logical-ids declaration))
+                 references))
+             before-references
+             declarations)
+            changed?
+            (some (fn [declaration]
+                    (let [logical-id (:logical-id declaration)]
+                      (and logical-id
+                           (not= (get before-references logical-id)
+                                 (get references logical-id)))))
+                  declarations)
+            updated
+            (assoc preliminary
+                   :references references
+                   :revision
+                   (cond-> (long (or (:revision before) 0))
+                     changed? inc))]
+        (reset! declaration-reference-index updated)
+        (:by-logical updated)))))
 
 (declare registered-declarations-by-logical-id)
 
@@ -3830,31 +3945,40 @@
   alias `(az/defconst Value OtherValue)`. The old native generation remains
   retained for active callers, while the new module snapshot must contain
   exactly one `Value` declaration."
-  [definitions declaration]
-  (let [declaration-name (declaration-zig-name declaration)
-        exact (get definitions (:declaration-key declaration))
-        conflict
-        (some (fn [[key candidate]]
-                (when (and (not= key (:declaration-key declaration))
-                           (= declaration-name
-                              (declaration-zig-name candidate)))
-                  candidate))
-              definitions)
+  ([definitions declaration]
+   (replacement-declaration-state
+    definitions
+    (into {}
+          (map (fn [[key candidate]]
+                 [(declaration-zig-name candidate) key]))
+          definitions)
+    declaration))
+  ([definitions definition-key-by-zig-name declaration]
+   (let [declaration-name (declaration-zig-name declaration)
+        declaration-key (:declaration-key declaration)
+        exact (get definitions declaration-key)
+        conflict-key (get definition-key-by-zig-name declaration-name)
+        conflict (when (and conflict-key (not= conflict-key declaration-key))
+                   (get definitions conflict-key))
         old-declaration (or exact conflict)
         declaration
         (if (or (some? (:source-order declaration))
                 (nil? (:source-order old-declaration)))
           (stable-source-order definitions declaration)
           (assoc declaration :source-order (:source-order old-declaration)))
-        definitions
-        (into {}
-              (remove (fn [[_ candidate]]
-                        (= declaration-name
-                           (declaration-zig-name candidate))))
-              definitions)]
-    {:old-declaration old-declaration
-     :declaration declaration
-     :definitions (assoc definitions (:declaration-key declaration) declaration)}))
+        old-exact-name (some-> exact declaration-zig-name)
+        definitions (cond-> definitions
+                      conflict-key (dissoc conflict-key)
+                      true (dissoc declaration-key)
+                      true (assoc declaration-key declaration))
+        definition-key-by-zig-name
+        (cond-> definition-key-by-zig-name
+          old-exact-name (dissoc old-exact-name)
+          declaration-name (assoc declaration-name declaration-key))]
+     {:old-declaration old-declaration
+      :declaration declaration
+      :definitions definitions
+      :definition-key-by-zig-name definition-key-by-zig-name})))
 
 (defn- published-loaded-declarations
   "Keep the complete logical module view after publishing a native live slice.
@@ -5167,13 +5291,8 @@
                          (mapcat
                           (fn [declaration]
                             (map (fn [declaration-name]
-                                   [(str declaration-name) declaration])
-                                 (distinct
-                                  (remove nil?
-                                          [(:name declaration)
-                                           (:zig-name declaration)
-                                           (declaration-zig-name
-                                            declaration)])))))
+                                   [declaration-name declaration])
+                                 (declaration-index-names declaration))))
                          declarations)]
                [(assoc modules module {:definitions definitions
                                        :logical-ids logical-ids
@@ -5247,7 +5366,15 @@
                                      [[(:module declaration) name]
                                       declaration])
                                    names)))))
-                        declarations)]
+                        declarations)
+                  current-by-name
+                  (into {}
+                        (mapcat
+                         (fn [current]
+                           (map (fn [name]
+                                  [[(:module current) name] current])
+                                (declaration-index-names current))))
+                        (vals current-by-logical))]
               (mapv
                (fn [declaration]
                  (let [type-producing? (type-producing-declaration? declaration)
@@ -5367,6 +5494,47 @@
                             distinct
                             (sort-by pr-str)
                             vec)
+                       ;; Only schemas reachable from the callable surface are
+                       ;; part of its ABI. A local value constructed in the body
+                       ;; must invalidate the implementation, not create a new
+                       ;; dispatch lineage for an unchanged signature.
+                       abi-type-dependency-fingerprints
+                       (->> (concat [(:return refreshed)]
+                                    (map :type (:args refreshed)))
+                            (tree-seq coll? seq)
+                            (keep (fn [value]
+                                    (when (symbol? value)
+                                      (let [reference
+                                            (:aguafria/zig-reference
+                                             (meta value))
+                                            current
+                                            (or (and reference
+                                                     (get current-by-logical
+                                                          (:logical-id reference)))
+                                                (get current-by-name
+                                                     [(or (:module reference)
+                                                          (namespace value)
+                                                          (:module declaration))
+                                                      (name value)]))]
+                                        (cond
+                                          (type-producing-declaration? current)
+                                          [[(:logical-id current)
+                                            (:schema-fingerprint current)
+                                            (:implementation-fingerprint current)
+                                            (:shape-fingerprint current)]]
+
+                                          current
+                                          (:type-dependency-fingerprints current)
+
+                                          (:schema-fingerprint reference)
+                                          [[(:logical-id reference)
+                                            (:schema-fingerprint reference)
+                                            (:implementation-fingerprint reference)
+                                            (:shape-fingerprint reference)]])))))
+                            (mapcat identity)
+                            distinct
+                            (sort-by pr-str)
+                            vec)
                        callable-dependency-fingerprints
                        (->> (tree-seq coll? seq refreshed)
                             (keep (fn [value]
@@ -5401,6 +5569,8 @@
                        (assoc refreshed
                               :type-dependency-fingerprints
                               type-dependency-fingerprints
+                              :abi-type-dependency-fingerprints
+                              abi-type-dependency-fingerprints
                               :callable-dependency-fingerprints
                               callable-dependency-fingerprints)]
                    (binding [*preserve-source-fingerprint?*
@@ -7518,13 +7688,27 @@
   (locking compile-lock
     (let [current (get @registry module)
           definitions (or (:definitions current) {})
-          {:keys [declaration definitions]}
-          (replacement-declaration-state definitions declaration)]
+          definition-key-by-zig-name
+          (or (:definition-key-by-zig-name current)
+              (into {}
+                    (map (fn [[key candidate]]
+                           [(declaration-zig-name candidate) key]))
+                    definitions))
+          declaration
+          (if (some? (:source-order declaration))
+            declaration
+            (assoc declaration :source-order
+                   (long (or (:next-source-order current)
+                             (next-source-order definitions)))))
+          {:keys [declaration definitions definition-key-by-zig-name]}
+          (replacement-declaration-state
+           definitions definition-key-by-zig-name declaration)]
       (swap! registry assoc module
              (merge current
                     {:module module
                      :definitions definitions
-                     :declarations (vec (vals definitions))
+                     :definition-key-by-zig-name definition-key-by-zig-name
+                     :next-source-order (inc (long (:source-order declaration)))
                      :source nil
                      :source-dirty? true
                      :source-only? true
@@ -7532,6 +7716,7 @@
                      :scheduled nil
                      :last-error nil
                      :failed-generation nil}))
+      (index-declarations-incrementally! [declaration])
       (publish-clojure-declaration-metadata! [declaration])
       {:module module
        :declaration-key declaration-key

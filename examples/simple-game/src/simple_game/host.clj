@@ -1,11 +1,13 @@
 (ns simple-game.host
-  "Shared GLFW input and Flecs frame used by desktop and WebAssembly."
+  "GLFW input and timing for the native coco-house factory loop."
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
             [simple-game.bindings.glfw :as glfw]
-            [simple-game.game :as game]))
+            [simple-game.factory :as factory]
+            [simple-game.game :as game]
+            [simple-game.input :as input]))
 
 (az/defstruct FrameTiming
   "Native start-to-presentation timing accumulated by the shared frame path."
@@ -54,6 +56,15 @@
 
 (az/defvar last-frame-seconds :f64 0.0)
 
+(az/defn queue-pointer-press!
+  "Queue one pointer press for the live frame loop. GLFW and nREPL use the
+  same native edge queue so interactive tests exercise the production path."
+  {:attrs #{:public}}
+  :-
+  :void
+  []
+  (set! pending-pointer-presses (+ pending-pointer-presses 1)))
+
 (az/defn mouse-button-callback
   "Capture GLFW click edges natively so no platform can lose a short press."
   {:attrs #{:public :export}}
@@ -67,7 +78,7 @@
   (set! _ mods)
   (when (ak/== button glfw/GLFW_MOUSE_BUTTON_LEFT)
     (when (ak/== action glfw/GLFW_PRESS)
-      (set! pending-pointer-presses (+ pending-pointer-presses 1)))
+      (queue-pointer-press!))
     (set! previous-pointer-down (ak/== action glfw/GLFW_PRESS))))
 
 (az/defn reset-input!
@@ -77,7 +88,8 @@
   [[window [:* glfw/GLFWwindow]]]
   (set! _ (glfw/glfwSetMouseButtonCallback window (ak/& mouse-button-callback)))
   (set! previous-pointer-down false)
-  (set! pending-pointer-presses 0))
+  (set! pending-pointer-presses 0)
+  (input/reset!))
 
 (az/defn reset-frame-timing!
   "Clear full-frame measurements without disturbing game state."
@@ -177,11 +189,31 @@
                       (* (ak/as :f32 (ak/floatCast cursor-y))
                          (/ 540.0 (ak/as :f32 (ak/floatFromInt window-height))))
                       -1.0)
-          input-work (ak/max 0.0 (- (glfw/glfwGetTime) frame-start-seconds))
-          packet (game/tick-auto pointer-x pointer-y 720.0 540.0
-                                 previous-pointer-down (> pending-pointer-presses 0))]
+          actions (input/poll! window pointer-x pointer-y
+                               previous-pointer-down (> pending-pointer-presses 0))
+          input-work (ak/max 0.0 (- (glfw/glfwGetTime) frame-start-seconds))]
+      (when (az/field actions pause_pressed)
+        (set! _ (game/toggle-paused!)))
+      (when (az/field actions restart_pressed)
+        (game/restart!))
+      (when (az/field actions rotate_pressed)
+        (set! _ (factory/rotate-build! true)))
+      (when (> (az/field actions build_selection) 0)
+        (factory/set-build-kind! (az/field actions build_selection)))
+      (when (az/field actions secondary_down)
+        (let [cell (factory/screen-to-cell
+                    (az/field actions pointer_x)
+                    (az/field actions pointer_y))]
+          (when (az/field cell valid)
+            (set! _ (factory/remove! (az/field cell x) (az/field cell y))))))
+      (let [packet (game/tick-auto
+                    (az/field actions pointer_x)
+                    (az/field actions pointer_y)
+                    720.0 540.0
+                    (az/field actions pointer_down)
+                    (az/field actions activate_pressed))]
       (set! current-simulation-seconds
             (+ input-work (game/last-frame-work-seconds)))
       (when (> pending-pointer-presses 0)
         (set! pending-pointer-presses (- pending-pointer-presses 1)))
-      packet)))
+      packet))))

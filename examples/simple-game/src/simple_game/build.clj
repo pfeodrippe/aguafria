@@ -724,7 +724,15 @@
                 {:candidates (mapv str candidates)})))))
 
 (defn link-arguments
-  "Development links. Each upstream dylib owns its long-lived native globals."
+  "Development links used by the active coco-factory simulation graph."
+  []
+  (let [{:keys [flecs-shared-library stb-truetype-static-library]} (paths)]
+    [(.getAbsolutePath flecs-shared-library)
+     (.getAbsolutePath stb-truetype-static-library)
+     "-lc"]))
+
+(defn legacy-link-arguments
+  "Links retained for the disconnected particle/audio laboratory namespaces."
   []
   (let [{:keys [flecs-shared-library box3d-shared-library
                 miniaudio-shared-library stb-truetype-static-library]} (paths)]
@@ -737,31 +745,25 @@
 (defn standalone-link-arguments
   "Release/standalone link arguments; no development shared library required."
   []
-  (let [{:keys [flecs-static-library glfw-static-library box3d-static-library
-                miniaudio-static-library stb-truetype-static-library]} (paths)]
+  (let [{:keys [flecs-static-library glfw-static-library
+                stb-truetype-static-library]} (paths)]
     [(.getAbsolutePath flecs-static-library)
      (.getAbsolutePath glfw-static-library)
-     (.getAbsolutePath box3d-static-library)
-     (.getAbsolutePath miniaudio-static-library)
      (.getAbsolutePath stb-truetype-static-library)
      (vulkan-loader)
      "-framework" "Cocoa"
      "-framework" "IOKit"
      "-framework" "CoreFoundation"
      "-framework" "QuartzCore"
-     "-framework" "CoreAudio"
-     "-framework" "AudioToolbox"
      "-lc"]))
 
 (defn desktop-link-arguments
   "Development links for game logic, GLFW, and the system Vulkan loader."
   []
-  (let [{:keys [flecs-shared-library glfw-shared-library box3d-shared-library
-                miniaudio-shared-library stb-truetype-static-library]} (paths)]
+  (let [{:keys [flecs-shared-library glfw-shared-library
+                stb-truetype-static-library]} (paths)]
     [(.getAbsolutePath flecs-shared-library)
      (.getAbsolutePath glfw-shared-library)
-     (.getAbsolutePath box3d-shared-library)
-     (.getAbsolutePath miniaudio-shared-library)
      (.getAbsolutePath stb-truetype-static-library)
      (vulkan-loader)
      "-lc"]))
@@ -771,11 +773,8 @@
   Clojure is only the build frontend; the artifact has no JVM dependency."
   []
   (prepare-flecs!)
-  (prepare-box3d!)
-  (prepare-miniaudio!)
   (prepare-stb-truetype!)
   (prepare-font-assets!)
-  (prepare-sprite-assets!)
   (prepare-static-glfw!)
   (zig-build/load-source-only! 'simple-game.standalone)
   (let [output (io/file (:root (paths)) "build/standalone/simple-game")]
@@ -793,8 +792,6 @@
   "Compile and run the Debug-tested gameplay contract as ReleaseFast native code."
   []
   (prepare-flecs!)
-  (prepare-box3d!)
-  (prepare-miniaudio!)
   (prepare-stb-truetype!)
   (prepare-static-glfw!)
   (zig-build/load-source-only! 'simple-game.behavior-probe)
@@ -805,6 +802,30 @@
          'simple-game.behavior-probe
          {:kind :exe
           :name "simple-game-behavior-probe"
+          :output output
+          :optimize "ReleaseFast"
+          :reloadable? false
+          :async? false
+          :zig-args (standalone-link-arguments)})
+        execution (run-command! [(.getAbsolutePath output)] (:root (paths)))]
+    {:artifact artifact
+     :execution (select-keys execution [:command :exit :output])}))
+
+(defn run-performance-probe!
+  "Build and run the bounded ReleaseFast GLFW/Vulkan timing probe."
+  []
+  (prepare-flecs!)
+  (prepare-stb-truetype!)
+  (prepare-font-assets!)
+  (prepare-static-glfw!)
+  (zig-build/load-source-only! 'simple-game.performance-probe)
+  (let [output (io/file (:root (paths))
+                        "build/standalone/simple-game-performance-probe")
+        artifact
+        (az/build!
+         'simple-game.performance-probe
+         {:kind :exe
+          :name "simple-game-performance-probe"
           :output output
           :optimize "ReleaseFast"
           :reloadable? false
@@ -911,26 +932,21 @@
                     :glfw (prepare-glfw!)
                     :vulkan-loader (vulkan-loader)})
     "desktop" (prn {:flecs (prepare-flecs!)
-                     :box3d (prepare-box3d!)
-                     :miniaudio (prepare-miniaudio!)
                      :stb-truetype (prepare-stb-truetype!)
                      :font-assets (prepare-font-assets!)
-                     :sprite-assets (prepare-sprite-assets!)
                      :glfw (prepare-glfw!)
                      :vulkan-loader (vulkan-loader)})
     "standalone" (prn {:flecs (prepare-flecs!)
-                        :box3d (prepare-box3d!)
-                        :miniaudio (prepare-miniaudio!)
                         :stb-truetype (prepare-stb-truetype!)
                         :font-assets (prepare-font-assets!)
-                        :sprite-assets (prepare-sprite-assets!)
                         :glfw (prepare-static-glfw!)
                         :vulkan-loader (vulkan-loader)
                         :artifact (build-standalone!)})
     "behavior" (prn (run-behavior-probe!))
+    "performance" (prn (run-performance-probe!))
     "web" (prn (build-web!))
     (throw (ex-info "Unknown simple-game build command"
                     {:command command
                      :supported ["prepare" "desktop" "standalone"
-                                 "behavior" "web"]})))
+                                 "behavior" "performance" "web"]})))
   (shutdown-agents))
