@@ -45,14 +45,6 @@
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
    :main-opts ["-m" "simple-game.build" "performance"]}
 
-  :web
-  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
-   :main-opts ["-m" "simple-game.build" "web"]}
-
-  :serve-web
-  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
-   :main-opts ["-m" "simple-game.web-server"]}
-
   :test
   {:extra-paths ["test"]
    :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}

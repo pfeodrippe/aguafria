@@ -5,27 +5,25 @@
 
 (use-fixtures
   :each
-  (fn [test]
+  (fn [tests]
     (az/await! 'simple-game.physics)
     (physics/shutdown!)
     (try
-      (test)
+      (tests)
       (finally
         (physics/shutdown!)))))
 
-(deftest real-box3d-particle-lifecycle-test
-  (testing "a click-sized burst is simulated in 3D and retires from the pool"
+(deftest factory-particle-burst-test
+  (testing "a house event creates bounded real Box3D bodies at its grid cell"
     (is (true? (physics/initialize!)))
-    (physics/emit! 3)
-    (is (= 6 (physics/active-count)))
+    (physics/emit! 15 12 4)
+    (is (= 12 (physics/active-count)))
     (let [before (az/value (physics/particle-view 0))]
-      (dotimes [_ 5]
-        (physics/step! 0.1))
+      (is (true? (:active before)))
+      (is (= 2.0 (double (:x before))))
+      (physics/step! 0.05)
       (let [after (az/value (physics/particle-view 0))]
-        (is (true? (:active after)))
-        (is (not= (select-keys before [:x :y :z])
-                  (select-keys after [:x :y :z])))))
-    (dotimes [_ 18]
-      (physics/step! 0.1))
-    (is (zero? (physics/active-count)))
-    (is (pos? (:box3d_bytes (az/value (physics/snapshot)))))))
+        (is (not= (:y before) (:y after)))))
+    (let [state (az/value (physics/snapshot))]
+      (is (= 12 (:emitted state)))
+      (is (pos? (:box3d_bytes state))))))

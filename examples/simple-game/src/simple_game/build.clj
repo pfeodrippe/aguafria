@@ -726,14 +726,6 @@
 (defn link-arguments
   "Development links used by the active coco-factory simulation graph."
   []
-  (let [{:keys [flecs-shared-library stb-truetype-static-library]} (paths)]
-    [(.getAbsolutePath flecs-shared-library)
-     (.getAbsolutePath stb-truetype-static-library)
-     "-lc"]))
-
-(defn legacy-link-arguments
-  "Links retained for the disconnected particle/audio laboratory namespaces."
-  []
   (let [{:keys [flecs-shared-library box3d-shared-library
                 miniaudio-shared-library stb-truetype-static-library]} (paths)]
     [(.getAbsolutePath flecs-shared-library)
@@ -745,9 +737,12 @@
 (defn standalone-link-arguments
   "Release/standalone link arguments; no development shared library required."
   []
-  (let [{:keys [flecs-static-library glfw-static-library
+  (let [{:keys [flecs-static-library box3d-static-library
+                miniaudio-static-library glfw-static-library
                 stb-truetype-static-library]} (paths)]
     [(.getAbsolutePath flecs-static-library)
+     (.getAbsolutePath box3d-static-library)
+     (.getAbsolutePath miniaudio-static-library)
      (.getAbsolutePath glfw-static-library)
      (.getAbsolutePath stb-truetype-static-library)
      (vulkan-loader)
@@ -760,9 +755,12 @@
 (defn desktop-link-arguments
   "Development links for game logic, GLFW, and the system Vulkan loader."
   []
-  (let [{:keys [flecs-shared-library glfw-shared-library
+  (let [{:keys [flecs-shared-library box3d-shared-library
+                miniaudio-shared-library glfw-shared-library
                 stb-truetype-static-library]} (paths)]
     [(.getAbsolutePath flecs-shared-library)
+     (.getAbsolutePath box3d-shared-library)
+     (.getAbsolutePath miniaudio-shared-library)
      (.getAbsolutePath glfw-shared-library)
      (.getAbsolutePath stb-truetype-static-library)
      (vulkan-loader)
@@ -773,6 +771,8 @@
   Clojure is only the build frontend; the artifact has no JVM dependency."
   []
   (prepare-flecs!)
+  (prepare-box3d!)
+  (prepare-miniaudio!)
   (prepare-stb-truetype!)
   (prepare-font-assets!)
   (prepare-static-glfw!)
@@ -792,6 +792,8 @@
   "Compile and run the Debug-tested gameplay contract as ReleaseFast native code."
   []
   (prepare-flecs!)
+  (prepare-box3d!)
+  (prepare-miniaudio!)
   (prepare-stb-truetype!)
   (prepare-static-glfw!)
   (zig-build/load-source-only! 'simple-game.behavior-probe)
@@ -815,6 +817,8 @@
   "Build and run the bounded ReleaseFast GLFW/Vulkan timing probe."
   []
   (prepare-flecs!)
+  (prepare-box3d!)
+  (prepare-miniaudio!)
   (prepare-stb-truetype!)
   (prepare-font-assets!)
   (prepare-static-glfw!)
@@ -835,91 +839,6 @@
     {:artifact artifact
      :execution (select-keys execution [:command :exit :output])}))
 
-(defn- copy-web-assets!
-  [output-directory]
-  (doseq [name ["index.html" "app.js"]]
-    (let [source (io/file (:root (paths)) "resources/web" name)
-          output (io/file output-directory name)]
-      (when-not (.isFile source)
-        (throw (ex-info "Web asset is missing" {:asset (.getAbsolutePath source)})))
-      (io/make-parents output)
-      (with-open [input (io/input-stream source)
-                  stream (io/output-stream output)]
-        (io/copy input stream))))
-  output-directory)
-
-(defn build-web!
-  "Build the shared game and its unmodified C dependencies to WebAssembly."
-  []
-  (let [{:keys [root web-build-root flecs-web-object box3d-web-library
-                miniaudio-web-object stb-truetype-web-library
-                font-assets-root sprite-assets-root]} (paths)
-        generated-directory (io/file root "generated/simple_game/bindings")]
-    (when-not (every? #(.isFile ^java.io.File %)
-                      [(io/file generated-directory "webgl.clj")
-                       (io/file generated-directory "emscripten.clj")
-                       (io/file generated-directory "stb_truetype.clj")
-                       (io/file generated-directory "stdio.clj")])
-      ((requiring-resolve 'simple-game.generate/generate-web!)))
-    (let [flecs (prepare-web-flecs!)
-          box3d (prepare-web-box3d!)
-          miniaudio (prepare-web-miniaudio!)
-          stb-truetype (prepare-web-stb-truetype!)
-          font-assets (prepare-font-assets!)
-          sprite-assets (prepare-sprite-assets!)]
-      (zig-build/load-source-only! 'simple-game.web)
-      (let [game-object (io/file web-build-root "simple-game.o")
-            native-object
-            (az/build! 'simple-game.web
-                       {:kind :object
-                        :name "simple-game-web"
-                        :output game-object
-                        :target "wasm32-emscripten"
-                        :optimize "ReleaseFast"
-                        :reloadable? false
-                        :async? false
-                        :zig-args []})
-            javascript (io/file web-build-root "simple-game.js")
-            emcc-command
-            ["emcc"
-             (.getAbsolutePath game-object)
-             (.getAbsolutePath flecs-web-object)
-             (.getAbsolutePath box3d-web-library)
-             (.getAbsolutePath miniaudio-web-object)
-             (.getAbsolutePath stb-truetype-web-library)
-             "-O3"
-             "-o" (.getAbsolutePath javascript)
-             "-sMODULARIZE=1"
-             "-sEXPORT_NAME=createAguafriaGame"
-             "-sENVIRONMENT=web"
-             "-sALLOW_MEMORY_GROWTH=1"
-             "-sMIN_WEBGL_VERSION=2"
-             "-sMAX_WEBGL_VERSION=2"
-             "-sFULL_ES3=1"
-             "-sUSE_GLFW=3"
-             "-sNO_EXIT_RUNTIME=1"
-             "--no-entry"
-             "--preload-file"
-             (str (.getAbsolutePath font-assets-root) "@/build/assets/fonts")
-             "--preload-file"
-             (str (.getAbsolutePath sprite-assets-root) "@/build/assets/sprites")
-             "-sEXPORTED_FUNCTIONS=['_web_start','_web_stop']"]
-            package (run-command! emcc-command root)]
-        (copy-web-assets! web-build-root)
-        {:flecs flecs
-         :box3d box3d
-         :miniaudio miniaudio
-         :stb-truetype stb-truetype
-         :font-assets font-assets
-         :sprite-assets sprite-assets
-         :native-object native-object
-         :package {:command (:command package)
-                   :javascript-path (.getAbsolutePath javascript)
-                   :wasm-path (.getAbsolutePath
-                               (io/file web-build-root "simple-game.wasm"))
-                   :html-path (.getAbsolutePath
-                               (io/file web-build-root "index.html"))}}))))
-
 (defn -main
   [& [command]]
   (case (or command "prepare")
@@ -932,11 +851,15 @@
                     :glfw (prepare-glfw!)
                     :vulkan-loader (vulkan-loader)})
     "desktop" (prn {:flecs (prepare-flecs!)
+                     :box3d (prepare-box3d!)
+                     :miniaudio (prepare-miniaudio!)
                      :stb-truetype (prepare-stb-truetype!)
                      :font-assets (prepare-font-assets!)
                      :glfw (prepare-glfw!)
                      :vulkan-loader (vulkan-loader)})
     "standalone" (prn {:flecs (prepare-flecs!)
+                        :box3d (prepare-box3d!)
+                        :miniaudio (prepare-miniaudio!)
                         :stb-truetype (prepare-stb-truetype!)
                         :font-assets (prepare-font-assets!)
                         :glfw (prepare-static-glfw!)
@@ -944,9 +867,8 @@
                         :artifact (build-standalone!)})
     "behavior" (prn (run-behavior-probe!))
     "performance" (prn (run-performance-probe!))
-    "web" (prn (build-web!))
     (throw (ex-info "Unknown simple-game build command"
                     {:command command
                      :supported ["prepare" "desktop" "standalone"
-                                 "behavior" "performance" "web"]})))
+                                 "behavior" "performance"]})))
   (shutdown-agents))

@@ -1,11 +1,14 @@
 (ns simple-game.game
   "Minimal Flecs owner and hot-reloadable coco-factory frame driver."
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.std]
+            [aguafria.keyword :as ak]
             [aguafria.std.atomic :as std-atomic]
             [aguafria.zig :as az]
+            [simple-game.audio :as audio]
             [simple-game.bindings]
             [simple-game.bindings.flecs :as flecs]
-            [simple-game.factory :as factory]))
+            [simple-game.factory :as factory]
+            [simple-game.physics :as physics]))
 
 (az/defstruct RenderPacket
   "Small platform-neutral result passed from simulation to presentation."
@@ -29,6 +32,8 @@
 (az/defvar frame-count :u64 0)
 
 (az/defvar last-frame-work-seconds-value :f64 0.0)
+
+(az/defvar handled-event-count :u64 0)
 
 (az/defconst target-fps :f32 120.0)
 
@@ -95,8 +100,29 @@
   (when (ak/== world null)
     (set! world (flecs/ecs_init))
     (configure-target-fps!)
-    (set! _ (factory/initialize! (az/unwrap world))))
+    (set! _ (factory/initialize! (az/unwrap world)))
+    (set! _ (physics/initialize!))
+    (set! handled-event-count
+          (az/field (factory/snapshot) event_count)))
   (ak/!= world null))
+
+(az/defn process-factory-event!
+  "Drive native sound and Box3D effects from the latest Flecs event."
+  {:export false}
+  :-
+  :void
+  []
+  (let [state (factory/snapshot)
+        current-count (az/field state event_count)]
+    (when (> current-count handled-event-count)
+      (let [event (factory/latest-event)
+            kind (az/field event kind)]
+        (when (or (ak/== kind 1)
+                  (ak/== kind 2)
+                  (ak/== kind 4))
+          (audio/play-event! kind)
+          (physics/emit! (az/field event x) (az/field event y) kind))
+        (set! handled-event-count current-count)))))
 
 (az/defn tick
   "Advance one native Flecs/factory frame and consume one pointer edge."
@@ -135,6 +161,8 @@
                           before-frame-time))))]
           (set! _ (flecs/ecs_time_measure (ak/& work-clock)))
           (factory/step! (az/field (az/deref frame-info) delta_time))
+          (process-factory-event!)
+          (physics/step! (az/field (az/deref frame-info) delta_time))
           (let [post-work (flecs/ecs_time_measure (ak/& work-clock))]
             (set! last-frame-work-seconds-value
                   (+ (+ pre-work frame-work) post-work))))))
@@ -203,8 +231,10 @@
   :void
   []
   (when (ak/!= world null)
+    (physics/shutdown!)
     (factory/shutdown!)
     (set! _ (flecs/ecs_fini world))
     (set! world null))
   (set! frame-count 0)
+  (set! handled-event-count 0)
   (set! last-frame-work-seconds-value 0.0))

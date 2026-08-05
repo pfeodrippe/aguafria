@@ -2,12 +2,14 @@
   "REPL dashboard and live-development examples for Coco House Works."
   (:require [aguafria.zig :as az]
             [simple-game.assets :as assets]
+            [simple-game.audio :as audio]
             [simple-game.desktop :as desktop]
             [simple-game.factory :as factory]
             [simple-game.font :as font]
             [simple-game.game :as game]
             [simple-game.host :as host]
             [simple-game.mesh :as mesh]
+            [simple-game.physics :as physics]
             [simple-game.vulkan :as vulkan]))
 
 (defn status
@@ -19,6 +21,8 @@
    :assets (assets/snapshot)
    :meshes (mesh/snapshot)
    :fonts (font/snapshot)
+   :audio (audio/snapshot)
+   :physics (physics/snapshot)
    :renderer (vulkan/renderer-snapshot)
    :fps (game/current-fps)
    :frame-timing (host/frame-timing)
@@ -36,6 +40,8 @@
   (status)
   (factory/snapshot)
   (factory/cell-view 15 12)
+  (audio/snapshot)
+  (physics/snapshot)
 
   ;; Window controls:
   ;;

@@ -1,11 +1,13 @@
 (ns simple-game.mesh
   "Actual Kenney mesh loading and fixed-camera isometric 3D submission."
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.std]
+            [aguafria.keyword :as ak]
             [aguafria.std.math :as std-math]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
             [simple-game.bindings.stdio :as stdio]
-            [simple-game.factory :as factory]))
+            [simple-game.factory :as factory]
+            [simple-game.physics :as physics]))
 
 (az/defstruct MeshHeader
   {:layout :extern}
@@ -99,6 +101,9 @@
 (az/defvar source-count :usize 0)
 
 (az/defvar latest-frame-count :u32 0)
+
+(az/defvar particle-views [:array 64 physics/ParticleView]
+  (std-mem/zeroes (az/type [:array 64 physics/ParticleView])))
 
 (az/defn load-model!
   "Load one prepacked GLB triangle stream into bounded native storage."
@@ -263,6 +268,52 @@
               (ak/min 1.0 (* (az/field (az/deref vertex) b) tint-b)))))
     next-count))
 
+(az/defn write-particle!
+  "Project one live Box3D particle using the Kenney coconut mesh."
+  {:export false}
+  :-
+  :usize
+  [[output [:c-pointer GpuVertex]]
+   [output-count :usize]
+   [particle physics/ParticleView]]
+  (let [event-kind (az/field particle event_kind)
+        next-count
+        (write-tinted-instance!
+         output output-count model-coconut
+         (az/field particle x) (az/field particle z)
+         (* (az/field particle age) 4.5)
+         (+ 0.26 (* (az/field particle radius) 0.8))
+         1.18
+         (if (ak/== event-kind 4) 1.35 1.05)
+         (if (ak/== event-kind 2) 0.62 1.0)
+         (if (ak/== event-kind 1) 0.72 1.0))
+        height (ak/max 0.0 (az/field particle y))]
+    (dotimes [offset (- next-count output-count)]
+      (let [vertex (ak/& (az/index output (+ output-count offset)))]
+        (set! (az/field (az/deref vertex) y)
+              (- (az/field (az/deref vertex) y)
+                 (/ (* height 50.0) 270.0)))
+        (set! (az/field (az/deref vertex) z)
+              (ak/max 0.02
+                      (- (az/field (az/deref vertex) z)
+                         (* height 0.018))))))
+    next-count))
+
+(az/defn append-physics!
+  "Append every active Box3D particle to the shared mapped frame batch."
+  {:export false}
+  :-
+  :usize
+  [[output [:c-pointer GpuVertex]]
+   [output-count :usize]]
+  (let [active-count
+        (physics/fill-active-views! (ak/& (az/index particle-views 0)))
+        ^{:var true :zig/type :usize} count output-count]
+    (dotimes [slot active-count]
+      (set! count
+            (write-particle! output count (az/index particle-views slot))))
+    count))
+
 (az/defn build-coco-factory-frame!
   "Render the authoritative coco-house grid from its native simulation cells."
   :-
@@ -354,6 +405,7 @@
                   (set! count
                         (write-instance! output count model-coconut
                                          item-x item-z rotation 0.72 1.18))))))))
+      (set! count (append-physics! output count))
       (set! latest-frame-count (ak/intCast count))
       latest-frame-count)))
 

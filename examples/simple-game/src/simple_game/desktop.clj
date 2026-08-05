@@ -5,6 +5,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as std-debug]
             [aguafria.zig :as az]
+            [simple-game.audio :as audio]
             [simple-game.desktop-bindings]
             [simple-game.bindings.glfw :as glfw]
             [simple-game.factory :as factory]
@@ -45,6 +46,7 @@
   []
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
   (std-debug/assert (ak/== (glfw/glfwInit) glfw/GLFW_TRUE))
+  (set! _ (audio/initialize!))
   (glfw/glfwWindowHint glfw/GLFW_CLIENT_API glfw/GLFW_NO_API)
   (glfw/glfwWindowHint glfw/GLFW_RESIZABLE glfw/GLFW_FALSE)
   (set! window (glfw/glfwCreateWindow 720 540 "Coco House Works · Aguafria" null null))
@@ -57,6 +59,7 @@
     (set! _ (renderer/render! (host/frame! (az/unwrap window)))))
   (renderer/shutdown-renderer!)
   (game/shutdown)
+  (audio/shutdown!)
   (glfw/glfwDestroyWindow window)
   (set! window null)
   (glfw/glfwTerminate)
@@ -71,6 +74,7 @@
    [measured-frames :u32]]
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
   (std-debug/assert (ak/== (glfw/glfwInit) glfw/GLFW_TRUE))
+  (set! _ (audio/initialize!))
   (glfw/glfwWindowHint glfw/GLFW_CLIENT_API glfw/GLFW_NO_API)
   (glfw/glfwWindowHint glfw/GLFW_RESIZABLE glfw/GLFW_FALSE)
   (set! window
@@ -90,6 +94,7 @@
   (let [timing (host/frame-timing)]
     (renderer/shutdown-renderer!)
     (game/shutdown)
+    (audio/shutdown!)
     (glfw/glfwDestroyWindow window)
     (set! window null)
     (glfw/glfwTerminate)

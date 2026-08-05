@@ -1,7 +1,8 @@
 (ns simple-game.input
   "Platform-neutral actions derived from GLFW on desktop and WebAssembly."
   (:refer-clojure :exclude [reset!])
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.std]
+            [aguafria.keyword :as ak]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
             [simple-game.bindings.glfw :as glfw]))

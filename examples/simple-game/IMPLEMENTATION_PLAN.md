@@ -1,4 +1,8 @@
-# Simple Game implementation plan
+# Simple Game — Superseded Circle-Demo Plan
+
+This original circle/counter plan was explicitly replaced by
+`COCO_HOUSE_FACTORY_IMPLEMENTATION_PLAN.md`. It remains only as historical
+context; its implementation and web-specific architecture are not active.
 
 This example is a hand-written Aguafria game, not a Zig-to-Clojure conversion.
 Its purpose is to prove that an ordinary game can keep native Zig performance

@@ -1,8 +1,10 @@
 (ns simple-game.factory
   "Native Flecs-backed coco-house factory with cache-dense belt cells."
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.std]
+            [aguafria.keyword :as ak]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
+            [simple-game.bindings]
             [simple-game.bindings.flecs :as flecs]))
 
 (az/defconst grid-width :usize 32)
@@ -193,6 +195,9 @@
 
 (az/defvar event-count :u64 0)
 
+(az/defvar latest-event-value FactoryEvent
+  (std-mem/zeroes (az/type FactoryEvent)))
+
 (az/defvar delivered-count :u32 0)
 
 (az/defvar coconuts-harvested-count :u32 0)
@@ -280,7 +285,15 @@
       (flecs/ecs_emit
        factory-world
        (ak/ptrCast (ak/constCast (ak/& descriptor))))
+      (set! latest-event-value payload)
       (set! event-count (+ event-count 1)))))
+
+(az/defn latest-event
+  "Return the latest synchronous Flecs factory event as an exact native value."
+  :-
+  FactoryEvent
+  []
+  latest-event-value)
 
 (az/defn observe-factory-event
   "Flecs observer proving that construction events stay in the ECS event graph."
@@ -898,6 +911,7 @@
   (set! simulation-ticks 0)
   (set! last-substeps 0)
   (set! event-count 0)
+  (set! latest-event-value (std-mem/zeroes (az/type FactoryEvent)))
   (set! delivered-count 0)
   (set! coconuts-harvested-count 0)
   (set! panels-produced-count 0)
