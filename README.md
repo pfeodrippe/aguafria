@@ -600,12 +600,14 @@ or set this before starting the JVM:
 AGUAFRIA_ASYNC_COMPILE=true clojure -M:dev
 ```
 
-Each declaration queues an immutable complete-module snapshot. Those Zig
-builds may run in parallel, but Aguafria publishes only the newest requested
-generation, so a slower stale build cannot roll the namespace backward. The
-first function call waits for the newest pending build. You can synchronize
-explicitly with `(az/await! 'example.core)` or wait for every module with
-`(az/await!)`.
+Each declaration queues an immutable complete-module snapshot. Different
+namespaces may compile in parallel. Successive generations of the same
+namespace are serialized, and a queued generation that has already been
+superseded is discarded before Zig starts; this prevents competing builds from
+publishing stale behavior while avoiding wasted work during rapid REPL edits.
+Only the newest requested generation may publish. The first function call
+waits for that pending build. You can synchronize explicitly with
+`(az/await! 'example.core)` or wait for every module with `(az/await!)`.
 
 After changing compiler options, `(az/recompile! 'example.core)` rebuilds the
 module without redefining a Var; `(az/recompile!)` schedules every known module.
@@ -617,6 +619,8 @@ Other compiler settings are configurable in Clojure:
 (az/configure! {:zig "/path/to/zig"
                 :cache-dir ".aguafria/zig"
                 :optimize "ReleaseFast"
+                :development-debug-info :none
+                :development-panic :shared
                 :cpu "native"
                 :target nil
                 :zig-args []})
@@ -625,6 +629,28 @@ Other compiler settings are configurable in Clojure:
 The corresponding executable override is `AGUAFRIA_ZIG`. Current source and
 build metadata are inspectable with `(az/source 'example.core)` and
 `(az/module-info 'example.core)`.
+
+Hot-reload libraries use checked Zig `Debug` semantics by default while
+omitting debug-symbol payload (`:development-debug-info :none`) to reduce edit
+latency and retained native memory. Set it to `:full`, or start the JVM with
+`AGUAFRIA_DEVELOPMENT_DEBUG_INFO=full`, when a native debugger needs complete
+symbols. Their default `:development-panic :shared` profile delegates fully
+formatted Zig safety panics and stack traces to one content-addressed support
+library rather than compiling the default panic machinery into every native
+generation. Use `:full` or `AGUAFRIA_DEVELOPMENT_PANIC=full` to embed it in
+each generation. A project-defined root `panic` always takes precedence. These
+settings apply only to ephemeral development libraries; `az/build!` and project
+standalone/web builds keep their own build options.
+
+For an ABI-compatible single-function edit, development planning refreshes and
+emits only that function's exact live dependency slice. Aguafria keeps the
+complete declaration registry authoritative and marks the complete module
+rendering dirty; `(az/source 'example.core)`, `az/build!`, or a later native
+dependency materialization regenerates the full deterministic Zig source on
+demand. This removes whole-namespace rendering from the interactive critical
+path without changing the source inspected by users or compiled into a final
+standalone artifact. New declarations, batches, signature/layout/type changes,
+comptime producers, and cyclic roots retain complete conservative planning.
 
 ## Zig libraries and standalone programs
 

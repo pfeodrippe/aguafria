@@ -40,7 +40,9 @@
   (.varHandle ValueLayout/JAVA_LONG))
 (defonce ^:private compile-lock (Object.))
 (defonce ^:private artifact-locks (atom {}))
+(defonce ^:private module-compilation-locks (atom {}))
 (defonce ^:private external-file-fingerprints (atom {}))
+(defonce ^:private zig-version-cache (atom {}))
 (defonce ^:private declaration-reference-index
   (atom {:by-module {} :by-logical {} :references {} :revision 0}))
 (defonce ^:private development-linkage-closure-cache (atom {}))
@@ -114,6 +116,13 @@
   slice even when other declarations in its namespace also observe the same
   upstream identity change. Each selected dependent is registered explicitly."
   false)
+
+(def ^:dynamic *pending-declaration-keys*
+  "Declarations accepted since the last native publication. When rapid async
+  REPL evaluations supersede one another, the newest native slice must include
+  every pending edit rather than only the last form that happened to schedule
+  the compiler."
+  #{})
 
 (def ^:dynamic *materialize-declaration-key*
   "When non-nil, compile the exact live slice for a Clojure-demanded Var.
@@ -271,6 +280,16 @@
          :cache-dir (or (System/getProperty "aguafria.cache-dir")
                         ".aguafria/zig")
          :optimize (or (System/getProperty "aguafria.optimize") "Debug")
+         :development-debug-info
+         (keyword
+         (or (System/getProperty "aguafria.development-debug-info")
+              (System/getenv "AGUAFRIA_DEVELOPMENT_DEBUG_INFO")
+              "none"))
+         :development-panic
+         (keyword
+          (or (System/getProperty "aguafria.development-panic")
+              (System/getenv "AGUAFRIA_DEVELOPMENT_PANIC")
+              "shared"))
          :target nil
          :cpu nil
          :zig-args []
@@ -301,7 +320,9 @@
 
 (defn configure!
   "Merge compiler configuration. Important keys are `:zig`, `:cache-dir`,
-  `:optimize`, `:target`, `:cpu`, `:zig-args`, `:zig-args-by-module`, `:modules`,
+  `:optimize`, `:development-debug-info`, `:development-panic`, `:target`,
+  `:cpu`, `:zig-args`,
+  `:zig-args-by-module`, `:modules`,
   `:module-dependencies`, `:module-zig-args`, `:module-cache-tokens`, and
   `:async?`. `:modules` maps
   Zig import names to root source paths. `:module-dependencies` maps one
@@ -323,6 +344,16 @@
                       {:optimize optimize
                        :supported ["Debug" "ReleaseFast" "ReleaseSafe"
                                    "ReleaseSmall"]}))))
+  (when-let [debug-info (:development-debug-info options)]
+    (when-not (contains? #{:none :full} debug-info)
+      (throw (ex-info "Unsupported development debug-information mode"
+                      {:development-debug-info debug-info
+                       :supported [:none :full]}))))
+  (when-let [panic-profile (:development-panic options)]
+    (when-not (contains? #{:shared :full} panic-profile)
+      (throw (ex-info "Unsupported development panic profile"
+                      {:development-panic panic-profile
+                       :supported [:shared :full]}))))
   (when (and (contains? options :async?)
              (not (instance? Boolean (:async? options))))
     (throw (ex-info ":async? must be true or false" {:value (:async? options)})))
@@ -560,7 +591,12 @@
                                     (- finished-at started-at))}
                     (select-keys compiled
                                  [:hash :cached? :zig-version :source-path
-                                  :library-path :partial-publication?
+                                  :library-path :library-size-bytes
+                                  :development-debug-info
+                                  :development-panic
+                                  :development-panic-support-path
+                                  :development-panic-support-size-bytes
+                                  :partial-publication?
                                   :full-compile-error
                                   :compiled-declaration-count
                                   :native-duration-ms
@@ -1291,15 +1327,55 @@
                                    (set linkable-declaration-keys)})
      (emit/emit-dependency-module module declarations))))
 
+(defn- executable-candidates
+  [executable]
+  (let [configured (io/file executable)
+        explicit-path? (or (.isAbsolute configured) (.getParent configured))]
+    (if explicit-path?
+      [configured]
+      (let [path (or (System/getenv "PATH") "")
+            names
+            (if (and (str/includes?
+                      (str/lower-case (System/getProperty "os.name")) "windows")
+                     (not (str/includes? executable ".")))
+              [executable (str executable ".exe")]
+              [executable])]
+        (for [directory (str/split
+                         path
+                         (re-pattern
+                          (java.util.regex.Pattern/quote File/pathSeparator)))
+              name names]
+          (io/file directory name))))))
+
+(defn- executable-identity
+  [executable]
+  (if-let [file
+           (some #(when (and (.isFile ^File %) (.canExecute ^File %)) %)
+                 (executable-candidates executable))]
+    (let [canonical (.getCanonicalFile ^File file)]
+      [:file (.getPath canonical) (.length canonical) (.lastModified canonical)])
+    [:command executable (System/getenv "PATH")]))
+
 (defn- zig-version
   []
-  (let [{:keys [exit out err command] :as result}
-        (run-command [(:zig @config) "version"] (System/getProperty "user.dir"))]
-    (if (zero? exit)
-      (str/trim out)
-      (throw (ex-info "Unable to run the Zig compiler"
-                      {:command command :exit exit :stdout out :stderr err
-                       :result result})))))
+  (let [zig (:zig @config)
+        identity (executable-identity zig)]
+    (or (get @zig-version-cache identity)
+        (locking zig-version-cache
+          (or (get @zig-version-cache identity)
+              (let [{:keys [exit out err command] :as result}
+                    (run-command [zig "version"]
+                                 (System/getProperty "user.dir"))]
+                (if (zero? exit)
+                  (let [version (str/trim out)]
+                    (swap! zig-version-cache assoc identity version)
+                    version)
+                  (throw (ex-info "Unable to run the Zig compiler"
+                                  {:command command
+                                   :exit exit
+                                   :stdout out
+                                   :stderr err
+                                   :result result})))))))))
 
 (defn- absolute-path
   [path]
@@ -1338,6 +1414,16 @@
                 "=" (absolute-path module-path))]))
        modules)))))
 
+(defn- development-compiler-arguments
+  [{:keys [development-debug-info]}]
+  (case development-debug-info
+    :none ["-fstrip"]
+    :full []
+    (throw
+     (ex-info "Unsupported development debug-information mode"
+              {:development-debug-info development-debug-info
+               :supported [:none :full]}))))
+
 (defn- usable-artifact?
   [^File file]
   (and (.isFile file) (pos? (.length file))))
@@ -1351,6 +1437,118 @@
     (catch AtomicMoveNotSupportedException _
       (Files/move (.toPath from) (.toPath to)
                   (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING])))))
+
+(def ^:private development-panic-support-source
+  (str "const std = @import(\"std\");\n\n"
+       "export fn aguafria_development_panic(\n"
+       "    message: [*]const u8,\n"
+       "    message_length: usize,\n"
+       "    return_address: usize,\n"
+       ") callconv(.c) noreturn {\n"
+       "    std.debug.defaultPanic(\n"
+       "        message[0..message_length],\n"
+       "        if (return_address == 0) null else return_address,\n"
+       "    );\n"
+       "}\n"))
+
+(def ^:private development-panic-support-version 2)
+
+(def ^:private development-panic-forwarder-source
+  (str "const __aguafria_panic_std = @import(\"std\");\n\n"
+       "extern fn aguafria_development_panic(\n"
+       "    message: [*]const u8,\n"
+       "    message_length: usize,\n"
+       "    return_address: usize,\n"
+       ") callconv(.c) noreturn;\n\n"
+       "fn __aguafria_forward_panic(\n"
+       "    message: []const u8,\n"
+       "    return_address: ?usize,\n"
+       ") noreturn {\n"
+       "    aguafria_development_panic(\n"
+       "        message.ptr,\n"
+       "        message.len,\n"
+       "        return_address orelse 0,\n"
+       "    );\n"
+       "}\n\n"
+       "pub const panic = "
+       "__aguafria_panic_std.debug.FullPanic(__aguafria_forward_panic);\n\n"))
+(defn- development-panic-support!
+  [{:keys [cache-dir optimize target cpu zig]} compiler-version]
+  (let [support-hash
+        (subs (sha256 [development-panic-support-version
+                       development-panic-support-source compiler-version
+                       optimize target cpu
+                       (System/getProperty "os.name")
+                       (System/getProperty "os.arch")])
+              0 24)
+        support-dir (io/file cache-dir "development-support" support-hash)
+        source-file (io/file support-dir "panic.zig")
+        library-file
+        (io/file support-dir
+                 (System/mapLibraryName
+                  (str "aguafria_development_support_" support-hash)))
+        library-path (.getAbsolutePath library-file)
+        operating-system
+        (str/lower-case (System/getProperty "os.name"))
+        install-name-arguments
+        (if (str/includes? operating-system "mac")
+          ["-install_name" library-path]
+          [(str "-fsoname=" library-path)])
+        command
+        (vec
+         (concat
+          [zig "build-lib" "-dynamic"
+           (str "-femit-bin=" library-path)
+           (str "-O" optimize)]
+          install-name-arguments
+          (when target ["-target" (str target)])
+          (when cpu ["-mcpu" (str cpu)])
+          [(str "-Mroot=" (.getAbsolutePath source-file))]))]
+    (.mkdirs ^File support-dir)
+    (when-not (= development-panic-support-source
+                 (when (.isFile source-file) (slurp source-file)))
+      (spit source-file development-panic-support-source))
+    (let [path library-path
+          artifact-lock
+          (get (swap! artifact-locks
+                      #(if (contains? % path)
+                         %
+                         (assoc % path (Object.))))
+               path)]
+      (locking artifact-lock
+        (when-not (usable-artifact? library-file)
+          (let [temporary-file
+                (io/file support-dir
+                         (str "." (java.util.UUID/randomUUID) "-"
+                              (.getName library-file)))
+                temporary-command
+                (assoc command 3
+                       (str "-femit-bin=" (.getAbsolutePath temporary-file)))]
+            (try
+              (let [{:keys [exit out err] :as result}
+                    (run-command temporary-command
+                                 (.getAbsolutePath support-dir))]
+                (when-not (zero? exit)
+                  (throw
+                   (ex-info "Unable to build Aguafria's development panic support"
+                            {:aguafria/phase :development-support
+                             :command temporary-command
+                             :exit exit
+                             :stdout out
+                             :stderr err
+                             :result result})))
+                (when-not (usable-artifact? temporary-file)
+                  (throw
+                   (ex-info "Zig produced no usable development panic support"
+                            {:aguafria/phase :development-support
+                             :command temporary-command
+                             :library-path path})))
+                (move-replacing! temporary-file library-file))
+              (finally
+                (Files/deleteIfExists (.toPath temporary-file)))))))
+      {:path path
+       :hash support-hash
+       :size-bytes (.length library-file)})))
 
 (defn- materialize-module-source!
   [module source]
@@ -1381,6 +1579,8 @@
     (project/materialize-module-assets! module source directory)
     (.getAbsolutePath source-file)))
 
+(declare module-sources)
+
 (defn- ensure-static-module-source!
   [module]
   (let [module (str module)]
@@ -1390,11 +1590,14 @@
                    (or (:source-dirty? module-state)
                        (not (string? (:source module-state)))))
           (let [declarations (vec (vals (:definitions module-state)))
-                source (emit-source! module declarations)]
-            (swap! registry update module assoc
-                   :declarations declarations
-                   :source source
-                   :source-dirty? false)))
+                sources (module-sources module declarations)]
+            (swap! registry update module
+                   #(merge %
+                           (select-keys sources
+                                        [:source :reload-source
+                                         :dependency-source])
+                           {:declarations declarations
+                            :source-dirty? false}))))
         (get @registry module)))))
 
 (defn- materialize-registered-module-source!
@@ -2325,6 +2528,45 @@
             dependency-snapshot (assoc :dependency-snapshot dependency-snapshot))
           declarations)
         compiler-version (zig-version)
+        profile-root-declarations
+        (if (and (= (str module-name) profile-module)
+                 (= source development-root-source))
+          ;; A breaking declaration may compile as an intentionally small
+          ;; live slice of the profile root. Re-exporting every declaration
+          ;; registered in the full module would reference names that are not
+          ;; present in that slice (for example VOPR's `std_options`).
+          declarations
+          (vals (get-in @registry [profile-module :definitions])))
+        project-panic?
+        (boolean
+         (some (fn [declaration]
+                 (and (:public? declaration)
+                      (= "panic"
+                         (str (or (:zig-name declaration)
+                                  (:name declaration))))))
+               profile-root-declarations))
+        _
+        (when-not (contains? #{:shared :full}
+                             (:development-panic compiler-options))
+          (throw
+           (ex-info "Unsupported development panic profile"
+                    {:development-panic
+                     (:development-panic compiler-options)
+                     :supported [:shared :full]})))
+        shared-panic-platform?
+        (not (str/includes?
+              (str/lower-case (System/getProperty "os.name")) "windows"))
+        shared-panic?
+        (and (= :shared (:development-panic compiler-options))
+             shared-panic-platform?
+             (not project-panic?))
+        effective-development-panic
+        (cond project-panic? :project
+              shared-panic? :shared
+              :else :full)
+        panic-support
+        (when shared-panic?
+          (development-panic-support! compiler-options compiler-version))
         zig-argument-inputs
         (mapv external-argument-fingerprint (:zig-args compiler-options))
         linkage-source
@@ -2332,10 +2574,15 @@
          dependency-snapshot development-linkage-logical-ids)
         hash-input [source compiler-version
                     (assoc (select-keys compiler-options
-                                         [:optimize :target :cpu :zig-args
+                                         [:optimize :development-debug-info
+                                          :target :cpu :zig-args
                                          :modules :module-dependencies
                                          :module-zig-args
                                          :module-cache-tokens])
+                           :development-compiler-arguments
+                           (development-compiler-arguments compiler-options)
+                           :development-panic effective-development-panic
+                           :development-panic-support-hash (:hash panic-support)
                            :zig-argument-inputs zig-argument-inputs
                            ;; Hash what Zig actually analyzes, not the larger
                            ;; runtime-only set used to select those references.
@@ -2346,22 +2593,14 @@
         source-hash (subs (sha256 (pr-str hash-input)) 0 24)
         module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
         source-file (io/file module-dir "module.zig")
-        profile-root-declarations
-        (if (and (= (str module-name) profile-module)
-                 (= source development-root-source))
-          ;; A breaking declaration may compile as an intentionally small
-          ;; live slice of the profile root. Re-exporting every declaration
-          ;; registered in the full module would reference names that are not
-          ;; present in that slice (for example VOPR's `std_options`).
-          declarations
-          (vals (get-in @registry [profile-module :definitions])))
         module-container (emit/named-module-container module-name)
         wrapped-development-root?
         (str/includes? (or development-root-source "")
                        (str "pub const " module-container " = struct"))
         compiler-source
         (if development-dependencies?
-          (str "// Aguafria development loader.\n"
+          (str (when shared-panic? development-panic-forwarder-source)
+               "// Aguafria development loader.\n"
                "const aguafria_module = @import("
                (emit/emit-expr (str module-name)) ")"
                (when wrapped-development-root?
@@ -2402,6 +2641,8 @@
         command (vec (concat
                       [zig "build-lib" "-dynamic"
                        (str "-femit-bin=" (.getAbsolutePath library-file))]
+                      (when panic-support [(:path panic-support)])
+                      (development-compiler-arguments compiler-options)
                       (root-module-arguments source-file compiler-options)))]
     (.mkdirs ^File module-dir)
     (when-not (= compiler-source
@@ -2458,9 +2699,14 @@
            {:hash source-hash
             :cached? cached?
             :zig-version compiler-version
+            :development-debug-info (:development-debug-info compiler-options)
+            :development-panic effective-development-panic
+            :development-panic-support-path (:path panic-support)
+            :development-panic-support-size-bytes (:size-bytes panic-support)
             :compiled-source source
             :source-path (.getAbsolutePath source-file)
             :library-path (.getAbsolutePath library-file)
+            :library-size-bytes (.length library-file)
             :command command
             :compiler-output result}))))))
 
@@ -5342,8 +5588,10 @@
       by-logical)))
 
 (defn- refresh-live-declaration-references
-  [declarations]
-  (letfn [(refresh-pass [declarations]
+  ([declarations]
+   (refresh-live-declaration-references declarations nil))
+  ([declarations target-declaration-keys]
+   (letfn [(refresh-pass [declarations target-keys]
             (let [registered-by-logical
                   (registered-declarations-by-logical-id)
                   current-by-logical
@@ -5377,9 +5625,13 @@
                         (vals current-by-logical))]
               (mapv
                (fn [declaration]
-                 (let [type-producing? (type-producing-declaration? declaration)
-                       source-reference-changed? (volatile! false)
-                       refreshed
+                 (if (and target-keys
+                          (not (contains? target-keys
+                                          (:declaration-key declaration))))
+                   declaration
+                   (let [type-producing? (type-producing-declaration? declaration)
+                         source-reference-changed? (volatile! false)
+                         refreshed
                        (walk/postwalk
                         (fn [value]
                           (if (symbol? value)
@@ -5473,7 +5725,7 @@
                                 :else value))
                             value))
                         declaration)
-                       type-dependency-fingerprints
+                         type-dependency-fingerprints
                        (->> (tree-seq coll? seq refreshed)
                             (keep (fn [value]
                                     (when (symbol? value)
@@ -5494,13 +5746,30 @@
                             distinct
                             (sort-by pr-str)
                             vec)
-                       ;; Only schemas reachable from the callable surface are
-                       ;; part of its ABI. A local value constructed in the body
-                       ;; must invalidate the implementation, not create a new
-                       ;; dispatch lineage for an unchanged signature.
-                       abi-type-dependency-fingerprints
+                         comptime-type-operands
+                       (->> (tree-seq coll? seq refreshed)
+                            (keep (fn [form]
+                                    (when (and (seq? form)
+                                               (symbol? (first form))
+                                               (contains?
+                                                #{"Type" "TypeOf" "alignOf"
+                                                  "bitSizeOf" "hasDecl"
+                                                  "hasField" "offsetOf"
+                                                  "sizeOf" "typeInfo"
+                                                  "typeName"}
+                                                (name (first form))))
+                                      (rest form))))
+                            (mapcat identity))
+                       ;; Schemas reachable from the callable surface or used
+                       ;; by Zig's compile-time type introspection form a live
+                       ;; caller lineage. Ordinary body-local values remain an
+                       ;; implementation detail, but an old caller of
+                       ;; `@sizeOf(OldType)` must not be redirected to the new
+                       ;; layout merely because its scalar C signature matches.
+                         abi-type-dependency-fingerprints
                        (->> (concat [(:return refreshed)]
-                                    (map :type (:args refreshed)))
+                                    (map :type (:args refreshed))
+                                    comptime-type-operands)
                             (tree-seq coll? seq)
                             (keep (fn [value]
                                     (when (symbol? value)
@@ -5535,7 +5804,7 @@
                             distinct
                             (sort-by pr-str)
                             vec)
-                       callable-dependency-fingerprints
+                         callable-dependency-fingerprints
                        (->> (tree-seq coll? seq refreshed)
                             (keep (fn [value]
                                     (when (symbol? value)
@@ -5560,12 +5829,12 @@
                             distinct
                             (sort-by pr-str)
                             vec)
-                       dependency-identities-changed?
+                         dependency-identities-changed?
                        (not= [(:type-dependency-fingerprints declaration)
                               (:callable-dependency-fingerprints declaration)]
                              [type-dependency-fingerprints
                               callable-dependency-fingerprints])
-                       refreshed
+                         refreshed
                        (assoc refreshed
                               :type-dependency-fingerprints
                               type-dependency-fingerprints
@@ -5573,39 +5842,49 @@
                               abi-type-dependency-fingerprints
                               :callable-dependency-fingerprints
                               callable-dependency-fingerprints)]
-                   (binding [*preserve-source-fingerprint?*
-                             (and (:source-fingerprint declaration)
-                                  (not @source-reference-changed?)
-                                  (not dependency-identities-changed?))]
-                     (declaration-info refreshed))))
+                     (binding [*preserve-source-fingerprint?*
+                               (and (:source-fingerprint declaration)
+                                    (not @source-reference-changed?)
+                                    (not dependency-identities-changed?))]
+                       (declaration-info refreshed)))))
                declarations)))]
-    (let [refreshed (refresh-pass declarations)
+    (let [refreshed (refresh-pass declarations target-declaration-keys)
           before-by-logical (into {} (map (juxt :logical-id identity))
                                   declarations)
-          changed-logical-ids
+          dependency-affecting-logical-ids
           (into #{}
                 (keep
                  (fn [declaration]
                    (let [before (get before-by-logical
                                      (:logical-id declaration))]
-                     (when (not= (select-keys before
-                                             [:abi-fingerprint
-                                              :schema-fingerprint
-                                              :shape-fingerprint
-                                              :implementation-fingerprint])
-                                 (select-keys declaration
-                                             [:abi-fingerprint
-                                              :schema-fingerprint
-                                              :shape-fingerprint
-                                              :implementation-fingerprint]))
+                     (when (or
+                            (not= (select-keys before
+                                               [:abi-fingerprint
+                                                :schema-fingerprint
+                                                :shape-fingerprint])
+                                  (select-keys declaration
+                                               [:abi-fingerprint
+                                                :schema-fingerprint
+                                                :shape-fingerprint]))
+                            ;; Concrete reloadable functions are reached
+                            ;; through stable cells. Their implementation-only
+                            ;; edits do not alter a caller's emitted source or
+                            ;; dependency identity, so those callers do not
+                            ;; need another fingerprint pass.
+                            (and (or (type-producing-declaration? declaration)
+                                     (not (dispatchable-declaration?
+                                           declaration)))
+                                 (not= (:implementation-fingerprint before)
+                                       (:implementation-fingerprint
+                                        declaration))))
                        (:logical-id declaration)))))
                 refreshed)
           second-pass-required?
           (and (> (count refreshed) 1)
-               (seq changed-logical-ids)
+               (seq dependency-affecting-logical-ids)
                (some
                 (fn [declaration]
-                  (some changed-logical-ids
+                  (some dependency-affecting-logical-ids
                         (concat
                          (map first (:type-dependency-fingerprints declaration))
                          (map first (:callable-dependency-fingerprints
@@ -5615,8 +5894,8 @@
       ;; changed need the transitive second pass. A single large type factory
       ;; no longer walks and fingerprints its entire body twice.
       (if second-pass-required?
-        (refresh-pass refreshed)
-        refreshed))))
+        (refresh-pass refreshed nil)
+        refreshed)))))
 
 (defn- declaration-live-slice
   [declarations root-declaration]
@@ -5674,13 +5953,40 @@
 
 (defn- compilation-plan
   [module module-state declarations old-declaration declaration]
-  (let [declarations (refresh-live-declaration-references declarations)
+  (let [declaration-key (:declaration-key declaration)
+        partial-refresh-candidate?
+        (and old-declaration
+             (incremental-dispatch-publication?
+              module-state old-declaration declaration)
+             (or (empty? *pending-declaration-keys*)
+                 (= #{declaration-key}
+                    (set *pending-declaration-keys*))))
+        initially-refreshed
+        (refresh-live-declaration-references
+         declarations
+         (when partial-refresh-candidate? #{declaration-key}))
+        initially-refreshed-declaration
+        (or (some #(when (= declaration-key (:declaration-key %)) %)
+                  initially-refreshed)
+            declaration)
+        ;; Reference refresh can reveal a changed type lineage even when the
+        ;; surface forms initially looked ABI-compatible. In that case retain
+        ;; the conservative full-module refresh before constructing sources.
+        declarations
+        (if (and partial-refresh-candidate?
+                 (incremental-dispatch-publication?
+                  module-state old-declaration
+                  initially-refreshed-declaration))
+          initially-refreshed
+          (if partial-refresh-candidate?
+            (refresh-live-declaration-references declarations)
+            initially-refreshed))
         ;; The old descriptor is the immutable identity actually compiled into
         ;; its published native generation. Refreshing it against today's
         ;; registry would silently rewrite a stale caller's historical ABI/type
         ;; dependencies and could make an explicit adoption look unchanged.
         declaration
-        (or (some #(when (= (:declaration-key declaration)
+        (or (some #(when (= declaration-key
                             (:declaration-key %))
                     %)
                   declarations)
@@ -5688,70 +5994,108 @@
         getter-declaration-keys
         (changed-dispatch-declaration-keys module-state declarations)
         primary-dependencies (development-dependency-snapshot declarations)
-        primary (assoc (module-sources module declarations
-                                       getter-declaration-keys)
-                       :declarations declarations
-                       :dependency-snapshot primary-dependencies
-                       :partial-publication? false)
         incremental-publication?
         (incremental-dispatch-publication?
          module-state old-declaration declaration)
         concrete-caller-recompile?
         (concrete-caller-recompile-change? old-declaration declaration)
+        declarations-by-key
+        (into {} (map (juxt :declaration-key identity)) declarations)
+        pending-declarations
+        (keep declarations-by-key *pending-declaration-keys*)
         materialization?
         (= *materialize-declaration-key* (:declaration-key declaration))
+        fallback-required?
+        (or materialization?
+            incremental-publication?
+            concrete-caller-recompile?
+            (breaking-callable-change? old-declaration declaration)
+            (breaking-state-change? old-declaration declaration)
+            (breaking-type-change? old-declaration declaration))
+        refreshed-declaration
+        (or (some #(when (= (:declaration-key declaration)
+                            (:declaration-key %))
+                    %)
+                  declarations)
+            declaration)
+        fallback-declarations
+        (when fallback-required?
+          (->> (concat
+                (filter #(= :import (:kind %)) declarations)
+                (if (and incremental-publication?
+                         (not *exact-declaration-publication?*))
+                  (mapcat
+                   #(declaration-live-slice declarations %)
+                   (distinct
+                    (concat
+                     (changed-dispatch-declarations module-state declarations)
+                     pending-declarations)))
+                  (declaration-live-slice
+                   declarations refreshed-declaration)))
+               (reduce (fn [selected candidate]
+                         (assoc selected
+                                (:declaration-key candidate)
+                                candidate))
+                       {})
+               vals
+               (sort-by (juxt :source-order (comp str :name)))
+               vec))
+        fallback-dependencies
+        (when fallback-declarations
+          (development-dependency-snapshot fallback-declarations))
+        fallback-cyclic-root?
+        (boolean
+         (some (fn [{:keys [dependencies]}]
+                 (some #{(str module)} dependencies))
+               (vals fallback-dependencies)))
+        fallback-root-context-required?
+        (boolean
+         (some (fn [{:keys [named-module-imports]}]
+                 (some #{"root"} named-module-imports))
+               (vals fallback-dependencies)))
+        fallback-complete-development-root?
+        (or fallback-cyclic-root? fallback-root-context-required?)
+        prefer-fallback?
+        (or materialization?
+            (and incremental-publication?
+                 (or (not (:partial-publication? module-state))
+                     (nil? (:full-compile-error module-state))))
+            concrete-caller-recompile?
+            (breaking-type-change? old-declaration declaration))
+        defer-primary-source?
+        (and prefer-fallback?
+             fallback-declarations
+             (not fallback-complete-development-root?))
+        primary-sources
+        (if defer-primary-source?
+          ;; The complete source is not on the native publication path for an
+          ;; independent hot slice. Keep its cheap live specs and regenerate
+          ;; the four complete rendered variants only if source inspection,
+          ;; standalone building, or a later dependency actually demands them.
+          (assoc (module-source-specs module declarations
+                                      getter-declaration-keys)
+                 :source nil
+                 :reload-source nil
+                 :dependency-source nil
+                 :compile-source nil
+                 :source-dirty? true)
+          (assoc (module-sources module declarations
+                                 getter-declaration-keys)
+                 :source-dirty? false))
+        primary
+        (assoc primary-sources
+               :declarations declarations
+               :dependency-snapshot primary-dependencies
+               :partial-publication? false)
         fallback
-        (when (or materialization?
-                  incremental-publication?
-                  concrete-caller-recompile?
-                  (breaking-callable-change? old-declaration declaration)
-                  (breaking-state-change? old-declaration declaration)
-                  (breaking-type-change? old-declaration declaration))
-          (let [refreshed-declaration
-                (or (some #(when (= (:declaration-key declaration)
-                                    (:declaration-key %))
-                            %)
-                          declarations)
-                    declaration)
-                fallback-declarations
-                (->> (concat
-                      (filter #(= :import (:kind %)) declarations)
-                      (if (and incremental-publication?
-                               (not *exact-declaration-publication?*))
-                        (mapcat #(declaration-live-slice declarations %)
-                                (changed-dispatch-declarations
-                                 module-state declarations))
-                        (declaration-live-slice
-                         declarations refreshed-declaration)))
-                     (reduce (fn [selected candidate]
-                               (assoc selected
-                                      (:declaration-key candidate)
-                                      candidate))
-                             {})
-                     vals
-                     (sort-by (juxt :source-order (comp str :name)))
-                     vec)
-                fallback-dependencies
-                (development-dependency-snapshot fallback-declarations)
-                fallback-cyclic-root?
-                (boolean
-                 (some (fn [{:keys [dependencies]}]
-                         (some #{(str module)} dependencies))
-                       (vals fallback-dependencies)))
-                fallback-root-context-required?
-                (boolean
-                 (some (fn [{:keys [named-module-imports]}]
-                         (some #{"root"} named-module-imports))
-                       (vals fallback-dependencies)))
-                fallback-complete-development-root?
-                (or fallback-cyclic-root? fallback-root-context-required?)]
-            (assoc (module-sources module fallback-declarations
-                                   getter-declaration-keys)
-                   :declarations fallback-declarations
-                   :dependency-snapshot fallback-dependencies
-                   :complete-development-root?
-                   fallback-complete-development-root?
-                   :partial-publication? true)))]
+        (when fallback-required?
+          (assoc (module-sources module fallback-declarations
+                                 getter-declaration-keys)
+                 :declarations fallback-declarations
+                 :dependency-snapshot fallback-dependencies
+                 :complete-development-root?
+                 fallback-complete-development-root?
+                 :partial-publication? true))]
     {:primary (assoc primary
                      :development-root-source (:compile-source primary)
                      :development-root-dependencies
@@ -5763,9 +6107,7 @@
                        (set (keys (:reload-source-dispatch-specs fallback)))
                        fallback-state-keys
                        (set (keys (:state-specs fallback)))
-                       declarations-by-key
-                       (into {} (map (juxt :declaration-key identity))
-                             declarations)]
+                       declarations-by-key declarations-by-key]
                    (assoc fallback
                         ;; A partial generation remains the callable root, but
                         ;; cyclic dependencies must import the complete module
@@ -5821,12 +6163,7 @@
      ;; namespace here would silently redirect untouched dependents to it.
      ;; Publish only the edited Var and its declaration dependencies; each
      ;; caller/state owner adopts the new schema when explicitly reevaluated.
-     :prefer-fallback? (or materialization?
-                           (and incremental-publication?
-                                (or (not (:partial-publication? module-state))
-                                    (nil? (:full-compile-error module-state))))
-                           concrete-caller-recompile?
-                           (breaking-type-change? old-declaration declaration))}))
+     :prefer-fallback? prefer-fallback?}))
 
 (defn- complete-compilation-plan
   [module module-state declarations]
@@ -5838,6 +6175,7 @@
                  :declarations declarations
                  :dependency-snapshot
                  (development-dependency-snapshot declarations)
+                 :source-dirty? false
                  :partial-publication? false)]
       {:primary (assoc primary
                        :development-root-source (:compile-source primary)
@@ -5963,23 +6301,41 @@
 (defn- refresh-plan-dependency-snapshots
   [plan]
   (if-let [primary (:primary plan)]
-    (let [primary-snapshot
-          (development-dependency-snapshot (:declarations primary))]
-      (cond-> (assoc-in plan [:primary :dependency-snapshot]
-                        primary-snapshot)
-        (:fallback plan)
-        (assoc-in
-         [:fallback :dependency-snapshot]
-         (if (get-in plan [:fallback :complete-development-root?])
-           ;; A cyclic fallback's development root is the complete primary
-           ;; source, so refresh its complete graph from the same immutable
-           ;; registry view.
-           primary-snapshot
-           (development-dependency-snapshot
-            (get-in plan [:fallback :declarations]))))))
+    (if (and (:prefer-fallback? plan)
+             (:source-dirty? primary)
+             (:fallback plan)
+             (not (get-in plan [:fallback :complete-development-root?])))
+      ;; Dependency loading has just completed, but this independent hot slice
+      ;; is the only source compile-plan! can select. Its deferred complete
+      ;; source will take a fresh complete snapshot when it is actually needed.
+      (assoc-in plan [:fallback :dependency-snapshot]
+                (development-dependency-snapshot
+                 (get-in plan [:fallback :declarations])))
+      (let [primary-snapshot
+            (development-dependency-snapshot (:declarations primary))]
+        (cond-> (assoc-in plan [:primary :dependency-snapshot]
+                          primary-snapshot)
+          (:fallback plan)
+          (assoc-in
+           [:fallback :dependency-snapshot]
+           (if (get-in plan [:fallback :complete-development-root?])
+             ;; A cyclic fallback's development root is the complete primary
+             ;; source, so refresh its complete graph from the same immutable
+             ;; registry view.
+             primary-snapshot
+             (development-dependency-snapshot
+              (get-in plan [:fallback :declarations])))))))
     plan))
 
 (declare recompile-component! recompile-dependent-components!)
+
+(defn- module-compilation-lock
+  [module]
+  (get (swap! module-compilation-locks
+              #(if (contains? % module)
+                 %
+                 (assoc % module (Object.))))
+       module))
 
 (defn- dependent-propagation-impact
   [old-declaration declaration]
@@ -5992,9 +6348,9 @@
     {:kind :callable
      :logical-id (:logical-id declaration)}))
 
-(defn- compile-and-publish-async!
-  [{:keys [module declaration-key generation declarations source plan completion
-           propagate-dependent-change? propagation-impact]}]
+(defn- compile-and-publish-async-generation!
+  [{:keys [module declaration-key generation declarations source source-dirty?
+           plan completion propagate-dependent-change? propagation-impact]}]
   (mark-build-started! module generation)
   (try
     (let [dependency-preparation-started-ns (System/nanoTime)
@@ -6064,6 +6420,7 @@
                                  :pending completion
                                  :scheduled nil
                                  :source source
+                                 :source-dirty? source-dirty?
                                  :reload-source reload-source
                                  :dependency-source
                                  (get-in plan [:primary :dependency-source])
@@ -6086,6 +6443,7 @@
                                  :partial-publication? partial-publication?
                                  :full-compile-error
                                  (:full-compile-error compiled)
+                                 :pending-declaration-keys #{}
                                  :source-only? false
                                  :last-error nil
                                  :failed-generation nil
@@ -6178,6 +6536,22 @@
       (mark-build-failed! module generation error)
       (deliver completion {:status :error :error error}))))
 
+(defn- compile-and-publish-async!
+  [{:keys [module generation completion] :as job}]
+  ;; Successive REPL forms for one namespace must not run competing Zig
+  ;; compilations. Besides wasting the exact work that supersession is meant
+  ;; to avoid, overlapping generations can race through Zig's shared cache and
+  ;; native publication bookkeeping under a heavily loaded REPL. Modules keep
+  ;; independent locks, so unrelated namespaces still compile in parallel.
+  (locking (module-compilation-lock module)
+    (if (= generation (get-in @registry [module :requested-generation]))
+      (compile-and-publish-async-generation! job)
+      (do
+        (mark-build-started! module generation)
+        (mark-build-finished! module generation :stale
+                              {:compiled-declaration-count 0})
+        (deliver completion {:status :success :stale? true})))))
+
 (defn- register-async!
   [{:keys [module declaration-key] :as declaration}]
   (let [job
@@ -6188,8 +6562,13 @@
                 {:keys [old-declaration declaration definitions]}
                 (replacement-declaration-state old-definitions declaration)
                 declarations (vec (vals definitions))
-                plan (compilation-plan module old-module declarations
-                                       old-declaration declaration)
+                pending-declaration-keys
+                (conj (set (:pending-declaration-keys old-module))
+                      declaration-key)
+                plan (binding [*pending-declaration-keys*
+                               pending-declaration-keys]
+                       (compilation-plan module old-module declarations
+                                         old-declaration declaration))
                 plan-old-declaration (:old-declaration plan)
                 plan-declaration (:declaration plan)
                 _ (capture-publication-plan!
@@ -6199,7 +6578,8 @@
                              (breaking-type-change? plan-old-declaration
                                                     plan-declaration))
                     (freeze-active-host-dispatch! plan-declaration))
-                {:keys [source compile-source reload-source dependency-source
+                {:keys [source source-dirty? compile-source reload-source
+                        dependency-source
                         dispatch-specs
                         reload-source-dispatch-specs]} (:primary plan)
                 generation (inc (or (:requested-generation old-module)
@@ -6212,7 +6592,9 @@
                      :generation generation
                      :definitions definitions
                      :declarations declarations
+                     :pending-declaration-keys pending-declaration-keys
                      :source source
+                     :source-dirty? source-dirty?
                      :compile-source compile-source
                      :dispatch-specs dispatch-specs
                      :plan plan
@@ -6230,6 +6612,7 @@
                           {:module module
                            :definitions definitions
                            :source source
+                           :source-dirty? source-dirty?
                            :reload-source reload-source
                            :dependency-source dependency-source
                            :dispatch-specs dispatch-specs
@@ -6238,6 +6621,7 @@
                            :dependency-dispatch-specs
                            reload-source-dispatch-specs
                            :requested-generation generation
+                           :pending-declaration-keys pending-declaration-keys
                            :pending completion
                            :last-error nil
                            :last-dependent-publication-error nil
@@ -6313,8 +6697,13 @@
                 {:keys [old-declaration declaration definitions]}
                 (replacement-declaration-state old-definitions declaration)
                 declarations (vec (vals definitions))
-                plan (compilation-plan module old-module declarations
-                                       old-declaration declaration)
+                pending-declaration-keys
+                (conj (set (:pending-declaration-keys old-module))
+                      declaration-key)
+                plan (binding [*pending-declaration-keys*
+                               pending-declaration-keys]
+                       (compilation-plan module old-module declarations
+                                         old-declaration declaration))
                 plan-old-declaration (:old-declaration plan)
                 plan-declaration (:declaration plan)
                 _ (capture-publication-plan!
@@ -6324,7 +6713,8 @@
                              (breaking-type-change? plan-old-declaration
                                                     plan-declaration))
                     (freeze-active-host-dispatch! plan-declaration))
-                {:keys [source compile-source reload-source dependency-source
+                {:keys [source source-dirty? compile-source reload-source
+                        dependency-source
                         dispatch-specs
                         reload-source-dispatch-specs]} (:primary plan)
                 generation (inc (or (:requested-generation old-module)
@@ -6342,7 +6732,9 @@
                      :generation generation
                      :definitions definitions
                      :declarations declarations
+                     :pending-declaration-keys pending-declaration-keys
                      :source source
+                     :source-dirty? source-dirty?
                      :compile-source compile-source
                      :dispatch-specs dispatch-specs
                      :plan plan
@@ -6362,6 +6754,7 @@
                            :definitions definitions
                            :declarations declarations
                            :source source
+                           :source-dirty? source-dirty?
                            :reload-source reload-source
                            :dependency-source dependency-source
                            :dispatch-specs dispatch-specs
@@ -6369,6 +6762,7 @@
                            reload-source-dispatch-specs
                            :source-only? true
                            :requested-generation generation
+                           :pending-declaration-keys pending-declaration-keys
                            :scheduled nil
                            :pending completion
                            :last-error nil
@@ -6476,7 +6870,7 @@
           (and *propagate-dependent-changes?*
                (compatible-dependent-propagation?
                 plan-old-declaration plan-declaration))
-          {source :source} (:primary plan)
+          {source :source source-dirty? :source-dirty?} (:primary plan)
           generation (inc (or (:requested-generation old-module)
                               (:generation old-module) 0))
           planning-duration-ms (elapsed-nanos-ms planning-started-ns)
@@ -6538,6 +6932,7 @@
                       :published-generation generation
                       :requested-generation generation
                       :source source
+                      :source-dirty? source-dirty?
                       :reload-source reload-source
                       :dependency-source
                       (get-in plan [:primary :dependency-source])
@@ -6553,6 +6948,7 @@
                       :loaded-declarations loaded-declarations
                       :partial-publication? partial-publication?
                       :full-compile-error (:full-compile-error compiled)
+                      :pending-declaration-keys #{}
                       :pending nil
                       :source-only? false
                       :last-error nil
@@ -6610,6 +7006,7 @@
                           {:module module
                            :definitions definitions
                            :source source
+                           :source-dirty? source-dirty?
                            :requested-generation generation
                            :pending nil
                            :last-error error
@@ -6674,6 +7071,7 @@
      (merge module-state
             {:definitions definitions
              :source (:source sources)
+             :source-dirty? false
              :reload-source (:reload-source sources)
              :dependency-source (:dependency-source sources)
              :dispatch-specs (:dispatch-specs sources)
@@ -6720,6 +7118,7 @@
             :published-generation generation
             :requested-generation generation
             :source (get-in job [:plan :primary :source])
+            :source-dirty? false
             :reload-source reload-source
             :dependency-source (get-in job [:plan :primary :dependency-source])
             :dispatch-specs dispatch-specs
@@ -7082,6 +7481,7 @@
             :published-generation generation
             :requested-generation generation
             :source (get-in plan [:primary :source])
+            :source-dirty? (get-in plan [:primary :source-dirty?])
             :reload-source reload-source
             :dependency-source (get-in plan [:primary :dependency-source])
             :dispatch-specs dispatch-specs
@@ -7856,6 +8256,7 @@
                            :definitions definitions
                            :declarations declarations
                            :source source
+                           :source-dirty? false
                            :source-only? true
                            :pending nil
                            :last-error nil
@@ -8480,7 +8881,7 @@
 (defn source
   "Return the current generated Zig source for a module/namespace."
   [module]
-  (:source (get @registry (str module))))
+  (:source (ensure-static-module-source! (str module))))
 
 (defn- coerce-integer-argument
   [type value signed? bits]

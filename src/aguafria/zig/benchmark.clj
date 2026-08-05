@@ -65,6 +65,7 @@
                     builds))
    :cache-hit-count (count (filter :cached? builds))
    :cache-miss-count (count (filter #(false? (:cached? %)) builds))
+   :artifact-bytes (reduce + 0 (keep :library-size-bytes builds))
    :native-build-ms
    (reduce + 0 (keep #(or (:native-duration-ms %) (:duration-ms %)) builds))
    :planning-ms (reduce + 0 (keep :planning-duration-ms builds))
@@ -100,6 +101,10 @@
     (throw (ex-info ":declaration must be a descriptor map"
                     {:value declaration})))
   (let [module (str (:module declaration))
+        compiler-profile
+        (select-keys (az/configuration)
+                     [:zig :optimize :development-debug-info
+                      :development-panic :target :cpu])
         before (az/stats)
         started-ns (System/nanoTime)
         publication-plan-capture (atom nil)]
@@ -115,6 +120,7 @@
             verification-started-ns (System/nanoTime)
             verification (when verify (verify))
             verification-ms (elapsed-ms verification-started-ns)
+            observable-ms (elapsed-ms started-ns)
             after (az/stats)
             builds (new-builds before after)
             publication-plan (some-> @publication-plan-capture force)]
@@ -122,12 +128,17 @@
          {:label label
           :project project
           :complexity complexity
+          :compiler-profile compiler-profile
+          :host {:os (System/getProperty "os.name")
+                 :architecture (System/getProperty "os.arch")
+                 :java-version (System/getProperty "java.version")}
           :module module
           :declaration (str (:name declaration))
           :kind (:kind declaration)
           :registration-ms registration-ms
           :plan-ms plan-ms
           :publication-ms publication-ms
+          :observable-ms observable-ms
           :verification-ms verification-ms
           :verification verification
           :registration registration
@@ -232,9 +243,11 @@
                  (select-keys measurement
                               [:label :project :complexity :module :declaration
                                :registration-ms :plan-ms :publication-ms
-                               :verification-ms :build-count :module-count
+                               :observable-ms :verification-ms
+                               :build-count :module-count
                                :modules :compiled-declaration-count
                                :cache-hit-count :cache-miss-count
+                               :artifact-bytes :compiler-profile :host
                                :native-build-ms :queue-wait-ms :planning-ms
                                :dependency-preparation-ms :compiler-ms
                                :dynamic-load-ms :dispatch-publication-ms

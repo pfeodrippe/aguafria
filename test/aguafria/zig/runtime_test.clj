@@ -21,6 +21,65 @@
    :fields [{:name :x :type :i32 :properties {:doc "Horizontal"}}
             {:name :y :type :i32 :properties {}}]})
 
+(deftest development-debug-information-configuration-test
+  (let [old-config (runtime/configuration)]
+    (try
+      (testing "ephemeral development libraries are stripped by default"
+        (is (= :none (:development-debug-info old-config)))
+        (is (= :shared (:development-panic old-config)))
+        (is (= ["-fstrip"]
+               ((var-get #'aguafria.zig.runtime/development-compiler-arguments)
+                old-config))))
+      (testing "full native debug information remains an explicit option"
+        (is (= :full
+               (:development-debug-info
+                (runtime/configure! {:development-debug-info :full}))))
+        (is (= []
+               ((var-get #'aguafria.zig.runtime/development-compiler-arguments)
+                (runtime/configuration)))))
+      (testing "invalid profiles fail before a build can be scheduled"
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"Unsupported development debug-information mode"
+             (runtime/configure! {:development-debug-info :symbols-only}))))
+      (testing "full per-generation panic machinery remains available"
+        (is (= :full
+               (:development-panic
+                (runtime/configure! {:development-panic :full})))))
+      (testing "invalid panic profiles fail before compilation"
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"Unsupported development panic profile"
+             (runtime/configure! {:development-panic :fast-but-silent}))))
+      (finally
+        (runtime/configure! old-config)))))
+
+(deftest zig-version-is-cached-by-compiler-identity-test
+  (let [cache (var-get #'aguafria.zig.runtime/zig-version-cache)
+        old-cache @cache
+        calls (atom 0)]
+    (reset! cache {})
+    (try
+      (with-redefs-fn
+        {#'aguafria.zig.runtime/executable-identity
+         (constantly [:fixture-zig 1])
+         #'aguafria.zig.runtime/run-command
+         (fn [command directory]
+           (swap! calls inc)
+           {:exit 0
+            :out "0.16.0\n"
+            :err ""
+            :command command
+            :directory directory})}
+        (fn []
+          (is (= "0.16.0"
+                 ((var-get #'aguafria.zig.runtime/zig-version))))
+          (is (= "0.16.0"
+                 ((var-get #'aguafria.zig.runtime/zig-version))))))
+      (is (= 1 @calls))
+      (finally
+        (reset! cache old-cache)))))
+
 (deftest logical-identity-and-callable-abi-fingerprint-test
   (let [baseline (runtime/declaration-info function-declaration)
         body-change (runtime/declaration-info
@@ -72,6 +131,78 @@
     (testing "a struct layout reachable from the signature versions the ABI"
       (is (not= (:abi-fingerprint signature-v1)
                 (:abi-fingerprint signature-v2))))))
+
+(deftest selective-reference-refresh-keeps-compatible-function-edits-local-test
+  (let [refresh (var-get
+                 #'aguafria.zig.runtime/refresh-live-declaration-references)
+        original-info runtime/declaration-info
+        calls (atom 0)
+        target
+        (original-info
+         (dissoc (assoc function-declaration
+                        :body '[(+ value 1)])
+                 :type-dependency-fingerprints
+                 :callable-dependency-fingerprints))
+        target-reference
+        (with-meta 'calculate
+          {:aguafria/zig-reference
+           {:logical-id (:logical-id target)
+            :kind :fn
+            :module (:module target)
+            :zig-name "calculate"
+            :abi-fingerprint (:abi-fingerprint target)
+            :implementation-fingerprint
+            (:implementation-fingerprint target)}})
+        caller
+        (original-info
+         (assoc function-declaration
+                :name 'caller
+                :declaration-key [:fn 'caller]
+                :body [(list target-reference 'value)]))]
+    (with-redefs-fn
+      {#'aguafria.zig.runtime/config
+       (atom (assoc (runtime/configuration) :reloadable? true))
+       #'aguafria.zig.runtime/declaration-info
+       (fn [declaration]
+         (swap! calls inc)
+         (original-info declaration))}
+      (fn []
+        (testing "a selected body edit does not walk an unrelated declaration"
+          (let [refreshed (refresh [target caller]
+                                   #{(:declaration-key target)})]
+            (is (= 1 @calls))
+            (is (identical? caller (second refreshed)))))
+        (reset! calls 0)
+        (testing "a stable-cell implementation edit does not force a second pass"
+          (let [refreshed (refresh [target caller])]
+            (is (= 2 @calls))
+            (is (= [(:logical-id target) (:abi-fingerprint target)]
+                   (first (:callable-dependency-fingerprints
+                           (second refreshed)))))))))))
+
+(deftest independent-hot-slice-refreshes-only-its-dependency-snapshot-test
+  (let [refresh (var-get
+                 #'aguafria.zig.runtime/refresh-plan-dependency-snapshots)
+        calls (atom [])
+        plan {:prefer-fallback? true
+              :primary {:source-dirty? true
+                        :declarations [:complete-module]
+                        :dependency-snapshot :deferred}
+              :fallback {:complete-development-root? false
+                         :declarations [:edited-live-slice]
+                         :dependency-snapshot :stale}}]
+    (with-redefs-fn
+      {#'aguafria.zig.runtime/development-dependency-snapshot
+       (fn [declarations]
+         (swap! calls conj declarations)
+         {:fresh declarations})}
+      (fn []
+        (let [refreshed (refresh plan)]
+          (is (= [[:edited-live-slice]] @calls))
+          (is (= :deferred
+                 (get-in refreshed [:primary :dependency-snapshot])))
+          (is (= {:fresh [:edited-live-slice]}
+                 (get-in refreshed [:fallback :dependency-snapshot]))))))))
 
 (deftest source-fingerprint-covers-emission-without-churning-type-identity-test
   (let [reference

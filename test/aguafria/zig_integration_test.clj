@@ -1459,6 +1459,10 @@
               [x :- :i32]
               (+ x 5))))
         (is (= 24 (composed 3)))
+        (testing "the deferred complete source is exact when inspected"
+          (let [source (az/source 'aguafria.zig-integration-test)]
+            (is (string? source))
+            (is (str/includes? source "return (x + 5);"))))
         (let [base-after (declaration-stat "base")
               composed-after (declaration-stat "composed")
               stats-after (az/stats 'aguafria.zig-integration-test)
