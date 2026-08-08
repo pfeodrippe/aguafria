@@ -1,0 +1,9 @@
+#!/bin/zsh
+set -eu
+
+script_dir=${0:A:h}
+project_dir=${script_dir}/../../../../..
+
+cd ${project_dir}
+export AGUAFRIA_ASYNC_COMPILE=true
+exec /opt/homebrew/bin/clojure -M:desktop
