@@ -380,6 +380,7 @@
            :dispatch "__dispatch"
            :getter "__implementation_address"
            :setter "__set_dispatch"
+           :emit-getter? true
            :active-counter "__active_calls"
            :active-getter "__active_call_count"
            :publication-epoch "__publication_epoch"
@@ -410,6 +411,7 @@
            :dispatch "__dispatch"
            :getter "__implementation_address"
            :setter "__set_dispatch"
+           :emit-getter? true
            :active-counter "__active_calls"
            :active-depth "__active_depth"
            :active-tracking "__track_active_calls"
@@ -419,12 +421,64 @@
     (is (str/includes? source "__aguafria_discard_0: i32"))
     (is (str/includes? source "_ = __aguafria_discard_0;"))
     (is (str/includes? source
-                       "fn __impl_trampoline(raw_frame: *anyopaque)"))
+                       "const __fn_type = @TypeOf(&__impl);"))
     (is (str/includes? source
-                       "__impl(__impl_dispatch_frame_arg_0.*, __impl_dispatch_frame_arg_1.*)"))
+                       "return __dispatch_target(__aguafria_discard_0, value);"))
     (is (str/includes? source
-                       ".arg_0 = @ptrCast(&__aguafria_discard_0)"))
+                       "return @intFromPtr(&__impl);"))
     (is (not (str/includes? source "__impl(_, value)")))))
+
+(deftest reloadable-noreturn-fallback-is-a-complete-statement-test
+  (let [declaration {:kind :fn :name 'fatal :return :noreturn
+                     :declaration-key [:fn 'fatal]
+                     :args [{:name '_ :type :i32}]
+                     :body ['unreachable]}
+        source
+        (emit/emit-reloadable-module
+         "demo.noreturn" [declaration]
+         {[:fn 'fatal]
+          {:implementation "__impl"
+           :dispatch-type "__fn_type"
+           :dispatch "__dispatch"
+           :getter "__implementation_address"
+           :setter "__set_dispatch"
+           :active-counter "__active_calls"
+           :active-depth "__active_depth"
+           :active-tracking "__track_active_calls"
+           :active-getter "__active_call_count"
+           :publication-epoch "__publication_epoch"
+           :publication-epoch-setter "__set_publication_epoch"}})]
+    (is (re-find
+         #"if \(__dispatch_target_address == 0\) \{\s+__impl\(__aguafria_discard_0\);\s+\}"
+         source))
+    (is (not (str/includes? source
+                            "__impl(__aguafria_discard_0)\n    }")))))
+
+(deftest reloadable-inferred-error-dispatch-preserves-exact-zig-abi-test
+  (let [declaration {:kind :fn :name 'run :return :void
+                     :zig-qualifiers "!"
+                     :declaration-key [:fn 'run]
+                     :args []
+                     :body ['(return)]}
+        source
+        (emit/emit-reloadable-module
+         "demo.inferred-error" [declaration]
+         {[:fn 'run]
+          {:implementation "__impl"
+           :dispatch-type "__fn_type"
+           :dispatch "__dispatch"
+           :getter "__implementation_address"
+           :setter "__set_dispatch"
+           :active-counter "__active_calls"
+           :active-depth "__active_depth"
+           :active-tracking "__track_active_calls"
+           :active-getter "__active_call_count"
+           :publication-epoch "__publication_epoch"
+           :publication-epoch-setter "__set_publication_epoch"}})]
+    (is (str/includes? source "const __fn_type = @TypeOf(&__impl);"))
+    (is (str/includes? source "return __dispatch_target();"))
+    (is (not (str/includes? source "dispatch_frame")))
+    (is (not (str/includes? source "anyerror!void")))))
 
 (deftest reloadable-const-keeps-comptime-state-reference-direct-test
   (let [state-symbol
@@ -465,6 +519,27 @@
     (is (str/includes? source "const answer: u32 = (io_threaded + 1);"))
     (is (str/includes? source
                        "return __state_io_threaded_reference().*;"))))
+
+(deftest reloadable-state-supports-comptime-selected-void-storage-test
+  (let [declaration {:kind :var
+                     :name 'state
+                     :type 'StateType
+                     :value '(raw ".{}")
+                     :declaration-key [:var 'state]}
+        source
+        (emit/emit-reloadable-module
+         "demo.conditional-state"
+         [declaration]
+         {}
+         {[:var 'state]
+          {:accessor "__state_reference"
+           :getter "__state_address"
+           :setter "__state_set_address"
+           :size-getter "__state_size"
+           :align-getter "__state_alignment"}})]
+    (is (str/includes?
+         source
+         "var state: StateType = if (@typeInfo(StateType) == .void) {} else .{};"))))
 
 (deftest source-metadata-safety-test
   (let [source (emit/emit-module

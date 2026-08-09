@@ -15,6 +15,7 @@ const c = @cImport({
 pub export var __aguafria_external_publication_epoch: usize = 0;
 
 var started: std.atomic.Value(bool) = .init(false);
+var initial_scan_complete: std.atomic.Value(bool) = .init(false);
 
 const Getter = *const fn () callconv(.c) usize;
 const Setter = *const fn (usize) callconv(.c) void;
@@ -35,6 +36,26 @@ const Library = struct {
     next: ?*Library,
 };
 
+fn generationLibraryFlags() c_int {
+    var flags: c_int = c.RTLD_NOW | c.RTLD_LOCAL;
+    // macOS otherwise permits `dlsym(generation_handle, stable_getter)` to
+    // resolve the first previously loaded generation with that exported name.
+    // RTLD_FIRST makes the handle identify the new image itself. Other
+    // platforms retain their normal handle-scoped lookup when unavailable.
+    if (comptime @hasDecl(c, "RTLD_FIRST")) flags |= c.RTLD_FIRST;
+    return flags;
+}
+
+fn applicationSymbol(state: *const WatchState, name: [*:0]const u8) ?*anyopaque {
+    // `dlopen(NULL)` may search globally loaded dylibs after the executable on
+    // macOS. Once generations are retained, that can find another generation's
+    // stable setter and report success without updating the actual program.
+    if (comptime @hasDecl(c, "RTLD_MAIN_ONLY")) {
+        return c.dlsym(c.RTLD_MAIN_ONLY, name);
+    }
+    return c.dlsym(state.application, name);
+}
+
 pub fn start() bool {
     const manifest = c.getenv("AGUAFRIA_PUBLICATION_MANIFEST") orelse return false;
     if (started.cmpxchgStrong(false, true, .acq_rel, .acquire) != null) return true;
@@ -45,6 +66,13 @@ pub fn start() bool {
         return false;
     };
     thread.detach();
+    // Calls later in the application's initialization must observe every
+    // generation that already existed when the process started. Continuing
+    // before the watcher drains that prefix can enter an old long-running
+    // function (for example a REPL loop) milliseconds before its setter moves.
+    while (!initial_scan_complete.load(.acquire)) {
+        _ = c.usleep(1_000);
+    }
     return true;
 }
 
@@ -57,9 +85,12 @@ fn watch(manifest: [*c]u8) void {
         return;
     }
 
+    readAvailable(manifest, &state);
+    initial_scan_complete.store(true, .release);
+
     while (true) {
-        readAvailable(manifest, &state);
         _ = c.usleep(25_000);
+        readAvailable(manifest, &state);
     }
 }
 
@@ -108,7 +139,7 @@ fn processLine(line: []const u8, state: *WatchState) void {
         state.generation = std.fmt.parseUnsigned(u64, generation_text, 10) catch return;
         var path_buffer: [4096:0]u8 = undefined;
         const path = copyCString(library_path, &path_buffer) orelse return;
-        state.library = c.dlopen(path, c.RTLD_NOW | c.RTLD_LOCAL);
+        state.library = c.dlopen(path, generationLibraryFlags());
         state.failed = state.library == null;
         state.publishing = true;
         _ = @atomicRmw(usize, &__aguafria_external_publication_epoch, .Add, 1, .acq_rel);
@@ -131,7 +162,7 @@ fn processLine(line: []const u8, state: *WatchState) void {
             state.failed = true;
             return;
         };
-        const epoch_setter_address = c.dlsym(state.application, epoch_setter_c) orelse {
+        const epoch_setter_address = applicationSymbol(state, epoch_setter_c) orelse {
             state.failed = true;
             std.debug.print("The development lib has no publication epoch {s}\n", .{
                 epoch_setter_name,
@@ -176,7 +207,7 @@ fn processLine(line: []const u8, state: *WatchState) void {
         };
         const getter: Getter = @ptrCast(@alignCast(getter_address));
         var setter_count: usize = 0;
-        if (c.dlsym(state.application, setter_c)) |setter_address| {
+        if (applicationSymbol(state, setter_c)) |setter_address| {
             const setter: Setter = @ptrCast(@alignCast(setter_address));
             setter(getter());
             setter_count += 1;

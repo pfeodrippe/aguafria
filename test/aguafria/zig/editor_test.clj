@@ -18,6 +18,21 @@
 
 (def ^:private fixture-suffix (str (random-uuid)))
 
+(deftest external-publication-keeps-empty-component-members-narrow
+  (let [logical-id ["fixture.component.b" :fn "changed"]
+        publication {:affected
+                     {:publications
+                      [{:modules ["fixture.component.a"
+                                  "fixture.component.b"]
+                        :external-logical-ids [logical-id]}]}}
+        logical-ids-by-module
+        ((var-get #'aguafria.zig.editor/external-logical-ids-by-module)
+         publication)]
+    (is (= #{logical-id}
+           (get logical-ids-by-module "fixture.component.b")))
+    (is (= #{}
+           (get logical-ids-by-module "fixture.component.a")))))
+
 (deftest parses-unsaved-source-with-editor-ranges
   (let [source "/// answer docs\npub fn answer() u32 { return 42; }\n\nconst x = 1;"
         parsed (convert/parse-source source {:path "file:///virtual/demo.zig"})
@@ -42,6 +57,20 @@
     (is (= "file:///virtual/demo.zig" (get-in declaration [:source :file])))
     (is (re-find #"pub fn answer" (:zig-source rendered)))
     (is (not (contains? rendered :output-path)))))
+
+(deftest rendered-test-keeps-its-original-zig-source-order
+  (let [source (str "const std = @import(\"std\");\n"
+                    "fn helper() u32 { return 42; }\n"
+                    "test \"helper\" { try std.testing.expectEqual(42, helper()); }\n")
+        rendered (convert/render-source source
+                                        {:namespace 'editor.test-order
+                                         :path "file:///virtual/test-order.zig"})
+        declarations (:declarations rendered)
+        helper (some #(when (= 'helper (:name %)) %) declarations)
+        zig-test (some #(when (= :test (:kind %)) %) declarations)]
+    (is (= 1 (:source-order helper)))
+    (is (= 2 (:source-order zig-test)))
+    (is (= 2 (get-in zig-test [:source :aguafria/editor-range :start :line])))))
 
 (deftest diffs-in-memory-zig-declarations-by-live-identity
   (let [options {:namespace 'editor.diff :path "file:///virtual/diff.zig"}
@@ -224,6 +253,35 @@
       (is (= :published (:status publication)))
       (is (= 90 (editor/invoke! project-id main-uri "quadruple" [10]))
           "an already-compiled cross-file caller observes the new callee"))))
+
+(deftest changed-batch-propagates-a-comptime-callee-to-external-callers
+  (let [workspace
+        (.getCanonicalFile (File. "test/fixtures/editor_batch_comptime"))
+        project-id (str "editor-batch-comptime-" (random-uuid))
+        main-uri (str (.toURI (File. workspace "main.zig")))
+        defaults-file (File. workspace "defaults.zig")
+        defaults-uri (str (.toURI defaults-file))
+        initial (slurp defaults-file)
+        changed (.replace initial "value + 1" "value + 2")]
+    (editor/start-project!
+     (.getPath workspace)
+     {:project-id project-id
+      :project-root "."
+      :namespace-prefix (symbol (str "editor.batch-comptime." project-id))
+      :bootstrap? true
+      :capture-build-modules? false})
+    (is (= :ready (:status (editor/bootstrap-project! project-id))))
+    (is (= 42 (editor/invoke! project-id main-uri "answer" [])))
+
+    (let [ticket (editor/evaluate! {:project-id project-id
+                                    :uri defaults-uri
+                                    :source changed
+                                    :document-version 1
+                                    :mode :changed})
+          publication (editor/await! (:ticket-id ticket))]
+      (is (= :published (:status publication)))
+      (is (= 43 (editor/invoke! project-id main-uri "answer" []))
+          "a whole-file batch retains its comptime dependency delta"))))
 
 (deftest adds-a-function-and-reevaluates-its-new-caller-without-restart
   (let [root (.getCanonicalPath (File. "."))

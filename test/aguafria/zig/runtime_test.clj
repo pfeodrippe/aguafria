@@ -176,9 +176,89 @@
         (testing "a stable-cell implementation edit does not force a second pass"
           (let [refreshed (refresh [target caller])]
             (is (= 2 @calls))
+            (is (= 1
+                   (count (:callable-dependency-fingerprints
+                           (second refreshed)))))
             (is (= [(:logical-id target) (:abi-fingerprint target)]
                    (first (:callable-dependency-fingerprints
                            (second refreshed)))))))))))
+
+(deftest reference-refresh-preserves-namespace-root-import-test
+  (let [refresh (var-get
+                 #'aguafria.zig.runtime/refresh-live-declaration-references)
+        root
+        (with-meta 'dependency
+          {:aguafria/zig-reference
+           {:kind :namespace-root
+            :module "fixture.dependency"
+            :import-name "fixture.dependency"
+            :import-alias "dependency"
+            :import-namespace 'fixture.dependency
+            :zig-name "dependency"}})
+        alias
+        (runtime/declaration-info
+         {:module "fixture.consumer"
+          :kind :const
+          :name 'dependency
+          :declaration-key [:const 'dependency]
+          :value root})
+        same-named-function
+        (runtime/declaration-info
+         {:module "fixture.dependency"
+          :kind :fn
+          :name 'dependency
+          :declaration-key [:fn 'dependency]
+          :args []
+          :return :void
+          :body []})]
+    (with-redefs-fn
+      {#'aguafria.zig.runtime/registered-declarations-by-logical-id
+       (fn [] {(:logical-id same-named-function) same-named-function})}
+      (fn []
+        (let [refreshed (first (refresh [alias]))
+              reference (:aguafria/zig-reference
+                         (meta (:value refreshed)))]
+          (is (= :namespace-root (:kind reference)))
+          (is (= "fixture.dependency" (:import-name reference)))
+          (is (nil? (:logical-id reference))))))))
+
+(deftest external-generation-advertises-only-resolved-owned-getters-test
+  (let [registry (var-get #'aguafria.zig.runtime/registry)
+        old-registry @registry
+        module "fixture.external-generation"
+        generation
+        {:generation 7
+         :library-path "/tmp/libfixture.dylib"
+         :dispatch-bindings
+         {:resolved {:owned? true
+                     :declaration
+                     {:logical-id [module :fn "changed"]}
+                     :getter "resolved_getter"
+                     :setter "resolved_setter"
+                     :implementation-address 4096}
+          :not-emitted {:owned? true
+                        :getter "missing_getter"
+                        :setter "missing_setter"}
+          :embedded {:owned? false
+                     :getter "embedded_getter"
+                     :setter "embedded_setter"
+                     :implementation-address 8192}}}]
+    (try
+      (swap! registry assoc module
+             {:published-generation 7
+              :native-generations [generation]})
+      (is (= [{:getter "resolved_getter" :setter "resolved_setter"}]
+             (:dispatch (runtime/external-generation-info module))))
+      (is (= [{:getter "resolved_getter" :setter "resolved_setter"}]
+             (:dispatch
+              (runtime/external-generation-info
+               module #{[module :fn "changed"]}))))
+      (is (empty?
+           (:dispatch
+            (runtime/external-generation-info
+             module #{[module :fn "unrelated"]}))))
+      (finally
+        (reset! registry old-registry)))))
 
 (deftest independent-hot-slice-refreshes-only-its-dependency-snapshot-test
   (let [refresh (var-get
@@ -462,6 +542,88 @@
     (is (not= (:implementation-fingerprint baseline)
               (:implementation-fingerprint changed)))
     (is (true? (get-in baseline-result [:reference :type-reference?])))))
+
+(deftest reference-index-resolves-members-through-module-reexports-test
+  (let [registry (var-get #'aguafria.zig.runtime/registry)
+        reference-index
+        (var-get #'aguafria.zig.runtime/declaration-reference-index)
+        old-registry @registry
+        old-index @reference-index
+        reexport-root
+        (with-meta 'impl-root
+          {:aguafria/zig-reference
+           {:kind :namespace-root
+            :module "fixture.reexport.impl"
+            :zig-name "impl_root"}})
+        reexport-member
+        (with-meta 'fixture.reexport.api/repl
+          {:aguafria/zig-reference
+           {:kind :namespace-member
+            :module "fixture.reexport.api"
+            :zig-name "api.repl"
+            :symbol 'fixture.reexport.api/repl}})
+        factory
+        (runtime/declaration-info
+         {:module "fixture.reexport.impl"
+          :kind :fn
+          :name 'ReplType
+          :declaration-key [:fn 'ReplType]
+          :args []
+          :return :type
+          :body '[(container {:kind :struct :layout :normal})]})
+        alias
+        (runtime/declaration-info
+         {:module "fixture.reexport.api"
+          :kind :const
+          :name 'repl
+          :declaration-key [:const 'repl]
+          :value reexport-root})
+        consumer
+        (assoc
+         (runtime/declaration-info
+          {:module "fixture.reexport.consumer"
+           :kind :fn
+           :name 'start
+           :declaration-key [:fn 'start]
+           :args []
+           :return :void
+           :zig-qualifiers "!"
+           :body [(list 'field reexport-member 'ReplType)]})
+         ;; Exercise adoption of an index snapshot produced by the former
+         ;; whole-descriptor reference walk.
+         :callable-dependency-fingerprints
+         [[ ["fixture.reexport.consumer" :fn "start"] "abi" "impl"]])
+        definitions
+        (fn [declaration]
+          {(:declaration-key declaration) declaration})]
+    (try
+      (reset! registry
+              {"fixture.reexport.impl"
+               {:definitions (definitions factory)}
+               "fixture.reexport.api"
+               {:definitions (definitions alias)}
+               "fixture.reexport.consumer"
+               {:definitions (definitions consumer)}})
+      (reset! reference-index
+              {:by-module {} :by-logical {} :references {} :revision 0})
+      ((var-get #'aguafria.zig.runtime/registered-declarations-by-logical-id))
+      (is (contains?
+           (get-in @reference-index
+                   [:references (:logical-id consumer)])
+           (:logical-id factory)))
+      (is (not (contains?
+                (get-in @reference-index
+                        [:references (:logical-id consumer)])
+                (:logical-id consumer))))
+      (is ((var-get #'aguafria.zig.runtime/dispatchable-declaration?)
+           consumer))
+      (is ((var-get
+            #'aguafria.zig.runtime/declaration-references-impact?)
+           consumer
+           #{{:kind :type :logical-id (:logical-id factory)} }))
+      (finally
+        (reset! registry old-registry)
+        (reset! reference-index old-index)))))
 
 (deftest referenced-type-shapes-are-stable-and-layout-sensitive-test
   (let [logical-id ["fixture.live" :struct "Node"]

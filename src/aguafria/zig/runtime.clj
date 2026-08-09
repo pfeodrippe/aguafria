@@ -111,6 +111,13 @@
   not rebuild otherwise-unchanged dependents."
   true)
 
+(def ^:dynamic *dependent-propagation-impacts*
+  "Exact type/callable identities changed by an atomic declaration batch.
+  Ordinary one-form registration derives a singleton impact from its old/new
+  declaration pair; a whole-file editor publication binds the complete set so
+  replacing the registry snapshot cannot erase the semantic delta."
+  nil)
+
 (def ^:dynamic *exact-declaration-publication?*
   "Internal propagation mode: publish only the selected declaration's live
   slice even when other declarations in its namespace also observe the same
@@ -942,6 +949,10 @@
   (let [logical-id [(str module) kind (declaration-zig-name declaration)]
         declaration (assoc declaration :logical-id logical-id)
         type-factory-result (type-factory-call declaration)
+        type-alias?
+        (and (= :const kind)
+             (symbol? (:value declaration))
+             (seq (:type-dependency-fingerprints declaration)))
         type-shape
         (cond
           (= :struct kind)
@@ -961,6 +972,11 @@
                                   :implementation-fingerprint])
            :arguments (mapv type-factory-schema-value
                             (:arguments type-factory-result))}
+
+          type-alias?
+          {:kind :type-alias
+           :symbol (declaration-zig-name declaration)
+           :dependencies (type-dependency-shapes declaration)}
 
           (type-factory-declaration? declaration)
           {:kind :type-factory
@@ -1022,6 +1038,19 @@
                      :factory (select-keys (:factory type-factory-result)
                                            [:logical-id :schema-fingerprint
                                             :implementation-fingerprint])
+                     :type-dependency-fingerprints
+                     (:type-dependency-fingerprints declaration)}))
+
+            type-alias?
+            (assoc :schema-fingerprint
+                   (data-fingerprint
+                    {:kind :type-alias
+                     :shape type-shape})
+                   :implementation-fingerprint
+                   (data-fingerprint
+                    {:kind :type-alias
+                     :symbol (declaration-zig-name declaration)
+                     :value (:value declaration)
                      :type-dependency-fingerprints
                      (:type-dependency-fingerprints declaration)}))
 
@@ -1295,8 +1324,6 @@
      :abi-fingerprint abi-fingerprint
      :implementation-fingerprint implementation-fingerprint
      :implementation (str prefix "_implementation")
-     :dispatch-frame (str prefix "_dispatch_frame")
-     :trampoline (str prefix "_trampoline")
      :dispatch-type (str prefix "_function_type")
      :dispatch (str prefix "_dispatch")
      :getter (str prefix "_implementation_address")
@@ -1890,9 +1917,30 @@
 
 (defn- declaration-reference-logical-ids
   [declaration]
-  (let [same-module-by-name
+  (let [reference-source
+        ;; Descriptor bookkeeping contains symbols such as `:name`,
+        ;; `:qualified-name`, and the macro-shaped `:clojure-form`. Walking the
+        ;; complete map makes every function appear to call itself, which in
+        ;; turn incorrectly disables stable dispatch for inferred error sets.
+        ;; Only Zig-emitted signature/schema/implementation forms can create a
+        ;; native dependency edge.
+        (select-keys declaration [:args :return :body :value :type :fields])
+        same-module-by-name
         (get-in @declaration-reference-index
                 [:by-module (:module declaration) :by-name])
+        dependency-candidate?
+        (fn dependency-candidate? [candidate seen]
+          (let [logical-id (:logical-id candidate)]
+            (when (and candidate (not (contains? seen logical-id)))
+              (or (contains? #{:fn :fn-proto :struct} (:kind candidate))
+                  (and (:schema-fingerprint candidate)
+                       (not= :var (:kind candidate)))
+                  (and (= :const (:kind candidate))
+                       (symbol? (:value candidate))
+                       (dependency-candidate?
+                        (referenced-declaration (:module candidate)
+                                                (:value candidate))
+                        (conj seen logical-id)))))))
         indexed-reference
         (fn [reference]
           (when-let [target-module (some-> (:module reference) str)]
@@ -1903,32 +1951,101 @@
                   candidate
                   (get-in @declaration-reference-index
                           [:by-module target-module :by-name target-name])]
-              (when (contains? #{:fn :fn-proto} (:kind candidate))
-                (:logical-id candidate)))))]
-    (into
-     (into #{}
-           (map first)
-           (concat (:type-dependency-fingerprints declaration)
-                   (:callable-dependency-fingerprints declaration)))
-     (keep
-      (fn [value]
-        (when (symbol? value)
-          (let [reference (:aguafria/zig-reference (meta value))]
-            (or
-             (:logical-id reference)
-             ;; Source-only project bootstraps deliberately do not intern
-             ;; target Vars in generated Clojure namespaces. Resolve their
-             ;; catalog-backed module/member reference through the declaration
-             ;; index once every Zig file has been registered.
-             (indexed-reference reference)
-             ;; Same-file Zig calls and forward references are commonly plain
-             ;; unqualified symbols. Resolve callable declarations only;
-             ;; guessing state here would force target-disabled globals.
-             (when (nil? (namespace value))
-               (let [candidate (get same-module-by-name (name value))]
-                 (when (contains? #{:fn :fn-proto} (:kind candidate))
-                   (:logical-id candidate)))))))))
-     (tree-seq coll? seq declaration))))
+              (when (dependency-candidate? candidate #{})
+                (:logical-id candidate)))))
+        indexed-candidate
+        (fn [reference]
+          (when-let [target-module (some-> (:module reference) str)]
+            (let [target-name
+                  (or (some-> (:symbol reference) name)
+                      (some-> (:zig-name reference)
+                              (str/split #"\.") last))]
+              (get-in @declaration-reference-index
+                      [:by-module target-module :by-name target-name]))))]
+    (letfn [(namespace-root-module [value seen]
+              (cond
+                (symbol? value)
+                (let [reference (:aguafria/zig-reference (meta value))
+                      candidate
+                      (or (indexed-candidate reference)
+                          (when (nil? (namespace value))
+                            (get same-module-by-name (name value))))]
+                  (cond
+                    (= :namespace-root (:kind reference))
+                    (some-> (:module reference) str)
+
+                    (and candidate
+                         (not (contains? seen (:logical-id candidate))))
+                    (namespace-root-module
+                     (:value candidate)
+                     (conj seen (:logical-id candidate)))))
+
+                (and (seq? value)
+                     (symbol? (first value))
+                     (= "field" (name (first value)))
+                     (= 3 (count value)))
+                (let [[_ base member] value
+                      module (namespace-root-module base seen)
+                      candidate
+                      (when (and module (symbol? member))
+                        (get-in @declaration-reference-index
+                                [:by-module module :by-name (name member)]))]
+                  (when (and candidate
+                             (not (contains? seen (:logical-id candidate))))
+                    (namespace-root-module
+                     (:value candidate)
+                     (conj seen (:logical-id candidate)))))))
+
+            (field-member-logical-id [value]
+              (when (and (seq? value)
+                         (symbol? (first value))
+                         (= "field" (name (first value)))
+                         (= 3 (count value)))
+                (let [[_ base member] value
+                      module (namespace-root-module base #{})
+                      candidate
+                      (when (and module (symbol? member))
+                        (get-in @declaration-reference-index
+                                [:by-module module :by-name (name member)]))]
+                  (when (dependency-candidate? candidate #{})
+                    (:logical-id candidate)))))]
+      ;; Dependency fingerprints deliberately remain outside ordinary
+      ;; declaration adjacency: they include transitive type lineage for
+      ;; emitted-source and ABI identity. Treating that lineage as direct graph
+      ;; edges would jump over a stable dispatchable caller and rebuild its
+      ;; callers unnecessarily. Anonymous compiler roots are the exception:
+      ;; synthetic program/host descriptors have no emitted Clojure form, so
+      ;; their explicit fingerprint edge is the only seed into the real graph.
+      (->
+       (if (:logical-id declaration)
+         #{}
+         (into #{}
+               (map first)
+               (concat (:type-dependency-fingerprints declaration)
+                       (:callable-dependency-fingerprints declaration))))
+       (into
+        (keep
+         (fn [value]
+           (when (symbol? value)
+             (let [reference (:aguafria/zig-reference (meta value))]
+               (or
+                (:logical-id reference)
+                ;; Source-only project bootstraps deliberately do not intern
+                ;; target Vars in generated Clojure namespaces. Resolve their
+                ;; catalog-backed module/member reference through the declaration
+                ;; index once every Zig file has been registered.
+                (indexed-reference reference)
+                ;; Same-file Zig calls and forward references are commonly plain
+                ;; unqualified symbols. Callable and type-producing declarations
+                ;; participate in hot-reload propagation; scalar/state references
+                ;; remain excluded so target-disabled globals stay lazy.
+                (when (nil? (namespace value))
+                  (let [candidate (get same-module-by-name (name value))]
+                    (when (dependency-candidate? candidate #{})
+                      (:logical-id candidate))))))))
+         (tree-seq coll? seq reference-source)))
+       (into (keep field-member-logical-id)
+             (tree-seq coll? seq reference-source))))))
 
 (defn- declaration-index-names
   [declaration]
@@ -2617,6 +2734,11 @@
   ([module-name source declarations dependency-snapshot development-root-source
     development-root-dependencies]
    (let [development-dependencies? true
+         external-publication?
+         (boolean
+          (some #(get-in @registry [(str (:module %))
+                                    :external-publication?])
+                declarations))
          development-linkage-logical-ids
          (development-linkage-logical-ids declarations)
          dependency-snapshot
@@ -2626,7 +2748,17 @@
          {:keys [cache-dir optimize zig development-linkage-logical-ids]
           :as compiler-options}
          (compiler-options-for-declarations
-          (cond-> (assoc @config
+          (cond-> (assoc (cond-> @config
+                           ;; Zig 0.16's `-fstrip` is not safe for a dylib
+                           ;; whose private Zig implementations escape through
+                           ;; exported address getters. A large TigerBeetle
+                           ;; comptime replacement reproducibly retained the
+                           ;; getter but called a stripped internal target at
+                           ;; address zero. External development generations
+                           ;; therefore keep Zig's full native image; ordinary
+                           ;; JVM-only hot reload still honors `:none`.
+                           external-publication?
+                           (assoc :development-debug-info :full))
                          :development-dependencies? development-dependencies?
                          :development-root-source development-root-source
                          :development-root-dependencies
@@ -5746,6 +5878,7 @@
                                           (:declaration-key declaration))))
                    declaration
                    (let [source-reference-changed? (volatile! false)
+                         self-logical-id (:logical-id declaration)
                          refreshed
                        (walk/postwalk
                         (fn [value]
@@ -5753,9 +5886,24 @@
                             (let [reference
                                   (:aguafria/zig-reference (meta value))
                                   current
-                                  (or (and reference
+                                  (when-not (= :namespace-root
+                                               (:kind reference))
+                                    (or (and reference
                                            (get current-by-logical
                                                 (:logical-id reference)))
+                                      (and reference
+                                           (get current-by-name
+                                                [(str (or (:module reference)
+                                                          (some-> (:symbol reference)
+                                                                  namespace)
+                                                          (namespace value)
+                                                          (:module declaration)))
+                                                 (or (some-> (:symbol reference)
+                                                             name)
+                                                     (some-> (:zig-name reference)
+                                                             (str/split #"\.")
+                                                             last)
+                                                     (name value))]))
                                       ;; Converted Zig permits same-file forward
                                       ;; references without a Clojure Var. Resolve
                                       ;; every declaration kind from the complete
@@ -5767,16 +5915,24 @@
                                       (and (nil? (namespace value))
                                            (get current-by-name
                                                 [(:module declaration)
-                                                 (name value)])))]
+                                                 (name value)]))))]
                               (cond
+                                ;; A module alias is not a declaration inside
+                                ;; that module. A same-named function or type
+                                ;; must never turn `const foo = @import(...)`
+                                ;; into the self-alias `const foo = foo`.
+                                (= :namespace-root (:kind reference))
+                                value
+
                                 (= :var (:kind current))
                                 (let [reference
-                                      (assoc (or reference
-                                                 {:logical-id (:logical-id current)
-                                                  :kind (:kind current)
-                                                  :module (:module current)
-                                                  :zig-name
-                                                  (declaration-zig-name current)})
+                                      (assoc (or reference {})
+                                             :logical-id (:logical-id current)
+                                             :kind (:kind current)
+                                             :module (:module current)
+                                             :zig-name
+                                             (or (:zig-name reference)
+                                                 (declaration-zig-name current))
                                              :schema-fingerprint
                                              (:schema-fingerprint current)
                                              :state-accessor
@@ -5795,12 +5951,13 @@
 
                                 (type-producing-declaration? current)
                                 (let [reference
-                                      (assoc (or reference
-                                                 {:logical-id (:logical-id current)
-                                                  :kind (:kind current)
-                                                  :module (:module current)
-                                                  :zig-name
-                                                  (declaration-zig-name current)})
+                                      (assoc (or reference {})
+                                             :logical-id (:logical-id current)
+                                             :kind (:kind current)
+                                             :module (:module current)
+                                             :zig-name
+                                             (or (:zig-name reference)
+                                                 (declaration-zig-name current))
                                              :schema-fingerprint
                                              (:schema-fingerprint current)
                                              :shape-fingerprint
@@ -5818,12 +5975,13 @@
 
                                 (contains? #{:fn :fn-proto} (:kind current))
                                 (let [reference
-                                      (assoc (or reference
-                                                 {:logical-id (:logical-id current)
-                                                  :kind (:kind current)
-                                                  :module (:module current)
-                                                  :zig-name
-                                                  (declaration-zig-name current)})
+                                      (assoc (or reference {})
+                                             :logical-id (:logical-id current)
+                                             :kind (:kind current)
+                                             :module (:module current)
+                                             :zig-name
+                                             (or (:zig-name reference)
+                                                 (declaration-zig-name current))
                                              :abi-fingerprint
                                              (:abi-fingerprint current)
                                              :implementation-fingerprint
@@ -5853,13 +6011,26 @@
                                             (and reference
                                                  (get current-by-logical
                                                       (:logical-id reference)))]
-                                        (when (type-producing-declaration?
-                                               current)
-                                          [(:logical-id current)
-                                           (:schema-fingerprint current)
-                                           (:implementation-fingerprint
-                                            current)
-                                           (:shape-fingerprint current)])))))
+                                        (cond
+                                          (= self-logical-id
+                                             (:logical-id current))
+                                          nil
+
+                                          (type-producing-declaration? current)
+                                          [[(:logical-id current)
+                                            (:schema-fingerprint current)
+                                            (:implementation-fingerprint current)
+                                            (:shape-fingerprint current)]]
+
+                                          current
+                                          (:type-dependency-fingerprints current)
+
+                                          (:schema-fingerprint reference)
+                                          [[(:logical-id reference)
+                                            (:schema-fingerprint reference)
+                                            (:implementation-fingerprint reference)
+                                            (:shape-fingerprint reference)]])))))
+                            (mapcat identity)
                             distinct
                             (sort-by pr-str)
                             vec)
@@ -5903,6 +6074,10 @@
                                                           (:module declaration))
                                                       (name value)]))]
                                         (cond
+                                          (= self-logical-id
+                                             (:logical-id current))
+                                          nil
+
                                           (type-producing-declaration? current)
                                           [[(:logical-id current)
                                             (:schema-fingerprint current)
@@ -5932,17 +6107,27 @@
                                             (and reference
                                                  (get current-by-logical
                                                       (:logical-id reference)))]
-                                        (when (and (contains? #{:fn :fn-proto}
-                                                               (:kind current))
-                                                   (not (type-producing-declaration?
-                                                         current)))
-                                          (cond-> [(:logical-id current)
-                                                   (:abi-fingerprint current)]
-                                            (not (dispatchable-declaration?
-                                                  current))
-                                            (conj
-                                             (:implementation-fingerprint
-                                              current))))))))
+                                        (cond
+                                          (= self-logical-id
+                                             (:logical-id current))
+                                          nil
+
+                                          (and (contains? #{:fn :fn-proto}
+                                                          (:kind current))
+                                               (not (type-producing-declaration?
+                                                     current)))
+                                          [(cond-> [(:logical-id current)
+                                                    (:abi-fingerprint current)]
+                                             (not (dispatchable-declaration?
+                                                   current))
+                                             (conj
+                                              (:implementation-fingerprint
+                                               current)))]
+
+                                          current
+                                          (:callable-dependency-fingerprints
+                                           current))))))
+                            (mapcat identity)
                             distinct
                             (sort-by pr-str)
                             vec)
@@ -6491,9 +6676,26 @@
     {:kind :callable
      :logical-id (:logical-id declaration)}))
 
+(defn- batch-dependent-propagation-impacts
+  [old-definitions declarations]
+  (if-not *propagate-dependent-changes?*
+    #{}
+    (let [old-by-logical
+          (into {} (map (juxt :logical-id identity)) (vals old-definitions))]
+      (into #{}
+            (keep
+             (fn [declaration]
+               (let [old-declaration
+                     (get old-by-logical (:logical-id declaration))]
+                 (when (compatible-dependent-propagation?
+                        old-declaration declaration)
+                   (dependent-propagation-impact
+                    old-declaration declaration)))))
+            declarations))))
+
 (defn- compile-and-publish-async-generation!
   [{:keys [module declaration-key generation declarations source source-dirty?
-           plan completion propagate-dependent-change? propagation-impact]}]
+           plan completion propagation-impacts]}]
   (mark-build-started! module generation)
   (try
     (let [dependency-preparation-started-ns (System/nanoTime)
@@ -6607,10 +6809,10 @@
                                [[module :repl generation] :started-at-ms])]
               (- native-finished-at-ms started-at))
             propagation
-            (when (and @published? propagate-dependent-change?)
+            (when (and @published? (seq propagation-impacts))
               (try
                 {:affected (recompile-dependent-components!
-                            module completion #{propagation-impact})}
+                            module completion propagation-impacts)}
                 (catch Throwable error
                   {:error error})))
             propagation-error (:error propagation)
@@ -6742,13 +6944,13 @@
                      :dispatch-specs dispatch-specs
                      :plan plan
                      :planning-duration-ms planning-duration-ms
-                     :propagate-dependent-change?
-                     (and *propagate-dependent-changes?*
-                          (compatible-dependent-propagation?
-                           plan-old-declaration plan-declaration))
-                     :propagation-impact
-                     (dependent-propagation-impact
-                      plan-old-declaration plan-declaration)
+                     :propagation-impacts
+                     (or *dependent-propagation-impacts*
+                         (when (and *propagate-dependent-changes?*
+                                    (compatible-dependent-propagation?
+                                     plan-old-declaration plan-declaration))
+                           #{(dependent-propagation-impact
+                              plan-old-declaration plan-declaration)}))
                      :completion completion}]
             (swap! registry assoc module
                    (merge old-module
@@ -6882,13 +7084,13 @@
                      :dispatch-specs dispatch-specs
                      :plan plan
                      :planning-duration-ms planning-duration-ms
-                     :propagate-dependent-change?
-                     (and *propagate-dependent-changes?*
-                          (compatible-dependent-propagation?
-                           plan-old-declaration plan-declaration))
-                     :propagation-impact
-                     (dependent-propagation-impact
-                      plan-old-declaration plan-declaration)
+                     :propagation-impacts
+                     (or *dependent-propagation-impacts*
+                         (when (and *propagate-dependent-changes?*
+                                    (compatible-dependent-propagation?
+                                     plan-old-declaration plan-declaration))
+                           #{(dependent-propagation-impact
+                              plan-old-declaration plan-declaration)}))
                      :ready? ready?
                      :completion completion}]
             (swap! registry assoc module
@@ -7009,10 +7211,13 @@
                        (breaking-type-change? plan-old-declaration
                                               plan-declaration))
               (freeze-active-host-dispatch! plan-declaration))
-          propagate-dependent-change?
-          (and *propagate-dependent-changes?*
-               (compatible-dependent-propagation?
-                plan-old-declaration plan-declaration))
+          propagation-impacts
+          (or *dependent-propagation-impacts*
+              (when (and *propagate-dependent-changes?*
+                         (compatible-dependent-propagation?
+                          plan-old-declaration plan-declaration))
+                #{(dependent-propagation-impact
+                   plan-old-declaration plan-declaration)}))
           {source :source source-dirty? :source-dirty?} (:primary plan)
           generation (inc (or (:requested-generation old-module)
                               (:generation old-module) 0))
@@ -7112,13 +7317,11 @@
                 (elapsed-nanos-ms publication-started-ns)
                 propagation-started-ns (System/nanoTime)
                 affected
-                (when propagate-dependent-change?
+                (when (seq propagation-impacts)
                   (recompile-dependent-components!
-                   module nil
-                   #{(dependent-propagation-impact
-                      plan-old-declaration plan-declaration)}))
+                   module nil propagation-impacts))
                 propagation-duration-ms
-                (when propagate-dependent-change?
+                (when (seq propagation-impacts)
                   (elapsed-nanos-ms propagation-started-ns))]
             (mark-build-finished!
              module generation :finished
@@ -7302,6 +7505,8 @@
   ([requested-module]
    (compile-component-sync! requested-module nil))
   ([requested-module ignored-pending]
+   (compile-component-sync! requested-module ignored-pending nil))
+  ([requested-module ignored-pending external-logical-ids]
   ;; Resolve pending work before taking the component-wide publication lock.
   ;; A later request cannot enter while the lock is held.
   (doseq [module (dependency-component-members requested-module @registry)]
@@ -7346,9 +7551,13 @@
                   staged-jobs)
           jobs (mapv #(finalize-component-job % staged-module-states)
                      staged-jobs)
-          publication {:id (swap! component-publication-sequence inc)
-                       :modules members
-                       :requested-at-ms (System/currentTimeMillis)}
+          publication
+          {:id (swap! component-publication-sequence inc)
+           :modules members
+           :requested-at-ms (System/currentTimeMillis)
+           :external-logical-ids
+           (when (some? external-logical-ids)
+             (vec (sort-by pr-str external-logical-ids)))}
           prepared (atom [])
           published? (atom false)]
       (doseq [job jobs]
@@ -7453,6 +7662,7 @@
              :published-at-ms published-at-ms
              :duration-ms (:duration-ms publication)
              :critical-path-ms (:critical-path-ms publication)
+             :external-logical-ids (:external-logical-ids publication)
              :generations
              (into (sorted-map)
                    (map (juxt :module :generation))
@@ -7493,10 +7703,19 @@
   (let [type-ids (into #{} (keep #(when (= :type (:kind %))
                                     (:logical-id %))) impacts)
         callable-ids (into #{} (keep #(when (= :callable (:kind %))
-                                        (:logical-id %))) impacts)]
+                                        (:logical-id %))) impacts)
+        indexed-references
+        (get-in @declaration-reference-index
+                [:references (:logical-id declaration)])]
     (or (some type-ids (map first (:type-dependency-fingerprints declaration)))
         (some callable-ids
-              (map first (:callable-dependency-fingerprints declaration))))))
+              (map first (:callable-dependency-fingerprints declaration)))
+        ;; Namespace re-exports such as `vsr.repl.ReplType` are a real Zig
+        ;; declaration edge even when the stored descriptor predates the
+        ;; resolved type/callable fingerprint. The project-wide reference index
+        ;; closes that structural path without forcing all 4k+ source-only
+        ;; descriptors through another eager fingerprint pass.
+        (some (into type-ids callable-ids) indexed-references))))
 
 (defn- component-references-impact?
   [members impacts]
@@ -7736,12 +7955,18 @@
   atomic component compiler because no member can be published coherently in
   isolation."
   [component impacts ignored-pending]
-  (let [members (:modules component)]
+  (let [members (:modules component)
+        impacted-declarations
+        (when (seq impacts)
+          (impacted-component-declarations members impacts))
+        external-logical-ids
+        (when (seq impacts)
+          (into #{} (keep :logical-id) impacted-declarations))]
     (if (and (seq impacts)
              (not (:cyclic? component))
              (= 1 (count members)))
       (let [module (first members)
-            declarations (impacted-component-declarations members impacts)
+            declarations impacted-declarations
             results
             (binding [*propagate-dependent-changes?* false
                       *exact-declaration-publication?* true]
@@ -7750,10 +7975,13 @@
          :modules members
          :requested-at-ms (System/currentTimeMillis)
          :partial-publication? true
+         :external-logical-ids
+         (vec (sort-by pr-str external-logical-ids))
          :compiled-declaration-count
          (count declarations)
          :results results})
-      (compile-component-sync! (first members) ignored-pending))))
+      (compile-component-sync! (first members) ignored-pending
+                               external-logical-ids))))
 
 (defn- changed-dependent-impacts
   [before-states members]
@@ -7787,6 +8015,24 @@
                     {:kind :callable :logical-id (:logical-id declaration)})))
               after)))
          members)))
+
+(defn- republished-dependent-impact
+  "Describe the dependency identity that a freshly republished declaration
+  passes to its callers.
+
+  Exact propagation selected this declaration because it embeds the preceding
+  frontier. A type producer or non-addressable callable therefore remains a
+  propagation boundary even when reference refresh normalized its before/after
+  fingerprints to the same current registry snapshot. Concrete dispatchable
+  functions stop the walk because existing callers already use their cells."
+  [declaration]
+  (cond
+    (type-producing-declaration? declaration)
+    {:kind :type :logical-id (:logical-id declaration)}
+
+    (and (contains? #{:fn :fn-proto} (:kind declaration))
+         (not (dispatchable-declaration? declaration)))
+    {:kind :callable :logical-id (:logical-id declaration)}))
 
 (defn- exact-impact-component-eligible?
   [component impacts]
@@ -7871,9 +8117,14 @@
           (fn [member]
             ;; Converted source registration advances a module's published
             ;; source generation even when no native artifact has ever been
-            ;; materialized. Only a loaded native generation is live behavior
-            ;; that automatic propagation must update immediately.
-            (boolean (seq (get-in @registry [member :native-generations]))))
+            ;; materialized. Normally only a loaded native generation is live
+            ;; behavior. An external development executable is the other live
+            ;; owner: its complete startup image contains these source-only JVM
+            ;; modules, so an affected declaration must be compiled and sent to
+            ;; its manifest even before that module has a JVM-loaded generation.
+            (let [state (get @registry member)]
+              (boolean (or (seq (:native-generations state))
+                           (:external-publication? state)))))
           live-component-ids
           (into #{}
                 (keep
@@ -8080,6 +8331,7 @@
   [module allowed-modules impacts]
   (loop [frontier (set impacts)
          visited #{}
+         propagated (set impacts)
          results []]
     (let [declarations
           (exact-dependent-declarations allowed-modules frontier visited)]
@@ -8088,7 +8340,7 @@
          :root (str module)
          :declaration-count (count visited)
          :results results
-         :propagated-impacts frontier}
+         :propagated-impacts propagated}
         (let [modules (into #{} (map :module) declarations)
               before-states (select-keys @registry modules)
               publication-results
@@ -8096,9 +8348,11 @@
                         *exact-declaration-publication?* true]
                 (mapv register-sync! declarations))
               next-impacts
-              (changed-dependent-impacts before-states modules)
+              (into (changed-dependent-impacts before-states modules)
+                    (keep republished-dependent-impact)
+                    declarations)
               visited (into visited (keep :logical-id) declarations)]
-          (recur next-impacts visited
+          (recur next-impacts visited (into propagated next-impacts)
                  (into results publication-results)))))))
 
 (defn- recompile-dependent-components!
@@ -8118,7 +8372,7 @@
         exact (recompile-exact-dependent-slice!
                module root-modules impacts)
         cross (recompile-component-chain!
-               module false ignored-pending impacts true)]
+               module false ignored-pending (:propagated-impacts exact) true)]
     (assoc cross
            :exact-declaration-count (:declaration-count exact)
            :exact-results (:results exact))))
@@ -8448,7 +8702,11 @@
   module once. `:replace? true` removes declarations absent from the batch."
   [declarations {:keys [compile? replace? module]
                  :or {compile? false replace? true}}]
-  (let [declarations (mapv declaration-info (ordered-batch declarations))
+  (let [declarations
+        (->> declarations
+             ordered-batch
+             (mapv declaration-info)
+             refresh-live-declaration-references)
         modules (cond-> (set (map :module declarations))
                   module (conj (str module)))]
     (when-not (= 1 (count modules))
@@ -8458,17 +8716,27 @@
           definitions (into {} (map (juxt :declaration-key identity)) declarations)]
       (if compile?
         ;; Seed the whole immutable snapshot, then ask the existing single-module
-        ;; compiler to compile that complete definition map exactly once.
-        (do
-          (locking compile-lock
-            (swap! registry update module
-                   (fn [current]
-                     (assoc (or current {})
-                            :module module
-                            :definitions (if replace?
-                                           definitions
-                                           (merge (:definitions current) definitions))))))
-          (recompile! module))
+        ;; compiler to compile that complete definition map exactly once. Keep
+        ;; the old/new semantic impacts alongside the snapshot: once seeded,
+        ;; an ordinary recompile can no longer derive them declaration-by-
+        ;; declaration, but external comptime/type callers still need them.
+        (let [propagation-impacts
+              (locking compile-lock
+                (let [current (get @registry module)
+                      old-definitions (or (:definitions current) {})
+                      definitions (if replace?
+                                    definitions
+                                    (merge old-definitions definitions))
+                      declarations (vec (vals definitions))
+                      impacts (batch-dependent-propagation-impacts
+                               old-definitions declarations)]
+                  (swap! registry assoc module
+                         (assoc (or current {})
+                                :module module
+                                :definitions definitions))
+                  impacts))]
+          (binding [*dependent-propagation-impacts* propagation-impacts]
+            (recompile! module)))
         (locking compile-lock
           (let [old-module (get @registry module)
                 definitions (if replace?
@@ -8800,35 +9068,45 @@
   addresses from the JVM process. It can, however, load the same dylib and
   resolve these deterministic getter/setter symbols in its own address space.
   No loader objects or process-local addresses cross this boundary."
-  [module]
-  (locking compile-lock
-    (when-let [module-state (get @registry (str module))]
-      (when-let [generation
-                 (or (some #(when (= (:published-generation module-state)
-                                      (:generation %))
-                              %)
-                           (:native-generations module-state))
-                     (last (:native-generations module-state)))]
-        {:module (str module)
-         :generation (:generation generation)
-         :library-path (:library-path generation)
-         :publication-epoch-setter
-         (some :publication-epoch-setter
-               (vals (:dispatch-bindings generation)))
-         :dispatch
-         (->> (:dispatch-bindings generation)
-              vals
-              (keep (fn [{:keys [getter setter]}]
-                      ;; The JVM only resolves `implementation-address` when
-                      ;; it needs to call the generation itself. An external
-                      ;; host resolves the exported getter in its own process,
-                      ;; so requiring a JVM-local address here incorrectly
-                      ;; suppresses valid external-only publications.
-                      (when (and getter setter)
-                        {:getter getter :setter setter})))
-              distinct
-              (sort-by (juxt :setter :getter))
-              vec)}))))
+  ([module]
+   (external-generation-info module nil))
+  ([module logical-ids]
+   (locking compile-lock
+     (when-let [module-state (get @registry (str module))]
+       (when-let [generation
+                  (or (some #(when (= (:published-generation module-state)
+                                       (:generation %))
+                               %)
+                            (:native-generations module-state))
+                      (last (:native-generations module-state)))]
+         (let [logical-ids (when (some? logical-ids) (set logical-ids))]
+           {:module (str module)
+            :generation (:generation generation)
+            :library-path (:library-path generation)
+            :publication-epoch-setter
+            (some :publication-epoch-setter
+                  (vals (:dispatch-bindings generation)))
+            :dispatch
+            (->> (:dispatch-bindings generation)
+                 vals
+                 (keep (fn [{:keys [getter setter owned?
+                                    implementation-address declaration]}]
+                      ;; `bind-dispatch` resolves the getter from this exact
+                      ;; dylib before recording `implementation-address`.
+                      ;; Without it the getter was not emitted (usually Zig
+                      ;; laziness for an unreachable declaration), so an
+                      ;; external process cannot resolve it either. Never
+                      ;; advertise such a symbol, nor an embedded dependency's
+                      ;; setter-only binding, in the publication manifest.
+                      (when (and owned? getter setter
+                                 (some? implementation-address))
+                        (when (or (nil? logical-ids)
+                                  (contains? logical-ids
+                                             (:logical-id declaration)))
+                          {:getter getter :setter setter}))))
+                 distinct
+                 (sort-by (juxt :setter :getter))
+                 vec)}))))))
 
 (defn module-info
   "Return inspectable information for a module/namespace, excluding native
@@ -8930,11 +9208,13 @@
 
 (defn- module-dependency-graph
   [module-states]
-  (let [direct
+  (let [by-logical (registered-declarations-by-logical-id)
+        references (:references @declaration-reference-index)
+        direct
         (into {}
               (map (fn [[module module-state]]
                      (let [definitions (:definitions module-state)
-                           dependencies
+                           import-dependencies
                            (locking module-dependency-entry-cache
                              (if (.containsKey module-dependency-entry-cache
                                               definitions)
@@ -8954,9 +9234,22 @@
                                  (when (> (.size module-dependency-entry-cache)
                                           4096)
                                    (.clear module-dependency-entry-cache)
-                                   (.put module-dependency-entry-cache
+                                 (.put module-dependency-entry-cache
                                          definitions value))
-                                 value)))]
+                                 value)))
+                           declaration-dependencies
+                           (->> definitions
+                                vals
+                                (keep :logical-id)
+                                (mapcat references)
+                                (keep #(some-> (get by-logical %) :module str)))
+                           dependencies
+                           (->> (concat import-dependencies
+                                        declaration-dependencies)
+                                (remove #{(str module)})
+                                distinct
+                                sort
+                                vec)]
                        [module dependencies])))
               module-states)
         nodes (->> (concat (keys direct) (mapcat val direct)) set sort)]

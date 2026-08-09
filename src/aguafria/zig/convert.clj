@@ -2877,8 +2877,27 @@
                     (when (and (symbol? name) (some? source-order))
                       [(str name) source-order]))))
           translated-forms)
-         forms (mapv (comp qualify-generated-source-form compact-generated-form)
-                     translated-forms)
+         forms
+         (mapv
+          (fn [translated]
+            (let [attributes-index (declaration-attributes-index translated)
+                  attributes (when attributes-index
+                               (nth translated attributes-index nil))
+                  source-order (:zig/order attributes)
+                  form (-> translated
+                           compact-generated-form
+                           qualify-generated-source-form)]
+              ;; Source-order/leading trivia are deliberately absent from the
+              ;; human-facing compact Clojure form. Keep the structural order
+              ;; out-of-band so in-memory editor descriptors still map to the
+              ;; exact original Zig declaration (not merely the Nth generated
+              ;; form, which can differ when imports are represented by the
+              ;; namespace catalog).
+              (cond-> form
+                (some? source-order)
+                (with-meta (assoc (meta form)
+                                  ::source-order source-order)))))
+          translated-forms)
          test-source-orders
          (into
           {}
@@ -3036,12 +3055,19 @@
             ;; mapping immediately before its generated def; this prevents
             ;; hundreds of irrelevant shadowing warnings during a large
             ;; source-only bootstrap while preserving every other core Var.
-            (let [declaration-name (second form)]
+            (let [declaration-name (second form)
+                  before-count (count @collector)]
               (when (and (symbol? declaration-name)
                          (nil? (namespace declaration-name))
                          (contains? (ns-refers scratch) declaration-name))
-                (ns-unmap scratch declaration-name)))
-            (eval form))))
+                (ns-unmap scratch declaration-name))
+              (eval form)
+              (when-let [source-order (::source-order (meta form))]
+                (swap! collector
+                       (fn [declarations]
+                         (into (subvec (vec declarations) 0 before-count)
+                               (map #(assoc % :source-order source-order))
+                               (subvec (vec declarations) before-count)))))))))
       (let [declarations (mapv (fn [index declaration]
                                  (cond-> declaration
                                    (nil? (:source-order declaration))

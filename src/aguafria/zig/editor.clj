@@ -482,7 +482,8 @@
              (get-in project [:configuration :external-publication-manifest])]
     (when-let [{:keys [generation library-path dispatch
                        publication-epoch-setter] :as external}
-               (runtime/external-generation-info (:module ticket))]
+               (runtime/external-generation-info (:module ticket)
+                                                 (:logical-ids ticket))]
       (when (seq dispatch)
         (let [manifest (configured-file (:configuration project) manifest-path)
             publication
@@ -509,6 +510,60 @@
            :module (:module ticket)
            :library-path library-path
            :dispatch (:dispatch external)})))))
+
+(defn- affected-publication
+  [runtime-publication]
+  (or (:affected runtime-publication)
+      ;; `runtime/await!` deliberately returns the current inspectable module
+      ;; state. If an async publication won the race before the editor reached
+      ;; the barrier, its transitive result is retained here rather than in the
+      ;; already-delivered promise value.
+      (:last-dependent-publication runtime-publication)))
+
+(defn- affected-external-modules
+  [root-module runtime-publication]
+  (let [affected (affected-publication runtime-publication)]
+    (->> (concat
+          [root-module]
+          (keep :module (:exact-results affected))
+          (mapcat :modules (:publications affected)))
+         (remove nil?)
+         (map str)
+         distinct
+         vec)))
+
+(defn- external-logical-ids-by-module
+  [runtime-publication]
+  (reduce
+   (fn [result {:keys [modules external-logical-ids]}]
+     (if (some? external-logical-ids)
+       (let [by-module (group-by first external-logical-ids)]
+         (reduce (fn [result module]
+                   (assoc result module (set (get by-module module))))
+                 result modules))
+       result))
+   {}
+   (:publications (affected-publication runtime-publication))))
+
+(defn- publish-affected-external-generations!
+  [project root-module runtime-publication]
+  (let [logical-ids-by-module
+        (external-logical-ids-by-module runtime-publication)
+        publications
+        (->> (affected-external-modules root-module runtime-publication)
+             (keep (fn [module]
+                     (publish-external-generation!
+                      project {:module module
+                               :logical-ids
+                               (get logical-ids-by-module module)}
+                      (runtime/module-info module))))
+             vec)]
+    (case (count publications)
+      0 nil
+      1 (first publications)
+      {:publication-count (count publications)
+       :modules (mapv :module publications)
+       :publications publications})))
 
 (defn- project!
   [project-id]
@@ -853,17 +908,28 @@
     (if (contains? #{:failed :cancelled} (:status ticket))
       ticket
       (try
-        (runtime/await! (:module ticket))
-        (let [module-info (runtime/module-info (:module ticket))
+        (let [runtime-publication (runtime/await! (:module ticket))
+              module-info (runtime/module-info (:module ticket))
               project (project! (:project-id ticket))
               external-publication
-              (publish-external-generation! project ticket module-info)
+              (publish-affected-external-generations!
+               project (:module ticket) runtime-publication)
               completed
               (with-meta
                 (assoc ticket
                        :status :published
                        :published-generation (:published-generation module-info)
                        :completed-at-ms (System/currentTimeMillis)
+                       ;; Never retain the complete internal runtime module in
+                       ;; an editor ticket. Besides being noisy at the REPL, it
+                       ;; contains generated sources, compiler commands, and
+                       ;; native loader handles. The module remains available
+                       ;; through `runtime/module-info`; tickets need only the
+                       ;; compact publication outcome.
+                       :publication-result
+                       (select-keys runtime-publication
+                                    [:status :module :generation :published?
+                                     :affected :last-dependent-publication])
                        :external-publication external-publication
                        :module-info
                        (select-keys module-info

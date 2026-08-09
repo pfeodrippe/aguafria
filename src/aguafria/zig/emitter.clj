@@ -299,13 +299,24 @@
   Structural Aguafria forms are preserved separately."
   #{"and" "or"})
 
+(defn- declared-zig-operator?
+  [context-ns op]
+  (when (and (symbol? op)
+             (nil? (namespace op))
+             (not (contains? *lexical-bindings* op)))
+    (let [module (str (or project/*catalog-namespace*
+                          (ns-name context-ns)))]
+      (some? (project/declaration-source-order module (name op))))))
+
 (defn- expand-clojure-macro-once
   [context-ns form]
   (let [op (first form)
         structural? (some? (resolved-syntax-operator context-ns op))
         token (when-not structural? (keyword/resolve-token context-ns op))
+        declared-zig? (declared-zig-operator? context-ns op)
         macro-var (when (and (symbol? op)
                              (nil? token)
+                             (not declared-zig?)
                              (not (contains? *lexical-bindings* op)))
                     (resolve-context-var context-ns op))]
     (when (and (not structural?)
@@ -2382,14 +2393,10 @@
 (declare synthesized-import-declarations)
 
 (defn- emit-reloadable-function
-  [declaration {:keys [implementation dispatch-frame trampoline
-                       dispatch-type dispatch getter setter
+  [declaration {:keys [implementation dispatch-type dispatch getter setter
                        active-counter active-depth active-tracking
                        publication-epoch emit-getter? linkable?]}]
-  (let [dispatch-frame (or dispatch-frame
-                           (str implementation "_dispatch_frame"))
-        trampoline (or trampoline (str implementation "_trampoline"))
-        original-body-prefix-source (:body-prefix-source declaration)
+  (let [original-body-prefix-source (:body-prefix-source declaration)
         reload-args
         (mapv (fn [index argument]
                 (if (= "_" (str (:name argument)))
@@ -2412,93 +2419,30 @@
         target (str dispatch "_target")
         target-address (str dispatch "_target_address")
         track-active (str implementation "_track_active")
-        frame-value (str dispatch-frame "_value")
-        frame-result (str dispatch-frame "_result")
-        frame-argument-names
-        (mapv #(str dispatch-frame "_arg_" %) (range (count reload-args)))
         inferred-error-return?
         (= "!" (str/trim (or (:zig-qualifiers declaration) "")))
-        return-type-source
-        (str (when inferred-error-return? "!")
-             (emit-type (:return declaration)))
         void-return?
         (and (= :void (:return declaration))
              (not inferred-error-return?))
         noreturn? (= :noreturn (:return declaration))
-        frame-used? (or (seq reload-args)
-                        (not (or void-return? noreturn?)))
-        frame-source
-        (str "const " dispatch-frame " = extern struct {\n"
-             "    result: ?*anyopaque,\n"
-             (apply str
-                    (map-indexed
-                     (fn [index _]
-                       (str "    arg_" index ": *const anyopaque,\n"))
-                     reload-args))
-             "};")
-        trampoline-argument-source
-        (apply str
-               (map-indexed
-                (fn [index argument]
-                  (str "const " (nth frame-argument-names index)
-                       ": *const " (emit-type (:type argument))
-                       " = @ptrCast(@alignCast(" frame-value ".arg_"
-                       index "));\n"))
-                reload-args))
-        trampoline-call-source
-        (str implementation "("
-             (str/join ", " (map #(str % ".*") frame-argument-names))
-             ")")
         direct-call-source
         (str implementation "("
              (str/join ", " (map (comp identifier :name) reload-args))
              ")")
+        target-call-source
+        (str target "("
+             (str/join ", " (map (comp identifier :name) reload-args))
+             ")")
         direct-invocation-source
         (cond
-          noreturn? direct-call-source
+          noreturn? (str direct-call-source ";")
           void-return? (str direct-call-source ";\nreturn;")
           :else (str "return " direct-call-source ";"))
-        trampoline-source
-        (str "fn " trampoline "(raw_frame: *anyopaque) callconv(.c) void {\n"
-             (if frame-used?
-               (str "    const " frame-value ": *" dispatch-frame
-                    " = @ptrCast(@alignCast(raw_frame));\n")
-               "    _ = raw_frame;\n")
-             (when (seq reload-args)
-               (str (indent 1 trampoline-argument-source) "\n"))
-             (cond
-               (or void-return? noreturn?)
-               (str "    " trampoline-call-source ";\n")
-
-               :else
-               (str "    const " frame-result ": *" return-type-source
-                    " = @ptrCast(@alignCast(" frame-value ".result.?));\n"
-                    "    " frame-result ".* = " trampoline-call-source ";\n"))
-             "}")
-        wrapper-frame-fields
-        (apply str
-               (map-indexed
-                (fn [index argument]
-                  (str "    .arg_" index " = @ptrCast(&"
-                       (identifier (:name argument)) "),\n"))
-                reload-args))
-        wrapper-invocation-source
-        (str (when-not (or void-return? noreturn?)
-               (str "var " frame-result ": " return-type-source
-                    " = undefined;\n"))
-             "var " frame-value ": " dispatch-frame " = .{\n"
-             "    .result = "
-             (if (or void-return? noreturn?)
-               "null"
-               (str "@ptrCast(&" frame-result ")"))
-             ",\n"
-             wrapper-frame-fields
-             "};\n"
-             target "(@ptrCast(&" frame-value "));\n"
-             (cond
-               noreturn? "unreachable;"
-               void-return? "return;"
-               :else (str "return " frame-result ";")))
+        target-invocation-source
+        (cond
+          noreturn? (str target-call-source ";")
+          void-return? (str target-call-source ";\nreturn;")
+          :else (str "return " target-call-source ";"))
         discard-parameter-form?
         (fn [form]
           (let [operator (when (seq? form) (first form))]
@@ -2610,13 +2554,18 @@
                     "}\n"
                     "const " target ": " dispatch-type
                     " = @ptrFromInt(" target-address ");\n"
-                    wrapper-invocation-source))
+                    target-invocation-source))
          wrapper-source
          (emit-declaration wrapper-declaration)]
     (str implementation-source "\n\n"
-         frame-source "\n\n"
-         trampoline-source "\n\n"
-         "const " dispatch-type " = @TypeOf(&" trampoline ");\n"
+         ;; External Zig hosts and replacement dylibs are compiled by the
+         ;; same Zig toolchain. Dispatch with Zig's exact native function ABI
+         ;; rather than repacking values through a hand-written C frame. The
+         ;; latter is not ABI-preserving for every Zig value (notably inferred
+         ;; error unions and generic concrete types such as TigerBeetle's IO),
+         ;; while this pointer is exactly the type Zig inferred for the stable
+         ;; implementation.
+         "const " dispatch-type " = @TypeOf(&" implementation ");\n"
          "var " dispatch ": usize = 0;\n\n"
          (when emit-getter?
            ;; The compiler's tiny root imports this generated module and
@@ -2624,7 +2573,7 @@
            ;; but does not make it visible through Zig's module namespace;
            ;; `pub export` is required for both forms of linkage.
            (str "pub export fn " getter "() callconv(.c) usize {\n"
-                "    return @intFromPtr(&" trampoline ");\n"
+                "    return @intFromPtr(&" implementation ");\n"
                 "}\n\n"))
          (when linkable? "pub ")
          "export fn " setter "(address: usize) callconv(.c) void {\n"
@@ -2635,7 +2584,24 @@
 (defn- emit-reloadable-state
   [declaration {:keys [accessor getter setter size-getter align-getter
                        linkable? emit-native-helpers?]}]
-  (let [name (identifier (or (:zig-name declaration) (:name declaration)))]
+  (let [name (identifier (or (:zig-name declaration) (:name declaration)))
+        ;; Zig deliberately analyzes many declarations lazily. A typed global
+        ;; may therefore use an initializer which is valid only for the
+        ;; non-void arm of a comptime-selected type, while remaining perfectly
+        ;; valid in the original program because the void storage is unused.
+        ;; Development state hooks necessarily take the variable's address and
+        ;; make Zig analyze it. Preserve the original initializer for every
+        ;; material type, but give a comptime-selected void state its canonical
+        ;; empty value so instrumentation does not change what compiles.
+        declaration
+        (if-let [type (:type declaration)]
+          (assoc declaration
+                 :value
+                 (list 'raw
+                       (str "if (@typeInfo(" (emit-type type)
+                            ") == .void) {} else "
+                            (emit-expr (:value declaration)))))
+          declaration)]
     (str (emit-declaration declaration) "\n\n"
          "var " accessor "_pointer: @TypeOf(&" name ") = &" name ";\n\n"
          "pub fn " accessor "() @TypeOf(&" name ") {\n"

@@ -1,0 +1,28 @@
+{:project-root "../tigerbeetle-agua/vendor/tigerbeetle"
+ :profile :development
+ :namespace-prefix tigerbeetle.zig
+ :bootstrap? true
+ :exclude-directories #{"zig-pkg"}
+ :build-profiles [[] ["vopr"]]
+ :development-materialization
+ {:output "../tigerbeetle-agua/build/editor-development"
+  :entry-module "tigerbeetle.zig.src.tigerbeetle.main"
+  :entry-declaration "main"}
+ :development-build
+ {:command ["./prepare-development.sh"
+            "../tigerbeetle-agua/build/editor-development"
+            ".aguafria/0_0.tigerbeetle"]
+  :working-directory "."}
+ :external-program
+ {:executable "../tigerbeetle-agua/build/editor-development/tigerbeetle"
+  :arguments ["start"
+              "--addresses=127.0.0.1:53011"
+              "--development"
+              ".aguafria/0_0.tigerbeetle"]
+  :working-directory "."
+  :environment {"LANG" "en_US.UTF-8"}
+  :open-file-limit 65536}
+ :external-publication-manifest ".aguafria/publications.manifest"
+ :target :tigerbeetle
+ :start-program? true
+ :async? true}

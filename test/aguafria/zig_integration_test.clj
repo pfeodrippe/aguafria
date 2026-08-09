@@ -3012,6 +3012,11 @@
           (eval
            '(az/defn dormant-answer :- :u32 []
               (ak/return ((az/field (types/OptionsType) answer))))))
+        ;; Establish a quiet async baseline before measuring propagation. A
+        ;; callable invocation waits for its own declaration, not unrelated
+        ;; declarations that may still share the module's registration queue.
+        (doseq [target [caller-symbol irrelevant-symbol downstream-symbol]]
+          (az/await! target))
         (is (= 4 ((ns-resolve caller-ns 'option-size))))
         (is (= 1 ((ns-resolve caller-ns 'option-answer))))
         (is (= 99 ((ns-resolve caller-ns 'unrelated-local))))
@@ -3046,6 +3051,9 @@
                 (->> (:builds (az/stats))
                      (filter #(and (= (str caller-symbol) (:module %))
                                    (> (:generation %) before-build-generation))))]
+            ;; The type factory is used by two direct callers. Both are exact
+            ;; one-declaration publications; the unrelated third declaration
+            ;; and the stable caller one hop farther out remain untouched.
             (is (= 2 (count dependent-builds)))
             (is (every? #(= 1 (:compiled-declaration-count %))
                         dependent-builds)))
