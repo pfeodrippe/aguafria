@@ -43,9 +43,12 @@
 (defonce ^:private module-compilation-locks (atom {}))
 (defonce ^:private external-file-fingerprints (atom {}))
 (defonce ^:private zig-version-cache (atom {}))
+(def ^:private declaration-reference-extraction-version 5)
 (defonce ^:private declaration-reference-index
-  (atom {:by-module {} :by-logical {} :references {} :revision 0}))
+  (atom {:by-module {} :by-logical {} :references {} :revision 0
+         :extraction-version declaration-reference-extraction-version}))
 (defonce ^:private development-linkage-closure-cache (atom {}))
+(defonce ^:private development-capsule-closure-cache (atom {}))
 (defonce ^:private development-linkage-snapshot-cache (atom {}))
 (def ^:private module-source-cache-entry-limit 64)
 (def ^:private module-source-cache-weight-limit (* 32 1024 1024))
@@ -534,8 +537,11 @@
       (reset! retirement-pending-modules #{})
       (reset! external-file-fingerprints {})
       (reset! declaration-reference-index
-              {:by-module {} :by-logical {} :references {} :revision 0})
+              {:by-module {} :by-logical {} :references {} :revision 0
+               :extraction-version
+               declaration-reference-extraction-version})
       (reset! development-linkage-closure-cache {})
+      (reset! development-capsule-closure-cache {})
       (reset! development-linkage-snapshot-cache {})
       (reset! module-source-cache empty-module-source-cache)
       (locking development-dependency-entry-cache
@@ -1269,6 +1275,26 @@
 
 (declare scalar-key declaration-reference-logical-ids)
 
+(defn- nested-form-values
+  "Return every value in a Clojure form without recursive lazy-seq chains.
+
+  Generated Zig can contain very deeply nested expressions. `tree-seq` builds
+  one lazy `mapcat` layer per nesting level, which turns otherwise linear
+  dependency discovery into seconds of sequence bookkeeping and can exhaust
+  the stack for machine-generated projects. This explicit work stack keeps the
+  traversal iterative; dependency consumers do not depend on visitation order."
+  [root]
+  (loop [pending (list root)
+         values (transient [])]
+    (if-let [pending (seq pending)]
+      (let [value (first pending)
+            pending (next pending)]
+        (recur (if (coll? value)
+                 (reduce conj pending value)
+                 pending)
+               (conj! values value)))
+      (persistent! values))))
+
 (defn- generic-function-argument?
   [{:keys [type properties]}]
   (or (:zig/variadic properties)
@@ -1282,7 +1308,7 @@
            (and (seq? value)
                 (symbol? (first value))
                 (= operator-name (name (first value)))))
-         (tree-seq coll? seq form))))
+         (nested-form-values form))))
 
 (defn- anonymous-type?
   [type]
@@ -1674,7 +1700,8 @@
     (project/materialize-module-assets! module source directory)
     (.getAbsolutePath source-file)))
 
-(declare module-sources)
+(declare module-sources declaration-live-slice declarations-live-slice
+         direct-declaration-dependencies)
 
 (defn- ensure-static-module-source!
   [module]
@@ -1837,6 +1864,51 @@
                    snapshot)))
         snapshot)))))
 
+(defn- extend-development-dependency-snapshot
+  "Add exact root-context dependencies that were absent from a live slice.
+
+  A partial compiler root can import a generated namespace container whose
+  own declaration slice needs another registered module. That dependency is
+  recorded in `development-root-dependencies`, but it is not necessarily
+  reachable from the edited declaration used to create the original snapshot.
+  Materialize the missing registered closure here; build-generated/configured
+  module names have no registry state and remain the compiler-option layer's
+  responsibility."
+  [snapshot root-modules excluded-modules]
+  (let [direct-dependencies
+        (fn [module-declarations]
+          (->> (emit/declaration-imports module-declarations)
+               vals
+               (keep :namespace)
+               (map str)
+               distinct
+               sort
+               vec))]
+    (loop [pending (seq (distinct (map str root-modules)))
+           seen (set (map str excluded-modules))
+           snapshot (or snapshot (sorted-map))]
+      (if-let [module (first pending)]
+        (if (contains? seen module)
+          (recur (next pending) seen snapshot)
+          (let [existing (get snapshot module)
+                module-state (get @registry module)
+                entry (or existing
+                          (development-dependency-entry
+                           module module-state direct-dependencies))
+                dependencies (:dependencies entry)
+                snapshot
+                (cond-> snapshot
+                  (and (nil? existing) (string? (:source entry)))
+                  (assoc module
+                         (select-keys entry
+                                      [:module :source :source-fingerprint
+                                       :dependencies :named-module-imports
+                                       :dispatch-entries :state-entries])))]
+            (recur (concat (next pending) dependencies)
+                   (conj seen module)
+                   snapshot)))
+        snapshot))))
+
 (defn- static-dependency-snapshot
   "Capture the complete ordinary Zig module graph for a standalone build.
   Unlike development dependencies, these sources contain no dispatch cells or
@@ -1915,6 +1987,27 @@
               :zig/build-profile-owner str)
       (some-> declarations first :module str)))
 
+(defn- declaration-qualifier-reference-names
+  "Return possible declaration names mentioned by emitted Zig qualifiers.
+
+  Converted declarations retain syntax such as
+  `callconv(lib.calling_conv)` as text because it is outside the expression
+  AST. Name resolution against the module index filters Zig keywords and
+  member names, leaving real aliases such as `lib`."
+  [declaration]
+  (->> [(:zig-prefix declaration) (:zig-qualifiers declaration)]
+       (mapcat #(re-seq #"[A-Za-z_][A-Za-z0-9_]*" (or % "")))
+       distinct))
+
+(defn- declaration-qualifier-member-pairs
+  [declaration]
+  (->> [(:zig-prefix declaration) (:zig-qualifiers declaration)]
+       (mapcat #(map (fn [[_ base member]] [base member])
+                     (re-seq
+                      #"([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)"
+                      (or % ""))))
+       distinct))
+
 (defn- declaration-reference-logical-ids
   [declaration]
   (let [reference-source
@@ -1925,9 +2018,13 @@
         ;; Only Zig-emitted signature/schema/implementation forms can create a
         ;; native dependency edge.
         (select-keys declaration [:args :return :body :value :type :fields])
+        reference-values (nested-form-values reference-source)
         same-module-by-name
         (get-in @declaration-reference-index
                 [:by-module (:module declaration) :by-name])
+        qualifier-reference-declarations
+        (keep #(get same-module-by-name %)
+              (declaration-qualifier-reference-names declaration))
         dependency-candidate?
         (fn dependency-candidate? [candidate seen]
           (let [logical-id (:logical-id candidate)]
@@ -1948,11 +2045,14 @@
                   (or (some-> (:symbol reference) name)
                       (some-> (:zig-name reference)
                               (str/split #"\.") last))
-                  candidate
+              candidate
                   (get-in @declaration-reference-index
                           [:by-module target-module :by-name target-name])]
-              (when (dependency-candidate? candidate #{})
-                (:logical-id candidate)))))
+              (when candidate
+                (if (= :namespace-member (:kind reference))
+                  (:logical-id candidate)
+                  (when (dependency-candidate? candidate #{})
+                    (:logical-id candidate)))))))
         indexed-candidate
         (fn [reference]
           (when-let [target-module (some-> (:module reference) str)]
@@ -2007,8 +2107,35 @@
                       (when (and module (symbol? member))
                         (get-in @declaration-reference-index
                                 [:by-module module :by-name (name member)]))]
-                  (when (dependency-candidate? candidate #{})
-                    (:logical-id candidate)))))]
+                  (when candidate
+                    (or
+                     ;; Namespace aliases such as `vsr.io` have no schema,
+                     ;; but an exact dependency capsule still has to expose
+                     ;; the alias before an outer `.IO` lookup can compile.
+                     (when (namespace-root-module
+                            (:value candidate) #{(:logical-id candidate)})
+                       (:logical-id candidate))
+                     ;; A cross-module field can denote a conditional type or
+                     ;; scalar comptime constant without carrying a schema
+                     ;; fingerprint (TigerBeetle's `vsr.io.IO` is one). It is
+                     ;; still emitted source and belongs in the capsule. State
+                     ;; Vars remain on their stable storage path.
+                     (when (not= :var (:kind candidate))
+                       (:logical-id candidate))
+                     (when (dependency-candidate? candidate #{})
+                       (:logical-id candidate)))))))
+
+            (qualifier-member-logical-id [[base member]]
+              (let [base-candidate (get same-module-by-name base)
+                    module (when base-candidate
+                             (namespace-root-module
+                              (:value base-candidate)
+                              #{(:logical-id base-candidate)}))
+                    candidate
+                    (when module
+                      (get-in @declaration-reference-index
+                              [:by-module module :by-name member]))]
+                (:logical-id candidate)))]
       ;; Dependency fingerprints deliberately remain outside ordinary
       ;; declaration adjacency: they include transitive type lineage for
       ;; emitted-source and ABI identity. Treating that lineage as direct graph
@@ -2041,11 +2168,15 @@
                 ;; remain excluded so target-disabled globals stay lazy.
                 (when (nil? (namespace value))
                   (let [candidate (get same-module-by-name (name value))]
-                    (when (dependency-candidate? candidate #{})
+                    (when (and candidate (not= :var (:kind candidate)))
                       (:logical-id candidate))))))))
-         (tree-seq coll? seq reference-source)))
+         reference-values))
        (into (keep field-member-logical-id)
-             (tree-seq coll? seq reference-source))))))
+             reference-values)
+       (into (keep :logical-id)
+             qualifier-reference-declarations)
+       (into (keep qualifier-member-logical-id)
+             (declaration-qualifier-member-pairs declaration))))))
 
 (defn- declaration-index-names
   [declaration]
@@ -2068,7 +2199,15 @@
   [declarations]
   (when (seq declarations)
     (locking declaration-reference-index
-      (let [before @declaration-reference-index
+      (let [stored @declaration-reference-index
+            before
+            (if (= declaration-reference-extraction-version
+                   (:extraction-version stored))
+              stored
+              {:by-module {} :by-logical {} :references {}
+               :revision (inc (long (or (:revision stored) 0)))
+               :extraction-version
+               declaration-reference-extraction-version})
             before-references (or (:references before) {})
             preliminary
             (reduce
@@ -2119,6 +2258,8 @@
             updated
             (assoc preliminary
                    :references references
+                   :extraction-version
+                   declaration-reference-extraction-version
                    :revision
                    (cond-> (long (or (:revision before) 0))
                      changed? inc))]
@@ -2213,6 +2354,119 @@
        sort
        vec))
 
+(defn- dependency-live-slice-declarations
+  "Return the declaration capsule actually reachable in one dependency.
+
+  The project snapshot remains available for module resolution, but an exact
+  hot edit should not make Zig analyze every declaration imported by a large
+  namespace such as TigerBeetle's CLI. The logical closure chooses cross-module
+  roots; `declaration-live-slice` then closes over their same-module scalar,
+  type, import, and helper prerequisites."
+  [module logical-ids]
+  (let [declarations
+        (vec (vals (get-in @registry [(str module) :definitions])))
+        roots (filterv #(contains? logical-ids (:logical-id %)) declarations)]
+    (when (seq roots)
+      (let [selected
+            (->> (declarations-live-slice declarations roots)
+                 (reduce (fn [selected declaration]
+                           (assoc selected (:declaration-key declaration)
+                                  declaration))
+                         {})
+                 vals
+                 vec)
+            module-container?
+            (and (some #(= :field (:kind %)) declarations)
+                 (some (fn [declaration]
+                         (let [value (:value declaration)]
+                           (and (seq? value)
+                                (symbol? (first value))
+                                (= "This" (name (first value))))))
+                       selected))
+            ;; A Zig file whose declarations use `@This()` is itself a
+            ;; container type. Calls such as `instance.allocator()` do not
+            ;; encode the receiver's declaration module in the converted form,
+            ;; so retain that small container's fields and methods together.
+            ;; Runtime slices never retain top-level Zig tests just because a
+            ;; production `@This()` container was selected. Tests are compiler
+            ;; roots only when the user explicitly evaluates/runs a test; in a
+            ;; server or GUI live slice they pull large testing-only graphs
+            ;; into every otherwise ordinary edit.
+            selected (if module-container?
+                       (filterv #(not= :test (:kind %)) declarations)
+                       selected)]
+        (->> selected
+             (sort-by (juxt :source-order (comp str :name)))
+             vec)))))
+
+(defn- development-capsule-logical-ids
+  "Close a live compiler capsule over references introduced by retained code.
+
+  The ordinary linkage closure starts at the edited callable and follows its
+  explicit declaration graph. A selected `@This()` module container is kept as
+  a unit because receiver-style calls do not identify individual methods in
+  the converted form. Those additional methods can themselves reference other
+  modules, so repeat selection and reference extraction until no retained
+  declaration introduces another logical id."
+  [dependency-snapshot root-logical-ids]
+  (let [index-state @declaration-reference-index
+        container-signature
+        (->> (keys dependency-snapshot)
+             (keep
+              (fn [module]
+                (let [declarations
+                      (vals (get-in @registry [(str module) :definitions]))
+                      this-declarations
+                      (->> declarations
+                           (keep (fn [declaration]
+                                   (let [value (:value declaration)]
+                                     (when (and (seq? value)
+                                                (symbol? (first value))
+                                                (= "This" (name (first value))))
+                                       (:logical-id declaration)))))
+                           sort
+                           vec)]
+                  (when (seq this-declarations)
+                    [module
+                     (boolean (some #(= :field (:kind %)) declarations))
+                     this-declarations]))))
+             vec)
+        ;; Ordinary body edits keep this key stable: expansion depends on the
+        ;; reference graph and container shape, not the complete rendered bytes
+        ;; of every dependency module. The later source-snapshot cache still
+        ;; fingerprints those bytes and therefore invalidates native artifacts
+        ;; correctly.
+        cache-key [:capsule-v3 (:revision index-state)
+                   (vec (keys dependency-snapshot)) container-signature
+                   root-logical-ids]]
+    (if-some [cached (get @development-capsule-closure-cache cache-key)]
+      cached
+      (let [by-logical-id (registered-declarations-by-logical-id)
+            result
+            (loop [logical-ids root-logical-ids]
+              (let [selected-modules
+                    (->> logical-ids
+                         (keep by-logical-id)
+                         (map (comp str :module))
+                         (filter #(contains? dependency-snapshot %))
+                         distinct)
+                    selected-declarations
+                    (mapcat #(dependency-live-slice-declarations
+                              % logical-ids)
+                            selected-modules)
+                    expanded
+                    (into logical-ids
+                          (mapcat declaration-reference-logical-ids)
+                          selected-declarations)]
+                (if (= logical-ids expanded)
+                  logical-ids
+                  (recur expanded))))]
+        (swap! development-capsule-closure-cache
+               (fn [cached]
+                 (let [cached (if (> (count cached) 1024) {} cached)]
+                   (assoc cached cache-key result))))
+        result))))
+
 (defn- compute-linkable-development-dependency-snapshot
   "Materialize public linkage helpers only for exact referenced Vars.
 
@@ -2223,25 +2477,38 @@
   [dependency-snapshot logical-ids]
   (reduce-kv
    (fn [snapshot module {:keys [dispatch-entries state-entries] :as entry}]
-     (let [linkable-dispatch-entries
+     (let [slice-declarations
+           (dependency-live-slice-declarations module logical-ids)
+           slice-keys
+           (when slice-declarations
+             (into #{} (map :declaration-key) slice-declarations))
+           selected?
+           (fn [{:keys [declaration]}]
+             (or (nil? slice-keys)
+                 (contains? slice-keys (:declaration-key declaration))))
+           linkable-dispatch-entries
            (vec (filter #(linkage-entry? logical-ids %) dispatch-entries))
+           linkable-dispatch-entries
+           (vec (filter selected? linkable-dispatch-entries))
            linkable-state-entries
            (vec (filter #(and (linkage-entry? logical-ids %)
-                              (live-state-entry? %))
+                              (live-state-entry? %)
+                              (selected? %))
                         state-entries))
            linkable-entries
            (concat linkable-dispatch-entries linkable-state-entries)
            linkable-keys
            (into #{} (map (comp :declaration-key :declaration))
                  linkable-entries)]
-       (if (empty? linkable-keys)
+       (if (and (nil? slice-declarations) (empty? linkable-keys))
          ;; Capture an immutable empty linkage decision for this compilation.
          ;; A concurrent publication must not make the loader retain helpers
          ;; that this source snapshot did not expose.
          (assoc snapshot module
                 (assoc entry :dispatch-entries [] :state-entries []))
          (let [declarations
-               (vec (vals (get-in @registry [(str module) :definitions])))
+               (or slice-declarations
+                   (vec (vals (get-in @registry [(str module) :definitions]))))
                dispatch-specs
                (into {}
                      (map (fn [{:keys [declaration spec]}]
@@ -2249,19 +2516,31 @@
                      linkable-dispatch-entries)
                state-specs
                (into {}
-                     (map (fn [{:keys [declaration spec]}]
+                     (comp (filter selected?)
+                           (map (fn [{:keys [declaration spec]}]
                             ;; State references throughout this source still
                             ;; use their stable accessor. The emitter exposes
                             ;; native layout/linkage helpers only for exact
                             ;; live state keys, so inactive Vars remain lazy.
-                            [(:declaration-key declaration) spec]))
-                     state-entries)]
+                            [(:declaration-key declaration) spec])))
+                     state-entries)
+               source
+               (emit-dependency-reload-source!
+                module declarations dispatch-specs state-specs linkable-keys)
+               imported-modules
+               (into #{} (map second)
+                     (re-seq #"@import\(\"([^\"]+)\"\)" source))
+               dependencies
+               (->> (direct-declaration-dependencies declarations)
+                    (filter imported-modules)
+                    vec)]
            (assoc snapshot module
                   (assoc entry
-                         :source
-                         (emit-dependency-reload-source!
-                          module declarations dispatch-specs state-specs
-                          linkable-keys)
+                         :source source
+                         :source-fingerprint nil
+                         :dependencies dependencies
+                         :named-module-imports
+                         (declaration-named-module-imports declarations)
                          :dispatch-entries linkable-dispatch-entries
                          :state-entries linkable-state-entries))))))
    (or (empty dependency-snapshot) (sorted-map))
@@ -2270,7 +2549,8 @@
 (defn- linkable-development-dependency-snapshot
   [dependency-snapshot logical-ids]
   (let [cache-key
-        [(mapv (fn [[module entry]]
+        [:dependency-live-slices-v10
+         (mapv (fn [[module entry]]
                  (let [linkable-dispatch
                        (->> (:dispatch-entries entry)
                             (filter #(linkage-entry? logical-ids %))
@@ -2299,6 +2579,27 @@
                  (let [cached (if (> (count cached) 1024) {} cached)]
                    (assoc cached cache-key result))))
         result))))
+
+(defn- reachable-development-dependency-snapshot
+  "Discard supplied modules that the exact compiler root cannot import.
+
+  Zig 0.16 validates a named module's declared dependencies even when that
+  module is otherwise unreachable; retaining a complete project snapshot can
+  therefore both waste compiler work and report a dependency as unused after
+  its parent module was sliced away."
+  [dependency-snapshot root-modules]
+  (loop [pending (seq (distinct (map str root-modules)))
+         seen #{}
+         reachable (sorted-map)]
+    (if-let [module (first pending)]
+      (if (contains? seen module)
+        (recur (next pending) seen reachable)
+        (if-let [entry (get dependency-snapshot module)]
+          (recur (concat (next pending) (:dependencies entry))
+                 (conj seen module)
+                 (assoc reachable module entry))
+          (recur (next pending) (conj seen module) reachable)))
+      reachable)))
 
 (defn- compiler-options-for-declarations
   [compiler-options declarations]
@@ -2733,30 +3034,71 @@
                     development-root-source nil))
   ([module-name source declarations dependency-snapshot development-root-source
     development-root-dependencies]
+   (compile-source! module-name source declarations dependency-snapshot
+                    development-root-source development-root-dependencies nil))
+  ([module-name source declarations dependency-snapshot development-root-source
+   development-root-dependencies development-root-declarations]
    (let [development-dependencies? true
+         profile-module (development-profile-module declarations)
+         profile-root-declarations
+         (or (when (= (str module-name) profile-module)
+               ;; An exact root-context slice can be larger than the callable
+               ;; declaration slice but smaller than the complete application.
+               ;; Re-export exactly what its generated module contains; naming
+               ;; the profile's `main` here is enough to instantiate an entire
+               ;; server or GUI graph even though the edited Var never uses it.
+               development-root-declarations)
+             (vals (get-in @registry [profile-module :definitions])))
+         profile-export-logical-ids
+         (when (and profile-module
+                    (not= (str module-name) profile-module))
+           (into #{}
+                 (comp
+                  (filter :public?)
+                  (filter #(contains? #{:const :struct :fn :fn-proto}
+                                      (:kind %)))
+                  (keep :logical-id))
+                 profile-root-declarations))
          external-publication?
          (boolean
           (some #(get-in @registry [(str (:module %))
                                     :external-publication?])
                 declarations))
+         dependency-snapshot
+         (extend-development-dependency-snapshot
+          dependency-snapshot
+          development-root-dependencies
+          [(str module-name)])
          development-linkage-logical-ids
          (development-linkage-logical-ids declarations)
+         development-capsule-logical-ids
+         (development-capsule-logical-ids
+          dependency-snapshot
+          (into development-linkage-logical-ids
+                profile-export-logical-ids))
          dependency-snapshot
          (linkable-development-dependency-snapshot
-          dependency-snapshot development-linkage-logical-ids)
-         profile-module (development-profile-module declarations)
+          dependency-snapshot development-capsule-logical-ids)
+         linkage-dependency-modules
+         (development-linkage-modules dependency-snapshot
+                                      development-linkage-logical-ids)
+         dependency-snapshot
+         (reachable-development-dependency-snapshot
+          dependency-snapshot
+          (concat development-root-dependencies
+                  linkage-dependency-modules))
          {:keys [cache-dir optimize zig development-linkage-logical-ids]
           :as compiler-options}
          (compiler-options-for-declarations
           (cond-> (assoc (cond-> @config
                            ;; Zig 0.16's `-fstrip` is not safe for a dylib
                            ;; whose private Zig implementations escape through
-                           ;; exported address getters. A large TigerBeetle
-                           ;; comptime replacement reproducibly retained the
-                           ;; getter but called a stripped internal target at
-                           ;; address zero. External development generations
-                           ;; therefore keep Zig's full native image; ordinary
-                           ;; JVM-only hot reload still honors `:none`.
+                           ;; exported address getters. Even with an explicit
+                           ;; opaque-pointer relocation, a real TigerBeetle
+                           ;; parser/main publication crashed at address zero.
+                           ;; External development generations therefore keep
+                           ;; Zig's full native image; ordinary JVM-only hot
+                           ;; reload still honors `:none`.
                            external-publication?
                            (assoc :development-debug-info :full))
                          :development-dependencies? development-dependencies?
@@ -2766,15 +3108,6 @@
             dependency-snapshot (assoc :dependency-snapshot dependency-snapshot))
           declarations)
         compiler-version (zig-version)
-        profile-root-declarations
-        (if (and (= (str module-name) profile-module)
-                 (= source development-root-source))
-          ;; A breaking declaration may compile as an intentionally small
-          ;; live slice of the profile root. Re-exporting every declaration
-          ;; registered in the full module would reference names that are not
-          ;; present in that slice (for example VOPR's `std_options`).
-          declarations
-          (vals (get-in @registry [profile-module :definitions])))
         project-panic?
         (boolean
          (some (fn [declaration]
@@ -5762,7 +6095,15 @@
     (let [module-definitions
           (into {} (map (fn [[module state]] [module (:definitions state)]))
                 @registry)
-          index-state @declaration-reference-index
+          stored-index-state @declaration-reference-index
+          index-state
+          (if (= declaration-reference-extraction-version
+                 (:extraction-version stored-index-state))
+            stored-index-state
+            {:by-module {} :by-logical {} :references {}
+             :revision (inc (long (or (:revision stored-index-state) 0)))
+             :extraction-version
+             declaration-reference-extraction-version})
           {:keys [by-module by-logical references]} index-state
           references-present? (contains? index-state :references)
           references (or references {})
@@ -5814,7 +6155,9 @@
           preliminary {:by-module by-module
                        :by-logical by-logical
                        :references references
-                       :revision (long (or (:revision index-state) 0))}
+                       :revision (long (or (:revision index-state) 0))
+                       :extraction-version
+                       declaration-reference-extraction-version}
           ;; Direct reference extraction needs the just-updated same-module
           ;; name index (not the prior namespace snapshot), so publish that
           ;; immutable index before filling only the changed adjacency rows.
@@ -5846,6 +6189,8 @@
           updated
           (assoc preliminary
                  :references references
+                 :extraction-version
+                 declaration-reference-extraction-version
                  :revision
                  (cond-> (long (or (:revision index-state) 0))
                    reference-graph-changed? inc))]
@@ -5879,9 +6224,13 @@
                    declaration
                    (let [source-reference-changed? (volatile! false)
                          self-logical-id (:logical-id declaration)
+                         reference-source-keys
+                       [:args :return :body :value :type :fields]
                          refreshed
-                       (walk/postwalk
-                        (fn [value]
+                       (merge
+                        declaration
+                        (walk/postwalk
+                         (fn [value]
                           (if (symbol? value)
                             (let [reference
                                   (:aguafria/zig-reference (meta value))
@@ -5999,9 +6348,12 @@
 
                                 :else value))
                             value))
-                        declaration)
+                         (select-keys declaration reference-source-keys)))
+                         refreshed-reference-values
+                       (nested-form-values
+                        (select-keys refreshed reference-source-keys))
                          type-dependency-fingerprints
-                       (->> (tree-seq coll? seq refreshed)
+                       (->> refreshed-reference-values
                             (keep (fn [value]
                                     (when (symbol? value)
                                       (let [reference
@@ -6035,7 +6387,7 @@
                             (sort-by pr-str)
                             vec)
                          comptime-type-operands
-                       (->> (tree-seq coll? seq refreshed)
+                       (->> refreshed-reference-values
                             (keep (fn [form]
                                     (when (and (seq? form)
                                                (symbol? (first form))
@@ -6058,7 +6410,7 @@
                        (->> (concat [(:return refreshed)]
                                     (map :type (:args refreshed))
                                     comptime-type-operands)
-                            (tree-seq coll? seq)
+                            nested-form-values
                             (keep (fn [value]
                                     (when (symbol? value)
                                       (let [reference
@@ -6097,7 +6449,7 @@
                             (sort-by pr-str)
                             vec)
                          callable-dependency-fingerprints
-                       (->> (tree-seq coll? seq refreshed)
+                       (->> refreshed-reference-values
                             (keep (fn [value]
                                     (when (symbol? value)
                                       (let [reference
@@ -6199,8 +6551,12 @@
         (refresh-pass refreshed nil)
         refreshed)))))
 
-(defn- declaration-live-slice
-  [declarations root-declaration]
+(defn- declarations-live-slice
+  "Close one or more roots over their same-module declaration references.
+
+  Building the lookup maps once for a root set matters during cold generated
+  namespace loads: a retained container can contribute hundreds of roots."
+  [declarations root-declarations]
   (let [by-logical (into {} (map (juxt :logical-id identity)) declarations)
         by-name
         (into {}
@@ -6212,29 +6568,44 @@
                       (remove nil?)
                       (map #(vector (str %) declaration)))))
               declarations)]
-    (loop [pending [root-declaration]
+    (loop [pending (seq root-declarations)
            selected {}]
       (if-let [declaration (first pending)]
         (if (contains? selected (:declaration-key declaration))
           (recur (next pending) selected)
-          (let [references
-                (->> (tree-seq coll? seq declaration)
-                     (keep (fn [value]
-                             (when (symbol? value)
-                               (let [logical-id
-                                     (some-> value meta
-                                             :aguafria/zig-reference
-                                             :logical-id)]
-                                 (or (get by-logical logical-id)
-                                     ;; Converted Zig permits same-file
-                                     ;; forward references whose stored
-                                     ;; unqualified symbols predate the
-                                     ;; target Clojure Var. A declaration-name
-                                     ;; lookup closes that real dependency
-                                     ;; without inventing a builtin or raw
-                                     ;; source fragment.
-                                     (when (nil? (namespace value))
-                                       (get by-name (name value))))))))
+          (let [;; Only emitted forms can introduce a Zig dependency. Walking
+                ;; the whole descriptor also descends through bookkeeping such
+                ;; as dependency fingerprints and the original Clojure form.
+                ;; Large converted declarations make that work both expensive
+                ;; and misleading; it is especially costly when a namespace is
+                ;; registered one declaration at a time during a cold REPL
+                ;; load. Keep this source set aligned with
+                ;; `declaration-reference-logical-ids`.
+                reference-source
+                (select-keys declaration
+                             [:args :return :body :value :type :fields])
+                references
+                (->> (concat
+                      (keep (fn [value]
+                              (when (symbol? value)
+                                (let [logical-id
+                                      (some-> value meta
+                                              :aguafria/zig-reference
+                                              :logical-id)]
+                                  (or (get by-logical logical-id)
+                                      ;; Converted Zig permits same-file
+                                      ;; forward references whose stored
+                                      ;; unqualified symbols predate the
+                                      ;; target Clojure Var. A declaration-name
+                                      ;; lookup closes that real dependency
+                                      ;; without inventing a builtin or raw
+                                      ;; source fragment.
+                                      (when (nil? (namespace value))
+                                        (get by-name (name value)))))))
+                            (nested-form-values reference-source))
+                      (keep by-name
+                            (declaration-qualifier-reference-names
+                             declaration)))
                      distinct)]
             (recur (concat (next pending) references)
                    (assoc selected (:declaration-key declaration)
@@ -6242,6 +6613,10 @@
         (->> (vals selected)
              (sort-by (juxt :source-order (comp str :name)))
              vec)))))
+
+(defn- declaration-live-slice
+  [declarations root-declaration]
+  (declarations-live-slice declarations [root-declaration]))
 
 (defn- direct-declaration-dependencies
   [declarations]
@@ -6252,6 +6627,85 @@
        distinct
        sort
        vec))
+
+(defn- unquote-zig-identifier
+  [identifier]
+  (let [identifier (str identifier)]
+    (if (and (str/starts-with? identifier "@\"")
+             (str/ends-with? identifier "\""))
+      (subs identifier 2 (dec (count identifier)))
+      identifier)))
+
+(defn- root-context-member-names
+  "Return root declarations that dependency sources can observe.
+
+  `@import(\"root\")` does not require the entire application namespace. Zig
+  libraries commonly probe one optional build option through `@hasDecl`; a
+  complete profile root can instantiate an otherwise unrelated server, GUI,
+  or test graph. Extracting the named surface lets an exact hot slice retain
+  root semantics without compiling the application's `main`."
+  [module dependency-snapshot]
+  (into #{}
+        (mapcat
+         (fn [[_ {:keys [source]}]]
+           (let [source (or source "")
+                 module-pattern
+                 (java.util.regex.Pattern/quote (str module))
+                 cyclic-alias-pattern
+                 (re-pattern
+                  (str "(?m)\\b(?:const|var)\\s+"
+                       "([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*"
+                       "@import\\(\\\"" module-pattern "\\\"\\)"
+                       "(?:\\s*\\.\\s*@\\\"[^\\\"]+\\\")?"))
+                 aliases
+                 (into #{"@import(\"root\")"}
+                       (comp (map second) (remove nil?))
+                       (concat
+                        (re-seq
+                         #"(?m)\b(?:const|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*@import\(\"root\"\)"
+                         source)
+                        ;; A converted cyclic import is represented by a
+                        ;; generated module alias rather than `@import("root")`.
+                        ;; That alias exposes the same root type container and
+                        ;; therefore contributes the exact root members needed
+                        ;; by the dependency's comptime analysis.
+                        (re-seq cyclic-alias-pattern source)))]
+             (mapcat
+              (fn [root-expression]
+                (let [root-pattern
+                      (java.util.regex.Pattern/quote root-expression)
+                      member-pattern
+                      (re-pattern
+                       (str root-pattern
+                            "\\s*\\.\\s*([A-Za-z_][A-Za-z0-9_]*|@\\\"[^\\\"]+\\\")"))
+                      reflection-pattern
+                      (re-pattern
+                       (str "@(?:hasDecl|field)\\(\\s*" root-pattern
+                            "\\s*,\\s*\\\"([^\\\"]+)\\\""))]
+                  (concat (map (comp unquote-zig-identifier second)
+                               (re-seq member-pattern source))
+                          (map second (re-seq reflection-pattern source)))))
+              aliases))))
+        dependency-snapshot))
+
+(defn- root-context-declarations
+  [module declarations fallback-declarations dependency-snapshot]
+  (let [by-name
+        (into {}
+              (mapcat (fn [declaration]
+                        (map #(vector % declaration)
+                             (declaration-index-names declaration))))
+              declarations)
+        roots
+        (keep by-name (root-context-member-names module dependency-snapshot))]
+    (->> (concat fallback-declarations
+                 (declarations-live-slice declarations roots))
+         (reduce (fn [selected declaration]
+                   (assoc selected (:declaration-key declaration) declaration))
+                 {})
+         vals
+         (sort-by (juxt :source-order (comp str :name)))
+         vec)))
 
 (defn- compilation-plan
   [module module-state declarations old-declaration declaration]
@@ -6318,7 +6772,8 @@
         materialization?
         (= *materialize-declaration-key* (:declaration-key declaration))
         fallback-required?
-        (or materialization?
+        (or *exact-declaration-publication?*
+            materialization?
             incremental-publication?
             concrete-caller-recompile?
             (breaking-callable-change? old-declaration declaration)
@@ -6336,8 +6791,8 @@
                 (filter #(= :import (:kind %)) declarations)
                 (if (and (not *exact-declaration-publication?*)
                          (seq pending-declarations))
-                  (mapcat
-                   #(declaration-live-slice declarations %)
+                  (declarations-live-slice
+                   declarations
                    (distinct
                     (concat
                      ;; Async registration coalesces successive forms into the
@@ -6374,10 +6829,35 @@
          (some (fn [{:keys [named-module-imports]}]
                  (some #{"root"} named-module-imports))
                (vals fallback-dependencies)))
+        exact-cyclic-dispatch-slice?
+        (and *exact-declaration-publication?*
+             (dispatchable-declaration? refreshed-declaration))
+        fallback-development-root-declarations
+        (when fallback-declarations
+          (if (and fallback-cyclic-root?
+                   (not exact-cyclic-dispatch-slice?))
+            declarations
+            (root-context-declarations module declarations fallback-declarations
+                                       fallback-dependencies)))
+        fallback-development-root-sources
+        (when (and fallback-development-root-declarations
+                   (or (not fallback-cyclic-root?)
+                       exact-cyclic-dispatch-slice?))
+          (module-sources module fallback-development-root-declarations
+                          getter-declaration-keys))
+        fallback-dependencies
+        (when fallback-development-root-declarations
+          (if (and fallback-cyclic-root?
+                   (not exact-cyclic-dispatch-slice?))
+            primary-dependencies
+            (development-dependency-snapshot
+             fallback-development-root-declarations)))
         fallback-complete-development-root?
-        (or fallback-cyclic-root? fallback-root-context-required?)
+        (and fallback-cyclic-root?
+             (not exact-cyclic-dispatch-slice?))
         prefer-fallback?
-        (or materialization?
+        (or *exact-declaration-publication?*
+            materialization?
             (and incremental-publication?
                  (or (not (:partial-publication? module-state))
                      (nil? (:full-compile-error module-state))))
@@ -6419,6 +6899,7 @@
                  :partial-publication? true))]
     {:primary (assoc primary
                      :development-root-source (:compile-source primary)
+                     :development-root-declarations declarations
                      :development-root-dependencies
                      (direct-declaration-dependencies declarations))
      :fallback (when fallback
@@ -6438,12 +6919,13 @@
                         :development-root-source
                         (if fallback-complete-development-root?
                           (:compile-source primary)
-                          (:compile-source fallback))
+                          (:compile-source
+                           fallback-development-root-sources))
+                        :development-root-declarations
+                        fallback-development-root-declarations
                         :development-root-dependencies
                         (direct-declaration-dependencies
-                         (if fallback-complete-development-root?
-                           declarations
-                           (:declarations fallback)))
+                         fallback-development-root-declarations)
                         :complete-development-root?
                         fallback-complete-development-root?
                         ;; The complete root source can retain imports that
@@ -6482,8 +6964,11 @@
      :declaration declaration
      ;; A breaking type is a new logical generation. Compiling the complete
      ;; namespace here would silently redirect untouched dependents to it.
-     ;; Publish only the edited Var and its declaration dependencies; each
-     ;; caller/state owner adopts the new schema when explicitly reevaluated.
+     ;; Exact propagation has already selected one affected Var and likewise
+     ;; must not fall back to the primary namespace merely because the Var's
+     ;; stored dependency fingerprints cannot express a source-only alias
+     ;; edge. Publish only the selected Var and its declaration dependencies;
+     ;; each caller/state owner adopts the new identity when selected.
      :prefer-fallback? prefer-fallback?}))
 
 (defn- complete-compilation-plan
@@ -6507,6 +6992,7 @@
                  :partial-publication? false)]
       {:primary (assoc primary
                        :development-root-source (:compile-source primary)
+                       :development-root-declarations declarations
                        :development-root-dependencies
                        (direct-declaration-dependencies declarations))})))
 
@@ -6595,7 +7081,8 @@
                                    (:declarations fallback)
                                    (:dependency-snapshot fallback)
                                    (:development-root-source fallback)
-                                   (:development-root-dependencies fallback))
+                                   (:development-root-dependencies fallback)
+                                   (:development-root-declarations fallback))
                   :partial-publication? true))
     (try
       (assoc primary :compiled
@@ -6603,7 +7090,8 @@
                               (:declarations primary)
                               (:dependency-snapshot primary)
                               (:development-root-source primary)
-                              (:development-root-dependencies primary)))
+                              (:development-root-dependencies primary)
+                              (:development-root-declarations primary)))
       (catch Throwable full-error
         (if-not fallback
           (throw full-error)
@@ -6613,6 +7101,8 @@
                                             (:dependency-snapshot fallback)
                                             (:development-root-source fallback)
                                             (:development-root-dependencies
+                                             fallback)
+                                            (:development-root-declarations
                                              fallback))]
               (assoc fallback :compiled
                      (assoc compiled
@@ -6693,7 +7183,7 @@
                     old-declaration declaration)))))
             declarations))))
 
-(defn- compile-and-publish-async-generation!
+(defn- compile-native-and-publish-async-generation!
   [{:keys [module declaration-key generation declarations source source-dirty?
            plan completion propagation-impacts]}]
   (mark-build-started! module generation)
@@ -6786,6 +7276,7 @@
                                  :values values
                                  :types types
                                  :partial-publication? partial-publication?
+                                 :last-publication-transit-only? false
                                  :full-compile-error
                                  (:full-compile-error compiled)
                                  :pending-declaration-keys #{}
@@ -6881,6 +7372,127 @@
       (mark-build-failed! module generation error)
       (deliver completion {:status :error :error error}))))
 
+(defn- adopt-and-propagate-async-generation!
+  "Adopt a compatible non-addressable generic function without a useless dylib.
+
+  Such a declaration has no runtime address to install. Its observable effect
+  is the concrete monomorphized caller compiled by dependent propagation; a
+  root artifact would only duplicate compiler work before that real boundary."
+  [{:keys [module declaration-key generation completion propagation-impacts
+           planning-duration-ms] :as job}]
+  (mark-build-started! module generation)
+  (try
+    (let [adoption-started-ns (System/nanoTime)
+          adopted?
+          (locking compile-lock
+            (let [current (get @registry module)]
+              (when (= generation (:requested-generation current))
+                (swap! registry update module
+                       (fn [current]
+                         (let [adopted
+                               (get-in current
+                                       [:definitions declaration-key])]
+                           (cond->
+                            (assoc current
+                                   ;; The preceding native generation remains
+                                   ;; the module's callable/value backing. Only
+                                   ;; source identity advances until a concrete
+                                   ;; consumer is republished.
+                                   :source-only? false
+                                   :source-dirty? true
+                                   :last-publication-transit-only? true
+                                   :last-error nil
+                                   :failed-generation nil
+                                   :last-dependent-publication-error nil
+                                   :last-dependent-publication-failure nil)
+                             (type-producing-declaration? adopted)
+                             (merge
+                              (reconcile-type-versions
+                               current {:loaded-declarations [adopted]}
+                               generation))))))
+                true)))
+          adopted-declaration
+          (get-in @registry [module :definitions declaration-key])
+          _ (when (and adopted? adopted-declaration)
+              (index-declarations-incrementally! [adopted-declaration])
+              (publish-clojure-declaration-metadata! [adopted-declaration]))
+          adoption-duration-ms (elapsed-nanos-ms adoption-started-ns)
+          propagation-started-ns (System/nanoTime)
+          propagation
+          (when (and adopted? (seq propagation-impacts))
+            (try
+              {:affected (recompile-dependent-components!
+                          module completion propagation-impacts)}
+              (catch Throwable error {:error error})))
+          propagation-error (:error propagation)
+          affected (:affected propagation)
+          propagation-duration-ms
+          (elapsed-nanos-ms propagation-started-ns)]
+      (when adopted?
+        (swap! registry update module assoc
+               :last-dependent-publication affected))
+      (mark-build-finished!
+       module generation (if adopted? :finished :stale)
+       {:cached? true
+        :compiled-declaration-count 0
+        :planning-duration-ms planning-duration-ms
+        :compiler-duration-ms 0.0
+        :dynamic-load-duration-ms 0.0
+        :publication-duration-ms adoption-duration-ms
+        :propagation-duration-ms propagation-duration-ms})
+      (if propagation-error
+        (do
+          (swap! registry update module assoc
+                 :last-dependent-publication-failure
+                 {:phase (:aguafria/phase (ex-data propagation-error))
+                  :generation generation
+                  :logical-id (:logical-id (ex-data propagation-error))
+                  :failed-at-ms (System/currentTimeMillis)
+                  :error (ex-message propagation-error)}
+                 :last-dependent-publication-error propagation-error)
+          (swap! registry update module
+                 (fn [current]
+                   (if (and (= generation (:requested-generation current))
+                            (identical? completion (:pending current)))
+                     (assoc current :pending nil :scheduled nil)
+                     current)))
+          (deliver completion {:status :error
+                               :error propagation-error
+                               :published? false
+                               :transit-only? true}))
+        (do
+          (swap! registry update module
+                 (fn [current]
+                   (if (and (= generation (:requested-generation current))
+                            (identical? completion (:pending current)))
+                     (assoc current :pending nil :scheduled nil)
+                     current)))
+          (deliver completion
+                   {:status :success
+                    :result
+                    (cond-> {:module module
+                             :declaration-key declaration-key
+                             :generation generation
+                             :published? false
+                             :transit-only? true}
+                      affected (assoc :affected affected))}))))
+    (catch Throwable error
+      (locking compile-lock
+        (swap! registry update module
+               (fn [current]
+                 (if (= generation (:requested-generation current))
+                   (assoc current :pending nil :scheduled nil
+                          :last-error error :failed-generation generation)
+                   current))))
+      (mark-build-failed! module generation error)
+      (deliver completion {:status :error :error error}))))
+
+(defn- compile-and-publish-async-generation!
+  [job]
+  (if (:transit-only? job)
+    (adopt-and-propagate-async-generation! job)
+    (compile-native-and-publish-async-generation! job)))
+
 (defn- compile-and-publish-async!
   [{:keys [module generation completion] :as job}]
   ;; Successive REPL forms for one namespace must not run competing Zig
@@ -6951,6 +7563,14 @@
                                      plan-old-declaration plan-declaration))
                            #{(dependent-propagation-impact
                               plan-old-declaration plan-declaration)}))
+                     :transit-only?
+                     (and
+                      (compatible-dependent-propagation?
+                       plan-old-declaration plan-declaration)
+                      (not (type-producing-declaration? plan-declaration))
+                      (contains? #{:fn :fn-proto}
+                                 (:kind plan-declaration))
+                      (not (dispatchable-declaration? plan-declaration)))
                      :completion completion}]
             (swap! registry assoc module
                    (merge old-module
@@ -7091,6 +7711,14 @@
                                      plan-old-declaration plan-declaration))
                            #{(dependent-propagation-impact
                               plan-old-declaration plan-declaration)}))
+                     :transit-only?
+                     (and
+                      (compatible-dependent-propagation?
+                       plan-old-declaration plan-declaration)
+                      (not (type-producing-declaration? plan-declaration))
+                      (contains? #{:fn :fn-proto}
+                                 (:kind plan-declaration))
+                      (not (dispatchable-declaration? plan-declaration)))
                      :ready? ready?
                      :completion completion}]
             (swap! registry assoc module
@@ -7295,6 +7923,7 @@
                       :types types
                       :loaded-declarations loaded-declarations
                       :partial-publication? partial-publication?
+                      :last-publication-transit-only? false
                       :full-compile-error (:full-compile-error compiled)
                       :pending-declaration-keys #{}
                       :pending nil
@@ -7733,19 +8362,75 @@
        (sort-by (juxt :module :source-order (comp str :name)))
        vec))
 
+(defn- exact-impact-component-declarations
+  "Return the one declaration that can safely cross an SCC boundary alone.
+
+  Acyclic one-module components retain the established exact-slice behavior.
+  A cyclic or multi-module component is eligible only when its complete direct
+  impact is one concrete dispatchable function: its stable cell is the atomic
+  boundary, so source-level peers do not need duplicate native generations."
+  [component impacts]
+  (when (seq impacts)
+    (let [members (:modules component)
+          impacted (impacted-component-declarations members impacts)
+          impacted-ids (into #{} (keep :logical-id) impacted)
+          declarations
+          (->> impacted
+               (group-by :module)
+               (mapcat
+                (fn [[module _]]
+                  (->> (vals (get-in @registry [module :definitions]))
+                       vec
+                       refresh-live-declaration-references
+                       (filter #(contains? impacted-ids (:logical-id %))))))
+               (sort-by (juxt :module :source-order (comp str :name)))
+               vec)
+          candidate (when (= 1 (count declarations)) (first declarations))
+          candidate-impact
+          (when candidate
+            (cond
+              (type-producing-declaration? candidate)
+              {:kind :type :logical-id (:logical-id candidate)}
+
+              (and (contains? #{:fn :fn-proto} (:kind candidate))
+                   (not (dispatchable-declaration? candidate)))
+              {:kind :callable :logical-id (:logical-id candidate)}))
+          same-module-consumer?
+          (when candidate-impact
+            (some
+             (fn [other]
+               (and (not= (:declaration-key candidate)
+                          (:declaration-key other))
+                    (declaration-references-impact? other
+                                                    #{candidate-impact})))
+             (vals (get-in @registry [(:module candidate) :definitions]))))]
+      ;; A concrete dispatchable function is a complete native publication
+      ;; boundary: existing same-module and downstream callers already enter
+      ;; through its stable cell. A type alias, state declaration, or generic
+      ;; callable is not. Publishing only such an intermediate declaration can
+      ;; leave concrete methods embedded in same-module callers (for example a
+      ;; field method of a comptime-produced type) on their old implementation.
+      ;; Those cases deliberately fall back to the component capsule below.
+      ;; A lone acyclic type/generic declaration with no same-module consumer
+      ;; remains an exact boundary and can pass its impact to downstream
+      ;; components without compiling unrelated modules.
+      (when (and candidate
+                 (or (dispatchable-declaration? candidate)
+                     (and (not (:cyclic? component))
+                          (= 1 (count members))
+                          candidate-impact
+                          (not same-module-consumer?))))
+        declarations))))
+
 (defn- exact-impact-component-job
   "Plan one independently compilable affected declaration.
 
   The caller owns `compile-lock`. Dependency loading and planning happen
   before any compiler future starts, so every sibling observes one coherent
-  registry generation. Components with more than one affected declaration or
-  more than one module deliberately use the established atomic fallback."
+  registry generation. Components with more than one affected declaration, or
+  with no concrete dispatch boundary, deliberately use the atomic fallback."
   [component impacts]
-  (let [members (:modules component)
-        declarations (when (and (seq impacts)
-                                (not (:cyclic? component))
-                                (= 1 (count members)))
-                       (impacted-component-declarations members impacts))]
+  (let [declarations (exact-impact-component-declarations component impacts)]
     (when (= 1 (count declarations))
       (let [{:keys [module declaration-key] :as requested-declaration}
             (first declarations)
@@ -7948,40 +8633,49 @@
         (throw error)))))
 
 (defn- recompile-component-impact-slice!
-  "Republish only exact dependent declarations for an acyclic module.
+  "Republish an exact dependent slice when it has a stable native boundary.
 
   The ordinary registration planner closes over same-module prerequisites and
-  publishes a partial native generation. Cyclic SCCs continue through the
-  atomic component compiler because no member can be published coherently in
-  isolation."
+  publishes a partial native generation. A cyclic SCC may also publish exactly
+  one concrete dispatchable function: callers enter through its stable cell,
+  so source-level peers do not need to move. Other cyclic, type, state, and
+  multi-declaration impacts retain the atomic SCC fallback."
   [component impacts ignored-pending]
   (let [members (:modules component)
         impacted-declarations
         (when (seq impacts)
           (impacted-component-declarations members impacts))
+        exact-declarations
+        (or (exact-impact-component-declarations component impacts)
+            (when (and (seq impacts)
+                       (not (:cyclic? component))
+                       (= 1 (count members))
+                       (every? dispatchable-declaration?
+                               impacted-declarations))
+              impacted-declarations))
         external-logical-ids
-        (when (seq impacts)
-          (into #{} (keep :logical-id) impacted-declarations))]
-    (if (and (seq impacts)
-             (not (:cyclic? component))
-             (= 1 (count members)))
-      (let [module (first members)
-            declarations impacted-declarations
+        (when (seq exact-declarations)
+          (into #{} (keep :logical-id) exact-declarations))]
+    (if (seq exact-declarations)
+      (let [publication-modules
+            (->> exact-declarations (map :module) distinct sort vec)
             results
             (binding [*propagate-dependent-changes?* false
                       *exact-declaration-publication?* true]
-              (mapv register-sync! declarations))]
+              (mapv register-sync! exact-declarations))]
         {:id (swap! component-publication-sequence inc)
-         :modules members
+         :modules publication-modules
          :requested-at-ms (System/currentTimeMillis)
          :partial-publication? true
          :external-logical-ids
          (vec (sort-by pr-str external-logical-ids))
          :compiled-declaration-count
-         (count declarations)
+         (count exact-declarations)
          :results results})
       (compile-component-sync! (first members) ignored-pending
-                               external-logical-ids))))
+                               (when (seq impacts)
+                                 (into #{} (keep :logical-id)
+                                       impacted-declarations))))))
 
 (defn- changed-dependent-impacts
   [before-states members]
@@ -8036,11 +8730,7 @@
 
 (defn- exact-impact-component-eligible?
   [component impacts]
-  (and (seq impacts)
-       (not (:cyclic? component))
-       (= 1 (count (:modules component)))
-       (= 1 (count (impacted-component-declarations (:modules component)
-                                                     impacts)))))
+  (boolean (seq (exact-impact-component-declarations component impacts))))
 
 (defn- prepare-exact-impact-frontier!
   [components-with-impacts]
@@ -8319,9 +9009,45 @@
                   refreshed
                   (refresh-live-declaration-references
                    (vec (vals (get-in @registry [module :definitions]))))]
-              (filter #(contains? logical-ids (:logical-id %)) refreshed))))
+              (filter #(and (not= :test (:kind %))
+                            (contains? logical-ids (:logical-id %)))
+                      refreshed))))
          (sort-by (juxt :module :source-order (comp str :name)))
          vec)))
+
+(defn- exact-propagation-transit-declaration?
+  "True when a refreshed declaration only carries compile-time identity.
+
+  Generic functions and type-producing aliases have no stable runtime address
+  to install. Compiling an intermediate dylib for each one cannot change the
+  live process; it merely feeds the next monomorphized caller. Persist their
+  refreshed descriptors and defer native materialization until a concrete
+  dispatch/state/value boundary (or an explicit JVM inspection) requests it."
+  [declaration]
+  (or (type-producing-declaration? declaration)
+      (and (contains? #{:fn :fn-proto} (:kind declaration))
+           (not (dispatchable-declaration? declaration)))))
+
+(defn- adopt-exact-propagation-transit!
+  [declaration]
+  (let [{:keys [module declaration-key]} declaration]
+    (locking compile-lock
+      (swap! registry update module
+             (fn [module-state]
+               (-> module-state
+                   (assoc-in [:definitions declaration-key] declaration)
+                   ;; Any later compiler consumer must render from the adopted
+                   ;; descriptor rather than a preceding complete source.
+                   (assoc :source-dirty? true
+                          :last-error nil
+                          :failed-generation nil))))
+      (index-declarations-incrementally! [declaration])
+      (publish-clojure-declaration-metadata! [declaration])
+      {:module module
+       :declaration-key declaration-key
+       :logical-id (:logical-id declaration)
+       :compiled? false
+       :transit-only? true})))
 
 (defn- recompile-exact-dependent-slice!
   "Republish compatible declaration dependents without expanding a Zig file
@@ -8346,7 +9072,12 @@
               publication-results
               (binding [*propagate-dependent-changes?* false
                         *exact-declaration-publication?* true]
-                (mapv register-sync! declarations))
+                (mapv (fn [declaration]
+                        (if (exact-propagation-transit-declaration?
+                             declaration)
+                          (adopt-exact-propagation-transit! declaration)
+                          (register-sync! declaration)))
+                      declarations))
               next-impacts
               (into (changed-dependent-impacts before-states modules)
                     (keep republished-dependent-impact)

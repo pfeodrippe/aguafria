@@ -387,8 +387,10 @@
            :publication-epoch-setter "__set_publication_epoch"}})]
     (is (str/includes? source
                        "var __publication_epoch: ?*const usize = null;"))
-    (is (str/includes? source
-                       "export fn __set_publication_epoch(address: usize)"))
+    (is (str/includes?
+         source
+         (str "export fn __set_publication_epoch("
+              "__set_publication_epoch_address: usize)")))
     (is (str/includes? source
                        "if ((before & 1) != 0) continue;"))
     (is (str/includes? source

@@ -524,8 +524,15 @@
   [root-module runtime-publication]
   (let [affected (affected-publication runtime-publication)]
     (->> (concat
-          [root-module]
-          (keep :module (:exact-results affected))
+          (when-not (:last-publication-transit-only? runtime-publication)
+            [root-module])
+          ;; Metadata-only comptime/type transit nodes have no new native
+          ;; image. Publishing their preceding library generation again is
+          ;; both misleading and can overwrite a newer concrete consumer in
+          ;; an external process.
+          (keep (fn [{:keys [module compiled?]}]
+                  (when compiled? module))
+                (:exact-results affected))
           (mapcat :modules (:publications affected)))
          (remove nil?)
          (map str)

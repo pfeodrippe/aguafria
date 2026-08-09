@@ -83,6 +83,14 @@
                      (- started-at-ms requested-at-ms)))
                  builds))})
 
+(defn- artifact-freshness
+  [builds]
+  (cond
+    (some #(false? (:cached? %)) builds) :fresh
+    (and (seq builds) (every? #(true? (:cached? %)) builds)) :cache-backed
+    (empty? builds) :no-native-build
+    :else :unknown))
+
 (defn measure-publication!
   "Register one complete declaration and measure until its new native behavior
   is observable.
@@ -123,7 +131,8 @@
             observable-ms (elapsed-ms started-ns)
             after (az/stats)
             builds (new-builds before after)
-            publication-plan (some-> @publication-plan-capture force)]
+            publication-plan (some-> @publication-plan-capture force)
+            artifact-freshness (artifact-freshness builds)]
         (merge
          {:label label
           :project project
@@ -146,6 +155,8 @@
           :plan publication-plan
           :affected (or (:affected publication)
                         (:last-dependent-publication publication))
+          :artifact-freshness artifact-freshness
+          :artifact-hashes (->> builds (keep :hash) distinct sort vec)
           :builds builds}
          (build-summary builds)))
       (catch Throwable error
@@ -215,6 +226,162 @@
     {:change @change-result
      :restore @restore-result}))
 
+(defonce ^:private fresh-edit-sequence (atom 0))
+
+(defn- fresh-edit-context
+  [sample-index attempt]
+  (let [id (random-uuid)]
+    {:sample-index sample-index
+     :sample-number (inc sample-index)
+     :attempt attempt
+     :fresh-id (str id)
+     :fresh-value (bit-and Integer/MAX_VALUE (hash id))
+     :sequence (swap! fresh-edit-sequence inc)
+     :generated-at-ms (System/currentTimeMillis)}))
+
+(def ^:private distribution-fields
+  [:registration-ms :plan-ms :publication-ms :observable-ms :verification-ms
+   :queue-wait-ms :planning-ms :dependency-preparation-ms :compiler-ms
+   :dynamic-load-ms :dispatch-publication-ms :propagation-ms
+   :native-build-ms :artifact-bytes :compiled-declaration-count])
+
+(defn- percentile
+  [numbers probability]
+  (when (seq numbers)
+    (let [numbers (vec (sort numbers))
+          index (-> (* probability (count numbers))
+                    Math/ceil
+                    long
+                    dec
+                    (max 0)
+                    (min (dec (count numbers))))]
+      (nth numbers index))))
+
+(defn- sample-distribution
+  [samples]
+  {:sample-count (count samples)
+   :p50 (into {}
+              (keep (fn [field]
+                      (when-let [value
+                                 (percentile (keep field samples) 0.50)]
+                        [field value])))
+              distribution-fields)
+   :p95 (into {}
+              (keep (fn [field]
+                      (when-let [value
+                                 (percentile (keep field samples) 0.95)]
+                        [field value])))
+              distribution-fields)})
+
+(defn measure-fresh-edits!
+  "Measure behaviorally distinct edits without counting artifact restores.
+
+  `:edit` receives the original descriptor and a fresh context containing
+  `:fresh-id`, `:fresh-value`, `:sample-number`, and `:attempt`. It must embed
+  that context into the returned declaration's behavior or source identity.
+  Aguafria rejects a repeated implementation fingerprint before compilation.
+
+  `:verify-change` receives the same context after native publication. Cached
+  attempts remain visible under `:excluded-attempts` but are retried and never
+  enter the fresh p50/p95 distribution. The original declaration is restored
+  once after the complete series, rather than between samples.
+
+  Options include `:samples` (default 5), `:max-attempts-per-sample` (default
+  8), `:require-fresh-artifact?` (default true), and the ordinary benchmark
+  dimensions `:label`, `:project`, and `:complexity`."
+  [{:keys [var edit verify-change verify-restore restore? samples
+           max-attempts-per-sample require-fresh-artifact?]
+    :or {restore? true
+         samples 5
+         max-attempts-per-sample 8
+         require-fresh-artifact? true}
+    :as options}]
+  (when-not (ifn? edit)
+    (throw (ex-info ":edit must be a two-argument function"
+                    {:value edit})))
+  (when-not (and (integer? samples) (pos? samples))
+    (throw (ex-info ":samples must be a positive integer"
+                    {:value samples})))
+  (when-not (and (integer? max-attempts-per-sample)
+                 (pos? max-attempts-per-sample))
+    (throw (ex-info ":max-attempts-per-sample must be a positive integer"
+                    {:value max-attempts-per-sample})))
+  (let [original (declaration var)
+        original (runtime/declaration-info original)
+        dimensions (select-keys options [:label :project :complexity])
+        seen-fingerprints
+        (atom #{(:implementation-fingerprint original)})
+        accepted (atom [])
+        excluded (atom [])
+        restore-result (atom nil)
+        primary-error (atom nil)]
+    (try
+      (try
+        (doseq [sample-index (range samples)]
+          (loop [attempt 1]
+            (when (> attempt max-attempts-per-sample)
+              (throw
+               (ex-info "Could not produce a fresh native artifact"
+                        {:aguafria/phase :hot-reload-fresh-edit
+                         :sample-number (inc sample-index)
+                         :max-attempts max-attempts-per-sample
+                         :excluded-attempts (count @excluded)})))
+            (let [context (fresh-edit-context sample-index attempt)
+                  changed (runtime/declaration-info
+                           (edit original context))
+                  fingerprint (:implementation-fingerprint changed)]
+              (when (or (nil? fingerprint)
+                        (contains? @seen-fingerprints fingerprint))
+                (throw
+                 (ex-info
+                  "Fresh benchmark edit repeated its implementation identity"
+                  {:aguafria/phase :hot-reload-fresh-edit
+                   :sample-number (inc sample-index)
+                   :attempt attempt
+                   :fresh-context context
+                   :implementation-fingerprint fingerprint})))
+              (swap! seen-fingerprints conj fingerprint)
+              (let [measurement
+                    (measure-publication!
+                     (merge dimensions
+                            {:label (str (:label options)
+                                         " / fresh " (inc sample-index))
+                             :declaration changed
+                             :verify (when verify-change
+                                       #(verify-change context))}))
+                    measurement
+                    (assoc measurement
+                           :fresh-context context
+                           :implementation-fingerprint fingerprint)]
+                (if (and require-fresh-artifact?
+                         (not= :fresh (:artifact-freshness measurement)))
+                  (do
+                    (swap! excluded conj measurement)
+                    (recur (inc attempt)))
+                  (swap! accepted conj measurement))))))
+        (catch Throwable error
+          (reset! primary-error error)))
+      (finally
+        (when restore?
+          (try
+            (reset! restore-result
+                    (measure-publication!
+                     (merge dimensions
+                            {:label (str (:label options) " / restore")
+                             :declaration original
+                             :verify verify-restore})))
+            (catch Throwable restore-error
+              (if-let [error @primary-error]
+                (.addSuppressed ^Throwable error restore-error)
+                (throw restore-error)))))))
+    (when-let [error @primary-error]
+      (throw error))
+    {:samples @accepted
+     :excluded-attempts @excluded
+     :excluded-attempt-count (count @excluded)
+     :distribution (sample-distribution @accepted)
+     :restore @restore-result}))
+
 (defn summary
   "Return a compact, stable view of one `measure-edit!` result."
   [result]
@@ -242,11 +409,13 @@
                 (assoc
                  (select-keys measurement
                               [:label :project :complexity :module :declaration
+                               :fresh-context :implementation-fingerprint
                                :registration-ms :plan-ms :publication-ms
                                :observable-ms :verification-ms
                                :build-count :module-count
                                :modules :compiled-declaration-count
                                :cache-hit-count :cache-miss-count
+                               :artifact-freshness :artifact-hashes
                                :artifact-bytes :compiler-profile :host
                                :native-build-ms :queue-wait-ms :planning-ms
                                :dependency-preparation-ms :compiler-ms
@@ -269,5 +438,11 @@
                                       [preferred :dependency-modules]))))
                  :affected
                  (affected-summary (:affected measurement))))))]
-    {:change (phase (:change result))
-     :restore (phase (:restore result))}))
+    (if (contains? result :samples)
+      {:samples (mapv phase (:samples result))
+       :excluded-attempt-count (:excluded-attempt-count result)
+       :excluded-attempts (mapv phase (:excluded-attempts result))
+       :distribution (:distribution result)
+       :restore (phase (:restore result))}
+      {:change (phase (:change result))
+       :restore (phase (:restore result))})))

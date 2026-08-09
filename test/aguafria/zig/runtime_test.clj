@@ -80,6 +80,43 @@
       (finally
         (reset! cache old-cache)))))
 
+(deftest exact-root-dependency-snapshot-closes-missing-registered-modules-test
+  (let [registry (var-get #'aguafria.zig.runtime/registry)
+        old-registry @registry
+        extend-snapshot
+        (var-get
+         #'aguafria.zig.runtime/extend-development-dependency-snapshot)
+        entries
+        {"fixture.parent"
+         {:module "fixture.parent"
+          :source "const child = @import(\"fixture.child\");"
+          :dependencies ["fixture.child" "generated.options"]
+          :named-module-imports []
+          :dispatch-entries []
+          :state-entries []}
+         "fixture.child"
+         {:module "fixture.child"
+          :source "pub const value: u32 = 42;"
+          :dependencies []
+          :named-module-imports []
+          :dispatch-entries []
+          :state-entries []}}]
+    (try
+      (reset! registry
+              {"fixture.parent" {:definitions {}}
+               "fixture.child" {:definitions {}}})
+      (with-redefs-fn
+        {#'aguafria.zig.runtime/development-dependency-entry
+         (fn [module _ _] (get entries module))}
+        (fn []
+          (let [snapshot
+                (extend-snapshot {} ["fixture.parent"] ["fixture.root"])]
+            (is (= #{"fixture.parent" "fixture.child"}
+                   (set (keys snapshot))))
+            (is (not (contains? snapshot "generated.options"))))))
+      (finally
+        (reset! registry old-registry)))))
+
 (deftest logical-identity-and-callable-abi-fingerprint-test
   (let [baseline (runtime/declaration-info function-declaration)
         body-change (runtime/declaration-info

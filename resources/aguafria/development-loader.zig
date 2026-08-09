@@ -162,15 +162,33 @@ fn processLine(line: []const u8, state: *WatchState) void {
             state.failed = true;
             return;
         };
-        const epoch_setter_address = applicationSymbol(state, epoch_setter_c) orelse {
+        var epoch_setter_count: usize = 0;
+        if (applicationSymbol(state, epoch_setter_c)) |epoch_setter_address| {
+            const epoch_setter: EpochSetter = @ptrCast(@alignCast(epoch_setter_address));
+            epoch_setter(@intFromPtr(&__aguafria_external_publication_epoch));
+            epoch_setter_count += 1;
+        }
+        // A declaration can be introduced after the baseline executable was
+        // built, so its module-specific epoch setter may exist only in the new
+        // generation and in previously retained generations that embed its
+        // caller. Configure all of them. Requiring the symbol from the original
+        // application made otherwise-valid one-Var publications silently retain
+        // old behavior in large external projects.
+        var epoch_library = state.libraries;
+        while (epoch_library) |library| : (epoch_library = library.next) {
+            if (c.dlsym(library.handle, epoch_setter_c)) |epoch_setter_address| {
+                const epoch_setter: EpochSetter = @ptrCast(@alignCast(epoch_setter_address));
+                epoch_setter(@intFromPtr(&__aguafria_external_publication_epoch));
+                epoch_setter_count += 1;
+            }
+        }
+        if (epoch_setter_count == 0) {
             state.failed = true;
-            std.debug.print("The development lib has no publication epoch {s}\n", .{
+            std.debug.print("No loaded development image has publication epoch {s}\n", .{
                 epoch_setter_name,
             });
             return;
-        };
-        const epoch_setter: EpochSetter = @ptrCast(@alignCast(epoch_setter_address));
-        epoch_setter(@intFromPtr(&__aguafria_external_publication_epoch));
+        }
 
         if (state.failed) {
             std.debug.print("Aguafria could not load generation {d}: {s}\n", .{

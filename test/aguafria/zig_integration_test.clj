@@ -1782,6 +1782,73 @@
           (remove-ns caller-symbol)
           (remove-ns generic-symbol))))))
 
+(deftest generic-edit-publishes-one-dispatch-caller-inside-cyclic-component-test
+  (testing "a stable concrete cell avoids rebuilding unrelated SCC peers"
+    (let [old-config (az/configuration)
+          suffix fixture-suffix
+          generic-symbol (symbol (str "aguafria.cyclic-slice-generic-" suffix))
+          a-symbol (symbol (str "aguafria.cyclic-slice-a-" suffix))
+          b-symbol (symbol (str "aguafria.cyclic-slice-b-" suffix))
+          generic-ns (create-ns generic-symbol)
+          a-ns (create-ns a-symbol)
+          b-ns (create-ns b-symbol)]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (doseq [target [generic-ns a-ns b-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* generic-ns]
+          (eval
+           '(az/defn generic-add
+              {:attrs #{:public :implicit-return}}
+              :- T
+              [[T {:zig/prefix "comptime"} :type]
+               [x T]]
+              (+ x 1))))
+        (binding [*ns* a-ns]
+          (alias 'generic generic-symbol)
+          (eval
+           '(az/defn concrete-caller :- :i32
+              [x :- :i32]
+              (generic/generic-add :i32 x))))
+        (binding [*ns* b-ns]
+          (alias 'a a-symbol)
+          (eval
+           '(az/defn cycle-peer :- :i32
+              [x :- :i32]
+              (+ (a/concrete-caller x) 10))))
+        (binding [*ns* a-ns]
+          (alias 'b b-symbol)
+          (eval
+           '(az/defn cycle-entry :- :i32
+              [x :- :i32]
+              (b/cycle-peer x))))
+        (is (= 16 ((ns-resolve a-ns 'cycle-entry) 5)))
+        (is (:cyclic-dependency-component? (az/stats a-symbol)))
+        (let [b-generation (:published-generation (az/module-info b-symbol))
+              generic-var (ns-resolve generic-ns 'generic-add)
+              original (:aguafria/declaration (meta generic-var))
+              changed (runtime/declaration-info
+                       (assoc original :body '[(+ x 2)]))
+              result (runtime/register-declaration! changed)
+              affected (:affected result)
+              publication (first (:publications affected))]
+          (is (= 17 ((ns-resolve a-ns 'cycle-entry) 5)))
+          (is (= [(str a-symbol)] (:modules publication)))
+          (is (true? (:partial-publication? publication)))
+          (is (= 1 (:compiled-declaration-count publication)))
+          (is (= 1
+                 (get-in (az/stats a-symbol)
+                         [:last-build :compiled-declaration-count])))
+          (is (= b-generation
+                 (:published-generation (az/module-info b-symbol)))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol)
+          (remove-ns generic-symbol))))))
+
 (deftest generic-function-fanout-publishes-independent-callers-in-parallel-test
   (testing "independent affected SCCs prepare concurrently and publish as one frontier"
     (let [old-config (az/configuration)
@@ -1913,9 +1980,16 @@
           (let [pair-result ((ns-resolve b-ns 'call-pair) 3 4)
                 fallible-result ((ns-resolve b-ns 'call-fallible) 3)
                 publication
-                {:module (select-keys (az/module-info a-symbol)
+                 {:module (select-keys (az/module-info a-symbol)
                                       [:generation :requested-generation
-                                       :published-generation :pending?])
+                                       :published-generation :pending?
+                                       :last-dependent-publication])
+                 :caller-module
+                 (select-keys (az/module-info b-symbol)
+                              [:generation :requested-generation
+                               :published-generation :pending?
+                               :dependency-dispatch-specs
+                               :loaded-declarations])
                  :dispatch-versions
                  (mapv #(select-keys % [:logical-id :implementation-generation
                                         :implementation-fingerprint])
@@ -2221,7 +2295,20 @@
                    library-path arena)]
               (doseq [{:keys [getter setter]} dispatch]
                 (is (.isPresent (.find lookup getter)) getter)
-                (is (.isPresent (.find lookup setter)) setter)))))
+                (is (.isPresent (.find lookup setter)) setter)
+                (let [getter-address (.orElseThrow (.find lookup getter))
+                      descriptor
+                      (java.lang.foreign.FunctionDescriptor/of
+                       java.lang.foreign.ValueLayout/JAVA_LONG
+                       (make-array java.lang.foreign.MemoryLayout 0))
+                      handle
+                      (.downcallHandle
+                       (java.lang.foreign.Linker/nativeLinker)
+                       getter-address descriptor
+                       (make-array java.lang.foreign.Linker$Option 0))]
+                  (is (pos? (long (.invokeWithArguments
+                                   handle (java.util.ArrayList.))))
+                      (str getter " must retain a non-zero implementation")))))))
         (finally
           (az/configure! old-config))))))
 

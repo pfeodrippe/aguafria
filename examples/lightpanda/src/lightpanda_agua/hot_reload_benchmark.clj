@@ -37,6 +37,14 @@
     {:value actual
      :same-state? same-state?}))
 
+(defn- fresh-offset
+  [context]
+  (+ 1000 (mod (:fresh-value context) 1000000)))
+
+(defn- fresh-increment
+  [context]
+  (+ 2 (mod (:fresh-value context) 1000000)))
+
 (defn simple!
   "Measure a compatible leaf edit while native state stays allocated."
   ([] (simple! 200))
@@ -108,6 +116,109 @@
        (fn []
          (verified-value "Incrementing restore"
                          (inc increment) (live/counter-next!) address))}))))
+
+(defn simple-series!
+  "Measure fresh leaf artifacts while retaining the same browser state."
+  ([] (simple-series! 5))
+  ([samples]
+   (core/reset-session!)
+   (let [address (live-address)]
+     (benchmark/measure-fresh-edits!
+      {:var #'live/display-offset
+       :project :lightpanda
+       :complexity :simple
+       :label "fresh display leaf"
+       :samples samples
+       :edit (fn [declaration context]
+               (assoc declaration :body [(fresh-offset context)]))
+       :verify-change
+       (fn [context]
+         (let [offset (fresh-offset context)]
+           (verified-value "fresh display-offset"
+                           offset (live/displayed-value) address)))
+       :verify-restore
+       #(verified-value "display-offset series restore"
+                        100 (live/displayed-value) address)}))))
+
+(defn medium-series!
+  "Measure fresh converted parser bodies against the same browser state."
+  ([] (medium-series! 5))
+  ([samples]
+   (medium!)
+   (let [parse-frame-id
+         (requiring-resolve 'lightpanda.src.cdp.id/parseFrameId)
+         _ (core/parse-frame-id "FID-42")
+         address (live-address)]
+     (benchmark/measure-fresh-edits!
+      {:var parse-frame-id
+       :project :lightpanda
+       :complexity :medium
+       :label "fresh converted frame-id parser"
+       :samples samples
+       :edit
+       (fn [declaration context]
+         (replace-form
+          declaration
+          "(slice input 4)"
+          (fn [form]
+            (list 'slice 'input
+                  (list '+ 4
+                        (list '- (:fresh-value context)
+                              (:fresh-value context)))))))
+       :verify-change
+       (fn [_]
+         (verified-value "fresh parseFrameId"
+                         42 (core/parse-frame-id "FID-42") address))
+       :verify-restore
+       #(verified-value "parseFrameId series restore"
+                        42 (core/parse-frame-id "FID-42") address)}))))
+
+(defn complex-series!
+  "Measure fresh Incrementing comptime methods with live native state."
+  ([] (complex-series! 5))
+  ([samples]
+   ;; Materialize and restore the generic specialization before timing. This
+   ;; mirrors a long-running REPL and keeps first-publication setup out of the
+   ;; steady-state distribution.
+   (complex!)
+   (core/reset-session!)
+   (let [incrementing
+         (requiring-resolve 'lightpanda.src.cdp.id/Incrementing)
+         address (live-address)
+         expected-counter (atom 0)]
+     (benchmark/measure-fresh-edits!
+      {:var incrementing
+       :project :lightpanda
+       :complexity :complex
+       :label "fresh Incrementing comptime method"
+       :samples samples
+       :edit
+       (fn [declaration context]
+         (replace-form
+          declaration
+          "(aguafria.keyword/+% counter 1)"
+          (constantly
+           (list 'aguafria.keyword/+% 'counter
+                 (fresh-increment context)))))
+       :verify-change
+       (fn [context]
+         (let [expected (swap! expected-counter +
+                               (fresh-increment context))]
+           (verified-value "fresh Incrementing"
+                           expected (live/counter-next!) address)))
+       :verify-restore
+       (fn []
+         (let [expected (swap! expected-counter inc)]
+           (verified-value "Incrementing series restore"
+                           expected (live/counter-next!) address)))}))))
+
+(defn run-distributions!
+  "Run fresh simple/medium/complex Lightpanda samples in one live session."
+  ([] (run-distributions! 5))
+  ([samples]
+   {:simple (benchmark/summary (simple-series! samples))
+    :medium (benchmark/summary (medium-series! samples))
+    :complex (benchmark/summary (complex-series! samples))}))
 
 (defn run-all!
   "Run all Lightpanda reload levels and return compact timing summaries."

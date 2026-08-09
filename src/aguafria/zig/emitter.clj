@@ -2568,16 +2568,18 @@
          "const " dispatch-type " = @TypeOf(&" implementation ");\n"
          "var " dispatch ": usize = 0;\n\n"
          (when emit-getter?
-           ;; The compiler's tiny root imports this generated module and
-           ;; retains the getter by address. `export` gives it a native symbol
-           ;; but does not make it visible through Zig's module namespace;
-           ;; `pub export` is required for both forms of linkage.
-           (str "pub export fn " getter "() callconv(.c) usize {\n"
+           (str ;; The compiler's tiny root imports this generated module and
+                ;; retains the getter by address. `export` gives it a native
+                ;; symbol but does not make it visible through Zig's module
+                ;; namespace; `pub export` is required for both forms of
+                ;; linkage.
+                "pub export fn " getter "() callconv(.c) usize {\n"
                 "    return @intFromPtr(&" implementation ");\n"
                 "}\n\n"))
          (when linkable? "pub ")
-         "export fn " setter "(address: usize) callconv(.c) void {\n"
-         "    @atomicStore(usize, &" dispatch ", address, .release);\n"
+         "export fn " setter "(" setter "_address: usize) callconv(.c) void {\n"
+         "    @atomicStore(usize, &" dispatch ", " setter
+         "_address, .release);\n"
          "}\n\n"
          wrapper-source)))
 
@@ -2615,9 +2617,10 @@
                 "    return @intFromPtr(&" name ");\n"
                 "}\n\n"
                 (when linkable? "pub ")
-                "export fn " setter "(address: usize) callconv(.c) void {\n"
+                "export fn " setter "(" setter
+                "_address: usize) callconv(.c) void {\n"
                 "    @atomicStore(@TypeOf(&" name "), &" accessor
-                "_pointer, @ptrFromInt(address), .release);\n"
+                "_pointer, @ptrFromInt(" setter "_address), .release);\n"
                 "}\n\n"
                 (when linkable? "pub ")
                 "export fn " size-getter "() callconv(.c) usize {\n"
@@ -2685,9 +2688,11 @@
                     "var " active-tracking ": bool = true;\n\n"
                     (when linkable? "pub ")
                     "export fn " active-tracking-setter
-                    "(enabled: u8) callconv(.c) void {\n"
+                    "(" active-counter
+                    "_tracking_enabled: u8) callconv(.c) void {\n"
                     "    @atomicStore(bool, &" active-tracking
-                    ", enabled != 0, .release);\n"
+                    ", " active-counter
+                    "_tracking_enabled != 0, .release);\n"
                     "}\n\n"
                     (when linkable? "pub ")
                     "export fn " active-getter "() callconv(.c) usize {\n"
@@ -2704,9 +2709,11 @@
                            ": ?*const usize = null;\n\n"
                            (when linkable? "pub ")
                            "export fn " publication-epoch-setter
-                           "(address: usize) callconv(.c) void {\n"
+                           "(" publication-epoch-setter
+                           "_address: usize) callconv(.c) void {\n"
                            "    " publication-epoch
-                           " = @ptrFromInt(address);\n"
+                           " = @ptrFromInt(" publication-epoch-setter
+                           "_address);\n"
                            "}"))))
              declarations-source
              (->> declarations

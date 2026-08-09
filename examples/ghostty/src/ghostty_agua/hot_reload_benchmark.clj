@@ -46,6 +46,14 @@
                        :expected expected})))
     (assoc descriptor :body body)))
 
+(defn- fresh-title-version
+  [context]
+  (+ 1000 (mod (:fresh-value context) 1000000)))
+
+(defn- fresh-focus-character
+  [context]
+  (char (+ (int \A) (mod (:fresh-value context) 26))))
+
 (defn simple!
   "Measure a compatible hand-written leaf edit with the terminal left open."
   ([] (simple! 2))
@@ -113,6 +121,109 @@
                       identity-depth)))
        :verify-change #(verified-terminal "BlockingQueue change" address)
        :verify-restore #(verified-terminal "BlockingQueue restore" address)}))))
+
+(defn simple-series!
+  "Measure fresh hand-written leaf artifacts in one terminal session."
+  ([] (simple-series! 5))
+  ([samples]
+   (az/await! 'ghostty-agua.live)
+   (let [address (terminal-address)]
+     (benchmark/measure-fresh-edits!
+      {:var #'live/title-version
+       :project :ghostty
+       :complexity :simple
+       :label "fresh title leaf"
+       :samples samples
+       :edit (fn [declaration context]
+               (assoc declaration :body [(fresh-title-version context)]))
+       :verify-change
+       (fn [context]
+         (let [version (fresh-title-version context)]
+           (verified-terminal-value "fresh title-version"
+                                    version (live/title-version) address)))
+       :verify-restore
+       #(verified-terminal-value "title-version series restore"
+                                 1 (live/title-version) address)}))))
+
+(defn medium-series!
+  "Measure fresh converted focus encoders through the existing bridge."
+  ([] (medium-series! 5))
+  ([samples]
+   (medium!)
+   (let [encode (requiring-resolve 'ghostty.src.terminal.focus/encode)
+         _ (core/focus-final-byte true)
+         address (terminal-address)]
+     (benchmark/measure-fresh-edits!
+      {:var encode
+       :project :ghostty
+       :complexity :medium
+       :label "fresh converted focus encoder"
+       :samples samples
+       :edit
+       (fn [declaration context]
+         (let [character (fresh-focus-character context)
+               literal (list 'string-literal
+                             (str "\"\\x1B[" character "\""))]
+           (replace-form
+            declaration
+            "(string-literal \"\\\"\\\\x1B[I\\\"\")"
+            (constantly
+             (list 'if
+                   (list 'aguafria.keyword/==
+                         (:fresh-value context)
+                         (:fresh-value context))
+                   literal
+                   literal)))))
+       :verify-change
+       (fn [context]
+         (let [character (fresh-focus-character context)]
+           (verified-terminal-value "fresh focus encoder"
+                                    (int character)
+                                    (core/focus-final-byte true)
+                                    address)))
+       :verify-restore
+       #(verified-terminal-value "focus encoder series restore"
+                                 (int \I) (core/focus-final-byte true) address)}))))
+
+(defn complex-series!
+  "Measure fresh real BlockingQueue comptime bodies in one terminal session."
+  ([] (complex-series! 5))
+  ([samples]
+   ;; Establish the generic publication topology before measuring steady-state
+   ;; edits. The warm-up performs and verifies its own edit + restore cycle.
+   (complex!)
+   (let [blocking-queue
+         (requiring-resolve 'ghostty.src.datastruct.blocking-queue/BlockingQueue)
+         address (terminal-address)]
+     (az/await! 'ghostty.src.datastruct.blocking-queue)
+     (benchmark/measure-fresh-edits!
+      {:var blocking-queue
+       :project :ghostty
+       :complexity :complex
+       :label "fresh BlockingQueue comptime body"
+       :samples samples
+       :edit
+       (fn [declaration context]
+         (replace-form
+          declaration
+          "(== (field self len) bounds)"
+          (fn [form]
+            (list 'and form
+                  (list 'aguafria.keyword/==
+                        (:fresh-value context)
+                        (:fresh-value context))))))
+       :verify-change (fn [_]
+                        (verified-terminal "fresh BlockingQueue" address))
+       :verify-restore #(verified-terminal "BlockingQueue series restore"
+                                           address)}))))
+
+(defn run-distributions!
+  "Run fresh simple/medium/complex samples against one terminal instance."
+  ([] (run-distributions! 5))
+  ([samples]
+   {:simple (benchmark/summary (simple-series! samples))
+    :medium (benchmark/summary (medium-series! samples))
+    :complex (benchmark/summary (complex-series! samples))}))
 
 (defn run-all!
   "Run the three Ghostty cases and return compact EDN summaries."
