@@ -1909,8 +1909,18 @@
                 [x :- :i32]
                 (+ x 10))))
           (az/await! a-symbol)
-          (is (= 34 ((ns-resolve b-ns 'call-pair) 3 4)))
-          (is (= 13 ((ns-resolve b-ns 'call-fallible) 3)))
+          (let [pair-result ((ns-resolve b-ns 'call-pair) 3 4)
+                fallible-result ((ns-resolve b-ns 'call-fallible) 3)
+                publication
+                {:module (select-keys (az/module-info a-symbol)
+                                      [:generation :requested-generation
+                                       :published-generation :pending?])
+                 :dispatch-versions
+                 (mapv #(select-keys % [:logical-id :implementation-generation
+                                        :implementation-fingerprint])
+                       (:dispatch-versions (az/stats a-symbol)))}]
+            (is (= 34 pair-result) (pr-str publication))
+            (is (= 13 fallible-result) (pr-str publication)))
           (is (= b-generation
                  (->> (:declarations (az/stats b-symbol))
                       (some #(when (= "call-pair" (:name %))
@@ -3389,7 +3399,7 @@
         (is (str/includes? (ex-message error) "test/aguafria/zig_integration_test.clj"))
         (is (str/includes? (ex-message error)
                            "Aguafria declaration: aguafria.error-fixture/broken-constant"))
-        (is (str/includes? (ex-message error) "this Clojure form generated the failing Zig"))
+        (is (str/includes? (ex-message error) "this Aguafria source generated the failing Zig"))
         (is (str/includes? (ex-message error) "Zig reported the error here"))
         (is (str/includes? (ex-message error) "compiler command")))
       (finally

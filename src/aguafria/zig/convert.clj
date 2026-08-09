@@ -8,7 +8,9 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
-            [clojure.string :as str])
+            [clojure.set :as set]
+            [clojure.string :as str]
+            [clojure.walk :as walk])
   (:import [java.io File PushbackReader]
            [clojure.lang DynamicClassLoader RT]
            [java.nio.charset StandardCharsets]
@@ -442,6 +444,87 @@
             (write-ast-cache! cache-file (:out result))
             {:raw raw :cached? false})))))
 
+(defn- extract-ast-source
+  [source helper source-hash options path]
+  (let [cache-file (ast-cache-file options helper source-hash)
+        cached
+        (when (.isFile cache-file)
+          (try
+            {:raw (read-ast-output (slurp cache-file)) :cached? true}
+            (catch Throwable _ nil)))]
+    (or cached
+        (let [result (run-command-input [(:path helper)]
+                                        (System/getProperty "user.dir") source)]
+          (when-not (zero? (:exit result))
+            (throw (ex-info (str "Zig AST extraction failed for " path "\n\n"
+                                 (:err result))
+                            (assoc result :aguafria/phase :zig-ast-parse
+                                   :path path))))
+          (let [raw
+                (try
+                  (read-ast-output (:out result))
+                  (catch Throwable error
+                    (throw (ex-info "Zig AST helper returned unreadable EDN"
+                                    {:path path
+                                     :stdout (:out result)
+                                     :stderr (:err result)}
+                                    error))))]
+            (write-ast-cache! cache-file (:out result))
+            {:raw raw :cached? false})))))
+
+(defn- normalize-parsed
+  [raw source bytes source-hash cached? helper path]
+  (when-let [error (first (:errors raw))]
+    (throw (ex-info (parse-error-message path source error)
+                    {:aguafria/phase :zig-parse
+                     :path path
+                     :errors (:errors raw)
+                     :zig-version (:zig-version helper)})))
+  (-> raw
+      (assoc :path path
+             :source source
+             :source-bytes bytes
+             :source-hash source-hash
+             :ast-cache-hit? cached?
+             :zig-version (:zig-version helper)
+             :helper (dissoc helper :path))
+      (update :nodes
+              #(mapv (fn [[tag main first-token last-token data-kind a b]]
+                       {:tag tag :main-token main
+                        :first-token first-token :last-token last-token
+                        :data-kind data-kind :a a :b b})
+                     %))
+      (as-> context
+          (assoc context :node-span-index
+                 (into {}
+                       (map-indexed
+                        (fn [node-index {:keys [first-token last-token]}]
+                          [[first-token last-token] node-index])
+                        (:nodes context)))))
+      (assoc :function-index (index-by-first (:functions raw))
+             :function-prototype-index
+             (index-by-first (:function-prototypes raw))
+             :test-index (index-by-first (:tests raw))
+             :var-index (index-by-first (:var-decls raw))
+             :assign-destructure-index
+             (index-by-first (:assign-destructures raw))
+             :block-index (index-by-first (:blocks raw))
+             :call-index (index-by-first (:calls raw))
+             :builtin-index (index-by-first (:builtins raw))
+             :array-init-index (index-by-first (:array-inits raw))
+             :struct-init-index (index-by-first (:struct-inits raw))
+             :if-index (index-by-first (:ifs raw))
+             :while-index (index-by-first (:whiles raw))
+             :for-index (index-by-first (:fors raw))
+             :switch-index (index-by-first (:switches raw))
+             :switch-case-index (index-by-first (:switch-cases raw))
+             :asm-index (index-by-first (:asms raw))
+             :array-type-index (index-by-first (:array-types raw))
+             :ptr-type-index (index-by-first (:ptr-types raw))
+             :slice-index (index-by-first (:slices raw))
+             :container-index (index-by-first (:containers raw))
+             :container-field-index (index-by-first (:container-fields raw)))))
+
 (defn parse-file
   "Parse a Zig file with the selected Zig compiler's own `std.zig.Ast`.
 
@@ -459,56 +542,30 @@
            source-hash (sha256-bytes bytes)
            {:keys [raw cached?]} (extract-ast file helper source-hash options)
            source (String. bytes StandardCharsets/UTF_8)]
-         (when-let [error (first (:errors raw))]
-           (throw (ex-info (parse-error-message (.getAbsolutePath file) source error)
-                           {:aguafria/phase :zig-parse
-                            :path (.getAbsolutePath file)
-                            :errors (:errors raw)
-                            :zig-version (:zig-version helper)})))
-         (-> raw
-             (assoc :path (.getAbsolutePath file)
-                    :source source
-                    :source-bytes bytes
-                    :source-hash source-hash
-                    :ast-cache-hit? cached?
-                    :zig-version (:zig-version helper)
-                    :helper (dissoc helper :path))
-             (update :nodes
-                     #(mapv (fn [[tag main first-token last-token data-kind a b]]
-                              {:tag tag :main-token main
-                               :first-token first-token :last-token last-token
-                               :data-kind data-kind :a a :b b})
-                            %))
-             (as-> context
-                 (assoc context :node-span-index
-                        (into {}
-                              (map-indexed
-                               (fn [node-index {:keys [first-token last-token]}]
-                                 [[first-token last-token] node-index])
-                               (:nodes context)))))
-             (assoc :function-index (index-by-first (:functions raw))
-                    :function-prototype-index
-                    (index-by-first (:function-prototypes raw))
-                    :test-index (index-by-first (:tests raw))
-                    :var-index (index-by-first (:var-decls raw))
-                    :assign-destructure-index
-                    (index-by-first (:assign-destructures raw))
-                    :block-index (index-by-first (:blocks raw))
-                    :call-index (index-by-first (:calls raw))
-                    :builtin-index (index-by-first (:builtins raw))
-                    :array-init-index (index-by-first (:array-inits raw))
-                    :struct-init-index (index-by-first (:struct-inits raw))
-                    :if-index (index-by-first (:ifs raw))
-                    :while-index (index-by-first (:whiles raw))
-                    :for-index (index-by-first (:fors raw))
-                    :switch-index (index-by-first (:switches raw))
-                    :switch-case-index (index-by-first (:switch-cases raw))
-                    :asm-index (index-by-first (:asms raw))
-                    :array-type-index (index-by-first (:array-types raw))
-                    :ptr-type-index (index-by-first (:ptr-types raw))
-                    :slice-index (index-by-first (:slices raw))
-                    :container-index (index-by-first (:containers raw))
-                    :container-field-index (index-by-first (:container-fields raw))))))))
+         (normalize-parsed raw source bytes source-hash cached? helper
+                           (.getAbsolutePath file))))))
+
+(defn parse-source
+  "Parse an unsaved Zig source buffer with Zig's own `std.zig.Ast`.
+
+  No source file is written. `:path` is the originating absolute path or URI
+  used only for source maps and diagnostics. The result has the same shape as
+  `parse-file`, so editor evaluation and file conversion share one structural
+  conversion path."
+  ([source] (parse-source source {}))
+  ([source {:keys [path] :or {path "<aguafria-editor>"} :as options}]
+   (when-not (string? source)
+     (throw (ex-info "Zig editor source must be a string"
+                     {:aguafria/phase :zig-editor-input
+                      :path path
+                      :value-type (some-> source class .getName)})))
+   (let [helper (or (::helper options) (ensure-helper! options))
+         bytes (.getBytes ^String source StandardCharsets/UTF_8)
+         source-hash (sha256-bytes bytes)
+         path (str path)
+         {:keys [raw cached?]}
+         (extract-ast-source source helper source-hash options path)]
+     (normalize-parsed raw source bytes source-hash cached? helper path))))
 
 (def ^:private primitive-type?
   (let [fixed #{"anyerror" "anyframe" "anyopaque" "anytype" "bool" "c_char"
@@ -2620,6 +2677,88 @@
       [{} #{}]
       zig-names))))
 
+(defn- byte-location
+  [^bytes bytes offset]
+  (let [prefix (String. bytes 0 (int offset) StandardCharsets/UTF_8)
+        newline (.lastIndexOf prefix "\n")]
+    {:line (long (count (filter #(= % \newline) prefix)))
+     ;; VS Code positions use UTF-16 code units, which is exactly Java String
+     ;; indexing rather than Unicode code-point count.
+     :character (long (- (.length prefix) (inc newline)))}))
+
+(defn- root-declaration-end
+  [parsed node-index]
+  (let [{:keys [last-token]} (node parsed node-index)
+        following (inc last-token)]
+    (if (contains? #{:semicolon :comma} (first (token parsed following)))
+      (token-end parsed following)
+      (second (node-range parsed node-index)))))
+
+(defn declaration-spans
+  "Return ordered top-level declaration identities and VS Code-compatible
+  source ranges for a parsed Zig source returned by `parse-file` or
+  `parse-source`. Byte offsets are retained for exact server-side selection."
+  [parsed]
+  (let [bytes (:source-bytes parsed)
+        names (declaration-name-map parsed)]
+    (loop [roots (:root-decls parsed)
+           previous-end 0
+           source-order 0
+           result []]
+      (if-let [node-index (first roots)]
+        (let [[start-byte _] (node-range parsed node-index)
+              end-byte (root-declaration-end parsed node-index)
+              name-token (top-level-name-token parsed node-index)
+              zig-name (some->> name-token (token-text parsed))
+              clojure-name (get names zig-name)
+              tag (:tag (node parsed node-index))]
+          (recur (next roots) end-byte (inc source-order)
+                 (conj result
+                       {:source-order source-order
+                        :node-index node-index
+                        :tag tag
+                        :zig-name zig-name
+                        :name (some-> clojure-name str)
+                        :leading-start-byte previous-end
+                        :start-byte start-byte
+                        :end-byte end-byte
+                        :range {:start (byte-location bytes start-byte)
+                                :end (byte-location bytes end-byte)}
+                        :leading-range
+                        {:start (byte-location bytes previous-end)
+                         :end (byte-location bytes end-byte)}})))
+        result))))
+
+(defn declaration-at
+  "Return the top-level declaration containing a zero-based VS Code position.
+
+  Leading documentation/comments belong to the following declaration. Returns
+  nil when the buffer has no root declaration."
+  ([source position] (declaration-at source position {}))
+  ([source {:keys [line character] :as position} options]
+   (when-not (and (integer? line) (integer? character)
+                  (not (neg? line)) (not (neg? character)))
+     (throw (ex-info "Zig editor position requires non-negative line and character"
+                     {:aguafria/phase :zig-editor-input
+                      :position position})))
+   (let [parsed (parse-source source options)
+         at-or-after?
+         (fn [{candidate-line :line candidate-character :character}]
+           (or (> line candidate-line)
+               (and (= line candidate-line)
+                    (>= character candidate-character))))
+         before-or-at?
+         (fn [{candidate-line :line candidate-character :character}]
+           (or (< line candidate-line)
+               (and (= line candidate-line)
+                    (<= character candidate-character))))]
+     (or (some (fn [{:keys [leading-range] :as span}]
+                 (when (and (at-or-after? (:start leading-range))
+                            (before-or-at? (:end leading-range)))
+                   span))
+               (declaration-spans parsed))
+         (last (declaration-spans parsed))))))
+
 (defn- conversion-context
   [parsed options]
   (assoc parsed
@@ -2890,6 +3029,16 @@
         (binding [runtime/*registration-batch* collector
                   project/*catalog-namespace* namespace-symbol]
           (doseq [form forms]
+            ;; A Zig declaration may legitimately be named `assert`, `map`,
+            ;; `count`, and so on. Remove only the inherited clojure.core
+            ;; mapping immediately before its generated def; this prevents
+            ;; hundreds of irrelevant shadowing warnings during a large
+            ;; source-only bootstrap while preserving every other core Var.
+            (let [declaration-name (second form)]
+              (when (and (symbol? declaration-name)
+                         (nil? (namespace declaration-name))
+                         (contains? (ns-refers scratch) declaration-name))
+                (ns-unmap scratch declaration-name)))
             (eval form))))
       (let [declarations (mapv (fn [index declaration]
                                  (cond-> declaration
@@ -2925,6 +3074,186 @@
      (assoc converted
             :declarations declarations
             :zig-source zig-source))))
+
+(defn- rehome-declaration
+  [module path span declaration]
+  (let [old-module (:module declaration)
+        rehome-logical-id
+        (fn [logical-id]
+          (if (and (vector? logical-id)
+                   (= old-module (first logical-id)))
+            (assoc logical-id 0 module)
+            logical-id))
+        rewrite-reference
+        (fn [reference]
+          (let [reference
+                (cond-> reference
+                  (= old-module (:module reference))
+                  (assoc :module module)
+
+                  (and (symbol? (:symbol reference))
+                       (= old-module (namespace (:symbol reference))))
+                  (assoc :symbol (symbol module (name (:symbol reference))))
+
+                  (= old-module (:import-name reference))
+                  (assoc :import-name module)
+
+                  (= (symbol old-module) (:import-namespace reference))
+                  (assoc :import-namespace (symbol module)))
+                logical-id (rehome-logical-id (:logical-id reference))
+                version-key (:version-key reference)
+                version-key
+                (if (and (vector? version-key)
+                         (vector? (first version-key)))
+                  (assoc version-key 0
+                         (rehome-logical-id (first version-key)))
+                  version-key)
+                reference
+                (cond-> reference
+                  (:logical-id reference)
+                  (assoc :logical-id logical-id)
+
+                  (:version-key reference)
+                  (assoc :version-key version-key))]
+            ;; Mutable references carry the deterministic native state-accessor
+            ;; name generated from their logical identity. Rehoming only the
+            ;; visible module/symbol left that helper pointing at the temporary
+            ;; conversion namespace, so functions and their defvar disagreed
+            ;; about the native storage cell.
+            (if (and (:state-accessor reference)
+                     logical-id
+                     (:schema-fingerprint reference))
+              (assoc reference
+                     :state-accessor
+                     (str "__aguafria_state_"
+                          (subs (sha256
+                                 (pr-str [logical-id
+                                          (:schema-fingerprint reference)]))
+                                0 24)
+                          "_reference"))
+              reference)))
+        rewrite
+        (fn [value]
+          (cond
+            (= old-module value) module
+
+            (and (symbol? value) (= old-module (namespace value)))
+            (let [metadata (meta value)
+                  metadata (cond-> metadata
+                             (:aguafria/zig-reference metadata)
+                             (update :aguafria/zig-reference
+                                     rewrite-reference))]
+              (with-meta (symbol module (name value)) metadata))
+
+            (and (vector? value) (= old-module (first value)))
+            (assoc value 0 module)
+
+            :else value))
+        declaration (walk/postwalk rewrite declaration)
+        source (merge (:source declaration)
+                      {:ns module
+                       :file path
+                       :line (inc (get-in span [:range :start :line] 0))
+                       :column (inc (get-in span [:range :start :character] 0))
+                       :aguafria/editor-range (:range span)
+                       :aguafria/editor-leading-range (:leading-range span)})]
+    (assoc declaration
+           :module module
+           :qualified-name (symbol module (str (:name declaration)))
+           :logical-id [module (:kind declaration)
+                        (or (:zig-name declaration)
+                            (str (:name declaration)))]
+           :source source
+           :source-order (:source-order span))))
+
+(defn render-source
+  "Convert an unsaved Zig buffer into Aguafria declaration descriptors.
+
+  `:namespace` is required because it is the stable live module identity.
+  `:path` is the original file path or URI used for diagnostics. No Zig or
+  Clojure source file is written. The returned declarations are ready for
+  `runtime/register-declaration!` or `runtime/register-batch!`."
+  ([source options]
+   (let [{:keys [namespace path] :as options} options]
+     (when-not namespace
+       (throw (ex-info "render-source requires :namespace"
+                       {:aguafria/phase :zig-editor-input
+                        :path path})))
+     (let [module (str namespace)
+           path (str (or path "<aguafria-editor>"))
+           parsed (or (::parsed options)
+                      (parse-source source (assoc options :path path)))
+           spans (declaration-spans parsed)
+           converted (convert-file path
+                                   (assoc options
+                                          ::parsed parsed
+                                          :namespace (symbol module)
+                                          :source-display-path path))
+           {:keys [declarations]}
+           (evaluate-converted-forms
+            (symbol module)
+            (:std-aliases converted)
+            (:project-aliases converted)
+            ;; Pure Zig editor modules have no generated Clojure namespaces to
+            ;; require. Catalog-backed aliases are sufficient for structural
+            ;; reference resolution, including cycles.
+            (into {} (map (fn [target] [target :as-alias]))
+                  (keys (:project-require-modes converted)))
+            (:project-imports converted)
+            (:forms converted))
+           declarations
+           (mapv (fn [declaration]
+                   (let [span (or (nth spans (:source-order declaration) nil)
+                                  (some #(when (= (:name %) (str (:name declaration))) %)
+                                        spans))]
+                     (when-not span
+                       (throw (ex-info "Converted declaration has no Zig source span"
+                                       {:aguafria/phase :zig-editor-source-map
+                                        :path path
+                                        :module module
+                                        :declaration (:name declaration)})))
+                     (rehome-declaration module path span declaration)))
+                 declarations)]
+       (assoc converted
+              :path path
+              :source-hash (:source-hash parsed)
+              :spans spans
+              :declarations declarations
+              :zig-source (emitter/emit-module module declarations))))))
+
+(defn declarations-from-source
+  "Return ordered declaration descriptors for an in-memory Zig buffer.
+
+  This is the pure data view of `render-source`; no namespace, Clojure file,
+  or Zig file is created."
+  [source options]
+  (:declarations (render-source source options)))
+
+(defn diff-declarations
+  "Diff two ordered declaration collections by stable declaration identity.
+
+  Source positions and formatting do not count as behavioral changes."
+  [accepted candidate]
+  (let [identity #(or (:declaration-key %) (:logical-id %))
+        behavioral #(dissoc % :source :source-order :leading-source
+                            :source-fingerprint)
+        before (into {} (map (juxt identity clojure.core/identity)) accepted)
+        after (into {} (map (juxt identity clojure.core/identity)) candidate)
+        before-keys (set (keys before))
+        after-keys (set (keys after))
+        shared (set/intersection before-keys after-keys)]
+    {:added (mapv after (sort-by pr-str (set/difference after-keys before-keys)))
+     :changed (->> shared
+                   (filter #(not= (behavioral (before %))
+                                  (behavioral (after %))))
+                   (sort-by pr-str)
+                   (mapv after))
+     :removed (mapv before (sort-by pr-str (set/difference before-keys after-keys)))
+     :unchanged (->> shared
+                     (filter #(= (behavioral (before %))
+                                 (behavioral (after %))))
+                     (sort-by pr-str)
+                     (mapv after))}))
 
 (defn- absolute-path
   [path]
@@ -4185,6 +4514,274 @@
                   :as-alias
                   :as)]))
         (into #{} (keep (comp :namespace val)) project-imports)))
+
+(defn- normalized-build-profiles
+  [options]
+  (let [profiles (or (:build-profiles options)
+                     [(vec (or (:build-steps options) []))])]
+    (when-not (and (sequential? profiles)
+                   (seq profiles)
+                   (every? #(and (sequential? %)
+                                 (every? (fn [step]
+                                           (or (string? step)
+                                               (instance? clojure.lang.Named step)))
+                                         %))
+                           profiles))
+      (throw (ex-info ":build-profiles must contain one or more build-step sequences"
+                      {:aguafria/phase :zig-build-graph
+                       :build-profiles profiles})))
+    (mapv #(mapv str %) profiles)))
+
+(defn- validate-live-build-graphs!
+  [input-root-file build-graphs]
+  (doseq [build-graph build-graphs]
+    (when (seq (:conflicts build-graph))
+      (throw
+       (ex-info "Selected Zig build profile produced conflicting generated modules"
+                {:aguafria/phase :zig-build-graph
+                 :input-root (.getAbsolutePath ^File input-root-file)
+                 :build-steps (:build-steps build-graph)
+                 :conflicts (:conflicts build-graph)})))
+    (when (seq (:source-module-conflicts build-graph))
+      (throw
+       (ex-info "Selected Zig build profile produced conflicting source modules"
+                {:aguafria/phase :zig-build-graph
+                 :input-root (.getAbsolutePath ^File input-root-file)
+                 :build-steps (:build-steps build-graph)
+                 :conflicts (:source-module-conflicts build-graph)})))
+    ;; Live development uses the original project paths directly. Producer
+    ;; steps with unresolved LazyPath values still cannot be guessed.
+    (when (seq (:unresolved-path-modules build-graph))
+      (throw
+       (ex-info "Zig build profile contains unresolved generated-module paths"
+                {:aguafria/phase :zig-build-graph
+                 :input-root (.getAbsolutePath ^File input-root-file)
+                 :build-steps (:build-steps build-graph)
+                 :modules (:unresolved-path-modules build-graph)})))))
+
+(defn- merge-source-modules
+  [build-graphs]
+  (reduce
+   (fn [merged build-graph]
+     (reduce-kv
+      (fn [merged owner modules]
+        (reduce-kv
+         (fn [merged module-name source-path]
+           (if-let [existing (get-in merged [owner module-name])]
+             (if (= existing source-path)
+               merged
+               (throw
+                (ex-info "Selected Zig build profiles disagree on a source module"
+                         {:aguafria/phase :zig-build-graph
+                          :owner owner
+                          :module-name module-name
+                          :first-source existing
+                          :second-source source-path})))
+             (assoc-in merged [owner module-name] source-path)))
+         merged modules))
+      merged (:source-modules-by-owner build-graph)))
+   (sorted-map)
+   build-graphs))
+
+(defn- merge-live-generated-modules
+  [build-graphs]
+  (reduce
+   (fn [merged build-graph]
+     (reduce-kv
+      (fn [merged owner modules]
+        (reduce-kv
+         (fn [merged module-name source]
+           (if-let [existing (get-in merged [owner module-name])]
+             (if (= existing source)
+               merged
+               (throw
+                (ex-info "Selected Zig build profiles disagree on generated source"
+                         {:aguafria/phase :zig-build-graph
+                          :owner owner
+                          :module-name module-name})))
+             (assoc-in merged [owner module-name] source)))
+         merged modules))
+      merged (:modules-by-path build-graph)))
+   (sorted-map)
+   build-graphs))
+
+(defn plan-source-tree
+  "Analyze an existing Zig project's file/import/build graph entirely in memory.
+
+  The result is an internal conversion plan consumed by `load-source-tree!`
+  and `render-planned-source`. No generated Clojure or Zig file is written."
+  [input-root {:keys [namespace-prefix] :as options}]
+  (when-not namespace-prefix
+    (throw (ex-info "plan-source-tree requires :namespace-prefix"
+                    {:aguafria/phase :zig-editor-project
+                     :input-root (str input-root)})))
+  (let [started (System/nanoTime)
+        options (assoc options ::helper (ensure-helper! options))
+        input-root-file (.getCanonicalFile (io/file input-root))
+        input-path (.toPath input-root-file)
+        plans
+        (mapv
+         (fn [^Path input]
+           (let [relative (.relativize input-path input)
+                 namespace-symbol (relative-namespace namespace-prefix relative)
+                 parsed (parse-file (str input) options)]
+             {:path input
+              :file (.getCanonicalFile (io/file (str input)))
+              :relative relative
+              :namespace namespace-symbol
+              :parsed parsed
+              :imports (parsed-imports parsed)
+              :import-calls (parsed-import-calls parsed)
+              :declaration-names (declaration-name-map parsed)}))
+         (zig-files input-root (:exclude-directories options)))
+        plan-by-path (into {} (map (juxt #(-> ^File (:file %) .getCanonicalPath)
+                                         identity)) plans)
+        module-index (module-name-index plans)
+        provisional
+        (mapv (fn [plan]
+                (let [bindings (tree-import-bindings plan plan-by-path
+                                                     module-index input-root-file {})]
+                  (assoc plan
+                         :import-bindings bindings
+                         :project-imports
+                         (tree-project-imports plan plan-by-path module-index
+                                               input-root-file bindings {}))))
+              plans)
+        provisional-graph (project-import-graph provisional)
+        provisional
+        (mapv #(assoc % :project-require-modes
+                      (project-require-modes provisional-graph %)) provisional)
+        build-profiles (normalized-build-profiles options)
+        build-file (io/file input-root-file (or (:build-file options) "build.zig"))
+        build-graphs
+        (when (and (not= false (:capture-build-modules? options))
+                   (.isFile build-file))
+          (mapv #(build-generated-modules input-root-file
+                                           (assoc options :build-steps %))
+                build-profiles))
+        _ (validate-live-build-graphs! input-root-file build-graphs)
+        source-modules-by-owner (merge-source-modules build-graphs)
+        plans
+        (mapv (fn [plan]
+                (let [bindings
+                      (tree-import-bindings plan plan-by-path module-index
+                                            input-root-file source-modules-by-owner)]
+                  (assoc plan
+                         :import-bindings bindings
+                         :project-imports
+                         (tree-project-imports
+                          plan plan-by-path module-index input-root-file
+                          bindings source-modules-by-owner))))
+              provisional)
+        import-graph (project-import-graph plans)
+        plans (mapv #(assoc % :project-require-modes
+                            (project-require-modes import-graph %)) plans)
+        generated-modules-by-path (merge-live-generated-modules build-graphs)
+        catalog (project-catalog plans [] generated-modules-by-path)]
+    (project/register-catalog! catalog)
+    {:input-root (.getAbsolutePath input-root-file)
+     :namespace-prefix (symbol (str namespace-prefix))
+     :options options
+     :plans plans
+     :plans-by-path (into (sorted-map)
+                          (map (juxt #(-> ^File (:file %) .getCanonicalPath)
+                                     identity))
+                          plans)
+     :catalog catalog
+     :generated-modules-by-path generated-modules-by-path
+     :build-profiles build-profiles
+     :build-graphs build-graphs
+     :file-count (count plans)
+     :elapsed-ms (/ (- (System/nanoTime) started) 1e6)}))
+
+(defn- render-source-plan
+  [plan source parsed options]
+  (render-source
+   source
+   (assoc options
+          ::parsed parsed
+          :namespace (:namespace plan)
+          :path (.getAbsolutePath ^File (:file plan))
+          :source-display-path (.getAbsolutePath ^File (:file plan))
+          :import-bindings (:import-bindings plan)
+          :project-imports-by-node (:project-imports plan)
+          :project-require-modes (:project-require-modes plan))))
+
+(defn load-source-tree!
+  "Convert and register an existing Zig project directly from source.
+
+  Every module is initially source-only and inspectable. Compilation remains
+  lazy until an editor evaluation, invocation, host start, or explicit await.
+  Returns the internal plan needed for later unsaved-buffer evaluation."
+  [input-root options]
+  (let [started (System/nanoTime)
+        tree (plan-source-tree input-root options)
+        ;; Install the EDN-backed std namespaces once before worker threads
+        ;; issue nested requires. Clojure's loader serializes ordinary files,
+        ;; but these namespaces are materialized dynamically and concurrent
+        ;; first-require calls can otherwise observe a partially registered
+        ;; std catalog.
+        _ (require 'aguafria.std 'aguafria.keyword 'aguafria.zig)
+        render-plan
+        (fn [plan]
+          (render-source-plan plan
+                              (:source (:parsed plan))
+                              (:parsed plan)
+                              (:options tree)))
+        rendered
+        (if (false? (:parallel-conversion? options))
+          (mapv render-plan (:plans tree))
+          ;; Source-only modules are independent after the immutable project
+          ;; catalog is registered by plan-source-tree. Convert/evaluate them
+          ;; concurrently so a large existing Zig checkout does not pay one
+          ;; JVM compiler round trip per file in series. pmap preserves source
+          ;; order and uses Clojure's bounded worker pool.
+          (->> (:plans tree) (pmap render-plan) doall vec))
+        reports (mapv :report rendered)
+        catalog (project-catalog (:plans tree) reports
+                                 (:generated-modules-by-path tree))
+        _ (project/register-catalog! catalog)
+        registrations
+        (mapv (fn [plan conversion]
+                (runtime/register-batch!
+                 (:declarations conversion)
+                 {:module (str (:namespace plan))
+                  :compile? false
+                  :replace? true}))
+              (:plans tree) rendered)]
+    (assoc tree
+           :catalog catalog
+           :rendered rendered
+           :registrations registrations
+           :declaration-count (reduce + 0 (map #(count (:declarations %)) rendered))
+           :elapsed-ms (/ (- (System/nanoTime) started) 1e6))))
+
+(defn render-planned-source
+  "Convert an unsaved buffer using a prior `load-source-tree!` project plan.
+
+  Logic/body edits may reuse the plan. Import declaration changes require a
+  project re-bootstrap so the dependency graph cannot silently become stale."
+  [tree path source]
+  (let [file (.getCanonicalFile (io/file path))
+        canonical (.getCanonicalPath file)
+        plan (or (get (:plans-by-path tree) canonical)
+                 (throw (ex-info "Zig document is absent from the bootstrapped project"
+                                 {:aguafria/phase :zig-editor-project
+                                  :path canonical
+                                  :input-root (:input-root tree)})))
+        parsed (parse-source source (assoc (:options tree) :path canonical))
+        imports (parsed-imports parsed)
+        import-calls (parsed-import-calls parsed)]
+    (when-not (and (= (set (map (comp :import-name val) (:imports plan)))
+                      (set (map (comp :import-name val) imports)))
+                   (= (set (vals (:import-calls plan)))
+                      (set (vals import-calls))))
+      (throw (ex-info "Zig import changes require project graph re-bootstrap"
+                      {:aguafria/phase :zig-editor-structural-import
+                       :path canonical
+                       :old-imports (sort (map (comp :import-name val) (:imports plan)))
+                       :new-imports (sort (map (comp :import-name val) imports))})))
+    (render-source-plan plan source parsed (:options tree))))
 
 (defn convert-tree!
   "Convert every `.zig` file below `input-root` into `output-root`.

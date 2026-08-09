@@ -5,7 +5,8 @@
  :aliases
 
  {:test {:extra-paths ["test"]
-         :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
+         :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}
+                      nrepl/nrepl {:mvn/version "1.3.1"}}
          :jvm-opts ["--enable-native-access=ALL-UNNAMED"
                     "-Daguafria.test.fixture-suffix=fixture-v1"]
          :main-opts ["-m" "kaocha.runner"]}
@@ -14,6 +15,11 @@
           :extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
           :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
           :main-opts ["-m" "nrepl.cmdline"]}
+
+  :editor
+  {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "aguafria.zig.editor-server"]}
 
   :test-nrepl
   {:extra-paths ["test" "examples/tigerbeetle-agua/generated"]

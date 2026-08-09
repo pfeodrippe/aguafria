@@ -1418,7 +1418,7 @@
   [form]
   (let [{:keys [line column]} (meta form)]
     (when (and *source-mapping?* line)
-      (str "// Clojure form: " line (when column (str ":" column)) "\n"))))
+      (str "// Aguafria form: " line (when column (str ":" column)) "\n"))))
 
 (defn- braced
   [forms level]
@@ -2132,7 +2132,7 @@
                         (not (re-find #"[\r\n]" file)))
                file)]
     (when (or file line)
-      (str "// Clojure source: " (or file "<repl>")
+      (str "// Aguafria source: " (or file "<repl>")
          (when line (str ":" line))
          (when column (str ":" column)) "\n"))))
 
@@ -2414,7 +2414,10 @@
                :dependency-default-export? false
                :doc nil
                :comments nil
-               :source nil
+               ;; Keep the originating declaration location on the actual
+               ;; versioned implementation as well as its public dispatch
+               ;; wrapper. Zig errors normally occur in this body.
+               :source (:source declaration)
                :emit-source-comment? false
                :body-prefix-source
                (str discard-source

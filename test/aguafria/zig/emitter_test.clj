@@ -470,7 +470,7 @@
                            :line 9 :column 3}}])]
     (testing "multiline editor buffer contents can never be injected as Zig"
       (is (not (str/includes? source "(:require")))
-      (is (str/includes? source "// Clojure source: <repl>:9:3")))))
+      (is (str/includes? source "// Aguafria source: <repl>:9:3")))))
 
 (deftest unresolved-reference-test
   (is (thrown-with-msg?

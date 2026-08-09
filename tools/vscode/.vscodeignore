@@ -1,0 +1,13 @@
+.gitignore
+.clj-kondo/**
+.lsp/**
+.vscode/**
+node_modules/**
+src/**
+test/**
+scripts/**
+tsconfig.json
+package-lock.json
+*.vsix
+out/test/**
+**/*.map

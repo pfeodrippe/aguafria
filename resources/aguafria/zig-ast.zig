@@ -632,17 +632,36 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
-    if (args.len != 2) {
-        std.debug.print("usage: zig-ast <source.zig>\n", .{});
+    if (args.len > 2) {
+        std.debug.print("usage: zig-ast [source.zig]\n", .{});
         return error.InvalidArguments;
     }
 
-    const source_bytes = try Io.Dir.cwd().readFileAlloc(
-        init.io,
-        args[1],
-        arena,
-        .limited(1024 * 1024 * 1024),
-    );
+    const source_bytes = if (args.len == 2)
+        try Io.Dir.cwd().readFileAlloc(
+            init.io,
+            args[1],
+            arena,
+            .limited(1024 * 1024 * 1024),
+        )
+    else source: {
+        var result: std.ArrayList(u8) = .empty;
+        defer result.deinit(gpa);
+        var read_buffer: [64 * 1024]u8 = undefined;
+        const stdin = Io.File.stdin();
+        while (true) {
+            const count = stdin.readStreaming(init.io, &.{&read_buffer}) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => |read_error| return read_error,
+            };
+            if (count == 0) break;
+            if (result.items.len + count > 1024 * 1024 * 1024) {
+                return error.StreamTooLong;
+            }
+            try result.appendSlice(gpa, read_buffer[0..count]);
+        }
+        break :source try arena.dupe(u8, result.items);
+    };
     const source = try arena.dupeZ(u8, source_bytes);
     var tree = try Ast.parse(gpa, source, .zig);
     defer tree.deinit(gpa);

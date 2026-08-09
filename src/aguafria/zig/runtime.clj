@@ -174,12 +174,33 @@
          (some #(when (= target-name (str (:name %))) %)
                (vals (:definitions module-state))))))))
 
+(defn- resolve-type-factory
+  "Follow ordinary Zig const aliases until they reach a function returning
+  `type`. Converted projects frequently re-export a type factory through one
+  or more modules (`pub const Struct = structpkg.Struct`), so stopping at the
+  first const loses both constructibility and layout dependency identity."
+  ([context-module reference]
+   (resolve-type-factory context-module reference #{}))
+  ([context-module reference seen]
+   (when (symbol? reference)
+     (let [declaration (referenced-declaration context-module reference)
+           identity (some-> declaration :logical-id)]
+       (when-not (contains? seen identity)
+         (cond
+           (and (= :fn (:kind declaration)) (= :type (:return declaration)))
+           declaration
+
+           (and (= :const (:kind declaration))
+                (symbol? (:value declaration)))
+           (resolve-type-factory (:module declaration)
+                                 (:value declaration)
+                                 (cond-> seen identity (conj identity)))))))))
+
 (defn- type-factory-call
   [{:keys [kind module value]}]
   (when (and (= :const kind) (seq? value) (symbol? (first value)))
-    (let [factory (referenced-declaration module (first value))]
-      (when (and (= :fn (:kind factory)) (= :type (:return factory)))
-        {:factory factory :arguments (vec (rest value))}))))
+    (when-let [factory (resolve-type-factory module (first value))]
+      {:factory factory :arguments (vec (rest value))})))
 
 (defn- returned-type-form
   [body]
@@ -240,7 +261,9 @@
             ;; them a concrete storage type, matching a Clojure keyword.
             (and (keyword? declaration-value) (nil? declaration-type)))]
     (cond
-      (container-type-description declaration)
+      (or (container-type-description declaration)
+          (and (= :const (:kind declaration))
+               (:schema-fingerprint declaration)))
       (declaration-type-value declaration)
 
       exact-jvm-literal?
@@ -918,6 +941,7 @@
   [{:keys [module kind declaration-key] :as declaration}]
   (let [logical-id [(str module) kind (declaration-zig-name declaration)]
         declaration (assoc declaration :logical-id logical-id)
+        type-factory-result (type-factory-call declaration)
         type-shape
         (cond
           (= :struct kind)
@@ -928,6 +952,15 @@
            :symbol (declaration-zig-name declaration)
            :schema (container-value-schema
                     (container-type-form declaration))}
+
+          type-factory-result
+          {:kind :type-factory-result
+           :symbol (declaration-zig-name declaration)
+           :factory (select-keys (:factory type-factory-result)
+                                 [:logical-id :schema-fingerprint
+                                  :implementation-fingerprint])
+           :arguments (mapv type-factory-schema-value
+                            (:arguments type-factory-result))}
 
           (type-factory-declaration? declaration)
           {:kind :type-factory
@@ -973,6 +1006,22 @@
                     {:kind :container-type
                      :symbol (declaration-zig-name declaration)
                      :value (:value declaration)
+                                  :type-dependency-fingerprints
+                                  (:type-dependency-fingerprints declaration)}))
+
+            type-factory-result
+            (assoc :schema-fingerprint
+                   (data-fingerprint
+                    {:shape type-shape
+                     :type-dependencies (type-dependency-shapes declaration)})
+                   :implementation-fingerprint
+                   (data-fingerprint
+                    {:kind :type-factory-result
+                     :symbol (declaration-zig-name declaration)
+                     :value (:value declaration)
+                     :factory (select-keys (:factory type-factory-result)
+                                           [:logical-id :schema-fingerprint
+                                            :implementation-fingerprint])
                      :type-dependency-fingerprints
                      (:type-dependency-fingerprints declaration)}))
 
@@ -1049,7 +1098,7 @@
   (reduce
    (fn [location line]
      (if-let [[_ file source-line source-column]
-              (re-matches #"^\s*// Clojure source: (.*):(\d+):(\d+)$" line)]
+              (re-matches #"^\s*// (?:Aguafria|Clojure) source: (.*):(\d+):(\d+)$" line)]
        (merge location
               {:file file
                :line (parse-long source-line)
@@ -1058,7 +1107,7 @@
                 (re-matches #"^\s*// Aguafria declaration: (.+)$" line)]
          (assoc location :declaration declaration)
          (if-let [[_ form-line form-column]
-                  (re-matches #"^\s*// Clojure form: (\d+)(?::(\d+))?$" line)]
+                  (re-matches #"^\s*// (?:Aguafria|Clojure) form: (\d+)(?::(\d+))?$" line)]
            (assoc location
                   :line (parse-long form-line)
                   :column (some-> form-column parse-long))
@@ -1121,7 +1170,7 @@
                 (when line (str ":" line))
                 (when column (str ":" column)) "\n"
                 (code-frame line column clojure-line
-                            "this Clojure form generated the failing Zig")))
+                            "this Aguafria source generated the failing Zig")))
          (when declaration
            (str "  = Aguafria declaration: " declaration "\n"))
          "  ::: " generated-file ":" generated-line ":" generated-column "\n"
@@ -1824,29 +1873,42 @@
   [declaration]
   (let [same-module-by-name
         (get-in @declaration-reference-index
-                [:by-module (:module declaration) :by-name])]
+                [:by-module (:module declaration) :by-name])
+        indexed-reference
+        (fn [reference]
+          (when-let [target-module (some-> (:module reference) str)]
+            (let [target-name
+                  (or (some-> (:symbol reference) name)
+                      (some-> (:zig-name reference)
+                              (str/split #"\.") last))
+                  candidate
+                  (get-in @declaration-reference-index
+                          [:by-module target-module :by-name target-name])]
+              (when (contains? #{:fn :fn-proto} (:kind candidate))
+                (:logical-id candidate)))))]
     (into
      (into #{}
            (map first)
            (concat (:type-dependency-fingerprints declaration)
                    (:callable-dependency-fingerprints declaration)))
-     (keep (fn [value]
-             (when (symbol? value)
-               (or (get-in (meta value)
-                           [:aguafria/zig-reference :logical-id])
-                   ;; Same-file Zig calls and forward references are commonly
-                   ;; stored as plain unqualified symbols. Resolve them
-                   ;; against callable declarations in the namespace so an
-                   ;; exact live slice retains their dispatch hooks instead
-                   ;; of relying on a whole-module build. State references
-                   ;; require explicit Var metadata: treating every symbol in
-                   ;; a lazy container method as live state would force
-                   ;; target-disabled globals that Zig intentionally never
-                   ;; analyzes (for example TigerBeetle testing marks).
-                   (when (nil? (namespace value))
-                     (let [candidate (get same-module-by-name (name value))]
-                       (when (contains? #{:fn :fn-proto} (:kind candidate))
-                         (:logical-id candidate))))))))
+     (keep
+      (fn [value]
+        (when (symbol? value)
+          (let [reference (:aguafria/zig-reference (meta value))]
+            (or
+             (:logical-id reference)
+             ;; Source-only project bootstraps deliberately do not intern
+             ;; target Vars in generated Clojure namespaces. Resolve their
+             ;; catalog-backed module/member reference through the declaration
+             ;; index once every Zig file has been registered.
+             (indexed-reference reference)
+             ;; Same-file Zig calls and forward references are commonly plain
+             ;; unqualified symbols. Resolve callable declarations only;
+             ;; guessing state here would force target-disabled globals.
+             (when (nil? (namespace value))
+               (let [candidate (get same-module-by-name (name value))]
+                 (when (contains? #{:fn :fn-proto} (:kind candidate))
+                   (:logical-id candidate)))))))))
      (tree-seq coll? seq declaration))))
 
 (defn- declaration-index-names
@@ -3783,6 +3845,7 @@
   (or (= :struct kind)
       (and (= :const kind)
            (or (container-type-declaration? declaration)
+               (type-factory-call declaration)
                (and (symbol? value)
                     (-> value meta :aguafria/zig-reference
                         :type-reference?))))))
@@ -4064,29 +4127,41 @@
   [module-state]
   (let [host-active? (native-host-active?)
         current-generation (:published-generation module-state)
+        function-version-wrapper-generations
+        (->> (:native-generations module-state)
+             (mapcat (comp vals :functions))
+             (reduce
+              (fn [latest {:keys [declaration wrapper-generation]}]
+                (let [version-key [(:logical-id declaration)
+                                   (:abi-fingerprint declaration)]]
+                  (cond-> latest
+                    (and wrapper-generation
+                         (contains? (:dispatch-state module-state) version-key))
+                    (assoc version-key wrapper-generation))))
+              {})
+             vals)
         referenced-generations
-        (into (into (into (into (into (into #{current-generation}
-                                (keep :generation)
-                                (remove #(= :superseded (:status %))
-                                        (:state-versions module-state)))
-                          (keep :generation)
-                          (remove #(= :superseded (:status %))
-                                  (:type-versions module-state)))
-                    ;; `:functions` contains JVM downcall handles into the
-                    ;; wrapper generation. During a partial breaking
-                    ;; publication an unchanged callable can intentionally
-                    ;; remain here even when its native dispatch cell points
-                    ;; at an older implementation generation. Its arena is
-                    ;; therefore independently live until a later complete
-                    ;; publication replaces the binding.
-                    (keep :wrapper-generation)
-                    (vals (:functions module-state)))
-              (keep :wrapper-generation)
-              (vals (:values module-state)))
-              (keep :wrapper-generation)
-              (vals (:types module-state)))
-              (keep :implementation-generation)
-              (vals (:dispatch-state module-state)))
+        (into
+         #{current-generation}
+         (concat
+          (keep :generation
+                (remove #(= :superseded (:status %))
+                        (:state-versions module-state)))
+          (keep :generation
+                (remove #(= :superseded (:status %))
+                        (:type-versions module-state)))
+          ;; `:functions` contains JVM downcall handles into the wrapper
+          ;; generation. During a partial breaking publication an unchanged
+          ;; callable can intentionally remain here even when its native
+          ;; dispatch cell points at an older implementation generation.
+          (keep :wrapper-generation (vals (:functions module-state)))
+          (keep :wrapper-generation (vals (:values module-state)))
+          (keep :wrapper-generation (vals (:types module-state)))
+          (keep :implementation-generation (vals (:dispatch-state module-state)))
+          ;; A historical ABI can have its implementation in one generation
+          ;; and its JVM trampoline in another lazily materialized generation.
+          ;; Keep both until the ABI itself leaves dispatch history.
+          function-version-wrapper-generations))
         [retained newly-retired]
         (reduce
          (fn [[retained retired] generation]
@@ -8342,6 +8417,50 @@
            :else
            current))))))
 
+(defn cancel-pending!
+  "Cancel an exact generation only while it is still in Aguafria's debounce
+  queue. Compilation/loading/publication are atomic once started and therefore
+  return `:already-running` instead of being killed mid-publication."
+  [module generation]
+  (let [module (str module)
+        generation (long generation)]
+    (locking compile-lock
+      (let [{:keys [pending scheduled requested-generation
+                    published-generation] :as current}
+            (get @registry module)]
+        (cond
+          (nil? current)
+          {:status :unknown-module :module module :generation generation}
+
+          (not= generation requested-generation)
+          {:status :superseded :module module :generation generation
+           :requested-generation requested-generation}
+
+          (nil? pending)
+          {:status (if (= generation published-generation)
+                     :published :not-pending)
+           :module module :generation generation}
+
+          (nil? scheduled)
+          {:status :already-running :module module :generation generation}
+
+          (.cancel ^ScheduledFuture scheduled false)
+          (let [error (ex-info "Aguafria Zig publication was cancelled before compilation"
+                               {:aguafria/phase :zig-editor-cancelled
+                                :module module :generation generation})]
+            (swap! registry update module
+                   (fn [latest]
+                     (if (and (= generation (:requested-generation latest))
+                              (identical? pending (:pending latest)))
+                       (assoc latest :pending nil :scheduled nil)
+                       latest)))
+            (mark-build-finished! module generation :cancelled {})
+            (deliver pending {:status :error :error error :cancelled? true})
+            {:status :cancelled :module module :generation generation})
+
+          :else
+          {:status :already-running :module module :generation generation})))))
+
 (defn- default-program-filename
   [kind name]
   (case kind
@@ -8992,11 +9111,17 @@
         logical-id (:logical-id declaration)
         dispatch (get-in module-state
                          [:dispatch-state [logical-id abi-fingerprint]])
-        generation-id (:implementation-generation dispatch)
-        generation (some #(when (= generation-id (:generation %)) %)
-                         (:native-generations module-state))]
+        generations (vec (:native-generations module-state))]
     (when dispatch
-      (get-in generation [:functions qualified-name]))))
+      ;; The implementation owner and the lazily materialized JVM trampoline
+      ;; need not be the same native generation. Select the newest live
+      ;; trampoline whose declaration has the requested ABI.
+      (some (fn [generation]
+              (let [binding (get-in generation [:functions qualified-name])]
+                (when (= abi-fingerprint
+                         (get-in binding [:declaration :abi-fingerprint]))
+                  binding)))
+            (rseq generations)))))
 
 (defn- acquire-function-binding!
   [qualified-name arguments abi-fingerprint]
@@ -10027,7 +10152,7 @@
 (def ^:private process-main-host-symbol "__aguafria_run_process_main")
 
 (defn- process-main-host-source
-  [host-module target-module entry-name]
+  [host-module target-module entry-name minimal-init?]
   (str "// Generated by Aguafria's development process host.\n"
        "// Host module: " host-module "\n"
        "const std = @import(\"std\");\n"
@@ -10067,16 +10192,14 @@
        "        std.log.err(\"failed to initialize process preopens: {t}\", .{err});\n"
        "        return 1;\n"
        "    };\n\n"
-       "    application." entry-name "(.{\n"
-       "        .minimal = .{\n"
-       "            .args = .{ .vector = args },\n"
-       "            .environ = .{ .block = environ },\n"
-       "        },\n"
-       "        .arena = &arena_allocator,\n"
-       "        .gpa = gpa,\n"
-       "        .io = threaded.io(),\n"
-       "        .environ_map = &environ_map,\n"
-       "        .preopens = preopens,\n"
+       "    _ = application." entry-name
+       (if minimal-init? "(.{\n" "(.{\n        .minimal = .{\n")
+       (when-not minimal-init?
+         "            .args = .{ .vector = args },\n            .environ = .{ .block = environ },\n        },\n")
+       (when-not minimal-init?
+         "        .arena = &arena_allocator,\n        .gpa = gpa,\n        .io = threaded.io(),\n        .environ_map = &environ_map,\n        .preopens = preopens,\n")
+       (when minimal-init?
+         "        .args = .{ .vector = args },\n        .environ = .{ .block = environ },\n")
        "    }) catch |err| {\n"
        "        std.log.err(\"application main failed: {t}\", .{err});\n"
        "        return 1;\n"
@@ -10301,11 +10424,11 @@
                                 :declaration (declaration-summary declaration)})))
              (when-not (and (= :fn (:kind declaration))
                             (= 1 (count (:args declaration)))
-                            (= :void (:return declaration))
                             (str/includes? (or (:zig-qualifiers declaration) "") "!"))
                (throw
                 (ex-info
-                 "Native process hosting requires a `pub fn main(std.process.Init) !void` shape"
+                 (str "Native process hosting requires a public error-union main "
+                      "with one std.process.Init or Init.Minimal argument")
                  {:function qualified-name
                   :arguments (mapv :type (:args declaration))
                   :return (:return declaration)
@@ -10331,10 +10454,21 @@
                    declarations [host-declaration]
                    dependency-snapshot
                    (development-dependency-snapshot declarations)
+                   argument-type-source
+                   (emit/emit-type (:type (first (:args declaration))))
+                   _ (when-not (str/includes? argument-type-source "process.Init")
+                       (throw
+                        (ex-info
+                         "Native process main argument is not std.process.Init or Init.Minimal"
+                         {:function qualified-name
+                          :argument-type (:type (first (:args declaration)))})))
+                   minimal-init?
+                   (str/includes? argument-type-source "process.Init.Minimal")
                    source (process-main-host-source
                            host-module target-module
                            (emit/identifier (or (:zig-name declaration)
-                                                (:name declaration))))
+                                                (:name declaration)))
+                           minimal-init?)
                    compiled (compile-source! host-module source declarations
                                              dependency-snapshot)
                    loaded (load-module

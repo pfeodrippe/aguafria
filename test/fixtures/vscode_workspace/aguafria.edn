@@ -1,0 +1,8 @@
+{:project-root "."
+ :namespace-prefix editor.vscode
+ :bootstrap? true
+ :capture-build-modules? false
+ :entry-point "main.zig"
+ :entry-function "main"
+ :arguments []
+ :async? true}

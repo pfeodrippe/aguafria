@@ -412,6 +412,57 @@
     (is (not= (:schema-fingerprint baseline)
               (:schema-fingerprint field-change)))))
 
+(deftest const-result-of-reexported-type-factory-is-a-versioned-type-test
+  (let [factory
+        (runtime/declaration-info
+         {:module "fixture.impl"
+          :kind :fn
+          :name 'Struct
+          :declaration-key [:fn 'Struct]
+          :args [{:name 'Target :type :type :properties {:zig/prefix "comptime"}}
+                 {:name 'Zig :type :type :properties {:zig/prefix "comptime"}}]
+          :return :type
+          :body '[(return (switch Target
+                            (case [:zig] Zig)
+                            (case [:c] Zig)))]})
+        alias
+        (runtime/declaration-info
+         {:module "fixture.api"
+          :kind :const
+          :name 'Struct
+          :declaration-key [:const 'Struct]
+          :value 'fixture.impl/Struct})
+        declarations {"fixture.api/Struct" alias
+                      "fixture.impl/Struct" factory}
+        describe
+        (fn [field-type]
+          (with-redefs-fn
+            {#'runtime/referenced-declaration
+             (fn [_ reference] (get declarations (str reference)))}
+            #(let [declaration
+                   (runtime/declaration-info
+                    {:module "fixture.user"
+                     :kind :const
+                     :name 'Payload
+                     :declaration-key [:const 'Payload]
+                     :value
+                     (list 'fixture.api/Struct :zig
+                           (list 'container {:kind :struct :layout :normal}
+                                 (list 'field-decl 'value field-type)))})]
+               {:declaration declaration
+                :reference (#'runtime/declaration-reference-view declaration)})))
+        baseline-result (describe :u32)
+        changed-result (describe :u64)
+        baseline (:declaration baseline-result)
+        changed (:declaration changed-result)]
+    (is (= 64 (count (:schema-fingerprint baseline))))
+    (is (= 64 (count (:shape-fingerprint baseline))))
+    (is (not= (:schema-fingerprint baseline)
+              (:schema-fingerprint changed)))
+    (is (not= (:implementation-fingerprint baseline)
+              (:implementation-fingerprint changed)))
+    (is (true? (get-in baseline-result [:reference :type-reference?])))))
+
 (deftest referenced-type-shapes-are-stable-and-layout-sensitive-test
   (let [logical-id ["fixture.live" :struct "Node"]
         node-reference

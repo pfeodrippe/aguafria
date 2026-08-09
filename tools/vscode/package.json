@@ -1,0 +1,207 @@
+{
+  "name": "aguafria-zig",
+  "displayName": "Aguafria Zig",
+  "description": "Evaluate ordinary Zig declarations into a live Aguafria native runtime.",
+  "version": "0.1.0",
+  "publisher": "aguafria",
+  "license": "EPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pfeodrippe/aguafria.git",
+    "directory": "tools/vscode"
+  },
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "zig",
+    "repl",
+    "hot reload",
+    "clojure",
+    "nrepl"
+  ],
+  "activationEvents": [
+    "onLanguage:zig",
+    "workspaceContains:aguafria.edn",
+    "onCommand:aguafria.jackIn",
+    "onCommand:aguafria.startDevelopmentProgram",
+    "onCommand:aguafria.connect",
+    "onCommand:aguafria.evaluateDeclaration"
+  ],
+  "main": "./out/src/extension.js",
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "compile": "node scripts/prepare-server.mjs && tsc -p .",
+    "watch": "tsc -p . --watch",
+    "test:unit": "npm run compile && node --test out/test/unit/*.test.js",
+    "test:integration": "npm run compile && node out/test/runTest.js",
+    "test": "npm run test:unit",
+    "package": "npm run compile && vsce package --no-dependencies"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "zig",
+        "aliases": ["Zig", "zig"],
+        "extensions": [".zig"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "aguafria.jackIn",
+        "title": "Aguafria: Jack In",
+        "category": "Aguafria"
+      },
+      {
+        "command": "aguafria.startDevelopmentProgram",
+        "title": "Aguafria: Start Development Program",
+        "category": "Aguafria"
+      },
+      {
+        "command": "aguafria.connect",
+        "title": "Aguafria: Reconnect to Extension-Started Runtime",
+        "category": "Aguafria"
+      },
+      {
+        "command": "aguafria.disconnect",
+        "title": "Aguafria: Disconnect Editor",
+        "category": "Aguafria"
+      },
+      {
+        "command": "aguafria.stopDevelopmentProgram",
+        "title": "Aguafria: Stop Development Program",
+        "category": "Aguafria"
+      },
+      {
+        "command": "aguafria.evaluateDeclaration",
+        "title": "Aguafria: Evaluate Current Zig Declaration",
+        "category": "Aguafria",
+        "enablement": "editorLangId == zig"
+      },
+      {
+        "command": "aguafria.evaluateSelection",
+        "title": "Aguafria: Evaluate Zig Selection",
+        "category": "Aguafria",
+        "enablement": "editorLangId == zig"
+      },
+      {
+        "command": "aguafria.evaluateFile",
+        "title": "Aguafria: Evaluate Zig File",
+        "category": "Aguafria",
+        "enablement": "editorLangId == zig"
+      },
+      {
+        "command": "aguafria.evaluateChanged",
+        "title": "Aguafria: Evaluate Changed Declarations in File",
+        "category": "Aguafria",
+        "enablement": "editorLangId == zig"
+      },
+      {
+        "command": "aguafria.showStatus",
+        "title": "Aguafria: Show Hot-Reload Status",
+        "category": "Aguafria"
+      },
+      {
+        "command": "aguafria.interrupt",
+        "title": "Aguafria: Interrupt Evaluation",
+        "category": "Aguafria"
+      },
+      {
+        "command": "aguafria.showSource",
+        "title": "Aguafria: Show Emitted Hot Slice",
+        "category": "Aguafria",
+        "enablement": "editorLangId == zig"
+      },
+      {
+        "command": "aguafria.invoke",
+        "title": "Aguafria: Invoke Zig Function",
+        "category": "Aguafria",
+        "enablement": "editorLangId == zig"
+      },
+      {
+        "command": "aguafria.inspect",
+        "title": "Aguafria: Inspect Declaration/Value",
+        "category": "Aguafria",
+        "enablement": "editorLangId == zig"
+      },
+      {
+        "command": "aguafria.showHistory",
+        "title": "Aguafria: Show Generation History",
+        "category": "Aguafria"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aguafria.evaluateDeclaration",
+        "key": "ctrl+alt+enter",
+        "mac": "cmd+alt+enter",
+        "when": "editorTextFocus && editorLangId == zig"
+      },
+      {
+        "command": "aguafria.evaluateSelection",
+        "key": "ctrl+alt+shift+enter",
+        "mac": "cmd+alt+shift+enter",
+        "when": "editorHasSelection && editorLangId == zig"
+      }
+    ],
+    "configuration": {
+      "title": "Aguafria Zig",
+      "properties": {
+        "aguafria.clojureExecutable": {
+          "type": "string",
+          "default": "clojure",
+          "description": "Clojure CLI executable used for extension-owned jack-in."
+        },
+        "aguafria.serverStartupTimeoutMs": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 1000,
+          "description": "Maximum time to wait for the Aguafria runtime handshake."
+        },
+        "aguafria.jvmMaxHeap": {
+          "type": "string",
+          "default": "8g",
+          "description": "Maximum heap for the extension-owned Aguafria JVM (for example 2g or 8g)."
+        },
+        "aguafria.awaitPublication": {
+          "type": "boolean",
+          "default": true,
+          "description": "Wait until native behavior is published before reporting evaluation success."
+        },
+        "aguafria.keepRuntimeOnDeactivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep the extension-started JVM alive across extension-host reloads."
+        },
+        "aguafria.allowExternalProjectRoot": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow an aguafria.edn project root outside the trusted VS Code workspace. Enable only for an explicitly trusted external Zig checkout."
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "aguafria.hotReload",
+          "name": "Aguafria Hot Reload"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "1.125.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.9.2",
+    "typescript": "7.0.2"
+  }
+}

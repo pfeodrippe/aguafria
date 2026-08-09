@@ -1,0 +1,11 @@
+{:project-root "../ghostty/vendor/ghostty"
+ :profile :macos-development
+ :namespace-prefix ghostty.zig
+ :bootstrap? true
+ :exclude-directories #{"zig-pkg"}
+ :build-profiles [["-Demit-lib-vt=true"
+                   "-Demit-xcframework=false"
+                   "-Demit-macos-app=false"]]
+ :target :ghostty
+ :start-program? false
+ :async? true}
