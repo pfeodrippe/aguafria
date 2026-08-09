@@ -2,6 +2,7 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std :as zig-std]
             [aguafria.zig :as az]
+            [aguafria.zig.convert :as convert]
             [aguafria.zig.host :as host]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.shell :as shell]
@@ -2148,6 +2149,81 @@
           (az/configure! old-config)
           (remove-ns b-symbol)
           (remove-ns a-symbol))))))
+
+(deftest same-module-compatible-type-factory-propagation-test
+  (testing "a comptime factory republishes affected callers in its own Zig file"
+    (let [old-config (az/configuration)
+          module-symbol (symbol (str "aguafria.same-module-factory-"
+                                     fixture-suffix))
+          module-ns (create-ns module-symbol)
+          define-policy!
+          (fn [answer]
+            (binding [*ns* module-ns]
+              (eval
+               (clojure.walk/postwalk
+                #(if (= 'aguafria-test/answer %) answer %)
+                '(az/defn Policy {:attrs #{:public}} :- :type []
+                   (ak/return
+                    (az/container
+                     {:kind :struct}
+                     (az/fn-decl answer {:attrs #{:public}} :- :u32 []
+                       (ak/return aguafria-test/answer)))))))))]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (binding [*ns* module-ns]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (alias 'ak 'aguafria.keyword))
+        (define-policy! 1)
+        (binding [*ns* module-ns]
+          (eval
+           '(az/defn policy-answer :- :u32 []
+              ((az/field (Policy) answer)))))
+        (is (= 1 ((ns-resolve module-ns 'policy-answer))))
+
+        (define-policy! 2)
+        (is (= 2 ((ns-resolve module-ns 'policy-answer))))
+        (is (= :finished (:status (az/stats module-symbol))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns module-symbol))))))
+
+(deftest external-batch-retains-new-helper-getters-test
+  (testing "an external full-file publication retains every advertised getter"
+    (let [old-config (az/configuration)
+          module (str "aguafria.external-getter-batch-" fixture-suffix)
+          render (fn [source]
+                   (:declarations
+                    (convert/render-source
+                     source
+                     {:namespace (symbol module)
+                      :path "external_getter_batch.zig"})))
+          initial (render "pub fn entry() u32 { return 1; }")
+          changed
+          (render
+           (str "fn helper() u32 { return 2; }\n"
+                "pub fn entry() u32 { return helper(); }"))]
+      (try
+        (az/configure! {:async? false :modules {}})
+        (runtime/register-batch!
+         initial {:module module :compile? true :replace? true})
+        (runtime/await! module)
+        (runtime/enable-external-publication! [module])
+        (runtime/register-batch!
+         changed {:module module :compile? true :replace? true})
+        (runtime/await! module)
+        (let [{:keys [library-path dispatch]}
+              (runtime/external-generation-info module)]
+          (is (= 2 (count dispatch)))
+          (with-open [arena (java.lang.foreign.Arena/ofConfined)]
+            (let [lookup
+                  (java.lang.foreign.SymbolLookup/libraryLookup
+                   library-path arena)]
+              (doseq [{:keys [getter setter]} dispatch]
+                (is (.isPresent (.find lookup getter)) getter)
+                (is (.isPresent (.find lookup setter)) setter)))))
+        (finally
+          (az/configure! old-config))))))
 
 (deftest comptime-type-factory-alias-is-a-constructor-test
   (testing "a const initialized by a type factory is known as a real Zig type"

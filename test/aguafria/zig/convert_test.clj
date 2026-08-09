@@ -569,8 +569,12 @@
     (when (zero? (:exit result))
       (is (= {:status :finished
               :declaration-count 42
-              :native-generation-count 1
-              :dispatch-version-count 8
+              ;; Declaration-unit materialization analyzes only the callback
+              ;; that this source root actually retains. One baseline and one
+              ;; current partial generation remain available for safe native
+              ;; dispatch retirement.
+              :native-generation-count 2
+              :dispatch-version-count 1
               :failed-build-count 0}
              (edn/read-string (str/trim (:out result))))))))
 

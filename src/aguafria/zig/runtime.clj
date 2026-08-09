@@ -1238,7 +1238,7 @@
                                 :declaration declaration})
                         cause))))))
 
-(declare scalar-key)
+(declare scalar-key declaration-reference-logical-ids)
 
 (defn- generic-function-argument?
   [{:keys [type properties]}]
@@ -1260,7 +1260,8 @@
   (contains-syntax-operator? type "container"))
 
 (defn- dispatchable-declaration?
-  [{:keys [kind args return zig-prefix]}]
+  [{:keys [kind args return zig-prefix zig-qualifiers logical-id]
+    :as declaration}]
   (and (:reloadable? @config)
        (= :fn kind)
        ;; Forced-inline wrappers can still inline the cell load and indirect
@@ -1270,7 +1271,16 @@
        (not (contains? #{:type 'type :anytype 'anytype} return))
        (not (anonymous-type? return))
        (not-any? #(anonymous-type? (:type %)) args)
-       (not-any? generic-function-argument? args)))
+       (not-any? generic-function-argument? args)
+       ;; An inferred error set is part of Zig's call graph. Splitting a
+       ;; recursive function into wrapper -> implementation -> wrapper creates
+       ;; an inference cycle even though the original direct recursion is
+       ;; valid. Keep that declaration direct; edits still publish through the
+       ;; nearest reloadable caller that depends on it.
+       (not (and (str/starts-with? (or zig-qualifiers "") "!")
+                 logical-id
+                 (contains? (declaration-reference-logical-ids declaration)
+                            logical-id)))))
 
 (defn- declaration-dispatch-spec
   [{:keys [logical-id abi-fingerprint implementation-fingerprint]
@@ -1285,6 +1295,8 @@
      :abi-fingerprint abi-fingerprint
      :implementation-fingerprint implementation-fingerprint
      :implementation (str prefix "_implementation")
+     :dispatch-frame (str prefix "_dispatch_frame")
+     :trampoline (str prefix "_trampoline")
      :dispatch-type (str prefix "_function_type")
      :dispatch (str prefix "_dispatch")
      :getter (str prefix "_implementation_address")
@@ -1336,7 +1348,14 @@
   [declarations]
   (into {}
         (comp
-         (filter #(and (:reloadable? @config) (= :var (:kind %))))
+         (filter #(and (:reloadable? @config)
+                       (= :var (:kind %))
+                       ;; A thread-local variable's address is itself resolved
+                       ;; per thread and is not a comptime-known process-global
+                       ;; pointer. Keep TLS direct; swapping one global state
+                       ;; cell would be incorrect as well as invalid Zig.
+                       (not (str/includes? (or (:zig-prefix %) "")
+                                           "threadlocal"))))
          (map (juxt :declaration-key declaration-state-spec)))
         declarations))
 
@@ -2561,6 +2580,31 @@
                    modules))
            "}\n"))))
 
+(defn- development-root-getter-linkage-source
+  "Force the edited module's exported implementation getters to be analyzed.
+
+  Zig declarations are lazy even when they use `export fn` inside an imported
+  module. The tiny compiler root imports the edited module, so it must take the
+  address of each requested getter just as it already does for transitive
+  dependency hooks. Without this reference the setter is retained by the live
+  wrapper but the external process has no way to obtain the new implementation
+  address."
+  [development-root-source]
+  (let [symbols
+        (->> (re-seq
+              #"(?m)^\s*export fn (__aguafria_[A-Za-z0-9_]+_implementation_address)\("
+              (or development-root-source ""))
+             (map second)
+             distinct
+             sort
+             vec)]
+    (when (seq symbols)
+      (str "\n// Retain this generation's external publication getters.\n"
+           "comptime {\n"
+           (apply str
+                  (map #(str "    _ = &aguafria_module." % ";\n") symbols))
+           "}\n"))))
+
 (defn- compile-source!
   ([module-name source declarations]
    (compile-source! module-name source declarations nil))
@@ -2634,6 +2678,8 @@
         linkage-source
         (development-linkage-source
          dependency-snapshot development-linkage-logical-ids)
+        root-getter-linkage-source
+        (development-root-getter-linkage-source development-root-source)
         hash-input [source compiler-version
                     (assoc (select-keys compiler-options
                                          [:optimize :development-debug-info
@@ -2650,7 +2696,9 @@
                            ;; runtime-only set used to select those references.
                            ;; A module becoming live must not invalidate an
                            ;; otherwise identical dependency-free artifact.
-                           :development-linkage-source linkage-source)
+                           :development-linkage-source linkage-source
+                           :development-root-getter-linkage-source
+                           root-getter-linkage-source)
                     (System/getProperty "os.name") (System/getProperty "os.arch")]
         source-hash (subs (sha256 (pr-str hash-input)) 0 24)
         module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
@@ -2692,6 +2740,7 @@
                     sort
                     (apply str))
                "comptime { _ = aguafria_module; }\n"
+               root-getter-linkage-source
                linkage-source)
           source)
         asset-module (or profile-module (str module-name))
@@ -4070,13 +4119,22 @@
     ;; Keep its dependency cells in the same atomic publication epoch as the
     ;; JVM-owned generations so an already-running program observes each Var
     ;; replacement without being restarted.
-    (doseq [{:keys [loaded status dispatch-frozen?]} (vals @live-hosts)
+    (doseq [{:keys [loaded status dispatch-frozen?
+                    local-dispatch-version-keys]} (vals @live-hosts)
             :when (and loaded
                        (not dispatch-frozen?)
                        (contains? #{:starting :running} status))
-            [version-key {:keys [setter-handle]}] (:dispatch-bindings loaded)
+            [version-key {:keys [setter-handle implementation-fingerprint]}]
+            (:dispatch-bindings loaded)
             :let [active (get active-versions version-key)]
-            :when (some? (:implementation-address active))]
+            :when (and (not (contains? local-dispatch-version-keys version-key))
+                       (some? (:implementation-address active))
+                       ;; A fresh host already embeds a coherent current Zig
+                       ;; graph. Keep that local implementation—and its module
+                       ;; state—until this exact Var actually changes. Only a
+                       ;; newer fingerprint crosses the image boundary.
+                       (not= implementation-fingerprint
+                             (:implementation-fingerprint active)))]
       (invoke-dispatch-setter! setter-handle
                                (:implementation-address active)))
     (doseq [{:keys [loaded status share-state?]} (vals @live-hosts)
@@ -5673,23 +5731,6 @@
                   (merge registered-by-logical
                          (into {} (map (juxt :logical-id identity))
                                declarations))
-                  current-types-by-name
-                  (into {}
-                        (comp
-                         (filter type-producing-declaration?)
-                         (mapcat
-                          (fn [declaration]
-                            (let [names (->> [(:name declaration)
-                                             (:zig-name declaration)
-                                             (declaration-zig-name declaration)]
-                                             (remove nil?)
-                                             (map str)
-                                             distinct)]
-                              (map (fn [name]
-                                     [[(:module declaration) name]
-                                      declaration])
-                                   names)))))
-                        declarations)
                   current-by-name
                   (into {}
                         (mapcat
@@ -5704,8 +5745,7 @@
                           (not (contains? target-keys
                                           (:declaration-key declaration))))
                    declaration
-                   (let [type-producing? (type-producing-declaration? declaration)
-                         source-reference-changed? (volatile! false)
+                   (let [source-reference-changed? (volatile! false)
                          refreshed
                        (walk/postwalk
                         (fn [value]
@@ -5716,14 +5756,16 @@
                                   (or (and reference
                                            (get current-by-logical
                                                 (:logical-id reference)))
-                                      ;; Converted Zig permits forward references,
-                                      ;; so the target Var may not have existed
-                                      ;; when this form was macroexpanded. Resolve
-                                      ;; same-module type names from the complete
-                                      ;; declaration snapshot at publication time.
-                                      (and type-producing?
-                                           (nil? (namespace value))
-                                           (get current-types-by-name
+                                      ;; Converted Zig permits same-file forward
+                                      ;; references without a Clojure Var. Resolve
+                                      ;; every declaration kind from the complete
+                                      ;; module snapshot, not only type names used
+                                      ;; inside another type factory. Otherwise a
+                                      ;; runtime helper calling a comptime factory
+                                      ;; has no dependency fingerprint and cannot
+                                      ;; be republished when that factory changes.
+                                      (and (nil? (namespace value))
+                                           (get current-by-name
                                                 [(:module declaration)
                                                  (name value)])))]
                               (cond
@@ -6067,7 +6109,17 @@
                   declarations)
             declaration)
         getter-declaration-keys
-        (changed-dispatch-declaration-keys module-state declarations)
+        (cond-> (changed-dispatch-declaration-keys module-state declarations)
+          (:external-publication? module-state)
+          ;; An external process resolves getters from the published image,
+          ;; including declarations first introduced by this edit. Retain a
+          ;; getter for every dispatch cell that the slice can advertise;
+          ;; otherwise Zig may eliminate a new helper's getter while the
+          ;; manifest still (correctly) names that binding.
+          (into (keep (fn [candidate]
+                        (when (dispatchable-declaration? candidate)
+                          (:declaration-key candidate)))
+                      declarations)))
         primary-dependencies (development-dependency-snapshot declarations)
         incremental-publication?
         (incremental-dispatch-publication?
@@ -6097,13 +6149,22 @@
         (when fallback-required?
           (->> (concat
                 (filter #(= :import (:kind %)) declarations)
-                (if (and incremental-publication?
-                         (not *exact-declaration-publication?*))
+                (if (and (not *exact-declaration-publication?*)
+                         (seq pending-declarations))
                   (mapcat
                    #(declaration-live-slice declarations %)
                    (distinct
                     (concat
-                     (changed-dispatch-declarations module-state declarations)
+                     ;; Async registration coalesces successive forms into the
+                     ;; newest immutable job. Every declaration accumulated by
+                     ;; a superseded job must therefore remain a publication
+                     ;; root, even when the newest form is a non-dispatchable
+                     ;; generic/error-union function. Otherwise an earlier
+                     ;; compatible function edit can be present in
+                     ;; `:definitions` but never reach native code.
+                     (when incremental-publication?
+                       (changed-dispatch-declarations module-state
+                                                      declarations))
                      pending-declarations)))
                   (declaration-live-slice
                    declarations refreshed-declaration)))
@@ -6242,11 +6303,18 @@
 
 (defn- complete-compilation-plan
   [module module-state declarations]
-  (let [declarations (refresh-live-declaration-references declarations)]
+  (let [declarations (refresh-live-declaration-references declarations)
+        getter-declaration-keys
+        (cond-> (changed-dispatch-declaration-keys module-state declarations)
+          (:external-publication? module-state)
+          (into (keep (fn [declaration]
+                        (when (dispatchable-declaration? declaration)
+                          (:declaration-key declaration)))
+                      declarations)))]
     (let [primary
           (assoc (module-sources
                   module declarations
-                  (changed-dispatch-declaration-keys module-state declarations))
+                  getter-declaration-keys)
                  :declarations declarations
                  :dependency-snapshot
                  (development-dependency-snapshot declarations)
@@ -7769,8 +7837,12 @@
     (assoc impacts component-id next-impact)))
 
 (defn- recompile-component-chain!
-  [module include-root? ignored-pending initial-impacts]
-  (locking compile-lock
+  ([module include-root? ignored-pending initial-impacts]
+   (recompile-component-chain! module include-root? ignored-pending
+                               initial-impacts false))
+  ([module include-root? ignored-pending initial-impacts
+    root-component-already-handled?]
+   (locking compile-lock
     (let [module (str module)
           topology (dependency-topology @registry)
           component-by-module (:component-by-module topology)
@@ -7825,7 +7897,8 @@
                (filter live-module?)
                vec)
           root-peer-recompile?
-          (and (:cyclic? root-component)
+          (and (not root-component-already-handled?)
+               (:cyclic? root-component)
                (or (nil? initial-impacts)
                    (and (seq initial-impacts)
                         (component-references-impact? live-root-peers
@@ -7966,11 +8039,89 @@
                    (into publications frontier-publications)
                    (+ parallel-frontier-count (if parallel? 1 0))
                    (+ parallel-component-count
-                      (if parallel? (count selected) 0)))))))))
+                      (if parallel? (count selected) 0))))))))))
+
+(defn- exact-dependent-declarations
+  [allowed-modules impacts visited]
+  (let [by-logical (registered-declarations-by-logical-id)
+        references (:references @declaration-reference-index)
+        impacted-ids (into #{} (keep :logical-id) impacts)
+        dependent-ids
+        (into #{}
+              (keep (fn [[logical-id declaration-references]]
+                      (let [module (:module (get by-logical logical-id))
+                            module-state (get @registry module)
+                            live? (or (seq (:native-generations module-state))
+                                      (:external-publication? module-state))]
+                        (when (and live?
+                                   (not (contains? impacted-ids logical-id))
+                                   (not (contains? visited logical-id))
+                                   (some impacted-ids declaration-references)
+                                   (contains? allowed-modules module))
+                          logical-id))))
+              references)]
+    (->> dependent-ids
+         (group-by #(-> (get by-logical %) :module))
+         (mapcat
+          (fn [[module logical-ids]]
+            (let [logical-ids (set logical-ids)
+                  refreshed
+                  (refresh-live-declaration-references
+                   (vec (vals (get-in @registry [module :definitions]))))]
+              (filter #(contains? logical-ids (:logical-id %)) refreshed))))
+         (sort-by (juxt :module :source-order (comp str :name)))
+         vec)))
+
+(defn- recompile-exact-dependent-slice!
+  "Republish compatible declaration dependents without expanding a Zig file
+  cycle into its entire module SCC. Stable dispatch cells make a changed
+  concrete caller a propagation boundary; type-producing and non-addressable
+  callers continue as the next exact frontier."
+  [module allowed-modules impacts]
+  (loop [frontier (set impacts)
+         visited #{}
+         results []]
+    (let [declarations
+          (exact-dependent-declarations allowed-modules frontier visited)]
+      (if (empty? declarations)
+        {:status :finished
+         :root (str module)
+         :declaration-count (count visited)
+         :results results
+         :propagated-impacts frontier}
+        (let [modules (into #{} (map :module) declarations)
+              before-states (select-keys @registry modules)
+              publication-results
+              (binding [*propagate-dependent-changes?* false
+                        *exact-declaration-publication?* true]
+                (mapv register-sync! declarations))
+              next-impacts
+              (changed-dependent-impacts before-states modules)
+              visited (into visited (keep :logical-id) declarations)]
+          (recur next-impacts visited
+                 (into results publication-results)))))))
 
 (defn- recompile-dependent-components!
   [module ignored-pending impacts]
-  (recompile-component-chain! module false ignored-pending impacts))
+  ;; Resolve the root SCC at declaration granularity first. Existing Zig
+  ;; projects commonly have large import cycles (Ghostty has hundreds of files
+  ;; in one SCC), but a compatible comptime edit usually affects one concrete
+  ;; caller. Rebuilding the complete SCC would destroy REPL latency and can
+  ;; force target-specific dormant modules. Once that exact frontier is live,
+  ;; continue through other SCCs with the established atomic component DAG.
+  (let [module (str module)
+        topology (dependency-topology @registry)
+        root-id (get-in topology [:component-by-module module])
+        root-component (some #(when (= root-id (:id %)) %)
+                             (:components topology))
+        root-modules (set (:modules root-component))
+        exact (recompile-exact-dependent-slice!
+               module root-modules impacts)
+        cross (recompile-component-chain!
+               module false ignored-pending impacts true)]
+    (assoc cross
+           :exact-declaration-count (:declaration-count exact)
+           :exact-results (:results exact))))
 
 (defn recompile-affected!
   "Recompile a module SCC and every transitively dependent SCC in dependency
@@ -8642,6 +8793,43 @@
          (sort-by :generation)
          vec)))
 
+(defn external-generation-info
+  "Return process-independent symbol metadata for the current native image.
+
+  An external development host cannot use JVM `MethodHandle` instances or
+  addresses from the JVM process. It can, however, load the same dylib and
+  resolve these deterministic getter/setter symbols in its own address space.
+  No loader objects or process-local addresses cross this boundary."
+  [module]
+  (locking compile-lock
+    (when-let [module-state (get @registry (str module))]
+      (when-let [generation
+                 (or (some #(when (= (:published-generation module-state)
+                                      (:generation %))
+                              %)
+                           (:native-generations module-state))
+                     (last (:native-generations module-state)))]
+        {:module (str module)
+         :generation (:generation generation)
+         :library-path (:library-path generation)
+         :publication-epoch-setter
+         (some :publication-epoch-setter
+               (vals (:dispatch-bindings generation)))
+         :dispatch
+         (->> (:dispatch-bindings generation)
+              vals
+              (keep (fn [{:keys [getter setter]}]
+                      ;; The JVM only resolves `implementation-address` when
+                      ;; it needs to call the generation itself. An external
+                      ;; host resolves the exported getter in its own process,
+                      ;; so requiring a JVM-local address here incorrectly
+                      ;; suppresses valid external-only publications.
+                      (when (and getter setter)
+                        {:getter getter :setter setter})))
+              distinct
+              (sort-by (juxt :setter :getter))
+              vec)}))))
+
 (defn module-info
   "Return inspectable information for a module/namespace, excluding native
   loader objects and method handles."
@@ -9001,6 +9189,102 @@
   "Return the current generated Zig source for a module/namespace."
   [module]
   (:source (ensure-static-module-source! (str module))))
+
+(def external-publication-epoch-symbol
+  "Stable symbol shared by every module in a generated development binary.
+
+  The generated Zig publication listener owns this epoch. Reloadable call
+  sites observe it while a complete external generation is being installed,
+  so a running program never sees a half-published dependency component."
+  "__aguafria_external_publication_epoch")
+
+(defn development-source
+  "Return a top-level Zig module suitable for a generated development binary.
+
+  Unlike the ordinary standalone source returned by `source`, functions use
+  Aguafria's stable dispatch cells and mutable declarations use versioned state
+  hooks. The original project source is never edited. `bootstrap-declaration`
+  optionally names the one function whose implementation receives
+  `bootstrap-source`; a GUI library normally uses its existing initialization
+  export so its native shell remains completely unaware of Aguafria."
+  ([module]
+   (development-source module {}))
+  ([module {:keys [bootstrap-declaration bootstrap-source]}]
+   (let [module (str module)]
+     (ensure-static-module-source! module)
+     (locking compile-lock
+       (let [module-state
+             (or (get @registry module)
+                 (throw (ex-info "Unknown Aguafria module"
+                                 {:aguafria/phase :development-source
+                                  :module module})))
+             declarations (->> (:definitions module-state)
+                               vals
+                               (sort-by (juxt #(or (:order %) Long/MAX_VALUE)
+                                              #(str (:name %))))
+                               vec)
+             ;; Source-tree conversion registers modules independently. A
+             ;; forward-referenced type may therefore have gained its final
+             ;; schema only after an earlier function was rendered. Refresh
+             ;; the complete snapshot before generating native state accessors
+             ;; so every rewritten defvar reference names the accessor emitted
+             ;; for that declaration.
+             declarations (refresh-live-declaration-references declarations)
+             bootstrap-name (some-> bootstrap-declaration str)
+             matches?
+             (fn [declaration]
+               (= bootstrap-name
+                  (str (or (:zig-name declaration) (:name declaration)))))
+             matched (when bootstrap-name (filterv matches? declarations))
+             _ (when (and bootstrap-name (not= 1 (count matched)))
+                 (throw
+                  (ex-info
+                   "Development bootstrap declaration was not uniquely resolved"
+                   {:aguafria/phase :development-source
+                    :module module
+                    :bootstrap-declaration bootstrap-name
+                    :match-count (count matched)
+                    :available-declarations
+                    (mapv #(str (or (:zig-name %) (:name %))) declarations)})))
+             declarations
+             (if bootstrap-name
+               (mapv
+                (fn [declaration]
+                  (if (matches? declaration)
+                    (update declaration :body-prefix-source
+                            (fn [existing]
+                              (str bootstrap-source
+                                   (when-not (str/blank? existing)
+                                     (str "\n" existing)))))
+                    declaration))
+                declarations)
+               declarations)
+             {:keys [reload-source-dispatch-specs state-specs]}
+             (module-source-specs module declarations #{})]
+         (emit/emit-reloadable-module
+          module declarations reload-source-dispatch-specs state-specs
+          {:top-level? true}))))))
+
+(defn enable-external-publication!
+  "Mark modules whose generated development binary consumes native images.
+
+  The next compilation then emits an implementation-address getter for the
+  edited live slice even when this JVM has never invoked that declaration.
+  This is essential for an external application whose baseline implementation
+  lives in its generated development library rather than in the JVM process."
+  [modules]
+  (let [modules (set (map str modules))]
+    (locking compile-lock
+      (swap! registry
+             (fn [current]
+               (reduce
+                (fn [current module]
+                  (if (contains? current module)
+                    (assoc-in current [module :external-publication?] true)
+                    current))
+                current modules))))
+    {:enabled-modules (vec (sort modules))
+     :enabled-module-count (count modules)}))
 
 (defn- coerce-integer-argument
   [type value signed? bits]
@@ -10517,7 +10801,16 @@
                            :environment-count (count environment)
                            :environment-pointer environment-pointer
                            :run-handle run-handle}]
-               (swap! live-hosts assoc id record)
+               ;; The process entry receives `std.process.Init` by value and
+               ;; establishes process-scoped dependency state. Keep that one
+               ;; already-entered root in the host image so it observes the
+               ;; exact dependency instances embedded beside it. All callees
+               ;; remain ordinary dispatch cells and continue to hot-swap.
+               (swap! live-hosts assoc id
+                      (assoc record
+                             :local-dispatch-version-keys
+                             #{[(:logical-id declaration)
+                                (:abi-fingerprint declaration)]}))
                ;; A running process is a coarse native execution lease: every
                ;; generation stays loaded until it returns. Avoiding two
                ;; atomic RMWs on every nested Var call keeps development hosts

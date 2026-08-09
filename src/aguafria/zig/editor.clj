@@ -14,6 +14,7 @@
             [clojure.string :as str])
   (:import [java.net URI]
            [java.nio.charset StandardCharsets]
+           [java.nio.file Files StandardOpenOption]
            [java.security MessageDigest]
            [java.util HexFormat UUID]))
 
@@ -24,6 +25,7 @@
 (defonce ^:private ticket-order (atom []))
 (def ^:private ticket-history-limit 200)
 (def ^:private default-max-source-bytes (* 16 1024 1024))
+(def ^:private external-publication-lock (Object.))
 
 (def ^:private runtime-configuration-keys
   [:zig :cache-dir :optimize :development-debug-info :development-panic
@@ -128,9 +130,16 @@
                    :updated-at-ms :configuration]))))
 
 (defn stop-project!
-  "Forget editor bookkeeping for a project without killing unrelated hosts."
+  "Stop an editor-owned external program and forget project bookkeeping.
+
+  Only the exact `Process` launched for this project is stopped. JVM-owned
+  native hosts and unrelated operating-system processes are never searched for
+  or killed."
   [project-id]
   (let [project (get @projects (str project-id))]
+    (when-let [^Process process (get-in project [:internal :external-process])]
+      (when (.isAlive process)
+        (.destroy process)))
     (swap! projects dissoc (str project-id))
     (when project
       {:project-id (str project-id)
@@ -138,6 +147,142 @@
        :status :stopped})))
 
 (declare project! module-for-uri)
+
+(defn- configured-file
+  [configuration path]
+  (canonical-file (:workspace-root configuration) path))
+
+(defn- run-development-build!
+  [configuration output-root build]
+  (when build
+    (let [build (if (map? build) build {:command build})
+          command (mapv str (:command build))
+          _ (when-not (seq command)
+              (throw
+               (ex-info "Development build has no command"
+                        {:aguafria/phase :zig-editor-development-build})))
+          working-directory-file
+          (if-let [directory (:working-directory build)]
+            (configured-file configuration directory)
+            (io/file output-root))
+          started (System/nanoTime)
+          process (.start
+                   (doto (ProcessBuilder. ^java.util.List command)
+                     (.directory working-directory-file)
+                     (.inheritIO)))
+          exit (.waitFor process)
+          report {:command command
+                  :working-directory
+                  (.getAbsolutePath ^java.io.File working-directory-file)
+                  :exit exit
+                  :elapsed-ms (/ (- (System/nanoTime) started) 1e6)}]
+      (when-not (zero? exit)
+        (throw
+         (ex-info "Generated Zig development build failed"
+                  (assoc report
+                         :aguafria/phase :zig-editor-development-build))))
+      report)))
+
+(defn- external-program-command
+  [configuration]
+  (let [external (:external-program configuration)
+        executable (if (map? external) (:executable external) external)
+        arguments (if (map? external) (vec (:arguments external)) [])
+        open-file-limit (when (map? external) (:open-file-limit external))]
+    (when executable
+      (let [command
+            (into [(.getAbsolutePath
+                    ^java.io.File (configured-file configuration executable))]
+                  (map str)
+                  arguments)]
+        (if open-file-limit
+          (into ["/bin/sh" "-c"
+                 "ulimit -n \"$1\" || exit $?; shift; exec \"$@\""
+                 "aguafria-external-program" (str (long open-file-limit))]
+                command)
+          command)))))
+
+(defn- external-program-view
+  [^Process process command working-directory]
+  {:kind :external
+   :status (if (.isAlive process) :running :exited)
+   :pid (.pid process)
+   :command command
+   :working-directory working-directory
+   :exit-code (when-not (.isAlive process) (.exitValue process))})
+
+(defn- start-external-program!
+  [project-id project]
+  (let [{:keys [configuration]} project
+        external (:external-program configuration)
+        command (external-program-command configuration)
+        _ (when-not (seq command)
+            (throw (ex-info "External development program has no executable"
+                            {:aguafria/phase :zig-editor-program
+                             :project-id project-id
+                             :external-program external})))
+        configured-executable
+        (if (map? external) (:executable external) external)
+        executable (configured-file configuration configured-executable)
+        _ (when-not (.isFile executable)
+            (throw (ex-info "External development-program executable does not exist"
+                            {:aguafria/phase :zig-editor-program
+                             :project-id project-id
+                             :executable (.getAbsolutePath executable)})))
+        working-directory-file
+        (configured-file configuration
+                         (or (when (map? external)
+                               (:working-directory external))
+                             "."))
+        working-directory (.getAbsolutePath working-directory-file)
+        builder (doto (ProcessBuilder. ^java.util.List command)
+                  (.directory working-directory-file)
+                  (.inheritIO))
+        environment (.environment builder)
+        ;; ProcessBuilder changes the real cwd but leaves an inherited `PWD`
+        ;; untouched. Native programs are allowed to trust `PWD`; an
+        ;; inconsistent value has caused real debug builds (including Ghostty)
+        ;; to fail before their UI starts.
+        _ (.put environment "PWD" working-directory)
+        configured-environment (if (map? external) (:environment external) {})
+        _ (doseq [[name value] configured-environment]
+            (.put environment (str name) (str value)))
+        configured-environment-paths
+        (if (map? external) (:environment-paths external) {})
+        _ (doseq [[name path] configured-environment-paths]
+            (.put environment
+                  (str name)
+                  (.getAbsolutePath
+                   ^java.io.File (configured-file configuration path))))
+        manifest (:external-publication-manifest configuration)
+        manifest-file (when manifest (configured-file configuration manifest))
+        _ (when manifest-file
+            ;; Each external process starts from a clean publication cursor.
+            ;; Old dylib paths belong to the preceding process and must not be
+            ;; replayed before the new app finishes its own initialization.
+            (io/make-parents manifest-file)
+            (Files/writeString
+             (.toPath manifest-file)
+             ""
+             StandardCharsets/UTF_8
+             (into-array StandardOpenOption
+                         [StandardOpenOption/CREATE
+                          StandardOpenOption/TRUNCATE_EXISTING
+                          StandardOpenOption/WRITE])))
+        _ (when manifest
+            (.put environment
+                  "AGUAFRIA_PUBLICATION_MANIFEST"
+                  (.getAbsolutePath ^java.io.File manifest-file)))
+        process (.start builder)
+        view (external-program-view process command working-directory)]
+    (swap! projects update project-id
+           (fn [current]
+             (-> current
+                 (assoc :status :running :updated-at-ms
+                        (System/currentTimeMillis))
+                 (assoc-in [:internal :external-process] process)
+                 (assoc :program view))))
+    (assoc view :project-id project-id :runtime-id runtime-id)))
 
 (defn bootstrap-project!
   "Build and register an existing Zig project's declaration graph in memory.
@@ -154,12 +299,41 @@
         (assoc summary :cached? true)
         (let [started (System/currentTimeMillis)
             tree
-            (convert/load-source-tree!
-             (:project-root configuration)
-             (select-keys configuration
-                          [:namespace-prefix :exclude-directories
-                           :capture-build-modules? :build-steps :build-profiles
-                           :build-file :zig :cache-dir]))
+            (or (get-in project [:internal :source-tree])
+                (convert/load-source-tree!
+                 (:project-root configuration)
+                 (select-keys configuration
+                              [:namespace-prefix :exclude-directories
+                               :capture-build-modules? :build-steps :build-profiles
+                               :build-file :zig :cache-dir])))
+            ;; Preserve the expensive immutable parse/import graph even when a
+            ;; later materialization or Zig build reports an error. The user can
+            ;; fix Aguafria/source code and retry in the same JVM, matching the
+            ;; ordinary REPL workflow instead of paying a full project bootstrap
+            ;; after every failed compiler iteration.
+            _ (swap! projects assoc-in [project-id :internal :source-tree] tree)
+            development-options (:development-materialization configuration)
+            development-output
+            (when development-options
+              (configured-file
+               configuration
+               (or (:output development-options)
+                   ".aguafria/development-project")))
+            development
+            (when development-options
+              (convert/materialize-development-tree!
+               tree development-output
+               (merge
+                (select-keys configuration [:zig])
+                (dissoc development-options :output))))
+            external-publication
+            (when development
+              (runtime/enable-external-publication!
+               (map :module (:development-files development))))
+            development-build
+            (when development-options
+              (run-development-build!
+               configuration development-output (:development-build configuration)))
             completed (System/currentTimeMillis)
             summary {:project-id project-id
                      :runtime-id runtime-id
@@ -167,29 +341,53 @@
                      :file-count (:file-count tree)
                      :declaration-count (:declaration-count tree)
                      :build-profiles (:build-profiles tree)
+                     :development
+                     (some-> development
+                             (select-keys [:output-root
+                                           :development-module-count
+                                           :loader-relative-path
+                                           :elapsed-ms]))
+                     :development-build development-build
+                     :external-publication
+                     (some-> external-publication
+                             (select-keys [:enabled-module-count]))
                      :elapsed-ms (- completed started)}]
         (swap! projects assoc project-id
                (assoc project
                       :status :ready
                       :bootstrapped-at-ms completed
                       :bootstrap-summary summary
-                      :internal {:source-tree tree}))
+                      :internal {:source-tree tree
+                                 :development development}))
           summary)))))
 
 (defn start-program!
-  "Start the configured Zig process main inside this authoritative JVM.
+  "Start the configured native development program.
 
-  The project must name `:entry-point`; `:entry-function` defaults to `main`.
-  A project may set `:start-program? false` when it is a library/editor target
-  rather than a process executable. Repeated calls return the existing host."
+  `:entry-point` starts a Zig main inside this authoritative JVM. An explicit
+  `:external-program` starts a platform-owned UI process (for example an
+  AppKit application) that consumes Aguafria generation publications through
+  the configured development loader. Repeated calls return the existing host
+  or exact child process."
   [project-id]
   (let [project-id (str project-id)
         {:keys [configuration] :as project} (project! project-id)
-        entry-point (:entry-point configuration)]
+        entry-point (:entry-point configuration)
+        external-process (get-in project [:internal :external-process])]
     (cond
       (false? (:start-program? configuration))
       {:project-id project-id :runtime-id runtime-id :status :skipped
        :reason :disabled}
+
+      (and external-process (.isAlive ^Process external-process))
+      (assoc (external-program-view
+              external-process
+              (external-program-command configuration)
+              (get-in project [:program :working-directory]))
+             :project-id project-id :runtime-id runtime-id)
+
+      (:external-program configuration)
+      (start-external-program! project-id project)
 
       (nil? entry-point)
       {:project-id project-id :runtime-id runtime-id :status :skipped
@@ -229,12 +427,88 @@
   [project-id]
   (let [project-id (str project-id)
         project (project! project-id)]
-    (if-let [host (get-in project [:internal :host])]
+    (cond
+      (get-in project [:internal :external-process])
+      (let [process (get-in project [:internal :external-process])]
+        (assoc (external-program-view
+                process
+                (external-program-command (:configuration project))
+                (get-in project [:program :working-directory]))
+               :project-id project-id :runtime-id runtime-id))
+
+      (get-in project [:internal :host])
+      (let [host (get-in project [:internal :host])]
       (assoc (runtime/host-info host)
              :project-id project-id :runtime-id runtime-id
-             :program (:program project))
+             :program (:program project)))
+
+      :else
       {:project-id project-id :runtime-id runtime-id
        :status :not-started :program (:program project)})))
+
+(defn stop-program!
+  "Request termination of the exact external program owned by a project.
+
+  The indexed Zig graph and authoritative JVM remain alive, so starting the
+  UI again does not repeat project bootstrap. JVM-owned native hosts currently
+  retain their existing lifecycle semantics."
+  [project-id]
+  (let [project-id (str project-id)
+        project (project! project-id)]
+    (if-let [^Process process (get-in project [:internal :external-process])]
+      (do
+        (when (.isAlive process) (.destroy process))
+        (swap! projects update project-id
+               (fn [current]
+                 (-> current
+                     (update :internal dissoc :external-process)
+                     (assoc :status :ready
+                            :updated-at-ms (System/currentTimeMillis)
+                            :program (assoc (:program current)
+                                            :status :stopping)))))
+        {:project-id project-id :runtime-id runtime-id
+         :kind :external :status :stopping :pid (.pid process)})
+      {:project-id project-id :runtime-id runtime-id
+       :status :not-started})))
+
+(defn- current-native-generation
+  [module-info]
+  (or (some #(when (:current? %) %) (:native-generations module-info))
+      (last (:native-generations module-info))))
+
+(defn- publish-external-generation!
+  [project ticket module-info]
+  (when-let [manifest-path
+             (get-in project [:configuration :external-publication-manifest])]
+    (when-let [{:keys [generation library-path dispatch
+                       publication-epoch-setter] :as external}
+               (runtime/external-generation-info (:module ticket))]
+      (when (seq dispatch)
+        (let [manifest (configured-file (:configuration project) manifest-path)
+            publication
+            (str "B\t" generation "\t" (:module ticket) "\t"
+                 library-path "\t" (count dispatch) "\t"
+                 publication-epoch-setter "\n"
+                 (apply str
+                        (map (fn [{:keys [getter setter]}]
+                               (str "S\t" getter "\t" setter "\n"))
+                             dispatch))
+                 "E\t" generation "\n")]
+        (locking external-publication-lock
+          (io/make-parents manifest)
+          (Files/writeString
+           (.toPath manifest)
+           publication
+           StandardCharsets/UTF_8
+           (into-array StandardOpenOption
+                       [StandardOpenOption/CREATE
+                        StandardOpenOption/WRITE
+                        StandardOpenOption/APPEND])))
+          {:manifest (.getAbsolutePath manifest)
+           :generation generation
+           :module (:module ticket)
+           :library-path library-path
+           :dispatch (:dispatch external)})))))
 
 (defn- project!
   [project-id]
@@ -581,18 +855,23 @@
       (try
         (runtime/await! (:module ticket))
         (let [module-info (runtime/module-info (:module ticket))
+              project (project! (:project-id ticket))
+              external-publication
+              (publish-external-generation! project ticket module-info)
               completed
               (with-meta
                 (assoc ticket
                        :status :published
                        :published-generation (:published-generation module-info)
                        :completed-at-ms (System/currentTimeMillis)
+                       :external-publication external-publication
                        :module-info
                        (select-keys module-info
                                     [:module :requested-generation
                                      :published-generation :pending?
                                      :native-generation-count
-                                     :retired-generation-count]))
+                                     :retired-generation-count
+                                     :native-generations]))
                 nil)]
           (swap! tickets assoc ticket-id completed)
           completed)
@@ -720,7 +999,22 @@
    #{:eval-declaration :eval-selection :eval-file :async-publication
      :structured-diagnostics :statistics :source :invoke :exact-native-values
      :interrupt :compatible-hot-reload :versioned-breaking-change
+     :external-native-program :external-generation-publication
      :lifecycle-shutdown}})
+
+(defn project-state
+  "Return lightweight reconnect state for one editor project.
+
+  Unlike aggregate compiler statistics this is bounded by the number of open
+  documents and never traverses a large project's full declaration graph."
+  [project-id]
+  (let [project-id (str project-id)
+        project (project! project-id)]
+    {:project-id project-id
+     :runtime-id runtime-id
+     :status (:status project)
+     :documents (into (sorted-map) (:documents project))
+     :native-program (program-status project-id)}))
 
 (defn stats
   "Return serializable editor, compiler, and native-host state."
@@ -734,8 +1028,13 @@
                  (-> project
                      (update :documents #(into (sorted-map) %))
                      (assoc :native-program
-                            (when-let [host (get-in project [:internal :host])]
-                              (runtime/host-info host)))
+                            (cond
+                              (get-in project [:internal :external-process])
+                              (program-status project-id)
+
+                              (get-in project [:internal :host])
+                              (runtime/host-info
+                               (get-in project [:internal :host]))))
                      (dissoc :internal))]))
          @projects)
    :tickets (->> @ticket-order (keep @tickets) reverse vec)
@@ -744,6 +1043,8 @@
 (defn clear!
   "Clear editor bookkeeping. Intended for tests and explicit REPL reset."
   []
+  (doseq [[project-id] @projects]
+    (stop-project! project-id))
   (reset! projects {})
   (reset! tickets {})
   (reset! ticket-order [])

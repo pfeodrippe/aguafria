@@ -178,6 +178,14 @@
           (response! message
                      (editor/program-status (value message :project-id)))
 
+          "aguafria/project-state"
+          (response! message
+                     (editor/project-state (value message :project-id)))
+
+          "aguafria/stop-program"
+          (response! message
+                     (editor/stop-program! (value message :project-id)))
+
           "aguafria/eval-zig"
           (response! message (editor/evaluate! (evaluation-message message)))
 
@@ -243,6 +251,8 @@
    "aguafria/bootstrap-project" {:doc "Load an existing Zig graph in memory."}
    "aguafria/start-program" {:doc "Start the configured Zig main in this JVM."}
    "aguafria/program-status" {:doc "Inspect the configured native program."}
+   "aguafria/project-state" {:doc "Read bounded reconnect/document state."}
+   "aguafria/stop-program" {:doc "Stop only the owned native UI program."}
    "aguafria/eval-zig" {:doc "Evaluate selected Zig declarations."}
    "aguafria/eval-zig-file" {:doc "Reconcile and evaluate one Zig file."}
    "aguafria/await" {:doc "Wait for native publication of one ticket."}

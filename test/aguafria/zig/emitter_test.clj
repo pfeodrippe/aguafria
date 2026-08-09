@@ -419,7 +419,11 @@
     (is (str/includes? source "__aguafria_discard_0: i32"))
     (is (str/includes? source "_ = __aguafria_discard_0;"))
     (is (str/includes? source
-                       "__impl(__aguafria_discard_0, value)"))
+                       "fn __impl_trampoline(raw_frame: *anyopaque)"))
+    (is (str/includes? source
+                       "__impl(__impl_dispatch_frame_arg_0.*, __impl_dispatch_frame_arg_1.*)"))
+    (is (str/includes? source
+                       ".arg_0 = @ptrCast(&__aguafria_discard_0)"))
     (is (not (str/includes? source "__impl(_, value)")))))
 
 (deftest reloadable-const-keeps-comptime-state-reference-direct-test

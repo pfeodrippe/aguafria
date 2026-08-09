@@ -97,19 +97,13 @@ async function verifyConnection(discovered: Handshake, discoveredToken: string):
         throw new Error(`The discovered Aguafria runtime lacks required capability ${required}`);
       }
     }
-    const status = asObject(resultFrom(await next.request({
-      op: "aguafria/status",
+    const project = asObject(resultFrom(await next.request({
+      op: "aguafria/project-state",
       token: discoveredToken,
       "runtime-id": discovered.runtimeId,
+      "project-id": discovered.projectId,
     }, 5_000)));
     acceptedSourceHashes.clear();
-    const projects = typeof status.projects === "object" && status.projects !== null
-      && !Array.isArray(status.projects) ? status.projects as ObjectValue : {};
-    const project = typeof projects[discovered.projectId] === "object"
-      && projects[discovered.projectId] !== null
-      && !Array.isArray(projects[discovered.projectId])
-      ? projects[discovered.projectId] as ObjectValue
-      : {};
     const documents = typeof project.documents === "object" && project.documents !== null
       && !Array.isArray(project.documents) ? project.documents as ObjectValue : {};
     for (const [uri, document] of Object.entries(documents)) {

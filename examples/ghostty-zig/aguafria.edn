@@ -6,6 +6,24 @@
  :build-profiles [["-Demit-lib-vt=true"
                    "-Demit-xcframework=false"
                    "-Demit-macos-app=false"]]
+ :development-materialization
+ {:output "../ghostty/build/editor-development"
+  :entry-module "ghostty.zig.src.main-c"
+  :entry-declaration "ghostty_init"}
+ :development-build
+ {:command ["zig" "build"
+            "-Demit-macos-app=true"
+            "-Demit-lib-vt=false"
+            "-Demit-xcframework=true"
+            "-Dxcframework-target=native"]
+  :working-directory "../ghostty/build/editor-development"}
+ :external-program
+ {:executable
+  "../ghostty/build/editor-development/zig-out/Ghostty.app/Contents/MacOS/ghostty"
+  :working-directory "../ghostty/build/editor-development"
+  :environment {"LANG" "en_US.UTF-8"}
+  :open-file-limit 10240}
+ :external-publication-manifest ".aguafria/publications.manifest"
  :target :ghostty
- :start-program? false
+ :start-program? true
  :async? true}
