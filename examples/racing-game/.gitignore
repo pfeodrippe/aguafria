@@ -1,0 +1,9 @@
+.aguafria/
+.cpcache/
+.nrepl-port
+build/
+target/
+resources/shaders/*.spv
+resources/models/*.gguf
+resources/models/*.part
+hs_err_pid*.log

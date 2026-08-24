@@ -63,6 +63,8 @@
   clojure.lang.IFn
   (invoke [_ value]
     (construct value))
+  (applyTo [this args]
+    (clojure.lang.AFn/applyToHelper this args))
 
   Object
   (toString [this]
@@ -851,24 +853,30 @@
   "Decode a Zig value into its natural Clojure view while retaining the native
   backing value for round trips. Arbitrary-width integers are exact."
   [^ZigValue zig-value]
-  (let [{:keys [representation value segment schema decoded-fn]}
-        (realize! zig-value)
-        zig-type (type zig-value)]
-    (if (= :scalar representation)
-      value
-      (cond
-        decoded-fn (decoded-fn segment)
-        schema
-        (decode-value-segment segment zig-type schema)
-        :else
-        (if-let [[_ signed-marker bit-count]
-                 (and (keyword? zig-type)
-                      (re-matches #"([iu])(\d+)" (name zig-type)))]
-          (decode-integer segment (= "i" signed-marker)
-                          (Long/parseLong bit-count))
-          ;; Unknown composites remain lossless and inspectable while their
-          ;; schema decoder is added.
-          (bytes zig-value))))))
+  (try
+    (let [{:keys [representation value segment schema decoded-fn]}
+          (realize! zig-value)
+          zig-type (type zig-value)]
+      (if (= :scalar representation)
+        value
+        (cond
+          decoded-fn (decoded-fn segment)
+          schema
+          (decode-value-segment segment zig-type schema)
+          :else
+          (if-let [[_ signed-marker bit-count]
+                   (and (keyword? zig-type)
+                        (re-matches #"([iu])(\d+)" (name zig-type)))]
+            (decode-integer segment (= "i" signed-marker)
+                            (Long/parseLong bit-count))
+            ;; Unknown composites remain lossless and inspectable while their
+            ;; schema decoder is added.
+            (bytes zig-value)))))
+    (finally
+      ;; Cleaner ownership is attached to the ZigValue rather than the raw
+      ;; segment. The JVM may otherwise prove the wrapper dead while a long
+      ;; composite decode is still reading its arena.
+      (java.lang.ref.Reference/reachabilityFence zig-value))))
 
 (defn set-value!
   "Write a semantic Clojure value into a live native `az/defvar` and return

@@ -1,0 +1,4 @@
+{:paths ["src" "resources" "generated"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        aguafria/aguafria {:local/root "../.."}}}
+

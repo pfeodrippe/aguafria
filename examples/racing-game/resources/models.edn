@@ -1,0 +1,25 @@
+{:default :granite-350m-q4-0
+ :action-head
+ {:filename "granite-r2-action-head.f32"
+  :bytes 196672
+  :sha256 "b3cc625e61716d316fa03e0d340c69a57ae23038696113eece1f109a463eb353"
+  :format-version 1
+  :observation-schema 2
+  :action-schema 1
+  :input-count 6144
+  :output-count 8
+  :feature-layout :eight-token-final-hidden
+  :corpus-size 144
+  :training-examples 120
+  :test-examples 24
+  :held-out-accuracy 0.9166666666666666
+  :training :deterministic-expert-ridge}
+ :models
+ {:granite-350m-q4-0
+  {:architecture :granitemoehybrid
+   :repository "ibm-granite/granite-4.0-h-350m-GGUF"
+   :filename "granite-4.0-h-350m-Q4_0.gguf"
+   :bytes 216073120
+   :sha256 "7adb3d5765ad12b83b1c08a90746d8925af718545b4a36287e8dac8f83b72ab6"
+   :license :apache-2.0
+   :url "https://huggingface.co/ibm-granite/granite-4.0-h-350m-GGUF/resolve/main/granite-4.0-h-350m-Q4_0.gguf"}}}

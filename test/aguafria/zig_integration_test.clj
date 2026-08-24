@@ -502,6 +502,7 @@
           test-ns (create-ns test-symbol)
           constant (atom nil)
           constructed (atom nil)
+          apply-constructed (atom nil)
           returned (atom nil)]
       (try
         (az/configure! {:async? false :modules {}})
@@ -531,13 +532,17 @@
         (let [Point (var-get (ns-resolve test-ns 'Point))]
           (is (az/zig-type? Point))
           (reset! constructed
-                  (Point {:x -7 :y 2.5 :enabled 1})))
+                  (Point {:x -7 :y 2.5 :enabled 1}))
+          ;; nREPL and other dynamic evaluators may enter through IFn.applyTo.
+          (reset! apply-constructed
+                  (apply Point [{:x 4 :y 1.25 :enabled 0}])))
         (is (= {:x -7 :y 2.5 :enabled 1} (az/value @constructed)))
+        (is (= {:x 4 :y 1.25 :enabled 0} (az/value @apply-constructed)))
         (is (= {:x 12 :y -3.25 :enabled 0} (az/value @returned)))
         (is (= "{:x 12, :y -3.25, :enabled 0}\n"
                (with-out-str (pprint/pprint @returned))))
         (finally
-          (doseq [value [@returned @constructed @constant]
+          (doseq [value [@returned @constructed @apply-constructed @constant]
                   :when (az/zig-value? value)]
             (.close ^java.lang.AutoCloseable value))
           (az/configure! old-config)
