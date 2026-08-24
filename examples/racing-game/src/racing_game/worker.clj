@@ -1,5 +1,5 @@
 (ns racing-game.worker
-  "Fixed native inference workers with one bounded mailbox per racer."
+  "Fixed native inference workers with one bounded mailbox per AI actor."
   (:refer-clojure :exclude [reset!])
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
@@ -11,7 +11,11 @@
             [racing-game.inference :as inference]
             [racing-game.protocol :as protocol]))
 
+(az/defconst actor-count :usize 12)
+
 (az/defconst racer-count :usize 8)
+
+(az/defconst team-count :usize 4)
 
 (az/defconst prompt-length :usize 8)
 
@@ -33,6 +37,9 @@
    [:item :u8]
    [:target :u8]
    [:persona :u8]
+   [:target_distance :u8]
+   [:target_lane :u8]
+   [:tactical_status :u8]
    [:urgent :bool]
    [:observation_schema :u8]
    [:action_schema :u8]
@@ -90,30 +97,32 @@
    [:results :u64]
    [:idle_waits :u64]
    [:pending :u8]
+   [:requests_by_actor [:array 12 :u64]]
+   [:results_by_actor [:array 12 :u64]]
    [:state_bytes :usize]])
 
-(az/defvar requests [:array 8 InferenceRequest]
-  (std-mem/zeroes (az/type [:array 8 InferenceRequest])))
+(az/defvar requests [:array 12 InferenceRequest]
+  (std-mem/zeroes (az/type [:array 12 InferenceRequest])))
 
-(az/defvar request-revisions [:array 8 :u64]
-  (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+(az/defvar request-revisions [:array 12 :u64]
+  (std-mem/zeroes (az/type [:array 12 :u64])))
 
-(az/defvar consumed-revisions [:array 8 :u64]
-  (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+(az/defvar consumed-revisions [:array 12 :u64]
+  (std-mem/zeroes (az/type [:array 12 :u64])))
 
-(az/defvar results [:array 8 InferenceResult]
-  (std-mem/zeroes (az/type [:array 8 InferenceResult])))
+(az/defvar results [:array 12 InferenceResult]
+  (std-mem/zeroes (az/type [:array 12 InferenceResult])))
 
-(az/defvar result-revisions [:array 8 :u64]
-  (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+(az/defvar result-revisions [:array 12 :u64]
+  (std-mem/zeroes (az/type [:array 12 :u64])))
 
 (az/defvar worker-running :u8 0)
 
 (az/defvar worker-started :u8 0)
 
-(az/defvar worker-threads [:array 8 [:optional aguafria.std/Thread]]
+(az/defvar worker-threads [:array 12 [:optional aguafria.std/Thread]]
   (std-mem/zeroes
-   (az/type [:array 8 [:optional aguafria.std/Thread]])))
+   (az/type [:array 12 [:optional aguafria.std/Thread]])))
 
 (az/defvar worker-thread-count :u8 0)
 
@@ -121,9 +130,15 @@
 
 (az/defvar result-count :u64 0)
 
-(az/defvar sampler-states [:array 8 :u64]
-  (az/array-init [:array 8 :u64]
-                 [101 203 307 409 503 607 709 811]))
+(az/defvar request-counts [:array 12 :u64]
+  (std-mem/zeroes (az/type [:array 12 :u64])))
+
+(az/defvar result-counts [:array 12 :u64]
+  (std-mem/zeroes (az/type [:array 12 :u64])))
+
+(az/defvar sampler-states [:array 12 :u64]
+  (az/array-init [:array 12 :u64]
+                 [101 203 307 409 503 607 709 811 907 1009 1103 1201]))
 
 (az/defvar idle-wait-count :u64 0)
 
@@ -171,10 +186,10 @@
   (+ (ak/as :u8 65) (ak/min value (ak/as :u8 25))))
 
 (az/defn observation-prompt
-  "Encode prompt schema R2 as eight positional bytes: schema,
-  target/persona, rank, lap, item, progress bin, speed bin, and urgency. The
-  second byte is `target * 3 + persona`; A means zero, B means one, and so on.
-  The bounded representation is allocation-free and fine-tunable."
+  "Encode prompt schema R3 as eight positional bytes: schema, target/persona,
+  rank/lap, item/urgency, progress, speed, target distance, and tactical
+  status/target-lane relation. A means zero, B means one, and so on. Packing
+  adds fair local combat perception without increasing model-token latency."
   {:export false :implicit-return true}
   :-
   [:array 32 :u8]
@@ -188,7 +203,7 @@
         (ak/as :u8
                (ak/intFromFloat
                 (ak/min 9.0 (* (ak/max 0.0 (az/field request speed)) 100.0))))]
-    ;; S is the stable wire identifier for observation schema R2.
+    ;; T is the stable wire identifier for observation schema R3.
     (set! (az/index bytes 0) (+ 81 protocol/observation-schema-version))
     (set! (az/index bytes 1)
           (category-byte
@@ -196,17 +211,26 @@
               (ak/min (az/field request persona) (ak/as :u8 2)))))
     (set! (az/index bytes 2)
           (category-byte
-           (if (> (az/field request rank) 0)
-             (- (az/field request rank) 1)
-             0)))
+           (+ (* (if (> (az/field request rank) 0)
+                   (- (az/field request rank) 1)
+                   0)
+                 3)
+              (ak/min (ak/as :u8 (ak/intCast (az/field request lap)))
+                      (ak/as :u8 2)))))
     (set! (az/index bytes 3)
-          (category-byte (ak/intCast (az/field request lap))))
-    (set! (az/index bytes 4)
-          (category-byte (az/field request item)))
-    (set! (az/index bytes 5) (category-byte progress-bin))
-    (set! (az/index bytes 6) (category-byte speed-bin))
+          (category-byte
+           (+ (* (az/field request item) 2)
+              (if (az/field request urgent)
+                (ak/as :u8 1)
+                (ak/as :u8 0)))))
+    (set! (az/index bytes 4) (category-byte progress-bin))
+    (set! (az/index bytes 5) (category-byte speed-bin))
+    (set! (az/index bytes 6)
+          (category-byte (az/field request target_distance)))
     (set! (az/index bytes 7)
-          (category-byte (if (az/field request urgent) 1 0)))
+          (category-byte
+           (+ (* (az/field request tactical_status) 3)
+              (az/field request target_lane))))
     bytes))
 
 (az/defn action-target-speed
@@ -338,7 +362,8 @@
       :tokens_per_second
       (if (> inference-us 0)
         (/ (* (ak/as :f32
-                     (ak/floatFromInt (az/field tokens token_count)))
+                     (ak/floatFromInt
+                      protocol/observation-model-step-count))
               1000000.0)
            (ak/as :f32 (ak/floatFromInt inference-us)))
         0.0)
@@ -371,7 +396,7 @@
                 (* (ak/max 0.0 (- started (az/field request enqueue_seconds)))
                    1000000.0)))
         report
-        (inference/forward-compact-prompt!
+        (inference/forward-fused-observation!
          (ak/as :usize (az/field request racer))
          (ak/& (az/index prompt 0)) prompt-length true)
         finished (monotonic-seconds)
@@ -385,11 +410,13 @@
     (set! (az/index results racer) result)
     (ak/atomicStore :u64 (ak/& (az/index result-revisions racer))
                     (az/field request revision) :.release)
-    (set! _ (ak/atomicRmw :u64 (ak/& result-count) :.Add 1 :.monotonic))))
+    (set! _ (ak/atomicRmw :u64 (ak/& result-count) :.Add 1 :.monotonic))
+    (set! _ (ak/atomicRmw :u64 (ak/& (az/index result-counts racer))
+                          :.Add 1 :.monotonic))))
 
 (az/defn worker-loop!
-  "Long-lived shell for one racer. Mutable model state and mailboxes are
-  racer-disjoint; immutable weights remain shared across all eight threads."
+  "Long-lived shell for one AI actor. Mutable model state and mailboxes are
+  actor-disjoint; immutable weights remain shared across all twelve threads."
   {:export false :public false}
   :-
   :void
@@ -411,7 +438,7 @@
         (idle-wait!)))))
 
 (az/defn start!
-  "Allocate eight sequence states and one fixed native worker per racer."
+  "Allocate twelve sequence states and one fixed native worker per actor."
   {:attrs #{:public :implicit-return}}
   :-
   :bool
@@ -421,27 +448,32 @@
     (if (ak/! (inference/initialize-sequences!))
       false
       (do
-        (set! requests (std-mem/zeroes (az/type [:array 8 InferenceRequest])))
-        (set! results (std-mem/zeroes (az/type [:array 8 InferenceResult])))
+        (set! requests (std-mem/zeroes (az/type [:array 12 InferenceRequest])))
+        (set! results (std-mem/zeroes (az/type [:array 12 InferenceResult])))
         (set! request-revisions
-              (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+              (std-mem/zeroes (az/type [:array 12 :u64])))
         (set! consumed-revisions
-              (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+              (std-mem/zeroes (az/type [:array 12 :u64])))
         (set! result-revisions
-              (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+              (std-mem/zeroes (az/type [:array 12 :u64])))
         (set! worker-threads
               (std-mem/zeroes
-               (az/type [:array 8 [:optional aguafria.std/Thread]])))
+               (az/type [:array 12 [:optional aguafria.std/Thread]])))
         (set! worker-thread-count 0)
         (set! request-count 0)
         (set! result-count 0)
+        (set! request-counts
+              (std-mem/zeroes (az/type [:array 12 :u64])))
+        (set! result-counts
+              (std-mem/zeroes (az/type [:array 12 :u64])))
         (set! idle-wait-count 0)
         (set! sampler-states
-              (az/array-init [:array 8 :u64]
-                             [101 203 307 409 503 607 709 811]))
+              (az/array-init
+               [:array 12 :u64]
+               [101 203 307 409 503 607 709 811 907 1009 1103 1201]))
         (ak/atomicStore :u8 (ak/& worker-running) 1 :.release)
         (let [^{:var true :zig/type :bool} all-started true]
-          (dotimes [racer racer-count]
+          (dotimes [racer actor-count]
             (when all-started
               (let [thread
                     (catch
@@ -460,7 +492,7 @@
               true)
             (do
               (ak/atomicStore :u8 (ak/& worker-running) 0 :.release)
-              (dotimes [racer racer-count]
+              (dotimes [racer actor-count]
                 (when (ak/!= (az/index worker-threads racer) null)
                   (std-thread/join
                    (az/unwrap (az/index worker-threads racer)))
@@ -478,18 +510,18 @@
   (let [racer (ak/as :usize (az/field request racer))
         ^:var published request
         requested
-        (if (< racer racer-count)
+        (if (< racer actor-count)
           (ak/atomicLoad :u64 (ak/& (az/index request-revisions racer))
                          :.acquire)
           0)
         completed
-        (if (< racer racer-count)
+        (if (< racer actor-count)
           (ak/atomicLoad :u64 (ak/& (az/index result-revisions racer))
                          :.acquire)
           0)]
     (if (or (ak/== (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
             (ak/! (az/field request valid))
-            (>= racer racer-count)
+            (>= racer actor-count)
             (> requested completed)
             (ak/!= (az/field request observation_schema)
                    protocol/observation-schema-version)
@@ -504,6 +536,8 @@
                         (az/field published revision) :.release)
         (set! _ (ak/atomicRmw :u64 (ak/& request-count)
                               :.Add 1 :.monotonic))
+        (set! _ (ak/atomicRmw :u64 (ak/& (az/index request-counts racer))
+                              :.Add 1 :.monotonic))
         true))))
 
 (az/defn result-for
@@ -513,7 +547,7 @@
   InferenceResult
   [[racer :usize]
    [after-revision :u64]]
-  (if (>= racer racer-count)
+  (if (>= racer actor-count)
     (empty-result)
     (let [revision
           (ak/atomicLoad :u64 (ak/& (az/index result-revisions racer))
@@ -528,7 +562,7 @@
   WorkerSummary
   []
   (let [^{:var true :zig/type :u8} pending 0]
-    (dotimes [racer racer-count]
+    (dotimes [racer actor-count]
       (when (> (ak/atomicLoad :u64
                               (ak/& (az/index request-revisions racer))
                               :.acquire)
@@ -544,6 +578,8 @@
       :results (ak/atomicLoad :u64 (ak/& result-count) :.acquire)
       :idle_waits (ak/atomicLoad :u64 (ak/& idle-wait-count) :.acquire)
       :pending pending
+      :requests_by_actor request-counts
+      :results_by_actor result-counts
       :state_bytes inference/sequence-total-bytes})))
 
 (az/defn stop!
@@ -554,7 +590,7 @@
   []
   (when (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
     (ak/atomicStore :u8 (ak/& worker-running) 0 :.release)
-    (dotimes [racer racer-count]
+    (dotimes [racer actor-count]
       (when (ak/!= (az/index worker-threads racer) null)
         (std-thread/join (az/unwrap (az/index worker-threads racer)))
         (set! (az/index worker-threads racer) null)))

@@ -108,14 +108,83 @@
                             [StandardCopyOption/REPLACE_EXISTING]))
     {:status :packaged :output output}))
 
+(defn- copy-release-file!
+  [source target-name]
+  (when-not (.isFile ^java.io.File source)
+    (throw (ex-info "A required release notice or license is missing"
+                    {:source (str source)
+                     :target-name target-name})))
+  (let [output (io/file (project-root) "build/standalone/licenses" target-name)
+        source-sha256 (model/sha256 source)]
+    (io/make-parents output)
+    (if (and (.isFile output)
+             (= (.length ^java.io.File source) (.length output))
+             (= source-sha256 (model/sha256 output)))
+      {:status :cached
+       :output output
+       :bytes (.length output)
+       :sha256 source-sha256}
+      (do
+        (Files/copy (.toPath ^java.io.File source) (.toPath output)
+                    (into-array StandardCopyOption
+                                [StandardCopyOption/REPLACE_EXISTING]))
+        {:status :packaged
+         :output output
+         :bytes (.length output)
+         :sha256 source-sha256}))))
+
+(defn package-licenses!
+  "Package the model notice and exact licenses from every pinned native source."
+  []
+  (let [shared-root (native-vendor/project-root)
+        racing-licenses (io/file (project-root) "resources/licenses")
+        shared-vendor (io/file shared-root "build/vendor")]
+    {:third-party-notices
+     (copy-release-file!
+      (io/file racing-licenses "THIRD_PARTY_NOTICES.md")
+      "THIRD_PARTY_NOTICES.md")
+     :apache-2.0
+     (copy-release-file!
+      (io/file racing-licenses "Apache-2.0.txt")
+      "Apache-2.0.txt")
+     :flecs
+     (copy-release-file!
+      (io/file shared-vendor "flecs/LICENSE")
+      "Flecs-MIT.txt")
+     :glfw
+     (copy-release-file!
+      (io/file shared-vendor "glfw/LICENSE.md")
+      "GLFW-zlib.txt")
+     :vulkan-headers
+     (copy-release-file!
+      (io/file shared-vendor "vulkan-headers/LICENSE.md")
+      "Vulkan-Headers.txt")}))
+
+(defn package-replay-fixture!
+  []
+  (let [source (io/file (project-root) "resources/replay/golden-r3.bin")
+        output (io/file (project-root)
+                        "build/standalone/resources/replay/golden-r3.bin")]
+    (when-not (.isFile source)
+      (throw (ex-info "Missing golden replay fixture; run `clojure -M:generate-replay-fixture`"
+                      {:source source})))
+    (io/make-parents output)
+    (Files/copy (.toPath source) (.toPath output)
+                (into-array StandardCopyOption
+                            [StandardCopyOption/REPLACE_EXISTING]))
+    {:status :packaged :output output :bytes (.length output)}))
+
 (defn build-standalone!
   []
   (native-build/prepare-static!)
+  (native-build/prepare-imgui-static!)
   (prepare-shaders!)
   (package-model!)
   (package-action-head!)
+  (package-replay-fixture!)
   (package-shaders!)
   (package-manifest!)
+  (package-licenses!)
   (zig-build/load-source-only! 'racing-game.standalone)
   (let [output (io/file (project-root) "build/standalone/racing-game")]
     (az/build!
@@ -126,7 +195,7 @@
       :optimize "ReleaseFast"
       :reloadable? false
       :async? false
-      :zig-args (native-build/standalone-link-arguments)})))
+      :zig-args (native-build/imgui-standalone-link-arguments)})))
 
 (defn build-inference-probe!
   "Build the same native graph without a window for repeatable timing."
@@ -146,6 +215,43 @@
       :async? false
       :zig-args (native-build/standalone-link-arguments)})))
 
+(defn build-asset-probe!
+  "Build the JVM-free offline checksum and compatibility gate."
+  []
+  (native-build/prepare-static!)
+  (package-model!)
+  (package-action-head!)
+  (package-manifest!)
+  (package-licenses!)
+  (zig-build/load-source-only! 'racing-game.asset-probe)
+  (let [output (io/file (project-root) "build/standalone/asset-probe")]
+    (az/build!
+     'racing-game.asset-probe
+     {:kind :exe
+      :name "asset-probe"
+      :output output
+      :optimize "ReleaseFast"
+      :reloadable? false
+      :async? false
+      :zig-args (native-build/standalone-link-arguments)})))
+
+(defn build-replay-parity-probe!
+  "Build the JVM-free golden intent-capture/replay parity executable."
+  []
+  (native-build/prepare-static!)
+  (package-replay-fixture!)
+  (zig-build/load-source-only! 'racing-game.replay-parity-probe)
+  (let [output (io/file (project-root) "build/standalone/replay-parity-probe")]
+    (az/build!
+     'racing-game.replay-parity-probe
+     {:kind :exe
+      :name "replay-parity-probe"
+      :output output
+      :optimize "ReleaseFast"
+      :reloadable? false
+      :async? false
+      :zig-args (native-build/standalone-link-arguments)})))
+
 (defn -main
   [& [command]]
   (case (or command "prepare")
@@ -154,8 +260,15 @@
                         :artifact (build-standalone!)})
     "inference-probe" (prn {:prepare (prepare!)
                              :artifact (build-inference-probe!)})
+    "asset-probe" (prn {:prepare (prepare!)
+                         :artifact (build-asset-probe!)})
+    "replay-parity-probe"
+    (prn {:prepare (prepare!)
+          :artifact (build-replay-parity-probe!)})
     (throw (ex-info "Unknown racing-game build command"
                     {:command command
                      :supported ["prepare" "standalone"
-                                 "inference-probe"]})))
+                                 "inference-probe"
+                                 "asset-probe"
+                                 "replay-parity-probe"]})))
   (shutdown-agents))

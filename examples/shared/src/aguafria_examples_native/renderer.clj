@@ -28,6 +28,21 @@
       {:name frame_height :type :i32}]
      :u32]]))
 
+(az/defconst OverlayRenderer
+  "Optional development callback recorded inside the active Vulkan render pass."
+  {:attrs #{:public}}
+  (az/type
+   [:*const
+    [:fn {:callconv :.c}
+     [{:name command_buffer :type :u64}]
+     :void]]))
+
+(az/defconst development-overlays-enabled
+  "Standalone roots can disable every trace of the development callback."
+  (if (ak/hasDecl (ak/import "root") "aguafria_development_overlays")
+    (az/field (ak/import "root") aguafria_development_overlays)
+    true))
+
 (az/defstruct RendererSnapshot
   "Inspectable state for the live desktop Vulkan renderer."
   {:layout :extern}
@@ -37,6 +52,18 @@
    [:height :u32]
    [:images :u32]
    [:queue_family :u32]])
+
+(az/defstruct RendererInterop
+  "Opaque Vulkan addresses needed by optional native development overlays."
+  {:layout :extern}
+  [[:valid :bool]
+   [:instance :u64]
+   [:physical_device :u64]
+   [:device :u64]
+   [:queue :u64]
+   [:queue_family :u32]
+   [:render_pass :u64]
+   [:image_count :u32]])
 
 (az/defvar initialized false)
 
@@ -85,11 +112,15 @@
 (az/defvar command-buffers [:array 8 vk/VkCommandBuffer]
   (std-mem/zeroes (az/type [:array 8 vk/VkCommandBuffer])))
 
-(az/defvar image-available vk/VkSemaphore null)
+(az/defvar image-available [:array 2 vk/VkSemaphore]
+  (std-mem/zeroes (az/type [:array 2 vk/VkSemaphore])))
 
-(az/defvar render-finished vk/VkSemaphore null)
+(az/defvar render-finished [:array 2 vk/VkSemaphore]
+  (std-mem/zeroes (az/type [:array 2 vk/VkSemaphore])))
 
 (az/defvar in-flight vk/VkFence null)
+
+(az/defvar synchronization-slot :usize 0)
 
 (az/defvar active-command-buffer vk/VkCommandBuffer null)
 
@@ -104,6 +135,8 @@
 (az/defvar mapped-mesh-vertices [:optional [:* :anyopaque]] null)
 
 (az/defvar mesh-vertex-count :u32 0)
+
+(az/defvar overlay-renderer [:optional OverlayRenderer] null)
 
 (az/defvar shader-code [:array 16384 :u32]
   (std-mem/zeroes (az/type [:array 16384 :u32])))
@@ -378,10 +411,16 @@
         (vk/VkFenceCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
           :flags vk/VK_FENCE_CREATE_SIGNALED_BIT})]
-    (check (vk/vkCreateSemaphore
-            device (ak/& semaphore-info) null (ak/& image-available)))
-    (check (vk/vkCreateSemaphore
-            device (ak/& semaphore-info) null (ak/& render-finished)))
+    ;; Presentation may still be consuming a signaled binary semaphore after
+    ;; vkQueuePresentKHR returns. Alternate two pairs while retaining one
+    ;; in-flight submission, keeping the single mapped frame buffer race-free.
+    (dotimes [slot 2]
+      (check (vk/vkCreateSemaphore
+              device (ak/& semaphore-info) null
+              (ak/& (az/index image-available slot))))
+      (check (vk/vkCreateSemaphore
+              device (ak/& semaphore-info) null
+              (ak/& (az/index render-finished slot)))))
     (check (vk/vkCreateFence device (ak/& fence-info) null (ak/& in-flight)))))
 
 (az/defn find-memory-type
@@ -680,6 +719,42 @@
         (az/field color b)
         (az/field color a)])})}))
 
+(az/defn set-overlay-renderer!
+  "Install or clear a development-only render-pass callback."
+  {:attrs #{:public}}
+  :-
+  :void
+  [[callback [:optional OverlayRenderer]]]
+  (set! overlay-renderer callback))
+
+(az/defn overlay-installed?
+  "Whether a development overlay callback is attached to the render pass."
+  {:attrs #{:public :implicit-return}}
+  :-
+  :bool
+  []
+  (ak/!= overlay-renderer null))
+
+(az/defn renderer-interop
+  "Expose opaque renderer handles without giving overlays ownership of them."
+  {:attrs #{:public :implicit-return}}
+  :-
+  RendererInterop
+  []
+  (if initialized
+    (RendererInterop
+     {:valid true
+      :instance (ak/intCast (ak/intFromPtr (az/unwrap instance)))
+      :physical_device (ak/intCast (ak/intFromPtr (az/unwrap physical-device)))
+      :device (ak/intCast (ak/intFromPtr (az/unwrap device)))
+      :queue (ak/intCast (ak/intFromPtr (az/unwrap graphics-queue)))
+      :queue_family queue-family
+      :render_pass (ak/intCast (ak/intFromPtr (az/unwrap render-pass)))
+      :image_count image-count})
+    (RendererInterop
+     {:valid false :instance 0 :physical_device 0 :device 0 :queue 0
+      :queue_family 0 :render_pass 0 :image_count 0})))
+
 (az/defn clear-rect
   {:attrs #{:public}}
   :- :void
@@ -752,6 +827,10 @@
         (vk/vkCmdBindVertexBuffers command-buffer 0 1
                                    (ak/& mesh-vertex-buffer) (ak/& offset))
         (vk/vkCmdDraw command-buffer mesh-vertex-count 1 0 0)))
+    (when (and development-overlays-enabled
+               (ak/!= overlay-renderer null))
+      ((az/unwrap overlay-renderer)
+       (ak/intCast (ak/intFromPtr (az/unwrap command-buffer)))))
     (vk/vkCmdEndRenderPass command-buffer)
     (check (vk/vkEndCommandBuffer command-buffer))))
 
@@ -760,10 +839,12 @@
   :- :bool
   [[build-frame FrameBuilder]]
   (std-debug/assert initialized)
-  (let [^{:var true :zig/type :u32} image-index 0]
+  (let [^{:var true :zig/type :u32} image-index 0
+        image-ready (az/index image-available synchronization-slot)
+        rendering-done (az/index render-finished synchronization-slot)]
     (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
     (check (vk/vkAcquireNextImageKHR
-            device swapchain vk/VK_WHOLE_SIZE image-available null (ak/& image-index)))
+            device swapchain vk/VK_WHOLE_SIZE image-ready null (ak/& image-index)))
     (do
       (check (vk/vkResetFences device 1 (ak/& in-flight)))
       (record-frame image-index build-frame)
@@ -774,23 +855,24 @@
             (vk/VkSubmitInfo
              {:sType vk/VK_STRUCTURE_TYPE_SUBMIT_INFO
               :waitSemaphoreCount 1
-              :pWaitSemaphores (ak/& image-available)
+              :pWaitSemaphores (ak/& image-ready)
               :pWaitDstStageMask (ak/& wait-stage)
               :commandBufferCount 1
               :pCommandBuffers (ak/& command-buffer)
               :signalSemaphoreCount 1
-              :pSignalSemaphores (ak/& render-finished)})
+              :pSignalSemaphores (ak/& rendering-done)})
             present-info
             (vk/VkPresentInfoKHR
              {:sType vk/VK_STRUCTURE_TYPE_PRESENT_INFO_KHR
               :waitSemaphoreCount 1
-              :pWaitSemaphores (ak/& render-finished)
+              :pWaitSemaphores (ak/& rendering-done)
               :swapchainCount 1
               :pSwapchains (ak/& swapchain)
               :pImageIndices (ak/& image-index)})]
         (check (vk/vkQueueSubmit graphics-queue 1 (ak/& submit-info) in-flight))
         (check (vk/vkQueuePresentKHR graphics-queue (ak/& present-info)))
-        (set! frame-count (+ frame-count 1)))))
+        (set! frame-count (+ frame-count 1))
+        (set! synchronization-slot (mod (+ synchronization-slot 1) 2)))))
   true)
 
 (az/defn renderer-snapshot
@@ -815,6 +897,7 @@
   :- :void
   []
   (when initialized
+    (set! overlay-renderer null)
     (renderer-wait-idle!)
     (vk/vkDestroyPipeline device mesh-pipeline null)
     (vk/vkDestroyPipelineLayout device mesh-pipeline-layout null)
@@ -822,8 +905,9 @@
     (vk/vkDestroyBuffer device mesh-vertex-buffer null)
     (vk/vkFreeMemory device mesh-vertex-memory null)
     (vk/vkDestroyFence device in-flight null)
-    (vk/vkDestroySemaphore device render-finished null)
-    (vk/vkDestroySemaphore device image-available null)
+    (dotimes [slot 2]
+      (vk/vkDestroySemaphore device (az/index render-finished slot) null)
+      (vk/vkDestroySemaphore device (az/index image-available slot) null))
     (vk/vkDestroyCommandPool device command-pool null)
     (dotimes [index image-count]
       (vk/vkDestroyFramebuffer device (az/index framebuffers index) null)
@@ -857,6 +941,9 @@
     (set! mesh-vertex-count 0)
     (set! active-command-buffer null)
     (set! command-pool null)
-    (set! image-available null)
-    (set! render-finished null)
+    (set! image-available
+          (std-mem/zeroes (az/type [:array 2 vk/VkSemaphore])))
+    (set! render-finished
+          (std-mem/zeroes (az/type [:array 2 vk/VkSemaphore])))
+    (set! synchronization-slot 0)
     (set! in-flight null)))

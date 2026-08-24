@@ -1,0 +1,130 @@
+{:format :aguafria-racing/golden-actions-v1
+ :description
+ "Human-authored tactical situations. Each case admits every defensible macro rather than inventing one perfect lane."
+ :cases
+ [{:name :cautious-clear
+   :capabilities #{:routine-driving :persona}
+   :observation {:racer 0 :rank 5 :target 1 :persona 0 :item 0
+                 :target_distance 4 :target_lane 1 :tactical_status 0
+                 :urgent false :lap 0 :progress 0.35 :speed 0.07}
+   :acceptable-actions #{0 1 2}
+   :reason "A cautious empty-handed racer may hold any safe steady lane."}
+  {:name :balanced-clear
+   :capabilities #{:routine-driving :persona}
+   :observation {:racer 1 :rank 4 :target 2 :persona 1 :item 0
+                 :target_distance 3 :target_lane 2 :tactical_status 0
+                 :urgent false :lap 1 :progress 0.48 :speed 0.08}
+   :acceptable-actions #{0 1 2 3}
+   :reason "Balanced routine driving may stay steady or begin an attack."}
+  {:name :bold-clear
+   :capabilities #{:routine-driving :persona}
+   :observation {:racer 2 :rank 7 :target 3 :persona 2 :item 0
+                 :target_distance 2 :target_lane 0 :tactical_status 0
+                 :urgent false :lap 2 :progress 0.78 :speed 0.08}
+   :acceptable-actions #{2 3 6 7}
+   :reason "A bold trailing racer should choose an attacking or maximum-pace macro."}
+  {:name :urgent-empty
+   :capabilities #{:urgent-reaction}
+   :observation {:racer 3 :rank 8 :target 4 :persona 1 :item 0
+                 :target_distance 1 :target_lane 1 :tactical_status 0
+                 :urgent true :lap 2 :progress 0.91 :speed 0.06}
+   :acceptable-actions #{0 2 3 6 7}
+   :reason "An urgent empty-handed response can evade or accelerate without inventing an item."}
+  {:name :stunned-empty
+   :capabilities #{:stun-recovery}
+   :observation {:racer 4 :rank 6 :target 5 :persona 2 :item 0
+                 :target_distance 2 :target_lane 2 :tactical_status 2
+                 :urgent true :lap 1 :progress 0.52 :speed 0.02}
+   :acceptable-actions #{0 1 2}
+   :reason "Recovery favors bounded steady control rather than maximum pace."}
+  {:name :hazard-empty
+   :capabilities #{:hazard-response}
+   :observation {:racer 5 :rank 3 :target 6 :persona 0 :item 0
+                 :target_distance 2 :target_lane 0 :tactical_status 1
+                 :urgent true :lap 1 :progress 0.63 :speed 0.08}
+   :acceptable-actions #{0 2 3 6 7}
+   :reason "A nearby hazard permits either lateral evasion or an aggressive escape."}
+  {:name :bolt-near
+   :capabilities #{:aim :use-item}
+   :observation {:racer 6 :rank 4 :target 7 :persona 1 :item 1
+                 :target_distance 2 :target_lane 2 :tactical_status 0
+                 :urgent false :lap 1 :progress 0.44 :speed 0.08}
+   :acceptable-actions #{4 5 6 7}
+   :reason "A close visible opponent makes firing the bolt defensible."}
+  {:name :bolt-no-target
+   :capabilities #{:decline-item :hold-item}
+   :observation {:racer 7 :rank 1 :target 7 :persona 2 :item 1
+                 :target_distance 9 :target_lane 1 :tactical_status 0
+                 :urgent false :lap 2 :progress 0.88 :speed 0.09}
+   :acceptable-actions #{0 1 2 3}
+   :reason "Without an opponent ahead, preserve the bolt instead of wasting it."}
+  {:name :trap-leading
+   :capabilities #{:attack :use-item}
+   :observation {:racer 0 :rank 1 :target 0 :persona 1 :item 2
+                 :target_distance 9 :target_lane 1 :tactical_status 0
+                 :urgent false :lap 1 :progress 0.72 :speed 0.08}
+   :acceptable-actions #{4 5 6 7}
+   :reason "A leader may deploy a rear trap into pursuing traffic."}
+  {:name :trap-distant-tail
+   :capabilities #{:item-judgment}
+   :observation {:racer 1 :rank 8 :target 2 :persona 0 :item 2
+                 :target_distance 8 :target_lane 1 :tactical_status 0
+                 :urgent false :lap 0 :progress 0.22 :speed 0.06}
+   :acceptable-actions #{0 1 2 3 4 5}
+   :reason "A distant last-place racer may preserve the trap or deploy it while recovering."}
+  {:name :boost-clear
+   :capabilities #{:maximum-pace :use-item}
+   :observation {:racer 2 :rank 5 :target 3 :persona 1 :item 3
+                 :target_distance 4 :target_lane 1 :tactical_status 0
+                 :urgent false :lap 1 :progress 0.40 :speed 0.07}
+   :acceptable-actions #{6 7}
+   :reason "A boost should be converted into maximum forward pace."}
+  {:name :boost-final-lap
+   :capabilities #{:maximum-pace :use-item}
+   :observation {:racer 3 :rank 2 :target 4 :persona 2 :item 3
+                 :target_distance 1 :target_lane 2 :tactical_status 0
+                 :urgent true :lap 2 :progress 0.93 :speed 0.09}
+   :acceptable-actions #{6 7}
+   :reason "A final-lap boost is an immediate maximum-pace opportunity."}
+  {:name :shield-threat
+   :capabilities #{:defend :use-item}
+   :observation {:racer 4 :rank 2 :target 5 :persona 0 :item 4
+                 :target_distance 2 :target_lane 0 :tactical_status 1
+                 :urgent true :lap 1 :progress 0.56 :speed 0.08}
+   :acceptable-actions #{4 5 6 7}
+   :reason "An imminent threat is the intended time to activate a shield."}
+  {:name :shield-clear
+   :capabilities #{:decline-item :hold-item}
+   :observation {:racer 5 :rank 6 :target 6 :persona 1 :item 4
+                 :target_distance 5 :target_lane 1 :tactical_status 0
+                 :urgent false :lap 0 :progress 0.31 :speed 0.07}
+   :acceptable-actions #{0 1 2 3}
+   :reason "On clear track, preserve the shield for a real threat."}
+  {:name :pulse-near
+   :capabilities #{:attack :use-item}
+   :observation {:racer 6 :rank 3 :target 7 :persona 2 :item 5
+                 :target_distance 1 :target_lane 1 :tactical_status 0
+                 :urgent true :lap 2 :progress 0.67 :speed 0.08}
+   :acceptable-actions #{4 5 6 7}
+   :reason "Nearby traffic makes an area pulse immediately useful."}
+  {:name :pulse-no-target
+   :capabilities #{:decline-item :hold-item}
+   :observation {:racer 7 :rank 1 :target 7 :persona 0 :item 5
+                 :target_distance 9 :target_lane 1 :tactical_status 0
+                 :urgent false :lap 2 :progress 0.75 :speed 0.08}
+   :acceptable-actions #{0 1 2 3}
+   :reason "A leader with no visible opponent should hold the pulse."}
+  {:name :surge-midfield
+   :capabilities #{:maximum-pace :use-item}
+   :observation {:racer 0 :rank 5 :target 1 :persona 1 :item 6
+                 :target_distance 2 :target_lane 2 :tactical_status 0
+                 :urgent false :lap 1 :progress 0.51 :speed 0.07}
+   :acceptable-actions #{6 7}
+   :reason "Surge trades inventory for maximum progress."}
+  {:name :surge-final
+   :capabilities #{:maximum-pace :use-item}
+   :observation {:racer 1 :rank 3 :target 2 :persona 2 :item 6
+                 :target_distance 1 :target_lane 0 :tactical_status 0
+                 :urgent true :lap 2 :progress 0.97 :speed 0.09}
+   :acceptable-actions #{6 7}
+   :reason "Near the finish, immediate surge is preferable to carrying it home."}]}

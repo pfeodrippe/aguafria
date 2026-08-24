@@ -1,17 +1,24 @@
 {:default :granite-350m-q4-0
+ :release
+ {:notice "licenses/THIRD_PARTY_NOTICES.md"
+  :licenses ["licenses/Apache-2.0.txt"]}
  :action-head
- {:filename "granite-r2-action-head.f32"
+ {:filename "granite-r3-action-head.f32"
   :bytes 196672
-  :sha256 "b3cc625e61716d316fa03e0d340c69a57ae23038696113eece1f109a463eb353"
+  :sha256 "65b353acfedbeac32b583859e4ca154d851cec750b0464a88a74d6911971f351"
   :format-version 1
-  :observation-schema 2
+  :observation-schema 3
   :action-schema 1
   :input-count 6144
   :output-count 8
-  :feature-layout :eight-token-final-hidden
-  :corpus-size 144
-  :training-examples 120
-  :test-examples 24
+  :feature-layout :two-step-position-bound-r3
+  :tokenizer :gpt2-base-byte-v1
+  :quantization :granite-q4-0-mixed-v1
+  :corpus-format :r3-prompt-plus-action-v1
+  :corpus-sha256 "11bd22bd5430bb8f3380e81b02bfd938c67eecbf5ea570a17b41d81baabf1608"
+  :corpus-size 413
+  :training-examples 365
+  :test-examples 48
   :held-out-accuracy 0.9166666666666666
   :training :deterministic-expert-ridge}
  :models

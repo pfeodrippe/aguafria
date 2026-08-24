@@ -10,11 +10,16 @@
     {:root root
      :flecs-root (io/file vendor-root "flecs")
      :glfw-root (io/file vendor-root "glfw")
+     :imgui-root (io/file vendor-root "imgui")
      :vulkan-root (io/file vendor-root "vulkan-headers")
      :flecs-shared (io/file root "build/native" (System/mapLibraryName "aguafria_flecs"))
      :flecs-static (io/file root "build/native/libaguafria_flecs.a")
      :glfw-shared (io/file root "build/native" (System/mapLibraryName "aguafria_glfw"))
      :glfw-static (io/file root "build/native/libaguafria_glfw.a")
+     :imgui-shared (io/file root "build/native" (System/mapLibraryName "aguafria_imgui"))
+     :imgui-static (io/file root "build/native/libaguafria_imgui.a")
+     :imgui-header (io/file root "resources/aguafria_examples_native/imgui_monitor.h")
+     :imgui-wrapper (io/file root "resources/aguafria_examples_native/imgui_monitor.cpp")
      :runtime-header (io/file root "resources/aguafria_examples_native/runtime.h")}))
 
 (defn run-command!
@@ -37,6 +42,7 @@
 (defn- current-output?
   [^java.io.File output sources]
   (and (.isFile output)
+       (pos? (.length output))
        (>= (.lastModified output)
            (reduce max 0 (map #(.lastModified ^java.io.File %) sources)))))
 
@@ -100,6 +106,74 @@
             "-framework" "CoreFoundation" "-framework" "QuartzCore" "-lc"])))
         {:status :built :mode mode :output output}))))
 
+(defn prepare-imgui-shared!
+  "Build the reusable development-only Dear ImGui GLFW/Vulkan monitor."
+  []
+  (vendor/checkout! :imgui)
+  (vendor/checkout! :vulkan-headers)
+  (build-glfw! :shared)
+  (let [{:keys [imgui-root glfw-root vulkan-root imgui-shared
+                imgui-header imgui-wrapper]} (paths)
+        imgui-sources
+        (mapv #(io/file imgui-root %)
+              ["imgui.cpp" "imgui_draw.cpp" "imgui_tables.cpp" "imgui_widgets.cpp"
+               "backends/imgui_impl_glfw.cpp" "backends/imgui_impl_vulkan.cpp"])
+        sources (into [imgui-header imgui-wrapper] imgui-sources)]
+    (if (current-output? imgui-shared sources)
+      {:status :cached :mode :shared :output imgui-shared}
+      (do
+        (io/make-parents imgui-shared)
+        (run-command!
+         (vec
+          (concat
+           ["zig" "build-lib" "-dynamic" "-OReleaseFast" "-fPIC"
+            (str "-I" (.getAbsolutePath imgui-root))
+            (str "-I" (.getAbsolutePath (io/file imgui-root "backends")))
+            (str "-I" (.getAbsolutePath (io/file glfw-root "include")))
+            (str "-I" (.getAbsolutePath (io/file vulkan-root "include")))
+            (str "-I" (.getAbsolutePath (.getParentFile imgui-header)))
+            (str "-femit-bin=" (.getAbsolutePath imgui-shared))
+            (.getAbsolutePath imgui-wrapper)]
+           (map #(.getAbsolutePath ^java.io.File %) imgui-sources)
+           [(.getAbsolutePath (:glfw-shared (paths)))
+            (vulkan-loader)
+            "-framework" "Cocoa" "-framework" "IOKit"
+            "-framework" "CoreFoundation" "-framework" "QuartzCore"
+            "-lc" "-lc++"])))
+        {:status :built :mode :shared :output imgui-shared}))))
+
+(defn prepare-imgui-static!
+  "Build the native cognition UI into a release executable without a runtime
+  shared-library dependency."
+  []
+  (vendor/checkout! :imgui)
+  (vendor/checkout! :vulkan-headers)
+  (let [{:keys [imgui-root glfw-root vulkan-root imgui-static
+                imgui-header imgui-wrapper]} (paths)
+        imgui-sources
+        (mapv #(io/file imgui-root %)
+              ["imgui.cpp" "imgui_draw.cpp" "imgui_tables.cpp" "imgui_widgets.cpp"
+               "backends/imgui_impl_glfw.cpp" "backends/imgui_impl_vulkan.cpp"])
+        sources (into [imgui-header imgui-wrapper] imgui-sources)]
+    (if (current-output? imgui-static sources)
+      {:status :cached :mode :static :output imgui-static}
+      (do
+        (io/make-parents imgui-static)
+        (run-command!
+         (vec
+          (concat
+           ["zig" "build-lib" "-static" "-OReleaseFast" "-fPIC"
+            (str "-I" (.getAbsolutePath imgui-root))
+            (str "-I" (.getAbsolutePath (io/file imgui-root "backends")))
+            (str "-I" (.getAbsolutePath (io/file glfw-root "include")))
+            (str "-I" (.getAbsolutePath (io/file vulkan-root "include")))
+            (str "-I" (.getAbsolutePath (.getParentFile imgui-header)))
+            (str "-femit-bin=" (.getAbsolutePath imgui-static))
+            (.getAbsolutePath imgui-wrapper)]
+           (map #(.getAbsolutePath ^java.io.File %) imgui-sources)
+           ["-lc++"])))
+        {:status :built :mode :static :output imgui-static}))))
+
 (defn prepare-shared!
   []
   {:flecs (build-flecs! :shared)
@@ -120,6 +194,15 @@
      (vulkan-loader)
      "-lc"]))
 
+(defn imgui-development-link-arguments
+  "Extra development links activated only by a monitor namespace."
+  []
+  (let [{:keys [imgui-shared glfw-shared]} (paths)]
+    [(.getAbsolutePath imgui-shared)
+     (.getAbsolutePath glfw-shared)
+     (vulkan-loader)
+     "-lc" "-lc++"]))
+
 (defn standalone-link-arguments
   []
   (let [{:keys [flecs-static glfw-static]} (paths)]
@@ -132,3 +215,17 @@
      "-framework" "QuartzCore"
      "-lc"]))
 
+(defn imgui-standalone-link-arguments
+  "Static release links for applications that intentionally ship the native
+  cognition UI."
+  []
+  (let [{:keys [flecs-static glfw-static imgui-static]} (paths)]
+    [(.getAbsolutePath flecs-static)
+     (.getAbsolutePath imgui-static)
+     (.getAbsolutePath glfw-static)
+     (vulkan-loader)
+     "-framework" "Cocoa"
+     "-framework" "IOKit"
+     "-framework" "CoreFoundation"
+     "-framework" "QuartzCore"
+     "-lc" "-lc++"]))

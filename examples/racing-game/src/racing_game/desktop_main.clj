@@ -3,10 +3,20 @@
   (:require [aguafria.zig :as az]
             [clojure.java.io :as io]
             [clojure.stacktrace :as stacktrace]
+            [clojure.string :as str]
             [nrepl.server :as nrepl]
             [racing-game.build :as build]))
 
 (defonce ^:private startup-request (atom 0))
+
+(defn monitor-enabled?
+  "The ImGui monitor is a development default and can be disabled without
+  changing the standalone graph."
+  []
+  (not (contains? #{"0" "false" "no" "off"}
+                  (some-> (or (System/getProperty "aguafria.racing.monitor")
+                              (System/getenv "AGUAFRIA_RACING_MONITOR"))
+                          str/lower-case))))
 
 (defn retry-startup!
   []
@@ -25,9 +35,13 @@
     (let [outcome
           (try
             (build/prepare!)
-            (require 'racing-game.desktop :reload)
+            (if (monitor-enabled?)
+              (require 'racing-game.monitor :reload)
+              (require 'racing-game.desktop :reload))
             (az/await!)
-            {:run (ns-resolve 'racing-game.desktop 'run!)}
+            {:run (if (monitor-enabled?)
+                    (ns-resolve 'racing-game.monitor 'run!)
+                    (ns-resolve 'racing-game.desktop 'run!))}
             (catch Throwable error {:error error}))]
       (if-let [run (:run outcome)]
         run
@@ -53,4 +67,3 @@
         (nrepl/stop-server server)
         (when (.isFile port-file) (.delete port-file))
         (shutdown-agents)))))
-

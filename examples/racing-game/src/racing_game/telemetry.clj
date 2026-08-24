@@ -25,6 +25,8 @@
 
 (az/defconst source-replay :u8 2)
 
+(az/defconst source-human :u8 3)
+
 (az/defconst outcome-window-ticks :u64 120)
 
 (az/defn outcome-window-seconds
@@ -58,7 +60,12 @@
    [:output_token_count :u16]
    [:prompt_byte_count :u16]
    [:response_byte_count :u16]
+   [:tokenizer_version :u16]
+   [:quantization_version :u16]
+   [:quantization_format :u8]
    [:action_head_training_revision :u32]
+   [:training_data_fingerprint :u64]
+   [:training_data_sha256 [:array 32 :u8]]
    [:model_fingerprint :u64]
    [:action_head_fingerprint :u64]
    [:sampler_state :u64]
@@ -108,6 +115,7 @@
    [:accepted_entries :u64]
    [:rejected_entries :u64]
    [:urgent_entries :u64]
+   [:deadline_misses :u64]
    [:resolved_outcomes :u64]
    [:attributed_item_uses :u64]
    [:attributed_hits :u64]
@@ -260,6 +268,7 @@
    [target :u8]
    [action :u8]
    [urgent :bool]
+   [deadline-status :u8]
    [revision :u64]
    [race-epoch :u64]
    [simulation-tick :u64]
@@ -275,10 +284,15 @@
      :action action
      :observation_schema protocol/observation-schema-version
      :action_schema protocol/action-schema-version
-     :validation_code 0 :deadline_status 0 :lap lap
+     :validation_code 0 :deadline_status deadline-status :lap lap
      :input_token_count 0 :output_token_count 0 :prompt_byte_count 0
      :response_byte_count 0
+     :tokenizer_version protocol/tokenizer-version
+     :quantization_version protocol/quantization-version
+     :quantization_format protocol/quantization-format
      :action_head_training_revision protocol/action-head-training-revision
+     :training_data_fingerprint protocol/training-data-fingerprint
+     :training_data_sha256 protocol/training-data-sha256
      :model_fingerprint protocol/model-fingerprint
      :action_head_fingerprint protocol/action-head-fingerprint
      :sampler_state 0
@@ -510,6 +524,7 @@
         ^{:var true :zig/type :u64} accepted 0
         ^{:var true :zig/type :u64} rejected 0
         ^{:var true :zig/type :u64} urgent 0
+        ^{:var true :zig/type :u64} deadline-misses 0
         ^{:var true :zig/type :u64} resolved 0
         ^{:var true :zig/type :u64} item-uses 0
         ^{:var true :zig/type :u64} hits 0
@@ -541,6 +556,8 @@
                 (set! rejected (+ rejected 1)))
               (when (az/field entry urgent)
                 (set! urgent (+ urgent 1)))
+              (when (> (az/field entry deadline_status) 0)
+                (set! deadline-misses (+ deadline-misses 1)))
               (set! total-us (+ total-us (az/field entry total_us)))
               (set! total-tps (+ total-tps
                                  (az/field entry tokens_per_second)))
@@ -561,6 +578,7 @@
       :replay_entries replay
       :accepted_entries accepted :rejected_entries rejected
       :urgent_entries urgent
+      :deadline_misses deadline-misses
       :resolved_outcomes resolved
       :attributed_item_uses item-uses
       :attributed_hits hits

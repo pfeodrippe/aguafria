@@ -4,6 +4,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as std-debug]
             [aguafria.zig :as az]
+            [racing-game.assets :as assets]
             [racing-game.inference :as inference]))
 
 (az/defn main
@@ -11,9 +12,7 @@
   :-
   :void
   []
-  (let [model (inference/load-model!
-               "resources/models/granite-4.0-h-350m-Q4_0.gguf")]
-    (std-debug/assert (az/field model valid)))
+  (std-debug/assert (assets/load-and-verify!))
   (std-debug/assert (inference/initialize-sequences!))
   (dotimes [token 100]
     (let [report (inference/forward-token! 0 token)]

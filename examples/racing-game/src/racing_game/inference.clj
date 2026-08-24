@@ -2,8 +2,10 @@
   "Narrow native Granite runtime: model ownership, strict GGUF parsing, and kernels."
   (:require [aguafria.keyword :as ak]
             [aguafria.std]
+            [aguafria.std.crypto.hash.sha2 :as std-sha2]
             [aguafria.std.mem :as std-mem]
             [aguafria.std.math :as std-math]
+            [aguafria.std.posix :as std-posix]
             [aguafria.zig :as az]
             [aguafria-examples-native.bindings]
             [aguafria-examples-native.bindings.runtime :as runtime]
@@ -31,6 +33,20 @@
 
 (az/defconst parser-unsupported-type :u32 5)
 
+(az/defconst model-file-not-found :u32 100)
+
+(az/defconst model-file-empty :u32 101)
+
+(az/defconst model-allocation-failed :u32 102)
+
+(az/defconst model-file-read-failed :u32 103)
+
+(az/defconst model-storage-none :u8 0)
+
+(az/defconst model-storage-owned :u8 1)
+
+(az/defconst model-storage-mapped :u8 2)
+
 (az/defconst tensor-not-found :usize 4096)
 
 (az/defconst metadata-not-found :usize 128)
@@ -38,6 +54,8 @@
 (az/defconst tokenizer-capacity :usize 128)
 
 (az/defconst model-hidden-size :usize 768)
+
+(az/defconst model-vocabulary-size :usize 100352)
 
 (az/defconst model-ffn-size :usize 2048)
 
@@ -73,17 +91,17 @@
 
 (az/defconst sequence-capacity :usize 160)
 
-(az/defconst sequence-racer-count :usize 8)
+(az/defconst sequence-racer-count :usize 12)
 
-(az/defconst sequence-mamba-floats :usize 44040192)
+(az/defconst sequence-mamba-floats :usize 66060288)
 
-(az/defconst sequence-conv-floats :usize 1204224)
+(az/defconst sequence-conv-floats :usize 1806336)
 
-(az/defconst sequence-kv-floats :usize 1310720)
+(az/defconst sequence-kv-floats :usize 1966080)
 
-(az/defconst sequence-total-floats :usize 47865856)
+(az/defconst sequence-total-floats :usize 71798784)
 
-(az/defconst sequence-total-bytes :usize 191463424)
+(az/defconst sequence-total-bytes :usize 287195136)
 
 (az/defconst model-residual-multiplier :f32 0.246)
 
@@ -178,7 +196,7 @@
    [:racer_count :u8]
    [:capacity :u16]
    [:state_bytes :usize]
-   [:positions [:array 8 :u16]]])
+   [:positions [:array 12 :u16]]])
 
 (az/defstruct ForwardReport
   "One inspectable constrained token pass through all 32 native layers."
@@ -212,6 +230,8 @@
 
 (az/defvar model-byte-count :usize 0)
 
+(az/defvar model-storage :u8 model-storage-none)
+
 (az/defvar tensor-catalog-count :usize 0)
 
 (az/defvar tensor-catalog [:array 4096 TensorInfo]
@@ -232,11 +252,14 @@
 
 (az/defvar sequence-memory-floats :usize 0)
 
-(az/defvar sequence-positions [:array 8 :u16]
-  (std-mem/zeroes (az/type [:array 8 :u16])))
+(az/defvar sequence-positions [:array 12 :u16]
+  (std-mem/zeroes (az/type [:array 12 :u16])))
 
-(az/defvar action-head-inputs [:array 49152 :f32]
-  (std-mem/zeroes (az/type [:array 49152 :f32])))
+(az/defvar action-head-inputs [:array 73728 :f32]
+  (std-mem/zeroes (az/type [:array 73728 :f32])))
+
+(az/defvar fused-observation-inputs [:array 9216 :f32]
+  (std-mem/zeroes (az/type [:array 9216 :f32])))
 
 (az/defvar action-head-weights [:array 49152 :f32]
   (std-mem/zeroes (az/type [:array 49152 :f32])))
@@ -383,65 +406,73 @@
     (set! metadata-catalog-count 0)
     (when (ak/!= magic gguf-magic)
       (set! (az/field reader error_code) parser-bad-magic))
-    (when (or (ak/== version 0) (> version gguf-max-version))
+    (when (and (ak/== (az/field reader error_code) parser-ok)
+               (or (ak/== version 0) (> version gguf-max-version)))
       (set! (az/field reader error_code) parser-bad-version))
-    (when (or (> tensor-count gguf-max-tensors)
-              (> metadata-count gguf-max-metadata))
+    (when (and (ak/== (az/field reader error_code) parser-ok)
+               (or (> tensor-count gguf-max-tensors)
+                   (> metadata-count gguf-max-metadata)))
       (set! (az/field reader error_code) parser-limit))
-    (dotimes [metadata-index metadata-count]
-      (let [key (read-string-view! (ak/& reader))
-            value-type (read-u32! (ak/& reader))]
-        (if (ak/== value-type 9)
-          (let [element-type (read-u32! (ak/& reader))
-                element-count (read-u64! (ak/& reader))
-                value-start (az/field reader cursor)]
-            (when (< metadata-index metadata-not-found)
-              (set! (az/index metadata-catalog (ak/intCast metadata-index))
-                    (MetadataInfo
-                     {:key_start (az/field key start)
-                      :key_length (az/field key length)
-                      :value_type value-type
-                      :element_type element-type
-                      :value_start value-start
-                      :element_count element-count})))
-            (if (> element-count gguf-max-array-elements)
-              (set! (az/field reader error_code) parser-limit)
-              (dotimes [_ element-count]
-                (skip-value! (ak/& reader) element-type 1))))
-          (let [value-start (az/field reader cursor)]
-            (when (< metadata-index metadata-not-found)
-              (set! (az/index metadata-catalog (ak/intCast metadata-index))
-                    (MetadataInfo
-                     {:key_start (az/field key start)
-                      :key_length (az/field key length)
-                      :value_type value-type
-                      :element_type 0
-                      :value_start value-start
-                      :element_count 1})))
-            (skip-value! (ak/& reader) value-type 0)))))
-    (dotimes [tensor-index tensor-count]
-      (let [name (read-string-view! (ak/& reader))
-            dimensions (read-u32! (ak/& reader))
-            ^{:var true :zig/type [:array 4 :u64]}
-            shape (az/array-init [:array 4 :u64] [0 0 0 0])]
-        (if (> dimensions 4)
-          (set! (az/field reader error_code) parser-limit)
-          (dotimes [dimension dimensions]
-            (set! (az/index shape dimension) (read-u64! (ak/& reader)))))
-        (let [ggml-type (read-u32! (ak/& reader))
-              relative-offset (read-u64! (ak/& reader))]
-          (when (ak/== ggml-type 0) (set! f32-count (+ f32-count 1)))
-          (when (ak/== ggml-type 2) (set! q4-count (+ q4-count 1)))
-          (when (ak/== ggml-type 14) (set! q6-count (+ q6-count 1)))
-          (when (< tensor-index gguf-max-tensors)
-            (set! (az/index tensor-catalog (ak/intCast tensor-index))
-                  (TensorInfo {:name_start (az/field name start)
-                               :name_length (az/field name length)
-                               :dimension_count (ak/intCast dimensions)
-                               :dimensions shape
-                               :ggml_type ggml-type
-                               :relative_offset relative-offset
-                               :data_address 0}))))))
+    (when (ak/== (az/field reader error_code) parser-ok)
+      (dotimes [metadata-index metadata-count]
+        (let [key (read-string-view! (ak/& reader))
+              value-type (read-u32! (ak/& reader))]
+          (if (ak/== value-type 9)
+            (let [element-type (read-u32! (ak/& reader))
+                  element-count (read-u64! (ak/& reader))
+                  value-start (az/field reader cursor)]
+              (when (< metadata-index metadata-not-found)
+                (set! (az/index metadata-catalog (ak/intCast metadata-index))
+                      (MetadataInfo
+                       {:key_start (az/field key start)
+                        :key_length (az/field key length)
+                        :value_type value-type
+                        :element_type element-type
+                        :value_start value-start
+                        :element_count element-count})))
+              (if (> element-count gguf-max-array-elements)
+                (set! (az/field reader error_code) parser-limit)
+                (dotimes [_ element-count]
+                  (skip-value! (ak/& reader) element-type 1))))
+            (let [value-start (az/field reader cursor)]
+              (when (< metadata-index metadata-not-found)
+                (set! (az/index metadata-catalog (ak/intCast metadata-index))
+                      (MetadataInfo
+                       {:key_start (az/field key start)
+                        :key_length (az/field key length)
+                        :value_type value-type
+                        :element_type 0
+                        :value_start value-start
+                        :element_count 1})))
+              (skip-value! (ak/& reader) value-type 0))))))
+    (when (ak/== (az/field reader error_code) parser-ok)
+      (dotimes [tensor-index tensor-count]
+        (let [name (read-string-view! (ak/& reader))
+              dimensions (read-u32! (ak/& reader))
+              ^{:var true :zig/type [:array 4 :u64]}
+              shape (az/array-init [:array 4 :u64] [0 0 0 0])]
+          (if (> dimensions 4)
+            (set! (az/field reader error_code) parser-limit)
+            (dotimes [dimension dimensions]
+              (set! (az/index shape dimension) (read-u64! (ak/& reader)))))
+          (let [ggml-type (read-u32! (ak/& reader))
+                relative-offset (read-u64! (ak/& reader))]
+            (when (ak/== ggml-type 0) (set! f32-count (+ f32-count 1)))
+            (when (ak/== ggml-type 2) (set! q4-count (+ q4-count 1)))
+            (when (ak/== ggml-type 14) (set! q6-count (+ q6-count 1)))
+            (when (and (ak/!= ggml-type 0)
+                       (ak/!= ggml-type 2)
+                       (ak/!= ggml-type 14))
+              (set! (az/field reader error_code) parser-unsupported-type))
+            (when (< tensor-index gguf-max-tensors)
+              (set! (az/index tensor-catalog (ak/intCast tensor-index))
+                    (TensorInfo {:name_start (az/field name start)
+                                 :name_length (az/field name length)
+                                 :dimension_count (ak/intCast dimensions)
+                                 :dimensions shape
+                                 :ggml_type ggml-type
+                                 :relative_offset relative-offset
+                                 :data_address 0})))))))
     (let [descriptor-end (az/field reader cursor)
           data-offset (* (/ (+ descriptor-end 31) 32) 32)
           valid (and (ak/== (az/field reader error_code) parser-ok)
@@ -492,7 +523,9 @@
 
 (az/defn load-action-head!
   "Load the verified fixed-layout A-H action head. The file contains a
-  32-byte little-endian header, 8x768 row-major f32 weights, and 8 f32 biases."
+  32-byte little-endian header, 8x6144 row-major f32 weights, and 8 f32 biases.
+  The current two-step feature extractor fills the first 1536 values and keeps
+  the remaining compatibility slots zero."
   {:attrs #{:public :implicit-return}}
   :-
   ActionHeadSummary
@@ -594,16 +627,91 @@
   (free-sequences!)
   (unload-action-head!)
   (when (ak/!= model-bytes null)
-    (runtime/free (az/cast (az/unwrap model-bytes) [:* :anyopaque])))
+    (if (ak/== model-storage model-storage-mapped)
+      (set! _
+            (runtime/munmap
+             (az/cast (az/unwrap model-bytes) [:* :anyopaque])
+             model-byte-count))
+      (runtime/free (az/cast (az/unwrap model-bytes) [:* :anyopaque]))))
   (set! model-bytes null)
   (set! model-byte-count 0)
+  (set! model-storage model-storage-none)
   (set! tensor-catalog-count 0)
   (set! metadata-catalog-count 0)
   (set! model-summary
         (GgufSummary {:loaded false :valid false :error_code parser-truncated
                       :version 0 :tensor_count 0 :metadata_count 0
                       :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
-                      :descriptor_end 0 :data_offset 0 :file_size 0})))
+                :descriptor_end 0 :data_offset 0 :file_size 0})))
+
+(az/defn model-storage-kind
+  "Inspect whether weights are absent, heap-owned, or read-only mapped."
+  {:attrs #{:public :implicit-return}}
+  :-
+  :u8
+  []
+  model-storage)
+
+(az/defn loaded-model-sha256
+  "Compute the exact SHA-256 digest of the currently owned model bytes."
+  {:attrs #{:public :implicit-return}}
+  :-
+  [:array 32 :u8]
+  []
+  (let [^{:var true :zig/type [:array 32 :u8]}
+        digest (std-mem/zeroes (az/type [:array 32 :u8]))]
+    (when (ak/!= model-bytes null)
+      ((az/field std-sha2/Sha256 hash)
+       (az/slice (az/unwrap model-bytes) 0 model-byte-count)
+       (ak/& digest)
+       {}))
+    digest))
+
+(az/defn sha256-matches?
+  "Compare one digest value with an expected 32-byte digest."
+  {:attrs #{:public :implicit-return}}
+  :-
+  :bool
+  [[actual [:array 32 :u8]]
+   [expected [:pointer {:size :one :const? true} [:array 32 :u8]]]]
+  (let [^{:var true :zig/type :bool} equal true]
+    (dotimes [index 32]
+      (when (ak/!= (az/index actual index)
+                   (az/index (az/deref expected) index))
+        (set! equal false)))
+    equal))
+
+(az/defn file-sha256-matches?
+  "Verify a native file without retaining its bytes after the check."
+  {:attrs #{:public :implicit-return}}
+  :-
+  :bool
+  [[path [:pointer {:size :c :const? true} :u8]]
+   [expected [:pointer {:size :one :const? true} [:array 32 :u8]]]]
+  (let [file (runtime/fopen path "rb")]
+    (if (ak/== file null)
+      false
+      (let [^{:var true :zig/type :bool} valid false]
+        (set! _ (runtime/fseek file 0 2))
+        (let [signed-size (runtime/ftell file)]
+          (set! _ (runtime/fseek file 0 0))
+          (when (> signed-size 0)
+            (let [size (ak/as :usize (ak/intCast signed-size))
+                  allocation (runtime/malloc size)]
+              (when (ak/!= allocation null)
+                (let [bytes (az/cast allocation [:c-pointer :u8])
+                      count (runtime/fread bytes 1 size file)
+                      ^{:var true :zig/type [:array 32 :u8]}
+                      actual (std-mem/zeroes (az/type [:array 32 :u8]))]
+                  (when (ak/== count size)
+                    ((az/field std-sha2/Sha256 hash)
+                     (az/slice bytes 0 size)
+                     (ak/& actual)
+                     {})
+                    (set! valid (sha256-matches? actual expected)))
+                  (runtime/free allocation))))))
+        (set! _ (runtime/fclose file))
+        valid))))
 
 (az/defn tensor-info
   "Inspect one parsed tensor descriptor by stable GGUF order."
@@ -803,30 +911,78 @@
     found))
 
 (az/defn load-model!
-  "Read and validate the pinned GGUF into native memory. Inference owns it."
+  "Map and validate the pinned GGUF, falling back to an owned native read."
   :-
   GgufSummary
   [[path [:pointer {:size :c :const? true} :u8]]]
   (unload-model!)
   (let [file (runtime/fopen path "rb")]
     (if (ak/== file null)
-      model-summary
+      (do
+        (set! model-summary
+              (GgufSummary
+               {:loaded false :valid false :error_code model-file-not-found
+                :version 0 :tensor_count 0 :metadata_count 0
+                :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
+                :descriptor_end 0 :data_offset 0 :file_size 0}))
+        model-summary)
       (do
         (set! _ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
           (set! _ (runtime/fseek file 0 0))
-          (when (> signed-size 0)
+          (if (<= signed-size 0)
+            (set! model-summary
+                  (GgufSummary
+                   {:loaded true :valid false :error_code model-file-empty
+                    :version 0 :tensor_count 0 :metadata_count 0
+                    :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
+                    :descriptor_end 0 :data_offset 0 :file_size 0}))
             (let [size (ak/as :usize (ak/intCast signed-size))
-                  allocation (runtime/malloc size)]
-              (when (ak/!= allocation null)
-                (let [bytes (az/cast allocation [:c-pointer :u8])
-                      count (runtime/fread bytes 1 size file)]
-                  (when (ak/== count size)
-                    (set! model-bytes bytes)
-                    (set! model-byte-count size)
-                    (set! model-summary (parse-gguf bytes size)))
-                  (when (ak/!= count size)
-                    (runtime/free allocation)))))))
+                  mapping
+                  (catch
+                   (std-posix/mmap
+                    null size
+                    {:READ true}
+                    {:TYPE :.PRIVATE}
+                    (runtime/fileno file)
+                    0)
+                   null)]
+              (if (ak/!= mapping null)
+                (let [bytes
+                      (ak/as (az/type [:c-pointer :u8])
+                             (ak/ptrCast
+                              (az/field (az/unwrap mapping) ptr)))]
+                  (set! model-bytes bytes)
+                  (set! model-byte-count size)
+                  (set! model-storage model-storage-mapped)
+                  (set! model-summary (parse-gguf bytes size)))
+                (let [allocation (runtime/malloc size)]
+                  (if (ak/== allocation null)
+                    (set! model-summary
+                          (GgufSummary
+                           {:loaded true :valid false
+                            :error_code model-allocation-failed
+                            :version 0 :tensor_count 0 :metadata_count 0
+                            :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
+                            :descriptor_end 0 :data_offset 0 :file_size size}))
+                    (let [bytes (az/cast allocation [:c-pointer :u8])
+                          count (runtime/fread bytes 1 size file)]
+                      (if (ak/== count size)
+                        (do
+                          (set! model-bytes bytes)
+                          (set! model-byte-count size)
+                          (set! model-storage model-storage-owned)
+                          (set! model-summary (parse-gguf bytes size)))
+                        (do
+                          (runtime/free allocation)
+                          (set! model-summary
+                                (GgufSummary
+                                 {:loaded true :valid false
+                                  :error_code model-file-read-failed
+                                  :version 0 :tensor_count 0 :metadata_count 0
+                                  :f32_tensors 0 :q4_0_tensors 0
+                                  :q6_k_tensors 0 :descriptor_end 0
+                                  :data_offset 0 :file_size size})))))))))))
         (set! _ (runtime/fclose file))
         model-summary))))
 
@@ -1169,7 +1325,8 @@
     initialized))
 
 (az/defn initialize-sequences!
-  "Own one shared allocation containing eight isolated model sequence states."
+  "Own one shared allocation containing twelve isolated model sequence states:
+  eight drivers followed by four team strategists."
   {:attrs #{:public :implicit-return}}
   :-
   :bool
@@ -1243,15 +1400,15 @@
     valid))
 
 (az/defn copy-action-features!
-  "Copy all eight per-token hidden states used by the racing action head."
+  "Copy the fixed action-head feature buffer. Sequential extraction fills all
+  eight slots; fused extraction fills the first slot and clears the rest."
   {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[racer :usize]
    [output [:c-pointer :f32]]]
   (let [valid (and (< racer sequence-racer-count)
-                   (>= (az/index sequence-positions racer)
-                       action-head-token-count))]
+                   (> (az/index sequence-positions racer) 0))]
     (when valid
       (dotimes [index action-head-input-count]
         (set! (az/index output index)
@@ -2159,7 +2316,8 @@
 
 (az/defn forward-token!
   "Run one token through all 32 layers for one independent racer sequence.
-  The first constrained vocabulary is the eight one-byte action codes A-H."
+  The vocabulary sentinel consumes one position-bound fused observation vector
+  prepared by `forward-fused-observation!`; ordinary token calls are unchanged."
   {:attrs #{:public :implicit-return}}
   :-
   ForwardReport
@@ -2210,14 +2368,17 @@
                    (ak/!= sequence-memory null)
                    (< racer sequence-racer-count)
                    (< position sequence-capacity)
-                   (< token 100352))
+                   (<= token model-vocabulary-size))
         ^{:var true :zig/type :f32} checksum 0.0
         ^{:var true :zig/type :u32} best-token 32
         ^{:var true :zig/type :f32} best-logit -3.4e38]
     (when valid
       (dotimes [index model-hidden-size]
         (set! (az/index hidden index)
-              (* 12.0 (embedding-value-kernel token index))))
+              (if (ak/== token model-vocabulary-size)
+                (az/index fused-observation-inputs
+                          (+ (* racer model-hidden-size) index))
+                (* 12.0 (embedding-value-kernel token index)))))
       (dotimes [layer model-layer-count]
         (when valid
           (if (attention-layer? layer)
@@ -2303,6 +2464,59 @@
       :hidden_checksum checksum
       :candidate_tokens candidate-tokens
       :candidate_logits candidate-logits})))
+
+(az/defn forward-fused-observation!
+  "Encode every positional observation field into two full Granite steps.
+  Category embeddings are bound to their field position by a deterministic
+  sign vector, summed in two ordered groups at stable RMS scale, and processed
+  by all 32 model layers. No field is dropped and no policy feature bypasses
+  Granite."
+  {:attrs #{:public :implicit-return}}
+  :-
+  ForwardReport
+  [[racer :usize]
+   [bytes [:pointer {:size :c :const? true} :u8]]
+   [length :usize]
+   [reset :bool]]
+  (let [tokenized (tokenize-compact-ascii bytes length)
+        ^{:var true :zig/type ForwardReport} report (empty-forward-report)
+        ^{:var true :zig/type :bool}
+        valid (and (az/field tokenized valid)
+                   (ak/! (az/field tokenized truncated))
+                   (ak/== (az/field tokenized token_count)
+                          action-head-token-count)
+                   (< racer sequence-racer-count))]
+    (when (and valid reset)
+      (set! valid (reset-sequence! racer)))
+    (when valid
+      ;; Two ordered four-field groups preserve the complete observation while
+      ;; reducing eight sequential model passes to two. Position binding keeps
+      ;; equal category bytes in different fields distinguishable.
+      (dotimes [group 2]
+        (when valid
+          (dotimes [dimension model-hidden-size]
+            (let [^{:var true :zig/type :f32} total 0.0]
+              (dotimes [local-position 4]
+                (let [position (+ (* group 4) local-position)
+                      token
+                      (ak/as :usize
+                             (az/index (az/field tokenized tokens) position))
+                      position-value
+                      (embedding-value-kernel (+ 32 position) dimension)
+                      ^{:zig/type :f32}
+                      position-sign (if (>= position-value 0.0) 1.0 -1.0)]
+                  (set! total
+                        (+ total
+                           (* position-sign
+                              (embedding-value-kernel token dimension))))))
+              (set! (az/index fused-observation-inputs
+                              (+ (* racer model-hidden-size) dimension))
+                    (* total 6.0))))
+          (set! report (forward-token! racer model-vocabulary-size))
+          (set! valid (az/field report valid)))))
+    (when (ak/! valid)
+      (set! (az/field report valid) false))
+    report))
 
 (az/defn empty-forward-report
   {:export false :implicit-return true}

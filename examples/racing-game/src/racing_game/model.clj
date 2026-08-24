@@ -43,6 +43,12 @@
   (io/file (project-root) "resources/models"
            (:filename (action-head-entry))))
 
+(defn release-files
+  []
+  (let [{:keys [notice licenses]} (:release (manifest))]
+    (mapv #(io/file (project-root) "resources" %)
+          (cons notice licenses))))
+
 (defn sha256
   [file]
   (let [digest (MessageDigest/getInstance "SHA-256")]
@@ -83,10 +89,25 @@
                        :expected-sha256 sha256 :actual-sha256 actual-sha256})))
     (assoc entry :file file :verified? true)))
 
+(defn verify-release-notices!
+  []
+  (let [files (release-files)
+        missing (remove #(.isFile ^java.io.File %) files)]
+    (when (seq missing)
+      (throw (ex-info "Racing release license or notice is missing"
+                      {:missing (mapv str missing)})))
+    {:license (:license (model-entry))
+     :files (mapv #(hash-map :file %
+                             :bytes (.length ^java.io.File %)
+                             :sha256 (sha256 %))
+                  files)
+     :verified? true}))
+
 (defn verify-assets!
   []
   {:model (verify!)
-   :action-head (verify-action-head!)})
+   :action-head (verify-action-head!)
+   :release (verify-release-notices!)})
 
 (defn fetch!
   "Fetch one pinned public model with curl, then atomically install after SHA-256 verification."

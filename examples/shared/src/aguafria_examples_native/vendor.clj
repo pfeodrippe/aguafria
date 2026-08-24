@@ -7,6 +7,8 @@
            :commit "14ad7136f550079b9c1efe15cc669b737a4bd1fd"}
    :glfw {:url "https://github.com/glfw/glfw.git"
           :commit "d9d6f0f1f967807ffade6598ea9a631ebaf37a56"}
+   :imgui {:url "https://github.com/ocornut/imgui.git"
+           :commit "6d910d5487d11ca567b61c7824b0c78c569d62f0"}
    :vulkan-headers {:url "https://github.com/KhronosGroup/Vulkan-Headers.git"
                     :commit "11d6898377797e07dbd543aaaa367e4465074597"}})
 
