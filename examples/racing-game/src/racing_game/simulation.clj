@@ -91,9 +91,9 @@
 
 (az/defconst critical-thought-ticks :u64 80)
 
-(az/defconst ordinary-decision-deadline-ticks :u64 40)
+(az/defconst ordinary-decision-deadline-ticks :u64 720)
 
-(az/defconst urgent-decision-deadline-ticks :u64 24)
+(az/defconst urgent-decision-deadline-ticks :u64 600)
 
 (az/defconst deadline-on-time :u8 0)
 
@@ -237,7 +237,8 @@
    [:radio_sequence :u64]])
 
 (az/defstruct TeamRadioLog
-  "One human-readable semantic team/driver exchange retained in native memory."
+  "One human-readable semantic team/driver exchange retained in native memory.
+  Strategist entries also retain the exact English model observation and timing."
   {:layout :extern}
   [[:valid :bool]
    [:team :u8]
@@ -247,11 +248,18 @@
    [:pit_state :u8]
    [:instruction :u8]
    [:reserved :u8]
+   [:model_accepted :bool]
+   [:model_action :u8]
+   [:prompt_byte_count :u16]
+   [:input_token_count :u16]
+   [:best_token :u32]
    [:tick :u64]
    [:decision_revision :u64]
    [:latency_us :u64]
+   [:tokens_per_second :f32]
    [:tire_condition :f32]
-   [:damage :f32]])
+   [:damage :f32]
+   [:prompt_bytes [:array 160 :u8]]])
 
 (az/defstruct RacerBrain
   "Independent intent, persona, scheduler, and telemetry for one AI racer."
@@ -425,8 +433,8 @@
    [:use_item :bool]])
 
 (az/defstruct CadenceSummary
-  "Inspectable load-sensitive ordinary thought cadence. Urgent work keeps its
-  fixed deadline and the native simulation always remains at 120 Hz."
+  "Inspectable load-sensitive ordinary thought cadence. The standalone host
+  may present live simulation in slow motion while replay remains 120 Hz."
   {:layout :extern}
   [[:ticks :u64]
    [:pending :u8]
@@ -1060,11 +1068,19 @@
             :pit_state (az/field (az/deref racer) pit_state)
             :instruction (az/field (az/deref team) instruction)
             :reserved 0
+            :model_accepted false
+            :model_action 0
+            :prompt_byte_count 0
+            :input_token_count 0
+            :best_token 0
             :tick simulation-tick
             :decision_revision (az/field (az/deref team) decision_revision)
             :latency_us (az/field (az/deref team) last_latency_us)
+            :tokens_per_second 0.0
             :tire_condition (az/field (az/deref racer) tire_condition)
-            :damage (az/field (az/deref racer) damage)}))
+            :damage (az/field (az/deref racer) damage)
+            :prompt_bytes
+            (std-mem/zeroes (az/type [:array 160 :u8]))}))
     (set! (az/index team-radio-heads team-index)
           (ak/intCast (mod (+ head 1) team-radio-history-per-team)))
     (set! (az/index team-radio-counts team-index)
@@ -1075,6 +1091,41 @@
                               (az/index team-radio-counts team-index)))
                       1))))
     (set! team-radio-count (+ team-radio-count 1))))
+
+(az/defn attach-team-model-decision!
+  "Attach the completed strategist inference to the radio message it caused."
+  {:export false}
+  :-
+  :void
+  [[team-index :usize]
+   [result worker/InferenceResult]]
+  (let [head (ak/as :usize
+                    (ak/intCast (az/index team-radio-heads team-index)))
+        slot (if (ak/== head 0)
+               (- team-radio-history-per-team 1)
+               (- head 1))
+        destination (+ (* team-index team-radio-history-per-team) slot)
+        ^:var entry (az/index team-radio-history destination)
+        prompt-count
+        (ak/min worker/prompt-capacity
+                (ak/as :usize
+                       (ak/intCast (az/field result prompt_byte_count))))]
+    (when (and (az/field entry valid)
+               (ak/== (az/field entry source) radio-source-strategist)
+               (ak/== (az/field entry decision_revision)
+                      (az/field result revision)))
+      (set! (az/field entry model_accepted) (az/field result accepted))
+      (set! (az/field entry model_action) (az/field result action_code))
+      (set! (az/field entry prompt_byte_count) (ak/intCast prompt-count))
+      (set! (az/field entry input_token_count)
+            (az/field result input_token_count))
+      (set! (az/field entry best_token) (az/field result best_token))
+      (set! (az/field entry tokens_per_second)
+            (az/field result tokens_per_second))
+      (dotimes [position prompt-count]
+        (set! (az/index (az/field entry prompt_bytes) position)
+              (az/index (az/field result prompt_bytes) position)))
+      (set! (az/index team-radio-history destination) entry))))
 
 (az/defn team-radio-history-count
   "Return the retained radio-message count for one team."
@@ -1859,6 +1910,8 @@
         request
         (worker/InferenceRequest
          {:valid true
+          :actor_kind worker/actor-kind-driver
+          :team (az/field (az/deref (racer-pointer index)) team)
           :racer (az/field observation racer)
           :rank (az/field observation rank)
           :lap (az/field observation lap)
@@ -1868,6 +1921,9 @@
           :target_distance (az/field observation target_distance)
           :target_lane (az/field observation target_lane)
           :tactical_status (az/field observation tactical_status)
+          :driver_a 0 :driver_b 0 :rank_a 0 :rank_b 0
+          :tire_a 0 :tire_b 0 :damage_a 0 :damage_b 0
+          :pit_a 0 :pit_b 0 :box_occupied false
           :urgent (az/field observation urgent)
           :observation_schema protocol/observation-schema-version
           :action_schema protocol/action-schema-version
@@ -2157,7 +2213,7 @@
                (ak/== (az/field result revision)
                       (az/field (az/deref team) pending_revision))
                (ak/== (az/field result race_epoch) race-epoch))
-      (let [model-action (mod (az/field result action_code) 3)
+      (let [model-action (az/field result action_code)
             model-driver
             (cond
               (ak/== model-action team-action-driver-a)
@@ -2173,7 +2229,10 @@
                              0.16)
                           (> (az/field (az/deref priority-racer) damage) 0.82))
             model-valid (and (az/field result accepted)
-                             (< (az/field result action_code) 8)
+                             (ak/== (az/field result actor_kind)
+                                    worker/actor-kind-team)
+                             (ak/== (az/field result team) team-index)
+                             (< (az/field result action_code) 3)
                              (ak/== (az/field result output_token_count) 1)
                              (ak/== (az/field result best_token)
                                     (+ 32 (az/field result action_code))))
@@ -2208,6 +2267,7 @@
             (set! (az/field (az/deref team) instruction) team-action-hold)
             (radio-message! (ak/intCast target) radio-source-strategist
                             radio-stay-out)))
+        (attach-team-model-decision! team-index result)
         (set! (az/field (az/deref team) next_decision_tick)
               (+ simulation-tick team-decision-cadence-ticks))))))
 
@@ -2217,45 +2277,72 @@
   :bool
   [[team-index :usize]]
   (let [team (team-pointer team-index)
-        driver-id (team-priority-driver team-index)
-        racer (racer-pointer (ak/intCast driver-id))
-        teammate (racer-pointer (ak/intCast (teammate-id driver-id)))
+        driver-a-id (az/field (az/deref team) driver_a)
+        driver-b-id (az/field (az/deref team) driver_b)
+        driver-a (racer-pointer (ak/intCast driver-a-id))
+        driver-b (racer-pointer (ak/intCast driver-b-id))
         revision (next-decision-revision!)
         actor-index (+ team-worker-offset team-index)
-        severity
+        tire-a
         (ak/as :u8
                (ak/intFromFloat
-                (ak/min 9.0 (* (driver-service-urgency racer) 5.0))))
-        teammate-severity (driver-service-urgency teammate)
+                (ak/min 100.0
+                        (* 100.0
+                           (ak/max 0.0
+                                   (az/field (az/deref driver-a)
+                                             tire_condition))))))
+        tire-b
+        (ak/as :u8
+               (ak/intFromFloat
+                (ak/min 100.0
+                        (* 100.0
+                           (ak/max 0.0
+                                   (az/field (az/deref driver-b)
+                                             tire_condition))))))
+        damage-a
+        (ak/as :u8
+               (ak/intFromFloat
+                (ak/min 100.0
+                        (* 100.0
+                           (ak/max 0.0
+                                   (az/field (az/deref driver-a) damage))))))
+        damage-b
+        (ak/as :u8
+               (ak/intFromFloat
+                (ak/min 100.0
+                        (* 100.0
+                           (ak/max 0.0
+                                   (az/field (az/deref driver-b) damage))))))
         request
         (worker/InferenceRequest
          {:valid true
+          :actor_kind worker/actor-kind-team
+          :team (ak/intCast team-index)
           :racer (ak/intCast actor-index)
-          :rank (az/field (az/deref racer) rank)
-          :lap (az/field (az/deref racer) lap)
+          :rank (az/field (az/deref driver-a) rank)
+          :lap (az/field (az/deref driver-a) lap)
           :item (if (ak/== (az/field (az/deref team) pit_occupant)
                            no-pit-occupant) 0 1)
-          :target driver-id
-          :persona (ak/intCast (mod team-index 3))
-          :target_distance severity
-          :target_lane
-          (cond
-            (> teammate-severity (driver-service-urgency racer)) 0
-            (< teammate-severity (driver-service-urgency racer)) 2
-            :else 1)
-          :tactical_status
-          (cond
-            (>= (az/field (az/deref racer) damage) damage-pit-threshold) 2
-            (<= (az/field (az/deref racer) tire_condition) tire-pit-threshold) 1
-            :else 0)
+          :target driver-a-id
+          :persona 0 :target_distance 0 :target_lane 1 :tactical_status 0
+          :driver_a driver-a-id
+          :driver_b driver-b-id
+          :rank_a (az/field (az/deref driver-a) rank)
+          :rank_b (az/field (az/deref driver-b) rank)
+          :tire_a tire-a :tire_b tire-b
+          :damage_a damage-a :damage_b damage-b
+          :pit_a (az/field (az/deref driver-a) pit_state)
+          :pit_b (az/field (az/deref driver-b) pit_state)
+          :box_occupied
+          (ak/!= (az/field (az/deref team) pit_occupant) no-pit-occupant)
           :urgent true
           :observation_schema protocol/observation-schema-version
           :action_schema protocol/action-schema-version
           :revision revision
           :race_epoch race-epoch
           :simulation_tick simulation-tick
-          :progress (az/field (az/deref racer) progress)
-          :speed (az/field (az/deref racer) speed)
+          :progress (az/field (az/deref driver-a) progress)
+          :speed (az/field (az/deref driver-a) speed)
           :enqueue_seconds 0.0})]
     (if (worker/submit! request)
       (do

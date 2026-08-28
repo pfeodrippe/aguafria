@@ -33,6 +33,8 @@
 
 (az/defvar accumulator :f64 0.0)
 
+(az/defvar live-simulation-slowdown :f64 4.0)
+
 (az/defvar previous-pause false)
 
 (az/defvar previous-reset false)
@@ -48,6 +50,23 @@
   :void
   []
   (set! running false))
+
+(az/defn set-live-simulation-slowdown!
+  "Run live AI races between real time and 20x slow motion. Rendering remains
+  unconstrained, and deterministic replay always advances at normal 120 Hz."
+  {:attrs #{:public}}
+  :-
+  :void
+  [[factor :f64]]
+  (set! live-simulation-slowdown (ak/min 20.0 (ak/max 1.0 factor))))
+
+(az/defn simulation-slowdown
+  "Inspect the live wall-time slowdown factor."
+  {:attrs #{:public :implicit-return}}
+  :-
+  :f64
+  []
+  live-simulation-slowdown)
 
 (az/defn poll-control-edges!
   {:export false}
@@ -152,7 +171,8 @@
     (set! previous-item-use item-use)))
 
 (az/defn frame!
-  "Advance an exact 120 Hz simulation accumulator and present one Vulkan frame."
+  "Present one Vulkan frame. Live AI simulation defaults to 4x slow motion so
+  local model decisions can arrive; deterministic replay advances at 120 Hz."
   :-
   :bool
   []
@@ -162,11 +182,16 @@
         elapsed (ak/min 0.10 (ak/max 0.0 (- now previous-time)))]
     (set! previous-time now)
     (set! accumulator (+ accumulator elapsed))
-    (let [^{:var true :zig/type :u8} substeps 0]
-      (ak/while (and (>= accumulator 0.008333333333)
+    (let [replay (simulation/replay-summary)
+          step-seconds
+          (if (az/field replay active)
+            0.008333333333
+            (* 0.008333333333 live-simulation-slowdown))
+          ^{:var true :zig/type :u8} substeps 0]
+      (ak/while (and (>= accumulator step-seconds)
                      (< substeps 12))
         (simulation/step!)
-        (set! accumulator (- accumulator 0.008333333333))
+        (set! accumulator (- accumulator step-seconds))
         (set! substeps (+ substeps 1))))
     (set! frame-count (+ frame-count 1))
     (renderer/render! (ak/& race-render/build-frame!))))

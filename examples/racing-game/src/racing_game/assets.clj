@@ -10,7 +10,10 @@
   "resources/models/granite-4.0-h-350m-Q4_0.gguf")
 
 (az/defconst action-head-path
-  "resources/models/granite-r3-action-head.f32")
+  "resources/models/granite-r4-driver-head.f32")
+
+(az/defconst team-head-path
+  "resources/models/granite-r4-team-head.f32")
 
 (az/defconst expected-model-bytes :usize 216073120)
 
@@ -23,8 +26,14 @@
 (az/defconst expected-action-head-sha256 [:array 32 :u8]
   (az/array-init
    [:array 32 :u8]
-   [101 179 83 172 254 219 234 195 43 88 56 89 228 202 21 77
-    133 28 236 117 11 4 100 168 138 116 214 145 25 113 243 81]))
+   [247 52 88 87 15 128 32 65 78 65 204 204 118 111 13 239
+    116 140 149 229 123 155 153 253 124 58 195 103 37 208 17 237]))
+
+(az/defconst expected-team-head-sha256 [:array 32 :u8]
+  (az/array-init
+   [:array 32 :u8]
+   [230 203 215 239 237 50 107 174 173 42 60 59 41 56 20 132
+    55 50 151 232 203 167 134 246 21 192 134 102 9 36 236 122]))
 
 (az/defn print-model-error
   :-
@@ -57,7 +66,7 @@
   (cond
     (ak/== error-code 1)
     (std-debug/print
-     "Racing action head is missing: resources/models/granite-r3-action-head.f32\nPackage the release assets again.\n"
+     "Racing action head is missing: resources/models/granite-r4-driver-head.f32\nPackage the release assets again.\n"
      {})
 
     (ak/== error-code 2)
@@ -65,11 +74,32 @@
 
     (ak/== error-code 3)
     (std-debug/print
-     "Racing action head is incompatible with observation schema 3/action schema 1.\n"
+     "Racing action head is incompatible with observation schema 4/action schema 1.\n"
      {})
 
     :else
     (std-debug/print "Racing action head could not be read completely.\n" {})))
+
+(az/defn print-team-head-error
+  :-
+  :void
+  [[error-code :u32]]
+  (cond
+    (ak/== error-code 1)
+    (std-debug/print
+     "Racing team head is missing: resources/models/granite-r4-team-head.f32\nPackage the release assets again.\n"
+     {})
+
+    (ak/== error-code 2)
+    (std-debug/print "Racing team head is empty; package it again.\n" {})
+
+    (ak/== error-code 3)
+    (std-debug/print
+     "Racing team head is incompatible with observation schema 4/action schema 1.\n"
+     {})
+
+    :else
+    (std-debug/print "Racing team head could not be read completely.\n" {})))
 
 (az/defn load-and-verify!
   "Load the exact release assets, validate layouts, byte count, and SHA-256."
@@ -123,4 +153,23 @@
             (inference/unload-model!)
             false)
 
-          :else true)))))
+          :else
+          (let [team-head (inference/load-team-head! team-head-path)]
+            (cond
+              (ak/! (az/field team-head valid))
+              (do
+                (print-team-head-error (az/field team-head error_code))
+                (inference/unload-model!)
+                false)
+
+              (ak/!
+               (inference/file-sha256-matches?
+                team-head-path (ak/& expected-team-head-sha256)))
+              (do
+                (std-debug/print
+                 "Racing team-head SHA-256 does not match models.edn; package it again.\n"
+                 {})
+                (inference/unload-model!)
+                false)
+
+              :else true)))))))

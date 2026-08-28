@@ -13,7 +13,7 @@
   :void
   []
   (let [loaded
-        (simulation/load-replay-file! "resources/replay/golden-r3.bin")]
+        (simulation/load-replay-file! "resources/replay/golden-r4.bin")]
     (std-debug/assert (az/field loaded valid))
     (std-debug/assert
      (ak/== (az/field loaded intent_count)

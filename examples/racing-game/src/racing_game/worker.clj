@@ -5,6 +5,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.Thread :as std-thread]
             [aguafria.std.c :as std-c]
+            [aguafria.std.fmt :as std-fmt]
             [aguafria.std.math :as std-math]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
@@ -17,7 +18,11 @@
 
 (az/defconst team-count :usize 4)
 
-(az/defconst prompt-length :usize 8)
+(az/defconst actor-kind-driver :u8 0)
+
+(az/defconst actor-kind-team :u8 1)
+
+(az/defconst prompt-capacity :usize 160)
 
 (az/defvar sampling-temperature :f32 0.35)
 
@@ -27,10 +32,18 @@
   [[:code :u8]
    [:state :u64]])
 
+(az/defstruct PromptBuffer
+  "One bounded human-readable prompt owned by the request worker stack."
+  {:layout :extern}
+  [[:byte_count :u16]
+   [:bytes [:array 160 :u8]]])
+
 (az/defstruct InferenceRequest
   "Immutable observation published by the 120 Hz simulation."
   {:layout :extern}
   [[:valid :bool]
+   [:actor_kind :u8]
+   [:team :u8]
    [:racer :u8]
    [:rank :u8]
    [:lap :u16]
@@ -40,6 +53,17 @@
    [:target_distance :u8]
    [:target_lane :u8]
    [:tactical_status :u8]
+   [:driver_a :u8]
+   [:driver_b :u8]
+   [:rank_a :u8]
+   [:rank_b :u8]
+   [:tire_a :u8]
+   [:tire_b :u8]
+   [:damage_a :u8]
+   [:damage_b :u8]
+   [:pit_a :u8]
+   [:pit_b :u8]
+   [:box_occupied :bool]
    [:urgent :bool]
    [:observation_schema :u8]
    [:action_schema :u8]
@@ -55,6 +79,8 @@
   {:layout :extern}
   [[:valid :bool]
    [:accepted :bool]
+   [:actor_kind :u8]
+   [:team :u8]
    [:racer :u8]
    [:rank :u8]
    [:lap :u16]
@@ -82,8 +108,8 @@
    [:input_token_count :u16]
    [:output_token_count :u16]
    [:best_token :u32]
-   [:prompt_bytes [:array 32 :u8]]
-   [:input_tokens [:array 32 :u32]]
+   [:prompt_bytes [:array 160 :u8]]
+   [:input_tokens [:array 160 :u32]]
    [:output_tokens [:array 1 :u32]]
    [:response_bytes [:array 1 :u8]]])
 
@@ -176,62 +202,157 @@
     (set! (az/field duration nsec) 500000)
     (set! _ (std-c/nanosleep (ak/& duration) null))))
 
-(az/defn category-byte
-  "Encode one bounded categorical value as printable A-Z for the positional
-  racing prompt schema."
+(az/defn persona-text
   {:export false :public false :implicit-return true}
   :-
-  :u8
+  [:slice-const :u8]
   [[value :u8]]
-  (+ (ak/as :u8 65) (ak/min value (ak/as :u8 25))))
+  (cond
+    (ak/== value 0) "cautious"
+    (ak/== value 1) "balanced"
+    :else "bold"))
+
+(az/defn item-text
+  {:export false :public false :implicit-return true}
+  :-
+  [:slice-const :u8]
+  [[value :u8]]
+  (cond
+    (ak/== value 1) "bolt"
+    (ak/== value 2) "trap"
+    (ak/== value 3) "boost"
+    (ak/== value 4) "shield"
+    (ak/== value 5) "pulse"
+    (ak/== value 6) "surge"
+    :else "none"))
+
+(az/defn lane-text
+  {:export false :public false :implicit-return true}
+  :-
+  [:slice-const :u8]
+  [[value :u8]]
+  (cond
+    (ak/== value 0) "left"
+    (ak/== value 2) "right"
+    :else "same lane"))
+
+(az/defn status-text
+  {:export false :public false :implicit-return true}
+  :-
+  [:slice-const :u8]
+  [[value :u8]]
+  (cond
+    (ak/== value 1) "hazard nearby"
+    (ak/== value 2) "recovering"
+    (ak/== value 3) "shield active"
+    :else "clear"))
+
+(az/defn pit-state-text
+  {:export false :public false :implicit-return true}
+  :-
+  [:slice-const :u8]
+  [[value :u8]]
+  (cond
+    (ak/== value 1) "called"
+    (ak/== value 2) "servicing"
+    (ak/== value 3) "exiting"
+    :else "out"))
+
+(az/defn tire-state-text
+  {:export false :public false :implicit-return true}
+  :-
+  [:slice-const :u8]
+  [[percent :u8]]
+  (if (<= percent 46) "worn" "usable"))
+
+(az/defn damage-state-text
+  {:export false :public false :implicit-return true}
+  :-
+  [:slice-const :u8]
+  [[percent :u8]]
+  (if (>= percent 60) "repair" "sound"))
 
 (az/defn observation-prompt
-  "Encode prompt schema R3 as eight positional bytes: schema, target/persona,
-  rank/lap, item/urgency, progress, speed, target distance, and tactical
-  status/target-lane relation. A means zero, B means one, and so on. Packing
-  adds fair local combat perception without increasing model-token latency."
+  "Describe one racer's bounded observation in ordinary compact English."
   {:export false :implicit-return true}
   :-
-  [:array 32 :u8]
+  PromptBuffer
   [[request InferenceRequest]]
-  (let [^:var bytes (std-mem/zeroes (az/type [:array 32 :u8]))
-        progress-bin
+  (let [^:var bytes (std-mem/zeroes (az/type [:array 160 :u8]))
+        progress-percent
         (ak/as :u8
                (ak/intFromFloat
-                (ak/min 9.0 (* (ak/max 0.0 (az/field request progress)) 10.0))))
-        speed-bin
+                (ak/min 99.0
+                        (* (ak/max 0.0 (az/field request progress)) 100.0))))
+        speed-percent
         (ak/as :u8
                (ak/intFromFloat
-                (ak/min 9.0 (* (ak/max 0.0 (az/field request speed)) 100.0))))]
-    ;; T is the stable wire identifier for observation schema R3.
-    (set! (az/index bytes 0) (+ 81 protocol/observation-schema-version))
-    (set! (az/index bytes 1)
-          (category-byte
-           (+ (* (az/field request target) 3)
-              (ak/min (az/field request persona) (ak/as :u8 2)))))
-    (set! (az/index bytes 2)
-          (category-byte
-           (+ (* (if (> (az/field request rank) 0)
-                   (- (az/field request rank) 1)
-                   0)
-                 3)
-              (ak/min (ak/as :u8 (ak/intCast (az/field request lap)))
-                      (ak/as :u8 2)))))
-    (set! (az/index bytes 3)
-          (category-byte
-           (+ (* (az/field request item) 2)
-              (if (az/field request urgent)
-                (ak/as :u8 1)
-                (ak/as :u8 0)))))
-    (set! (az/index bytes 4) (category-byte progress-bin))
-    (set! (az/index bytes 5) (category-byte speed-bin))
-    (set! (az/index bytes 6)
-          (category-byte (az/field request target_distance)))
-    (set! (az/index bytes 7)
-          (category-byte
-           (+ (* (az/field request tactical_status) 3)
-              (az/field request target_lane))))
-    bytes))
+                (ak/min 99.0
+                        (* (ak/max 0.0 (az/field request speed)) 100.0))))
+        rendered
+        (catch
+         (std-fmt/bufPrint
+          (ak/& bytes)
+          "Driver {d}, {s}. Rank {d}/8; lap {d}; progress {d}%; speed {d}. Item {s}. Rival {d}: gap {d}, {s}. Track {s}. {s}."
+          [(az/field request racer)
+           (persona-text (az/field request persona))
+           (az/field request rank)
+           (az/field request lap)
+           progress-percent
+           speed-percent
+           (item-text (az/field request item))
+           (az/field request target)
+           (az/field request target_distance)
+           (lane-text (az/field request target_lane))
+           (status-text (az/field request tactical_status))
+           (if (az/field request urgent) "Urgent" "Routine")])
+         (az/slice bytes 0 0))]
+    (PromptBuffer
+     {:byte_count (ak/intCast (az/field rendered len))
+      :bytes bytes})))
+
+(az/defn team-prompt
+  "Describe both team drivers and the shared pit box in ordinary English."
+  {:export false :implicit-return true}
+  :-
+  PromptBuffer
+  [[request InferenceRequest]]
+  (let [^:var bytes (std-mem/zeroes (az/type [:array 160 :u8]))
+        rendered
+        (catch
+         (std-fmt/bufPrint
+         (ak/& bytes)
+          "Team {d}. A{d}: rank {d}/8, tire {d}% {s}, damage {d}% {s}, {s}. B{d}: rank {d}/8, tire {d}% {s}, damage {d}% {s}, {s}. Box {s}."
+          [(az/field request team)
+           (az/field request driver_a)
+           (az/field request rank_a)
+           (az/field request tire_a)
+           (tire-state-text (az/field request tire_a))
+           (az/field request damage_a)
+           (damage-state-text (az/field request damage_a))
+           (pit-state-text (az/field request pit_a))
+           (az/field request driver_b)
+           (az/field request rank_b)
+           (az/field request tire_b)
+           (tire-state-text (az/field request tire_b))
+           (az/field request damage_b)
+           (damage-state-text (az/field request damage_b))
+           (pit-state-text (az/field request pit_b))
+           (if (az/field request box_occupied) "occupied" "free")])
+         (az/slice bytes 0 0))]
+    (PromptBuffer
+     {:byte_count (ak/intCast (az/field rendered len))
+      :bytes bytes})))
+
+(az/defn request-prompt
+  "Select the semantic prompt contract for this independent AI actor."
+  {:export false :implicit-return true}
+  :-
+  PromptBuffer
+  [[request InferenceRequest]]
+  (if (ak/== (az/field request actor_kind) actor-kind-team)
+    (team-prompt request)
+    (observation-prompt request)))
 
 (az/defn action-target-speed
   "Translate one constrained action code into the racer's desired speed. This
@@ -256,7 +377,7 @@
     sampling-temperature))
 
 (az/defn sample-action
-  "Temperature-sample only the eight legal A-H logits. Each racer owns one
+  "Temperature-sample only this actor's legal logits. Each actor owns one
   deterministic native RNG stream; no sampled value can name another tool."
   {:export false :implicit-return true}
   :-
@@ -277,13 +398,17 @@
         weights (std-mem/zeroes (az/type [:array 8 :f32]))
         ^{:var true :zig/type :f32} total 0.0
         ^{:var true :zig/type :f32} cumulative 0.0
-        ^{:var true :zig/type :u8} chosen 7
+        candidate-count (ak/as :usize (az/field report candidate_count))
+        ^{:var true :zig/type :u8}
+        chosen (ak/intCast (if (> candidate-count 0)
+                            (- candidate-count 1)
+                            0))
         ^{:var true :zig/type :bool} found false]
-    (dotimes [index 8]
+    (dotimes [index candidate-count]
       (set! maximum
             (ak/max maximum
                     (az/index (az/field report candidate_logits) index))))
-    (dotimes [index 8]
+    (dotimes [index candidate-count]
       (let [weight
             (std-math/exp
              (/ (- (az/index (az/field report candidate_logits) index)
@@ -292,7 +417,7 @@
         (set! (az/index weights index) weight)
         (set! total (+ total weight))))
     (let [threshold (* random-unit total)]
-      (dotimes [index 8]
+      (dotimes [index candidate-count]
         (when (ak/! found)
           (set! cumulative (+ cumulative (az/index weights index)))
           (when (>= cumulative threshold)
@@ -302,38 +427,49 @@
     (SampledAction {:code chosen :state next-state})))
 
 (az/defn interpret-action
-  "Map the constrained A-H token to a complete legal racing intent."
+  "Map a constrained driver or team token to its native validated action."
   {:export false :implicit-return true}
   :-
   InferenceResult
   [[request InferenceRequest]
    [report inference/ForwardReport]
-   [prompt [:array 32 :u8]]
+   [prompt PromptBuffer]
    [tokens inference/TokenizationReport]
    [queue-us :u64]
-   [inference-us :u64]]
-  (let [valid (and (az/field report valid)
+  [inference-us :u64]]
+  (let [team-actor (ak/== (az/field request actor_kind) actor-kind-team)
+        ^{:zig/type :u8}
+        candidate-count (if team-actor 3 8)
+        valid (and (az/field report valid)
+                   (ak/== (az/field report candidate_count) candidate-count)
                    (>= (az/field report best_token) 32)
-                   (< (az/field report best_token) 40))
+                   (< (az/field report best_token) (+ 32 candidate-count)))
         sampled
         (if valid
-          (sample-action report (ak/intCast (az/field request racer)))
+          (if team-actor
+            ;; Pit-wall calls must match the verified three-action head exactly;
+            ;; stochasticity here can call the healthy teammate by accident.
+            (SampledAction
+             {:code (ak/intCast (- (az/field report best_token) 32))
+              :state (az/index sampler-states
+                               (ak/intCast (az/field request racer)))})
+            (sample-action report (ak/intCast (az/field request racer))))
           (SampledAction {:code 0 :state 0}))
         action-code (az/field sampled code)
-        lane-code (mod action-code 3)
+        lane-code (if team-actor 1 (mod action-code 3))
         ^{:zig/type :f32}
         lane-target (cond
                       (ak/== lane-code 0) -0.075
                       (ak/== lane-code 1) 0.0
                       :else 0.075)
-        target-speed (action-target-speed action-code)
+        target-speed (if team-actor 0.0 (action-target-speed action-code))
         target (az/field request target)
         ^{:zig/type :u8}
-        item-action (if (>= action-code 4) 1 0)
-        ^:var input-tokens (std-mem/zeroes (az/type [:array 32 :u32]))
+        item-action (if (and (ak/! team-actor) (>= action-code 4)) 1 0)
+        ^:var input-tokens (std-mem/zeroes (az/type [:array 160 :u32]))
         ^:var output-tokens (std-mem/zeroes (az/type [:array 1 :u32]))
         ^:var response-bytes (std-mem/zeroes (az/type [:array 1 :u8]))]
-    (dotimes [index (ak/min 32 (az/field tokens token_count))]
+    (dotimes [index (ak/min prompt-capacity (az/field tokens token_count))]
       (set! (az/index input-tokens index)
             (az/index (az/field tokens tokens) index)))
     (set! (az/index output-tokens 0) (+ 32 action-code))
@@ -341,6 +477,8 @@
     (InferenceResult
      {:valid true
       :accepted valid
+      :actor_kind (az/field request actor_kind)
+      :team (az/field request team)
       :racer (az/field request racer)
       :rank (az/field request rank)
       :lap (az/field request lap)
@@ -363,7 +501,7 @@
       (if (> inference-us 0)
         (/ (* (ak/as :f32
                      (ak/floatFromInt
-                      protocol/observation-model-step-count))
+                     (az/field tokens token_count)))
               1000000.0)
            (ak/as :f32 (ak/floatFromInt inference-us)))
         0.0)
@@ -371,11 +509,11 @@
       :speed (az/field request speed)
       :lane_target lane-target
       :target_speed target-speed
-      :prompt_byte_count (ak/intCast prompt-length)
+      :prompt_byte_count (az/field prompt byte_count)
       :input_token_count (az/field tokens token_count)
       :output_token_count 1
       :best_token (+ 32 action-code)
-      :prompt_bytes prompt
+      :prompt_bytes (az/field prompt bytes)
       :input_tokens input-tokens
       :output_tokens output-tokens
       :response_bytes response-bytes})))
@@ -386,9 +524,11 @@
   :-
   :void
   [[request InferenceRequest]]
-  (let [prompt (observation-prompt request)
+  (let [prompt (request-prompt request)
+        prompt-length (ak/as :usize (az/field prompt byte_count))
         tokenized
-        (inference/tokenize-compact-ascii (ak/& (az/index prompt 0)) prompt-length)
+        (inference/tokenize-compact-ascii
+         (ak/& (az/index (az/field prompt bytes) 0)) prompt-length)
         started (monotonic-seconds)
         queue-us
         (ak/as :u64
@@ -396,9 +536,9 @@
                 (* (ak/max 0.0 (- started (az/field request enqueue_seconds)))
                    1000000.0)))
         report
-        (inference/forward-fused-observation!
+        (inference/forward-compact-prompt!
          (ak/as :usize (az/field request racer))
-         (ak/& (az/index prompt 0)) prompt-length true)
+         (ak/& (az/index (az/field prompt bytes) 0)) prompt-length true)
         finished (monotonic-seconds)
         inference-us
         (ak/as :u64

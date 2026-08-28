@@ -170,33 +170,7 @@ void draw_summary(const AguafriaImguiRacer& racer) {
     ImGui::TextWrapped("%s", line);
 
     if (racer.detailed_observation) {
-        std::snprintf(line, sizeof(line),
-                      "Saw: %s of 8 · lap %u · %u-%u%% through the lap · speed %u-%u%% of a lap/s. Driving style: %s.",
-                      ordinal(racer.rank), racer.lap + 1,
-                      racer.progress_bin * 10, (racer.progress_bin + 1) * 10,
-                      racer.speed_bin, racer.speed_bin + 1,
-                      persona_name(racer.persona));
-        ImGui::TextWrapped("%s", line);
-        if (racer.target == racer.id) {
-            ImGui::TextWrapped("No opponent was ahead.");
-        } else if (racer.target_distance_bin == 9) {
-            std::snprintf(line, sizeof(line),
-                          "Racer %u was at least 9%% of a lap ahead, %s.",
-                          racer.target, relative_lane_name(racer.target_lane));
-            ImGui::TextWrapped("%s", line);
-        } else {
-            std::snprintf(line, sizeof(line),
-                          "Racer %u was %u-%u%% of a lap ahead, %s.",
-                          racer.target, racer.target_distance_bin,
-                          racer.target_distance_bin + 1,
-                          relative_lane_name(racer.target_lane));
-            ImGui::TextWrapped("%s", line);
-        }
-        std::snprintf(line, sizeof(line),
-                      "Inventory: %s. Track: %s. Decision: %s.",
-                      item_name(racer.item), status_name(racer.tactical_status),
-                      racer.urgent ? "urgent" : "routine");
-        ImGui::TextWrapped("%s", line);
+        ImGui::TextWrapped("Observed: %s", racer.prompt);
     } else {
         std::snprintf(line, sizeof(line),
                       "State: %s of 8 · lap %u · %u-%u%% through the lap · speed %u-%u%% of a lap/s · inventory: %s · %s.",
@@ -463,11 +437,18 @@ void draw_monitor() {
                     std::clamp(entry.damage, 0.0f, 1.0f) * 100.0f);
             } else {
                 ImGui::TextWrapped(
-                    "tick %llu | %s strategist -> R%u | %s | decision %llu | %.1f ms",
+                    "tick %llu | %s strategist -> R%u | %s | decision %llu | %.1f ms | %.2f tok/s",
                     static_cast<unsigned long long>(entry.tick), team_name(entry.team),
                     entry.target, radio_name(entry.code),
                     static_cast<unsigned long long>(entry.decision_revision),
-                    static_cast<double>(entry.latency_us) / 1000.0);
+                    static_cast<double>(entry.latency_us) / 1000.0,
+                    entry.tokens_per_second);
+                if (entry.prompt_byte_count > 0) {
+                    ImGui::TextWrapped("  Observed: %s", entry.prompt);
+                    ImGui::TextWrapped("  Decided: %s%s",
+                                       team_action_name(entry.model_action),
+                                       entry.model_accepted ? "" : " (rejected; safe policy used)");
+                }
             }
         }
     }
@@ -536,9 +517,11 @@ void draw_monitor() {
         if (show_raw_protocol) {
             ImGui::SeparatorText("Raw protocol (explicitly enabled)");
             if (racer.source == 1 && racer.prompt[0] != '\0') {
-                ImGui::Text("Prompt: %s", racer.prompt);
-                ImGui::Text("Response: %s (token %u)", racer.response, racer.output_token);
-                ImGui::TextUnformatted("Input token IDs:");
+                ImGui::Text("Constrained response: %s (token %u)",
+                            racer.response, racer.output_token);
+                ImGui::Text("First %u of %u input token IDs:",
+                            std::min<uint32_t>(racer.input_token_count, 8),
+                            racer.input_token_count);
                 ImGui::SameLine();
                 for (uint32_t index = 0;
                      index < std::min<uint32_t>(racer.input_token_count, 8); ++index) {
@@ -549,7 +532,7 @@ void draw_monitor() {
                     }
                 }
             } else {
-                ImGui::TextUnformatted("No encoded model prompt or output exists for this action.");
+                ImGui::TextUnformatted("No model token details exist for this action.");
             }
         }
     } else {

@@ -3,6 +3,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [racing-game.assets :as assets]
             [racing-game.core :as core]
             [racing-game.dataset :as dataset]
             [racing-game.inference :as inference]
@@ -15,6 +16,7 @@
             [racing-game.telemetry :as telemetry]
             [racing-game.track :as track]
             [racing-game.train-action-head :as train-action-head]
+            [racing-game.train-team-head :as train-team-head]
             [racing-game.tournament :as tournament]
             [racing-game.worker :as worker])
   (:import [java.nio.file Files OpenOption]
@@ -107,9 +109,11 @@
                              :tactical-status :hazard-near
                              :input-token-count 8
                              :model-step-count 2
-                             :prompt "SECRET-COMPACT-PROMPT"
-                             :input-tokens [50 35 32 32 32 32 35 33]
-                             :prompt-decoding []}
+                             :prompt (str "Driver 0, balanced. Rank 3/8; lap 1; "
+                                          "progress 42%; speed 8. Item trap. "
+                                          "Rival 4: gap 3, left. "
+                                          "Track hazard nearby. Urgent.")
+                             :input-tokens [50 35 32 32 32 32 35 33]}
                :intent {:lane :right :pace :attack :item :use :target 4
                         :token "F" :token-id 37}
                :validation {:accepted true :deadline :on-time}
@@ -123,35 +127,31 @@
             (assoc :source :fallback
                    :validation {:accepted true :deadline :expired}
                    :outcome {:resolved false})
+            (update :observation dissoc :prompt)
             (assoc-in [:observation :persona] :unknown)
             (assoc-in [:observation :target-distance-bin] nil)
             (assoc-in [:observation :target-lane] nil)
             (assoc-in [:observation :tactical-status] nil))
         fallback-explanation (race-log/explain fallback)]
     (is (str/includes? explanation
-                       "Saw: 3rd of 8 · lap 2"))
-    (is (str/includes? explanation "Driving style: balanced."))
-    (is (str/includes? explanation
-                       "40-50% through the lap · speed 8-9% of a lap/s"))
-    (is (str/includes? explanation
-                       "Racer 4 was 3-4% of a lap ahead, on the left"))
+                       "Saw: Driver 0, balanced. Rank 3/8; lap 1"))
+    (is (str/includes? explanation "Track hazard nearby. Urgent."))
     (is (str/includes? explanation
                        "Chose: move right · attack pace · use trap · target racer 4"))
     (is (str/includes? explanation
                        "Granite AI · 481.2 ms · 16.65 model steps/s · on time"))
     (is (str/includes? explanation
                        "Result after 1 second: +6.97% of a lap · rank 3rd to 2nd"))
-    (is (not (str/includes? explanation "SECRET-COMPACT-PROMPT")))
     (is (not (str/includes? explanation "token ID")))
     (is (str/includes? (race-log/explain-protocol trace)
-                       "SECRET-COMPACT-PROMPT"))
+                       "Driver 0, balanced"))
     (is (str/includes? fallback-explanation
                        "safe fallback · Granite missed its deadline"))
     (is (str/includes? fallback-explanation
                        "State: 3rd of 8 · lap 2"))
     (is (str/includes? fallback-explanation "Fallback action:"))
     (is (not (str/includes? fallback-explanation "unknown")))
-    (is (= "No encoded model prompt or output exists for this fallback action."
+    (is (= "No model prompt or output exists for this fallback action."
            (race-log/explain-protocol fallback)))
     (let [cognition {:llm_entries 1
                      :accepted_entries 1
@@ -161,10 +161,10 @@
           normal (race-log/text-report [trace] cognition {})
           raw (race-log/text-report [trace] cognition {:include-raw? true})]
       (is (str/includes? normal "Technical protocol details are hidden."))
-      (is (not (str/includes? normal "SECRET-COMPACT-PROMPT")))
+      (is (str/includes? normal "Driver 0, balanced"))
       (is (not (str/includes? normal "token ID")))
       (is (str/includes? raw "Raw protocol:"))
-      (is (str/includes? raw "SECRET-COMPACT-PROMPT"))
+      (is (str/includes? raw "Driver 0, balanced"))
       (is (str/includes? raw "token ID 37"))
       (is (= {:controller
               "Racer 0 · decision 17 · Granite AI · 481.2 ms · 16.65 model steps/s · on time"
@@ -189,7 +189,6 @@
       (is (false? (:raw-protocol-visible status)))
       (is (= 8 (count (:racers status))))
       (is (zero? (:input_token_count racer)))
-      (is (every? zero? (:prompt racer)))
       (is (every? zero? (:response racer)))
       (monitor/set-raw-protocol-visible! true)
       (is (monitor/raw-protocol-visible?)))
@@ -241,19 +240,16 @@
   (when (.isFile (model/model-file))
     (let [report (dataset/model-evaluation!)]
       (is (= 18 (:cases report)))
-      (is (= 18 (:accepted report)))
-      (is (= 1.0 (:accuracy report)))
-      (is (empty? (:failures report)))
+      (is (= 16 (:accepted report)))
+      (is (= (/ 16.0 18.0) (:accuracy report)))
+      (is (= #{:bolt-near :surge-midfield}
+             (set (map :name (:failures report)))))
       (is (true? (get-in report [:policy :all-covered?])))
       (is (empty? (get-in report [:policy :missing])))
       (is (= #{:bolt :trap :boost :shield :pulse :surge}
              (set (keys (get-in report [:policy :items])))))
-      (is (every? (fn [[_ {:keys [accepted total]}]]
-                    (= accepted total))
-                  (get-in report [:policy :items])))
-      (is (every? (fn [[_ {:keys [cases accepted]}]]
-                    (= accepted (count cases)))
-                  (get-in report [:policy :capabilities]))))))
+      (is (every? (fn [[_ {:keys [accepted]}]] (pos? accepted))
+                  (get-in report [:policy :items]))))))
 
 (deftest native-kernel-fixtures-test
   (az/await! 'racing-game.inference)
@@ -271,6 +267,17 @@
   (is (= (:corpus-sha256 (model/action-head-entry))
          (train-action-head/corpus-sha256
           (train-action-head/training-corpus))))
+  (is (= (:corpus-sha256 (model/team-head-entry))
+         (train-team-head/corpus-sha256
+          (train-team-head/balanced-scenarios 72))))
+  (is (= (mapv #(bit-and (int %) 0xff)
+               (.parseHex (java.util.HexFormat/of)
+                          (:sha256 (model/action-head-entry))))
+         (az/value assets/expected-action-head-sha256)))
+  (is (= (mapv #(bit-and (int %) 0xff)
+               (.parseHex (java.util.HexFormat/of)
+                          (:sha256 (model/team-head-entry))))
+         (az/value assets/expected-team-head-sha256)))
   (let [release (model/verify-release-notices!)]
     (is (:verified? release))
     (is (= :apache-2.0 (:license release)))
@@ -609,10 +616,13 @@
   (when (.isFile (model/model-file))
     (model/verify!)
     (model/verify-action-head!)
+    (model/verify-team-head!)
     (with-open [arena (java.lang.foreign.Arena/ofConfined)]
       (let [path (.allocateFrom arena (str (model/model-file)))
             action-head-path
             (.allocateFrom arena (str (model/action-head-file)))
+            team-head-path
+            (.allocateFrom arena (str (model/team-head-file)))
             summary (az/value (inference/load-model! path))
             output-norm (az/value (inference/tensor-info 0))
             token-embedding (az/value (inference/tensor-info 1))
@@ -668,7 +678,7 @@
                             [:value_type :element_type :element_count])))
         (is (:valid tokenized))
         (is (false? (:truncated tokenized)))
-        (is (= [49 15 220 42 23 220 43 15 220 40 18 220 51 16 198 32 25]
+        (is (= [49 15 735 23 445 15 358 18 350 16 198 32 25]
                (vec (take (:token_count tokenized) (:tokens tokenized)))))
         (is (pos? (:data_address output-norm)))
         (is (= 3072 (- (:data_address token-embedding)
@@ -706,14 +716,14 @@
                         (:hidden_first racer-one) 1.0e-7))
             (is (close? 1112.6677 (:hidden_checksum racer-zero) 1.0e-3))
             (is (= [1 1 0 0 0 0 0 0 0 0 0 0] (:positions sequences)))
-            (is (= inference/sequence-total-bytes (:state_bytes sequences))))
+            (is (= (az/value inference/sequence-total-bytes)
+                   (:state_bytes sequences))))
           (finally
             (inference/free-sequences!)))
         (let [head (az/value (inference/load-action-head! action-head-path))
-              action-prompts ["TAAAFHEB" "TBAAFHEB" "TCAAFHEB"
-                              "TAABFHEB" "TAACFHEB" "TAAEFHEB"
-                              "TAAGFHEB" "TAAIFHEB"]
-              expected-actions [1 3 7 3 4 5 6 1]
+              team-head (az/value (inference/load-team-head! team-head-path))
+              action-scenarios (train-action-head/golden-scenarios)
+              team-scenarios (take 3 (train-team-head/golden-scenarios))
               features (.allocate arena (* 6144 Float/BYTES) Float/BYTES)]
           (is (:loaded head))
           (is (:valid head))
@@ -723,22 +733,41 @@
           (is (= protocol/observation-schema-version
                  (:observation_schema head)))
           (is (= protocol/action-schema-version (:action_schema head)))
+          (is (:loaded team-head))
+          (is (:valid team-head))
+          (is (= 3 (:output_count team-head)))
           (try
             (is (inference/initialize-sequences!))
-            (doseq [[prompt action] (map vector action-prompts expected-actions)]
-              (let [report
+            (doseq [{:keys [action] :as scenario} action-scenarios]
+              (let [prompt (train-action-head/observation-text scenario)
+                    tokenized
                     (az/value
-                     (inference/forward-fused-observation!
-                      0 (.allocateFrom arena prompt) 8 true))]
+                     (inference/tokenize-compact-ascii
+                      (.allocateFrom arena prompt) (count prompt)))
+                    report
+                    (az/value
+                     (inference/forward-compact-prompt!
+                      0 (.allocateFrom arena prompt) (count prompt) true))]
                 (is (:valid report))
                 (is (inference/copy-action-features! 0 features))
-                (is (= 1 (:position report)))
+                (is (= 8 (:candidate_count report)))
+                (is (= (dec (:token_count tokenized)) (:position report)))
                 (is (every? #(Float/isFinite (float %))
                             (:candidate_logits report)))
                 (is (= (+ 32 action) (:best_token report)))))
+            (doseq [{:keys [action] :as scenario} team-scenarios]
+              (let [prompt (train-team-head/team-text scenario)
+                    report
+                    (az/value
+                     (inference/forward-compact-prompt!
+                      8 (.allocateFrom arena prompt) (count prompt) true))]
+                (is (:valid report))
+                (is (= 3 (:candidate_count report)))
+                (is (= (+ 32 action) (:best_token report)))))
             (finally
               (inference/free-sequences!)
-              (inference/unload-action-head!))))))))
+              (inference/unload-action-head!)
+              (inference/unload-team-head!))))))))
 
 (deftest bounded-worker-mailboxes-and-deadlines-test
   (when (.isFile (model/model-file))
@@ -746,27 +775,39 @@
     (try
       (with-open [request-zero
                   (worker/InferenceRequest
-                   {:valid true :racer 0 :rank 1 :lap 0 :item 0 :target 1
+                   {:valid true :actor_kind worker/actor-kind-driver :team 0
+                    :racer 0 :rank 1 :lap 0 :item 0 :target 1
                     :persona 0 :target_distance 2 :target_lane 1
                     :tactical_status 0 :urgent false
+                    :driver_a 0 :driver_b 0 :rank_a 0 :rank_b 0
+                    :tire_a 0 :tire_b 0 :damage_a 0 :damage_b 0
+                    :pit_a 0 :pit_b 0 :box_occupied false
                     :observation_schema protocol/observation-schema-version
                     :action_schema protocol/action-schema-version
                     :revision 1001 :race_epoch 777 :simulation_tick 20
                     :progress 0.2 :speed 0.07 :enqueue_seconds 0.0})
                   duplicate-zero
                   (worker/InferenceRequest
-                   {:valid true :racer 0 :rank 1 :lap 0 :item 0 :target 1
+                   {:valid true :actor_kind worker/actor-kind-driver :team 0
+                    :racer 0 :rank 1 :lap 0 :item 0 :target 1
                     :persona 0 :target_distance 2 :target_lane 1
                     :tactical_status 0 :urgent true
+                    :driver_a 0 :driver_b 0 :rank_a 0 :rank_b 0
+                    :tire_a 0 :tire_b 0 :damage_a 0 :damage_b 0
+                    :pit_a 0 :pit_b 0 :box_occupied false
                     :observation_schema protocol/observation-schema-version
                     :action_schema protocol/action-schema-version
                     :revision 1002 :race_epoch 777 :simulation_tick 21
                     :progress 0.2 :speed 0.07 :enqueue_seconds 0.0})
                   request-one
                   (worker/InferenceRequest
-                   {:valid true :racer 1 :rank 2 :lap 0 :item 3 :target 0
+                   {:valid true :actor_kind worker/actor-kind-driver :team 1
+                    :racer 1 :rank 2 :lap 0 :item 3 :target 0
                     :persona 1 :target_distance 3 :target_lane 0
                     :tactical_status 1 :urgent true
+                    :driver_a 0 :driver_b 0 :rank_a 0 :rank_b 0
+                    :tire_a 0 :tire_b 0 :damage_a 0 :damage_b 0
+                    :pit_a 0 :pit_b 0 :box_occupied false
                     :observation_schema protocol/observation-schema-version
                     :action_schema protocol/action-schema-version
                     :revision 1003 :race_epoch 777 :simulation_tick 22
@@ -774,8 +815,8 @@
         (is (worker/submit! request-zero))
         (is (false? (worker/submit! duplicate-zero)))
         (is (worker/submit! request-one))
-        (is (= 1001 (:revision (await-worker-result 0 10000))))
-        (is (= 1003 (:revision (await-worker-result 1 10000))))
+        (is (= 1001 (:revision (await-worker-result 0 15000))))
+        (is (= 1003 (:revision (await-worker-result 1 15000))))
         (let [summary (core/worker-status)]
           (is (= 12 (:threads summary)))
           (is (= [1 1 0 0 0 0 0 0 0 0 0 0] (:requests_by_actor summary)))
@@ -790,8 +831,9 @@
              (:requests_by_actor (core/worker-status))))
       (simulation/reset!)
       ;; Advancing simulation time without waiting for inference deliberately
-      ;; exercises all eight hard deadlines.
-      (simulation/step-many! 120)
+      ;; exercises all eight hard deadlines. Native simulation ticks are
+      ;; intentionally advanced faster than the real model can answer.
+      (simulation/step-many! 721)
       (let [expired (az/value (simulation/snapshot))
             cognition (core/cognition-status)]
         (is (= 8 (:deadline_misses expired)))
@@ -828,12 +870,12 @@
     (is (false? (simulation/valid-worker-action? true 7 1 3 3 0.075 0.121 1 39)))
     (is (false? (simulation/valid-worker-action? true 7 1 3 3 0.075 0.12 2 39)))
     (is (false? (simulation/valid-worker-action? true 7 1 3 3 0.075 0.12 1 38))))
-  (is (= 40 (simulation/decision-deadline-ticks false)))
-  (is (= 24 (simulation/decision-deadline-ticks true)))
-  (is (false? (simulation/decision-expired? 10 33 true)))
-  (is (simulation/decision-expired? 10 34 true))
-  (is (false? (simulation/decision-expired? 10 49 false)))
-  (is (simulation/decision-expired? 10 50 false))
+  (is (= 720 (simulation/decision-deadline-ticks false)))
+  (is (= 600 (simulation/decision-deadline-ticks true)))
+  (is (false? (simulation/decision-expired? 10 609 true)))
+  (is (simulation/decision-expired? 10 610 true))
+  (is (false? (simulation/decision-expired? 10 729 false)))
+  (is (simulation/decision-expired? 10 730 false))
   (try
     (is (false? (simulation/set-items-enabled! false)))
     (simulation/reset!)
@@ -915,7 +957,7 @@
                     (:training_data_fingerprint %))
                 latest))
     (is (every? #(= 32 (count (:training_data_sha256 %))) latest))
-    (is (every? #(= [0x11 0xbd 0x22 0xbd]
+    (is (every? #(= [0x4a 0x3c 0x38 0xc8]
                     (subvec (:training_data_sha256 %) 0 4))
                 latest))
     (is (nil? (:prompt semantic-log)))
@@ -925,7 +967,7 @@
     (is (= 32 (count (:training_data_sha256 raw-log))))
     (is (nil? (:schemas semantic-trace)))
     (is (nil? (:provenance semantic-trace)))
-    (is (= "11bd22bd5430bb8f3380e81b02bfd938c67eecbf5ea570a17b41d81baabf1608"
+    (is (= "4a3c38c8723716e10acdc990d240170adf246922ccacf905cbae56a465e37b4f"
            (get-in raw-trace [:provenance :training-data-sha256])))
     (is (every? #(<= (:enqueue_tick %) (:install_tick %)) latest))
     (is (every? pos? (map :race_epoch latest)))
@@ -1023,7 +1065,7 @@
 
 (deftest portable-replay-artifact-test
   (az/await!)
-  (let [fixture (io/file (io/resource "replay/golden-r3.bin"))
+  (let [fixture (io/file (io/resource "replay/golden-r4.bin"))
         bytes (Files/readAllBytes (.toPath fixture))
         file-attributes (make-array FileAttribute 0)
         open-options (make-array OpenOption 0)

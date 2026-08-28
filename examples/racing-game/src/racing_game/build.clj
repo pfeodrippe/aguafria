@@ -78,6 +78,22 @@
                                 [StandardCopyOption/REPLACE_EXISTING]))
         {:status :packaged :output output :bytes bytes :sha256 sha256}))))
 
+(defn package-team-head!
+  []
+  (let [{:keys [file filename bytes sha256]} (model/verify-team-head!)
+        output (io/file (project-root) "build/standalone/resources/models"
+                        filename)]
+    (io/make-parents output)
+    (if (and (.isFile output)
+             (= bytes (.length output))
+             (= sha256 (model/sha256 output)))
+      {:status :cached :output output :bytes bytes :sha256 sha256}
+      (do
+        (Files/copy (.toPath ^java.io.File file) (.toPath output)
+                    (into-array StandardCopyOption
+                                [StandardCopyOption/REPLACE_EXISTING]))
+        {:status :packaged :output output :bytes bytes :sha256 sha256}))))
+
 (defn package-shaders!
   []
   (into {}
@@ -162,9 +178,9 @@
 
 (defn package-replay-fixture!
   []
-  (let [source (io/file (project-root) "resources/replay/golden-r3.bin")
+  (let [source (io/file (project-root) "resources/replay/golden-r4.bin")
         output (io/file (project-root)
-                        "build/standalone/resources/replay/golden-r3.bin")]
+                        "build/standalone/resources/replay/golden-r4.bin")]
     (when-not (.isFile source)
       (throw (ex-info "Missing golden replay fixture; run `clojure -M:generate-replay-fixture`"
                       {:source source})))
@@ -181,6 +197,7 @@
   (prepare-shaders!)
   (package-model!)
   (package-action-head!)
+  (package-team-head!)
   (package-replay-fixture!)
   (package-shaders!)
   (package-manifest!)
@@ -203,6 +220,7 @@
   (native-build/prepare-static!)
   (package-model!)
   (package-action-head!)
+  (package-team-head!)
   (zig-build/load-source-only! 'racing-game.inference-performance-probe)
   (let [output (io/file (project-root) "build/standalone/inference-probe")]
     (az/build!
@@ -221,6 +239,7 @@
   (native-build/prepare-static!)
   (package-model!)
   (package-action-head!)
+  (package-team-head!)
   (package-manifest!)
   (package-licenses!)
   (zig-build/load-source-only! 'racing-game.asset-probe)

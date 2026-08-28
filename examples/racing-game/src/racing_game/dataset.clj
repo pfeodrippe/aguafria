@@ -403,7 +403,7 @@
                           (java.lang.foreign.MemorySegment/ofArray prompt))
                (let [report
                      (az/value
-                      (inference/forward-fused-observation!
+                      (inference/forward-compact-prompt!
                        0 bytes (alength prompt) true))]
                  (when-not (:valid report)
                    (throw (ex-info "Native model evaluation failed"

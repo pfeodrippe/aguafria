@@ -43,6 +43,16 @@
   (io/file (project-root) "resources/models"
            (:filename (action-head-entry))))
 
+(defn team-head-entry
+  []
+  (or (:team-head (manifest))
+      (throw (ex-info "The racing team head is missing from models.edn" {}))))
+
+(defn team-head-file
+  []
+  (io/file (project-root) "resources/models"
+           (:filename (team-head-entry))))
+
 (defn release-files
   []
   (let [{:keys [notice licenses]} (:release (manifest))]
@@ -89,6 +99,20 @@
                        :expected-sha256 sha256 :actual-sha256 actual-sha256})))
     (assoc entry :file file :verified? true)))
 
+(defn verify-team-head!
+  []
+  (let [{:keys [bytes sha256] :as entry} (team-head-entry)
+        file (team-head-file)
+        actual-bytes (when (.isFile file) (.length file))
+        actual-sha256 (when (= bytes actual-bytes)
+                        (racing-game.model/sha256 file))]
+    (when-not (and (= bytes actual-bytes) (= sha256 actual-sha256))
+      (throw (ex-info "Racing team head is missing or does not match its manifest"
+                      {:file (str file)
+                       :expected-bytes bytes :actual-bytes actual-bytes
+                       :expected-sha256 sha256 :actual-sha256 actual-sha256})))
+    (assoc entry :file file :verified? true)))
+
 (defn verify-release-notices!
   []
   (let [files (release-files)
@@ -107,6 +131,7 @@
   []
   {:model (verify!)
    :action-head (verify-action-head!)
+   :team-head (verify-team-head!)
    :release (verify-release-notices!)})
 
 (defn fetch!

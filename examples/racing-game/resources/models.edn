@@ -1,25 +1,59 @@
 {:default :granite-350m-q4-0
+ :selection
+ {:benchmark :aguafria-racing-model-bakeoff-v1
+  :engine :aguafria-zig-native
+  :external-inference false
+  :selected :granite-350m-q4-0
+  :driver-held-out-accuracy 0.875
+  :team-held-out-accuracy 0.9444444444444444
+  :driver-native-golden "37/37"
+  :team-native-golden "60/60"
+  :rejected-candidate
+  {:model :granite-1b-q4-0
+   :driver-held-out-accuracy 0.8333333333333334
+   :team-held-out-accuracy 0.6666666666666666
+   :driver-prompt-p50-ms 18805.691625
+   :team-prompt-p50-ms 21560.968709
+   :reason :worse-quality-latency-memory-and-packaged-bytes}}
  :release
  {:notice "licenses/THIRD_PARTY_NOTICES.md"
   :licenses ["licenses/Apache-2.0.txt"]}
  :action-head
- {:filename "granite-r3-action-head.f32"
+ {:filename "granite-r4-driver-head.f32"
   :bytes 196672
-  :sha256 "65b353acfedbeac32b583859e4ca154d851cec750b0464a88a74d6911971f351"
+  :sha256 "f73458570f8020414e41cccc766f0def748c95e57b9b99fd7c3ac36725d011ed"
   :format-version 1
-  :observation-schema 3
+  :observation-schema 4
   :action-schema 1
   :input-count 6144
   :output-count 8
-  :feature-layout :two-step-position-bound-r3
-  :tokenizer :gpt2-base-byte-v1
+  :feature-layout :final-eight-sequential-semantic-states-v1
+  :tokenizer :gguf-gpt2-bpe-v2
   :quantization :granite-q4-0-mixed-v1
-  :corpus-format :r3-prompt-plus-action-v1
-  :corpus-sha256 "11bd22bd5430bb8f3380e81b02bfd938c67eecbf5ea570a17b41d81baabf1608"
+  :corpus-format :r4-semantic-prompt-plus-action-v1
+  :corpus-sha256 "4a3c38c8723716e10acdc990d240170adf246922ccacf905cbae56a465e37b4f"
   :corpus-size 413
   :training-examples 365
   :test-examples 48
-  :held-out-accuracy 0.9166666666666666
+  :held-out-accuracy 0.875
+  :training :deterministic-expert-ridge}
+ :team-head
+ {:filename "granite-r4-team-head.f32"
+  :bytes 73772
+  :sha256 "e6cbd7efed326baead2a3c3b29381484373297e8cba786f615c086660924ec7a"
+  :format-version 1
+  :observation-schema 4
+  :action-schema 1
+  :input-count 6144
+  :output-count 3
+  :feature-layout :final-eight-sequential-semantic-states-v1
+  :tokenizer :gguf-gpt2-bpe-v2
+  :corpus-format :r4-semantic-team-prompt-plus-action-v1
+  :corpus-sha256 "ef1a7bb27f02431cc3c65d1d873cd67a2f78fa05cd9e1dfa49fe0de3f5a94960"
+  :corpus-size 216
+  :training-examples 180
+  :test-examples 36
+  :held-out-accuracy 0.9444444444444444
   :training :deterministic-expert-ridge}
  :models
  {:granite-350m-q4-0
@@ -29,4 +63,14 @@
    :bytes 216073120
    :sha256 "7adb3d5765ad12b83b1c08a90746d8925af718545b4a36287e8dac8f83b72ab6"
    :license :apache-2.0
-   :url "https://huggingface.co/ibm-granite/granite-4.0-h-350m-GGUF/resolve/main/granite-4.0-h-350m-Q4_0.gguf"}}}
+   :url "https://huggingface.co/ibm-granite/granite-4.0-h-350m-GGUF/resolve/main/granite-4.0-h-350m-Q4_0.gguf"}
+
+  :granite-1b-q4-0
+  {:architecture :granitehybrid
+   :candidate true
+   :repository "ibm-granite/granite-4.0-h-1b-GGUF"
+   :filename "granite-4.0-h-1b-Q4_0.gguf"
+   :bytes 868316384
+   :sha256 "23b20864c9544bd98ac6d5b8c53dec61992cc7add09fdd5f6b77472a4679a148"
+   :license :apache-2.0
+   :url "https://huggingface.co/ibm-granite/granite-4.0-h-1b-GGUF/resolve/main/granite-4.0-h-1b-Q4_0.gguf"}}}

@@ -15,6 +15,7 @@ typedef unsigned long long AguafriaImguiAddress;
 #define AGUAFRIA_IMGUI_HISTORY_COUNT \
     (AGUAFRIA_IMGUI_RACER_COUNT * AGUAFRIA_IMGUI_HISTORY_PER_RACER)
 #define AGUAFRIA_IMGUI_OBSERVATION_TOKEN_COUNT 8
+#define AGUAFRIA_IMGUI_PROMPT_CAPACITY 160
 #define AGUAFRIA_IMGUI_TEAM_COUNT 4
 #define AGUAFRIA_IMGUI_RADIO_PER_TEAM 32
 #define AGUAFRIA_IMGUI_RADIO_COUNT \
@@ -75,7 +76,7 @@ typedef struct AguafriaImguiRacer {
     float tire_condition;
     float damage;
     float pit_seconds;
-    char prompt[9];
+    char prompt[AGUAFRIA_IMGUI_PROMPT_CAPACITY + 1];
     char response[2];
     unsigned int input_tokens[AGUAFRIA_IMGUI_OBSERVATION_TOKEN_COUNT];
     unsigned int input_token_count;
@@ -91,11 +92,18 @@ typedef struct AguafriaImguiRadio {
     unsigned char pit_state;
     unsigned char instruction;
     unsigned char reserved;
+    AguafriaImguiBool model_accepted;
+    unsigned char model_action;
+    unsigned short prompt_byte_count;
+    unsigned short input_token_count;
+    unsigned int best_token;
     unsigned long long tick;
     unsigned long long decision_revision;
     unsigned long long latency_us;
+    float tokens_per_second;
     float tire_condition;
     float damage;
+    char prompt[AGUAFRIA_IMGUI_PROMPT_CAPACITY + 1];
 } AguafriaImguiRadio;
 
 typedef struct AguafriaImguiSnapshot {

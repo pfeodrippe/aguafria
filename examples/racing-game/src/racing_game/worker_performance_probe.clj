@@ -26,6 +26,8 @@
   [racer revision]
   (worker/InferenceRequest
    {:valid true
+    :actor_kind worker/actor-kind-driver
+    :team (mod racer 4)
     :racer racer
     :rank (inc racer)
     :lap 0
@@ -35,6 +37,9 @@
     :target_distance (min 9 (inc racer))
     :target_lane (mod racer 3)
     :tactical_status (mod racer 4)
+    :driver_a 0 :driver_b 0 :rank_a 0 :rank_b 0
+    :tire_a 0 :tire_b 0 :damage_a 0 :damage_b 0
+    :pit_a 0 :pit_b 0 :box_occupied false
     :urgent (zero? racer)
     :observation_schema protocol/observation-schema-version
     :action_schema protocol/action-schema-version

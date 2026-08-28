@@ -42,6 +42,9 @@
 (def ^:private team-names
   [:aurora :vortex :atlas :nova])
 
+(def ^:private team-action-names
+  [:stay-out :pit-driver-a :pit-driver-b])
+
 (def ^:private radio-messages
   [:radio-quiet
    :tires-losing-grip
@@ -54,68 +57,6 @@
    :repairs-complete-rejoining
    :stay-out])
 
-(defn- category-value
-  [prompt position]
-  (- (int (.charAt ^String prompt position)) (int \A)))
-
-(defn- decode-observation-prompt
-  [entry]
-  (let [prompt (:prompt entry)]
-    (when (and (string? prompt) (>= (count prompt) 8))
-      (let [target (:target entry)
-        combined (category-value prompt 1)
-        rank-lap (category-value prompt 2)
-        item-urgency (category-value prompt 3)
-        progress-bin (category-value prompt 4)
-        speed-bin (category-value prompt 5)
-        target-distance (category-value prompt 6)
-        status-lane (category-value prompt 7)
-        tactical-status (quot status-lane 3)
-        target-lane (mod status-lane 3)
-        lane-name (nth [:left :same-lane :right] target-lane :unknown)
-        status-name (nth [:clear :hazard-near :stunned :shielded]
-                         tactical-status :unknown)
-        part (fn [position field value meaning]
-               {:position position
-                :character (str (.charAt ^String prompt position))
-                :field field
-                :value value
-                :meaning meaning})]
-    [(part 0 :wire-format (:observation_schema entry)
-           (str "wire-format marker; the next seven characters describe "
-                "target/persona, rank/lap, item/urgency, progress, speed, "
-                "opponent distance, and local tactics"))
-     (part 1 :target-persona
-           {:target target :persona (- combined (* target 3))}
-           (format "target racer %d with persona %d"
-                   target (- combined (* target 3))))
-     (part 2 :rank-lap
-           {:rank (inc (quot rank-lap 3)) :lap (mod rank-lap 3)}
-           (format "rank %d of 8 on lap %d" (:rank entry) (:lap entry)))
-     (part 3 :item-urgency
-           {:item (quot item-urgency 2) :urgent (odd? item-urgency)}
-           (format "%s; %s"
-                   (str "held item "
-                        (name (get item-names (:item entry) :unknown)))
-                   (if (:urgent entry)
-                     "decide immediately"
-                     "normal decision cadence")))
-     (part 4 :progress-bin progress-bin
-           (format "%.0f%% to %.0f%% of the lap"
-                   (* 10.0 progress-bin) (* 10.0 (inc progress-bin))))
-     (part 5 :speed-bin speed-bin
-           (format "%.2f to %.2f normalized track lengths per second"
-                   (/ speed-bin 100.0) (/ (inc speed-bin) 100.0)))
-     (part 6 :target-distance-bin target-distance
-           (if (= target-distance 9)
-             "selected opponent is at least 9% of a lap ahead, or none is ahead"
-             (format "selected opponent is approximately %d%%–%d%% of a lap ahead"
-                     target-distance (inc target-distance))))
-        (part 7 :tactical-status
-              {:status status-name :target-lane lane-name}
-              (format "local status %s; selected opponent is %s"
-                      (name status-name) (name lane-name)))]))))
-
 (defn decision-outcome
   "Causal one-second result aligned with a recorded decision."
   ([racer-id]
@@ -125,12 +66,14 @@
 
 (defn- readable-entry
   [entry outcome include-raw?]
-  (let [entry (assoc entry :outcome outcome)]
+  (let [prompt (when (pos? (long (:prompt_byte_count entry)))
+                 (utf8-preview (:prompt_bytes entry)
+                               (:prompt_byte_count entry)))
+        entry (cond-> (assoc entry :outcome outcome)
+                prompt (assoc :prompt prompt))]
     (if include-raw?
       (-> entry
-          (assoc :prompt (utf8-preview (:prompt_bytes entry)
-                                      (:prompt_byte_count entry))
-                 :response (utf8-preview (:response_bytes entry)
+          (assoc :response (utf8-preview (:response_bytes entry)
                                          (:response_byte_count entry)))
           (dissoc :prompt_bytes :response_bytes))
       (dissoc entry
@@ -146,9 +89,9 @@
               :install_tick))))
 
 (defn decision-log
-  "Newest complete observation-to-intent event for one racer. Encoded prompts,
-  responses, token IDs, and sampler state are returned only when
-  `{:include-raw? true}` is passed."
+  "Newest complete observation-to-intent event for one racer. The ordinary
+  English observation is always visible. Token IDs, raw output, and sampler
+  state are returned only when `{:include-raw? true}` is passed."
   ([racer-id]
    (decision-log racer-id {}))
   ([racer-id {:keys [include-raw?] :or {include-raw? false}}]
@@ -157,7 +100,7 @@
                    include-raw?)))
 
 (defn decision-logs
-  "Newest-first bounded cognition history for one racer. Raw encoded model
+  "Newest-first bounded cognition history for one racer. Technical model
   protocol is opt-in through `{:include-raw? true}`."
   ([racer-id]
    (decision-logs racer-id 16 {}))
@@ -263,7 +206,7 @@
 (defn- without-raw-protocol
   [trace]
   (-> trace
-      (update :observation dissoc :prompt :prompt-decoding :input-tokens)
+      (update :observation dissoc :input-tokens)
       (update :intent dissoc :token :token-id)
       (dissoc :schemas :provenance :sampling)))
 
@@ -288,8 +231,6 @@
                   2 :replay
                   3 :human
                   :fallback)
-         prompt-decoding (when entry (decode-observation-prompt entry))
-         decoded (into {} (map (juxt :field :value)) prompt-decoding)
          trace
         (when entry
            {:racer racer-id
@@ -317,24 +258,20 @@
                 :install (:install_tick entry)}
          :observation {:rank (:rank entry)
                       :lap (:lap entry)
-                      :persona
-                      (get persona-names
-                           (get-in decoded [:target-persona :persona])
-                           :unknown)
                       :item (:item entry)
                       :target (:target entry)
                       :progress (:progress entry)
-                      :progress-bin (:progress-bin decoded)
+                      :progress-bin
+                      (long (Math/floor
+                             (* 10.0 (double (:progress entry)))))
                       :speed (:speed entry)
-                      :speed-bin (:speed-bin decoded)
+                      :speed-bin
+                      (long (Math/floor
+                             (* 100.0 (double (:speed entry)))))
                       :urgent (:urgent entry)
-                      :target-distance-bin (:target-distance-bin decoded)
-                      :target-lane (get-in decoded [:tactical-status :target-lane])
-                      :tactical-status (get-in decoded [:tactical-status :status])
                       :input-token-count (:input_token_count entry)
-                      :model-step-count protocol/observation-model-step-count
+                      :model-step-count (:input_token_count entry)
                       :prompt (:prompt entry)
-                      :prompt-decoding prompt-decoding
                       :input-tokens (take (:input_token_count entry)
                                           (:input_tokens entry))}
         :intent
@@ -403,6 +340,7 @@
     (if (:started existing)
       {:model (az/value (inference/inference-summary))
        :action-head (az/value (inference/action-head-status))
+       :team-head (az/value (inference/team-head-status))
        :worker existing
        :owned false}
       (do
@@ -415,7 +353,11 @@
                 loaded-head
                 (az/value
                  (inference/load-action-head!
-                  (.allocateFrom arena (str (model/action-head-file)))))]
+                  (.allocateFrom arena (str (model/action-head-file)))))
+                loaded-team-head
+                (az/value
+                 (inference/load-team-head!
+                  (.allocateFrom arena (str (model/team-head-file)))))]
             (when-not (:valid loaded-model)
               (throw (ex-info "Native racing model rejected its pinned GGUF"
                               {:model loaded-model})))
@@ -423,12 +365,17 @@
               (inference/unload-model!)
               (throw (ex-info "Native racing action head rejected its pinned artifact"
                               {:action-head loaded-head})))
+            (when-not (:valid loaded-team-head)
+              (inference/unload-model!)
+              (throw (ex-info "Native racing team head rejected its pinned artifact"
+                              {:team-head loaded-team-head})))
             (when-not (worker/start!)
               (inference/unload-model!)
               (throw (ex-info "Native racing inference workers did not start" {})))
             (reset! headless-owned? true)
             {:model loaded-model
              :action-head loaded-head
+             :team-head loaded-team-head
              :worker (worker-status)
              :owned true}))))))
 
@@ -451,7 +398,7 @@
             :worker (worker-status)}
 
            (< (System/nanoTime) deadline)
-           (do (Thread/sleep 8) (recur))
+           (do (Thread/sleep 33) (recur))
 
            :else
            (throw (ex-info "No native LLM decision was installed before the deadline"
@@ -545,6 +492,13 @@
                  :name (nth team-names team-id)))
         (range 4)))
 
+(defn set-live-slowdown!
+  "Set the live AI race slowdown (1x through 20x). Rendering stays responsive;
+  recorded replay always runs at normal 120 Hz."
+  [factor]
+  (desktop/set-live-simulation-slowdown! (double factor))
+  {:live-simulation-slowdown (double (desktop/simulation-slowdown))})
+
 (defn team-radio-history
   "Human-readable newest-first communication between one strategist AI and
   its two drivers. Raw wire prompts are deliberately absent."
@@ -556,20 +510,27 @@
          team-name (nth team-names team-id :unknown)]
      (mapv
       (fn [offset]
-        (let [{:keys [source target code tire_condition damage latency_us]
+        (let [{:keys [source target code tire_condition damage latency_us
+                      prompt_byte_count prompt_bytes model_action]
                :as entry}
               (az/value (simulation/team-radio-entry team-id offset))
-              driver? (= source simulation/radio-source-driver)]
-          (assoc entry
-                 :team-name team-name
-                 :from (if driver? (keyword (str "racer-" target))
-                           (keyword (str (name team-name) "-strategist")))
-                 :to (if driver? (keyword (str (name team-name) "-strategist"))
-                         (keyword (str "racer-" target)))
-                 :message (nth radio-messages code :unknown)
-                 :tire-percent (* 100.0 tire_condition)
-                 :damage-percent (* 100.0 damage)
-                 :latency-ms (/ latency_us 1000.0))))
+              driver? (= source simulation/radio-source-driver)
+              prompt (when (pos? (long prompt_byte_count))
+                       (utf8-preview prompt_bytes prompt_byte_count))]
+          (cond->
+           (-> entry
+               (assoc :team-name team-name
+                      :from (if driver? (keyword (str "racer-" target))
+                                (keyword (str (name team-name) "-strategist")))
+                      :to (if driver? (keyword (str (name team-name) "-strategist"))
+                              (keyword (str "racer-" target)))
+                      :message (nth radio-messages code :unknown)
+                      :model-decision (nth team-action-names model_action :unknown)
+                      :tire-percent (* 100.0 tire_condition)
+                      :damage-percent (* 100.0 damage)
+                      :latency-ms (/ latency_us 1000.0))
+               (dissoc :prompt_bytes))
+            prompt (assoc :observation prompt))))
       (range available)))))
 
 (defn all-team-radio-history
@@ -583,6 +544,7 @@
 (defn status
   []
   {:desktop (desktop/desktop-snapshot)
+   :live-simulation-slowdown (desktop/simulation-slowdown)
    :race (simulation/snapshot)
    :racers (racers)
    :teams (teams)
@@ -596,8 +558,14 @@
               :model-fingerprint protocol/model-fingerprint
               :action-head-fingerprint protocol/action-head-fingerprint
               :action-head-training-revision
-              protocol/action-head-training-revision}
+              protocol/action-head-training-revision
+              :team-head-fingerprint protocol/team-head-fingerprint
+              :team-head-training-revision
+              protocol/team-head-training-revision
+              :team-training-data-fingerprint
+              protocol/team-training-data-fingerprint}
    :action-head (inference/action-head-status)
+   :team-head (inference/team-head-status)
    :renderer (renderer/renderer-snapshot)
    :compilation {:inference (az/stats 'racing-game.inference)
                  :worker (az/stats 'racing-game.worker)

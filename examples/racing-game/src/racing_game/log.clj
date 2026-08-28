@@ -99,20 +99,14 @@
              (seq (:prompt observation))
              (some? (:token-id intent)))
       (str
-       (format (str "Raw prompt %s became category token IDs %s; positional "
-                    "fusion sent them through Granite in %d ordered steps. ")
+       (format (str "The exact UTF-8 prompt %s became Granite token IDs %s "
+                    "and ran through the native model in %d ordered steps. ")
                (pr-str (:prompt observation))
                (pr-str (vec (:input-tokens observation)))
                (:model-step-count observation))
-       (str "Encoded character meanings: "
-            (str/join "; "
-                      (map (fn [{:keys [character meaning]}]
-                             (str character " = " meaning))
-                           (:prompt-decoding observation)))
-            ". ")
-       (format "Raw output %s was Granite token ID %d."
+       (format "The constrained output %s was Granite token ID %d."
                (pr-str (:token intent)) (:token-id intent)))
-      (format "No encoded model prompt or output exists for this %s action."
+      (format "No model prompt or output exists for this %s action."
               (name source)))))
 
 (defn explain
@@ -127,13 +121,7 @@
         speed-bin (long (or (:speed-bin observation)
                             (Math/floor
                              (* 100.0 (double (:speed observation))))))
-        persona (name (or (:persona observation) :unknown))
-        target-distance (:target-distance-bin observation)
-        target-lane (:target-lane observation)
-        tactical-status (:tactical-status observation)
-        detailed-observation?
-        (and (not= :unknown (:persona observation))
-             (some? tactical-status))
+        prompt (:prompt observation)
         held-item (get item-names (:item observation)
                        (str "unknown item " (:item observation)))
         item-choice
@@ -174,30 +162,8 @@
           "Fallback action")]
     (str
      (format "Racer %d · decision %d · %s\n" racer revision controller)
-     (if detailed-observation?
-       (str
-        (format (str "Saw: %s of 8 · lap %d · %d-%d%% through the lap · "
-                     "speed %d-%d%% of a lap/s. Driving style: %s. ")
-                (ordinal (:rank observation)) (inc (:lap observation))
-                (* 10 progress-bin) (* 10 (inc progress-bin))
-                speed-bin (inc speed-bin) persona)
-        (if (= racer (:target observation))
-          "No opponent was ahead. "
-          (if (and (some? target-distance) (some? target-lane))
-            (format "Racer %d was %s of a lap ahead, %s. "
-                    (:target observation)
-                    (if (= target-distance 9)
-                      "at least 9%"
-                      (format "%d-%d%%"
-                              target-distance (inc target-distance)))
-                    (lane-phrase target-lane))
-            (format "Racer %d was selected. " (:target observation))))
-        (format "Inventory: %s. Track: %s. Decision: %s.\n"
-                held-item
-                (status-phrase tactical-status)
-                (if (:urgent observation)
-                  "urgent"
-                  "routine")))
+     (if (seq prompt)
+       (format "Saw: %s\n" prompt)
        (format (str "State: %s of 8 · lap %d · %d-%d%% through the lap · "
                     "speed %d-%d%% of a lap/s · inventory: %s · %s.\n")
                (ordinal (:rank observation)) (inc (:lap observation))
@@ -238,7 +204,7 @@
 (defn- compact-trace
   [trace]
   (-> trace
-      (update :observation dissoc :prompt :prompt-decoding :input-tokens)
+      (update :observation dissoc :input-tokens)
       (update :intent dissoc :token :token-id)
       (update :validation dissoc :code)
       (dissoc :schemas :ticks :provenance :sampling)))

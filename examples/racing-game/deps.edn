@@ -31,6 +31,12 @@
               "-Daguafria.optimize=ReleaseFast"]
    :main-opts ["-m" "racing-game.train-action-head"]}
 
+  :train-team-head
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"
+              "-Daguafria.optimize=ReleaseFast"]
+   :main-opts ["-m" "racing-game.train-team-head"]}
+
   :generate-replay-fixture
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"

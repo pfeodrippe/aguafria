@@ -16,7 +16,7 @@
 
 (defn fixture-file
   []
-  (io/file (build/project-root) "resources/replay/golden-r3.bin"))
+  (io/file (build/project-root) "resources/replay/golden-r4.bin"))
 
 (defn- encode
   [entries]

@@ -11,7 +11,6 @@
             [aguafria.zig :as az]
             [aguafria-examples-native.renderer :as renderer]
             [racing-game.desktop :as desktop]
-            [racing-game.protocol :as protocol]
             [racing-game.simulation :as simulation]
             [racing-game.telemetry :as telemetry]
             [racing-game.worker :as worker]
@@ -75,7 +74,7 @@
    [:tire_condition :f32]
    [:damage :f32]
    [:pit_seconds :f32]
-   [:prompt [:array 9 :u8]]
+   [:prompt [:array 161 :u8]]
    [:response [:array 2 :u8]]
    [:input_tokens [:array 8 :u32]]
    [:input_token_count :u32]
@@ -92,11 +91,18 @@
    [:pit_state :u8]
    [:instruction :u8]
    [:reserved :u8]
+   [:model_accepted :bool]
+   [:model_action :u8]
+   [:prompt_byte_count :u16]
+   [:input_token_count :u16]
+   [:best_token :u32]
    [:tick :u64]
    [:decision_revision :u64]
    [:latency_us :u64]
+   [:tokens_per_second :f32]
    [:tire_condition :f32]
-   [:damage :f32]])
+   [:damage :f32]
+   [:prompt [:array 161 :u8]]])
 
 (az/defstruct MonitorSnapshot
   "Allocation-free state shared with the optional C++ presentation layer."
@@ -125,14 +131,6 @@
   (std-mem/zeroes (az/type MonitorSnapshot)))
 
 (az/defvar history-raw-visible false)
-
-(az/defn category-value
-  "Decode one printable A-Z protocol byte only for the optional raw monitor."
-  {:export false :implicit-return true}
-  :-
-  :u8
-  [[byte :u8]]
-  (if (>= byte 65) (- byte 65) 0))
 
 (az/defn progress-bin
   {:export false :implicit-return true}
@@ -189,15 +187,7 @@
         detailed
         (and (az/field entry valid)
              (ak/== (az/field entry source) telemetry/source-llm)
-             (>= (az/field entry prompt_byte_count) 8))
-        target-persona
-        (if detailed
-          (category-value (az/index (az/field entry prompt_bytes) 1))
-          0)
-        tactical-lane
-        (if detailed
-          (category-value (az/index (az/field entry prompt_bytes) 7))
-          0)
+             (> (az/field entry prompt_byte_count) 0))
         ^:var row
         (MonitorRacer
          {:valid (if history-row
@@ -223,10 +213,9 @@
           :rank (az/field entry rank)
           :item (az/field entry item)
           :target (az/field entry target)
-          :persona (if detailed (mod target-persona 3) 0)
-          :target_lane (if detailed (mod tactical-lane 3) 1)
-          :tactical_status
-          (if detailed (ak/divTrunc tactical-lane 3) 0)
+          :persona 0
+          :target_lane 1
+          :tactical_status 0
           :lane_choice (lane-choice (az/field entry lane_target))
           :pace_choice (pace-choice (az/field entry target_speed))
           :item_choice (if (> (az/field entry action) 0) 1 0)
@@ -235,19 +224,11 @@
           :end_rank (az/field outcome end_rank)
           :lap (az/field entry lap)
           :hits_dealt (az/field outcome hits_dealt)
-          :progress_bin
-          (if detailed
-            (category-value (az/index (az/field entry prompt_bytes) 4))
-            (progress-bin (az/field entry progress)))
-          :speed_bin
-          (if detailed
-            (category-value (az/index (az/field entry prompt_bytes) 5))
-            (speed-bin (az/field entry speed)))
-          :target_distance_bin
-          (if detailed
-            (category-value (az/index (az/field entry prompt_bytes) 6))
-            0)
-          :model_step_count protocol/observation-model-step-count
+          :progress_bin (progress-bin (az/field entry progress))
+          :speed_bin (speed-bin (az/field entry speed))
+          :target_distance_bin 0
+          :model_step_count
+          (ak/intCast (ak/min (az/field entry input_token_count) 255))
           :revision (az/field entry revision)
           :radio_revision (az/field view radio_revision)
           :team_decision_revision (az/field view team_decision_revision)
@@ -266,20 +247,25 @@
           :tire_condition (az/field view tire_condition)
           :damage (az/field view damage)
           :pit_seconds (az/field view pit_seconds)
-          :prompt (std-mem/zeroes (az/type [:array 9 :u8]))
+          :prompt (std-mem/zeroes (az/type [:array 161 :u8]))
           :response (std-mem/zeroes (az/type [:array 2 :u8]))
           :input_tokens (std-mem/zeroes (az/type [:array 8 :u32]))
           :input_token_count 0
           :output_token 0})]
-    ;; Exact protocol bytes never enter the monitor snapshot until the user
-    ;; explicitly checks "Show raw protocol" in ImGui (or enables it via nREPL).
+    ;; The human-readable observation is part of the normal monitor. Numeric
+    ;; token IDs and constrained output remain behind the explicit raw toggle.
+    (when detailed
+      (let [prompt-count
+            (ak/min worker/prompt-capacity
+                    (ak/as :usize
+                           (ak/intCast (az/field entry prompt_byte_count))))]
+        (dotimes [position prompt-count]
+          (set! (az/index (az/field row prompt) position)
+                (az/index (az/field entry prompt_bytes) position)))))
     (when (and include-raw detailed)
       (let [input-count
             (ak/min (ak/as :usize (ak/intCast (az/field entry input_token_count)))
                     8)]
-        (dotimes [position 8]
-          (set! (az/index (az/field row prompt) position)
-                (az/index (az/field entry prompt_bytes) position)))
         (when (> (az/field entry response_byte_count) 0)
           (set! (az/index (az/field row response) 0)
                 (az/index (az/field entry response_bytes) 0)))
@@ -287,7 +273,7 @@
           (set! (az/index (az/field row input_tokens) position)
                 (az/index (az/field entry input_tokens) position)))
         (set! (az/field row input_token_count)
-              (ak/intCast input-count))
+              (az/field entry input_token_count))
         (when (> (az/field entry output_token_count) 0)
           (set! (az/field row output_token)
                 (az/index (az/field entry output_tokens) 0)))))
@@ -303,22 +289,37 @@
   [[team-id :u8]
    [offset :usize]
    [destination :usize]]
-  (let [entry (simulation/team-radio-entry team-id offset)]
-    (set! (az/index (az/field snapshot radio) destination)
-          (MonitorRadio
-           {:valid (az/field entry valid)
-            :team (az/field entry team)
-            :source (az/field entry source)
-            :target (az/field entry target)
-            :code (az/field entry code)
-            :pit_state (az/field entry pit_state)
-            :instruction (az/field entry instruction)
-            :reserved 0
-            :tick (az/field entry tick)
-            :decision_revision (az/field entry decision_revision)
-            :latency_us (az/field entry latency_us)
-            :tire_condition (az/field entry tire_condition)
-            :damage (az/field entry damage)}))))
+  (let [entry (simulation/team-radio-entry team-id offset)
+        prompt-count
+        (ak/min worker/prompt-capacity
+                (ak/as :usize
+                       (ak/intCast (az/field entry prompt_byte_count))))
+        ^:var row
+        (MonitorRadio
+         {:valid (az/field entry valid)
+          :team (az/field entry team)
+          :source (az/field entry source)
+          :target (az/field entry target)
+          :code (az/field entry code)
+          :pit_state (az/field entry pit_state)
+          :instruction (az/field entry instruction)
+          :reserved 0
+          :model_accepted (az/field entry model_accepted)
+          :model_action (az/field entry model_action)
+          :prompt_byte_count (ak/intCast prompt-count)
+          :input_token_count (az/field entry input_token_count)
+          :best_token (az/field entry best_token)
+          :tick (az/field entry tick)
+          :decision_revision (az/field entry decision_revision)
+          :latency_us (az/field entry latency_us)
+          :tokens_per_second (az/field entry tokens_per_second)
+          :tire_condition (az/field entry tire_condition)
+          :damage (az/field entry damage)
+          :prompt (std-mem/zeroes (az/type [:array 161 :u8]))})]
+    (dotimes [position prompt-count]
+      (set! (az/index (az/field row prompt) position)
+            (az/index (az/field entry prompt_bytes) position)))
+    (set! (az/index (az/field snapshot radio) destination) row)))
 
 (az/defn refresh!
   "Refresh the allocation-free native snapshot consumed by Dear ImGui."

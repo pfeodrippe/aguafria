@@ -45,13 +45,16 @@ Useful forms:
 (game/observation 0) ; exact bounded semantic state currently visible to racer 0
 (game/observations)
 (game/worker-status)
-(simulation/cadence-summary) ; load-sensitive ordinary cadence; fixed step stays 120 Hz
+(simulation/cadence-summary) ; load-sensitive ordinary model cadence
+(game/set-live-slowdown! 4) ; 120 Hz rendering, 4x-slow live simulation
 (worker/set-sampling-temperature! 0.35)
 (game/decision-log 0)
 (game/decision-logs 0 8)
-(game/decision-log 0 {:include-raw? true}) ; encoded prompt/tokens only on demand
+(game/decision-log 0 {:include-raw? true}) ; token IDs/output only on demand
 (game/decision-trace 0)
 (game/decision-trace 0 0 {:include-raw? true})
+(game/teams)
+(game/all-team-radio-history) ; prompts, pit calls, timing, and communication
 (game/configure-racer! 0 {:item :bolt :progress 0.20})
 (game/configure-intent! 0 {:item-action :use :target 1})
 (simulation/step!)
@@ -87,13 +90,14 @@ while human control is active.
 The geometric overlay's eight rows show desired speed, average inference
 latency, LLM/fallback source, pending work, and planned item use; thin lines on
 the track show each actor's lane goal and selected opponent. `decision-log` and
-`decision-logs` return semantic records by default. Exact encoded prompts,
-tokens, sampler state, and provenance are available only with
+`decision-logs` return the exact ordinary-English model observation by default.
+Token IDs, constrained output, sampler state, and provenance are available with
 `{:include-raw? true}`. The Dear ImGui monitor uses the same bounded telemetry
 for actor selection, filters, semantic decision summaries, latency history,
-deadlines, validation, and queue state. Its raw-protocol panel is unchecked by
-default, and raw bytes remain zero in the monitor snapshot until explicitly
-enabled. Set `AGUAFRIA_RACING_MONITOR=0` (or
+deadlines, validation, team-radio history, and queue state. Its raw-protocol
+panel is unchecked by default; English observations remain visible while token
+IDs and raw output remain zero until explicitly enabled. Set
+`AGUAFRIA_RACING_MONITOR=0` (or
 `-Daguafria.racing.monitor=false`) to start development without it.
 
 The normal text artifact reads as `Saw / Chose / Result after 1 second` in ordinary
@@ -113,24 +117,26 @@ For a windowless proof in a normal nREPL:
 
 ```clojure
 (game/start-headless!)
-(game/step-until-llm! 5000)
+(game/step-until-llm! 15000)
 (game/stop-headless!)
 ```
 
 `step-until-llm!` returns the real Flecs racer state, prompt/response telemetry,
 worker counters, and native timing for the first newly installed decision.
-Observation schema `R3` and action schema `1` are carried through the request,
+Observation schema `R4` and action schema `1` are carried through the request,
 result, compatibility check, and decision log, so an incompatible hot edit is
 rejected instead of being installed silently.
-R3's eight positional tokens pack rank/lap and item/urgency so the fixed token
-budget also includes selected-opponent distance, left/same/right lane relation,
-and local hazard/stun/shield status. Target selection and combat perception are
-therefore visible model inputs rather than decisions invented inside the
-decoder.
+R4 sends compact ordinary English containing rank, lap, progress, speed, item,
+selected-opponent distance/lane, local hazard state, urgency, and persona. Team
+strategists receive the same kind of readable prompt for both drivers, tires,
+damage, pit state, and box occupancy. Nothing needs a secret character decoder.
 Action selection temperature-samples only the eight legal A–H logits. Every
 racer owns a deterministic native RNG stream, and every telemetry event records
 the exact post-draw state. This makes model-derived diversity reproducible and
 keeps arbitrary text or functions outside the action surface.
+The three-action pit strategist uses deterministic argmax so a temperature draw
+cannot call the healthy teammate; native pit ownership and emergency validation
+remain authoritative safety checks.
 `decision-trace` turns those recorded fields into a readable observation,
 intent, validation, sampling, and timing map; it explains only structured game
 state and never fabricates hidden chain-of-thought. Its outcome is evaluated
@@ -149,8 +155,10 @@ playback. Capture and replay without invoking the LLM again:
 (game/replay-status)
 ```
 
-Replay mode installs the validated lane, pace, target, and item intent on its
-original 120 Hz tick while running the same Flecs physics/combat path. The test
+Live AI races default to 4x slow motion while Vulkan continues rendering at the
+display rate, giving local inference time to return useful decisions. Replay
+installs the validated lane, pace, target, and item intent on its original 120 Hz
+tick while running the same Flecs physics/combat path. The test
 suite proves exact snapshot and per-racer parity across a 1,200-tick capture;
 incompatible model/head provenance or schemas are rejected before playback.
 The replay test also proves exact causal-outcome parity.
@@ -203,36 +211,32 @@ invalid actions, and deadline misses separate instead of hiding them behind one
 arbitrary score. A negative finish-tick delta favors the LLM; a positive rank
 improvement favors the LLM. Add seeds explicitly for a longer bake-off.
 
-The logits now come from a racing-trained linear head over two ordered Granite
-states. All eight observation fields are retained: four category embeddings at
-a time are bound to their field positions, fused at stable RMS scale, and sent
-through all 32 Granite layers. This lowers one decision from eight model steps
-to two without adding a direct-policy bypass. The checked-in head is 192 KiB,
-bound to observation schema 3/action schema 1, and SHA-256 verified before
-native startup. Its deterministic corpus has 384 balanced expert-labelled
-observations plus 29 rare tactical/rollout anchors. The current artifact fits
-361/365 training examples, scores 44/48 (91.7%) on the untouched held-out
-six-per-action split, and passes 18/18 human-authored acceptable-action
-situations through the real native Granite graph. This is a useful first domain
-adapter, not a claim that the larger gameplay/tournament fine-tuning plan is
-complete.
+The logits come from racing-trained driver and team heads over the final eight
+ordered Granite states of each ordinary-English prompt. The exact readable
+prompt is tokenized with Granite's real BPE and processed sequentially through
+all 32 layers; there is no synthetic category-vector or scripted-policy bypass.
+The checked-in heads are 192 KiB and 72 KiB, bound to observation schema
+4/action schema 1, and SHA-256 verified before native startup. The driver corpus
+has 413 semantic cases and scores 42/48 (87.5%) on its untouched held-out split,
+37/37 on its native training-golden set, and 16/18 (88.9%) on the separate
+human acceptable-action suite. The team corpus has 216 cases and scores 34/36
+(94.4%) held-out plus 60/60 native golden. These are useful prototype adapters,
+not a claim that the larger gameplay/tournament fine-tuning plan is complete.
 
-On the measured M3 Max, fresh warm eight-racer runs now take about 135–149 ms
-and sustain about 53.5–59.1 complete decisions/s, versus about 513 ms and 15.6
-decisions/s before field fusion. Individual decisions take about 119–122 ms,
-enough for the current eight-racer 3-Hz ordinary cadence. Native telemetry keeps
-the ABI field name `tokens_per_second` for compatibility, but its value now
-means real Granite model steps per second; the human log labels it accordingly.
-A 400-decision sustained run measured 120.98-ms decision p95, 0.72-ms queue
-p95, and 144.75-ms eight-racer batch p95 with all 400 actions accepted. A
-separate paced ten-second simulation measurement held 119.95 Hz with zero
-deadline misses; the native Flecs step was 0.069 ms p95 and never exceeded the
-8.33-ms frame budget.
+On the measured M3 Max, complete semantic prompts currently take about 3.65 s
+median for a driver and 4.03 s for a team strategist. Twelve independent native
+workers keep that deliberate cognition entirely off the 120 Hz simulation and
+render thread. Development defaults to 4x slower simulation time so valid model
+results arrive before their 600/720-tick deadlines; replay presents recorded
+intents at normal 120 Hz without rerunning inference. Native telemetry keeps the
+ABI field name `tokens_per_second`, while the human UI labels the measured value
+as model steps/s.
 
 To reproduce it after changing the schema or teacher:
 
 ```sh
 clojure -M:train-action-head
+clojure -M:train-team-head
 clojure -M:generate-decision-corpus
 ```
 
@@ -269,10 +273,11 @@ clojure -M:standalone
 ```
 
 This emits and runs a JVM-free `ReleaseFast` Zig executable. The build folder
-contains the pinned GGUF, verified action head, manifest, and compiled shaders;
-the build directory and large GGUF are ignored by Git. Exact upstream license
-texts and `THIRD_PARTY_NOTICES.md` are packaged under `build/standalone/licenses`.
-The small trained head under `resources/models` is a source artifact.
+contains the pinned GGUF, verified driver/team heads, manifest, and compiled
+shaders; the build directory and large GGUF are ignored by Git. Exact upstream
+license texts and `THIRD_PARTY_NOTICES.md` are packaged under
+`build/standalone/licenses`. The two small trained heads under
+`resources/models` are source artifacts.
 
 The standalone demonstrator opens the human-readable cognition monitor by
 default. Select any racer in its table to follow the latest `Saw / Chose /

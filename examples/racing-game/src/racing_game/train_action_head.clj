@@ -2,7 +2,7 @@
   "Offline supervised training for the tiny native A-H racing action head.
 
   Granite remains the feature extractor. This namespace generates deterministic
-  expert-labelled R3 observations, runs the real native model, learns a linear
+  expert-labelled R4 semantic observations, runs the real native model, learns a linear
   softmax head, evaluates a held-out split, and writes the fixed binary artifact
   consumed by racing-game.inference. It is never part of the release runtime."
   (:require [aguafria.zig :as az]
@@ -25,33 +25,53 @@
 
 (defn feature-cache-file
   []
-  (java.io.File. (model/project-root) "build/training/r3-features.ser"))
+  (java.io.File. (model/project-root)
+                 "build/training/r3-semantic-features.ser"))
 
 (defn feature-cache-key
   []
-  {:extractor-version 3
+  {:extractor-version 4
    :model-sha256 (:sha256 (model/model-entry))
    :observation-schema protocol/observation-schema-version
    :feature-size feature-size})
 
-(defn- category-byte
+(defn persona-text
   [value]
-  (+ 65 (min 25 value)))
+  (case value 0 "cautious", 1 "balanced", "bold"))
+
+(defn item-text
+  [value]
+  (case value
+    1 "bolt" 2 "trap" 3 "boost" 4 "shield" 5 "pulse" 6 "surge"
+    "none"))
+
+(defn lane-text
+  [value]
+  (case value 0 "left", 2 "right", "same lane"))
+
+(defn status-text
+  [value]
+  (case value
+    1 "hazard nearby" 2 "recovering" 3 "shield active"
+    "clear"))
+
+(defn observation-text
+  "Render the exact compact English observation used by the native worker."
+  [{:keys [racer target persona rank lap item progress speed urgent
+           target-distance target-lane tactical-status]
+    :or {racer 0}}]
+  (format (str "Driver %d, %s. Rank %d/8; lap %d; progress %d%%; speed %d. "
+               "Item %s. Rival %d: gap %d, %s. Track %s. %s.")
+          racer (persona-text persona) rank lap
+          (long (min 99.0 (* (max 0.0 progress) 100.0)))
+          (long (min 99.0 (* (max 0.0 speed) 100.0)))
+          (item-text item) target target-distance (lane-text target-lane)
+          (status-text tactical-status) (if urgent "Urgent" "Routine")))
 
 (defn observation-bytes
-  "Encode the exact native R3 positional prompt for one training scenario."
-  [{:keys [target persona rank lap item progress speed urgent target-distance
-           target-lane tactical-status]}]
-  (byte-array
-   (map unchecked-byte
-        [(+ 81 protocol/observation-schema-version)
-         (category-byte (+ (* target 3) (min persona 2)))
-         (category-byte (+ (* (max 0 (dec rank)) 3) (min lap 2)))
-         (category-byte (+ (* item 2) (if urgent 1 0)))
-         (category-byte (long (min 9.0 (* (max 0.0 progress) 10.0))))
-         (category-byte (long (min 9.0 (* (max 0.0 speed) 100.0))))
-         (category-byte target-distance)
-         (category-byte (+ (* tactical-status 3) target-lane))])))
+  "Encode the exact native semantic prompt as bounded ASCII bytes."
+  [scenario]
+  (.getBytes ^String (observation-text scenario) "US-ASCII"))
 
 (defn expert-action
   "Deterministic tactical teacher over only fields available to the racer.
@@ -73,7 +93,7 @@
       (= item 4)
       (if (or urgent (= tactical-status 1)) 4 inventory-hold-action)
 
-      ;; R3 distance bin 9 is the explicit no-actionable-target/far-target case.
+      ;; Distance bin 9 is the explicit no-actionable-target/far-target case.
       ;; Do not train the model to throw ranged inventory into empty space.
       (or (= item 1) (= item 5))
       (if (< target-distance 9) 4 inventory-hold-action)
@@ -241,40 +261,63 @@
     values))
 
 (defn extract-features!
-  "Run every scenario through the actual ReleaseFast Granite graph."
+  "Run every scenario through the actual ReleaseFast Granite graph. Twelve
+  disjoint native sequence slots extract one batch concurrently while sharing
+  the same read-only model mapping."
   [scenarios]
   (model/verify!)
   (az/await! 'racing-game.inference)
   (with-open [arena (Arena/ofConfined)]
     (let [path (.allocateFrom arena (str (model/model-file)))
-          features (.allocate arena (* feature-size Float/BYTES) Float/BYTES)
           summary (az/value (inference/load-model! path))]
       (when-not (:valid summary)
         (throw (ex-info "Granite rejected its verified GGUF" {:summary summary})))
       (when-not (inference/initialize-sequences!)
         (throw (ex-info "Could not allocate the training sequence" {})))
       (try
-        (mapv
-         (fn [index scenario]
-           (when (zero? (mod index 8))
-             (println "Extracting Granite features" index "/" (count scenarios)))
-           (let [prompt (byte-array (map unchecked-byte (:prompt scenario)))
-                 bytes (.allocate arena (count prompt) 1)]
-             (.copyFrom bytes (java.lang.foreign.MemorySegment/ofArray prompt))
-             (let [report
-                   (az/value
-                    (inference/forward-fused-observation!
-                     0 bytes (count prompt) true))]
-               (when-not (:valid report)
-                 (throw (ex-info "Native feature extraction failed"
-                                 {:index index :scenario scenario
-                                  :report report})))
-               (when-not (inference/copy-action-features! 0 features)
-                 (throw (ex-info "Native action features were not published"
-                                 {:index index})))
-               (assoc scenario :features (read-features features)))))
-         (range)
-         scenarios)
+        (->> (map-indexed vector scenarios)
+             (partition-all 12)
+             (mapcat
+              (fn [batch]
+                (println "Extracting semantic Granite features"
+                         (ffirst batch) "/" (count scenarios))
+                (let [jobs
+                      (mapv
+                       (fn [slot [index scenario]]
+                         (future
+                           (with-open [worker-arena (Arena/ofConfined)]
+                             (let [prompt
+                                   (byte-array
+                                    (map unchecked-byte (:prompt scenario)))
+                                   bytes (.allocate worker-arena (count prompt) 1)
+                                   features
+                                   (.allocate worker-arena
+                                              (* feature-size Float/BYTES)
+                                              Float/BYTES)]
+                               (.copyFrom
+                                bytes
+                                (java.lang.foreign.MemorySegment/ofArray prompt))
+                               (let [report
+                                     (az/value
+                                      (inference/forward-compact-prompt!
+                                       slot bytes (count prompt) true))]
+                                 (when-not (:valid report)
+                                   (throw
+                                    (ex-info "Native feature extraction failed"
+                                             {:index index :scenario scenario
+                                              :report report})))
+                                 (when-not
+                                  (inference/copy-action-features! slot features)
+                                   (throw
+                                    (ex-info
+                                     "Native action features were not published"
+                                     {:index index})))
+                                 (assoc scenario
+                                        :features (read-features features)))))))
+                       (range)
+                       batch)]
+                  (mapv deref jobs))))
+             vec)
         (finally
           (inference/free-sequences!)
           (inference/unload-model!))))))
@@ -523,6 +566,99 @@
                                  (/ (double (aget features index)) scale)))))))))
     {:weights weights :biases biases})))
 
+(defn train-ridge-generic
+  "Train the same deterministic sample-space ridge head for any bounded action
+  schema. This is shared by the driver, team, and native model bake-off; it
+  never substitutes a different inference engine for Granite features."
+  [examples output-count input-count regularization]
+  (let [examples (vec examples)
+        size (count examples)
+        feature-dot
+        (fn [^floats left ^floats right]
+          (loop [index 0 total 0.0]
+            (if (< index input-count)
+              (recur (inc index)
+                     (+ total
+                        (* (double (aget left index))
+                           (double (aget right index)))))
+              (/ total input-count))))
+        gram
+        (object-array
+         (map
+          (fn [row]
+            (double-array
+             (map
+              (fn [column]
+                (+ (feature-dot (:features (examples row))
+                                (:features (examples column)))
+                   1.0
+                   (if (= row column) regularization 0.0)))
+              (range size))))
+          (range size)))
+        weights
+        (object-array
+         (repeatedly output-count #(double-array input-count)))
+        biases (double-array output-count)
+        scale (Math/sqrt input-count)]
+    (dotimes [action output-count]
+      (let [targets
+            (double-array
+             (map #(if (= action (:action %)) 1.0 -1.0) examples))
+            alpha (solve-linear-system gram targets)
+            ^doubles row (aget ^objects weights action)]
+        (dotimes [sample size]
+          (let [coefficient (aget alpha sample)
+                ^floats features (:features (examples sample))]
+            (aset-double biases action
+                         (+ (aget biases action) coefficient))
+            (dotimes [index input-count]
+              (aset-double row index
+                           (+ (aget row index)
+                              (* coefficient
+                                 (/ (double (aget features index))
+                                    scale)))))))))
+    {:weights weights :biases biases}))
+
+(defn evaluation-generic
+  "Evaluate a bounded generic linear action head."
+  [weights biases examples output-count input-count]
+  (let [scale (Math/sqrt input-count)
+        predict
+        (fn [^floats features]
+          (first
+           (reduce
+            (fn [[best-action best-score] action]
+              (let [^doubles row (aget ^objects weights action)
+                    score
+                    (loop [index 0 total (aget ^doubles biases action)]
+                      (if (< index input-count)
+                        (recur (inc index)
+                               (+ total
+                                  (* (aget row index)
+                                     (/ (double (aget features index))
+                                        scale))))
+                        total))]
+                (if (> score best-score)
+                  [action score]
+                  [best-action best-score])))
+            [0 Double/NEGATIVE_INFINITY]
+            (range output-count))))
+        pairs (mapv (fn [{:keys [action features]}]
+                      [action (predict features)])
+                    examples)]
+    {:accuracy (/ (count (filter #(apply = %) pairs))
+                  (double (count pairs)))
+     :per-action
+     (into {}
+           (map
+            (fn [action]
+              (let [relevant (filter #(= action (first %)) pairs)]
+                [action
+                 {:correct (count (filter #(apply = %) relevant))
+                  :total (count relevant)
+                  :predictions (frequencies (map second relevant))}]))
+            (range output-count)))}))
+
 (defn evaluation
   [weights biases examples]
   (let [pairs
@@ -618,10 +754,9 @@
         split (split-balanced (subvec examples 0 balanced-count) 6)
         train (into (:train split) (subvec examples balanced-count))
         test (:test split)
-        ;; 0.15 is the measured deterministic optimum after adding the first
-        ;; real native-rollout failure anchor: 98.9% training fit, 91.7%
-        ;; untouched held-out accuracy, and at least four of six held-out cases
-        ;; for every tactical macro.
+        ;; 0.15 is the measured deterministic R4 optimum. The checked-in split
+        ;; scores 87.5% untouched held-out accuracy while preserving at least
+        ;; half of every tactical macro's held-out cases.
         {:keys [weights biases]} (train-ridge train 0.15)
         train-evaluation (evaluation weights biases train)
         test-evaluation (evaluation weights biases test)
