@@ -28,7 +28,7 @@
 (def ^:private external-publication-lock (Object.))
 
 (def ^:private runtime-configuration-keys
-  [:zig :cache-dir :optimize :development-debug-info :development-panic
+  [:cache-dir :optimize :development-debug-info :development-panic
    :cpu :zig-args :async? :reloadable? :compile-debounce-ms
    :converted-compile-debounce-ms :build-history-limit])
 
@@ -305,7 +305,7 @@
                  (select-keys configuration
                               [:namespace-prefix :exclude-directories
                                :capture-build-modules? :build-steps :build-profiles
-                               :build-file :zig :cache-dir])))
+                               :build-file :cache-dir])))
             ;; Preserve the expensive immutable parse/import graph even when a
             ;; later materialization or Zig build reports an error. The user can
             ;; fix Aguafria/source code and retry in the same JVM, matching the
@@ -323,9 +323,7 @@
             (when development-options
               (convert/materialize-development-tree!
                tree development-output
-               (merge
-                (select-keys configuration [:zig])
-                (dissoc development-options :output))))
+               (dissoc development-options :output)))
             external-publication
             (when development
               (runtime/enable-external-publication!
@@ -1067,7 +1065,7 @@
    :runtime-id runtime-id
    :project-ids (sort (keys @projects))
    :aguafria-version "development"
-   :zig-version (some-> (runtime/configuration) :zig str)
+   :zig-version (:zig-version (runtime/toolchain-information))
    :capabilities
    #{:eval-declaration :eval-selection :eval-file :async-publication
      :structured-diagnostics :statistics :source :invoke :exact-native-values

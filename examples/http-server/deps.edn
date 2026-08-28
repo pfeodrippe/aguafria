@@ -1,0 +1,21 @@
+{:paths ["src"]
+
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.3"}}
+
+ :aliases
+ {:local-aguafria
+  {:override-deps
+   {io.github.pfeodrippe/aguafria-macos-aarch64 {:local/root "../.."}}}
+
+  :nrepl
+  {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+   :jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"
+              "-Daguafria.optimize=ReleaseFast"]
+   :main-opts ["-m" "nrepl.cmdline"]}
+
+  :standalone
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :main-opts ["-m" "aguafria-http.build"]}}}
+

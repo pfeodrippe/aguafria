@@ -601,12 +601,7 @@ extern "C" AguafriaImguiBool aguafria_imgui_initialize(
 
     monitor_device = info.Device;
     monitor_window = reinterpret_cast<GLFWwindow*>(window);
-    const char* monitor_setting = std::getenv("AGUAFRIA_RACING_MONITOR");
-    visible = monitor_setting == nullptr ||
-        (std::strcmp(monitor_setting, "0") != 0 &&
-         std::strcmp(monitor_setting, "false") != 0 &&
-         std::strcmp(monitor_setting, "no") != 0 &&
-         std::strcmp(monitor_setting, "off") != 0);
+    visible = true;
     initialized = true;
     return true;
 }

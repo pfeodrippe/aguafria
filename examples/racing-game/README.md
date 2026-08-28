@@ -23,6 +23,10 @@ clojure -M -m racing-game.build prepare
 clojure -M:desktop
 ```
 
+These commands use the published, self-contained macOS ARM64 Aguafria artifact
+from Maven Central. To work against the Aguafria checkout instead, add the
+`local-aguafria` alias, for example `clojure -M:local-aguafria:desktop`.
+
 The desktop command prints an nREPL port before opening the native window.
 Connect Calva or CIDER to it. The JVM is the development host; inference,
 simulation, Flecs, and rendering remain native. Development dylibs use Zig
@@ -96,9 +100,9 @@ Token IDs, constrained output, sampler state, and provenance are available with
 for actor selection, filters, semantic decision summaries, latency history,
 deadlines, validation, team-radio history, and queue state. Its raw-protocol
 panel is unchecked by default; English observations remain visible while token
-IDs and raw output remain zero until explicitly enabled. Set
-`AGUAFRIA_RACING_MONITOR=0` (or
-`-Daguafria.racing.monitor=false`) to start development without it.
+IDs and raw output remain zero until explicitly enabled. The cognition monitor
+is part of the game in both development and standalone builds; press `F2` to
+show or hide it.
 
 The normal text artifact reads as `Saw / Chose / Result after 1 second` in ordinary
 race language. If inference is late, the same entry instead says why the safe

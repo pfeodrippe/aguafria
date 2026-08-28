@@ -1,0 +1,23 @@
+{:schema-version 1
+ :zig-version "0.16.0"
+ :platforms
+ [{:id :macos-aarch64
+   :artifact-id "aguafria-macos-aarch64"
+   :os :macos
+   :arch :aarch64
+   :archive-url "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz"
+   :archive-sha256 "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
+   :archive-size 52238004
+   :root-directory "zig-aarch64-macos-0.16.0"
+   :binary-format :mach-o-aarch64
+   :executable "zig"}
+  {:id :linux-x86-64
+   :artifact-id "aguafria-linux-x86-64"
+   :os :linux
+   :arch :x86-64
+   :archive-url "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+   :archive-sha256 "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+   :archive-size 55478392
+   :root-directory "zig-x86_64-linux-0.16.0"
+   :binary-format :elf-x86-64
+   :executable "zig"}]}

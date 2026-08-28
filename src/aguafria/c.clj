@@ -1,12 +1,13 @@
 (ns aguafria.c
   "Generate inspectable Aguafria namespaces from C headers through Zig.
 
-  `translate-header!` runs the configured Zig compiler's `translate-c`, then
+  `translate-header!` runs Aguafria's embedded Zig compiler's `translate-c`, then
   feeds the resulting ordinary Zig module to Aguafria's structural converter.
   Generated namespaces contain the same documented, inspectable Vars as a
   hand-written or Zig-converted Aguafria module; no JVM-specific wrapper is
   introduced into standalone output."
   (:require [aguafria.zig.convert :as convert]
+            [aguafria.zig.toolchain :as toolchain]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
@@ -165,7 +166,7 @@
                     {:defines definitions}))))
 
 (defn- validate-options
-  [{:keys [namespace include-dirs defines args zig cache-dir target cpu]}]
+  [{:keys [namespace include-dirs defines args cache-dir target cpu] :as options}]
   (when-not namespace
     (throw (ex-info "C binding generation requires :namespace" {})))
   (when-not (every? #(or (string? %) (instance? File %)) include-dirs)
@@ -173,9 +174,13 @@
                     {:include-dirs include-dirs})))
   (when-not (every? string? args)
     (throw (ex-info ":args must contain command-line strings" {:args args})))
-  (when-not (every? #(or (nil? %) (string? %)) [zig cache-dir target cpu])
-    (throw (ex-info "Zig, cache, target, and CPU options must be strings"
-                    {:zig zig :cache-dir cache-dir :target target :cpu cpu})))
+  (when (contains? options :zig)
+    (throw (ex-info "Aguafria's Zig compiler is embedded and cannot be configured"
+                    {:aguafria/phase :embedded-zig-configuration
+                     :value (:zig options)})))
+  (when-not (every? #(or (nil? %) (string? %)) [cache-dir target cpu])
+    (throw (ex-info "Cache, target, and CPU options must be strings"
+                    {:cache-dir cache-dir :target target :cpu cpu})))
   (definition-arguments defines)
   true)
 
@@ -344,8 +349,8 @@
 (defn translate-header!
   "Translate a C `header` into a well-formatted Aguafria namespace at `output`.
 
-  Required option: `:namespace`. Supported options include `:zig`,
-  `:cache-dir`, `:include-dirs`, `:defines`, `:target`, `:cpu`, `:args`, and
+  Required option: `:namespace`. Supported options include `:cache-dir`,
+  `:include-dirs`, `:defines`, `:target`, `:cpu`, `:args`, and
   `:overwrite?`. Local quoted includes participate in the content cache key.
   Returns an inspectable, serializable generation report."
   ([header output options]
@@ -353,7 +358,7 @@
    (let [started (System/nanoTime)
          header (canonical-file header "C binding input")
          output (.getCanonicalFile (io/file output))
-         zig (or (:zig options) "zig")
+         zig (toolchain/executable)
          cache-dir (.getCanonicalFile
                     (io/file (or (:cache-dir options) ".aguafria/c-bindings")))
          include-directories (mapv canonical-directory (:include-dirs options []))
@@ -417,7 +422,6 @@
                   {:namespace (:namespace options)
                    :source-display-path (.getAbsolutePath header)
                    :declaration-docs declaration-docs
-                   :zig zig
                    :cache-dir (.getAbsolutePath (io/file cache-dir
                                                           "zig-conversion"))
                    :overwrite? (boolean (:overwrite? options))})]

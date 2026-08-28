@@ -87,6 +87,17 @@
        :out @stdout
        :err @stderr})))
 
+(defn- embedded-zig
+  [options]
+  (when (contains? options :zig)
+    (throw
+     (ex-info
+      "Aguafria's Zig compiler is embedded and cannot be configured"
+      {:aguafria/phase :embedded-zig-configuration
+       :value (:zig options)
+       :hint "Select the Aguafria platform artifact matching the host; custom and PATH compilers are intentionally unsupported."})))
+  (runtime/zig-executable))
+
 (defn- executable-name
   [base]
   (if (str/starts-with? (str/lower-case (System/getProperty "os.name")) "windows")
@@ -121,11 +132,11 @@
                         (assoc result :aguafria/phase :zig-build-graph))))))
 
 (defn- ensure-build-graph-runner!
-  [{:keys [cache-dir zig]
-    :or {cache-dir ".aguafria/zig" zig "zig"}}
+  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"} :as options}
    directory]
   (locking build-graph-lock
-    (let [lib-directory (zig-lib-directory zig directory)
+    (let [zig (embedded-zig options)
+          lib-directory (zig-lib-directory zig directory)
           upstream-file (io/file lib-directory "compiler" "build_runner.zig")
           _ (when-not (.isFile upstream-file)
               (throw (ex-info "Zig's standard build runner is missing"
@@ -222,10 +233,11 @@
   empty vector uses the project's default step. Only producers needed to
   resolve captured generated source and path values are executed."
   ([project-root] (build-generated-modules project-root {}))
-  ([project-root {:keys [zig build-steps build-file]
-                  :or {zig "zig" build-steps [] build-file "build.zig"}
+  ([project-root {:keys [build-steps build-file]
+                  :or {build-steps [] build-file "build.zig"}
                   :as options}]
-   (let [root (.getCanonicalFile (io/file project-root))
+   (let [zig (embedded-zig options)
+         root (.getCanonicalFile (io/file project-root))
          build-file (.getCanonicalFile (io/file root build-file))
          _ (when-not (.isFile build-file)
              (throw (ex-info "Converted project has no Zig build file to inspect"
@@ -325,10 +337,10 @@
         :modules-by-path modules-by-path}))))
 
 (defn- ensure-helper!
-  [{:keys [cache-dir zig]
-    :or {cache-dir ".aguafria/zig" zig "zig"}}]
+  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"} :as options}]
   (locking helper-lock
-    (let [source (helper-source)
+    (let [zig (embedded-zig options)
+          source (helper-source)
           version-result (run-command [zig "version"] (System/getProperty "user.dir"))]
       (when-not (zero? (:exit version-result))
         (throw (ex-info "Unable to query Zig while preparing the source converter"
@@ -2833,7 +2845,8 @@
 (defn convert-file
   "Convert a Zig file and return its formatted Clojure namespace plus report.
 
-  Options include `:namespace`, `:zig`, `:cache-dir`, and
+  Options include `:namespace` and `:cache-dir`. The compiler always comes
+  from Aguafria's matching embedded platform artifact.
   `:declaration-docs`. The latter maps Zig declaration names to documentation
   strings and is used by C-header translation, because Zig `translate-c`
   intentionally does not retain source comments. No file is written."
@@ -3352,19 +3365,20 @@
   "Round-trip one Zig file through Aguafria and ask Zig to verify the result.
 
   `:mode` is `:ast-check` (the default), `:test`, or `:build-obj`. Compiler
-  options include `:zig`, `:cache-dir`, `:optimize`, `:target`, `:cpu`,
+  options include `:cache-dir`, `:optimize`, `:target`, `:cpu`,
   `:zig-args`, and `:modules`. The report also records whether Zig's formatter
   produces text-identical sources; compiler success is authoritative because
   structural std Vars and harmless parentheses can intentionally change text.
   Failures throw by default; pass `:throw? false` to receive the failed report."
   ([path] (verify-file path {}))
-  ([path {:keys [mode zig cache-dir throw?]
-          :or {mode :ast-check zig "zig" cache-dir ".aguafria/zig" throw? true}
+  ([path {:keys [mode cache-dir throw?]
+          :or {mode :ast-check cache-dir ".aguafria/zig" throw? true}
           :as options}]
    (when-not (contains? #{:ast-check :test :build-obj} mode)
      (throw (ex-info "Unsupported Zig conversion verification mode"
                      {:mode mode :supported [:ast-check :test :build-obj]})))
-   (let [{:keys [zig-source report] :as rendered} (render-zig path options)
+   (let [zig (embedded-zig options)
+         {:keys [zig-source report] :as rendered} (render-zig path options)
          hash (subs (sha256 [zig-source (:zig-version report) mode
                              (select-keys options [:optimize :target :cpu
                                                    :zig-args :modules])])
@@ -3963,11 +3977,12 @@
   Existing differing files require `:overwrite? true`; nothing is deleted."
   ([report-or-path output-root]
    (materialize-project! report-or-path output-root {}))
-  ([report-or-path output-root {:keys [overwrite? format? zig]
-                                :or {overwrite? false format? true}}]
+  ([report-or-path output-root {:keys [overwrite? format?]
+                                :or {overwrite? false format? true}
+                                :as options}]
    (let [started (System/nanoTime)
          report (conversion-report-data report-or-path)
-         zig (or zig (:zig (runtime/configuration)) "zig")
+         zig (embedded-zig options)
          input-root (.getCanonicalFile (io/file (:input-root report)))
          generated-root (.getCanonicalFile (io/file (:output-root report)))
          bundled? (and (string? (:asset-root report))
@@ -4179,7 +4194,7 @@
   standalone builds use."
   ([report-or-path output-root options]
    (let [{:keys [entry-module entry-declaration roots loader-relative-path
-                 overwrite? format? zig]
+                 overwrite? format?]
           :or {overwrite? true format? true}}
          options
          _ (when-not (and entry-module entry-declaration)
@@ -4190,11 +4205,11 @@
                 :entry-module entry-module
                 :entry-declaration entry-declaration})))
          report (conversion-report-data report-or-path)
-         zig (or zig (:zig (runtime/configuration)) "zig")
+         zig (embedded-zig options)
          output-root (.getCanonicalFile (io/file output-root))
          base (materialize-project!
                report output-root
-               {:overwrite? overwrite? :format? format? :zig zig})
+               {:overwrite? overwrite? :format? format?})
          entry-module (str entry-module)
          files-by-module
          (into {}
@@ -4319,8 +4334,9 @@
   receives generated dispatch instrumentation. The user's checkout remains
   byte-for-byte untouched."
   [tree output-root {:keys [entry-module entry-declaration roots
-                            loader-relative-path format? zig]
-                     :or {format? true}}]
+                            loader-relative-path format?]
+                     :or {format? true}
+                     :as options}]
   (when-not (and entry-module entry-declaration)
     (throw
      (ex-info
@@ -4329,7 +4345,7 @@
        :entry-module entry-module
        :entry-declaration entry-declaration})))
   (let [started (System/nanoTime)
-        zig (or zig (:zig (runtime/configuration)) "zig")
+        zig (embedded-zig options)
         input-root (.getCanonicalFile (io/file (:input-root tree)))
         output-root (.getCanonicalFile (io/file output-root))
         input-path (.toPath input-root)

@@ -1,9 +1,10 @@
 (ns aguafria.generate-keyword
-  "Generate Aguafria's Zig token catalog from the installed Zig and ZLS.
+  "Generate Aguafria's Zig token catalog from its embedded Zig and optional ZLS.
 
   Zig's `std/zig/BuiltinFn.zig` is the completeness authority. ZLS enriches
   those entries with signatures and language-reference documentation."
-  (:require [clojure.data.json :as json]
+  (:require [aguafria.zig.toolchain :as toolchain]
+            [clojure.data.json :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
@@ -403,9 +404,14 @@
 
 (defn generate-catalog
   "Return a fresh catalog derived from Zig and, when available, matching ZLS."
-  [{:keys [zig zls] :or {zig (or (System/getenv "AGUAFRIA_ZIG") "zig")
-                              zls (or (System/getenv "AGUAFRIA_ZLS") "zls")}}]
-  (let [{:keys [version builtin-source tokenizer-source] :as zig-env}
+  [{:keys [zls] :or {zls (or (System/getenv "AGUAFRIA_ZLS") "zls")}
+    :as options}]
+  (when (contains? options :zig)
+    (throw (ex-info "Aguafria's Zig compiler is embedded and cannot be configured"
+                    {:aguafria/phase :embedded-zig-configuration
+                     :value (:zig options)})))
+  (let [zig (toolchain/executable)
+        {:keys [version builtin-source tokenizer-source] :as zig-env}
         (zig-environment zig)
         _ (doseq [^File file [builtin-source tokenizer-source]]
             (when-not (.isFile file)
@@ -589,10 +595,15 @@
   "Return the complete public Zig std namespace/declaration graph. Zig's own
   documentation semantic walker is the authority, including resolved aliases,
   nested containers, signatures, documentation, and source locations."
-  [{:keys [zig node]
-    :or {zig (or (System/getenv "AGUAFRIA_ZIG") "zig")
-         node (or (System/getenv "AGUAFRIA_NODE") "node")}}]
-  (let [{:keys [version std-dir std-source] :as zig-env} (zig-environment zig)
+  [{:keys [node]
+    :or {node (or (System/getenv "AGUAFRIA_NODE") "node")}
+    :as options}]
+  (when (contains? options :zig)
+    (throw (ex-info "Aguafria's Zig compiler is embedded and cannot be configured"
+                    {:aguafria/phase :embedded-zig-configuration
+                     :value (:zig options)})))
+  (let [zig (toolchain/executable)
+        {:keys [version std-dir std-source] :as zig-env} (zig-environment zig)
         extractor (io/file std-extractor-path)]
     (doseq [^File file [std-source extractor]]
       (when-not (.isFile file)

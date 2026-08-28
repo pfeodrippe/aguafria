@@ -1,9 +1,6 @@
 .aguafria/
-.m2/
 .cpcache/
 .nrepl-port
+build/
 target/
-**/.zig-cache/
-**/zig-out/
 
-generated

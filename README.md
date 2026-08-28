@@ -18,12 +18,28 @@ targeting, SIMD, comptime, and library access as a handwritten Zig build.
 
 ## Requirements
 
-- Clojure CLI
-- Zig on `PATH` (tested with Zig 0.16.0)
+- Clojure CLI with Clojure 1.12.0 or newer
 - JDK 22 or newer, for the stable Foreign Function & Memory API
 
-Node.js is needed only when regenerating the checked-in Zig std namespace
-catalog; applications using the library do not need Node.js or ZLS.
+Choose the artifact matching the JVM host. Each platform dependency resolves
+Aguafria and the exact Zig 0.16.0 payload; Aguafria never executes a Zig found
+on `PATH`:
+
+```clojure
+org.clojure/clojure {:mvn/version "1.12.0"}
+
+;; Apple Silicon macOS
+io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.3"}
+
+;; x86-64 Linux
+io.github.pfeodrippe/aguafria-linux-x86-64 {:mvn/version "0.1.3"}
+```
+
+The embedded archive payload is verified before its first atomic extraction into the
+user cache and then reused by checksum. A platform mismatch fails with a
+specific error instead of silently selecting another compiler. Node.js is
+needed only when regenerating the checked-in Zig std namespace catalog;
+applications using the library do not need Node.js or ZLS.
 
 Applications that invoke Zig from Clojure should enable native access:
 
@@ -338,7 +354,7 @@ and nested members such as `allocator/alloc` use the same representation.
 
 The catalog is derived from Zig's own `-femit-docs` semantic graph—not a list
 of handwritten wrappers—so aliases, nested public containers, signatures,
-documentation, and source locations follow the installed Zig compiler.
+documentation, and source locations follow Aguafria's embedded Zig compiler.
 
 When Zig is upgraded, keyword and complete std-catalog regeneration and drift
 detection are mechanical:
@@ -348,17 +364,18 @@ clojure -M:generate-keyword
 clojure -M:check-keyword
 ```
 
-Set `AGUAFRIA_ZIG`, `AGUAFRIA_ZLS`, or `AGUAFRIA_NODE` to select non-default
-executables. ZLS is optional during generation: if it is missing or has a
+Set `AGUAFRIA_ZLS` or `AGUAFRIA_NODE` to select those optional catalog tools.
+The Zig executable is deliberately not configurable. ZLS is optional during
+generation: if it is missing or has a
 different version, the complete compiler catalog is still generated with
-source-table documentation. Zig and Node.js are required to regenerate the std
-EDN catalog. Normal library use needs neither tool and reads no generated
-Clojure source.
+source-table documentation. The embedded Zig and Node.js are required to
+regenerate the std EDN catalog. Normal library use needs neither Node nor ZLS
+and reads no generated Clojure source.
 
 ## Converting Zig source to ordinary Clojure namespaces
 
 The opt-in `aguafria.zig.convert` namespace converts a Zig file using the
-installed compiler's own parser. One Zig file becomes one normal Clojure file:
+embedded compiler's own parser. One Zig file becomes one normal Clojure file:
 
 ```clojure
 (require '[aguafria.zig.convert :as convert])
@@ -616,8 +633,7 @@ It honors the current synchronous/asynchronous setting.
 Other compiler settings are configurable in Clojure:
 
 ```clojure
-(az/configure! {:zig "/path/to/zig"
-                :cache-dir ".aguafria/zig"
+(az/configure! {:cache-dir ".aguafria/zig"
                 :optimize "ReleaseFast"
                 :development-debug-info :none
                 :development-panic :shared
@@ -626,9 +642,11 @@ Other compiler settings are configurable in Clojure:
                 :zig-args []})
 ```
 
-The corresponding executable override is `AGUAFRIA_ZIG`. Current source and
-build metadata are inspectable with `(az/source 'example.core)` and
-`(az/module-info 'example.core)`.
+Compiler identity is inspectable with `(az/toolchain-information)` and
+`(az/zig-executable)`. Passing `:zig` is an error: the selected platform
+artifact is the compiler identity. Current source and build metadata are
+inspectable with `(az/source 'example.core)` and `(az/module-info
+'example.core)`.
 
 Hot-reload libraries use checked Zig `Debug` semantics by default while
 omitting debug-symbol payload (`:development-debug-info :none`) to reduce edit
@@ -853,3 +871,31 @@ cross-function calls, external Zig modules, implicit returns, control flow,
 generated keyword/std completeness and metadata, normal nested std namespace
 requires, reader-safe syntax, Rust-style diagnostics, statistics, optimized
 standalone output, caching, and hot reload.
+
+## Releasing
+
+The root [`Makefile`](Makefile) wraps the deps.edn-native [`build.clj`](build.clj)
+release tasks:
+
+```sh
+make next-patch  # show the version that would be released
+make package     # build both host artifacts
+make verify      # verify checksums, formats, manifests, and the host compiler
+make central-bundle # create the signed Maven Central bundle without uploading
+make publish     # verify, publish both to Maven Central, then advance VERSION
+make clean       # remove only regenerable target/release output
+```
+
+`make publish` increments only the patch component in [`VERSION`](VERSION).
+It builds both platforms into one atomic Maven Central deployment and changes
+`VERSION` only after Central reports that deployment as published. Each public
+platform coordinate is one self-contained JAR with the complete pinned Zig
+archive; there are no payload or tail packages. The build uses the standard
+`tools.build` `write-pom`, `copy-dir`, `copy-file`, `jar`, `zip`, `process`, and
+`delete` tasks. Central additionally requires a local GPG signing key and a
+git-ignored [`.m2/settings.xml`](.m2/settings.xml) containing a Maven server
+named `central`. The official Sonatype Central Publishing Maven Plugin reads
+those credentials, uploads the atomic two-platform deployment, and waits for
+the `PUBLISHED` state; the Clojure build never reads or handles the token. The
+bundle contains source and documentation JARs, signatures, checksums, the
+official Zig minisign signature, licenses, and third-party notices.

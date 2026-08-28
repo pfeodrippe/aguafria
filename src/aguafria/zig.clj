@@ -118,6 +118,16 @@
   ([] (runtime/stats))
   ([module] (runtime/stats module)))
 
+(clojure.core/defn toolchain-information
+  "Return the identity and materialization state of the embedded Zig toolchain."
+  []
+  (runtime/toolchain-information))
+
+(clojure.core/defn zig-executable
+  "Return the absolute path of Aguafria's verified embedded Zig compiler."
+  []
+  (runtime/zig-executable))
+
 (clojure.core/defn build!
   "Build a generated module as a standalone Zig artifact."
   ([module] (runtime/build! module))

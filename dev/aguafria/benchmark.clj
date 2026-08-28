@@ -450,7 +450,7 @@
              (throw (ex-info "Kaocha cache-population run failed"
                              {:run population})))
          warm-run (run-suite-process! focus profiling-count)
-         zig-command (or (:zig (az/configuration)) "zig")
+         zig-command (az/zig-executable)
          zig-result (shell/sh zig-command "version")]
      {:benchmark :aguafria/warm-kaocha-suite
       :recorded-at-ms (System/currentTimeMillis)

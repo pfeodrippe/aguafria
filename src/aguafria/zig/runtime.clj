@@ -2,6 +2,7 @@
   "Compilation, loading, and invocation for generated Zig modules."
   (:require [aguafria.zig.emitter :as emit]
             [aguafria.zig.project :as project]
+            [aguafria.zig.toolchain :as toolchain]
             [aguafria.zig.value :as zig-value]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -309,8 +310,7 @@
              (some-> value str/lower-case str/trim)))
 
 (defonce ^:private config
-  (atom {:zig (or (System/getenv "AGUAFRIA_ZIG") "zig")
-         :cache-dir (or (System/getProperty "aguafria.cache-dir")
+  (atom {:cache-dir (or (System/getProperty "aguafria.cache-dir")
                         ".aguafria/zig")
          :optimize (or (System/getProperty "aguafria.optimize") "Debug")
          :development-debug-info
@@ -352,7 +352,7 @@
    :f64 ValueLayout/JAVA_DOUBLE})
 
 (defn configure!
-  "Merge compiler configuration. Important keys are `:zig`, `:cache-dir`,
+  "Merge compiler configuration. Important keys are `:cache-dir`,
   `:optimize`, `:development-debug-info`, `:development-panic`, `:target`,
   `:cpu`, `:zig-args`,
   `:zig-args-by-module`, `:modules`,
@@ -370,6 +370,13 @@
   [options]
   (when-not (map? options)
     (throw (ex-info "Aguafria configuration must be a map" {:value options})))
+  (when (contains? options :zig)
+    (throw
+     (ex-info
+      "Aguafria's Zig compiler is embedded and cannot be configured"
+      {:aguafria/phase :embedded-zig-configuration
+       :value (:zig options)
+       :hint "Select the Aguafria Maven Central artifact matching the host; PATH and custom Zig executables are intentionally unsupported."})))
   (when-let [optimize (:optimize options)]
     (when-not (contains? #{"Debug" "ReleaseFast" "ReleaseSafe" "ReleaseSmall"}
                          optimize)
@@ -467,7 +474,21 @@
                       {:value debounce-ms}))))
   (swap! config merge options))
 
-(defn configuration [] @config)
+(defn configuration
+  "Return runtime configuration. Compiler selection is intentionally absent:
+  Aguafria always uses its embedded Zig toolchain."
+  []
+  @config)
+
+(defn toolchain-information
+  "Return inspectable identity and state for Aguafria's embedded Zig toolchain."
+  []
+  (toolchain/information))
+
+(defn zig-executable
+  "Return the absolute path to Aguafria's verified embedded Zig compiler."
+  []
+  (toolchain/executable))
 
 (defn read-declaration
   "Reconstitute declaration data serialized into JVM-safe UTF-8 chunks.
@@ -1448,38 +1469,18 @@
                                    (set linkable-declaration-keys)})
      (emit/emit-dependency-module module declarations))))
 
-(defn- executable-candidates
-  [executable]
-  (let [configured (io/file executable)
-        explicit-path? (or (.isAbsolute configured) (.getParent configured))]
-    (if explicit-path?
-      [configured]
-      (let [path (or (System/getenv "PATH") "")
-            names
-            (if (and (str/includes?
-                      (str/lower-case (System/getProperty "os.name")) "windows")
-                     (not (str/includes? executable ".")))
-              [executable (str executable ".exe")]
-              [executable])]
-        (for [directory (str/split
-                         path
-                         (re-pattern
-                          (java.util.regex.Pattern/quote File/pathSeparator)))
-              name names]
-          (io/file directory name))))))
-
 (defn- executable-identity
   [executable]
-  (if-let [file
-           (some #(when (and (.isFile ^File %) (.canExecute ^File %)) %)
-                 (executable-candidates executable))]
-    (let [canonical (.getCanonicalFile ^File file)]
-      [:file (.getPath canonical) (.length canonical) (.lastModified canonical)])
-    [:command executable (System/getenv "PATH")]))
+  (let [file (.getCanonicalFile (io/file executable))]
+    (when-not (and (.isFile file) (.canExecute file))
+      (throw (ex-info "Aguafria's embedded Zig compiler is not executable"
+                      {:aguafria/phase :embedded-zig-validation
+                       :path (.getAbsolutePath file)})))
+    [:embedded-file (.getPath file) (.length file) (.lastModified file)]))
 
 (defn- zig-version
   []
-  (let [zig (:zig @config)
+  (let [zig (zig-executable)
         identity (executable-identity zig)]
     (or (get @zig-version-cache identity)
         (locking zig-version-cache
@@ -2835,6 +2836,7 @@
                :generated (keys generated)
                :automatic automatic})))
     (cond-> (assoc compiler-options
+                   :zig (zig-executable)
                    :modules (merge external automatic)
                    :module-cache-tokens external-cache-tokens
                    :development-linkage-logical-ids
