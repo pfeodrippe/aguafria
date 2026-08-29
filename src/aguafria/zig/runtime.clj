@@ -1746,6 +1746,11 @@
   (->> (tree-seq coll? seq declarations)
        (keep (fn [value]
                (cond
+                 (symbol? value)
+                 (let [reference (:aguafria/zig-reference (meta value))]
+                   (when (= :import-member (:kind reference))
+                     (:import reference)))
+
                  (map? value)
                  (or (get-in value [:attributes :zig/import-name])
                      (when (= :import (:kind value))

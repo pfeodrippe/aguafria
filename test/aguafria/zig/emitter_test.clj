@@ -326,6 +326,42 @@
     (is (str/includes? source "pub fn scale(comptime value: u32) u32"))
     (is (not (str/includes? source "callconv(.c)")))))
 
+(deftest declaration-only-hot-slice-retains-external-import-test
+  (let [external-call
+        (with-meta 'aguafria.zig.import.demo.uuid/new-v4
+          {:aguafria/zig-reference
+           {:kind :import-member
+            :import "uuid"
+            :module "uuid"
+            :member "v4.new"
+            :zig-name "uuid.v4.new"}})
+        source
+        (emit/emit-reloadable-module
+         "demo.external"
+         [{:kind :fn
+           :name 'make-id
+           :declaration-key [:fn 'make-id]
+           :return :u128
+           :args [{:name 'io :type 'std.Io}]
+           :body [(list external-call 'io)]}]
+         {[:fn 'make-id]
+          {:implementation "make_id_implementation"
+           :dispatch "make_id_dispatch"
+           :dispatch-type "make_id_function_type"
+           :setter "make_id_set_dispatch"
+           :getter "make_id_implementation_address"
+           :active-counter "active_calls"
+           :active-depth "active_depth"
+           :active-tracking "track_active"
+           :active-tracking-setter "set_active_tracking"
+           :active-getter "active_call_count"
+           :publication-epoch "publication_epoch"
+           :publication-epoch-setter "set_publication_epoch"}}
+         {}
+         {:dependency? true})]
+    (is (str/includes? source "const uuid = @import(\"uuid\");"))
+    (is (str/includes? source "uuid.v4.new(io)"))))
+
 (deftest named-dependencies-preserve-per-module-type-identity-test
   (let [alpha-container (emit/named-module-container "demo.alpha")
         beta-container (emit/named-module-container "demo.beta")

@@ -1,10 +1,15 @@
-{:paths ["src"]
+{:paths ["src" "resources"]
 
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
-        io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.3"}}
+        io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.5"}}
 
  :aliases
- {:local-aguafria
+ {:prepare-packages
+  {:exec-fn aguafria.zig.package/prepare!
+   :exec-args {:config "aguafria-packages.edn"
+               :output "resources/aguafria/zig-packages.edn"}}
+
+  :local-aguafria
   {:override-deps
    {io.github.pfeodrippe/aguafria-macos-aarch64 {:local/root "../.."}}}
 
@@ -18,4 +23,3 @@
   :standalone
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
    :main-opts ["-m" "aguafria-http.build"]}}}
-

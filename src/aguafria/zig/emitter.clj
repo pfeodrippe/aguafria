@@ -3043,9 +3043,20 @@
               declarations)]
     (reduce
      (fn [imports value]
-       (if-let [{:keys [import-alias import-name import-namespace source-order]}
+       (if-let [reference
                 (and (symbol? value)
                      (:aguafria/zig-reference (meta value)))]
+         (let [{:keys [import-alias import-name import-namespace source-order]}
+               (if (= :import-member (:kind reference))
+                 ;; `az/defimport` members use the external module's actual
+                 ;; import name and the local Zig alias. A declaration-only
+                 ;; hot slice no longer contains the defimport descriptor, so
+                 ;; retain this edge on the member Var itself and synthesize
+                 ;; its `@import` here.
+                 {:import-alias (:module reference)
+                  :import-name (:import reference)
+                  :source-order (:source-order reference)}
+                 reference)]
          (if (and import-alias import-name)
            (let [entry {:alias import-alias
                         :import-name import-name
@@ -3062,7 +3073,7 @@
                                :first existing
                                :second entry}))
                (assoc imports import-alias entry)))
-           imports)
+           imports))
          imports))
      explicit
      (tree-seq coll? seq declarations))))

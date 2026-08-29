@@ -29,10 +29,10 @@ on `PATH`:
 org.clojure/clojure {:mvn/version "1.12.0"}
 
 ;; Apple Silicon macOS
-io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.3"}
+io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.5"}
 
 ;; x86-64 Linux
-io.github.pfeodrippe/aguafria-linux-x86-64 {:mvn/version "0.1.3"}
+io.github.pfeodrippe/aguafria-linux-x86-64 {:mvn/version "0.1.5"}
 ```
 
 The embedded archive payload is verified before its first atomic extraction into the
@@ -153,8 +153,9 @@ symbols you use:
   (debug/print "hello\n" []))
 ```
 
-Use `az/defimport` for external Zig modules. Every explicitly named external
-member becomes a real, documented Clojure Var.
+Pinned third-party Zig packages are mechanically cataloged from their Zig
+source too. Their public declarations become real, documented Vars under
+`aguafria.pkg.*`; users do not enumerate import members with `az/defimport`.
 
 Use `az/defraw` only for a top-level Zig construct that the emitter does not
 yet model directly. It is an explicit source escape hatch, not an implicit
@@ -672,27 +673,51 @@ comptime producers, and cyclic roots retain complete conservative planning.
 
 ## Zig libraries and standalone programs
 
-Third-party Zig dependencies do not need conversion. Named Zig modules remain
-normal `@import` dependencies: map an import name to its root Zig source file,
-then declare the members used from Clojure:
+Third-party Zig dependencies do not need conversion or vendoring. Describe
+their immutable archive in `aguafria-packages.edn`:
 
-```clojure
-(az/configure!
- {:modules {"zmath" "/checkout/zmath/src/root.zig"}})
-
-(az/defimport zmath "zmath"
-  [[matrix-multiply "mat.mul"]])
-
-(az/defn ^{:export false} multiply-matrices :- Result
-  [left :- Matrix right :- Matrix]
-  (zmath/matrix-multiply left right))
+```edn
+{"uuid"
+ {:url "https://codeberg.org/r4gus/uuid-zig/archive/0.5.0.tar.gz"
+  :hash "uuid-0.5.0-oOieIQx-AABtc9U3ihv_bf9pZAYoKp4UMsNFHBr-cn-w"
+  :root "src/main.zig"}}
 ```
 
-The local alias and every member are resolvable through normal Clojure tools:
-`(resolve 'zmath)` returns the import Var and
-`(ns-resolve *ns* 'zmath/matrix-multiply)` returns the member Var. A dotted or
-qualified call that does not resolve to an Aguafria Var is rejected during
-emission; it is never silently treated as a Zig symbol.
+Add a tools.deps preparation alias and include `resources` on the classpath:
+
+```clojure
+{:paths ["src" "resources"]
+ :aliases
+ {:prepare-packages
+  {:exec-fn aguafria.zig.package/prepare!
+   :exec-args {:config "aguafria-packages.edn"
+               :output "resources/aguafria/zig-packages.edn"}}}}
+```
+
+Run `clojure -X:prepare-packages` before starting the application JVM. It uses
+Aguafria's embedded Zig to fetch and hash-verify the archive, structurally
+discovers public declarations, and writes only an EDN catalog. No generated
+Clojure wrappers or local Zig installation are involved. Require the catalog
+bootstrap before its ordinary package namespace:
+
+```clojure
+(ns example.server
+  (:require [aguafria.pkg]
+            [aguafria.pkg.uuid :as uuid]
+            [aguafria.zig :as az]))
+
+(az/defn ^{:export false} make-id :- uuid/Uuid
+  [io :- aguafria.std/Io]
+  (uuid/v4-new io))
+```
+
+All public nested APIs are available in the root with unambiguous path names
+(`uuid/v4-new`, `uuid/urn-serialize`) and through nested namespaces such as
+`[aguafria.pkg.uuid.urn :as urn]`. The Vars carry original Zig signatures,
+documentation, source locations, categories, and parameter counts, so
+`resolve`, CIDER, Calva, and ordinary REPL inspection work normally. A dotted
+or qualified call that does not resolve to an Aguafria Var is rejected; it is
+never silently treated as a Zig symbol.
 
 Aguafria passes these as Zig CLI modules and makes configured external modules
 available throughout the development dependency graph. Explicit entries
@@ -703,11 +728,13 @@ options. Builds with external modules or custom Zig arguments always invoke
 Zig so a changed dependency cannot be hidden by Aguafria's artifact cache;
 Zig's own cache still applies. Hand-written projects can intentionally supply
 such modules this way; converted value-based option modules require no manual
-configuration. Aguafria declarations that call an external module remain hot;
-the unconverted dependency itself has no per-Var dispatch. After editing that
-dependency, reevaluate/recompile its Aguafria callers, or convert the dependency
-only when its own declarations must be independently live. ABI and layout
-changes still use Aguafria's retained-version and explicit-migration rules.
+configuration. Aguafria declarations that call an external package remain hot;
+the unconverted package itself has no per-Var dispatch. Regenerate the catalog
+after changing its pin or source. Convert the dependency only when its own
+declarations must be independently live. ABI and layout changes still use
+Aguafria's retained-version and explicit-migration rules. `az/defimport`
+remains a low-level escape hatch for dynamically configured modules, not the
+normal dependency workflow.
 
 Define a regular public, non-exported Zig `main` and build the current module as
 an optimized executable:

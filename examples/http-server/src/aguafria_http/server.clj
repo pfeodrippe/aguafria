@@ -1,7 +1,9 @@
 (ns aguafria-http.server
   "A small native HTTP server whose ordinary Zig functions stay live in nREPL."
   (:refer-clojure :exclude [run!])
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.pkg]
+            [aguafria.pkg.uuid :as uuid]
+            [aguafria.keyword :as ak]
             [aguafria.std]
             [aguafria.std.Io.net :as net]
             [aguafria.std.http :as http]
@@ -38,10 +40,14 @@
         ((az/field http/Server init)
          (ak/& (az/field reader interface))
          (ak/& (az/field writer interface)))
-        ^:var request (try ((az/field server receiveHead)))]
+        ^:var request (try ((az/field server receiveHead)))
+        request-id (uuid/v4-new io)
+        request-id-text (uuid/urn-serialize request-id)]
     (try ((az/field request respond)
           (response-body)
-          {:keep_alive false}))
+          {:keep_alive false
+           :extra_headers (ak/& [{:name "x-request-id"
+                                  :value (az/slice request-id-text 0)}])}))
     (set! requests-served (+ requests-served 1))))
 
 (az/defn request-stop!
