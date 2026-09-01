@@ -8,7 +8,6 @@
             [racing-game.inference :as inference]))
 
 (az/defn main
-  {:attrs #{:public}}
   :-
   :void
   []

@@ -259,6 +259,78 @@
           (is (= "fixture.dependency" (:import-name reference)))
           (is (nil? (:logical-id reference))))))))
 
+(deftest first-class-namespace-root-retains-reflectable-container-test
+  (let [registry (var-get #'aguafria.zig.runtime/registry)
+        reference-index
+        (var-get #'aguafria.zig.runtime/declaration-reference-index)
+        old-registry @registry
+        old-index @reference-index
+        module "fixture.reflectable-container"
+        root
+        (with-meta 'reflectable
+          {:aguafria/zig-reference
+           {:kind :namespace-root
+            :module module
+            :import-name module
+            :zig-name "reflectable"}})
+        info runtime/declaration-info
+        self (info {:module module :kind :const :name 'Container
+                    :declaration-key [:const 'Container]
+                    :value '(ak/This)})
+        field (info {:module module :kind :field :name 'value
+                     :declaration-key [:field 'value] :type :u32})
+        js-api (info {:module module :kind :const :name 'JsApi
+                      :declaration-key [:const 'JsApi]
+                      :public? true :value :u32})
+        method (info {:module module :kind :fn :name 'private-method
+                      :declaration-key [:fn 'private-method]
+                      :args [] :return :void :body []})
+        zig-test (info {:module module :kind :test :name 'container-test
+                        :declaration-key [:test 'container-test] :body []})
+        first-class
+        (info {:module "fixture.reflecting-consumer"
+               :kind :const :name 'Types
+               :declaration-key [:const 'Types]
+               :value [root]})
+        static-member
+        (info {:module "fixture.reflecting-consumer"
+               :kind :const :name 'Api
+               :declaration-key [:const 'Api]
+               :value (list 'field root 'JsApi)})
+        definitions
+        (fn [declarations]
+          (into {} (map (juxt :declaration-key identity)) declarations))]
+    (try
+      (reset! registry
+              {module {:definitions
+                       (definitions [self field js-api method zig-test])}
+               "fixture.reflecting-consumer"
+               {:definitions (definitions [first-class static-member])}})
+      (reset! reference-index
+              {:by-module {} :by-logical {} :references {} :revision 0
+               :extraction-version
+               (var-get
+                #'aguafria.zig.runtime/declaration-reference-extraction-version)})
+      ((var-get #'aguafria.zig.runtime/registered-declarations-by-logical-id))
+      (let [first-class-references
+            ((var-get #'aguafria.zig.runtime/declaration-reference-logical-ids)
+             first-class)
+            static-references
+            ((var-get #'aguafria.zig.runtime/declaration-reference-logical-ids)
+             static-member)
+            retained
+            ((var-get #'aguafria.zig.runtime/dependency-live-slice-declarations)
+             module first-class-references)]
+        (is (contains? first-class-references (:logical-id js-api)))
+        (is (not (contains? first-class-references (:logical-id self))))
+        (is (contains? static-references (:logical-id js-api)))
+        (is (not (contains? static-references (:logical-id self))))
+        (is (= #{'JsApi}
+               (set (map :name retained)))))
+      (finally
+        (reset! registry old-registry)
+        (reset! reference-index old-index)))))
+
 (deftest external-generation-advertises-only-resolved-owned-getters-test
   (let [registry (var-get #'aguafria.zig.runtime/registry)
         old-registry @registry

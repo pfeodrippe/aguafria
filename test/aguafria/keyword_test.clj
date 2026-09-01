@@ -21,15 +21,21 @@
           (is (not (str/blank? (:doc metadata))) zig-name)
           (is (= :call (get-in metadata [:aguafria/token :kind])) zig-name))))
 
-    (testing "Zig-only keywords are Vars; Clojure-native spellings stay native"
+    (testing "all Zig keywords are Vars while Clojure-native spellings stay usable"
       (is (some #(= "if" (:name %)) (ak/language-keywords)))
-      (is (nil? (get public-vars 'if)))
+      (is (var? (get public-vars 'if)))
+      (is (= "if" (get-in (meta (get public-vars 'if))
+                           [:aguafria/token :zig-token])))
       (is (var? (get public-vars 'const)))
       (is (var? (get public-vars 'var)))
       (is (= "var" (get-in (meta (get public-vars 'var))
                             [:aguafria/token :zig-token])))
       (is (= :keyword (get-in (meta (get public-vars 'const))
                               [:aguafria/token :kind])))
+      (is (some #(= "undefined" (:name %)) (ak/primitives)))
+      (is (var? (get public-vars 'undefined)))
+      (is (= :primitive (get-in (meta (get public-vars 'undefined))
+                                [:aguafria/token :kind])))
       (is (nil? (get public-vars 'builtins))))))
 
 (deftest alias-aware-emission-test
@@ -43,7 +49,16 @@
            (az/emit-type '(ak/Vector 4 :i32)))))
 
   (testing "bare field is still Aguafria's readable field-access form"
-    (is (= "value.member" (az/emit-expr '(field value member)))))
+    (is (= "value.member" (az/emit-expr '(field value :member)))))
+
+  (testing "primitive values are qualified atom Vars"
+    (is (= "undefined" (az/emit-expr 'ak/undefined)))
+    (is (nil? (:aguafria/zig-reference
+               (meta (emitter/qualify-form
+                      (the-ns 'aguafria.keyword-test) 'ak/undefined)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"use `ak/undefined`"
+                          (az/emit-expr 'undefined))))
 
   (testing "reader-hostile operators have named tokens"
     (is (= "(~bits)" (az/emit-expr '(ak/bit-not bits))))

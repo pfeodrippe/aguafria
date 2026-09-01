@@ -394,7 +394,6 @@
     :weight_count 0 :file_size 0}))
 
 (az/defn can-read
-  {:export false :implicit-return true}
   :-
   :bool
   [[reader [:* Reader]]
@@ -404,7 +403,6 @@
                     (az/field (az/deref reader) cursor)))))
 
 (az/defn read-u8!
-  {:export false}
   :-
   :u8
   [[reader [:* Reader]]]
@@ -420,7 +418,6 @@
       0)))
 
 (az/defn read-u32!
-  {:export false :implicit-return true}
   :-
   :u32
   [[reader [:* Reader]]]
@@ -431,7 +428,6 @@
     (+ b0 (* b1 256) (* b2 65536) (* b3 16777216))))
 
 (az/defn read-u64!
-  {:export false :implicit-return true}
   :-
   :u64
   [[reader [:* Reader]]]
@@ -440,7 +436,6 @@
     (+ low (* high 4294967296))))
 
 (az/defn skip-bytes!
-  {:export false}
   :-
   :void
   [[reader [:* Reader]]
@@ -452,7 +447,6 @@
     (set! (az/field (az/deref reader) error_code) parser-truncated)))
 
 (az/defn read-string-view!
-  {:export false}
   :-
   StringView
   [[reader [:* Reader]]]
@@ -462,14 +456,12 @@
     (StringView {:start start :length (ak/intCast length)})))
 
 (az/defn skip-string!
-  {:export false}
   :-
   :void
   [[reader [:* Reader]]]
   (set! _ (read-string-view! reader)))
 
 (az/defn scalar-byte-size
-  {:export false :implicit-return true}
   :-
   :u8
   [[value-type :u32]]
@@ -481,7 +473,6 @@
     :else 0))
 
 (az/defn skip-value!
-  {:export false}
   :-
   :void
   [[reader [:* Reader]]
@@ -508,7 +499,6 @@
         (skip-bytes! reader width)))))
 
 (az/defn parse-gguf
-  {:attrs #{:public :implicit-return}}
   :-
   GgufSummary
   [[bytes [:c-pointer :u8]]
@@ -618,7 +608,6 @@
                     :data_offset data-offset :file_size length}))))
 
 (az/defn action-head-header-u32
-  {:export false :implicit-return true}
   :-
   :u32
   [[header [:pointer {:size :c :const? true} :u8]]
@@ -630,7 +619,6 @@
 
 (az/defn unload-action-head!
   "Disable the racing-specific head without touching the shared base model."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -643,7 +631,6 @@
 
 (az/defn unload-team-head!
   "Disable the independent three-choice team strategy head."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -659,7 +646,6 @@
   32-byte little-endian header, 8x6144 row-major f32 weights, and 8 f32 biases.
   The current two-step feature extractor fills the first 1536 values and keeps
   the remaining compatibility slots zero."
-  {:attrs #{:public :implicit-return}}
   :-
   ActionHeadSummary
   [[path [:pointer {:size :c :const? true} :u8]]]
@@ -747,7 +733,6 @@
           action-head-summary)))))
 
 (az/defn action-head-status
-  {:attrs #{:public :implicit-return}}
   :-
   ActionHeadSummary
   []
@@ -755,7 +740,6 @@
 
 (az/defn load-team-head!
   "Load the verified stay-out/pit-A/pit-B team strategy head."
-  {:attrs #{:public :implicit-return}}
   :-
   ActionHeadSummary
   [[path [:pointer {:size :c :const? true} :u8]]]
@@ -843,7 +827,6 @@
           team-head-summary)))))
 
 (az/defn team-head-status
-  {:attrs #{:public :implicit-return}}
   :-
   ActionHeadSummary
   []
@@ -880,7 +863,6 @@
 
 (az/defn model-storage-kind
   "Inspect whether weights are absent, heap-owned, or read-only mapped."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   []
@@ -888,7 +870,6 @@
 
 (az/defn loaded-model-sha256
   "Compute the exact SHA-256 digest of the currently owned model bytes."
-  {:attrs #{:public :implicit-return}}
   :-
   [:array 32 :u8]
   []
@@ -903,7 +884,6 @@
 
 (az/defn sha256-matches?
   "Compare one digest value with an expected 32-byte digest."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[actual [:array 32 :u8]]
@@ -917,7 +897,6 @@
 
 (az/defn file-sha256-matches?
   "Verify a native file without retaining its bytes after the check."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[path [:pointer {:size :c :const? true} :u8]]
@@ -960,7 +939,6 @@
 
 (az/defn metadata-info
   "Inspect one parsed GGUF metadata descriptor by stable file order."
-  {:attrs #{:public :implicit-return}}
   :-
   MetadataInfo
   [[index :usize]]
@@ -971,7 +949,6 @@
 
 (az/defn metadata-name-byte
   "Return one UTF-8 byte from a metadata key."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[metadata-index :usize]
@@ -986,7 +963,6 @@
                  byte-index))))
 
 (az/defn metadata-name-equals
-  {:export false :implicit-return true}
   :-
   :bool
   [[metadata-index :usize]
@@ -1004,7 +980,6 @@
 
 (az/defn find-metadata
   "Resolve a GGUF metadata entry by its exact zero-terminated key."
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[expected [:pointer {:size :c :const? true} :u8]]]
@@ -1016,7 +991,6 @@
     found))
 
 (az/defn model-u32-at
-  {:export false :implicit-return true}
   :-
   :u32
   [[offset :usize]]
@@ -1028,7 +1002,6 @@
        (* (ak/as :u32 (az/index (az/unwrap model-bytes) (+ offset 3))) 16777216))))
 
 (az/defn model-u64-at
-  {:export false :implicit-return true}
   :-
   :u64
   [[offset :usize]]
@@ -1039,7 +1012,6 @@
 
 (az/defn metadata-u32
   "Read a scalar u32 metadata value, returning `fallback` on type mismatch."
-  {:attrs #{:public :implicit-return}}
   :-
   :u32
   [[metadata-index :usize]
@@ -1052,7 +1024,6 @@
 
 (az/defn metadata-f32
   "Read a scalar f32 metadata value, returning `fallback` on type mismatch."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[metadata-index :usize]
@@ -1066,7 +1037,6 @@
     fallback))
 
 (az/defn tokenizer-hash-range
-  {:export false :implicit-return true}
   :-
   :u64
   [[start :usize]
@@ -1084,7 +1054,6 @@
     hash))
 
 (az/defn tokenizer-hash-concat
-  {:export false :implicit-return true}
   :-
   :u64
   [[left-start :usize]
@@ -1112,7 +1081,6 @@
     hash))
 
 (az/defn tokenizer-token-equals-range
-  {:export false :implicit-return true}
   :-
   :bool
   [[token :u32]
@@ -1131,7 +1099,6 @@
       equal)))
 
 (az/defn tokenizer-token-equals-concat
-  {:export false :implicit-return true}
   :-
   :bool
   [[token :u32]
@@ -1158,7 +1125,6 @@
       equal)))
 
 (az/defn tokenizer-insert-vocabulary!
-  {:export false :implicit-return true}
   :-
   :bool
   [[token :u32]]
@@ -1179,7 +1145,6 @@
     inserted))
 
 (az/defn tokenizer-find-range
-  {:export false :implicit-return true}
   :-
   :u32
   [[start :usize]
@@ -1201,7 +1166,6 @@
     result))
 
 (az/defn tokenizer-find-concat
-  {:export false :implicit-return true}
   :-
   :u32
   [[left-start :usize]
@@ -1228,7 +1192,6 @@
     result))
 
 (az/defn tokenizer-pair-key
-  {:export false :implicit-return true}
   :-
   :u64
   [[left :u32]
@@ -1236,7 +1199,6 @@
   (+ (ak/<< (ak/as :u64 left) 32) (ak/as :u64 right)))
 
 (az/defn tokenizer-pair-slot
-  {:export false :implicit-return true}
   :-
   :usize
   [[pair :u64]
@@ -1248,7 +1210,6 @@
                tokenizer-hash-capacity))))
 
 (az/defn tokenizer-insert-merge!
-  {:export false :implicit-return true}
   :-
   :bool
   [[left :u32]
@@ -1269,7 +1230,6 @@
     inserted))
 
 (az/defn tokenizer-find-merge
-  {:export false :implicit-return true}
   :-
   TokenizerMerge
   [[left :u32]
@@ -1296,7 +1256,6 @@
 (az/defn initialize-tokenizer!
   "Build exact GPT-2 BPE vocabulary and merge indexes directly from the mapped
   GGUF metadata. This is the tokenizer used by both the game and bake-off."
-  {:export false :implicit-return true}
   :-
   :bool
   []
@@ -1383,7 +1342,6 @@
     valid))
 
 (az/defn tokenizer-summary
-  {:attrs #{:public :implicit-return}}
   :-
   TokenizerSummary
   []
@@ -1398,7 +1356,6 @@
   "Select one validated Granite hybrid profile from GGUF metadata and derive
   every recurrent, convolution, attention, and classifier-state size used by
   the shared native kernels. Unsupported shapes are rejected before inference."
-  {:export false :implicit-return true}
   :-
   :bool
   []
@@ -1505,7 +1462,6 @@
 
 (az/defn model-profile-summary
   "Expose the active dimensions used by the native game and bake-off."
-  {:attrs #{:public :implicit-return}}
   :-
   ModelProfileSummary
   []
@@ -1529,7 +1485,6 @@
 
 (az/defn ascii-byte-token
   "Map one ASCII byte to the model's exact GPT-2 base-byte token id."
-  {:export false :implicit-return true}
   :-
   :u32
   [[byte :u8]]
@@ -1545,7 +1500,6 @@
   "Encode bounded readable ASCII with Granite's exact GGUF GPT-2 BPE merges.
   Before a model is loaded the base-byte result remains available for parser
   probes; live game and bake-off paths require the initialized native index."
-  {:attrs #{:public :implicit-return}}
   :-
   TokenizationReport
   [[bytes [:pointer {:size :c :const? true} :u8]]
@@ -1608,7 +1562,6 @@
 
 (az/defn tensor-name-byte
   "Return one UTF-8 byte from a tensor name for JVM/native inspection."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[tensor-index :usize]
@@ -1623,7 +1576,6 @@
                  byte-index))))
 
 (az/defn tensor-name-equals
-  {:export false :implicit-return true}
   :-
   :bool
   [[tensor-index :usize]
@@ -1641,7 +1593,6 @@
 
 (az/defn find-tensor
   "Resolve a GGUF tensor by its exact zero-terminated name."
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[expected [:pointer {:size :c :const? true} :u8]]]
@@ -1733,17 +1684,15 @@
         model-summary))))
 
 (az/defn inference-summary
-  {:attrs #{:public :implicit-return}}
   :-
   GgufSummary
   []
   model-summary)
 
-(az/defn q4-0-dot
+(az/defn- q4-0-dot
   "SIMD Q4_0 dot product for one GGML block of 32 values. The packed low
   and high nibbles become two 16-lane vectors, preserving GGML's layout while
   allowing Zig to use the host's native vector instructions."
-  {:export false :public false :implicit-return true}
   :-
   :f32
   [[block [:pointer {:size :c :const? true} :u8]]
@@ -1800,9 +1749,8 @@
                   (+ (* low-values low-input)
                      (* high-values high-input))))))
 
-(az/defn q4-0-value
+(az/defn- q4-0-value
   "Decode one value from a GGML Q4_0 block without allocating."
-  {:export false :public false :implicit-return true}
   :-
   :f32
   [[block [:pointer {:size :c :const? true} :u8]]
@@ -1859,8 +1807,7 @@
       (dotimes [index length]
         (set! (az/index values index) (/ (az/index values index) total))))))
 
-(az/defn softplus
-  {:export false :public false :implicit-return true}
+(az/defn- softplus
   :-
   :f32
   [[value :f32]]
@@ -1871,7 +1818,6 @@
 (az/defn mamba-selective-step!
   "One exact recurrent Mamba-2 selective-state update for the model's
   single-group layout. State is `[head][head-component][ssm-component]`."
-  {:attrs #{:public}}
   :-
   :void
   [[output [:c-pointer :f32]]
@@ -1906,7 +1852,6 @@
 
 (az/defn tensor-rms-norm-gated!
   "Apply Granite's SiLU gate before weighted RMS normalization."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[output [:c-pointer :f32]]
@@ -1937,7 +1882,6 @@
 
 (az/defn attention-layer?
   "Whether one Granite hybrid layer uses causal GQA instead of Mamba-2."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[layer :usize]]
@@ -1953,7 +1897,6 @@
 
 (az/defn attention-layer-slot
   "Map one supported profile's attention layer to compact KV slot 0..3."
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[layer :usize]]
@@ -1966,7 +1909,6 @@
       slot)))
 
 (az/defn attention-layers-before
-  {:export false :implicit-return true}
   :-
   :usize
   [[layer :usize]]
@@ -1978,7 +1920,6 @@
 
 (az/defn layer-base-index
   "Resolve the first tensor in a pinned Granite layer without name scans."
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[layer :usize]]
@@ -1987,17 +1928,17 @@
     (- (+ 2 (* layer 13)) (* (attention-layers-before layer) 4))))
 
 (az/defn layer-attention-norm-index
-  {:export false :implicit-return true}
   :-
   :usize
   [[layer :usize]]
   (let [base (layer-base-index layer)]
     (if (ak/== base tensor-not-found)
       tensor-not-found
-      (+ base (if (attention-layer? layer) 1 0)))))
+      (+ base (if (attention-layer? layer)
+                (ak/as :usize 1)
+                (ak/as :usize 0))))))
 
 (az/defn layer-ffn-down-index
-  {:export false :implicit-return true}
   :-
   :usize
   [[layer :usize]]
@@ -2009,7 +1950,6 @@
                 (ak/as :usize 1))))))
 
 (az/defn layer-ffn-gate-index
-  {:export false :implicit-return true}
   :-
   :usize
   [[layer :usize]]
@@ -2021,7 +1961,6 @@
                 (ak/as :usize 2))))))
 
 (az/defn layer-ffn-norm-index
-  {:export false :implicit-return true}
   :-
   :usize
   [[layer :usize]]
@@ -2033,7 +1972,6 @@
                 (ak/as :usize 3))))))
 
 (az/defn layer-ffn-up-index
-  {:export false :implicit-return true}
   :-
   :usize
   [[layer :usize]]
@@ -2046,7 +1984,6 @@
 
 (az/defn free-sequences!
   "Release all native racer cognition state while leaving shared weights loaded."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -2060,7 +1997,6 @@
 
 (az/defn reset-all-sequences!
   "Clear every recurrent, convolution, and KV state in-place."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -2078,7 +2014,6 @@
 (az/defn initialize-sequences!
   "Own one shared allocation containing twelve isolated model sequence states:
   eight drivers followed by four team strategists."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -2093,7 +2028,6 @@
 
 (az/defn reset-sequence!
   "Clear one racer's independent recurrent and KV history."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[racer :usize]]
@@ -2130,7 +2064,6 @@
 (az/defn copy-last-hidden!
   "Copy one racer's most recent final normalized hidden state for offline
   training or inspection. The caller owns `output` and at least 768 floats."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[racer :usize]
@@ -2153,7 +2086,6 @@
 (az/defn copy-action-features!
   "Copy the fixed action-head feature buffer. Sequential extraction fills all
   eight slots; fused extraction fills the first slot and clears the rest."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[racer :usize]
@@ -2169,7 +2101,6 @@
 
 (az/defn sequence-summary
   "Return allocation size and each racer's independent token position."
-  {:attrs #{:public :implicit-return}}
   :-
   SequenceSummary
   []
@@ -2181,7 +2112,6 @@
     :positions sequence-positions}))
 
 (az/defn sequence-mamba-state
-  {:export false :implicit-return true}
   :-
   [:optional [:c-pointer :f32]]
   [[racer :usize]
@@ -2197,7 +2127,6 @@
           model-mamba-recurrent-size))))
 
 (az/defn sequence-conv-state
-  {:export false :implicit-return true}
   :-
   [:optional [:c-pointer :f32]]
   [[racer :usize]
@@ -2214,7 +2143,6 @@
           model-mamba-conv-state-size))))
 
 (az/defn sequence-key-cache
-  {:export false :implicit-return true}
   :-
   [:optional [:c-pointer :f32]]
   [[racer :usize]
@@ -2231,7 +2159,6 @@
          (* slot sequence-capacity model-attention-kv-size)))))
 
 (az/defn sequence-value-cache
-  {:export false :implicit-return true}
   :-
   [:optional [:c-pointer :f32]]
   [[racer :usize]
@@ -2249,7 +2176,6 @@
 
 (az/defn layer-ffn!
   "Execute one Granite SwiGLU FFN and install its scaled residual."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[layer :usize]
@@ -2292,7 +2218,6 @@
 (az/defn mamba-layer-step!
   "Execute one streaming Granite Mamba-2 layer and install its scaled residual.
   Recurrent and convolution state belong to exactly one racer and one layer."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[layer :usize]
@@ -2391,7 +2316,6 @@
 
 (az/defn mamba-ffn-layer!
   "Execute a complete recurrent Granite block for one token."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[layer :usize]
@@ -2416,7 +2340,6 @@
 
 (az/defn attention-layer-step!
   "Execute one causal NoPE grouped-query-attention layer for a single token."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[layer :usize]
@@ -2504,7 +2427,6 @@
 
 (az/defn attention-ffn-layer!
   "Execute a complete causal attention Granite block for one token."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[layer :usize]
@@ -2531,7 +2453,6 @@
 
 (az/defn attention-layer-probe
   "Execute one isolated attention+FFN layer with an empty single-token cache."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[layer :usize]
@@ -2598,7 +2519,6 @@
 (az/defn mamba-layer-zero-probe
   "Execute the first token through Granite layer 0's normalized Mamba branch
   and residual connection. The recurrent and convolution states start at zero."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[token :usize]
@@ -2696,7 +2616,6 @@
 
 (az/defn mamba-layer-zero-full-probe
   "Execute the first token through the complete layer-0 Mamba and FFN block."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[token :usize]
@@ -2757,9 +2676,8 @@
               (az/index hidden component)
               0.0)))))))
 
-(az/defn q6-k-value
+(az/defn- q6-k-value
   "Decode one value from a GGML Q6_K block without allocating."
-  {:export false :public false :implicit-return true}
   :-
   :f32
   [[block [:pointer {:size :c :const? true} :u8]]
@@ -2787,9 +2705,8 @@
          (ak/as :f32 (ak/floatFromInt scale))
          (ak/as :f32 (ak/floatFromInt quantized))))))
 
-(az/defn q6-k-dot
+(az/defn- q6-k-dot
   "Scalar reference dot product for one 256-value GGML Q6_K block."
-  {:export false :public false :implicit-return true}
   :-
   :f32
   [[block [:pointer {:size :c :const? true} :u8]]
@@ -2800,9 +2717,8 @@
                              (az/index input index)))))
     total))
 
-(az/defn embedding-value-kernel
+(az/defn- embedding-value-kernel
   "Read one value from the model's Q6_K token embedding tensor."
-  {:export false :public false :implicit-return true}
   :-
   :f32
   [[token :usize]
@@ -2822,7 +2738,6 @@
 
 (az/defn embedding-value
   "Inspectable wrapper around the private hot-loop embedding decoder."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[token :usize]
@@ -2831,7 +2746,6 @@
 
 (az/defn embedding-row-dot
   "Dot one tied Q6_K token-embedding row with a normalized hidden vector."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[token :usize]
@@ -2852,9 +2766,8 @@
                            (+ input (* block 256))))))
       total)))
 
-(az/defn tensor-element
+(az/defn- tensor-element
   "Decode one logical flat tensor element for every supported model layout."
-  {:export false :public false :implicit-return true}
   :-
   :f32
   [[tensor-index :usize]
@@ -2881,9 +2794,8 @@
 
         :else 0.0))))
 
-(az/defn tensor-row-dot-kernel
+(az/defn- tensor-row-dot-kernel
   "Allocation-free scalar reference matvec row for F32, Q4_0, or Q6_K."
-  {:export false :public false :implicit-return true}
   :-
   :f32
   [[tensor-index :usize]
@@ -2935,7 +2847,6 @@
 
 (az/defn tensor-row-dot
   "Inspectable wrapper around the private matrix-row hot loop."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[tensor-index :usize]
@@ -2945,7 +2856,6 @@
 
 (az/defn tensor-matvec!
   "Apply one supported two-dimensional tensor to a dense input vector."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[output [:c-pointer :f32]]
@@ -2969,7 +2879,6 @@
 
 (az/defn tensor-rms-norm!
   "RMS-normalize through a named F32 model weight vector."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[output [:c-pointer :f32]]
@@ -3000,8 +2909,7 @@
                    (tensor-element weights-index index)))))
       true)))
 
-(az/defn silu
-  {:export false :public false :implicit-return true}
+(az/defn- silu
   :-
   :f32
   [[value :f32]]
@@ -3009,7 +2917,6 @@
 
 (az/defn layer-zero-mlp-probe
   "Run the pinned model's first dense FFN on one real token embedding."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[token :usize]]
@@ -3054,7 +2961,6 @@
 
 (az/defn action-head-logit
   "Evaluate one racing action row over Granite's normalized final state."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[action :usize]
@@ -3074,7 +2980,6 @@
 
 (az/defn team-head-logit
   "Evaluate one independent team-strategy row over Granite's prompt state."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[action :usize]
@@ -3096,7 +3001,6 @@
   "Run one token through all 32 layers for one independent racer sequence.
   The vocabulary sentinel consumes one position-bound fused observation vector
   prepared by `forward-fused-observation!`; ordinary token calls are unchanged."
-  {:attrs #{:public :implicit-return}}
   :-
   ForwardReport
   [[racer :usize]
@@ -3277,7 +3181,6 @@
   sign vector, summed in two ordered groups at stable RMS scale, and processed
   by all 32 model layers. No field is dropped and no policy feature bypasses
   Granite."
-  {:attrs #{:public :implicit-return}}
   :-
   ForwardReport
   [[racer :usize]
@@ -3325,7 +3228,6 @@
     report))
 
 (az/defn empty-forward-report
-  {:export false :implicit-return true}
   :-
   ForwardReport
   []
@@ -3339,7 +3241,6 @@
 (az/defn forward-compact-prompt!
   "Tokenize and run one bounded compact ASCII observation entirely in native
   code. Resetting is explicit so callers can retain or replace agent memory."
-  {:attrs #{:public :implicit-return}}
   :-
   ForwardReport
   [[racer :usize]

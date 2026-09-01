@@ -24,7 +24,6 @@
 
 (az/defn FontStorageType
   "Native storage for one loaded TTF and its stb_truetype baked atlas."
-  {:attrs #{:public :implicit-return}}
   :-
   :type
   []
@@ -37,7 +36,6 @@
    (az/field-decl ready :bool)))
 
 (az/defconst FontStorage
-  {:attrs #{:public}}
   (FontStorageType))
 
 (az/defstruct FontRect
@@ -74,7 +72,6 @@
   (std-mem/zeroes (az/type [:array 5 :usize])))
 
 (az/defn utf8-width-at
-  {:export false :implicit-return true}
   :-
   :usize
   [[text [:slice-const :u8]]
@@ -88,7 +85,6 @@
 
 (az/defn utf8-codepoint-at
   "Decode one trusted UTF-8 codepoint from application text."
-  {:export false :implicit-return true}
   :-
   :u21
   [[text [:slice-const :u8]]
@@ -119,7 +115,6 @@
 
 (az/defn load-font!
   "Read one TTF through portable C stdio and bake Latin-1 glyphs with stb."
-  {:export false}
   :-
   :bool
   [[slot :usize]
@@ -166,7 +161,6 @@
     (set! rectangle-count (+ rectangle-count 1))))
 
 (az/defn atlas-pixel
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[font [:* FontStorage]]
@@ -176,7 +170,6 @@
 
 (az/defn layout-text!
   "Raster-layout UTF-8 text once and cache horizontal spans for every frame."
-  {:export false}
   :-
   :void
   [[font-index :usize]
@@ -282,7 +275,6 @@
   (initialize!))
 
 (az/defn rect-count
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   []
@@ -298,7 +290,6 @@
     (FontRect {:x 0 :y 0 :width 0 :height 0 :palette 0})))
 
 (az/defn dialogue-start
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[dialogue :u8]]
@@ -307,7 +298,6 @@
     0))
 
 (az/defn dialogue-rect-count
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[dialogue :u8]]

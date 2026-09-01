@@ -142,7 +142,13 @@ function serverSdeps(): string {
   const serverRoot = path.join(context.extensionPath, "dist", "server");
   const source = JSON.stringify(path.join(serverRoot, "src"));
   const resources = JSON.stringify(path.join(serverRoot, "resources"));
-  return `{:paths [${source} ${resources}] :deps {org.clojure/clojure {:mvn/version "1.12.0"} nrepl/nrepl {:mvn/version "1.3.1"}}}`;
+  return [
+    `{:paths [${source} ${resources}]`,
+    ":deps {org.clojure/clojure {:mvn/version \"1.12.0\"}",
+    "nrepl/nrepl {:mvn/version \"1.3.1\"}",
+    "org.apache.commons/commons-compress {:mvn/version \"1.28.0\"}",
+    "org.tukaani/xz {:mvn/version \"1.12\"}}}",
+  ].join(" ");
 }
 
 async function waitForDiscovery(folder: vscode.WorkspaceFolder, timeoutMs: number): Promise<void> {

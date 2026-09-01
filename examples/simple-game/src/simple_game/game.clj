@@ -39,7 +39,6 @@
 
 (az/defn lock-state!
   "Serialize nREPL inspection with the native frame thread."
-  {:export false}
   :-
   :void
   []
@@ -48,7 +47,6 @@
    (std-atomic/spinLoopHint)))
 
 (az/defn unlock-state!
-  {:export false}
   :-
   :void
   []
@@ -86,7 +84,6 @@
 
 (az/defn last-frame-work-seconds
   "Return simulation work for the latest frame, excluding Flecs pacing."
-  {:attrs #{:public :implicit-return}}
   :-
   :f64
   []
@@ -108,7 +105,6 @@
 
 (az/defn process-factory-event!
   "Drive native sound and Box3D effects from the latest Flecs event."
-  {:export false}
   :-
   :void
   []
@@ -226,7 +222,6 @@
 
 (az/defn shutdown
   "Destroy the native world. Ordinary source edits never call this."
-  {:attrs #{:public}}
   :-
   :void
   []

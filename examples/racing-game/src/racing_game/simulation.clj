@@ -584,7 +584,6 @@
 (az/defvar replay-active false)
 
 (az/defn next-decision-revision!
-  {:export false :implicit-return true}
   :-
   :u64
   []
@@ -595,7 +594,6 @@
 (az/defn cadence-ticks-for-pressure
   "Pure bounded policy for ordinary thoughts. Urgent requests never use this
   backoff and simulation cadence is unaffected."
-  {:attrs #{:public :implicit-return}}
   :-
   :u64
   [[pending :u8]
@@ -607,7 +605,6 @@
     :else ordinary-thought-ticks))
 
 (az/defn update-thought-cadence!
-  {:export false}
   :-
   :void
   []
@@ -629,7 +626,6 @@
 
 (az/defn cadence-summary
   "Inspect ordinary AI cadence and the pressure that selected it."
-  {:attrs #{:public :implicit-return}}
   :-
   CadenceSummary
   []
@@ -644,7 +640,6 @@
 
 (az/defn decision-deadline-ticks
   "Return the hard simulation-time budget for one ordinary or urgent thought."
-  {:attrs #{:public :implicit-return}}
   :-
   :u64
   [[urgent :bool]]
@@ -654,7 +649,6 @@
 
 (az/defn decision-expired?
   "Pure deadline predicate used by the scheduler and native regression tests."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[enqueue-tick :u64]
@@ -666,7 +660,6 @@
 
 (az/defn clear-replay!
   "Clear the loaded replay without modifying the current race."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -678,7 +671,6 @@
 
 (az/defn append-replay-intent!
   "Append one validated, schema-compatible intent in install-tick order."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[intent ReplayIntent]]
@@ -709,7 +701,6 @@
     valid))
 
 (az/defn replay-summary
-  {:attrs #{:public :implicit-return}}
   :-
   ReplaySummary
   []
@@ -720,7 +711,6 @@
     :remaining (ak/intCast (- replay-count replay-cursor))}))
 
 (az/defn replay-intent-before
-  {:export false :implicit-return true}
   :-
   :bool
   [[left ReplayIntent]
@@ -736,7 +726,6 @@
 (az/defn capture-retained-replay!
   "Capture every retained accepted decision entirely in native memory and
   order it by install tick, racer, and revision for deterministic playback."
-  {:attrs #{:public :implicit-return}}
   :-
   ReplaySummary
   []
@@ -786,7 +775,6 @@
   (replay-summary))
 
 (az/defn replay-read-u16
-  {:export false :implicit-return true}
   :-
   :u16
   [[bytes [:c-pointer :u8]]
@@ -795,7 +783,6 @@
      (ak/<< (ak/as :u16 (az/index bytes (+ offset 1))) 8)))
 
 (az/defn replay-read-u32
-  {:export false :implicit-return true}
   :-
   :u32
   [[bytes [:c-pointer :u8]]
@@ -806,7 +793,6 @@
      (ak/<< (ak/as :u32 (az/index bytes (+ offset 3))) 24)))
 
 (az/defn replay-read-u64
-  {:export false :implicit-return true}
   :-
   :u64
   [[bytes [:c-pointer :u8]]
@@ -815,7 +801,6 @@
      (ak/<< (ak/as :u64 (replay-read-u32 bytes (+ offset 4))) 32)))
 
 (az/defn replay-read-f32
-  {:export false :implicit-return true}
   :-
   :f32
   [[bytes [:c-pointer :u8]]
@@ -825,7 +810,6 @@
     value))
 
 (az/defn replay-file-summary
-  {:export false :implicit-return true}
   :-
   ReplayFileSummary
   [[valid :bool]
@@ -844,7 +828,6 @@
 (az/defn load-replay-file!
   "Load one canonical little-endian replay artifact with strict schema,
   provenance, size, ordering, and intent validation."
-  {:attrs #{:public :implicit-return}}
   :-
   ReplayFileSummary
   [[path [:pointer {:size :c :const? true} :u8]]]
@@ -977,7 +960,6 @@
                   result)))))))))
 
 (az/defn register-component
-  {:export false}
   :-
   :u64
   [[flecs-world [:* flecs/ecs_world_t]]
@@ -994,7 +976,6 @@
     (flecs/ecs_component_init flecs-world (ak/& component-desc))))
 
 (az/defn racer-pointer
-  {:export false :implicit-return true}
   :-
   [:* Racer]
   [[index :usize]]
@@ -1004,7 +985,6 @@
       (az/cast [:* Racer])))
 
 (az/defn brain-pointer
-  {:export false :implicit-return true}
   :-
   [:* RacerBrain]
   [[index :usize]]
@@ -1014,7 +994,6 @@
       (az/cast [:* RacerBrain])))
 
 (az/defn team-pointer
-  {:export false :implicit-return true}
   :-
   [:* Team]
   [[index :usize]]
@@ -1025,7 +1004,6 @@
 
 (az/defn teammate-id
   "Return the other driver in one of the four fixed two-driver teams."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[identifier :u8]]
@@ -1036,7 +1014,6 @@
 (az/defn radio-message!
   "Publish one bounded semantic message and retain it in the team's native
   newest-first history. Source identifies driver or strategist direction."
-  {:export false}
   :-
   :void
   [[index :usize]
@@ -1094,7 +1071,6 @@
 
 (az/defn attach-team-model-decision!
   "Attach the completed strategist inference to the radio message it caused."
-  {:export false}
   :-
   :void
   [[team-index :usize]
@@ -1129,7 +1105,6 @@
 
 (az/defn team-radio-history-count
   "Return the retained radio-message count for one team."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[team-id :u8]]
@@ -1139,7 +1114,6 @@
 
 (az/defn team-radio-entry
   "Inspect one newest-first semantic radio exchange for one team."
-  {:attrs #{:public :implicit-return}}
   :-
   TeamRadioLog
   [[team-id :u8]
@@ -1162,7 +1136,6 @@
 
 (az/defn team-view
   "Inspect one of the four Flecs-owned teams."
-  {:attrs #{:public :implicit-return}}
   :-
   TeamView
   [[identifier :u8]]
@@ -1194,7 +1167,6 @@
 
 (az/defn install-replay-intents!
   "Install every recorded intent due on this exact fixed simulation tick."
-  {:export false}
   :-
   :void
   []
@@ -1271,7 +1243,6 @@
       (set! replay-cursor (+ replay-cursor 1)))))
 
 (az/defn hazard-pointer
-  {:export false :implicit-return true}
   :-
   [:* Hazard]
   [[index :usize]]
@@ -1281,7 +1252,6 @@
       (az/cast [:* Hazard])))
 
 (az/defn wrapped-distance
-  {:export false :implicit-return true}
   :-
   :f32
   [[a :f32]
@@ -1293,7 +1263,6 @@
   "Pure circle/contact predicate in track coordinates. Absolute progress keeps
   racers on adjacent laps physically close across the finish line while never
   colliding racers separated by a full lap."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[absolute-progress-a :f32]
@@ -1307,7 +1276,6 @@
   "Test the actual rendered world-space contours. Track-coordinate proximity
   alone is insufficient on tight bends where separated progress values can
   map to neighboring pixels."
-  {:export false :implicit-return true}
   :-
   :bool
   [[a [:* Racer]]
@@ -1326,7 +1294,6 @@
 (az/defn hit-racer!
   "Apply visible counterplay and immediately schedule a fresh thought for the
   struck racer. Shields absorb exactly one hit."
-  {:export false}
   :-
   :bool
   [[target-index :usize]
@@ -1349,7 +1316,6 @@
 
 (az/defn spawn-hazard!
   "Activate one preallocated Flecs combat object without allocating."
-  {:export false :implicit-return true}
   :-
   :bool
   [[owner-index :usize]
@@ -1384,7 +1350,6 @@
 
 (az/defn step-hazards!
   "Move pooled bolts and resolve bolt/trap contact after all racers advance."
-  {:export false}
   :-
   :void
   []
@@ -1437,7 +1402,6 @@
           (set! (az/field (az/deref hazard) active) false))))))
 
 (az/defn update-position!
-  {:export false}
   :-
   :void
   [[racer [:* Racer]]]
@@ -1448,7 +1412,6 @@
     (set! (az/field (az/deref racer) heading) (az/field sample heading))))
 
 (az/defn absolute-progress
-  {:export false :implicit-return true}
   :-
   :f32
   [[racer [:* Racer]]]
@@ -1459,7 +1422,6 @@
   "Return the last legal quarter-lap checkpoint crossed, from 0 through 3.
   Progress is authoritative and can only advance, so checkpoint order cannot
   be skipped by steering or by a malformed external control value."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[progress :f32]]
@@ -1471,7 +1433,6 @@
 
 (az/defn complete-lap!
   "Advance exactly one lap and permanently record this racer's finish tick."
-  {:export false}
   :-
   :void
   [[racer [:* Racer]]]
@@ -1485,7 +1446,6 @@
 (az/defn advance-racer-progress!
   "Advance along the legal track direction and cross the finish line at most
   once. Negative or invalid reverse movement cannot manufacture a lap."
-  {:export false}
   :-
   :void
   [[racer [:* Racer]]
@@ -1500,7 +1460,6 @@
 
 (az/defn choose-target
   "Return the nearest unfinished opponent ahead, or the current leader."
-  {:export false}
   :-
   :u8
   [[self-index :usize]]
@@ -1522,7 +1481,6 @@
 (az/defn target-distance-bin
   "Quantize only the selected visible opponent's forward distance. Nine means
   no opponent ahead; lower values are progressively closer."
-  {:export false :implicit-return true}
   :-
   :u8
   [[self-index :usize]
@@ -1538,7 +1496,6 @@
 
 (az/defn target-lane-relation
   "Describe the selected opponent as left, same-lane, or right of the racer."
-  {:export false :implicit-return true}
   :-
   :u8
   [[self-index :usize]
@@ -1557,7 +1514,6 @@
 (az/defn racer-tactical-status
   "Expose only local, actionable combat state: an imminent pooled hazard,
   current stun/recovery, an active shield, or clear track."
-  {:export false :implicit-return true}
   :-
   :u8
   [[index :usize]]
@@ -1593,7 +1549,6 @@
 
 (az/defn build-observation
   "Build the single authoritative immutable worker observation."
-  {:export false :implicit-return true}
   :-
   ObservationView
   [[index :usize]
@@ -1625,7 +1580,6 @@
 
 (az/defn current-observation
   "Inspect exactly what the next native decision for one racer can see."
-  {:attrs #{:public :implicit-return}}
   :-
   ObservationView
   [[index :usize]]
@@ -1637,7 +1591,6 @@
 (az/defn make-decision!
   "Install one independent tactical intent. This transparent policy is the
   native fallback and training baseline used whenever LLM output is late."
-  {:attrs #{:public}}
   :-
   :void
   [[index :usize]
@@ -1708,7 +1661,6 @@
      target-speed)))
 
 (az/defn record-worker-result!
-  {:export false}
   :-
   :void
   [[result worker/InferenceResult]
@@ -1782,7 +1734,6 @@
   "Validate the complete constrained action envelope before it can affect the
   live race. The target must be the exact bounded opponent selected in the
   immutable observation, not merely an in-range racer id."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[accepted :bool]
@@ -1810,7 +1761,6 @@
 (az/defn install-worker-result!
   "Install only an on-time result for the current race epoch and outstanding
   revision. Late results remain observable but never replace the safe intent."
-  {:export false}
   :-
   :void
   [[index :usize]]
@@ -1899,7 +1849,6 @@
                                  deadline-on-time))))))
 
 (az/defn submit-worker-request!
-  {:export false :implicit-return true}
   :-
   :bool
   [[index :usize]
@@ -1950,7 +1899,6 @@
       false)))
 
 (az/defn apply-item!
-  {:export false}
   :-
   :void
   [[index :usize]]
@@ -2002,7 +1950,6 @@
           (set! item-use-count (+ item-use-count 1)))))))
 
 (az/defn collect-item!
-  {:export false}
   :-
   :void
   [[index :usize]]
@@ -2029,7 +1976,6 @@
 (az/defn apply-human-control!
   "Translate the optional reference driver's normalized input into the same
   bounded RacerBrain intent fields consumed by the native vehicle controller."
-  {:export false}
   :-
   :void
   []
@@ -2064,7 +2010,6 @@
 (az/defn expire-pending-decision!
   "Replace an over-budget in-flight thought with a new deterministic safe
   intent. The worker may finish later, but its older revision cannot install."
-  {:export false :implicit-return true}
   :-
   :bool
   [[index :usize]]
@@ -2084,7 +2029,6 @@
 (az/defn update-tire-strategy!
   "Wear tires from real fixed-step driving and report the first warning to the
   independent team strategist. Pit selection belongs to the team AI."
-  {:export false}
   :-
   :void
   [[index :usize]]
@@ -2116,7 +2060,6 @@
 (az/defn driver-needs-pit?
   "Return whether current tires or persistent collision damage justify a
   strategist pit call. Finished or already-called cars are not candidates."
-  {:export false :implicit-return true}
   :-
   :bool
   [[racer [:* Racer]]]
@@ -2128,7 +2071,6 @@
                damage-pit-threshold))))
 
 (az/defn driver-service-urgency
-  {:export false :implicit-return true}
   :-
   :f32
   [[racer [:* Racer]]]
@@ -2138,7 +2080,6 @@
 (az/defn team-priority-driver
   "Choose the teammate with the strongest current service need for the safety
   fallback and for the strategist's bounded observation target."
-  {:export false :implicit-return true}
   :-
   :u8
   [[team-index :usize]]
@@ -2158,7 +2099,6 @@
 
 (az/defn call-driver-to-pit!
   "Reserve one team's real pit box and publish the strategist's instruction."
-  {:export false :implicit-return true}
   :-
   :bool
   [[team-index :usize]
@@ -2200,7 +2140,6 @@
   "Validate and install one team strategist's independent LLM decision. The
   model chooses hold/driver A/driver B; current box ownership and damage/tire
   state remain authoritative safety constraints."
-  {:export false}
   :-
   :void
   [[team-index :usize]]
@@ -2272,7 +2211,6 @@
               (+ simulation-tick team-decision-cadence-ticks))))))
 
 (az/defn submit-team-worker-request!
-  {:export false :implicit-return true}
   :-
   :bool
   [[team-index :usize]]
@@ -2354,7 +2292,6 @@
 
 (az/defn step-team-strategist!
   "Advance one independent team AI actor after both drivers have updated."
-  {:export false}
   :-
   :void
   [[team-index :usize]]
@@ -2379,7 +2316,6 @@
                 (+ simulation-tick team-decision-cadence-ticks)))))))
 
 (az/defn pit-box-progress
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[team-id :u8]]
@@ -2388,7 +2324,6 @@
 (az/defn step-pit!
   "Advance one racer's called/service/exit pit sequence. Return true while the
   car is stationary in its team box so normal track physics is skipped."
-  {:export false :implicit-return true}
   :-
   :bool
   [[index :usize]]
@@ -2467,7 +2402,6 @@
     stationary))
 
 (az/defn step-racer!
-  {:export false}
   :-
   :void
   [[index :usize]]
@@ -2540,7 +2474,6 @@
   disabled by the damage cooldown, so rendered contours cannot occupy the same
   space. A new high-energy contact adds persistent damage and wakes both driver
   and team AIs; the cooldown only prevents one impact becoming many accidents."
-  {:export false}
   :-
   :void
   []
@@ -2629,7 +2562,6 @@
             (update-position! other))))))))
 
 (az/defn update-ranks!
-  {:export false}
   :-
   :void
   []
@@ -2938,7 +2870,6 @@
 
 (az/defn hazard-view
   "Inspect one stable pooled combat-object slot."
-  {:attrs #{:public :implicit-return}}
   :-
   HazardView
   [[slot :usize]]
@@ -3037,7 +2968,6 @@
                        (ak/intFromPtr (az/unwrap world)))})))
 
 (az/defn mix-state-word
-  {:export false :implicit-return true}
   :-
   :u64
   [[fingerprint :u64]
@@ -3045,7 +2975,6 @@
   (ak/*% (ak/bit-xor fingerprint word) 1099511628211))
 
 (az/defn mix-state-f32
-  {:export false :implicit-return true}
   :-
   :u64
   [[fingerprint :u64]
@@ -3056,7 +2985,6 @@
 (az/defn state-fingerprint
   "Hash canonical gameplay state field-by-field without struct padding,
   addresses, worker timings, or replay-control bookkeeping."
-  {:attrs #{:public :implicit-return}}
   :-
   :u64
   []
@@ -3270,7 +3198,6 @@
   "Set the deterministic start countdown in simulation ticks and apply it to
   the current race. Desktop uses 360 ticks (three seconds); headless fixtures
   can keep zero for maximum-speed deterministic evaluation."
-  {:attrs #{:public}}
   :-
   :void
   [[ticks :u16]]
@@ -3282,7 +3209,6 @@
 (az/defn set-items-enabled!
   "Enable normal pickups or run a deterministic no-item race. The setting is
   explicit and survives reset so tests and nREPL experiments can own it."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[enabled :bool]]
@@ -3294,7 +3220,6 @@
   "Enable or disable optional keyboard/gamepad control for racer 0. All eight
   racers remain AI-controlled by default. Switching invalidates any old
   in-flight racer-0 result without restarting the world or workers."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[enabled :bool]]
@@ -3320,7 +3245,6 @@
 (az/defn set-human-input!
   "Install normalized reference-driver input. Values are clamped again inside
   the fixed-step controller, so keyboard, gamepad, and nREPL use one safe path."
-  {:attrs #{:public}}
   :-
   :void
   [[steering :f32]
@@ -3334,7 +3258,6 @@
 
 (az/defn human-control-snapshot
   "Inspect the exact reference-driver input currently consumed by native code."
-  {:attrs #{:public :implicit-return}}
   :-
   HumanControlSnapshot
   []
@@ -3347,7 +3270,6 @@
 (az/defn set-race-seed!
   "Choose the deterministic starting-grid and pickup permutation used by the
   next explicit `reset!`. The running world is never mutated implicitly."
-  {:attrs #{:public}}
   :-
   :void
   [[seed :u64]]
@@ -3356,7 +3278,6 @@
 (az/defn configure-racer-state!
   "Safely edit one live racer's physical/item state for REPL scenarios. The
   fixed-step controller remains authoritative after this explicit mutation."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[identifier :u8]
@@ -3388,7 +3309,6 @@
 (az/defn configure-racer-tires!
   "Set bounded tire condition for a live REPL/test scenario. Normal racing
   immediately resumes authoritative wear, grip, radio, and pit strategy."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[identifier :u8]
@@ -3407,7 +3327,6 @@
 (az/defn configure-racer-damage!
   "Set bounded persistent car damage for a live REPL/test scenario. The team
   strategist observes it on the next fixed tick and can call the car to repair."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[identifier :u8]
@@ -3426,7 +3345,6 @@
 (az/defn configure-racer-intent!
   "Install one bounded live intent for REPL scenarios. It uses the same
   RacerBrain fields as model output and remains active until the next thought."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[identifier :u8]
@@ -3507,7 +3425,6 @@
 
 (az/defn start-replay!
   "Reset the race and install only the previously loaded intent stream."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -3520,7 +3437,6 @@
 
 (az/defn stop-replay!
   "Leave the current replayed world intact and resume normal cognition."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -3528,7 +3444,6 @@
 
 (az/defn run-replay-parity!
   "Run, capture, reset, and replay one deterministic native race segment."
-  {:attrs #{:public :implicit-return}}
   :-
   ReplayParityReport
   [[ticks :u32]]

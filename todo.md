@@ -15,9 +15,10 @@ https://github.com/pfeodrippe/vybe/blob/main/src/vybe/c.clj, but for zig.
   - [x] use https://github.com/erincatto/box3d and https://github.com/mackron/miniaudio (as submodules and inside vendor folder in the simple game folder) for making small circles spheres (in small quantity) as particles leave from the big circles when we click on it (in 3d space, even if we just see 2d for now) and also so we can play some good click sound when clicking on a circle!
   - [x] text
   - [x] audio
-- [ ] zig hot reload
-- [ ] just like we did with tigerbeetle, do for ghostty https://github.com/ghostty-org/ghostty (into a submodule that we are going to create a branch from) so we can run it here, make sure it works for this version of os mac and that it's working with our zig v0.16.0, then create a examples/ghostty with 1 or nmore ns to run it and all that for generate, test it in both hot reload and standalone
+- [x] zig hot reload
+- [ ] improve API
 
+- [ ] just like we did with tigerbeetle, do for ghostty https://github.com/ghostty-org/ghostty (into a submodule that we are going to create a branch from) so we can run it here, make sure it works for this version of os mac and that it's working with our zig v0.16.0, then create a examples/ghostty with 1 or nmore ns to run it and all that for generate, test it in both hot reload and standalone
 - [ ] use flecs for compilation ? batch all evaluated expressions and such ?
 
 ---

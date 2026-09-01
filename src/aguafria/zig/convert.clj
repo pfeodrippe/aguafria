@@ -1164,6 +1164,7 @@
         (case text
           "true" true
           "false" false
+          "undefined" (symbol "ak" (keyword/token-name text))
           (if (and (= "std" text) (:std-import? context))
             (std-alias context 'aguafria.std)
             (or (declaration-reference-symbol context text)
@@ -1560,6 +1561,7 @@
 
 (def ^:private nested-declaration-operators
   {'az/defn 'fn-decl
+   'az/defn- 'fn-decl
    'az/defconst 'const-decl
    'az/defvar 'var-decl
    'az/defexternvar 'extern-var-decl
@@ -2005,7 +2007,8 @@
                    (rest block-form)
                    [(record-statement-fallback! context body-node :non-block-function-body)])
             docstring (docstring-from-leading leading)]
-        (cond-> (apply list 'az/defn declaration-name
+        (cond-> (apply list (if (:public metadata) 'az/defn 'az/defn-)
+                       declaration-name
                        (concat (when docstring [docstring])
                                [attributes ':- return bindings]
                                body))
@@ -2304,7 +2307,7 @@
       forms)))
 
 (def ^:private declaration-form-operators
-  '#{az/defn az/defconst az/defvar az/defstruct az/defcomptime
+  '#{az/defn az/defn- az/defconst az/defvar az/defstruct az/defcomptime
      az/defextern az/defexternvar az/deffield az/deftest
      fn-decl fn-proto-decl const-decl var-decl struct-decl comptime-decl
      field-decl enum-field-decl tuple-field-decl test-decl container
@@ -2482,7 +2485,6 @@
 (def ^:private compact-boolean-attributes
   [[:export :export]
    [:public :public]
-   [:implicit-return :implicit-return]
    [:source-comment :source-comment]])
 
 (defn- leading-documentation
@@ -2498,10 +2500,13 @@
   [attributes]
   (if (or (contains? attributes :zig/order)
           (contains? attributes :zig/leading))
-    (let [flags (into (sorted-set)
-                      (keep (fn [[key flag]]
-                              (when (true? (get attributes key)) flag)))
-                      compact-boolean-attributes)
+    (let [flags (cond->
+                 (into (sorted-set)
+                       (keep (fn [[key flag]]
+                               (when (true? (get attributes key)) flag)))
+                       compact-boolean-attributes)
+                  (false? (:implicit-return attributes))
+                  (conj :explicit-return))
           notes (leading-documentation (:zig/leading attributes))
           prefix (:zig/prefix attributes)
           redundant-prefix? (or (str/blank? prefix)
@@ -3913,19 +3918,27 @@
         (reduce
          (fn [source [alias {:keys [namespace import-name]}]]
            (let [zig-alias (emitter/identifier (symbol alias))
-                 prefix (str "const " zig-alias " = @import(")
-                 original (str prefix (emitter/emit-expr import-name) ");")
+                 declaration-prefix-pattern
+                 (str "((?:pub\\s+)?const\\s+"
+                      (java.util.regex.Pattern/quote zig-alias)
+                      "\\s*=\\s*)")
+                 original-import
+                 (str "@import(" (emitter/emit-expr import-name) ");")
                  ;; Reloadable development imports select Aguafria's named
                  ;; module container. A materialized project returns to Zig's
                  ;; file namespace, so replace both the plain import and any
                  ;; container-selection suffix with the original import.
                  live-declaration-pattern
                  (re-pattern
-                  (str "(?m)^"
+                  (str "(?m)^" declaration-prefix-pattern
                        (java.util.regex.Pattern/quote
-                        (str prefix (emitter/emit-expr namespace) ")"))
+                        (str "@import(" (emitter/emit-expr namespace) ")"))
                        "[^;\\r\\n]*;"))
-                 source (str/replace source live-declaration-pattern original)]
+                 source
+                 (str/replace
+                  source live-declaration-pattern
+                  (fn [[_ declaration-prefix]]
+                    (str declaration-prefix original-import)))]
              (if (str/starts-with? (str alias) "module-")
                ;; This alias was synthesized solely to let a nested/public
                ;; @import refer to a converted Clojure namespace. Materialized
@@ -3934,8 +3947,8 @@
                ;; such as quines and @embedFile checks.
                (let [declaration-pattern
                      (re-pattern
-                      (str "(?m)^"
-                           (java.util.regex.Pattern/quote original)
+                      (str "(?m)^" declaration-prefix-pattern
+                           (java.util.regex.Pattern/quote original-import)
                            "\\r?\\n(?:\\r?\\n)?"))
                      reference-pattern
                      (re-pattern
@@ -4554,7 +4567,7 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
-(def ^:private rendered-conversion-cache-version 4)
+(def ^:private rendered-conversion-cache-version 5)
 
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]
@@ -4926,6 +4939,23 @@
                        :build-profiles profiles})))
     (mapv #(mapv str %) profiles)))
 
+(defn- normalized-source-module-build-profiles
+  [options]
+  (let [profiles (or (:source-module-build-profiles options) [])]
+    (when-not (and (sequential? profiles)
+                   (every? #(and (sequential? %)
+                                 (every? (fn [step]
+                                           (or (string? step)
+                                               (instance? clojure.lang.Named step)))
+                                         %))
+                           profiles))
+      (throw
+       (ex-info
+        ":source-module-build-profiles must contain build-step sequences"
+        {:aguafria/phase :zig-build-graph
+         :source-module-build-profiles profiles})))
+    (mapv #(mapv str %) profiles)))
+
 (defn- validate-live-build-graphs!
   [input-root-file build-graphs]
   (doseq [build-graph build-graphs]
@@ -4952,6 +4982,17 @@
                  :input-root (.getAbsolutePath ^File input-root-file)
                  :build-steps (:build-steps build-graph)
                  :modules (:unresolved-path-modules build-graph)})))))
+
+(defn- validate-source-module-build-graphs!
+  [input-root-file build-graphs]
+  (doseq [build-graph build-graphs]
+    (when (seq (:source-module-conflicts build-graph))
+      (throw
+       (ex-info "Selected Zig source-module profile is ambiguous"
+                {:aguafria/phase :zig-build-graph
+                 :input-root (.getAbsolutePath ^File input-root-file)
+                 :build-steps (:build-steps build-graph)
+                 :conflicts (:source-module-conflicts build-graph)})))))
 
 (defn- merge-source-modules
   [build-graphs]
@@ -5046,6 +5087,8 @@
         (mapv #(assoc % :project-require-modes
                       (project-require-modes provisional-graph %)) provisional)
         build-profiles (normalized-build-profiles options)
+        source-module-build-profiles
+        (normalized-source-module-build-profiles options)
         build-file (io/file input-root-file (or (:build-file options) "build.zig"))
         build-graphs
         (when (and (not= false (:capture-build-modules? options))
@@ -5053,8 +5096,18 @@
           (mapv #(build-generated-modules input-root-file
                                            (assoc options :build-steps %))
                 build-profiles))
+        source-module-build-graphs
+        (when (and (not= false (:capture-build-modules? options))
+                   (.isFile build-file))
+          (mapv #(build-generated-modules input-root-file
+                                           (assoc options :build-steps %))
+                source-module-build-profiles))
         _ (validate-live-build-graphs! input-root-file build-graphs)
-        source-modules-by-owner (merge-source-modules build-graphs)
+        _ (validate-source-module-build-graphs!
+           input-root-file source-module-build-graphs)
+        source-modules-by-owner
+        (merge-source-modules
+         (into (vec build-graphs) source-module-build-graphs))
         plans
         (mapv (fn [plan]
                 (let [bindings
@@ -5085,6 +5138,8 @@
      :generated-modules-by-path generated-modules-by-path
      :build-profiles build-profiles
      :build-graphs build-graphs
+     :source-module-build-profiles source-module-build-profiles
+     :source-module-build-graphs source-module-build-graphs
      :file-count (count plans)
      :elapsed-ms (/ (- (System/nanoTime) started) 1e6)}))
 
@@ -5187,8 +5242,13 @@
   `:capture-build-modules? false` to skip it or `:build-steps` to select a
   different build profile. `:build-profiles` accepts several build-step
   sequences when one converted tree must carry multiple executable profiles
-  (for example `[[] [\"vopr\"]]`). `:report-output` writes the returned report as
-  EDN. Returns per-file and aggregate statistics."
+  (for example `[[] [\"vopr\"]]`).
+  `:source-module-build-profiles` accepts additional profiles used only to
+  discover named source imports. This is useful when a development profile
+  omits an optional native module that a final application profile enables;
+  generated option modules still come exclusively from `:build-profiles`.
+  `:report-output` writes the returned report as EDN. Returns per-file and
+  aggregate statistics."
   [input-root output-root {:keys [namespace-prefix bundle-assets?] :as options}]
   (when-not namespace-prefix
     (throw (ex-info "convert-tree! requires :namespace-prefix"
@@ -5238,27 +5298,19 @@
                     plans)
         capture-build-modules? (not= false (:capture-build-modules? options))
         build-file (io/file input-root-file (or (:build-file options) "build.zig"))
-        build-profiles
-        (let [profiles (or (:build-profiles options)
-                           [(vec (or (:build-steps options) []))])]
-          (when-not (and (sequential? profiles)
-                         (seq profiles)
-                         (every? #(and (sequential? %)
-                                       (every? (fn [step]
-                                                 (or (string? step)
-                                                     (instance? clojure.lang.Named
-                                                                step)))
-                                               %))
-                                 profiles))
-            (throw (ex-info ":build-profiles must contain one or more build-step sequences"
-                            {:aguafria/phase :zig-build-graph
-                             :build-profiles profiles})))
-          (mapv #(mapv str %) profiles))
+        build-profiles (normalized-build-profiles options)
+        source-module-build-profiles
+        (normalized-source-module-build-profiles options)
         build-graphs
         (when (and capture-build-modules? (.isFile build-file))
           (mapv #(build-generated-modules
                   input-root-file (assoc options :build-steps %))
                 build-profiles))
+        source-module-build-graphs
+        (when (and capture-build-modules? (.isFile build-file))
+          (mapv #(build-generated-modules
+                  input-root-file (assoc options :build-steps %))
+                source-module-build-profiles))
         _ (doseq [build-graph build-graphs]
             (when (seq (:conflicts build-graph))
               (throw
@@ -5286,9 +5338,11 @@
                  :input-root (.getAbsolutePath input-root-file)
                  :build-steps (:build-steps build-graph)
                  :modules (:unresolved-path-modules build-graph)
-                 :hint (str "These values are finalized while Zig executes their "
+                :hint (str "These values are finalized while Zig executes their "
                             "producer steps; select a value-only profile or disable "
                             "capture until build-step path recreation is supported.")}))))
+        _ (validate-source-module-build-graphs!
+           input-root-file source-module-build-graphs)
         source-modules-by-owner
         (reduce
          (fn [merged build-graph]
@@ -5311,7 +5365,7 @@
                merged modules))
             merged (:source-modules-by-owner build-graph)))
          (sorted-map)
-         build-graphs)
+         (into (vec build-graphs) source-module-build-graphs))
         ;; Re-resolve project imports with the authoritative named modules
         ;; captured from Zig's actual selected build graph. This disambiguates
         ;; names such as `lightpanda` even when several project files share the
@@ -5391,7 +5445,10 @@
                  :generated-module-owner-count
                  (count (:modules-by-path build-path-bundle))
                  :source-module-count
-                 (reduce + 0 (map :source-module-count build-graphs))
+                 (reduce + 0
+                         (map :source-module-count
+                              (into (vec build-graphs)
+                                    source-module-build-graphs)))
                  :generated-module-path-value-count
                  (:path-value-count build-path-bundle)
                  :generated-module-bundled-path-count
@@ -5400,6 +5457,10 @@
                  (:bundled-file-count build-path-bundle)
                  :build-steps (or (some-> build-graphs first :build-steps) [])
                  :build-profiles (if build-graphs build-profiles [])
+                 :source-module-build-profiles
+                 (if source-module-build-graphs
+                   source-module-build-profiles
+                   [])
                 :file-count (count reports)
                 :ast-cache-hit-count (count (filter :ast-cache-hit? reports))
                 :conversion-cache-hit-count

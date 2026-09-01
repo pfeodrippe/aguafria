@@ -5,7 +5,6 @@
 
 (az/defn main
   "Run the same Flecs/Vulkan game without the JVM or Aguafria runtime."
-  {:attrs #{:public}}
   :-
   :void
   []

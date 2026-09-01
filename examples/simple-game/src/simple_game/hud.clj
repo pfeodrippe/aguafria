@@ -14,7 +14,6 @@
    [:a :f32]])
 
 (az/defconst DrawRect
-  {:attrs #{:public}}
   (az/type
    [:*const
     [:fn {}
@@ -26,7 +25,6 @@
      :void]]))
 
 (az/defn font-color
-  {:attrs #{:public :implicit-return}}
   :-
   Color
   [[palette :u8]]
@@ -41,7 +39,6 @@
 
 (az/defn control-building-kind
   "Map one cached control-label palette to its native building kind."
-  {:export false :implicit-return true}
   :-
   :u8
   [[palette :u8]]
@@ -54,7 +51,6 @@
     :else factory/building-empty))
 
 (az/defn digit-mask
-  {:export false :implicit-return true}
   :-
   :u8
   [[digit :u32]]
@@ -71,7 +67,6 @@
     :else 123))
 
 (az/defn segment-on?
-  {:export false :implicit-return true}
   :-
   :bool
   [[mask :u8]
@@ -79,7 +74,6 @@
   (ak/!= (ak/& mask bit) 0))
 
 (az/defn draw-small-digit
-  {:export false}
   :-
   :void
   [[draw-rect DrawRect]
@@ -111,7 +105,6 @@
 
 (az/defn draw-hud-number
   "Draw a bounded native statistic without allocating each frame."
-  {:export false}
   :-
   :void
   [[draw-rect DrawRect]
@@ -147,7 +140,6 @@
 
 (az/defn draw-overlay
   "Draw the complete allocation-free coco-factory HUD over the 3D mesh pass."
-  {:attrs #{:public}}
   :-
   :void
   [[draw-rect DrawRect]

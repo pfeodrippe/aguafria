@@ -6,6 +6,9 @@
  :build-profiles [["-Demit-lib-vt=true"
                    "-Demit-xcframework=false"
                    "-Demit-macos-app=false"]]
+ :source-module-build-profiles
+ [["-Demit-macos-app=true"
+   "-Demit-lib-vt=false"]]
  :development-materialization
  {:output "../ghostty/build/editor-development"
   :entry-module "ghostty.zig.src.main-c"

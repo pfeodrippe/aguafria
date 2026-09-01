@@ -3,7 +3,8 @@
 
   This namespace intentionally does not require generated output, so a clean
   checkout can generate the example before any Lightpanda namespace exists."
-  (:require [aguafria.zig.convert :as convert]
+  (:require [aguafria.zig :as az]
+            [aguafria.zig.convert :as convert]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -281,10 +282,19 @@
 
 (defn- run-command!
   [command directory]
-  (let [started (System/nanoTime)
-        process (.start (doto (ProcessBuilder. ^java.util.List command)
-                          (.directory (io/file directory))
-                          (.inheritIO)))
+  (let [zig (.getAbsoluteFile (io/file (az/zig-executable)))
+        command (mapv #(if (= "zig" %) (.getAbsolutePath zig) %) command)
+        started (System/nanoTime)
+        builder (doto (ProcessBuilder. ^java.util.List command)
+                  (.directory (io/file directory))
+                  (.inheritIO))
+        environment (.environment builder)
+        _ (.put environment "ZIG" (.getAbsolutePath zig))
+        _ (.put environment "PATH"
+                (str (.getAbsolutePath (.getParentFile zig))
+                     java.io.File/pathSeparator
+                     (or (.get environment "PATH") "")))
+        process (.start builder)
         exit (.waitFor process)
         report {:command command
                 :directory (str directory)

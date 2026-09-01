@@ -63,7 +63,6 @@
 
 (az/defn harvest-duration
   "Seconds required for one harvester to produce a coconut."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   []
@@ -71,7 +70,6 @@
 
 (az/defn press-duration
   "Seconds required for one press to turn a coconut into a panel."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   []
@@ -79,7 +77,6 @@
 
 (az/defn house-panel-recipe
   "Number of panels consumed by one coco-house construction site."
-  {:attrs #{:public :implicit-return}}
   :-
   :u16
   []
@@ -223,7 +220,6 @@
 (az/defvar observed-event-count :u64 0)
 
 (az/defn cell-index
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[x :i32]
@@ -232,7 +228,6 @@
      (* (ak/as :usize (ak/intCast y)) grid-width)))
 
 (az/defn valid-cell?
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[x :i32]
@@ -243,7 +238,6 @@
        (< y (ak/as :i32 (ak/intCast grid-height)))))
 
 (az/defn register-component
-  {:export false}
   :-
   :u64
   [[world [:* flecs/ecs_world_t]]
@@ -261,7 +255,6 @@
 
 (az/defn emit-event!
   "Publish a synchronous custom Flecs event with a stack-safe payload."
-  {:export false}
   :-
   :void
   [[kind :u8]
@@ -297,6 +290,7 @@
 
 (az/defn observe-factory-event
   "Flecs observer proving that construction events stay in the ECS event graph."
+  {:attrs #{:export}}
   :-
   :void
   [[iterator [:c-pointer flecs/ecs_iter_t]]]
@@ -305,7 +299,6 @@
 
 (az/defn install-event-observer!
   "Install the native observer used for inspectable factory-domain events."
-  {:export false}
   :-
   :u64
   [[world [:* flecs/ecs_world_t]]]
@@ -319,7 +312,6 @@
 
 (az/defn observed-events
   "Return the number of custom factory events consumed by the Flecs observer."
-  {:attrs #{:public :implicit-return}}
   :-
   :u64
   []
@@ -327,7 +319,6 @@
 
 (az/defn stable-runtime-address
   "Return the native address of a cell's sparse Flecs runtime component."
-  {:attrs #{:public :implicit-return}}
   :-
   :usize
   [[x :i32]
@@ -368,6 +359,7 @@
 
 (az/defn system-tick
   "Flecs system updating sparse, stable-address runtime components."
+  {:attrs #{:export}}
   :-
   :void
   [[iterator [:c-pointer flecs/ecs_iter_t]]]
@@ -392,7 +384,6 @@
               (+ (az/field (az/deref runtime) ticks) 1))))))
 
 (az/defn install-system!
-  {:export false}
   :-
   :u64
   [[world [:* flecs/ecs_world_t]]]
@@ -420,7 +411,6 @@
 
 (az/defn generate-terrain!
   "Create one buildable industrial floor for the coco-house factory."
-  {:export false}
   :-
   :void
   []
@@ -516,7 +506,6 @@
 
 (az/defn destination
   "Return the neighboring cell index or the source index at a map edge."
-  {:export false}
   :-
   :usize
   [[x :i32]
@@ -536,7 +525,6 @@
 
 (az/defn cell-receives-item?
   "Return whether one routed item can enter a target cell right now."
-  {:export false :implicit-return true}
   :-
   :bool
   [[source-index :usize]
@@ -556,7 +544,6 @@
            (ak/== (az/field target item_kind) item-none))))))
 
 (az/defn move-item!
-  {:export false}
   :-
   :void
   [[source-index :usize]
@@ -654,7 +641,6 @@
 
 (az/defn simulate-step!
   "One allocation-free fixed simulation step over the dense factory grid."
-  {:export false}
   :-
   :void
   []

@@ -25,7 +25,6 @@
 
 (az/defn wrap-progress
   "Wrap any signed progress onto the closed circuit's [0, 1) interval."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[progress :f32]]
@@ -33,7 +32,6 @@
 
 (az/defn pose
   "Sample the medium-complex closed circuit. Lane is signed clip-space offset."
-  {:attrs #{:public :implicit-return}}
   :-
   Pose
   [[progress :f32]
@@ -64,7 +62,6 @@
            :heading (std-math/atan2 tangent-y tangent-x)})))
 
 (az/defn center-distance-squared
-  {:export false :implicit-return true}
   :-
   :f32
   [[x :f32]
@@ -79,7 +76,6 @@
   "Project a world point onto the nearest point of the procedural centerline.
   A bounded coarse scan plus ten local refinements is deterministic,
   allocation-free, and accurate enough for checkpoints, recovery, and tools."
-  {:attrs #{:public :implicit-return}}
   :-
   Projection
   [[x :f32]
@@ -122,7 +118,6 @@
 (az/defn distance-to-centerline-squared
   "Return only the nearest centerline distance for collision/recovery callers
   that do not need the full projection."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[x :f32]

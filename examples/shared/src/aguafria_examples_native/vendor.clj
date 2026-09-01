@@ -1,6 +1,7 @@
 (ns aguafria-examples-native.vendor
   "Pinned, regenerable upstream sources shared by native examples."
-  (:require [clojure.java.io :as io]))
+  (:require [aguafria.zig :as az]
+            [clojure.java.io :as io]))
 
 (def dependencies
   {:flecs {:url "https://github.com/SanderMertens/flecs.git"
@@ -36,7 +37,8 @@
 
 (defn run-command!
   [command directory]
-  (let [process (-> (ProcessBuilder. ^java.util.List command)
+  (let [command (mapv #(if (= "zig" %) (az/zig-executable) %) command)
+        process (-> (ProcessBuilder. ^java.util.List command)
                     (doto (.directory directory)
                           (.redirectErrorStream true))
                     .start)

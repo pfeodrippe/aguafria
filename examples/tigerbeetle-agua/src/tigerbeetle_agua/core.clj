@@ -390,7 +390,6 @@
   ;; Zig declaration with an implicit return, without incorrectly C-exporting
   ;; a comptime signature. comptime-amount is an ordinary compiled caller.
   (az/defn HotAmountType
-    {:attrs #{:public :implicit-return}}
     :-
     :type
     [[bonus {:zig/prefix "comptime"} :u64]]
@@ -399,7 +398,7 @@
      (az/field-decl base :u64)
      (az/const-decl Self (ak/This))
      (az/fn-decl amount
-       {:attrs #{:implicit-return}}
+       {:public false}
        :-
        :u64
        [[self [:*const Self]]]

@@ -54,7 +54,6 @@
 (az/defn set-live-simulation-slowdown!
   "Run live AI races between real time and 20x slow motion. Rendering remains
   unconstrained, and deterministic replay always advances at normal 120 Hz."
-  {:attrs #{:public}}
   :-
   :void
   [[factor :f64]]
@@ -62,14 +61,12 @@
 
 (az/defn simulation-slowdown
   "Inspect the live wall-time slowdown factor."
-  {:attrs #{:public :implicit-return}}
   :-
   :f64
   []
   live-simulation-slowdown)
 
 (az/defn poll-control-edges!
-  {:export false}
   :-
   :void
   []
@@ -198,7 +195,6 @@
 
 (az/defn window-address
   "Opaque GLFW window address for optional development-only tooling."
-  {:attrs #{:public :implicit-return}}
   :-
   :u64
   []
@@ -208,7 +204,6 @@
 
 (az/defn should-run?
   "Whether the initialized native window should render another frame."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []

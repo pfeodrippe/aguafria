@@ -168,17 +168,15 @@
 
 (az/defvar idle-wait-count :u64 0)
 
-(az/defn empty-result
-  {:export false :public false :implicit-return true}
+(az/defn- empty-result
   :-
   InferenceResult
   []
   (std-mem/zeroes (az/type InferenceResult)))
 
-(az/defn monotonic-seconds
+(az/defn- monotonic-seconds
   "Read the operating system monotonic clock without depending on a windowing
   event loop. This is safe from desktop, headless nREPL, and worker threads."
-  {:export false :public false :implicit-return true}
   :-
   :f64
   []
@@ -190,10 +188,9 @@
             1000000000.0))
       0.0)))
 
-(az/defn idle-wait!
+(az/defn- idle-wait!
   "Yield the worker core for half a millisecond without coupling it to an I/O
   runtime. Mailbox latency remains negligible beside one native LLM pass."
-  {:export false :public false}
   :-
   :void
   []
@@ -202,8 +199,7 @@
     (set! (az/field duration nsec) 500000)
     (set! _ (std-c/nanosleep (ak/& duration) null))))
 
-(az/defn persona-text
-  {:export false :public false :implicit-return true}
+(az/defn- persona-text
   :-
   [:slice-const :u8]
   [[value :u8]]
@@ -212,8 +208,7 @@
     (ak/== value 1) "balanced"
     :else "bold"))
 
-(az/defn item-text
-  {:export false :public false :implicit-return true}
+(az/defn- item-text
   :-
   [:slice-const :u8]
   [[value :u8]]
@@ -226,8 +221,7 @@
     (ak/== value 6) "surge"
     :else "none"))
 
-(az/defn lane-text
-  {:export false :public false :implicit-return true}
+(az/defn- lane-text
   :-
   [:slice-const :u8]
   [[value :u8]]
@@ -236,8 +230,7 @@
     (ak/== value 2) "right"
     :else "same lane"))
 
-(az/defn status-text
-  {:export false :public false :implicit-return true}
+(az/defn- status-text
   :-
   [:slice-const :u8]
   [[value :u8]]
@@ -247,8 +240,7 @@
     (ak/== value 3) "shield active"
     :else "clear"))
 
-(az/defn pit-state-text
-  {:export false :public false :implicit-return true}
+(az/defn- pit-state-text
   :-
   [:slice-const :u8]
   [[value :u8]]
@@ -258,15 +250,13 @@
     (ak/== value 3) "exiting"
     :else "out"))
 
-(az/defn tire-state-text
-  {:export false :public false :implicit-return true}
+(az/defn- tire-state-text
   :-
   [:slice-const :u8]
   [[percent :u8]]
   (if (<= percent 46) "worn" "usable"))
 
-(az/defn damage-state-text
-  {:export false :public false :implicit-return true}
+(az/defn- damage-state-text
   :-
   [:slice-const :u8]
   [[percent :u8]]
@@ -274,7 +264,6 @@
 
 (az/defn observation-prompt
   "Describe one racer's bounded observation in ordinary compact English."
-  {:export false :implicit-return true}
   :-
   PromptBuffer
   [[request InferenceRequest]]
@@ -313,7 +302,6 @@
 
 (az/defn team-prompt
   "Describe both team drivers and the shared pit box in ordinary English."
-  {:export false :implicit-return true}
   :-
   PromptBuffer
   [[request InferenceRequest]]
@@ -346,7 +334,6 @@
 
 (az/defn request-prompt
   "Select the semantic prompt contract for this independent AI actor."
-  {:export false :implicit-return true}
   :-
   PromptBuffer
   [[request InferenceRequest]]
@@ -357,7 +344,6 @@
 (az/defn action-target-speed
   "Translate one constrained action code into the racer's desired speed. This
   deliberately small hot unit is safe to tune while the native worker runs."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[action-code :u8]]
@@ -368,7 +354,6 @@
 (az/defn set-sampling-temperature!
   "Tune constrained action diversity live. Values remain inside a stable,
   finite range and affect only future requests."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   [[temperature :f32]]
@@ -379,7 +364,6 @@
 (az/defn sample-action
   "Temperature-sample only this actor's legal logits. Each actor owns one
   deterministic native RNG stream; no sampled value can name another tool."
-  {:export false :implicit-return true}
   :-
   SampledAction
   [[report inference/ForwardReport]
@@ -428,7 +412,6 @@
 
 (az/defn interpret-action
   "Map a constrained driver or team token to its native validated action."
-  {:export false :implicit-return true}
   :-
   InferenceResult
   [[request InferenceRequest]
@@ -520,7 +503,6 @@
 
 (az/defn process-request!
   "Run one complete prompt through the native model on the worker thread."
-  {:export false}
   :-
   :void
   [[request InferenceRequest]]
@@ -554,10 +536,9 @@
     (set! _ (ak/atomicRmw :u64 (ak/& (az/index result-counts racer))
                           :.Add 1 :.monotonic))))
 
-(az/defn worker-loop!
+(az/defn- worker-loop!
   "Long-lived shell for one AI actor. Mutable model state and mailboxes are
   actor-disjoint; immutable weights remain shared across all twelve threads."
-  {:export false :public false}
   :-
   :void
   [[racer :usize]]
@@ -579,7 +560,6 @@
 
 (az/defn start!
   "Allocate twelve sequence states and one fixed native worker per actor."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -643,7 +623,6 @@
 
 (az/defn submit!
   "Publish one immutable observation. A racer has only one in-flight request."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[request InferenceRequest]]
@@ -682,7 +661,6 @@
 
 (az/defn result-for
   "Read the newest fully published result for one racer."
-  {:attrs #{:public :implicit-return}}
   :-
   InferenceResult
   [[racer :usize]
@@ -697,7 +675,6 @@
         (empty-result)))))
 
 (az/defn summary
-  {:attrs #{:public :implicit-return}}
   :-
   WorkerSummary
   []
@@ -724,7 +701,6 @@
 
 (az/defn stop!
   "Join the worker before model memory or native libraries are released."
-  {:attrs #{:public}}
   :-
   :void
   []

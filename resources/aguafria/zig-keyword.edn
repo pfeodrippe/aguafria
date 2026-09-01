@@ -1609,6 +1609,37 @@
   {:name "var", :tag "var"}
   {:name "volatile", :tag "volatile"}
   {:name "while", :tag "while"}],
+ :primitives
+ [{:name "anyerror", :zig-token "anyerror"}
+  {:name "anyframe", :zig-token "anyframe"}
+  {:name "anyopaque", :zig-token "anyopaque"}
+  {:name "bool", :zig-token "bool"}
+  {:name "c_char", :zig-token "c_char"}
+  {:name "c_int", :zig-token "c_int"}
+  {:name "c_long", :zig-token "c_long"}
+  {:name "c_longdouble", :zig-token "c_longdouble"}
+  {:name "c_longlong", :zig-token "c_longlong"}
+  {:name "c_short", :zig-token "c_short"}
+  {:name "c_uint", :zig-token "c_uint"}
+  {:name "c_ulong", :zig-token "c_ulong"}
+  {:name "c_ulonglong", :zig-token "c_ulonglong"}
+  {:name "c_ushort", :zig-token "c_ushort"}
+  {:name "comptime_float", :zig-token "comptime_float"}
+  {:name "comptime_int", :zig-token "comptime_int"}
+  {:name "f128", :zig-token "f128"}
+  {:name "f16", :zig-token "f16"}
+  {:name "f32", :zig-token "f32"}
+  {:name "f64", :zig-token "f64"}
+  {:name "f80", :zig-token "f80"}
+  {:name "false", :zig-token "false"}
+  {:name "isize", :zig-token "isize"}
+  {:name "noreturn", :zig-token "noreturn"}
+  {:name "null", :zig-token "null"}
+  {:name "true", :zig-token "true"}
+  {:name "type", :zig-token "type"}
+  {:name "undefined", :zig-token "undefined"}
+  {:name "usize", :zig-token "usize"}
+  {:name "void", :zig-token "void"}],
  :reader-tokens
  [{:documentation "Boolean NOT.",
    :kind :operator,
@@ -1812,6 +1843,10 @@
    ["@Frame" "@disableInstrumentation" "@disableIntrinsics" "@frame"],
    :provider :zls,
    :version "0.16.0"},
+  :primitives
+  {:path "std/zig/primitives.zig",
+   :sha256
+   "9eb1bb596af65828cbf9259d47d2f31da8e4b057cf30ac012c0f013e6439e7c8"},
   :tokenizer
   {:path "std/zig/tokenizer.zig",
    :sha256

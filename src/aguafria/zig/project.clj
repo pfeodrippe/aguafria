@@ -18,7 +18,7 @@
 (defonce ^:private resource-lock (Object.))
 
 (def ^:private declaration-macro-names
-  #{"defn" "defconst" "defvar" "defstruct" "defimport" "defraw"
+  #{"defn" "defn-" "defconst" "defvar" "defstruct" "defimport" "defraw"
     "deffield" "defcomptime" "defextern" "defexternvar" "deftest"})
 
 (def ^:dynamic *catalog-namespace*
@@ -34,7 +34,18 @@
                  (map? (:modules catalog)))
     (throw (ex-info "Invalid Aguafria project catalog"
                     {:catalog catalog :expected-schema-version 1})))
-  (swap! catalogs merge (:modules catalog))
+  ;; A single unsaved-file conversion contributes fresh declaration/import
+  ;; data but intentionally has no tree-relative path or build assets. Merge
+  ;; each module record instead of replacing the richer source-tree record;
+  ;; otherwise a later editor evaluation forgets the module's logical Zig
+  ;; name and dependent hot reloads select a container that does not exist.
+  (swap! catalogs
+         (fn [registered]
+           (reduce-kv (fn [registered module data]
+                        (update registered (str module)
+                                #(merge (or % {}) data)))
+                      registered
+                      (:modules catalog))))
   catalog)
 
 (defn ^:no-doc register-module-defaults!

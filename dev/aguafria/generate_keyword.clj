@@ -203,6 +203,7 @@
      :std-dir (io/file lib-dir "std")
      :std-source (io/file lib-dir "std/std.zig")
      :builtin-source (io/file lib-dir "std/zig/BuiltinFn.zig")
+     :primitives-source (io/file lib-dir "std/zig/primitives.zig")
      :tokenizer-source (io/file lib-dir "std/zig/tokenizer.zig")}))
 
 (defn- source-segments
@@ -262,6 +263,26 @@
        distinct
        (sort-by :name)
        vec))
+
+(defn- parse-primitives
+  "Read Zig's authoritative primitive type/value names. Unlike tokenizer
+  keywords, values such as `undefined` are lexed as identifiers and resolved
+  semantically, so tokenizer.zig alone is not a complete syntax catalog."
+  [file]
+  (let [entries (->> (re-seq #"\.\{\"([A-Za-z][A-Za-z0-9_]*)\"\}"
+                             (slurp file))
+                     (map second)
+                     distinct
+                     sort
+                     (mapv (fn [name]
+                             (sorted-map
+                              :name name
+                              :zig-token name))))]
+    (when (or (< (count entries) 20)
+              (not (some #(= "undefined" (:name %)) entries)))
+      (throw (ex-info "The Zig primitive parser produced an implausible catalog"
+                      {:file (str file) :entries entries})))
+    entries))
 
 (defn- tokenizer-tags
   [file]
@@ -411,14 +432,16 @@
                     {:aguafria/phase :embedded-zig-configuration
                      :value (:zig options)})))
   (let [zig (toolchain/executable)
-        {:keys [version builtin-source tokenizer-source] :as zig-env}
+        {:keys [version builtin-source primitives-source tokenizer-source]
+         :as zig-env}
         (zig-environment zig)
-        _ (doseq [^File file [builtin-source tokenizer-source]]
+        _ (doseq [^File file [builtin-source primitives-source tokenizer-source]]
             (when-not (.isFile file)
               (throw (ex-info "The installed Zig source file was not found"
                               {:file (str file) :zig zig-env}))))
         builtins (parse-builtins builtin-source)
         keywords (parse-keywords tokenizer-source)
+        primitives (parse-primitives primitives-source)
         token-tags (tokenizer-tags tokenizer-source)
         reader-tokens
         (mapv (fn [{:keys [zig-tag] :as token}]
@@ -455,6 +478,7 @@
      :builtins builtins
      :generated-by "aguafria.generate-keyword"
      :keywords keywords
+     :primitives primitives
      :reader-tokens reader-tokens
      :schema-version 1
      :sources
@@ -462,6 +486,9 @@
       :builtin-table
       (sorted-map :path "std/zig/BuiltinFn.zig"
                   :sha256 (sha256-file builtin-source))
+      :primitives
+      (sorted-map :path "std/zig/primitives.zig"
+                  :sha256 (sha256-file primitives-source))
       :language-reference
       (when zls-data
         (sorted-map

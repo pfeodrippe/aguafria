@@ -43,6 +43,7 @@
 
 (def ^:private declaration-categories
   {"defn" :function
+   "defn-" :function
    "fn-decl" :function
    "defextern" :function
    "fn-proto-decl" :function

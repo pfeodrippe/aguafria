@@ -59,7 +59,6 @@
 (az/defn queue-pointer-press!
   "Queue one pointer press for the live frame loop. GLFW and nREPL use the
   same native edge queue so interactive tests exercise the production path."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -67,7 +66,7 @@
 
 (az/defn mouse-button-callback
   "Capture GLFW click edges natively so no platform can lose a short press."
-  {:attrs #{:public :export}}
+  {:attrs #{:export}}
   :-
   :void
   [[window [:optional [:* glfw/GLFWwindow]]]
@@ -82,7 +81,6 @@
     (set! previous-pointer-down (ak/== action glfw/GLFW_PRESS))))
 
 (az/defn reset-input!
-  {:attrs #{:public}}
   :-
   :void
   [[window [:* glfw/GLFWwindow]]]
@@ -93,7 +91,6 @@
 
 (az/defn reset-frame-timing!
   "Clear full-frame measurements without disturbing game state."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -114,7 +111,6 @@
 
 (az/defn finish-frame!
   "Record wall time and CPU work, excluding frame pacing and presentation waits."
-  {:attrs #{:public}}
   :-
   :void
   [[render-work-seconds :f64]]
@@ -166,7 +162,6 @@
 
 (az/defn frame!
   "Poll GLFW and advance the single shared Flecs game by one platform-timed frame."
-  {:attrs #{:public :implicit-return}}
   :-
   game/RenderPacket
   [[window [:* glfw/GLFWwindow]]]

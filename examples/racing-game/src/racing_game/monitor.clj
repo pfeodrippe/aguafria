@@ -133,7 +133,6 @@
 (az/defvar history-raw-visible false)
 
 (az/defn progress-bin
-  {:export false :implicit-return true}
   :-
   :u8
   [[progress :f32]]
@@ -142,7 +141,6 @@
           (ak/min 9.0 (* (ak/max 0.0 progress) 10.0)))))
 
 (az/defn speed-bin
-  {:export false :implicit-return true}
   :-
   :u8
   [[speed :f32]]
@@ -151,7 +149,6 @@
           (ak/min 9.0 (* (ak/max 0.0 speed) 100.0)))))
 
 (az/defn lane-choice
-  {:export false :implicit-return true}
   :-
   :u8
   [[lane-target :f32]]
@@ -161,7 +158,6 @@
     :else 1))
 
 (az/defn pace-choice
-  {:export false :implicit-return true}
   :-
   :u8
   [[target-speed :f32]]
@@ -172,7 +168,6 @@
 
 (az/defn refresh-racer!
   "Copy one bounded semantic decision into the current row or history ABI."
-  {:export false}
   :-
   :void
   [[identifier :u8]
@@ -283,7 +278,6 @@
 
 (az/defn refresh-radio!
   "Copy one semantic newest-first team exchange into the stable C ABI."
-  {:export false}
   :-
   :void
   [[team-id :u8]
@@ -323,7 +317,6 @@
 
 (az/defn refresh!
   "Refresh the allocation-free native snapshot consumed by Dear ImGui."
-  {:attrs #{:public}}
   :-
   :void
   []
@@ -394,7 +387,6 @@
 
 (az/defn monitor-snapshot
   "Inspectable native snapshot used by the ImGui layer."
-  {:attrs #{:public :implicit-return}}
   :-
   MonitorSnapshot
   []
@@ -402,7 +394,6 @@
 
 (az/defn monitor-racer
   "Inspect one decoded monitor row without exposing nested ABI bytes."
-  {:attrs #{:public :implicit-return}}
   :-
   MonitorRacer
   [[identifier :u8]]
@@ -412,7 +403,6 @@
 
 (az/defn monitor-history-count
   "Number of retained native decisions exposed for one racer."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[identifier :u8]]
@@ -422,7 +412,6 @@
 
 (az/defn monitor-history-entry
   "Inspect one newest-first decision from a racer's native telemetry ring."
-  {:attrs #{:public :implicit-return}}
   :-
   MonitorRacer
   [[identifier :u8]
@@ -436,7 +425,6 @@
 
 (az/defn monitor-radio-count
   "Number of semantic exchanges visible for one team in the current UI state."
-  {:attrs #{:public :implicit-return}}
   :-
   :u8
   [[team-id :u8]]
@@ -446,7 +434,6 @@
 
 (az/defn monitor-radio-entry
   "Inspect one newest-first team/driver exchange exactly as shown in ImGui."
-  {:attrs #{:public :implicit-return}}
   :-
   MonitorRadio
   [[team-id :u8]
@@ -459,7 +446,6 @@
 
 (az/defn abi-valid?
   "Verify the generated Zig structs exactly match their C++ ABI."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -503,7 +489,6 @@
   (imgui/aguafria_imgui_set_visible visible))
 
 (az/defn toggle-visible!
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -518,7 +503,6 @@
 
 (az/defn raw-protocol-visible?
   "Whether the user explicitly enabled the technical protocol panel."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -526,7 +510,6 @@
 
 (az/defn active?
   "Whether ImGui currently borrows the live renderer."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -534,7 +517,6 @@
 
 (az/defn visible?
   "Whether the F2-toggleable ImGui window is currently visible."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []

@@ -5,7 +5,6 @@
 
 (az/defn press-duration-caller
   "Call the live factory tuning Var from an already-compiled namespace."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   []

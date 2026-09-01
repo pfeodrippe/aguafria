@@ -32,9 +32,8 @@
 
 (az/defvar world-y-scale :f32 1.0)
 
-(az/defn racer-color
+(az/defn- racer-color
   "Return the permanent display color for one of the eight racers."
-  {:attrs #{:implicit-return}}
   :-
   RacerColor
   [[identifier :u8]]
@@ -50,7 +49,6 @@
 
 (az/defn set-debug-overlay!
   "Show or hide native racer intent and cognition geometry at runtime."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[visible :bool]]
@@ -60,7 +58,6 @@
 
 (az/defn toggle-debug-overlay!
   "Toggle the allocation-free cognition overlay without restarting the race."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -68,7 +65,6 @@
 
 (az/defn configure-world-scale!
   "Fit equal world units to equal framebuffer pixels for any aspect ratio."
-  {:attrs #{:public :implicit-return}}
   :-
   WorldScale
   [[frame-width :i32]
@@ -80,7 +76,6 @@
     (WorldScale {:x world-x-scale :y world-y-scale})))
 
 (az/defn write-vertex!
-  {:export false}
   :-
   :void
   [[output [:c-pointer mesh/GpuVertex]]
@@ -95,7 +90,6 @@
         (mesh/GpuVertex {:x x :y y :z z :r r :g g :b b})))
 
 (az/defn append-triangle!
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -114,7 +108,6 @@
       (+ count 3))))
 
 (az/defn append-quad!
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -129,7 +122,6 @@
     (append-triangle! output after-first ax ay cx cy dx dy z r g b)))
 
 (az/defn append-line!
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -155,7 +147,6 @@
 (az/defn append-world-line!
   "Draw a world-space line after fitting equal logical X/Y units to equal
   framebuffer pixels. UI geometry intentionally continues to use raw NDC."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -180,7 +171,6 @@
 
 (az/defn append-circle!
   "Append only a circular contour; the interior remains the black field."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -210,7 +200,6 @@
 
 (az/defn append-screen-circle!
   "Append a pixel-circular HUD contour around an unscaled NDC center."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -241,7 +230,6 @@
 (az/defn append-race-state!
   "Draw three compact start lights in screen space while the deterministic
   countdown is active. They disappear on the exact tick racing begins."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -263,7 +251,6 @@
     next))
 
 (az/defn append-track!
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -300,7 +287,6 @@
 
 (az/defn append-pits!
   "Draw the shared pit lane and four real team boxes beside the final sector."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -370,7 +356,6 @@
     next))
 
 (az/defn append-pickups!
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -393,7 +378,6 @@
 
 (az/defn append-hazards!
   "Render pooled bolts as arrow diamonds and traps as crossed contours."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -435,7 +419,6 @@
     next))
 
 (az/defn append-racers!
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -497,7 +480,6 @@
 
 (az/defn append-ranking!
   "Show authoritative first-through-eighth classification on the right."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -525,7 +507,6 @@
 
 (az/defn append-intent-lines!
   "Draw each racer's chosen target and short-horizon lane goal."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -557,7 +538,6 @@
   "Draw eight native actor rows. The upper bar is desired speed, the lower bar
   is average inference latency (full width at 600 ms), the left ring is the
   actor, and a second ring means a request is currently in flight."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -614,7 +594,7 @@
 
 (az/defn build-frame!
   "Build the complete track, item, racer, intent, and rank view natively."
-  {:attrs #{:public :export :implicit-return}}
+  {:attrs #{:export}}
   :-
   :u32
   [[output [:c-pointer mesh/GpuVertex]]

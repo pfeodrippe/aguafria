@@ -31,7 +31,6 @@
 
 (az/defn outcome-window-seconds
   "Expose the causal evaluation horizon to nREPL monitors and tooling."
-  {:attrs #{:public :implicit-return}}
   :-
   :f32
   []
@@ -162,7 +161,6 @@
   (std-mem/zeroes (az/type [:array 8 :i64])))
 
 (az/defn empty-log
-  {:export false :implicit-return true}
   :-
   DecisionLog
   []
@@ -219,7 +217,6 @@
   "Attach bounded prompt, response, and token previews to an LLM decision.
   Counts retain the full lengths while truncation flags make omitted tails
   explicit. The game thread never allocates while recording."
-  {:attrs #{:public}}
   :-
   :void
   [[base DecisionLog]
@@ -309,7 +306,6 @@
 
 (az/defn decision-count
   "Return the monotonic number of logged decisions for one racer."
-  {:attrs #{:public :implicit-return}}
   :-
   :u64
   [[racer-id :u8]]
@@ -319,7 +315,6 @@
 
 (az/defn entry-at
   "Return `offset` decisions back from a racer's newest entry."
-  {:attrs #{:public :implicit-return}}
   :-
   DecisionLog
   [[racer-id :u8]
@@ -339,7 +334,6 @@
 
 (az/defn latest
   "Return the newest complete cognition event for one racer."
-  {:attrs #{:public :implicit-return}}
   :-
   DecisionLog
   [[racer-id :u8]]
@@ -347,7 +341,6 @@
 
 (az/defn outcome-at
   "Return the causal outcome aligned with `entry-at`."
-  {:attrs #{:public :implicit-return}}
   :-
   DecisionOutcome
   [[racer-id :u8]
@@ -367,7 +360,6 @@
 
 (az/defn mark-item-used!
   "Attribute an item consumption to the exact decision that requested it."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[racer-id :u8]
@@ -397,7 +389,6 @@
 
 (az/defn mark-hit!
   "Attribute one unshielded hit to the decision that launched the attack."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   [[racer-id :u8]
@@ -426,7 +417,6 @@
 
 (az/defn resolve-due-outcomes!
   "Resolve every retained decision whose fixed evaluation horizon has elapsed."
-  {:attrs #{:public}}
   :-
   :void
   [[racer-id :u8]
@@ -483,7 +473,6 @@
 
 (az/defn racer-outcome-summary
   "Return complete current-race outcome totals independent of ring eviction."
-  {:attrs #{:public :implicit-return}}
   :-
   RacerOutcomeSummary
   [[racer-id :u8]]
@@ -513,7 +502,6 @@
 
 (az/defn summary
   "Aggregate the bounded histories without allocating."
-  {:attrs #{:public :implicit-return}}
   :-
   TelemetrySummary
   []

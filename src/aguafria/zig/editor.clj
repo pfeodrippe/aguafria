@@ -305,6 +305,7 @@
                  (select-keys configuration
                               [:namespace-prefix :exclude-directories
                                :capture-build-modules? :build-steps :build-profiles
+                               :source-module-build-profiles
                                :build-file :cache-dir])))
             ;; Preserve the expensive immutable parse/import graph even when a
             ;; later materialization or Zig build reports an error. The user can

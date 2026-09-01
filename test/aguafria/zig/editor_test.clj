@@ -2,6 +2,7 @@
   (:require [aguafria.zig.convert :as convert]
             [aguafria.zig.editor :as editor]
             [aguafria.zig.runtime :as runtime]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]])
   (:import [java.io File]))
 
@@ -225,6 +226,7 @@
 (deftest bootstraps-and-hot-reloads-across-pure-zig-files
   (let [workspace (.getCanonicalFile (File. "test/fixtures/import_tree"))
         project-id (str "editor-import-tree-test-" (random-uuid))
+        namespace-prefix (symbol (str "editor.import-tree." project-id))
         main-uri (str (.toURI (File. workspace "main.zig")))
         math-file (File. workspace "math.zig")
         math-uri (str (.toURI math-file))
@@ -234,12 +236,17 @@
      (.getPath workspace)
      {:project-id project-id
       :project-root "."
-      :namespace-prefix (symbol (str "editor.import-tree." project-id))
+      :namespace-prefix namespace-prefix
       :bootstrap? true
       :capture-build-modules? false})
     (let [summary (editor/bootstrap-project! project-id)]
       (is (= :ready (:status summary)))
       (is (= 3 (:file-count summary))))
+
+    (let [main-source (runtime/source (str namespace-prefix ".main"))]
+      (is (str/includes? main-source "const math ="))
+      (is (not (str/includes? main-source "pub const math ="))
+          "scratch evaluation retains the original Zig declaration visibility"))
 
     (is (= 40 (editor/invoke! project-id main-uri "quadruple" [10])))
 
@@ -279,7 +286,7 @@
                                     :document-version 1
                                     :mode :changed})
           publication (editor/await! (:ticket-id ticket))]
-      (is (= :published (:status publication)))
+      (is (= :published (:status publication)) (pr-str publication))
       (is (= 43 (editor/invoke! project-id main-uri "answer" []))
           "a whole-file batch retains its comptime dependency delta"))))
 

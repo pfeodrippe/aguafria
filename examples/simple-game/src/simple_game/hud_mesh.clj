@@ -16,7 +16,6 @@
 (az/defvar active-depth :f32 0.019)
 
 (az/defn write-screen-vertex!
-  {:export false}
   :-
   :void
   [[output [:c-pointer mesh/GpuVertex]]
@@ -35,7 +34,6 @@
           :b (az/field color b)})))
 
 (az/defn append-screen-rect!
-  {:export false}
   :-
   :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -62,7 +60,6 @@
 
 (az/defn capture-rect!
   "HUD callback that appends six vertices instead of recording a Vulkan call."
-  {:export false}
   :-
   :void
   [[color hud/Color]

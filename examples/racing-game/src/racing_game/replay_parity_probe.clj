@@ -8,7 +8,6 @@
             [racing-game.simulation :as simulation]))
 
 (az/defn main
-  {:attrs #{:public}}
   :-
   :void
   []

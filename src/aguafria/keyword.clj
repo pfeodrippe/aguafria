@@ -26,8 +26,7 @@
 ;; `require :reload`. In particular, a previous `ak/fn` or `ak/if` Var must
 ;; not shadow Clojure's own special-form spelling while this file is read.
 (let [removed (->> (ns-interns *ns*)
-                   (keep (fn [[sym v]]
-                           (when (:aguafria/token (meta v)) sym)))
+                   (keep #(when (:aguafria/token (meta (val %))) (key %)))
                    vec)]
   (doseq [sym removed]
     (ns-unmap *ns* sym))
@@ -44,7 +43,7 @@
 (defn catalog-info
   "Return generation/version/source metadata for the bundled Zig catalog."
   []
-  (dissoc generated-catalog :builtins :keywords :reader-tokens))
+  (dissoc generated-catalog :builtins :keywords :primitives :reader-tokens))
 
 (defn entries
   "Return the generated catalog of all Zig compiler `@` functions."
@@ -54,11 +53,19 @@
 (defn language-keywords
   "Return Zig's mechanically discovered ordinary keyword catalog.
 
-  Every entry is also backed by a documented `ak/...` Var. Generated source
-  may still use an ordinary Clojure form such as `if` when it has the same
-  clear spelling and already resolves in Clojure."
+  Every entry is backed by a documented `ak/...` Var. Source may still use an
+  ordinary Clojure form such as `if` when it has the same clear meaning, but
+  spellings such as Zig `try`, `defer`, and `while` can always be explicit."
   []
   (:keywords generated-catalog))
+
+(defn primitives
+  "Return Zig's mechanically discovered primitive type/value catalog.
+
+  Primitive values that have no Clojure literal, notably `undefined`, are
+  exposed as qualified atom Vars such as `ak/undefined`."
+  []
+  (:primitives generated-catalog))
 
 (defn reader-tokens
   "Return the Zig tokens that need reader-safe Aguafria names."
@@ -137,10 +144,12 @@
      :symbol (symbol "aguafria.keyword" clojure-name)
      :zig-token zig-token}))
 
-(def ^:private qualified-clojure-collisions
-  "Zig keywords whose unqualified spelling has a substantially different
-  Clojure meaning. They remain real, qualified `ak/...` Vars."
-  #{"var" "while"})
+(defn- primitive-token
+  [entry]
+  {:kind :primitive
+   :name (:name entry)
+   :symbol (symbol "aguafria.keyword" (:name entry))
+   :zig-token (:zig-token entry)})
 
 (defn- intern-token!
   [token metadata]
@@ -196,13 +205,12 @@
                 (when (= zig-token (:zig-token entry)) (:name entry)))
               (:reader-tokens generated-catalog))
         (some (fn [entry]
-                (when (and (= zig-token (:name entry))
-                           (or (contains? qualified-clojure-collisions zig-token)
-                               (and (not (special-symbol? (symbol zig-token)))
-                                    (nil? (ns-resolve 'clojure.core
-                                                     (symbol zig-token))))))
+                (when (= zig-token (:name entry))
                   (:name (language-token entry builtin-names))))
-              (:keywords generated-catalog)))))
+              (:keywords generated-catalog))
+        (some (fn [entry]
+                (when (= zig-token (:zig-token entry)) (:name entry)))
+              (:primitives generated-catalog)))))
 
 (defn validate-call!
   "Validate the argument count declared by a generated Zig keyword Var."
@@ -243,11 +251,7 @@
       :zig/version (:zig-version generated-catalog)})))
 
 (let [builtin-names (set (map :name (:builtins generated-catalog)))]
-  (doseq [entry (:keywords generated-catalog)
-          :let [operator (symbol (:name entry))]
-          :when (or (contains? qualified-clojure-collisions (:name entry))
-                    (and (not (special-symbol? operator))
-                         (nil? (ns-resolve 'clojure.core operator))))]
+  (doseq [entry (:keywords generated-catalog)]
     (let [token (language-token entry builtin-names)]
       (intern-token!
        token
@@ -271,4 +275,22 @@
       :zig/name (:zig-token entry)
       :zig/param-count (:param-count entry)
       :zig/source (get-in generated-catalog [:sources :tokenizer :path])
+      :zig/version (:zig-version generated-catalog)})))
+
+;; Primitive values such as `undefined` are identifiers to Zig's tokenizer,
+;; then resolved by semantic analysis. Intern these last so a primitive that
+;; also appears in the keyword table (currently `anyframe`) has atom semantics.
+(doseq [entry (:primitives generated-catalog)]
+  (let [token (primitive-token entry)]
+    (intern-token!
+     token
+     {:aguafria/token token
+      :doc (str "Zig primitive `" (:zig-token token)
+                "`, mechanically discovered from Zig "
+                (:zig-version generated-catalog) " `"
+                (get-in generated-catalog [:sources :primitives :path])
+                "`. Use `ak/" (:name token)
+                "` as an atom inside an Aguafria declaration.")
+      :zig/name (:zig-token token)
+      :zig/source (get-in generated-catalog [:sources :primitives :path])
       :zig/version (:zig-version generated-catalog)})))

@@ -3,13 +3,23 @@
 
   Require this namespace as `az`. Declaration macros capture their bodies;
   the bodies are emitted as Zig and are never evaluated as Clojure."
-  (:refer-clojure :exclude [cast defn defstruct])
+  (:refer-clojure :exclude [cast defn defn- defstruct])
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
             [clojure.string :as str]))
+
+;; A previous REPL load may have interned structural placeholder Vars under
+;; names that are ordinary Clojure forms. Restore those core mappings before
+;; compiling this namespace again; the declaration bodies themselves remain
+;; quoted data and are interpreted by the Zig emitter.
+(clojure.core/doseq [operator '[let when when-not for dotimes case]]
+  (clojure.core/when
+   (:aguafria/syntax (meta (get (ns-interns *ns*) operator)))
+    (ns-unmap *ns* operator)))
+(refer 'clojure.core :only '[let when when-not for dotimes case])
 
 (clojure.core/defn emit-expr "Emit one Zig expression." [form]
   (emitter/emit-expr *ns* form))
@@ -179,14 +189,14 @@
    (runtime/await! module)
    (runtime/module-info module)))
 
-(defn- source-file?
+(clojure.core/defn- source-file?
   [value]
   (and (string? value)
        (not (str/blank? value))
        (< (count value) 4096)
        (not (re-find #"[\r\n]" value))))
 
-(defn- source-location
+(clojure.core/defn- source-location
   [form]
   (let [file (some #(when (source-file? %) %)
                    [(:file (meta form)) *file*])]
@@ -194,13 +204,13 @@
                    (select-keys (meta form) [:line :column]))
       file (assoc :file file))))
 
-(defn- import-reference-namespace
+(clojure.core/defn- import-reference-namespace
   [context-ns import-alias]
   (let [safe #(str/replace (str %) #"[^A-Za-z0-9_.-]" "_")]
     (symbol (str "aguafria.zig.import."
                  (safe (ns-name context-ns)) "." (safe import-alias)))))
 
-(defn- unavailable-import-reference
+(clojure.core/defn- unavailable-import-reference
   [reference]
   (fn [& arguments]
     (throw
@@ -245,7 +255,7 @@
         (alias import-alias target-name)))
     target-ns))
 
-(defn- normalize-import-member
+(clojure.core/defn- normalize-import-member
   [form member]
   (let [[clojure-name zig-name]
         (cond
@@ -270,18 +280,26 @@
                       {:form form :member member :zig-name zig-name})))
     {:clojure-name clojure-name :zig-name zig-name}))
 
-(defn- declaration-options
+(clojure.core/defn- declaration-options
   ([name] (declaration-options name nil))
   ([name attributes]
    (project/ensure-source-catalog! *file*)
    (let [m (merge (meta name) attributes)
+         context (or project/*catalog-namespace* (ns-name *ns*))
+         converted? (project/converted-module? context)
          compact? (or (contains? m :attrs)
-                      (project/compact-default? (ns-name *ns*) name))
+                      (project/compact-default? context name))
          attrs (set (:attrs m))]
-     {:export? (if compact? (contains? attrs :export)
-                   (not= false (:export m)))
-      :public? (if compact? (contains? attrs :public)
-                   (if (contains? m :public) (:public m) (not (:private m))))
+     {:export? (cond
+                 (contains? m :export) (not= false (:export m))
+                 (contains? attrs :export) true
+                 :else false)
+      :public? (cond
+                 (contains? m :public) (not= false (:public m))
+                 (:private m) false
+                 (contains? attrs :public) true
+                 converted? false
+                 :else true)
       :source-order (or (:zig/order m)
                         (project/declaration-source-order
                          (ns-name *ns*) name))
@@ -289,14 +307,27 @@
       :zig-prefix (:zig/prefix m)
       :zig-qualifiers (:zig/qualifiers m)
       :zig-name (:zig/name m)
-      :implicit-return? (if compact? (contains? attrs :implicit-return)
-                            (not= false (:implicit-return m)))
+      :implicit-return? (cond
+                          (contains? m :implicit-return)
+                          (not= false (:implicit-return m))
+
+                          (contains? attrs :explicit-return)
+                          false
+
+                          (contains? attrs :implicit-return)
+                          true
+
+                          converted?
+                          false
+
+                          :else
+                          true)
       :emit-source-comment? (if compact? (contains? attrs :source-comment)
                                 (not= false (:source-comment m)))
       :comments (:comments m)
       :attributes (or attributes {})})))
 
-(defn- leading-doc-and-attributes
+(clojure.core/defn- leading-doc-and-attributes
   [declaration]
   (let [[docstring declaration]
         (if (and (string? (first declaration)) (next declaration))
@@ -308,7 +339,7 @@
           [{} declaration])]
     [(or docstring (:doc attributes)) attributes declaration]))
 
-(defn- declaration-reference
+(clojure.core/defn- declaration-reference
   [declaration]
   (let [{:keys [kind module name zig-name value return logical-id abi-fingerprint
                 schema-fingerprint implementation-fingerprint]}
@@ -334,7 +365,7 @@
                             :type-reference?)))))
       (assoc :type-reference? true))))
 
-(defn- descriptor-expression
+(clojure.core/defn- descriptor-expression
   "Serialize macro data so very large Zig forms do not exceed the JVM's
   per-string or per-method classfile limits."
   [descriptor]
@@ -345,8 +376,21 @@
                     (mapv #(subs text % (min (count text) (+ % size)))))]
     `(runtime/read-declaration ~chunks)))
 
-(defn- parse-defn-declaration
-  [form name declaration]
+(clojure.core/defn- development-c-abi-type?
+  "True only for scalar Zig types whose C ABI is guaranteed on supported
+  targets. Rich Zig values use Aguafria's generated JVM trampoline instead of
+  changing the user's function calling convention."
+  [type]
+  (contains? #{:void :bool
+               :i8 :i16 :i32 :i64 :i128 :isize
+               :u8 :u16 :u32 :u64 :u128 :usize
+               :f32 :f64
+               :c_char :c_short :c_int :c_long :c_longlong
+               :c_uchar :c_ushort :c_uint :c_ulong :c_ulonglong}
+             type))
+
+(clojure.core/defn- parse-defn-declaration
+  [form name declaration private?]
   (let [[docstring attributes declaration]
         (leading-doc-and-attributes declaration)
         [marker return bindings & body] declaration]
@@ -362,9 +406,21 @@
                        (contains? #{:anytype 'anytype :type 'type} type)))
                  args))
           attrs (set (:attrs attributes))
+          context (or project/*catalog-namespace* (ns-name *ns*))
+          converted? (project/converted-module? context)
+          explicit-public?
+          (or (contains? attrs :public)
+              (contains? attributes :public)
+              (contains? attributes :private)
+              (contains? (meta name) :public)
+              (contains? (meta name) :private))
           explicit-export?
           (or (contains? attrs :export)
               (true? (:export attributes)))
+          explicit-export-setting?
+          (or (contains? attrs :export)
+              (contains? attributes :export)
+              (contains? (meta name) :export))
           _ (when (and generic? explicit-export?)
               (throw
                (ex-info
@@ -374,7 +430,26 @@
                  :arguments args
                  :hint "Remove :export; concrete Aguafria callers remain hot-reloadable."})))
           options (cond-> (declaration-options name attributes)
-                    generic? (assoc :export? false))]
+                    (and (not private?) (not converted?)
+                         (not explicit-public?))
+                    (assoc :public? true)
+                    (and (not private?) (not converted?) (not generic?)
+                         (not explicit-export-setting?)
+                         (development-c-abi-type? return)
+                         (every? (comp development-c-abi-type? :type) args)
+                         (str/blank? (or (:zig/prefix attributes) ""))
+                         (str/blank? (or (:zig/qualifiers attributes) "")))
+                    ;; The development dylib may expose a C-callable wrapper
+                    ;; even though the user's standalone Zig declaration is
+                    ;; only `pub fn`. This hidden bit preserves versioned JVM
+                    ;; and cross-module hot reload without changing emitted
+                    ;; release semantics or the user-facing `:export?` value.
+                    (assoc :development-export? true)
+                    private? (assoc :public? false
+                                    :export? explicit-export?
+                                    :development-export? false)
+                    generic? (assoc :export? false
+                                    :development-export? false))]
       (emitter/prepare-declaration
        *ns*
        (merge {:kind :fn
@@ -390,22 +465,13 @@
                :source (source-location form)}
               options)))))
 
-(defmacro defn
-  "Define, compile, and expose a Zig function.
-
-      (az/defn add :- :i32
-        [a :- :i32 b :- :i32]
-        (+ a b))
-
-  A concrete supported signature is exported with the C calling convention by
-  default, making it callable from Clojure. Generic/comptime functions retain
-  Zig's native ABI and are reached through concrete callers. Attach
-  `^{:export false}` to the name for another Zig-only function. Non-void
-  functions implicitly return their final expression."
-  [name & declaration]
-  (let [descriptor (parse-defn-declaration &form name declaration)
+(clojure.core/defn- defn-expansion
+  [form name declaration private?]
+  (let [descriptor (parse-defn-declaration form name declaration private?)
         qualified-name (:qualified-name descriptor)
         docstring (:doc descriptor)
+        clojure-name (cond-> name
+                       private? (vary-meta assoc :private true))
         arglist (->> (:args descriptor)
                      (mapcat (fn [{:keys [name type]}]
                                [name ':- type]))
@@ -414,16 +480,46 @@
         quoted-reference (list 'quote (declaration-reference descriptor))]
     `(let [descriptor# ~descriptor-form]
        (runtime/register-declaration! descriptor#)
-       (clojure.core/defn ~(with-meta name (meta name))
+       (clojure.core/defn ~(with-meta clojure-name (meta clojure-name))
          [& arguments#]
          (runtime/invoke! '~qualified-name arguments#))
-       (alter-meta! (var ~name) merge
+       (alter-meta! (var ~clojure-name) merge
                     {:doc ~docstring
                      :arglists '~(list arglist)
                      :aguafria/declaration descriptor#
                      :aguafria/zig-reference ~quoted-reference})
        (runtime/refresh-declaration-var! descriptor#)
-       (var ~name))))
+       (var ~clojure-name))))
+
+(defmacro defn
+  "Define, compile, and expose a Zig function.
+
+      (az/defn add :- :i32
+        [a :- :i32 b :- :i32]
+        (+ a b))
+
+  The Zig declaration is public to its module and remains directly callable
+  from Clojure through Aguafria's generated development bridge. Add
+  `{:attrs #{:export}}` only when an external C-ABI symbol is intentionally
+  required. Generic/comptime functions retain Zig's native ABI and are reached
+  through concrete callers. Non-void functions implicitly return their final
+  expression."
+  [name & declaration]
+  (defn-expansion &form name declaration false))
+
+(defmacro defn-
+  "Define a private, hot-reloadable Zig function.
+
+      (az/defn- add-internal :- :i32
+        [[a :i32] [b :i32]]
+        (+ a b))
+
+  The Zig declaration is private to its module and the corresponding Clojure
+  Var carries ordinary `:private` metadata. It remains callable from its own
+  namespace and from the REPL through Aguafria's generated development bridge.
+  Non-void functions implicitly return their final expression."
+  [name & declaration]
+  (defn-expansion &form name declaration true))
 
 (defmacro defconst
   "Define a Zig top-level constant.
@@ -866,7 +962,9 @@
 ;; and so on) and Zig keyword/operator Vars owned by `ak` stay in their natural
 ;; namespaces.
 (doseq [operator (emitter/syntax-operators)
-        :when (and (not (special-symbol? operator))
+        :when (and (not (contains? '#{let when when-not for dotimes case}
+                                   operator))
+                   (not (special-symbol? operator))
                    (nil? (keyword/token-name (name operator))))]
   (when (contains? (ns-map *ns*) operator)
     (ns-unmap *ns* operator))

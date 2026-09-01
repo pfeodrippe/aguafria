@@ -95,13 +95,14 @@
 
 (defn- run-command!
   [command directory]
-  (let [builder (doto (ProcessBuilder. ^java.util.List command)
+  (let [command (mapv #(if (= "zig" %) (az/zig-executable) %) command)
+        builder (doto (ProcessBuilder. ^java.util.List command)
                   (.directory directory)
                   (.redirectErrorStream true))
         process (.start builder)
         output (slurp (.getInputStream process))
         exit (.waitFor process)
-        result {:command (vec command)
+        result {:command command
                 :directory (.getAbsolutePath ^java.io.File directory)
                 :exit exit
                 :output output}]

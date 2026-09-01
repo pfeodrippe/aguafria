@@ -22,7 +22,7 @@
 
 (def ^:private project-catalog-name "aguafria-project.edn")
 
-(def ^:private rendered-binding-cache-version 1)
+(def ^:private rendered-binding-cache-version 2)
 
 (defn- canonical-file
   [path description]

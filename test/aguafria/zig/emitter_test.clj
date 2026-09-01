@@ -428,11 +428,97 @@
          (str "export fn __set_publication_epoch("
               "__set_publication_epoch_address: usize)")))
     (is (str/includes? source
-                       "if ((before & 1) != 0) continue;"))
+                       "if ((__dispatch_publication_before & 1) != 0) continue;"))
     (is (str/includes? source
-                       "if (before == after) break :publication candidate;"))
+                       (str "if (__dispatch_publication_before == "
+                            "__dispatch_publication_after) break :publication "
+                            "__dispatch_publication_candidate;")))
     (is (< (.indexOf source "if (@inComptime())")
            (.indexOf source "const __dispatch_target")))))
+
+(deftest exported-native-callback-counts-active-calls-without-tls-test
+  (let [source
+        (emit/emit-reloadable-module
+         "demo.callback"
+         [{:kind :fn
+           :name 'tick
+           :return :void
+           :export? true
+           :attributes {:attrs #{:export}}
+           :declaration-key [:fn 'tick]
+           :args [{:name 'context :type [:* :u8]}]
+           :body []}]
+         {[:fn 'tick]
+          {:implementation "__impl"
+           :dispatch-type "__fn_type"
+           :dispatch "__dispatch"
+           :getter "__implementation_address"
+           :setter "__set_dispatch"
+           :active-counter "__active_calls"
+           :active-depth "__active_depth"
+           :active-tracking "__track_active_calls"
+           :active-getter "__active_call_count"
+           :publication-epoch "__publication_epoch"
+           :publication-epoch-setter "__set_publication_epoch"}})
+        implementation
+        (subs source (.indexOf source "fn __impl")
+              (.indexOf source "const __fn_type"))]
+    (is (str/includes? implementation
+                       "@atomicRmw(usize, &__active_calls, .Add"))
+    (is (str/includes? implementation
+                       "@atomicRmw(usize, &__active_calls, .Sub"))
+    (is (not (str/includes? implementation "__active_depth")))
+    (is (not (str/includes? implementation "_outermost")))))
+
+(deftest reloadable-module-reserves-publication-locals-test
+  (let [declaration {:kind :fn :name 'choose :return :usize
+                     :declaration-key [:fn 'choose]
+                     :args [{:name 'candidate :type :usize}]
+                     :body ['candidate]}
+        source
+        (emit/emit-reloadable-module
+         "demo.publication-locals" [declaration]
+         {[:fn 'choose]
+          {:implementation "__impl"
+           :dispatch-type "__fn_type"
+           :dispatch "__dispatch"
+           :getter "__implementation_address"
+           :setter "__set_dispatch"
+           :active-counter "__active_calls"
+           :active-depth "__active_depth"
+           :active-tracking "__track_active_calls"
+           :active-getter "__active_call_count"
+           :publication-epoch "__publication_epoch"
+           :publication-epoch-setter "__set_publication_epoch"}})]
+    (is (str/includes? source "candidate: usize"))
+    (is (str/includes? source
+                       "const __dispatch_publication_candidate = @atomicLoad"))
+    (is (not (str/includes? source "const candidate = @atomicLoad")))))
+
+(deftest reloadable-branch-hint-remains-first-statement-test
+  (let [declaration {:kind :fn :name 'crash :return :noreturn
+                     :declaration-key [:fn 'crash]
+                     :args []
+                     :body ['(ak/branchHint :.cold) 'unreachable]}
+        source
+        (emit/emit-reloadable-module
+         "demo.cold" [declaration]
+         {[:fn 'crash]
+          {:implementation "__impl"
+           :dispatch-type "__fn_type"
+           :dispatch "__dispatch"
+           :getter "__implementation_address"
+           :setter "__set_dispatch"
+           :active-counter "__active_calls"
+           :active-depth "__active_depth"
+           :active-tracking "__track_active_calls"
+           :active-getter "__active_call_count"
+           :publication-epoch "__publication_epoch"
+           :publication-epoch-setter "__set_publication_epoch"}})]
+    (is (re-find #"fn __impl\(\) noreturn \{\s*(?://[^\n]*\n\s*)?@branchHint\(\.cold\);\s+const"
+                 source))
+    (is (re-find #"fn crash\(\) noreturn \{\s*(?://[^\n]*\n\s*)?@branchHint\(\.cold\);\s+if"
+                 source))))
 
 (deftest reloadable-discard-arguments-get-callable-internal-names-test
   (let [declaration {:kind :fn :name 'visit :return :i32 :export? true
@@ -605,6 +691,14 @@
               "}")
          (emit/emit-function-body '((if (< x 0) (- x) x)) :i32)))
   (is (= "value;" (emit/emit-function-body '(value) :void)))
+  (is (= (str "if ((x < 0)) {\n"
+              "    return 0;\n"
+              "}\n"
+              "return (x + 1);")
+         (emit/emit-function-body
+          '((when (< x 0) (return 0))
+            (+ x 1))
+          :i32)))
   (is (= (str "{\n"
               "    const x = (a + 1);\n"
               "    const y = (x * 2);\n"

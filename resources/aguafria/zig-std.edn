@@ -272730,10 +272730,10 @@
    :sha256
    "d3c73bdbb5a871ba17bf8512c2ce95b953ebb1b0a095644364ba560d757f4097"},
   :std
-  {:file-count 551,
+  {:file-count 550,
    :path "std/std.zig",
    :provider :zig-documentation-wasm,
    :sha256
-   "60376e93651ef0c24e666cdf28b42bbf58d71aa9aab0ded45e31b3e2ac74e6d9"}},
+   "33f3fe50158f75b4246fe71d20317fbdd944fe10732c9f46a3342aee1e77d026"}},
  :wasm-diagnostic-count 82,
  :zig-version "0.16.0"}

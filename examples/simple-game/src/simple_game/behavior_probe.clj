@@ -9,7 +9,6 @@
 
 (az/defn main
   "Exit unsuccessfully when optimized factory behavior diverges from development."
-  {:attrs #{:public}}
   :-
   :void
   []

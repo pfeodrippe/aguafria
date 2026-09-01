@@ -103,7 +103,6 @@
 
 (az/defn load-and-verify!
   "Load the exact release assets, validate layouts, byte count, and SHA-256."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []

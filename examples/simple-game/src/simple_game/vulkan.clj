@@ -15,7 +15,6 @@
             [simple-game.mesh :as mesh]))
 
 (az/defconst Color
-  {:attrs #{:public}}
   hud/Color)
 
 (az/defstruct RendererSnapshot
@@ -376,7 +375,6 @@
 
 (az/defn find-memory-type
   "Select a physical-device memory type satisfying a Vulkan property mask."
-  {:export false :implicit-return true}
   :-
   :u32
   [[type-bits :u32]
@@ -399,7 +397,6 @@
 
 (az/defn create-depth-resources!
   "Create the depth attachment shared by the single in-flight frame."
-  {:export false}
   :-
   :void
   []
@@ -455,7 +452,6 @@
 
 (az/defn create-mesh-buffer!
   "Create one persistently mapped, bounded vertex stream for the 3D scene."
-  {:export false}
   :-
   :void
   []
@@ -492,7 +488,6 @@
 
 (az/defn load-shader-module
   "Load one checked-in SPIR-V shader and create its Vulkan module."
-  {:export false}
   :-
   vk/VkShaderModule
   [[path [:pointer {:size :c :const? true} :u8]]]
@@ -514,7 +509,6 @@
 
 (az/defn create-mesh-pipeline!
   "Create the Vulkan triangle pipeline used by every Kenney model."
-  {:export false}
   :-
   :void
   []
@@ -656,7 +650,6 @@
   initialized)
 
 (az/defn clear-value
-  {:attrs #{:public :implicit-return}}
   :- vk/VkClearValue
   [[color Color]]
   (vk/VkClearValue
@@ -671,7 +664,6 @@
         (az/field color a)])})}))
 
 (az/defn clear-rect
-  {:attrs #{:public}}
   :- :void
   [[command-buffer vk/VkCommandBuffer]
    [color Color]
@@ -701,7 +693,6 @@
 
 (az/defn backend-clear-rect
   "Vulkan implementation of the shared scene's rectangle operation."
-  {:attrs #{:public}}
   :-
   :void
   [[color hud/Color]

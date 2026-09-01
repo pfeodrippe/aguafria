@@ -5,11 +5,9 @@
 
 (az/defconst aguafria-development-overlays
   "Keep the native human-readable cognition UI in this demonstrator release."
-  {:attrs #{:public}}
   true)
 
 (az/defn main
-  {:attrs #{:public}}
   :-
   :void
   []

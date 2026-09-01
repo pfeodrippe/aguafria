@@ -6,7 +6,11 @@
             [aguafria.keyword :as ak]
             [aguafria.std]
             [aguafria.std.Io.net :as net]
-            [aguafria.std.http :as http]
+            [aguafria.std.Io.net.IpAddress :as ip-address]
+            [aguafria.std.Io.net.Server :as net-server]
+            [aguafria.std.Io.net.Stream :as net-stream]
+            [aguafria.std.http.Server :as http-server]
+            [aguafria.std.http.Server.Request :as http-request]
             [aguafria.std.process :as std-process]
             [aguafria.zig :as az]
             [aguafria.zig.host :as host]))
@@ -19,36 +23,38 @@
 
 (az/defn response-body
   "This is ordinary application logic. Edit its string and evaluate this form."
-  {:attrs #{:public :implicit-return}}
   :-
   [:slice-const :u8]
   []
   "Hello from live Aguafria Zig!\n")
 
 (az/defn serve-connection!
-  {:export false :zig/qualifiers "!"}
+  {:zig/qualifiers "!"}
   :-
   :void
   [[stream net/Stream]
    [io aguafria.std/Io]]
-  (ak/defer ((az/field stream close) io))
-  (let [^{:var true :zig/type [:array 4096 :u8]} read-buffer undefined
-        ^{:var true :zig/type [:array 4096 :u8]} write-buffer undefined
-        ^:var reader ((az/field stream reader) io (ak/& read-buffer))
-        ^:var writer ((az/field stream writer) io (ak/& write-buffer))
+  (ak/defer (net-stream/close (ak/& stream) io))
+  (let [^{:var true :zig/type [:array 4096 :u8]} read-buffer ak/undefined
+        ^{:var true :zig/type [:array 4096 :u8]} write-buffer ak/undefined
+        ^:var reader (net-stream/reader stream io (ak/& read-buffer))
+        ^:var writer (net-stream/writer stream io (ak/& write-buffer))
         ^:var server
-        ((az/field http/Server init)
-         (ak/& (az/field reader interface))
-         (ak/& (az/field writer interface)))
-        ^:var request (try ((az/field server receiveHead)))
+        (http-server/init
+         (ak/& (az/field reader :interface))
+         (ak/& (az/field writer :interface)))
+        ^:var request (ak/try (http-server/receiveHead (ak/& server)))
         request-id (uuid/v4-new io)
         request-id-text (uuid/urn-serialize request-id)]
-    (try ((az/field request respond)
-          (response-body)
-          {:keep_alive false
-           :extra_headers (ak/& [{:name "x-request-id"
-                                  :value (az/slice request-id-text 0)}])}))
+    (ak/try
+     (http-request/respond
+      (ak/& request)
+      (response-body)
+      {:keep_alive false
+       :extra_headers (ak/& [{:name "x-request-id"
+                              :value (az/slice request-id-text 0)}])}))
     (set! requests-served (+ requests-served 1))))
+#_ (slurp server-url)
 
 (az/defn request-stop!
   "Ask the native accept loop to stop after its current connection."
@@ -57,15 +63,13 @@
   []
   (set! running false))
 
-(az/defn running?
-  {:attrs #{:implicit-return}}
+(az/defn- running?
   :-
   :bool
   []
   running)
 
-(az/defn request-count
-  {:attrs #{:implicit-return}}
+(az/defn- request-count
   :-
   :u64
   []
@@ -73,22 +77,22 @@
 
 (az/defn main
   "Listen on loopback and call the current response-body for every request."
-  {:zig/qualifiers "!" :attrs #{:public}}
+  {:zig/qualifiers "!"}
   :-
   :void
   [[process-init std-process/Init]]
-  (let [io (az/field process-init io)
-        address (try ((az/field net/IpAddress parseIp4)
-                      "127.0.0.1" port))
-        ^:var server (try ((az/field address listen)
-                           io {:reuse_address true}))]
-    (ak/defer ((az/field server deinit) io))
+  (let [io (az/field process-init :io)
+        address (ak/try (ip-address/parseIp4 "127.0.0.1" port))
+        ^:var server (ak/try
+                      (ip-address/listen
+                       (ak/& address) io {:reuse_address true}))]
+    (ak/defer (net-server/deinit (ak/& server) io))
     (set! requests-served 0)
     (set! running true)
     (ak/defer (set! running false))
     (ak/while running
-      (let [stream (try ((az/field server accept) io))]
-        (try (serve-connection! stream io))))))
+      (let [stream (ak/try (net-server/accept (ak/& server) io))]
+        (ak/try (serve-connection! stream io))))))
 
 (def server-url "http://127.0.0.1:8787/")
 
@@ -140,6 +144,7 @@
    :compiler (:summary (az/stats))})
 
 (comment
+
   ;; Start once, then keep this JVM and native listener alive.
   (start!)
   (slurp server-url)
@@ -151,4 +156,6 @@
   (slurp server-url)
 
   (status)
-  (stop!))
+  (stop!)
+
+  ())

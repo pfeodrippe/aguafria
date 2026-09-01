@@ -6,7 +6,6 @@
             [simple-game.desktop :as desktop]))
 
 (az/defn main
-  {:attrs #{:public}}
   :-
   :void
   []

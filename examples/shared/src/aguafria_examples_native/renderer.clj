@@ -19,7 +19,6 @@
 
 (az/defconst FrameBuilder
   "Application callback that fills one mapped triangle frame."
-  {:attrs #{:public}}
   (az/type
    [:*const
     [:fn {:callconv :.c}
@@ -30,7 +29,6 @@
 
 (az/defconst OverlayRenderer
   "Optional development callback recorded inside the active Vulkan render pass."
-  {:attrs #{:public}}
   (az/type
    [:*const
     [:fn {:callconv :.c}
@@ -425,7 +423,6 @@
 
 (az/defn find-memory-type
   "Select a physical-device memory type satisfying a Vulkan property mask."
-  {:export false :implicit-return true}
   :-
   :u32
   [[type-bits :u32]
@@ -448,7 +445,6 @@
 
 (az/defn create-depth-resources!
   "Create the depth attachment shared by the single in-flight frame."
-  {:export false}
   :-
   :void
   []
@@ -504,7 +500,6 @@
 
 (az/defn create-mesh-buffer!
   "Create one persistently mapped, bounded vertex stream for the 3D scene."
-  {:export false}
   :-
   :void
   []
@@ -541,7 +536,6 @@
 
 (az/defn load-shader-module
   "Load one checked-in SPIR-V shader and create its Vulkan module."
-  {:export false}
   :-
   vk/VkShaderModule
   [[path [:pointer {:size :c :const? true} :u8]]]
@@ -563,7 +557,6 @@
 
 (az/defn create-mesh-pipeline!
   "Create the Vulkan triangle pipeline used by every Kenney model."
-  {:export false}
   :-
   :void
   []
@@ -705,7 +698,6 @@
   initialized)
 
 (az/defn clear-value
-  {:attrs #{:public :implicit-return}}
   :- vk/VkClearValue
   [[color Color]]
   (vk/VkClearValue
@@ -721,7 +713,6 @@
 
 (az/defn set-overlay-renderer!
   "Install or clear a development-only render-pass callback."
-  {:attrs #{:public}}
   :-
   :void
   [[callback [:optional OverlayRenderer]]]
@@ -729,7 +720,6 @@
 
 (az/defn overlay-installed?
   "Whether a development overlay callback is attached to the render pass."
-  {:attrs #{:public :implicit-return}}
   :-
   :bool
   []
@@ -737,7 +727,6 @@
 
 (az/defn renderer-interop
   "Expose opaque renderer handles without giving overlays ownership of them."
-  {:attrs #{:public :implicit-return}}
   :-
   RendererInterop
   []
@@ -756,7 +745,6 @@
       :queue_family 0 :render_pass 0 :image_count 0})))
 
 (az/defn clear-rect
-  {:attrs #{:public}}
   :- :void
   [[command-buffer vk/VkCommandBuffer]
    [color Color]

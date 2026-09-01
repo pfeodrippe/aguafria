@@ -3,7 +3,8 @@
 
   This namespace deliberately has no dependency on generated output, so it can
   be required from a clean checkout before `examples/ghostty/generated` exists."
-  (:require [aguafria.zig.convert :as convert]
+  (:require [aguafria.zig :as az]
+            [aguafria.zig.convert :as convert]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]))
 
@@ -17,6 +18,16 @@
   ["-Demit-lib-vt=true"
    "-Demit-xcframework=false"
    "-Demit-macos-app=false"])
+
+(def macos-source-module-profile
+  "The full app profile used only to discover optional named Zig modules.
+
+  Its generated build options intentionally do not replace the libghostty-vt
+  options used by nREPL development. It contributes source-module edges such
+  as Ghostty's optional `sentry` package so the independently materialized app
+  retains the same imports as the original Zig build."
+  ["-Demit-macos-app=true"
+   "-Demit-lib-vt=false"])
 
 (defn repository-root
   "Find this Aguafria checkout from the current working directory."
@@ -95,6 +106,8 @@
               ;; build.zig.zon, so they remain native and need no conversion.
               :exclude-directories #{"zig-pkg"}
               :build-profiles [build-profile]
+              :source-module-build-profiles
+              [macos-source-module-profile]
               :report-output report-output}
              (dissoc options :input-root :output-root :report-output))))))
 
@@ -128,10 +141,19 @@
 
 (defn- run-command!
   [command directory]
-  (let [started (System/nanoTime)
-        process (.start (doto (ProcessBuilder. ^java.util.List command)
-                          (.directory (io/file directory))
-                          (.inheritIO)))
+  (let [zig (.getAbsoluteFile (io/file (az/zig-executable)))
+        command (mapv #(if (= "zig" %) (.getAbsolutePath zig) %) command)
+        started (System/nanoTime)
+        builder (doto (ProcessBuilder. ^java.util.List command)
+                  (.directory (io/file directory))
+                  (.inheritIO))
+        environment (.environment builder)
+        _ (.put environment "ZIG" (.getAbsolutePath zig))
+        _ (.put environment "PATH"
+                (str (.getAbsolutePath (.getParentFile zig))
+                     java.io.File/pathSeparator
+                     (or (.get environment "PATH") "")))
+        process (.start builder)
         exit (.waitFor process)
         report {:command command
                 :directory (str directory)
@@ -147,7 +169,7 @@
   (let [{:keys [standalone-root]} (project-paths)
         materialized (materialize!)
         build (run-command!
-               ["zig" "build"
+               [(az/zig-executable) "build"
                 "-Demit-lib-vt=true"
                 "-Demit-xcframework=false"
                 "-Demit-macos-app=false"
@@ -172,7 +194,7 @@
   (let [{:keys [standalone-root]} (project-paths)
         materialized (materialize!)
         build (run-command!
-               ["zig" "build"
+               [(az/zig-executable) "build"
                 "-Demit-macos-app=true"
                 "-Demit-lib-vt=false"]
                standalone-root)

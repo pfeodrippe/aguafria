@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(u32, "answer", 42);
     options.addOption([]const u8, "message", "captured by Zig");
+    options.addOption(bool, "use_optional", false);
     options.addOptionPath("data_path", b.path("data.txt"));
     options.addOptionPath("tool_path", tool.getEmittedBin());
 
@@ -41,6 +42,13 @@ pub fn build(b: *std.Build) void {
     const alternate_options = b.addOptions();
     alternate_options.addOption(u32, "answer", 99);
     alternate_options.addOption([]const u8, "message", "alternate profile");
+    alternate_options.addOption(bool, "use_optional", true);
+
+    const optional_module = b.createModule(.{
+        .root_source_file = b.path("src/optional_module.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
 
     const alternate_module = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
@@ -51,6 +59,7 @@ pub fn build(b: *std.Build) void {
     alternate_module.addAnonymousImport("generated_code", .{
         .root_source_file = generated_source,
     });
+    alternate_module.addImport("optional", optional_module);
 
     const alternate_executable = b.addExecutable(.{
         .name = "build-options-fixture-alternate",

@@ -422,6 +422,9 @@
                   (meta form))
     (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
                            (meta form))
+    (and (symbol? form) (keyword/resolve-token context-ns form))
+    (:symbol (keyword/resolve-token context-ns form))
+
     (and (symbol? form) (nil? (namespace form))
          (namespace-root-reference context-ns form))
     (reference-symbol context-ns form
@@ -1087,7 +1090,13 @@
       "@as(f32, @bitCast(@as(u32, 0x7f800000)))")
     (number? form) (str form)
     (symbol? form)
-    (if-let [reference (current-zig-reference form)]
+    (if-let [token (current-keyword-token form)]
+      (if (= :primitive (:kind token))
+        (:zig-token token)
+        (fail! (str "Generated Zig syntax `" form
+                    "` must be used as a form, not an atom")
+               form {:token token}))
+      (if-let [reference (current-zig-reference form)]
       (if (and *reloadable-state-references?*
                (:state-accessor reference)
                ;; The local accessor set only describes state declared by the
@@ -1108,7 +1117,10 @@
         (fail! (str "Unresolved dotted Zig reference `" form "`. "
                     "Declare imported members with az/defimport.")
                form {:operator form})
-        (identifier form)))
+        (if (= 'undefined form)
+          (fail! "Bare `undefined` is not a Clojure Var; use `ak/undefined`"
+                 form {:operator form :replacement 'aguafria.keyword/undefined})
+          (identifier form)))))
     (keyword? form) (let [n (name form)]
                       (if (str/starts-with? n ".")
                         n
@@ -2194,7 +2206,8 @@
 (defn- dependency-declaration
   [declaration]
   (if (and (= :fn (:kind declaration))
-           (:export? declaration)
+           (or (:export? declaration)
+               (:development-export? declaration))
            (not (explicitly-exported? declaration)))
     ;; Keep the public function's original C ABI without changing the private
     ;; hot-dispatch implementation ABI. The implementation pointer is shared
@@ -2202,6 +2215,7 @@
     ;; Zig's default.
     (assoc declaration
            :export? false
+           :development-export? false
            :public? true
            :dependency-default-export? true)
     declaration))
@@ -2396,7 +2410,10 @@
   [declaration {:keys [implementation dispatch-type dispatch getter setter
                        active-counter active-depth active-tracking
                        publication-epoch emit-getter? linkable?]}]
-  (let [original-body-prefix-source (:body-prefix-source declaration)
+  (let [external-callback? (explicitly-exported? declaration)
+        declaration (cond-> declaration
+                      (:development-export? declaration) (assoc :export? true))
+        original-body-prefix-source (:body-prefix-source declaration)
         reload-args
         (mapv (fn [index argument]
                 (if (= "_" (str (:name argument)))
@@ -2418,6 +2435,11 @@
         argument-names (set arguments)
         target (str dispatch "_target")
         target-address (str dispatch "_target_address")
+        publication-epoch-pointer
+        (str dispatch "_publication_epoch_pointer")
+        publication-before (str dispatch "_publication_before")
+        publication-candidate (str dispatch "_publication_candidate")
+        publication-after (str dispatch "_publication_after")
         track-active (str implementation "_track_active")
         inferred-error-return?
         (= "!" (str/trim (or (:zig-qualifiers declaration) "")))
@@ -2450,6 +2472,21 @@
                  (= "set!" (name operator))
                  (= '_ (second form))
                  (contains? argument-names (nth form 2 nil)))))
+        branch-hint-form?
+        (fn [form]
+          (let [operator (when (seq? form) (first form))]
+            (and (symbol? operator)
+                 (= "branchHint" (name operator)))))
+        leading-branch-hint
+        (when (branch-hint-form? (first (:body declaration)))
+          (first (:body declaration)))
+        leading-branch-hint-source
+        (when leading-branch-hint
+          (binding [*reloadable-state-references?* false]
+            (emit-function-body [leading-branch-hint] :void false)))
+        implementation-body
+        (cond-> (vec (:body declaration))
+          leading-branch-hint (subvec 1))
         terminating-form?
         (fn terminating-form? [form]
           (let [operator (when (seq? form) (first form))
@@ -2485,6 +2522,7 @@
         implementation-declaration
         (assoc declaration
                :args reload-args
+               :body implementation-body
                :name (symbol implementation)
                :zig-name implementation
                :export? false
@@ -2503,22 +2541,31 @@
                :source (:source declaration)
                :emit-source-comment? false
                :body-prefix-source
-               (str discard-source
+               (str (when leading-branch-hint-source
+                      (str leading-branch-hint-source "\n"))
+                    discard-source
                     "const " track-active " = !@inComptime() and @atomicLoad(bool, &"
                     active-tracking ", .acquire);\n"
-                    "const " track-active "_outermost = if (" track-active
-                    ") " active-depth " == 0 else false;\n"
-                    "if (" track-active ") {\n"
-                    "    " active-depth " += 1;\n"
-                    "    if (" track-active "_outermost) { _ = @atomicRmw(usize, &"
-                    active-counter ", .Add, 1, .acq_rel); }\n"
-                    "}\n"
-                    "defer if (" track-active ") {\n"
-                    "    " active-depth " -= 1;\n"
-                    "    if (" track-active
-                    "_outermost) { _ = @atomicRmw(usize, &" active-counter
-                    ", .Sub, 1, .acq_rel); }\n"
-                    "};"
+                    (if external-callback?
+                      (str "if (" track-active ") { _ = @atomicRmw(usize, &"
+                           active-counter ", .Add, 1, .acq_rel); }\n"
+                           "defer if (" track-active
+                           ") { _ = @atomicRmw(usize, &" active-counter
+                           ", .Sub, 1, .acq_rel); };")
+                      (str "const " track-active "_outermost = if ("
+                           track-active ") " active-depth " == 0 else false;\n"
+                           "if (" track-active ") {\n"
+                           "    " active-depth " += 1;\n"
+                           "    if (" track-active
+                           "_outermost) { _ = @atomicRmw(usize, &"
+                           active-counter ", .Add, 1, .acq_rel); }\n"
+                           "}\n"
+                           "defer if (" track-active ") {\n"
+                           "    " active-depth " -= 1;\n"
+                           "    if (" track-active
+                           "_outermost) { _ = @atomicRmw(usize, &"
+                           active-counter ", .Sub, 1, .acq_rel); }\n"
+                           "};"))
                     (when-not (str/blank? original-body-prefix-source)
                       (str "\n" original-body-prefix-source))))
         implementation-source
@@ -2529,21 +2576,32 @@
                :body []
                :implicit-return? false
                :body-prefix-source
-               (str "if (@inComptime()) {\n"
+               (str (when leading-branch-hint-source
+                      (str leading-branch-hint-source "\n"))
+                    "if (@inComptime()) {\n"
                     (indent 1 (str comptime-body-source
                                    (when-not comptime-body-terminates?
                                      "\nreturn;")))
                     "\n"
                     "}\n"
                     "const " target-address ": usize = publication: {\n"
-                    "    if (" publication-epoch ") |epoch| {\n"
+                    "    if (" publication-epoch ") |"
+                    publication-epoch-pointer "| {\n"
                     "        while (true) {\n"
-                    "            const before = @atomicLoad(usize, epoch, .acquire);\n"
-                    "            if ((before & 1) != 0) continue;\n"
-                    "            const candidate = @atomicLoad(usize, &"
+                    "            const " publication-before
+                    " = @atomicLoad(usize, " publication-epoch-pointer
+                    ", .acquire);\n"
+                    "            if ((" publication-before
+                    " & 1) != 0) continue;\n"
+                    "            const " publication-candidate
+                    " = @atomicLoad(usize, &"
                     dispatch ", .acquire);\n"
-                    "            const after = @atomicLoad(usize, epoch, .acquire);\n"
-                    "            if (before == after) break :publication candidate;\n"
+                    "            const " publication-after
+                    " = @atomicLoad(usize, " publication-epoch-pointer
+                    ", .acquire);\n"
+                    "            if (" publication-before " == "
+                    publication-after ") break :publication "
+                    publication-candidate ";\n"
                     "        }\n"
                     "    }\n"
                     "    break :publication @atomicLoad(usize, &" dispatch
@@ -2793,6 +2851,13 @@
 (defn- nested-base
   [kind name attributes]
   (let [attributes (merge (meta name) attributes)
+        context (or project/*catalog-namespace*
+                    (when *keyword-context*
+                      (if (instance? clojure.lang.Namespace *keyword-context*)
+                        (ns-name *keyword-context*)
+                        *keyword-context*))
+                    (ns-name *ns*))
+        converted? (project/converted-module? context)
         compact? (contains? attributes :attrs)
         attrs (set (:attrs attributes))]
     {:kind kind
@@ -2809,8 +2874,21 @@
      :leading-source (:zig/leading attributes)
      :zig-prefix (:zig/prefix attributes)
      :zig-qualifiers (:zig/qualifiers attributes)
-     :implicit-return? (if compact? (contains? attrs :implicit-return)
-                           (not= false (:implicit-return attributes)))
+     :implicit-return? (cond
+                         (contains? attributes :implicit-return)
+                         (not= false (:implicit-return attributes))
+
+                         (contains? attrs :explicit-return)
+                         false
+
+                         (contains? attrs :implicit-return)
+                         true
+
+                         converted?
+                         false
+
+                         :else
+                         true)
      :emit-source-comment? (if compact? (contains? attrs :source-comment)
                                (not= false (:source-comment attributes)))
      :align (:zig/align attributes)}))

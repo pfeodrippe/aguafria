@@ -44,7 +44,7 @@
 (defonce ^:private module-compilation-locks (atom {}))
 (defonce ^:private external-file-fingerprints (atom {}))
 (defonce ^:private zig-version-cache (atom {}))
-(def ^:private declaration-reference-extraction-version 5)
+(def ^:private declaration-reference-extraction-version 6)
 (defonce ^:private declaration-reference-index
   (atom {:by-module {} :by-logical {} :references {} :revision 0
          :extraction-version declaration-reference-extraction-version}))
@@ -799,13 +799,15 @@
   (emit/identifier (or zig-name name)))
 
 (defn- callable-abi
-  [{:keys [args return export? zig-prefix zig-qualifiers] :as declaration}]
+  [{:keys [args return export? development-export? zig-prefix zig-qualifiers]
+    :as declaration}]
   {:kind :callable
    :symbol (declaration-zig-name declaration)
    :export? (boolean export?)
    :calling-convention (cond
                          (seq zig-qualifiers) zig-qualifiers
-                         (and export? (nil? zig-prefix)) :c
+                         (and (or export? development-export?)
+                              (nil? zig-prefix)) :c
                          :else :zig)
    :prefix zig-prefix
    :arguments
@@ -1023,7 +1025,8 @@
                    (data-fingerprint
                     (select-keys declaration
                                  [:kind :name :zig-name :args :return :body
-                                  :export? :public? :zig-prefix :zig-qualifiers
+                                  :export? :development-export? :public?
+                                  :zig-prefix :zig-qualifiers
                                   :implicit-return?
                                   :type-dependency-fingerprints
                                   :callable-dependency-fingerprints])))
@@ -1774,10 +1777,18 @@
           (let [definitions (:definitions module-state)
                 declarations (vals definitions)
                 dependencies (direct-dependencies declarations)
-                specs (or (:dependency-dispatch-specs module-state)
-                          (:reload-source-dispatch-specs module-state)
-                          (:dispatch-specs module-state)
-                          (reloadable-dispatch-specs declarations))
+                ;; Derive the dependency facade from every declaration that
+                ;; is currently registered, not only from the owner's most
+                ;; recently published generation.  With async compilation an
+                ;; early declaration can publish while the namespace is still
+                ;; registering later functions.  Reusing that partial set of
+                ;; published specs made a concurrently compiled caller emit a
+                ;; permanently incomplete namespace container.  Dispatch
+                ;; specs are deterministic from declaration metadata, so the
+                ;; complete registered set is safe before native publication;
+                ;; the eventual owner publication repoints its cells through
+                ;; `refresh-project-dispatch!`.
+                specs (reloadable-dispatch-specs declarations)
                 state-specs (reloadable-state-specs declarations)
                 source (or (when-not (:source-dirty? module-state)
                              (:dependency-source module-state))
@@ -2068,7 +2079,67 @@
                               (str/split #"\.") last))]
               (get-in @declaration-reference-index
                       [:by-module target-module :by-name target-name]))))]
-    (letfn [(namespace-root-module [value seen]
+    (letfn [(namespace-root-reference-module [value]
+              (when (symbol? value)
+                (let [reference (:aguafria/zig-reference (meta value))]
+                  (when (= :namespace-root (:kind reference))
+                    (some-> (:module reference) str)))))
+
+            (first-class-namespace-root-modules [value]
+              ;; `module.Member` has a statically knowable declaration edge and
+              ;; is handled by `field-member-logical-id` below. A bare module
+              ;; value passed through a vector/call/comptime parameter is
+              ;; different: Zig may reflect on arbitrary declarations later
+              ;; (`T.JsApi`, `@hasDecl(T, name)`, and similar patterns).
+              (cond
+                (symbol? value)
+                (cond-> #{}
+                  (namespace-root-reference-module value)
+                  (conj (namespace-root-reference-module value)))
+
+                (map? value)
+                (reduce into #{}
+                        (map first-class-namespace-root-modules
+                             (concat (keys value) (vals value))))
+
+                (coll? value)
+                (let [field-form?
+                      (and (seq? value)
+                           (symbol? (first value))
+                           (= "field" (name (first value)))
+                           (= 3 (count value)))
+                      values
+                      (if field-form?
+                        (let [[_ base member] value]
+                          ;; Suppress only a direct namespace-root base. A
+                          ;; computed base can itself contain first-class
+                          ;; module arguments and still needs traversal.
+                          (cond-> [member]
+                            (nil? (namespace-root-reference-module base))
+                            (conj base)))
+                        value)]
+                  (reduce into #{}
+                          (map first-class-namespace-root-modules values)))
+
+                :else #{}))
+
+            (namespace-root-seed-logical-ids [module]
+              (let [declarations
+                    (vals
+                     (get-in @declaration-reference-index
+                             [:by-module module :definitions]))]
+                ;; Across a Zig module import, comptime reflection can observe
+                ;; every public declaration and no private declaration. Seed
+                ;; that exact surface. Same-module prerequisites referenced by
+                ;; those declarations are closed later by
+                ;; `declarations-live-slice`.
+                (into #{}
+                      (comp (filter #(and (:public? %)
+                                         (not= :test (:kind %))))
+                            (keep :logical-id))
+                      declarations)))
+
+            (namespace-root-module [value seen]
               (cond
                 (symbol? value)
                 (let [reference (:aguafria/zig-reference (meta value))
@@ -2179,6 +2250,9 @@
          reference-values))
        (into (keep field-member-logical-id)
              reference-values)
+       (into
+        (mapcat namespace-root-seed-logical-ids)
+        (first-class-namespace-root-modules reference-source))
        (into (keep :logical-id)
              qualifier-reference-declarations)
        (into (keep qualifier-member-logical-id)
@@ -2332,20 +2406,6 @@
   [logical-ids {:keys [declaration]}]
   (contains? logical-ids (:logical-id declaration)))
 
-(defn- live-state-entry?
-  "True when a state Var owns native storage that another live slice must use.
-
-  Converted source-only globals deliberately have no state generation yet.
-  Linking their helpers would defeat Zig's lazy analysis and can force
-  compile-time-disabled declarations whose target type is intentionally
-  `void`."
-  [{:keys [declaration]}]
-  (let [{:keys [module logical-id]} declaration]
-    (boolean
-     (some #(and (:active? %)
-                 (= logical-id (:logical-id %)))
-           (get-in @registry [(str module) :state-versions])))))
-
 (defn- development-linkage-modules
   "Return exact transitive modules whose embedded dispatch/state hooks must
   remain reachable from the development loader despite Zig's lazy analysis."
@@ -2442,7 +2502,7 @@
         ;; of every dependency module. The later source-snapshot cache still
         ;; fingerprints those bytes and therefore invalidates native artifacts
         ;; correctly.
-        cache-key [:capsule-v3 (:revision index-state)
+        cache-key [:capsule-v4 (:revision index-state)
                    (vec (keys dependency-snapshot)) container-signature
                    root-logical-ids]]
     (if-some [cached (get @development-capsule-closure-cache cache-key)]
@@ -2496,9 +2556,14 @@
            (vec (filter #(linkage-entry? logical-ids %) dispatch-entries))
            linkable-dispatch-entries
            (vec (filter selected? linkable-dispatch-entries))
+           ;; Retain an exact referenced state's helpers even when its owning
+           ;; namespace is still compiling asynchronously.  The dependency
+           ;; copy starts on its own initializer, then the owner's eventual
+           ;; publication repoints it through `refresh-project-dispatch!`.
+           ;; Filtering on an already-live state generation left early-built
+           ;; callers permanently detached from the canonical capsule.
            linkable-state-entries
            (vec (filter #(and (linkage-entry? logical-ids %)
-                              (live-state-entry? %)
                               (selected? %))
                         state-entries))
            linkable-entries
@@ -2555,7 +2620,7 @@
 (defn- linkable-development-dependency-snapshot
   [dependency-snapshot logical-ids]
   (let [cache-key
-        [:dependency-live-slices-v10
+        [:dependency-live-slices-v12
          (mapv (fn [[module entry]]
                  (let [linkable-dispatch
                        (->> (:dispatch-entries entry)
@@ -2563,8 +2628,7 @@
                             (mapv (comp :version-key :spec)))
                        linkable-state
                        (->> (:state-entries entry)
-                            (filter #(and (linkage-entry? logical-ids %)
-                                          (live-state-entry? %)))
+                            (filter #(linkage-entry? logical-ids %))
                             (mapv (comp :version-key :spec)))]
                    [module
                     (or (:source-fingerprint entry)
@@ -4041,7 +4105,9 @@
                   ^Path (.toPath (io/file (:library-path compiled))) arena)
           linker (Linker/nativeLinker)
           functions (->> declarations
-                         (filter #(and (= :fn (:kind %)) (:export? %)))
+                         (filter #(and (= :fn (:kind %))
+                                       (or (:export? %)
+                                           (:development-export? %))))
                          (map (fn [declaration]
                                 [(:qualified-name declaration)
                                  (bind-function linker lookup declaration)]))
@@ -4591,24 +4657,35 @@
     ;; Keep its dependency cells in the same atomic publication epoch as the
     ;; JVM-owned generations so an already-running program observes each Var
     ;; replacement without being restarted.
-    (doseq [{:keys [loaded status dispatch-frozen?
-                    local-dispatch-version-keys]} (vals @live-hosts)
+    (doseq [[host-id {:keys [loaded status dispatch-frozen?
+                             local-dispatch-version-keys
+                             installed-dispatch-fingerprints]}] @live-hosts
             :when (and loaded
                        (not dispatch-frozen?)
                        (contains? #{:starting :running} status))
             [version-key {:keys [setter-handle implementation-fingerprint]}]
             (:dispatch-bindings loaded)
-            :let [active (get active-versions version-key)]
+            :let [active (get active-versions version-key)
+                  installed-fingerprint
+                  (get installed-dispatch-fingerprints version-key
+                       implementation-fingerprint)]
             :when (and (not (contains? local-dispatch-version-keys version-key))
                        (some? (:implementation-address active))
                        ;; A fresh host already embeds a coherent current Zig
                        ;; graph. Keep that local implementation—and its module
-                       ;; state—until this exact Var actually changes. Only a
-                       ;; newer fingerprint crosses the image boundary.
-                       (not= implementation-fingerprint
+                       ;; state—until this exact Var actually changes. Compare
+                       ;; against the implementation most recently installed
+                       ;; into this mutable host cell, not the immutable
+                       ;; fingerprint embedded in the original library. This
+                       ;; matters when a user edits A -> B -> A: the final A
+                       ;; must replace B even though A matches the host image.
+                       (not= installed-fingerprint
                              (:implementation-fingerprint active)))]
       (invoke-dispatch-setter! setter-handle
-                               (:implementation-address active)))
+                               (:implementation-address active))
+      (swap! live-hosts assoc-in
+             [host-id :installed-dispatch-fingerprints version-key]
+             (:implementation-fingerprint active)))
     (doseq [{:keys [loaded status share-state?]} (vals @live-hosts)
             :when (and loaded share-state?
                        (contains? #{:starting :running} status))
@@ -5968,25 +6045,22 @@
                      [(:logical-id declaration)
                       (:abi-fingerprint declaration)]
                      previous
-                     (get previous-by-version
-                          version-key)
+                     (get previous-by-version version-key)
                      embedded-implementations
                      (get embedded-dependency-implementations version-key)]
                  (when (or
-                        ;; A C-exported wrapper is analyzed and directly
-                        ;; callable already. Capturing its address adds no
-                        ;; extra eagerness and lets JVM calls plus imported
-                        ;; callers retain the exact initial generation.
+                        ;; An explicit C export or Aguafria's scalar
+                        ;; development bridge is directly callable in its
+                        ;; first generation. Capture that exact implementation
+                        ;; without forcing unrelated lazy Zig helpers.
                         (:export? declaration)
+                        (:development-export? declaration)
                         (and previous
                              (not= (:implementation-fingerprint previous)
                                    (:implementation-fingerprint declaration)))
-                        ;; A dependent module may already be callable from an
-                        ;; embedded source snapshot before this declaration's
-                        ;; owner publishes its first native generation. If the
-                        ;; owner has since changed, it must expose a getter so
-                        ;; those live dependency cells can leave their local
-                        ;; zero/default implementation.
+                        ;; A dependent module may already contain this
+                        ;; implementation from an embedded source snapshot.
+                        ;; Expose a getter only when its cell must be updated.
                         (some #(not= (:implementation-fingerprint declaration)
                                      %)
                               embedded-implementations))
@@ -11841,7 +11915,14 @@
                       (assoc record
                              :local-dispatch-version-keys
                              #{[(:logical-id declaration)
-                                (:abi-fingerprint declaration)]}))
+                                (:abi-fingerprint declaration)]}
+                             :installed-dispatch-fingerprints
+                             (into {}
+                                   (map (fn [[version-key binding]]
+                                          [version-key
+                                           (:implementation-fingerprint
+                                            binding)]))
+                                   (:dispatch-bindings loaded))))
                ;; A running process is a coarse native execution lease: every
                ;; generation stays loaded until it returns. Avoiding two
                ;; atomic RMWs on every nested Var call keeps development hosts

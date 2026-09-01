@@ -13,7 +13,7 @@
   :-
   :u8
   [[gained? :bool]]
-  (ak/var bytes [:array 3 :u8] undefined)
+  (ak/var bytes [:array 3 :u8] ak/undefined)
   (ak/var written :usize 0)
   (set! _
         (ghostty-focus/encode

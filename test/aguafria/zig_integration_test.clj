@@ -122,6 +122,50 @@
         (throw (ex-info "Aguafria form captured no declaration"
                         {:namespace (ns-name target-ns) :form form})))))
 
+(deftest defn-authoring-defaults-test
+  (testing "defn is public, defn- is private, and both return their last expression"
+    (let [module-symbol (symbol (str "aguafria.defn-defaults-" fixture-suffix))
+          module-ns (create-ns module-symbol)
+          captured (atom [])]
+      (try
+        (binding [*ns* module-ns
+                  runtime/*registration-batch* captured]
+          (refer 'clojure.core)
+          (alias 'az 'aguafria.zig)
+          (eval '(az/defn increment :- :i32 [[value :i32]] (+ value 1)))
+          (eval '(az/defn- increment-private :- :i32
+                   [[value :i32]]
+                   (when (< value 0) (return 0))
+                   (+ value 2)))
+          (eval '(az/defn exported
+                   {:attrs #{:export}}
+                   :- :i32 [[value :i32]] value)))
+        (let [by-name (into {} (map (juxt :name identity)) @captured)
+              public (get by-name 'increment)
+              private (get by-name 'increment-private)
+              exported (get by-name 'exported)
+              standalone-source (az/emit-module (str module-symbol)
+                                                (vals by-name))]
+          (is (true? (:public? public)))
+          (is (false? (:export? public)))
+          (is (true? (:implicit-return? public)))
+          (is (false? (:public? private)))
+          (is (false? (:export? private)))
+          (is (true? (:implicit-return? private)))
+          (is (true? (:private (meta (ns-resolve module-ns
+                                                  'increment-private)))))
+          (is (true? (:public? exported)))
+          (is (true? (:export? exported)))
+          (is (str/includes? standalone-source "pub fn increment("))
+          (is (not (str/includes? standalone-source
+                                  "export fn increment(")))
+          (is (str/includes? standalone-source "fn increment_private("))
+          (is (not (str/includes? standalone-source
+                                  "pub fn increment_private(")))
+          (is (str/includes? standalone-source "pub export fn exported(")))
+        (finally
+          (remove-ns module-symbol))))))
+
 (deftest native-process-main-host-test
   (testing "a std.process.Init main runs in the JVM and shares live native state"
     (let [old-config (az/configuration)
@@ -156,8 +200,8 @@
         (finally
           (az/configure! old-config))))))
 
-(deftest non-exported-var-is-lazily-callable-and-cached-test
-  (testing "an ordinary Clojure Var materializes one development trampoline"
+(deftest private-var-is-lazily-callable-and-cached-test
+  (testing "a private Clojure Var materializes one development trampoline"
     (let [old-config (az/configuration)
           test-symbol (symbol (str "aguafria.lazy-var-" fixture-suffix))
           test-ns (create-ns test-symbol)]
@@ -166,14 +210,14 @@
         (binding [*ns* test-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
-          (eval '(az/defn twice
-                   {:attrs #{:public :implicit-return}}
+          (eval '(az/defn- twice
                    :- :i32
                    [value :- :i32]
                    (* value 2))))
         (let [twice (ns-resolve test-ns 'twice)
               before (:requested-generation (az/module-info test-symbol))]
           (is (var? twice))
+          (is (true? (:private (meta twice))))
           (is (= 42 (twice 21)))
           (let [after-first (:requested-generation
                              (az/module-info test-symbol))]
@@ -206,7 +250,6 @@
                      (az/block (ak/return (az/error-value NoValue))))
                    (ak/return 42)))
           (eval '(az/defn utf8-size
-                   {:attrs #{:public :implicit-return}}
                    :- :usize
                    [[value [:slice-const :u8]]]
                    (az/field value len))))
@@ -239,12 +282,10 @@
           (alias 'az 'aguafria.zig)
           (eval '(az/defconst wide :u56 283686952306183))
           (eval '(az/defn identity-wide
-                   {:attrs #{:public :implicit-return}}
                    :- :u56
                    [value :- :u56]
                    value))
           (eval '(az/defn identity-u64
-                   {:attrs #{:public :implicit-return}}
                    :- :u64
                    [value :- :u64]
                    value)))
@@ -329,7 +370,6 @@
                    [:slice-const :u24]
                    (& [1 2])))
           (eval '(az/defn missing-value
-                   {:attrs #{:public :implicit-return}}
                    :- [:error-union [:error-set [NoValue]] :u24]
                    []
                    (az/error-value NoValue)))
@@ -386,18 +426,15 @@
                    [[:items [:optional [:slice-const [:optional :u24]]]]
                     [:counts [:array 2 [:optional :u24]]]]))
           (eval '(az/defn echo-nested-items
-                   {:attrs #{:public :implicit-return}}
                    :- [:optional [:slice-const [:optional :u24]]]
                    [items :- [:optional [:slice-const [:optional :u24]]]]
                    items))
           (eval '(az/defn maybe-nested-result
-                   {:attrs #{:public :implicit-return}}
                    :- [:error-union [:error-set [NoValue]]
                        [:optional :u24]]
                    [fail :- :bool]
                    (if fail (az/error-value NoValue) nil)))
           (eval '(az/defn echo-nested-results
-                   {:attrs #{:public :implicit-return}}
                    :- [:array 2
                        [:error-union [:error-set [NoValue]]
                         [:optional :u24]]]
@@ -463,7 +500,6 @@
                    Flags
                    (Flags {:enabled false :opcode 0 :reserved 0})))
           (eval '(az/defn identity-flags
-                   {:attrs #{:public :implicit-return}}
                    :- Flags
                    [flags :- Flags]
                    flags)))
@@ -518,7 +554,6 @@
                    Point
                    (Point {:x 0 :y 0.0 :enabled 1})))
           (eval '(az/defn identity-point
-                   {:attrs #{:public :implicit-return}}
                    :- Point
                    [point :- Point]
                    point)))
@@ -561,12 +596,10 @@
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
           (eval '(az/defn identity-array
-                   {:attrs #{:public :implicit-return}}
                    :- [:array 3 :u24]
                    [values :- [:array 3 :u24]]
                    values))
           (eval '(az/defn identity-vector
-                   {:attrs #{:public :implicit-return}}
                    :- [:vector 4 :i16]
                    [values :- [:vector 4 :i16]]
                    values)))
@@ -609,7 +642,6 @@
                    [[:inner Inner]
                     [:tail :u4]]))
           (eval '(az/defn identity-outer
-                   {:attrs #{:public :implicit-return}}
                    :- Outer
                    [value :- Outer]
                    value)))
@@ -653,7 +685,6 @@
                     (az/enum-field-decl stopped))))
           (eval '(az/defconst default-mode Mode :.running))
           (eval '(az/defn identity-mode
-                   {:attrs #{:public :implicit-return}}
                    :- Mode
                    [mode :- Mode]
                    mode)))
@@ -694,7 +725,6 @@
                     (az/field-decl x :i32)
                     (az/field-decl y :f64))))
           (eval '(az/defn identity-point
-                   {:attrs #{:public :implicit-return}}
                    :- Point
                    [point :- Point]
                    point)))
@@ -734,7 +764,6 @@
                     (az/field-decl floating :f64)
                     (az/field-decl none :void))))
           (eval '(az/defn identity-value
-                   {:attrs #{:public :implicit-return}}
                    :- Value
                    [value :- Value]
                    value)))
@@ -773,7 +802,6 @@
                    [[:count [:optional :u32]]
                     [:ratio [:optional :f64]]]))
           (eval '(az/defn identity-maybe-values
-                   {:attrs #{:public :implicit-return}}
                    :- MaybeValues
                    [value :- MaybeValues]
                    value)))
@@ -808,7 +836,6 @@
           (alias 'az 'aguafria.zig)
           (eval '(az/defconst default-optional [:optional :u32] 42))
           (eval '(az/defn identity-optional
-                   {:attrs #{:public :implicit-return}}
                    :- [:optional :u32]
                    [value :- [:optional :u32]]
                    value)))
@@ -841,12 +868,10 @@
           (alias 'az 'aguafria.zig)
           (eval '(az/defvar pointed :i32 42))
           (eval '(az/defn pointed-address
-                   {:attrs #{:public :implicit-return}}
                    :- [:* :i32]
                    []
                    (& pointed)))
           (eval '(az/defn read-pointed
-                   {:attrs #{:public :implicit-return}}
                    :- :i32
                    [pointer :- [:* :i32]]
                    (az/deref pointer))))
@@ -880,7 +905,6 @@
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
           (eval '(az/defn echo-slice
-                   {:attrs #{:public :implicit-return}}
                    :- [:slice-const :u24]
                    [items :- [:slice-const :u24]]
                    items))
@@ -915,12 +939,10 @@
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
           (eval '(az/defn maybe-value
-                   {:attrs #{:public :implicit-return}}
                    :- [:error-union [:error-set [NoValue]] :u24]
                    [fail :- :bool]
                    (if fail (az/error-value NoValue) 66051)))
           (eval '(az/defn echo-result
-                   {:attrs #{:public :implicit-return}}
                    :- [:error-union [:error-set [NoValue]] :u24]
                    [result :- [:error-union [:error-set [NoValue]] :u24]]
                    result))
@@ -968,7 +990,6 @@
                    {:layout :packed :attrs #{:public}}
                    [[:value :u8]]))
           (eval '(az/defn identity-payload
-                   {:attrs #{:public :implicit-return}}
                    :- Payload
                    [payload :- Payload]
                    payload)))
@@ -978,7 +999,6 @@
         (let [old-generation (:generation (az/value-info @old-value))]
           (binding [*ns* test-ns]
             (eval '(az/defn identity-payload
-                     {:attrs #{:public :implicit-return}}
                      :- Payload
                      [payload :- Payload]
                      (if true payload payload))))
@@ -1150,7 +1170,6 @@
           (eval '(az/defvar running :bool true))
           (eval '(az/defvar observed :i32 0))
           (eval '(az/defn logic
-                   {:attrs #{:public :implicit-return}}
                    :- :i32 [] 1))
           (eval '(az/defn observed-value :- :i32 [] observed))
           (eval '(az/defn stop :- :void [] (set! running false)))
@@ -1166,12 +1185,18 @@
         (is (= 1 (await-value 1)))
         (binding [*ns* test-ns]
           (eval '(az/defn logic
-                   {:attrs #{:public :implicit-return}}
                    :- :i32 [] 2)))
         (is (= 2 (await-value 2)))
+        ;; Returning to a previously compiled implementation must repoint the
+        ;; mutable host cell too. Its immutable library metadata also says
+        ;; "1", but the cell currently contains the hot "2" address.
+        (binding [*ns* test-ns]
+          (eval '(az/defn logic
+                   :- :i32 [] 1)))
+        (is (= 1 (await-value 1)))
         ((ns-resolve test-ns 'stop))
         (is (= 0 (:exit-code (host/await! @handle))))
-        (is (= 2 ((ns-resolve test-ns 'observed-value))))
+        (is (= 1 ((ns-resolve test-ns 'observed-value))))
         (finally
           (when (and @handle (:active? (host/info @handle)))
             (try
@@ -1700,7 +1725,7 @@
           (eval
            '(az/defn inline-base
               {:zig/prefix "pub inline"
-               :attrs #{:public :implicit-return}}
+               :attrs #{:public}}
               :- :i32
               [x :- :i32]
               (+ x 1)))
@@ -1717,7 +1742,7 @@
             (eval
              '(az/defn inline-base
                 {:zig/prefix "pub inline"
-                 :attrs #{:public :implicit-return}}
+                 :attrs #{:public}}
                 :- :i32
                 [x :- :i32]
                 (+ x 2))))
@@ -1751,7 +1776,6 @@
         (binding [*ns* generic-ns]
           (eval
            '(az/defn generic-add
-              {:attrs #{:public :implicit-return}}
               :- T
               [[T {:zig/prefix "comptime"} :type]
                [x T]]
@@ -1770,7 +1794,6 @@
           (binding [*ns* generic-ns]
             (eval
              '(az/defn generic-add
-                {:attrs #{:public :implicit-return}}
                 :- T
                 [[T {:zig/prefix "comptime"} :type]
                  [x T]]
@@ -1806,7 +1829,6 @@
         (binding [*ns* generic-ns]
           (eval
            '(az/defn generic-add
-              {:attrs #{:public :implicit-return}}
               :- T
               [[T {:zig/prefix "comptime"} :type]
                [x T]]
@@ -1875,7 +1897,6 @@
         (binding [*ns* generic-ns]
           (eval
            '(az/defn fanout-add
-              {:attrs #{:public :implicit-return}}
               :- T
               [[T {:zig/prefix "comptime"} :type]
                [x T]]
@@ -1887,7 +1908,6 @@
             (alias alias-name generic-symbol)
             (eval
              (list 'az/defn function-name
-                   {:attrs #{:public :implicit-return}}
                    ':- 'T
                    '[[T {:zig/prefix "comptime"} :type]
                      [x T]]
@@ -2330,7 +2350,6 @@
           (alias 'az 'aguafria.zig)
           (eval
            '(az/defn ColorType
-              {:attrs #{:public :implicit-return}}
               :- :type
               []
               (az/container
@@ -2941,7 +2960,7 @@
           (eval '(az/defn write-counter :- :void
                    [value :- :i32]
                    (az/assign "=" counter value)))
-          (eval '(az/defn migrate-counter :- :void
+          (eval '(az/defn migrate-counter {:attrs #{:export}} :- :void
                    [old-address :- :usize new-address :- :usize]
                    (ak/const old-value [:*const :i32]
                      (ak/ptrFromInt old-address))
@@ -3249,7 +3268,7 @@
           ;; It is explicitly reevaluated after the type break so the user,
           ;; rather than automatic propagation, chooses the migration edge.
           (eval
-           '(az/defn migrate-options :- :void
+           '(az/defn migrate-options {:attrs #{:export}} :- :void
               [old-address :- :usize new-address :- :usize]
               (ak/const old-options [:*const OldOptions]
                 (ak/ptrFromInt old-address))
@@ -3273,7 +3292,7 @@
            '(az/defvar options (types/OptionsType)
               (az/object [[:value 11]])))
           (eval
-           '(az/defn migrate-options :- :void
+           '(az/defn migrate-options {:attrs #{:export}} :- :void
               [old-address :- :usize new-address :- :usize]
               (ak/const old-options [:*const OldOptions]
                 (ak/ptrFromInt old-address))
@@ -3363,7 +3382,7 @@
         ;; publish while the new state capsule is deliberately blocked; only
         ;; `migrate-state!` is allowed to make that layout reachable.
         (binding [*ns* test-ns]
-          (eval '(az/defn migrate-struct-state :- :void
+          (eval '(az/defn migrate-struct-state {:attrs #{:export}} :- :void
                    [old-address :- :usize new-address :- :usize]
                    (ak/const old-state [:*const OldCounterState]
                      (ak/ptrFromInt old-address))
@@ -3441,6 +3460,78 @@
           (az/configure! old-config)
           (remove-ns b-symbol)
           (remove-ns a-symbol))))))
+
+(deftest async-cross-namespace-defvar-publication-test
+  (testing "an async caller compiled before its state owner joins the canonical capsule"
+    (let [old-config (az/configuration)
+          suffix (str fixture-suffix "-async")
+          a-symbol (symbol (str "aguafria.async-state-a-" suffix))
+          b-symbol (symbol (str "aguafria.async-state-b-" suffix))
+          a-ns (create-ns a-symbol)
+          b-ns (create-ns b-symbol)]
+      (try
+        (az/configure! {:async? true :modules {}})
+        (doseq [target [a-ns b-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* a-ns]
+          (eval '(az/defvar counter :i32 1))
+          (eval '(az/defn write-a :- :void
+                   [[value :i32]]
+                   (set! counter value))))
+        (binding [*ns* b-ns]
+          (alias 'a a-symbol)
+          (eval '(az/defn write-via-a-then-read-b :- :i32 []
+                   (a/write-a 9)
+                   a/counter)))
+
+        (az/await! a-symbol)
+        (az/await! b-symbol)
+        (is (= 9 ((ns-resolve b-ns 'write-via-a-then-read-b))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol))))))
+
+(deftest async-caller-sees-newly-registered-provider-function-test
+  (testing "a caller facade includes functions registered after the provider's last publication"
+    (let [old-config (az/configuration)
+          suffix (str fixture-suffix "-async-function")
+          provider-symbol
+          (symbol (str "aguafria.async-function-provider-" suffix))
+          caller-symbol
+          (symbol (str "aguafria.async-function-caller-" suffix))
+          provider-ns (create-ns provider-symbol)
+          caller-ns (create-ns caller-symbol)]
+      (try
+        (az/configure! {:async? true :modules {}})
+        (doseq [target [provider-ns caller-ns]]
+          (binding [*ns* target]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)))
+        (binding [*ns* provider-ns]
+          (eval '(az/defn already-published :- :i32 [] 1)))
+        (az/await! provider-symbol)
+
+        ;; Registration is immediately inspectable while native publication
+        ;; happens asynchronously. The caller must derive its namespace
+        ;; facade from the registered declarations, not the provider's older
+        ;; published dispatch-spec subset.
+        (binding [*ns* provider-ns]
+          (eval '(az/defn newly-registered :- :i32 [] 42)))
+        (binding [*ns* caller-ns]
+          (alias 'provider provider-symbol)
+          (eval '(az/defn call-newly-registered :- :i32 []
+                   (provider/newly-registered))))
+
+        (az/await! provider-symbol)
+        (az/await! caller-symbol)
+        (is (= 42 ((ns-resolve caller-ns 'call-newly-registered))))
+        (finally
+          (az/configure! old-config)
+          (remove-ns caller-symbol)
+          (remove-ns provider-symbol))))))
 
 (deftest standalone-build-and-stats-test
   (let [artifact (az/build! 'aguafria.zig-integration-test

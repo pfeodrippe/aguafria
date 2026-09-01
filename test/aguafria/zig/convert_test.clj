@@ -48,6 +48,7 @@
       (is (not (str/includes? container-source obsolete)) obsolete))
     (is (str/includes? container-source ":attrs #{:public}"))
     (is (str/includes? container-source ":attrs #{:enum}"))
+    (is (str/includes? container-source ":explicit-return"))
     (is (not (str/includes? container-source ":attrs #{}")))
     (is (str/includes? container-source "(az/field-decl replica Replica)"))
     (is (re-find #"\)\n\n\(az/defconst" container-source))))
@@ -76,7 +77,7 @@
                       "test/fixtures/name_collisions.zig"
                       {:namespace 'fixture.name-collisions})]
     (is (zero? (:raw-declaration-count report)))
-    (is (= '[az/defn az/defn az/defn az/defn] (mapv first forms)))
+    (is (= '[az/defn- az/defn- az/defn az/defn-] (mapv first forms)))
     (is (= 'assert (second (nth forms 3))))
     (is (not (str/includes? clojure-source "assert-zig")))
     (is demo)
@@ -100,6 +101,19 @@
               (tree-seq coll? seq forms)))
     (is (some #(and (seq? %) (= 'az/error-value (first %)))
               (tree-seq coll? seq forms)))
+    (is (:success? verification))))
+
+(deftest zig-primitive-values-use-real-keyword-vars-test
+  (let [path "test/fixtures/primitive_values.zig"
+        {:keys [clojure-source report]}
+        (convert/convert-file path {:namespace 'fixture.primitive-values})
+        verification (convert/verify-file
+                      path {:namespace 'fixture.primitive-values
+                            :mode :build-obj})]
+    (is (zero? (:fallback-count report)))
+    (is (str/includes? clojure-source "ak/undefined"))
+    (is (not (re-find #"(?<![A-Za-z0-9_./-])undefined(?![A-Za-z0-9_./-])"
+                      clojure-source)))
     (is (:success? verification))))
 
 (deftest zig-for-and-errdefer-are-structural-test
@@ -220,6 +234,16 @@
                               (:namespace math-report) "\");")))
       (is (str/includes? zig-source "math.double(math.double(value))")))))
 
+(deftest restored-public-module-import-keeps-zig-file-spelling-test
+  (let [module-imports
+        {"fixture.main"
+         {"math" {:namespace "fixture.math"
+                  :import-name "math.zig"}}}
+        source "pub const math = @import(\"fixture.math\");\n"]
+    (is (= "pub const math = @import(\"math.zig\");\n"
+           (#'convert/restore-module-imports
+            module-imports "fixture.main" source)))))
+
 (deftest build-generated-option-modules-are-captured-and-used-test
   (testing "Zig configure data becomes self-contained EDN and needs no manual module path"
     (let [input "test/fixtures/build_options_project"
@@ -236,9 +260,14 @@
           report (convert/convert-tree!
                   input output
                   {:namespace-prefix namespace-prefix
+                   :source-module-build-profiles [["alternate"]]
                    :overwrite? true})
           root-report
           (some #(when (= "src/root.zig" (:relative-path %)) %) (:files report))
+          optional-report
+          (some #(when (= "src/optional_module.zig" (:relative-path %)) %)
+                (:files report))
+          root-source (some-> root-report :output-path slurp)
           catalog (edn/read-string (slurp (:catalog-path report)))
           captured-module
           (get-in catalog [:modules (str (:namespace root-report))
@@ -257,6 +286,18 @@
                      [:modules-by-path "src/root.zig" "build_options"])
              "pub const answer: u32 = 99;"))
         (is (= 2 (:generated-module-count report)))
+        (is (= [["alternate"]]
+               (:source-module-build-profiles report)))
+        (is (re-find
+             (re-pattern
+              (str "\\[" (java.util.regex.Pattern/quote (str namespace-prefix))
+                   "\\.src\\.optional-module :as module-optional-[^]]+\\]"))
+             root-source))
+        (is (re-find
+             #"\(if \(az/field build_options use_optional\) module-optional-[^)]+\)"
+             root-source))
+        (is (not (str/includes? root-source "(ak/This)")))
+        (is (not (str/includes? root-source "(ak/import \"optional\")")))
         (is (= 2 (:generated-module-path-value-count report)))
         (is (= 2 (:generated-module-bundled-path-count report)))
         (is (= 2 (:generated-module-bundled-file-count report)))
@@ -277,6 +318,7 @@
                       (some #(when (= "tool_path" (:name %)) %)
                             (:paths captured-module)))))))
         (runtime/configure! {:async? false :modules {}})
+        (convert/load-converted! (:output-path optional-report))
         (convert/load-converted! (:output-path root-report))
         (runtime/recompile! (:namespace root-report))
         (let [answer (ns-resolve (the-ns (:namespace root-report)) 'answer)
@@ -322,7 +364,8 @@
               "named build modules should be dependencies only of importers"))
         (finally
           (runtime/configure! old-config)
-          (when root-report (remove-ns (:namespace root-report))))))))
+          (when root-report (remove-ns (:namespace root-report)))
+          (when optional-report (remove-ns (:namespace optional-report))))))))
 
 (deftest compiler-provided-import-is-an-ordinary-module-var-test
   (let [path "test/fixtures/compiler_import.zig"

@@ -107,7 +107,6 @@
 
 (az/defn load-model!
   "Load one prepacked GLB triangle stream into bounded native storage."
-  {:export false}
   :-
   :bool
   [[slot :usize]
@@ -177,7 +176,6 @@
 
 (az/defn write-instance!
   "Project one 3D Kenney mesh through a fixed orthographic isometric camera."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer GpuVertex]]
@@ -242,7 +240,6 @@
 
 (az/defn write-tinted-instance!
   "Submit a Kenney mesh while tinting its baked palette for Recife façades."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer GpuVertex]]
@@ -270,7 +267,6 @@
 
 (az/defn write-particle!
   "Project one live Box3D particle using the Kenney coconut mesh."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer GpuVertex]]
@@ -301,7 +297,6 @@
 
 (az/defn append-physics!
   "Append every active Box3D particle to the shared mapped frame batch."
-  {:export false}
   :-
   :usize
   [[output [:c-pointer GpuVertex]]
