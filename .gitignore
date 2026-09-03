@@ -1,4 +1,6 @@
 .aguafria/
+.clj-kondo/.cache/
+resources/clj-kondo.exports/**/.cache/
 .m2/
 .cpcache/
 .nrepl-port

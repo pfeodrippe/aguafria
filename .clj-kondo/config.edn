@@ -1,0 +1,2 @@
+{:config-paths
+ ["../resources/clj-kondo.exports/io.github.pfeodrippe/aguafria-macos-aarch64"]}

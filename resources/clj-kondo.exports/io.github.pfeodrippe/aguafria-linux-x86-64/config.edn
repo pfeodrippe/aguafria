@@ -1,0 +1,25 @@
+{:min-clj-kondo-version "2023.04.14"
+ :hooks
+ {:analyze-call
+  {aguafria.zig/defn hooks.aguafria/function-declaration
+   aguafria.zig/defn- hooks.aguafria/function-declaration
+   aguafria.zig/defconst hooks.aguafria/top-level-declaration
+   aguafria.zig/defvar hooks.aguafria/top-level-declaration
+   aguafria.zig/defstruct hooks.aguafria/top-level-declaration
+   aguafria.zig/defimport hooks.aguafria/import-declaration
+   aguafria.zig/defraw hooks.aguafria/top-level-declaration
+   aguafria.zig/deffield hooks.aguafria/top-level-declaration
+   aguafria.zig/defcomptime hooks.aguafria/top-level-declaration
+   aguafria.zig/defextern hooks.aguafria/function-declaration
+   aguafria.zig/defexternvar hooks.aguafria/top-level-declaration
+   aguafria.zig/deftest hooks.aguafria/test-declaration
+   aguafria.zig/cast hooks.aguafria/cast
+   aguafria.zig/field hooks.aguafria/field-access
+   aguafria.zig/field-decl hooks.aguafria/field-declaration
+   aguafria.zig/enum-field-decl hooks.aguafria/field-declaration
+   aguafria.zig/object hooks.aguafria/object-literal
+   aguafria.zig/identifier-literal hooks.aguafria/identifier-literal
+   aguafria.zig/error-value hooks.aguafria/identifier-literal}}
+ :linters
+ {:unresolved-var
+  {:exclude [aguafria.keyword aguafria.std aguafria.zig]}}}

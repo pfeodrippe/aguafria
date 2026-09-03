@@ -1,6 +1,5 @@
 (ns aguafria-http.server
   "A small native HTTP server whose ordinary Zig functions stay live in nREPL."
-  (:refer-clojure :exclude [run!])
   (:require [aguafria.pkg]
             [aguafria.pkg.uuid :as uuid]
             [aguafria.keyword :as ak]
