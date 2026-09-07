@@ -1,4 +1,7 @@
 {:paths ["src" "resources" "generated"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
-        aguafria/aguafria {:local/root "../.."}}}
-
+        aguafria/aguafria {:local/root "../.."}}
+ :aliases
+ {:dev
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"]}}}

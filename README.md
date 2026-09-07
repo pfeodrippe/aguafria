@@ -132,7 +132,7 @@ introduce a second runtime abstraction:
 | --- | --- |
 | `(f a b)` | function call |
 | `(let [x 1] ...)` | immutable local by default |
-| `^{:var true :zig/type :i32} x` | typed mutable local |
+| `^{:var :i32} x` | typed mutable local; equivalent to `^{:var true :zig/type :i32}` |
 | `if`, `when`, `cond` | Zig control flow |
 | `while`, `doseq` | Zig loops |
 | `set!` | assignment |

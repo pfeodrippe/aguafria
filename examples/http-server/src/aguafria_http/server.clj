@@ -20,13 +20,6 @@
 
 (az/defvar requests-served :u64 0)
 
-(az/defn response-body
-  "This is ordinary application logic. Edit its string and evaluate this form."
-  :-
-  [:slice-const :u8]
-  []
-  "Hello from live Aguafria Zig!\n")
-
 (az/defn serve-connection!
   {:zig/qualifiers "!"}
   :-
@@ -34,8 +27,8 @@
   [[stream net/Stream]
    [io aguafria.std/Io]]
   (ak/defer (net-stream/close (ak/& stream) io))
-  (let [^{:var true :zig/type [:array 4096 :u8]} read-buffer ak/undefined
-        ^{:var true :zig/type [:array 4096 :u8]} write-buffer ak/undefined
+  (let [^{:var [:array 4096 :u8]} read-buffer ak/undefined
+        ^{:var [:array 4096 :u8]} write-buffer ak/undefined
         ^:var reader (net-stream/reader stream io (ak/& read-buffer))
         ^:var writer (net-stream/writer stream io (ak/& write-buffer))
         ^:var server
@@ -48,7 +41,7 @@
     (ak/try
      (http-request/respond
       (ak/& request)
-      (response-body)
+      "Hello from live Aguafria Zig!\n"
       {:keep_alive false
        :extra_headers (ak/& [{:name "x-request-id"
                               :value (az/slice request-id-text 0)}])}))

@@ -192,6 +192,28 @@
                         #"expects at least two operands"
                         (emit/emit-expr '(== 1)))))
 
+(deftest mutable-binding-type-shorthand-test
+  (doseq [type [:i32 [:array 4096 :u8] 'Point [:* 'Point]]
+          emit-form [emit/emit-stmt emit/emit-expr]]
+    (let [form (fn [metadata]
+                 (list 'let [(with-meta 'buffer metadata) 'ak/undefined]
+                       'buffer))]
+      (is (= (emit-form (form {:var true :zig/type type}))
+             (emit-form (form {:var type})))
+          (str "Equivalent mutable type syntax for " type))))
+  (is (str/includes?
+       (emit/emit-stmt '(let [^{:var [:array 4096 :u8]} buffer ak/undefined]
+                         (set! (az/index buffer 0) 42)))
+       "var buffer: [4096]u8 = undefined;"))
+  (testing "boolean mutability retains inference and explicit types take precedence"
+    (is (str/includes? (emit/emit-stmt '(let [^:var value 1] value))
+                       "var value = 1;"))
+    (is (str/includes? (emit/emit-stmt '(let [^{:var false} value 1] value))
+                       "const value = 1;"))
+    (is (str/includes?
+         (emit/emit-stmt '(let [^{:var :u8 :zig/type :u16} value 1] value))
+         "var value: u16 = 1;"))))
+
 (deftest statement-emission-test
   (is (= "const answer: i32 = 42;"
          (emit/emit-stmt '(const answer :i32 42))))

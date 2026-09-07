@@ -1524,9 +1524,11 @@
 
 (defn- let-local-form
   [[binding value]]
-  (let [kind (if (:var (meta binding)) 'var 'const)
-        type (or (:zig/type (meta binding))
-                 (:tag (meta binding)))]
+  (let [{:keys [var] :as metadata} (meta binding)
+        kind (if var 'var 'const)
+        type (or (:zig/type metadata)
+                 (when-not (boolean? var) var)
+                 (:tag metadata))]
     (if type
       (list kind binding type value)
       (list kind binding value))))

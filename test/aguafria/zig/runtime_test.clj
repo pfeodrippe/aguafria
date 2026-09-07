@@ -434,11 +434,15 @@
                   :body [(list 'let [(local metadata) 1] 'local)])))
         inferred (declaration {})
         mutable (declaration {:var true})
-        typed (declaration {:zig/type :i32})]
+        typed (declaration {:zig/type :i32})
+        shorthand (declaration {:var :i32})
+        wider-shorthand (declaration {:var :i64})]
     (testing "const/var and local type edits retain the callable ABI"
       (is (= (:abi-fingerprint inferred)
              (:abi-fingerprint mutable)
-             (:abi-fingerprint typed))))
+             (:abi-fingerprint typed)
+             (:abi-fingerprint shorthand)
+             (:abi-fingerprint wider-shorthand))))
     (testing "metadata read by the emitter changes implementation/source identity"
       (is (not= (:implementation-fingerprint inferred)
                 (:implementation-fingerprint mutable)))
@@ -447,7 +451,11 @@
       (is (not= (:source-fingerprint inferred)
                 (:source-fingerprint mutable)))
       (is (not= (:source-fingerprint inferred)
-                (:source-fingerprint typed))))))
+                (:source-fingerprint typed)))
+      (is (not= (:implementation-fingerprint shorthand)
+                (:implementation-fingerprint wider-shorthand)))
+      (is (not= (:source-fingerprint shorthand)
+                (:source-fingerprint wider-shorthand))))))
 
 (deftest bounded-module-source-cache-reuses-and-invalidates-plans-test
   (let [cache (var-get #'aguafria.zig.runtime/module-source-cache)

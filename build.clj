@@ -236,10 +236,14 @@
                               artifacts)]
       (let [home (str target-dir "/verify-home")
             expression
-            (str "(require '[aguafria.zig :as az])"
+            (str "(require '[aguafria.zig :as az] '[aguafria.keyword :as ak])"
                  "(eval '(az/defn release-smoke :- :i64 "
                  "[a :- :i64 b :- :i64 c :- :i64] (+ (* a b) c)))"
                  "(assert (= 47 ((resolve 'user/release-smoke) 6 7 5)))"
+                 "(eval '(az/defn release-primitive-smoke :- :u8 [] "
+                 "(let [^{:var true :zig/type [:array 1 :u8]} buffer ak/undefined] "
+                 "(set! (az/index buffer 0) 42) (az/index buffer 0))))"
+                 "(assert (= 42 ((resolve 'user/release-primitive-smoke))))"
                  "(assert (= \"" zig-version
                  "\" (:zig-version (az/toolchain-information))))"
                  "(println :embedded-zig-smoke-ok)"

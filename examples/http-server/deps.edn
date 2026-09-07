@@ -1,10 +1,15 @@
 {:paths ["src" "resources"]
 
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
-        io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.6"}}
+        io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.7"}}
 
  :aliases
- {:prepare-packages
+ {:dev
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
+              "-Daguafria.async-compile=true"
+              "-Daguafria.optimize=ReleaseFast"]}
+
+  :prepare-packages
   {:exec-fn aguafria.zig.package/prepare!
    :exec-args {:config "aguafria-packages.edn"
                :output "resources/aguafria/zig-packages.edn"}}
