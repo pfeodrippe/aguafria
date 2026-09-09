@@ -1,0 +1,10 @@
+/.aguafria/
+/.cpcache/
+/.clj-kondo/.cache/
+/.lsp/
+/.nrepl-port
+/build/
+/generated/
+/resources/demo/
+/resources/shaders/*.spv
+.DS_Store

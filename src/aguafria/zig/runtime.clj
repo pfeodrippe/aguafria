@@ -1323,9 +1323,13 @@
     (if-let [pending (seq pending)]
       (let [value (first pending)
             pending (next pending)]
-        (recur (if (coll? value)
-                 (reduce conj pending value)
-                 pending)
+        (recur (cond
+                 (coll? value) (reduce conj pending value)
+                 ;; Binding types are emitted code too, including ^{:var T}.
+                 ;; Do not traverse unrelated metadata (source forms, docs, etc.).
+                 (symbol? value) (reduce conj pending
+                                        (vals (select-keys (meta value) [:var :zig/type :tag])))
+                 :else pending)
                (conj! values value)))
       (persistent! values))))
 
@@ -1756,7 +1760,7 @@
 
 (defn- declaration-named-module-imports
   [declarations]
-  (->> (tree-seq coll? seq declarations)
+  (->> (nested-form-values declarations)
        (keep (fn [value]
                (cond
                  (symbol? value)

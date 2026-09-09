@@ -3168,7 +3168,9 @@
            imports))
          imports))
      explicit
-     (tree-seq coll? seq declarations))))
+     (tree-seq #(or (coll? %) (and (symbol? %) (seq (select-keys (meta %) [:var :zig/type :tag]))))
+               #(if (coll? %) (seq %) (vals (select-keys (meta %) [:var :zig/type :tag])))
+               declarations))))
 
 (defn- synthesized-import-declarations
   ([declarations]

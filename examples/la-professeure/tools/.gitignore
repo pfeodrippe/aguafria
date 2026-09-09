@@ -1,0 +1,6 @@
+/.cpcache/
+/.aguafria/
+/.nrepl-port
+/build/
+__pycache__/
+*.pyc

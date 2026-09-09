@@ -1,6 +1,31 @@
 (ns aguafria.zig.runtime-test
   (:require [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.emitter :as emitter]
             [clojure.test :refer [deftest is testing]]))
+
+(deftest local-type-metadata-participates-in-hot-slices-test
+  (doseq [key [:var :zig/type :tag]]
+    (let [type-decl (runtime/declaration-info
+                    {:module "fixture.metadata" :kind :struct :name 'LocalType :declaration-key [:struct 'LocalType]
+                     :fields [{:name :value :type :i32}]})
+          caller (runtime/declaration-info
+                  {:module "fixture.metadata" :kind :fn :name 'caller :declaration-key [:fn 'caller]
+                   :args [] :return :void
+                   :body [(list 'let [(with-meta 'local {key 'LocalType :doc 'Ignored}) 'undefined]
+                                (list 'set! '_ 'local))]})
+          selected ((var-get #'runtime/declarations-live-slice) [type-decl caller] [caller])]
+      (is (= #{'LocalType 'caller} (set (map :name selected))) (str key))
+      (let [reference (with-meta 'package/RemoteType
+                        {:aguafria/zig-reference {:import-alias "package" :import-name "fixture.package"
+                                                 :import-namespace 'fixture.package}})
+            imports (emitter/declaration-imports
+                      [{:body [(list 'let [(with-meta 'local {key reference}) 'undefined] 'local)]}])]
+        (is (= 'fixture.package (get-in imports ["package" :namespace])) (str key)))
+      (let [reference (with-meta 'external/Type
+                        {:aguafria/zig-reference {:kind :import-member :import "external"}})]
+        (is (= ["external"]
+               ((var-get #'runtime/declaration-named-module-imports)
+                 [{:body [(with-meta 'local {key reference})]}])))))))
 
 (def ^:private function-declaration
   {:module "fixture.live"
