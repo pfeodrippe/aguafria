@@ -214,6 +214,36 @@
          (emit/emit-stmt '(let [^{:var :u8 :zig/type :u16} value 1] value))
          "var value: u16 = 1;"))))
 
+(deftest local-binding-metadata-qualifies-imported-types-test
+  (let [provider-symbol 'aguafria.emitter-local-type-provider
+        caller-symbol 'aguafria.emitter-local-type-caller
+        provider-ns (create-ns provider-symbol)
+        caller-ns (create-ns caller-symbol)]
+    (try
+      (intern provider-ns
+              (with-meta 'Point
+                {:aguafria/zig-reference
+                 {:kind :declaration :module (str provider-symbol)
+                  :zig-name "Point" :symbol (symbol (str provider-symbol) "Point")
+                  :type-reference? true}}) nil)
+      (binding [*ns* caller-ns] (alias 'provider provider-symbol))
+      (doseq [metadata [{:var [:array 8 'provider/Point]}
+                       {:var true :zig/type [:array 8 'provider/Point]}
+                       {:var true :tag [:array 8 'provider/Point]}]]
+        (let [declaration
+              (emit/prepare-declaration caller-ns
+                {:kind :fn :name 'use-points :args [] :return :void
+                 :body [(list 'let [(with-meta 'points metadata)
+                                    'aguafria.keyword/undefined]
+                              '(set! _ points))]})
+              ;; Emission occurs outside the original caller namespace.
+              source (emit/emit-declaration declaration)]
+          (is (str/includes? source "var points: [8]provider.Point = undefined;")
+              source)))
+      (finally
+        (remove-ns caller-symbol)
+        (remove-ns provider-symbol)))))
+
 (deftest statement-emission-test
   (is (= "const answer: i32 = 42;"
          (emit/emit-stmt '(const answer :i32 42))))

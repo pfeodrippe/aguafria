@@ -40,7 +40,7 @@
   [:clear :hazard-near :stunned :shielded])
 
 (def ^:private team-names
-  [:aurora :vortex :atlas :nova])
+  [:aurora :vortex :atlas :nova :comet :apex :zenith :orbit :pulse :eclipse])
 
 (def ^:private team-action-names
   [:stay-out :pit-driver-a :pit-driver-b])
@@ -55,7 +55,9 @@
    :collision-damage-reported
    :repair-stop-confirmed
    :repairs-complete-rejoining
-   :stay-out])
+   :stay-out
+   :retired-overturned
+   :retired-outside-supported-world])
 
 (defn decision-outcome
   "Causal one-second result aligned with a recorded decision."
@@ -119,7 +121,7 @@
 (defn capture-replay
   "Capture the currently retained accepted intents in deterministic install order."
   []
-  (->> (range 8)
+  (->> (range (az/value simulation/racer-count))
        (mapcat #(decision-logs % telemetry/entries-per-racer
                                {:include-raw? true}))
        (filter (every-pred :valid :accepted))
@@ -415,10 +417,42 @@
     (inference/unload-model!))
   :stopped)
 
+(defn recovery-status
+  "Measured low-level manoeuvring state. This is the pedal/gear controller,
+  not an additional AI decision or a replacement for the driver's lane intent."
+  [racer-id]
+  (let [output (az/value (simulation/recovery-view racer-id))]
+    (assoc output :phase (get [:driving :reversing :braking :clearing :passing]
+                              (get-in output [:state :phase]) :unknown))))
+
+(defn turnaround-status
+  "Actual post-spin gear, pedals and turning state. Does not reset the race."
+  [racer-id]
+  (az/value (simulation/turnaround-view racer-id)))
+
+(defn lap-times
+  "Actual simulation seconds including pits/incidents, not distance/speed
+  estimates. Nil last/best means no full lap has been measured. A live timer
+  attached mid-race marks the current interval partial until the next crossing."
+  [racer-id]
+  (let [entry (az/value (simulation/lap-timing-view racer-id))]
+    {:lap (:lap entry)
+     :measured-laps (:samples entry)
+     :current-seconds (when (:started entry)
+                        (/ (- (:observed_tick entry) (:start_tick entry)) 120.0))
+     :current-complete? (:complete_start entry)
+     :last-seconds (when (pos? (:samples entry)) (/ (:last_ticks entry) 120.0))
+     :best-seconds (when (pos? (:samples entry)) (/ (:best_ticks entry) 120.0))
+     :terminal? (:terminal entry)}))
+
 (defn racers
   []
-  (->> (range 8)
-       (mapv (comp az/value simulation/racer-view))
+  (->> (range (az/value simulation/racer-count))
+       (mapv (fn [id]
+               (assoc (az/value (simulation/racer-view id))
+                      :retirement (az/value (simulation/retirement-view id))
+                      :recovery (recovery-status id)
+                      :lap-times (lap-times id))))
        (sort-by :rank)
        vec))
 
@@ -482,7 +516,7 @@
   "Inspect all eight private racer observations without exposing more world
   state to any native agent."
   []
-  (mapv observation (range 8)))
+  (mapv observation (range (az/value simulation/racer-count))))
 
 (defn teams
   "Inspect all four Flecs-owned teams and their two fixed drivers."
@@ -490,7 +524,7 @@
   (mapv (fn [team-id]
           (assoc (az/value (simulation/team-view team-id))
                  :name (nth team-names team-id)))
-        (range 4)))
+        (range (az/value simulation/team-count))))
 
 (defn set-live-slowdown!
   "Set the live AI race slowdown (1x through 20x). Rendering stays responsive;
@@ -515,17 +549,20 @@
                :as entry}
               (az/value (simulation/team-radio-entry team-id offset))
               driver? (= source simulation/radio-source-driver)
+              race-control? (= source simulation/radio-source-race-control)
               prompt (when (pos? (long prompt_byte_count))
                        (utf8-preview prompt_bytes prompt_byte_count))]
           (cond->
            (-> entry
                (assoc :team-name team-name
-                      :from (if driver? (keyword (str "racer-" target))
-                                (keyword (str (name team-name) "-strategist")))
+                      :from (cond race-control? :race-control
+                                  driver? (keyword (str "racer-" target))
+                                  :else (keyword (str (name team-name) "-strategist")))
                       :to (if driver? (keyword (str (name team-name) "-strategist"))
                               (keyword (str "racer-" target)))
                       :message (nth radio-messages code :unknown)
-                      :model-decision (nth team-action-names model_action :unknown)
+                      :model-decision (when (:model_accepted entry)
+                                        (nth team-action-names model_action :unknown))
                       :tire-percent (* 100.0 tire_condition)
                       :damage-percent (* 100.0 damage)
                       :latency-ms (/ latency_us 1000.0))
@@ -540,6 +577,45 @@
         (map-indexed (fn [team-id team-name]
                        [team-name (team-radio-history team-id)]))
         team-names))
+
+(defn language-driving!
+  "Queue opt-in ordinary-language driving for one racer on the frame thread.
+  This is experimental: model decision quality has NOT passed acceptance.
+  Enabling initially holds the car while awaiting its first valid plan."
+  [racer-id enabled?]
+  {:queued? (simulation/request-language-mode! racer-id (boolean enabled?))
+   :racer racer-id :enabled? (boolean enabled?)})
+
+(defn language-history
+  "Exact readable driver requests/replies, newest first. No encoded prompts or
+  token arrays. Timings are measured worker durations, not invented reasoning.
+  A busy/overwritten slot is omitted; refresh to retry. Team text is not wired yet.
+  The game's F2 Driver text history window shows these same native exchanges;
+  select a racer there to enable text driving, filter replies or pause updates."
+  ([] (language-history 16))
+  ([limit]
+   (let [end (long (simulation/language-exchange-count))
+         size (min 128 (max 0 (long limit)) end)]
+     (into []
+       (keep
+         (fn [sequence]
+           (let [{:keys [valid reason result]} (az/value (simulation/language-exchange-at sequence))]
+             (when valid
+               (let [{:keys [request generation queue_us inference_us total_us]} result
+                     reason-bytes (az/value (protocol/driving-plan-rejection reason))]
+                 {:sequence sequence :racer (:actor request) :race (:epoch request)
+                  :instructions (utf8-preview (:system_bytes request) (:system_byte_count request))
+                  :observation (utf8-preview (:prompt_bytes request) (:prompt_byte_count request))
+                  :reply (utf8-preview (:bytes generation) (:byte_count generation))
+                  :accepted? (zero? reason)
+                  :reason (utf8-preview reason-bytes (count reason-bytes))
+                  :complete? (and (:valid generation) (= 1 (:stop generation)))
+                  :generation-valid? (:valid generation) :generation-stop (:stop generation)
+                  :input-tokens (:input_tokens generation) :output-tokens (:output_tokens generation)
+                  :queue-ms (/ queue_us 1000.0) :inference-ms (/ inference_us 1000.0)
+                  :total-ms (/ total_us 1000.0)
+                  :observed-tick (:observed_tick request) :expires-tick (:expires_tick request)}))))
+         (range end (- end size) -1))))))
 
 (defn status
   []
@@ -580,8 +656,17 @@
   (hazards)
   (observation 0)
   (observations)
+  ;; Actual clock time, including stops. A mid-race attachment does not invent
+  ;; past lap times: :last-seconds stays nil until a whole lap is measured.
+  (lap-times 0)
   (teams)
   (all-team-radio-history)
+  ;; Opt-in plain-English DRIVER experiment. Team workers still use their old
+  ;; policy. Enabling holds until an actual valid reply; never promise good AI
+  ;; decisions merely because a response parses. No race reset or JVM restart.
+  (language-driving! 0 true)
+  (language-history 16)
+  (language-driving! 0 false)
   (configure-racer! 0 {:item :bolt :progress 0.20})
   (configure-intent! 0 {:item-action :use :target 1})
   (simulation/step!)

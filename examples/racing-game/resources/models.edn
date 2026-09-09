@@ -1,6 +1,8 @@
 {:default :granite-350m-q4-0
  :selection
- {:benchmark :aguafria-racing-model-bakeoff-v1
+ {:status :invalidated-pending-native-language-evaluation
+  :qualification "Historical head-classifier scores, not validated natural-language decisions. Native audit found double-transformed GGUF Mamba A, missing text pre-tokenization boundaries, and a fixed 350M embedding stride on the 1B path. Reevaluate corrected inference before model selection."
+  :benchmark :aguafria-racing-model-bakeoff-v1
   :engine :aguafria-zig-native
   :external-inference false
   :selected :granite-350m-q4-0
@@ -64,6 +66,42 @@
    :sha256 "7adb3d5765ad12b83b1c08a90746d8925af718545b4a36287e8dac8f83b72ab6"
    :license :apache-2.0
    :url "https://huggingface.co/ibm-granite/granite-4.0-h-350m-GGUF/resolve/main/granite-4.0-h-350m-Q4_0.gguf"}
+
+  :granite-350m-q6-k
+  {:architecture :granitemoehybrid
+   :candidate true
+   :purpose :native-language-quantization-audit
+   :repository "ibm-granite/granite-4.0-h-350m-GGUF"
+   :revision "a864f823cce6e6048b5752e2816fe7a23987d790"
+   :filename "granite-4.0-h-350m-Q6_K.gguf"
+   :bytes 283855648
+   :sha256 "dc6509305c03b143f419f9eae7cc6bbeffa67c9e82b5a5ed661ba2aa517d3860"
+   :license :apache-2.0
+   :url "https://huggingface.co/ibm-granite/granite-4.0-h-350m-GGUF/resolve/a864f823cce6e6048b5752e2816fe7a23987d790/granite-4.0-h-350m-Q6_K.gguf"}
+
+  :granite-h-micro-q6-k
+  {:architecture :granitehybrid
+   :candidate true
+   :purpose :native-language-quality-audit
+   :repository "ibm-granite/granite-4.0-h-micro-GGUF"
+   :revision "dc1dd2585fac18a78001c677d33ef8a7bbb7eb68"
+   :filename "granite-4.0-h-micro-Q6_K.gguf"
+   :bytes 2625027744
+   :sha256 "0643501c687665496304865a26d994cb2c079e146fe98bcc951af42410eac201"
+   :license :apache-2.0
+   :url "https://huggingface.co/ibm-granite/granite-4.0-h-micro-GGUF/resolve/dc1dd2585fac18a78001c677d33ef8a7bbb7eb68/granite-4.0-h-micro-Q6_K.gguf"}
+
+  :granite-1b-q6-k
+  {:architecture :granitehybrid
+   :candidate true
+   :purpose :native-language-quantization-audit
+   :repository "ibm-granite/granite-4.0-h-1b-GGUF"
+   :revision "c2cb1972f511add21f3bae244990b8ff3a3ffb23"
+   :filename "granite-4.0-h-1b-Q6_K.gguf"
+   :bytes 1205163488
+   :sha256 "93ef6ecaa8b5006153a3518d346a760f38a81607cfbf57c3a8140a0cac72b175"
+   :license :apache-2.0
+   :url "https://huggingface.co/ibm-granite/granite-4.0-h-1b-GGUF/resolve/c2cb1972f511add21f3bae244990b8ff3a3ffb23/granite-4.0-h-1b-Q6_K.gguf"}
 
   :granite-1b-q4-0
   {:architecture :granitehybrid

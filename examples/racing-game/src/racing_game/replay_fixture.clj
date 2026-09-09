@@ -28,7 +28,8 @@
     (.putShort buffer (short (count entries)))
     (.put buffer (byte protocol/observation-schema-version))
     (.put buffer (byte protocol/action-schema-version))
-    (.putShort buffer (short 0))
+    (.put buffer (byte (az/value simulation/racer-count)))
+    (.put buffer (byte (az/value simulation/team-count)))
     (.putLong buffer (unchecked-long protocol/model-fingerprint))
     (.putLong buffer (unchecked-long protocol/action-head-fingerprint))
     (doseq [entry entries]

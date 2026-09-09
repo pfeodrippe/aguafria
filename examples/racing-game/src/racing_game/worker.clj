@@ -12,11 +12,11 @@
             [racing-game.inference :as inference]
             [racing-game.protocol :as protocol]))
 
-(az/defconst actor-count :usize 12)
+(az/defconst actor-count :usize protocol/actor-count)
 
-(az/defconst racer-count :usize 8)
+(az/defconst racer-count :usize protocol/racer-count)
 
-(az/defconst team-count :usize 4)
+(az/defconst team-count :usize protocol/team-count)
 
 (az/defconst actor-kind-driver :u8 0)
 
@@ -123,32 +123,59 @@
    [:results :u64]
    [:idle_waits :u64]
    [:pending :u8]
-   [:requests_by_actor [:array 12 :u64]]
-   [:results_by_actor [:array 12 :u64]]
+   [:requests_by_actor [:array actor-count :u64]]
+   [:results_by_actor [:array actor-count :u64]]
    [:state_bytes :usize]])
 
-(az/defvar requests [:array 12 InferenceRequest]
-  (std-mem/zeroes (az/type [:array 12 InferenceRequest])))
+(az/defstruct LanguageRequest
+  "Ordinary words plus simulation-owned identity/deadline. No action head.
+  Fixed storage makes a submitted request immutable and independent of callers."
+  {:layout :extern}
+  [[:valid :bool] [:actor :u8] [:revision :u64] [:epoch :u64]
+   [:observed_tick :u64] [:expires_tick :u64] [:enqueue_seconds :f64]
+   [:system_byte_count :u16] [:prompt_byte_count :u16]
+   [:system_bytes [:array 160 :u8]] [:prompt_bytes [:array 160 :u8]]])
 
-(az/defvar request-revisions [:array 12 :u64]
-  (std-mem/zeroes (az/type [:array 12 :u64])))
+(az/defstruct LanguageResult
+  "A delivered reply, even when generation failed. Preserve the exact request,
+  output and timings. Generation validity/EOS is checked by the installer."
+  {:layout :extern}
+  [[:valid :bool] [:request LanguageRequest] [:generation inference/LanguageGeneration]
+   [:queue_us :u64] [:inference_us :u64] [:total_us :u64]])
 
-(az/defvar consumed-revisions [:array 12 :u64]
-  (std-mem/zeroes (az/type [:array 12 :u64])))
+(az/defvar language-requests [:array actor-count LanguageRequest]
+  (std-mem/zeroes (az/type [:array actor-count LanguageRequest])))
 
-(az/defvar results [:array 12 InferenceResult]
-  (std-mem/zeroes (az/type [:array 12 InferenceResult])))
+(az/defvar language-results [:array actor-count LanguageResult]
+  (std-mem/zeroes (az/type [:array actor-count LanguageResult])))
 
-(az/defvar result-revisions [:array 12 :u64]
-  (std-mem/zeroes (az/type [:array 12 :u64])))
+;; 0 empty, 1 queued, 2 computing, 3 complete, 4 reserved for copying.
+;; An unread reply cannot be overwritten by a subsequent request.
+(az/defvar language-mailbox-states [:array actor-count :u8]
+  (std-mem/zeroes (az/type [:array actor-count :u8])))
+
+(az/defvar requests [:array actor-count InferenceRequest]
+  (std-mem/zeroes (az/type [:array actor-count InferenceRequest])))
+
+(az/defvar request-revisions [:array actor-count :u64]
+  (std-mem/zeroes (az/type [:array actor-count :u64])))
+
+(az/defvar consumed-revisions [:array actor-count :u64]
+  (std-mem/zeroes (az/type [:array actor-count :u64])))
+
+(az/defvar results [:array actor-count InferenceResult]
+  (std-mem/zeroes (az/type [:array actor-count InferenceResult])))
+
+(az/defvar result-revisions [:array actor-count :u64]
+  (std-mem/zeroes (az/type [:array actor-count :u64])))
 
 (az/defvar worker-running :u8 0)
 
 (az/defvar worker-started :u8 0)
 
-(az/defvar worker-threads [:array 12 [:optional aguafria.std/Thread]]
+(az/defvar worker-threads [:array actor-count [:optional aguafria.std/Thread]]
   (std-mem/zeroes
-   (az/type [:array 12 [:optional aguafria.std/Thread]])))
+   (az/type [:array actor-count [:optional aguafria.std/Thread]])))
 
 (az/defvar worker-thread-count :u8 0)
 
@@ -156,15 +183,14 @@
 
 (az/defvar result-count :u64 0)
 
-(az/defvar request-counts [:array 12 :u64]
-  (std-mem/zeroes (az/type [:array 12 :u64])))
+(az/defvar request-counts [:array actor-count :u64]
+  (std-mem/zeroes (az/type [:array actor-count :u64])))
 
-(az/defvar result-counts [:array 12 :u64]
-  (std-mem/zeroes (az/type [:array 12 :u64])))
+(az/defvar result-counts [:array actor-count :u64]
+  (std-mem/zeroes (az/type [:array actor-count :u64])))
 
-(az/defvar sampler-states [:array 12 :u64]
-  (az/array-init [:array 12 :u64]
-                 [101 203 307 409 503 607 709 811 907 1009 1103 1201]))
+(az/defvar sampler-states [:array actor-count :u64]
+  (std-mem/zeroes (az/type [:array actor-count :u64])))
 
 (az/defvar idle-wait-count :u64 0)
 
@@ -198,6 +224,75 @@
         duration (std-mem/zeroes (az/type std-c/timespec))]
     (set! (az/field duration nsec) 500000)
     (set! _ (std-c/nanosleep (ak/& duration) null))))
+
+(az/defn submit-language!
+  "Nonblocking bounded handoff. Busy actors retain their current request/result;
+  this call never invokes inference and never changes a simulation body."
+  :- :bool [[request LanguageRequest]]
+  (let [actor (ak/as :usize (az/field request actor))]
+    (when (or (>= actor actor-count) (ak/! (az/field request valid))
+              (ak/== (az/field request revision) 0)
+              (ak/== (az/field request system_byte_count) 0)
+              (> (az/field request system_byte_count) 160)
+              (ak/== (az/field request prompt_byte_count) 0)
+              (> (az/field request prompt_byte_count) 160)
+              (<= (az/field request expires_tick) (az/field request observed_tick))
+              (ak/== (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0))
+      (ak/return false))
+    (let [state (ak/& (az/index language-mailbox-states actor))]
+      (when (ak/!= (ak/cmpxchgStrong :u8 state 0 4 :.acq_rel :.acquire) ak/null)
+        (ak/return false))
+      (set! (az/index language-requests actor) request)
+      (set! (az/field (az/index language-requests actor) enqueue_seconds) (monotonic-seconds))
+      (set! _ (ak/atomicRmw :u64 (ak/& request-count) :.Add 1 :.monotonic))
+      (set! _ (ak/atomicRmw :u64 (ak/& (az/index request-counts actor)) :.Add 1 :.monotonic))
+      (ak/atomicStore :u8 state 1 :.release))
+    true))
+
+(az/defn- process-language-request!
+  "One actor's worker exclusively owns that actor's model sequence. Readable
+  and legacy requests share the same thread, never concurrent model state."
+  :- :bool [[actor :usize]]
+  (let [state (ak/& (az/index language-mailbox-states actor))]
+    (when (ak/!= (ak/cmpxchgStrong :u8 state 1 2 :.acq_rel :.acquire) ak/null)
+      (ak/return false))
+    (let [request (az/index language-requests actor)
+          started (monotonic-seconds)
+          generation (inference/generate-language-with-system! actor
+                       (ak/& (az/index (az/field request system_bytes) 0))
+                       (az/field request system_byte_count)
+                       (ak/& (az/index (az/field request prompt_bytes) 0))
+                       (az/field request prompt_byte_count) 64)
+          finished (monotonic-seconds)]
+      (set! (az/index language-results actor)
+        (LanguageResult {:valid true :request request :generation generation
+          :queue_us (ak/intFromFloat (* (ak/max 0.0 (- started (az/field request enqueue_seconds))) 1000000.0))
+          :inference_us (ak/intFromFloat (* (ak/max 0.0 (- finished started)) 1000000.0))
+          :total_us (ak/intFromFloat (* (ak/max 0.0 (- finished (az/field request enqueue_seconds))) 1000000.0))}))
+      (set! _ (ak/atomicRmw :u64 (ak/& result-count) :.Add 1 :.monotonic))
+      (set! _ (ak/atomicRmw :u64 (ak/& (az/index result-counts actor)) :.Add 1 :.monotonic))
+      (ak/atomicStore :u8 state 3 :.release))
+    true))
+
+(az/defn take-language-result!
+  "Consume one fully published result once. Returns valid=false while pending.
+  Copy reservation prevents another client submitting over an unread reply."
+  :- LanguageResult [[actor :usize]]
+  (when (>= actor actor-count)
+    (ak/return (std-mem/zeroes (az/type LanguageResult))))
+  (let [state (ak/& (az/index language-mailbox-states actor))]
+    (when (ak/!= (ak/cmpxchgStrong :u8 state 3 4 :.acq_rel :.acquire) ak/null)
+      (ak/return (std-mem/zeroes (az/type LanguageResult))))
+    (let [result (az/index language-results actor)]
+      (ak/atomicStore :u8 state 0 :.release)
+      result)))
+
+(az/defn language-mailbox-state
+  "Diagnostic state only: 0 idle, 1 queued, 2 thinking, 3 reply ready, 4 copying."
+  :- :u8 [[actor :usize]]
+  (if (< actor actor-count)
+    (ak/atomicLoad :u8 (ak/& (az/index language-mailbox-states actor)) :.acquire)
+    255))
 
 (az/defn- persona-text
   :-
@@ -248,6 +343,7 @@
     (ak/== value 1) "called"
     (ak/== value 2) "servicing"
     (ak/== value 3) "exiting"
+    (ak/== value 4) "retired"
     :else "out"))
 
 (az/defn- tire-state-text
@@ -282,7 +378,7 @@
         (catch
          (std-fmt/bufPrint
           (ak/& bytes)
-          "Driver {d}, {s}. Rank {d}/8; lap {d}; progress {d}%; speed {d}. Item {s}. Rival {d}: gap {d}, {s}. Track {s}. {s}."
+          "Driver {d}, {s}. Rank {d}/20; lap {d}; progress {d}%; speed {d}. Item {s}. Rival {d}: gap {d}, {s}. Track {s}. {s}."
           [(az/field request racer)
            (persona-text (az/field request persona))
            (az/field request rank)
@@ -310,7 +406,7 @@
         (catch
          (std-fmt/bufPrint
          (ak/& bytes)
-          "Team {d}. A{d}: rank {d}/8, tire {d}% {s}, damage {d}% {s}, {s}. B{d}: rank {d}/8, tire {d}% {s}, damage {d}% {s}, {s}. Box {s}."
+          "Team {d}. A{d}: rank {d}/20, tire {d}% {s}, damage {d}% {s}, {s}. B{d}: rank {d}/20, tire {d}% {s}, damage {d}% {s}, {s}. Box {s}."
           [(az/field request team)
            (az/field request driver_a)
            (az/field request rank_a)
@@ -538,28 +634,29 @@
 
 (az/defn- worker-loop!
   "Long-lived shell for one AI actor. Mutable model state and mailboxes are
-  actor-disjoint; immutable weights remain shared across all twelve threads."
+  actor-disjoint; immutable weights remain shared across all actor threads."
   :-
   :void
   [[racer :usize]]
   (ak/while (ak/!= (ak/atomicLoad :u8 (ak/& worker-running) :.acquire) 0)
-    (let [revision
+    (let [language-work (process-language-request! racer)
+          revision
           (ak/atomicLoad :u64 (ak/& (az/index request-revisions racer))
                          :.acquire)
-          found (> revision (az/index consumed-revisions racer))]
+          found (and (ak/! language-work) (> revision (az/index consumed-revisions racer)))]
       (when found
         (let [request (az/index requests racer)]
           (set! (az/index consumed-revisions racer) revision)
           (when (and (az/field request valid)
                      (ak/== (az/field request revision) revision))
             (process-request! request))))
-      (when (ak/! found)
+      (when (and (ak/! found) (ak/! language-work))
         (set! _ (ak/atomicRmw :u64 (ak/& idle-wait-count)
                               :.Add 1 :.monotonic))
         (idle-wait!)))))
 
 (az/defn start!
-  "Allocate twelve sequence states and one fixed native worker per actor."
+  "Allocate one sequence state per actor and one fixed native worker per actor."
   :-
   :bool
   []
@@ -568,29 +665,31 @@
     (if (ak/! (inference/initialize-sequences!))
       false
       (do
-        (set! requests (std-mem/zeroes (az/type [:array 12 InferenceRequest])))
-        (set! results (std-mem/zeroes (az/type [:array 12 InferenceResult])))
+        (set! language-mailbox-states (std-mem/zeroes (az/type [:array actor-count :u8])))
+        (set! language-requests (std-mem/zeroes (az/type [:array actor-count LanguageRequest])))
+        (set! language-results (std-mem/zeroes (az/type [:array actor-count LanguageResult])))
+        (set! requests (std-mem/zeroes (az/type [:array actor-count InferenceRequest])))
+        (set! results (std-mem/zeroes (az/type [:array actor-count InferenceResult])))
         (set! request-revisions
-              (std-mem/zeroes (az/type [:array 12 :u64])))
+              (std-mem/zeroes (az/type [:array actor-count :u64])))
         (set! consumed-revisions
-              (std-mem/zeroes (az/type [:array 12 :u64])))
+              (std-mem/zeroes (az/type [:array actor-count :u64])))
         (set! result-revisions
-              (std-mem/zeroes (az/type [:array 12 :u64])))
+              (std-mem/zeroes (az/type [:array actor-count :u64])))
         (set! worker-threads
               (std-mem/zeroes
-               (az/type [:array 12 [:optional aguafria.std/Thread]])))
+               (az/type [:array actor-count [:optional aguafria.std/Thread]])))
         (set! worker-thread-count 0)
         (set! request-count 0)
         (set! result-count 0)
         (set! request-counts
-              (std-mem/zeroes (az/type [:array 12 :u64])))
+              (std-mem/zeroes (az/type [:array actor-count :u64])))
         (set! result-counts
-              (std-mem/zeroes (az/type [:array 12 :u64])))
+              (std-mem/zeroes (az/type [:array actor-count :u64])))
         (set! idle-wait-count 0)
-        (set! sampler-states
-              (az/array-init
-               [:array 12 :u64]
-               [101 203 307 409 503 607 709 811 907 1009 1103 1201]))
+        (dotimes [actor actor-count]
+          (set! (az/index sampler-states actor)
+                (+ 101 (* (ak/as :u64 (ak/intCast actor)) 103))))
         (ak/atomicStore :u8 (ak/& worker-running) 1 :.release)
         (let [^{:var true :zig/type :bool} all-started true]
           (dotimes [racer actor-count]
@@ -680,12 +779,14 @@
   []
   (let [^{:var true :zig/type :u8} pending 0]
     (dotimes [racer actor-count]
-      (when (> (ak/atomicLoad :u64
+      (when (or (let [state (language-mailbox-state racer)]
+                  (or (ak/== state 1) (ak/== state 2)))
+                (> (ak/atomicLoad :u64
                               (ak/& (az/index request-revisions racer))
                               :.acquire)
                (ak/atomicLoad :u64
                               (ak/& (az/index result-revisions racer))
-                              :.acquire))
+                              :.acquire)))
         (set! pending (+ pending 1))))
     (WorkerSummary
      {:running (ak/!= (ak/atomicLoad :u8 (ak/& worker-running) :.acquire) 0)

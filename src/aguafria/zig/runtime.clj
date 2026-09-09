@@ -718,11 +718,13 @@
         [:file path size modified fingerprint]))))
 
 (def ^:private identity-reference-fingerprint-keys
-  [:kind :module :zig-name :import-name :import-alias :logical-id])
+  [:kind :module :zig-name :import-name :import-alias :logical-id
+   :constant-fingerprint])
 
 (def ^:private source-reference-fingerprint-keys
   [:kind :module :zig-name :import-name :import-alias :import-namespace
-   :source-order :logical-id :type-reference? :state-accessor])
+   :source-order :logical-id :type-reference? :state-accessor
+   :constant-fingerprint])
 
 (def ^:private emission-symbol-fingerprint-keys
   "Symbol metadata read directly by the emitter must participate in source
@@ -1019,6 +1021,14 @@
           (assoc :shape-fingerprint (data-fingerprint type-shape)))]
     (let [declaration
           (cond-> declaration
+            (= :const kind)
+            (assoc :implementation-fingerprint
+                   (data-fingerprint
+                    (select-keys declaration
+                                 [:kind :type :value
+                                  :type-dependency-fingerprints
+                                  :callable-dependency-fingerprints])))
+
             (contains? #{:fn :fn-proto} kind)
             (assoc :abi-fingerprint (data-fingerprint (callable-abi declaration))
                    :implementation-fingerprint
@@ -6168,7 +6178,12 @@
 (defn- compatible-dependent-propagation?
   [old-declaration declaration]
   (or (compatible-type-producing-change? old-declaration declaration)
-      (concrete-caller-recompile-change? old-declaration declaration)))
+      (concrete-caller-recompile-change? old-declaration declaration)
+      (and (:reloadable? @config)
+           (= :const (:kind old-declaration) (:kind declaration))
+           (not (type-producing-declaration? declaration))
+           (not= (:implementation-fingerprint old-declaration)
+                 (:implementation-fingerprint declaration)))))
 
 (defn- registered-declarations-by-logical-id
   []
@@ -6427,6 +6442,27 @@
                                     (assoc (meta value)
                                            :aguafria/zig-reference reference)))
 
+                                (= :const (:kind current))
+                                ;; Scalar/aggregate const values are embedded
+                                ;; by Zig just like comptime function results.
+                                ;; A stable function cell cannot update those
+                                ;; literals unless its implementation changes.
+                                (let [reference
+                                      (assoc (or reference {})
+                                             :logical-id (:logical-id current)
+                                             :kind :const
+                                             :module (:module current)
+                                             :zig-name (or (:zig-name reference)
+                                                           (declaration-zig-name current))
+                                             :constant-fingerprint
+                                             (:implementation-fingerprint current))]
+                                  (when (not= (:constant-fingerprint
+                                               (:aguafria/zig-reference (meta value)))
+                                              (:constant-fingerprint reference))
+                                    (vreset! source-reference-changed? true))
+                                  (with-meta value
+                                    (assoc (meta value) :aguafria/zig-reference reference)))
+
                                 :else value))
                             value))
                          (select-keys declaration reference-source-keys)))
@@ -6557,6 +6593,12 @@
                                               (:implementation-fingerprint
                                                current)))]
 
+                                          (and (= :const (:kind current))
+                                               (not (type-producing-declaration? current)))
+                                          (cons [(:logical-id current)
+                                                 (:implementation-fingerprint current)]
+                                                (:callable-dependency-fingerprints current))
+
                                           current
                                           (:callable-dependency-fingerprints
                                            current))))))
@@ -6628,9 +6670,41 @@
       ;; Only declarations that refer to another declaration whose identity
       ;; changed need the transitive second pass. A single large type factory
       ;; no longer walks and fingerprints its entire body twice.
-      (if second-pass-required?
-        (refresh-pass refreshed nil)
-        refreshed)))))
+      (loop [before declarations
+             current (if second-pass-required?
+                       (refresh-pass refreshed nil)
+                       refreshed)
+             remaining (inc (count declarations))]
+        ;; Two passes cover one intermediate declaration, not an arbitrary
+        ;; const -> const -> ... -> function chain. Continue only along changed
+        ;; embedded-value identities; ordinary stable function cells remain a
+        ;; propagation boundary and unrelated declarations are not walked again.
+        (let [before-by-id (into {} (map (juxt :logical-id identity)) before)
+              changed-constants
+              (into #{}
+                    (keep (fn [d]
+                            (when (and (= :const (:kind d))
+                                       (not (type-producing-declaration? d))
+                                       (not= (:implementation-fingerprint d)
+                                             (:implementation-fingerprint
+                                              (get before-by-id (:logical-id d)))))
+                              (:logical-id d))))
+                    current)
+              affected-keys
+              (into #{}
+                    (keep (fn [d]
+                            (when (some changed-constants
+                                        (map first (:callable-dependency-fingerprints d)))
+                              (:declaration-key d))))
+                    current)]
+          (cond
+            (empty? affected-keys) current
+            (zero? remaining)
+            (throw (ex-info "Compile-time constant dependencies do not stabilize"
+                            {:aguafria/phase :zig-constant-dependency
+                             :logical-ids changed-constants}))
+            :else (recur current (refresh-pass current affected-keys)
+                         (dec remaining)))))))))
 
 (defn- declarations-live-slice
   "Close one or more roots over their same-module declaration references.
@@ -7245,6 +7319,11 @@
 
     (concrete-caller-recompile-change? old-declaration declaration)
     {:kind :callable
+     :logical-id (:logical-id declaration)}
+
+    (and (= :const (:kind declaration))
+         (compatible-dependent-propagation? old-declaration declaration))
+    {:kind :constant
      :logical-id (:logical-id declaration)}))
 
 (defn- batch-dependent-propagation-impacts
@@ -8412,7 +8491,7 @@
   [declaration impacts]
   (let [type-ids (into #{} (keep #(when (= :type (:kind %))
                                     (:logical-id %))) impacts)
-        callable-ids (into #{} (keep #(when (= :callable (:kind %))
+        callable-ids (into #{} (keep #(when (contains? #{:callable :constant} (:kind %))
                                         (:logical-id %))) impacts)
         indexed-references
         (get-in @declaration-reference-index
@@ -11268,21 +11347,51 @@
 
 (defn- ensure-native-type-binding!
   "Load Zig-authored size/alignment/field/tag accessors for a named native
-  type. Returns true when a new wrapper generation was published."
-  [module type]
-  (when-let [declaration (native-type-declaration module type)]
-    (let [container-description (container-type-description declaration)
-          constructible?
-          (or (= :struct (:kind declaration))
-              (contains? #{:struct :enum :union}
-                         (get-in container-description [:options :kind])))
-          target-module (:module declaration)
-          qualified-name (symbol target-module (str (:name declaration)))]
-      (when (and constructible?
-                 (not (get-in @registry [target-module :types qualified-name])))
-        (materialize-declaration-generation!
-         declaration :jvm-type-declaration-keys)
-        true))))
+  type and its nested value fields. An outer schema alone is insufficient:
+  missing child accessors otherwise silently decode a struct field as bytes.
+  Returns true when a new wrapper generation was published."
+  ([module type] (ensure-native-type-binding! module type #{}))
+  ([module type seen]
+   (cond
+     (and (vector? type)
+          (contains? #{"*" "*const" "many" "many-const" "sentinel"
+                       "sentinel-const" "c-pointer" "pointer"}
+                     (some-> type first name)))
+     ;; A borrowed address is not an embedded value. Do not materialize an
+     ;; entire C/Zig object graph merely to pass or inspect a typed pointer.
+     false
+
+     (vector? type)
+     ;; Collection/optional type forms may contain nested named values. Numeric
+     ;; lengths, options maps and scalar keywords have no native declaration.
+     (boolean (some true? (mapv #(ensure-native-type-binding! module % seen)
+                               (rest type))))
+
+     :else
+     (when-let [declaration (native-type-declaration module type)]
+       (let [target-module (:module declaration)
+             qualified-name (symbol target-module (str (:name declaration)))]
+         (when-not (contains? seen qualified-name)
+           (let [container-description (container-type-description declaration)
+                 constructible?
+                 (or (= :struct (:kind declaration))
+                     (contains? #{:struct :enum :union}
+                                (get-in container-description [:options :kind])))
+                 fields (if container-description
+                          (filter #(= :field (:kind %)) (:members container-description))
+                          (:fields declaration))
+                 nested-published?
+                 (some true?
+                       (mapv #(ensure-native-type-binding!
+                               target-module (:type %) (conj seen qualified-name))
+                             fields))
+                 published?
+                 (when (and constructible?
+                            (not (get-in @registry [target-module :types qualified-name])))
+                   (materialize-declaration-generation!
+                    declaration :jvm-type-declaration-keys)
+                   true)]
+             (boolean (or nested-published? published?)))))))))
 
 (defn materialize-type!
   "Construct a persistent native value from an ordinary callable Zig type Var."
@@ -11521,8 +11630,7 @@
                   :when (and zig-type
                              (not= :void zig-type)
                              (not (contains? scalar-layouts
-                                             (scalar-key zig-type)))
-                             (nil? (native-type-schema module zig-type)))]
+                                             (scalar-key zig-type))))]
             (ensure-native-type-binding! module zig-type))
         function-binding (acquire-function-binding! qualified-name arguments nil)]
     (invoke-binding! module function-binding arguments)))

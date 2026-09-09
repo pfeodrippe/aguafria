@@ -1,0 +1,79 @@
+(ns voxel
+  "Live Blender voxel modeling. Bulk numeric traversal uses eager Python
+  iterators to avoid Basilisp lazy-sequence destruction overflowing Blender."
+  (:require [modeling :as model])
+  (:import bpy mathutils operator builtins importlib voxel_geometry))
+
+(def cell-size 0.08)
+
+(def source-collection "Formula source")
+
+(defn part-name [name]
+  (cond
+    (or (.startswith name "Driver") (.startswith name "Helmet")
+        (.startswith name "Curved visor") (.startswith name "Forearm")
+        (.startswith name "Upper arm") (.startswith name "Glove")) :driver
+    (or (.startswith name "Tire") (.startswith name "Wheel")
+        (.startswith name "Front wheel") (.startswith name "Rear wheel")
+        (.startswith name "Alloy") (.startswith name "Hub")) :wheels
+    :else :body))
+
+(defn formula-source!
+  "Make an editable, metre-sized racing-car source with a longer wheelbase
+  and a seated, proportionate driver. Keep the original kart intact."
+  []
+  (when (.get bpy.data/collections source-collection)
+    (throw (ex-info "Formula source already exists" {})))
+  (let [collection (.new bpy.data/collections source-collection)]
+    (.link (.. bpy.context/scene -collection -children) collection)
+    (doseq [original (.-objects (.get bpy.data/collections "Kart"))]
+      (let [object (.copy original) data (.copy (.-data original))
+            part (part-name (.-name original))
+            ;; Hidden collections may have an unevaluated identity matrix_world.
+            ;; These authored objects are unparented: matrix_basis retains their
+            ;; actual translation, rotation and scale even when excluded.
+            matrix (.copy (.-matrix-basis original))]
+        (assert (nil? (.-parent original)) "Evaluate parented source objects before baking")
+        (set! (.-data object) data)
+        (set! (.-matrix-world object) (.Identity mathutils/Matrix 4))
+        (dotimes [vertex-index (builtins/len (.-vertices data))]
+          (let [vertex (aget (.-vertices data) vertex-index)
+                p (operator/matmul matrix (.-co vertex))
+                x (aget p 0) y (aget p 1) z (aget p 2)
+                wheel-center (if (.startswith (.-name original) "Front") 0.65 -0.65)
+                nx (cond (= part :driver) (+ (* (- x -0.2) 0.7) (* -0.2 1.7))
+                         (= part :wheels) (+ x (* wheel-center 0.7))
+                         :else (* x 1.7))
+                ny (if (= part :driver) (* y 0.7) y)
+                nz (if (= part :driver) (+ (* (- z 0.4) 0.7) 0.25) z)]
+            (set! (.-co vertex) [(* nx 1.5) (* ny 1.5) (* nz 1.5)])))
+        (.link (.-objects collection) object)))
+    (set! (.-hide-render collection) true)
+    (set! (.-hide-viewport collection) true)
+    (.update bpy.context/view-layer)
+    :proportioned))
+
+
+(defn build!
+  "Build six editable voxel components from the Blender source collection."
+  []
+  (importlib/reload voxel_geometry)
+  (voxel_geometry/build source-collection cell-size))
+
+(defn export!
+  "Export the current independent Blender parts within the native frame budget."
+  []
+  (importlib/reload voxel_geometry)
+  (voxel_geometry/export (.abspath bpy/path "//racing.edn")))
+
+(defn rebuild-wheels!
+  "Revoxelize around each authored axle; preserve old meshes in Blender history."
+  []
+  (importlib/reload voxel_geometry)
+  (voxel_geometry/rebuild_wheels source-collection cell-size))
+
+(comment
+  (formula-source!)
+  (build!)
+  (model/save!)
+  (export!))

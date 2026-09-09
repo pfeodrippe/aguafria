@@ -1,0 +1,176 @@
+(ns modeling
+  "Live Blender authoring. Evaluate with basilisp-blender, not the game JVM."
+  (:import bpy operator mathutils builtins))
+
+(defn material! [name rgba roughness metallic]
+  (let [mat (.get bpy.data/materials name)
+        shader (.get (.. mat -node-tree -nodes) "Principled BSDF")]
+    (set! (.-diffuse-color mat) rgba)
+    (set! (.-default-value (aget (.-inputs shader) "Base Color")) rgba)
+    (set! (.-default-value (aget (.-inputs shader) "Roughness")) roughness)
+    (set! (.-default-value (aget (.-inputs shader) "Metallic")) metallic)))
+
+(defn studio! []
+  (material! "Racer identity paint" [0.008 0.32 0.48 1] 0.28 0.2)
+  (material! "Visor" [0.012 0.027 0.042 1] 0.16 0.5)
+  (material! "Tire rubber" [0.015 0.021 0.028 1] 0.75 0.0)
+  (doseq [object bpy.data/objects]
+    (when (.startswith (.-name object) "Pit")
+      (set! (.-hide-render object) true)))
+  (set! (.-hide-render (.get bpy.data/objects "Bay stop marker")) true)
+  (set! (.-hide-render (.get bpy.data/objects "Bay stop marker.001")) true)
+  (set! (.. bpy.context/scene -cycles -use-denoising) true)
+  :updated)
+
+(defn organize!
+  "Keep exportable assets separate from the authoring stage."
+  []
+  (doseq [name ["Kart" "Garage" "Studio"]]
+    (when-not (.get bpy.data/collections name)
+      (.link (.. bpy.context/scene -collection -children)
+             (.new bpy.data/collections name))))
+  (doseq [object (vec bpy.data/objects)]
+    (let [kind (if (= "Studio ground" (.-name object)) "Studio"
+                 (if (= "MESH" (.-type object))
+                 (if (> (aget (.-location object) 0) 2) "Garage" "Kart")
+                 "Studio"))
+          collection (.get bpy.data/collections kind)]
+      (doseq [old (vec (.-users-collection object))]
+        (.unlink (.-objects old) object))
+      (.link (.-objects collection) object)))
+  :organized)
+
+(defn shadow-stage! []
+  (when-not (.get bpy.data/objects "Studio ground")
+    (.primitive-plane-add bpy.ops/mesh ** :size 200 :location [0 0 -0.006])
+    (let [object bpy.context/object
+          mat (.new bpy.data/materials "Studio ground")]
+      (set! (.-name object) "Studio ground")
+      (set! (.-use-nodes mat) true)
+      (material! "Studio ground" [0.035 0.042 0.05 1] 0.8 0.0)
+      (.append (.. object -data -materials) mat)
+      (doseq [old (vec (.-users-collection object))]
+        (.unlink (.-objects old) object))
+      (.link (.-objects (.get bpy.data/collections "Studio")) object)))
+  (doseq [object (.-objects (.get bpy.data/collections "Garage"))]
+    (set! (.-hide-render object) true))
+  :staged)
+
+(defn stripe!
+  "Model a clean surface ribbon on the nose, without intersecting thin bevels."
+  []
+  (let [object (.get bpy.data/objects "White nose stripe")
+        data (.new bpy.data/meshes "Nose stripe surface")
+        sections [[0.04 0.035 0.683] [0.25 0.035 0.593]
+                  [0.75 0.030 0.373] [1.02 0.027 0.293]]
+        vertices (vec (mapcat (fn [[x width z]] [[x (- width) z] [x width z]]) sections))]
+    (.from-pydata data vertices [] [[0 1 3 2] [2 3 5 4] [4 5 7 6]])
+    (.update data)
+    (.append (.-materials data) (.get bpy.data/materials "Ceramic white"))
+    (set! (.-data object) data))
+  :modeled)
+
+(defn box!
+  "Author one editable cuboid in Blender, with an explicit material."
+  [name position dimensions material collection]
+  (.primitive-cube-add bpy.ops/mesh ** :size 1 :location position)
+  (let [object bpy.context/object]
+    (set! (.-name object) name)
+    (set! (.-dimensions object) dimensions)
+    (.append (.. object -data -materials)
+             (.get bpy.data/materials (if (= material "Graphite") "Graphite chassis" material)))
+    (doseq [old (vec (.-users-collection object))]
+      (.unlink (.-objects old) object))
+    (.link (.-objects collection) object)
+    object))
+
+(defn garage!
+  "Replace the canopy with an enclosed motorsport garage. Preserve the old
+  editable blockout in an excluded collection, not in the runtime export."
+  []
+  (let [old (.get bpy.data/collections "Garage")]
+    (set! (.-name old) "Archived canopy blockout")
+    (set! (.-hide-render old) true)
+    (set! (.-hide-viewport old) true))
+  (let [collection (.new bpy.data/collections "Garage")]
+    (.link (.. bpy.context/scene -collection -children) collection)
+    ;; X is along the lane; the door faces -Y. Origin is [4 0 0].
+    (doseq [[name p size mat]
+            [["Garage slab" [4 0 0.06] [3.5 3.2 0.12] "Graphite"]
+             ["Garage back wall" [4 1.52 0.85] [3.5 0.16 1.7] "Ceramic white"]
+             ["Garage left wall" [2.32 0 0.85] [0.14 3.2 1.7] "Ceramic white"]
+             ["Garage right wall" [5.68 0 0.85] [0.14 3.2 1.7] "Ceramic white"]
+             ["Garage flat roof" [4 0 1.76] [3.5 3.2 0.18] "Graphite"]
+             ["Garage door lintel" [4 -1.52 1.47] [3.5 0.16 0.48] "Ceramic white"]
+             ["Garage team band" [4 -1.615 1.53] [3.35 0.03 0.12] "Racer identity paint"]
+             ["Garage roof parapet" [4 1.53 1.95] [3.5 0.14 0.2] "Ceramic white"]
+             ["Garage ventilation base" [4 0.3 1.94] [0.7 0.6 0.18] "Graphite"]
+             ["Garage tool cabinet" [2.9 1.1 0.55] [0.65 0.55 0.95] "Racer identity paint"]
+             ["Garage work bench" [4.55 1.1 0.54] [1.3 0.55 0.9] "Graphite"]
+             ["Garage door light" [4 -1.64 1.28] [0.6 0.06 0.07] "Ceramic white"]]]
+      (box! name p size mat collection))
+    (dotimes [i 5]
+      (box! "Cabinet drawer" [2.9 0.81 (+ 0.24 (* i 0.15))]
+            [0.52 0.03 0.025] "Ceramic white" collection))
+    (dotimes [i 4]
+      (box! "Raised roller shutter slat" [4 -1.62 (+ 1.27 (* i 0.045))]
+            [2.9 0.03 0.018] "Graphite" collection)))
+  (.update bpy.context/view-layer)
+  :garage-modeled)
+
+(defn object-triangles [objects origin]
+  ;; Avoid a long chain of Python-backed lazy seq nodes: destruction can
+  ;; exhaust Blender's native main-thread stack on a many-thousand-vertex mesh.
+  (let [result (builtins/list)]
+    (doseq [object objects
+            :when (= "MESH" (.-type object))]
+      (let [data (.-data object)
+            transform (.-matrix-world object)
+            normal-transform (.transposed (.inverted (.to-3x3 transform)))
+            offset (mathutils/Vector origin)]
+        (.calc-loop-triangles data)
+        (doseq [face (.-loop-triangles data)]
+          (let [mat (aget (.-materials data) (.-material-index face))
+                color (.get mat "runtime_color" (vec (take 3 (.-diffuse-color mat))))]
+            (dotimes [corner 3]
+              (let [index (aget (.-vertices face) corner)
+                    loop-index (aget (.-loops face) corner)
+                    position (operator/sub
+                              (operator/matmul transform (.-co (aget (.-vertices data) index))) offset)
+                    normal (.normalized
+                            (operator/matmul normal-transform
+                             (.-vector (aget (.-corner-normals data) loop-index))))]
+                (.append result (mapv double (concat position normal color
+                                                     [(if (.get mat "racer_tint" false) 1 0)])))))))))
+    (vec result)))
+
+(defn collection-triangles [name origin]
+  (object-triangles (.-objects (.get bpy.data/collections name)) origin))
+
+(defn export!
+  "Export the current Blender scene; never rebuild or reset modeled objects."
+  []
+  (let [kart (collection-triangles "Kart" [0 0 0])
+        garage (collection-triangles "Garage" [4 0 0])
+        path (.abspath bpy/path "//racing.edn")]
+    (assert (< (+ (* 8 (count kart)) (* 4 (count garage)) 20000) 131072)
+            "Native vertex budget exceeded")
+    (spit path (pr-str {:kart kart :garage garage}))
+    {:kart-vertices (count kart) :garage-vertices (count garage) :path path}))
+
+(defn save! []
+  (.save-as-mainfile bpy.ops/wm ** :filepath bpy.data/filepath))
+
+(defn render! []
+  (.render bpy.ops/render ** :write-still true))
+
+(comment
+  ;; Connect to tools/blender/.nrepl-port, independently of the game nREPL.
+  ;; These operations mutate Blender's actual editable scene on its UI thread.
+  (studio!)
+  (organize!)
+  (shadow-stage!)
+  (stripe!)
+  (export!)
+  (save!)
+  (render!))

@@ -6,7 +6,14 @@
 (defn paths
   []
   (let [root (vendor/project-root)
-        vendor-root (io/file root "build/vendor")]
+        vendor-root (io/file root "build/vendor")
+        ;; Never overwrite a library mapped into an older live game process.
+        digest (java.security.MessageDigest/getInstance "SHA-256")
+        _ (doseq [name ["imgui_monitor.h" "imgui_monitor.cpp"]]
+            (.update digest (java.nio.file.Files/readAllBytes
+                             (.toPath (io/file root "resources/aguafria_examples_native" name)))))
+        imgui-version (subs (.formatHex (java.util.HexFormat/of) (.digest digest)) 0 20)
+        imgui-output (io/file root "build/native/imgui" imgui-version)]
     {:root root
      :flecs-root (io/file vendor-root "flecs")
      :glfw-root (io/file vendor-root "glfw")
@@ -16,8 +23,8 @@
      :flecs-static (io/file root "build/native/libaguafria_flecs.a")
      :glfw-shared (io/file root "build/native" (System/mapLibraryName "aguafria_glfw"))
      :glfw-static (io/file root "build/native/libaguafria_glfw.a")
-     :imgui-shared (io/file root "build/native" (System/mapLibraryName "aguafria_imgui"))
-     :imgui-static (io/file root "build/native/libaguafria_imgui.a")
+     :imgui-shared (io/file imgui-output (System/mapLibraryName "aguafria_imgui"))
+     :imgui-static (io/file imgui-output "libaguafria_imgui.a")
      :imgui-header (io/file root "resources/aguafria_examples_native/imgui_monitor.h")
      :imgui-wrapper (io/file root "resources/aguafria_examples_native/imgui_monitor.cpp")
      :runtime-header (io/file root "resources/aguafria_examples_native/runtime.h")}))
@@ -179,6 +186,45 @@
   {:flecs (build-flecs! :shared)
    :glfw (build-glfw! :shared)
    :vulkan-loader (vulkan-loader)})
+
+(defn imgui-controls-path
+  [mode]
+  (let [{:keys [root imgui-root imgui-shared imgui-static]} (paths)
+        digest (java.security.MessageDigest/getInstance "SHA-256")]
+    (doseq [source [(io/file root "resources/aguafria_examples_native/imgui_controls.h")
+                    (io/file root "resources/aguafria_examples_native/imgui_controls.cpp")
+                    (io/file imgui-root "imgui.h")]]
+      (.update digest (java.nio.file.Files/readAllBytes (.toPath source))))
+    (.update digest (.getBytes (str mode ":" (.lastModified
+                      ^java.io.File (case mode :shared imgui-shared :static imgui-static))) "UTF-8"))
+    ;; Never overwrite a dylib mapped by a live JVM. A changed adapter gets a
+    ;; new identity while still linking the SAME existing ImGui context owner.
+    (io/file root "build/native/imgui-controls"
+      (subs (format "%064x" (java.math.BigInteger. 1 (.digest digest))) 0 20)
+      (case mode :shared (System/mapLibraryName "aguafria_imgui_controls")
+                 :static "libaguafria_imgui_controls.a"))))
+
+(defn prepare-imgui-controls!
+  "Optional generic controls, sharing the existing ImGui implementation/context.
+  Build with embedded Zig; no second copy of imgui.cpp or game-specific logic."
+  [mode]
+  (case mode :shared (prepare-imgui-shared!) :static (prepare-imgui-static!))
+  (let [{:keys [root imgui-root imgui-shared imgui-static]} (paths)
+        source (io/file root "resources/aguafria_examples_native/imgui_controls.cpp")
+        header (io/file root "resources/aguafria_examples_native/imgui_controls.h")
+        base (case mode :shared imgui-shared :static imgui-static)
+        output (imgui-controls-path mode)]
+    (if (current-output? output [source header (io/file imgui-root "imgui.h") base])
+      {:status :cached :output output}
+      (do
+        (io/make-parents output)
+        (run-command!
+          (into ["zig" "build-lib" (case mode :shared "-dynamic" :static "-static")
+                 "-OReleaseFast" "-fPIC" (str "-I" imgui-root)
+                 (str "-femit-bin=" output) (str source)]
+                (case mode :shared [(str imgui-shared) "-lc" "-lc++"]
+                           :static ["-lc++"])))
+        {:status :built :output output}))))
 
 (defn prepare-static!
   []

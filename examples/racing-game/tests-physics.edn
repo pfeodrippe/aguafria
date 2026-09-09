@@ -1,0 +1,9 @@
+#kaocha/v1
+{:tests [{:id :vehicle
+          :test-paths ["test"]
+          ;; Limit namespace loading, not only test execution. Loading unrelated
+          ;; Aguafria test namespaces can enqueue native compilations as well.
+          :ns-patterns ["^racing-game\\.(physics|physics-track|vehicle-recovery|skewed-recovery|turnaround|turnaround-query|track-barriers)-test$"]}
+         {:id :race
+          :test-paths ["test"]
+          :ns-patterns ["^racing-game\\.(physical-race|race-status|lap-timing|lap-timing-integration)-test$"]}]}

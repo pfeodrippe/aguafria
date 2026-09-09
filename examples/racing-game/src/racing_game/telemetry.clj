@@ -7,7 +7,7 @@
             [aguafria.zig :as az]
             [racing-game.protocol :as protocol]))
 
-(az/defconst racer-count :usize 8)
+(az/defconst racer-count :usize protocol/racer-count)
 
 (az/defconst entries-per-racer :usize 64)
 
@@ -136,29 +136,29 @@
    [:average_progress_gain :f32]
    [:average_rank_gain :f32]])
 
-(az/defvar decision-logs [:array 512 DecisionLog]
-  (std-mem/zeroes (az/type [:array 512 DecisionLog])))
+(az/defvar decision-logs [:array (* racer-count entries-per-racer) DecisionLog]
+  (std-mem/zeroes (az/type [:array (* racer-count entries-per-racer) DecisionLog])))
 
-(az/defvar decision-outcomes [:array 512 DecisionOutcome]
-  (std-mem/zeroes (az/type [:array 512 DecisionOutcome])))
+(az/defvar decision-outcomes [:array (* racer-count entries-per-racer) DecisionOutcome]
+  (std-mem/zeroes (az/type [:array (* racer-count entries-per-racer) DecisionOutcome])))
 
-(az/defvar decision-counts [:array 8 :u64]
-  (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+(az/defvar decision-counts [:array racer-count :u64]
+  (std-mem/zeroes (az/type [:array racer-count :u64])))
 
-(az/defvar resolved-outcome-counts [:array 8 :u64]
-  (std-mem/zeroes (az/type [:array 8 :u64])))
+(az/defvar resolved-outcome-counts [:array racer-count :u64]
+  (std-mem/zeroes (az/type [:array racer-count :u64])))
 
-(az/defvar attributed-item-use-counts [:array 8 :u64]
-  (std-mem/zeroes (az/type [:array 8 :u64])))
+(az/defvar attributed-item-use-counts [:array racer-count :u64]
+  (std-mem/zeroes (az/type [:array racer-count :u64])))
 
-(az/defvar attributed-hit-counts [:array 8 :u64]
-  (std-mem/zeroes (az/type [:array 8 :u64])))
+(az/defvar attributed-hit-counts [:array racer-count :u64]
+  (std-mem/zeroes (az/type [:array racer-count :u64])))
 
-(az/defvar total-progress-gains [:array 8 :f32]
-  (std-mem/zeroes (az/type [:array 8 :f32])))
+(az/defvar total-progress-gains [:array racer-count :f32]
+  (std-mem/zeroes (az/type [:array racer-count :f32])))
 
-(az/defvar total-rank-gains [:array 8 :i64]
-  (std-mem/zeroes (az/type [:array 8 :i64])))
+(az/defvar total-rank-gains [:array racer-count :i64]
+  (std-mem/zeroes (az/type [:array racer-count :i64])))
 
 (az/defn empty-log
   :-
@@ -172,21 +172,21 @@
   :void
   []
   (set! decision-logs
-        (std-mem/zeroes (az/type [:array 512 DecisionLog])))
+        (std-mem/zeroes (az/type [:array (* racer-count entries-per-racer) DecisionLog])))
   (set! decision-outcomes
-        (std-mem/zeroes (az/type [:array 512 DecisionOutcome])))
+        (std-mem/zeroes (az/type [:array (* racer-count entries-per-racer) DecisionOutcome])))
   (set! decision-counts
-        (az/array-init [:array 8 :u64] [0 0 0 0 0 0 0 0]))
+        (std-mem/zeroes (az/type [:array racer-count :u64])))
   (set! resolved-outcome-counts
-        (std-mem/zeroes (az/type [:array 8 :u64])))
+        (std-mem/zeroes (az/type [:array racer-count :u64])))
   (set! attributed-item-use-counts
-        (std-mem/zeroes (az/type [:array 8 :u64])))
+        (std-mem/zeroes (az/type [:array racer-count :u64])))
   (set! attributed-hit-counts
-        (std-mem/zeroes (az/type [:array 8 :u64])))
+        (std-mem/zeroes (az/type [:array racer-count :u64])))
   (set! total-progress-gains
-        (std-mem/zeroes (az/type [:array 8 :f32])))
+        (std-mem/zeroes (az/type [:array racer-count :f32])))
   (set! total-rank-gains
-        (std-mem/zeroes (az/type [:array 8 :i64]))))
+        (std-mem/zeroes (az/type [:array racer-count :i64]))))
 
 (az/defn record!
   "Append one already-bounded decision event to its racer's ring."

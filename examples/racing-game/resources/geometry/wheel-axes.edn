@@ -1,0 +1,6 @@
+{
+:wheel-front-left {:center [1.73250008 0.99000001 0.480000019] :radius 0.479999989 :width 0.480000019}
+:wheel-front-right {:center [1.73250008 -0.99000001 0.480000019] :radius 0.479999989 :width 0.480000019}
+:wheel-rear-left {:center [-1.6875 0.99000001 0.480000019] :radius 0.479999989 :width 0.480000019}
+:wheel-rear-right {:center [-1.6875 -0.99000001 0.480000019] :radius 0.479999989 :width 0.480000019}
+}

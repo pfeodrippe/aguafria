@@ -10,13 +10,13 @@ typedef _Bool AguafriaImguiBool;
 
 typedef unsigned long long AguafriaImguiAddress;
 
-#define AGUAFRIA_IMGUI_RACER_COUNT 8
+#define AGUAFRIA_IMGUI_RACER_COUNT 20
 #define AGUAFRIA_IMGUI_HISTORY_PER_RACER 64
 #define AGUAFRIA_IMGUI_HISTORY_COUNT \
     (AGUAFRIA_IMGUI_RACER_COUNT * AGUAFRIA_IMGUI_HISTORY_PER_RACER)
 #define AGUAFRIA_IMGUI_OBSERVATION_TOKEN_COUNT 8
 #define AGUAFRIA_IMGUI_PROMPT_CAPACITY 160
-#define AGUAFRIA_IMGUI_TEAM_COUNT 4
+#define AGUAFRIA_IMGUI_TEAM_COUNT (AGUAFRIA_IMGUI_RACER_COUNT / 2)
 #define AGUAFRIA_IMGUI_RADIO_PER_TEAM 32
 #define AGUAFRIA_IMGUI_RADIO_COUNT \
     (AGUAFRIA_IMGUI_TEAM_COUNT * AGUAFRIA_IMGUI_RADIO_PER_TEAM)
@@ -138,6 +138,17 @@ AguafriaImguiBool aguafria_imgui_initialize(
 
 void aguafria_imgui_update(const AguafriaImguiSnapshot* snapshot);
 void aguafria_imgui_render(AguafriaImguiAddress command_buffer);
+/* UI only: consume a camera selection/zoom action. Camera logic lives in Zig. */
+unsigned int aguafria_imgui_camera_command(void);
+void aguafria_imgui_camera_status(unsigned int mode, float zoom);
+/* Generic immediate-mode UI surface. Game data/layout stays in Aguafria Zig. */
+typedef void (*AguafriaImguiDrawCallback)(void);
+void aguafria_imgui_set_draw_callback(AguafriaImguiDrawCallback callback);
+AguafriaImguiBool aguafria_imgui_panel_begin(const char* title, float width,
+                                           float anchor_x, float anchor_y);
+void aguafria_imgui_panel_end(void);
+void aguafria_imgui_label(const char* text, float r, float g, float b);
+void aguafria_imgui_meter(const char* label, float fraction, float r, float g, float b);
 void aguafria_imgui_set_visible(AguafriaImguiBool visible);
 AguafriaImguiBool aguafria_imgui_toggle_visible(void);
 AguafriaImguiBool aguafria_imgui_is_visible(void);

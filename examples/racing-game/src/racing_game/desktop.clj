@@ -1,5 +1,5 @@
 (ns racing-game.desktop
-  "One-window native GLFW/Vulkan host for the eight-AI race."
+  "One-window native GLFW/Vulkan host for the twenty-AI race."
   (:refer-clojure :exclude [run!])
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
@@ -8,10 +8,14 @@
             [aguafria.zig :as az]
             [aguafria-examples-native.bindings]
             [aguafria-examples-native.bindings.glfw :as glfw]
+            [aguafria-examples-native.imgui-controls]
+            [aguafria-examples-native.bindings.imgui-controls :as ui]
             [aguafria-examples-native.renderer :as renderer]
             [racing-game.assets :as assets]
             [racing-game.inference :as inference]
+            [racing-game.motion-qa :as motion-qa]
             [racing-game.render :as race-render]
+            [racing-game.render3d :as render3d]
             [racing-game.simulation :as simulation]
             [racing-game.worker :as worker]))
 
@@ -33,7 +37,7 @@
 
 (az/defvar accumulator :f64 0.0)
 
-(az/defvar live-simulation-slowdown :f64 4.0)
+(az/defvar live-simulation-slowdown :f64 1.0)
 
 (az/defvar previous-pause false)
 
@@ -44,6 +48,36 @@
 (az/defvar previous-human-toggle false)
 
 (az/defvar previous-item-use false)
+
+(az/defvar previous-camera false)
+
+(az/defvar reset-request :u8 0)
+
+(az/defvar scroll-installed false)
+
+(az/defvar previous-scroll glfw/GLFWscrollfun null)
+
+(az/defn camera-scroll!
+  "GLFW wheel callback; ImGui chains this callback when installing its input."
+  {:attrs #{:export}}
+  :- :void
+  [[event-window [:optional [:* glfw/GLFWwindow]]] [horizontal :f64] [vertical :f64]]
+  (when (ak/== (ui/aguafria_ui_captures_mouse) 0)
+    (render3d/zoom-by! (ak/floatCast (ak/exp (* vertical 0.12)))))
+  (when (ak/!= previous-scroll null)
+    ((az/unwrap previous-scroll) event-window horizontal vertical)))
+
+(az/defn install-scroll!
+  "Install on the window thread, preserving an already installed UI callback."
+  :- :void []
+  (when (ak/! scroll-installed)
+    (set! previous-scroll (glfw/glfwSetScrollCallback window (ak/& camera-scroll!)))
+    (set! scroll-installed true)))
+
+(az/defn request-race-reset!
+  "Queue a reset for the simulation thread; safe to call from the nREPL."
+  :- :void []
+  (ak/atomicStore :u8 (ak/& reset-request) 1 :.release))
 
 (az/defn request-stop!
   :-
@@ -70,6 +104,32 @@
   :-
   :void
   []
+  ;; GLFW retains a short press until sampled, even when both events arrive
+  ;; between rendered frames. This also applies to F2 in the monitor.
+  (glfw/glfwSetInputMode window glfw/GLFW_STICKY_KEYS glfw/GLFW_TRUE)
+  (install-scroll!)
+  (when (ak/!= (ak/atomicRmw :u8 (ak/& reset-request) :.Xchg 0 :.acq_rel) 0)
+    (simulation/reset!)
+    (render3d/reset-presentation!)
+    (render3d/reset-camera!))
+  (let [overview (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_F3) glfw/GLFW_PRESS)]
+    (when (and overview (ak/! previous-camera))
+      (if render3d/follow-camera
+        (render3d/camera-preset! 4)
+        (render3d/camera-preset! 0)))
+    (set! previous-camera overview))
+  (when (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_0) glfw/GLFW_PRESS)
+    (render3d/follow-leaders!))
+  (let [dt (ak/min 0.05 (ak/max 0.0 (- (glfw/glfwGetTime) previous-time)))]
+    (when (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_EQUAL) glfw/GLFW_PRESS)
+              (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_KP_ADD) glfw/GLFW_PRESS))
+      (render3d/zoom-by! (ak/floatCast (ak/exp (* dt 2.0)))))
+    (when (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_MINUS) glfw/GLFW_PRESS)
+              (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_KP_SUBTRACT) glfw/GLFW_PRESS))
+      (render3d/zoom-by! (ak/floatCast (ak/exp (* dt -2.0))))))
+  (dotimes [racer 8]
+    (when (ak/== (glfw/glfwGetKey window (+ glfw/GLFW_KEY_1 (ak/as :i32 (ak/intCast racer)))) glfw/GLFW_PRESS)
+      (render3d/select-camera! (ak/intCast racer) true)))
   (let [pause-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_P)
                            glfw/GLFW_PRESS)
         reset-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_R)
@@ -152,7 +212,9 @@
     (when (and pause-down (ak/! previous-pause))
       (set! _ (simulation/toggle-paused!)))
     (when (and reset-down (ak/! previous-reset))
-      (simulation/reset!))
+      (simulation/reset!)
+      (render3d/reset-presentation!)
+      (render3d/reset-camera!))
     (when (and debug-down (ak/! previous-debug))
       (set! _ (race-render/toggle-debug-overlay!)))
     (when (and human-toggle-down (ak/! previous-human-toggle))
@@ -168,8 +230,8 @@
     (set! previous-item-use item-use)))
 
 (az/defn frame!
-  "Present one Vulkan frame. Live AI simulation defaults to 4x slow motion so
-  local model decisions can arrive; deterministic replay advances at 120 Hz."
+  "Present one Vulkan frame. Live AI simulation defaults to normal speed;
+  optional slow motion remains available for studying model decisions."
   :-
   :bool
   []
@@ -188,9 +250,14 @@
       (ak/while (and (>= accumulator step-seconds)
                      (< substeps 12))
         (simulation/step!)
+        (render3d/capture-presentation!)
         (set! accumulator (- accumulator step-seconds))
-        (set! substeps (+ substeps 1))))
+        (set! substeps (+ substeps 1)))
+      (render3d/set-presentation-phase!
+       (if simulation/paused (ak/as :f32 1.0) (ak/floatCast (/ accumulator step-seconds)))))
     (set! frame-count (+ frame-count 1))
+    (render3d/advance-camera! (ak/floatCast elapsed))
+    (motion-qa/record! now)
     (renderer/render! (ak/& race-render/build-frame!))))
 
 (az/defn window-address
@@ -226,17 +293,19 @@
   (glfw/glfwWindowHint glfw/GLFW_RESIZABLE glfw/GLFW_FALSE)
   (set! window
         (glfw/glfwCreateWindow 1024 720
-                               "Aguafria · 8 Driver AIs · 4 Team Strategist AIs"
+                               "Aguafria · 20 Driver AIs · 10 Team Strategist AIs"
                                null null))
   (std-debug/assert (ak/!= window null))
   ;; Present the native game as the active desktop window. Besides making the
   ;; launch predictable for players, this keeps macOS/MoltenVK from starving
   ;; the first CAMetalDrawable while the just-created window is occluded.
   (glfw/glfwFocusWindow window)
+  (install-scroll!)
   (std-debug/assert (renderer/initialize-renderer! window))
   (std-debug/assert (worker/start!))
   (simulation/configure-countdown! 0)
   (set! _ (simulation/initialize!))
+  (render3d/reset-presentation!)
   (set! previous-time (glfw/glfwGetTime))
   (set! accumulator 0.0)
   (set! running true)

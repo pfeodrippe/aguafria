@@ -38,3 +38,20 @@ model.
 - Packaged notice: `Vulkan-Headers.txt`
 - Apache text: `Apache-2.0.txt`
 
+## Box3D
+
+- Source: <https://github.com/erincatto/box3d>
+- Pinned commit: `47d7f7cc7e091142c08d11dc7d2e493c5d34f536`
+- License: MIT
+- Packaged license: `Box3D-MIT.txt`
+- Local build-only correction: non-steering wheel joints apply the saved motor
+  impulse once instead of twice during warm starting. The shared Box3D builder
+  validates the pinned source and creates an overlay; the vendor checkout is
+  unchanged. Covered by the airborne angular-impulse regression in `physics_test.clj`.
+
+## Dear ImGui
+
+- Source: <https://github.com/ocornut/imgui>
+- Pinned commit: `6d910d5487d11ca567b61c7824b0c78c569d62f0`
+- License: MIT
+- Packaged license: `Dear-ImGui-MIT.txt`

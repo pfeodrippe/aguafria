@@ -398,7 +398,19 @@
   introduced. This makes stored declaration metadata readable and allows the
   emitter to consume generated keyword Vars directly."
   [context-ns form]
-  (cond
+  (let [form (if (and (symbol? form) (meta form))
+               (with-meta form
+                 (reduce (fn [metadata key]
+                           (let [value (get metadata key)]
+                             (if (and (some? value) (not (boolean? value)))
+                               (assoc metadata key (qualify-form context-ns value))
+                               metadata)))
+                         (meta form) [:var :zig/type :tag]))
+               form)]
+   ;; Type-bearing binding metadata is source code too. Capture its defining
+   ;; namespace before declaration emission happens in a different context.
+   ;; Other metadata (docs, source spans, arbitrary user values) stays intact.
+   (cond
     (seq? form) (if-let [expansion (expand-clojure-macro-once context-ns form)]
                   (let [expanded (:expanded expansion)]
                     ;; `cond` expands its conventional `:else` clause to
@@ -451,7 +463,7 @@
       (reference-symbol context-ns form reference)
       form)
 
-    :else form))
+    :else form)))
 
 (defn- declaration-local-bindings
   [context-ns declaration]

@@ -1,0 +1,77 @@
+(ns circuit
+  "Full-size racing circuit authored and evaluated as a Blender Bezier curve."
+  (:import bpy mathutils operator math))
+
+(def circuit-metres 4309.0)
+
+(defn author!
+  "Trace the official Interlagos map as an editable Bezier spline.
+  This is a visual approximation, not survey data. Elevations are illustrative."
+  []
+  (when (.get bpy.data/objects "Championship centerline")
+    (throw (ex-info "Circuit already exists: edit its Blender control points" {})))
+  (let [data (.new bpy.data/curves "Championship centerline" "CURVE")
+        object (.new bpy.data/objects "Championship centerline" data)
+        ;; Pixel landmarks read from Formula1.com's official 2026 circuit map.
+        ;; Convert to centered Cartesian coordinates, retaining the traced shape.
+        landmarks [[400 125 56] [225 173 53] [158 204 47] [146 232 42]
+                   [191 281 35] [163 349 29] [162 422 23] [202 481 18]
+                   [260 517 13] [520 590 6] [799 663 0] [839 655 0]
+                   [856 609 1] [868 535 3] [843 477 5] [726 393 12]
+                   [576 282 22] [553 239 25] [559 183 27] [586 137 30]
+                   [639 120 32] [720 108 34] [744 128 33] [718 182 30]
+                   [730 222 27] [768 232 25] [809 197 22] [860 155 20]
+                   [933 139 18] [957 160 17] [930 191 15] [876 247 12]
+                   [860 306 9] [893 364 8] [983 425 9] [1046 463 12]
+                   [1072 451 15] [1096 390 20] [1107 349 24] [1089 264 29]
+                   [1053 176 36] [1015 131 42] [957 105 46] [816 73 51]
+                   [706 52 54] [614 60 56]]
+        points (mapv (fn [[x y z]] [(- x 640) (- 360 y) z]) landmarks)]
+    (set! (.-dimensions data) "3D")
+    (set! (.-resolution-u data) 32)
+    (let [spline (.new (.-splines data) "BEZIER")]
+      (.add (.-bezier-points spline) (dec (count points)))
+      (doseq [[i p] (map-indexed vector points)]
+        (let [point (aget (.-bezier-points spline) i)]
+          (set! (.-co point) p)
+          (set! (.-handle-left-type point) "AUTO")
+          (set! (.-handle-right-type point) "AUTO")))
+      (set! (.-use-cyclic-u spline) true))
+    (.link (.. bpy.context/scene -collection -objects) object)
+    (.update bpy.context/view-layer)
+    :authored))
+
+(defn samples []
+  (let [object (.get bpy.data/objects "Championship centerline")
+        evaluated (.evaluated-get object (.evaluated-depsgraph-get bpy/context))
+        mesh (.to-mesh evaluated)]
+    (try
+      (let [vertices (mapv #(operator/matmul (.-matrix-world object) (.-co %)) (.-vertices mesh))
+            edges (mapv #(vec (.-vertices %)) (.-edges mesh))
+            neighbors (reduce (fn [m [a b]] (-> m (update a (fnil conj []) b)
+                                                 (update b (fnil conj []) a))) {} edges)]
+        (loop [index 0 previous -1 result []]
+          (if (and (= index 0) (seq result)) result
+            (let [next (first (filter #(not= previous %) (get neighbors index)))]
+              (assert next "Centerline must be a single closed curve")
+              (assert (<= (count result) (count vertices)) "Invalid centerline topology")
+              (recur next index (conj result (nth vertices index)))))))
+      (finally (.to-mesh-clear evaluated)))))
+
+(defn export!
+  "Arc-length sample the evaluated Blender curve, in metres, with a closed end."
+  []
+  (let [points (samples)
+        closed (conj points (first points))
+        lengths (mapv (fn [[a b]] (.-length (operator/sub b a))) (partition 2 1 closed))
+        total (reduce + lengths)
+        scale (/ circuit-metres total)
+        distances (reduce (fn [result length] (conj result (+ (peek result) length))) [0.0] lengths)
+        rows (mapv (fn [point distance]
+                     (conj (mapv #(* scale %) point) (* scale distance))) closed distances)
+        data {:name "Interlagos-inspired" :length-metres circuit-metres
+              :survey-accurate? false
+              :reference "https://www.formula1.com/en/racing/2026/brazil"
+              :road-width-metres 13.0 :samples rows}]
+    (spit (.abspath bpy/path "//circuit.edn") (pr-str data))
+    {:samples (count rows) :length-metres circuit-metres :source-length total}))

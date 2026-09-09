@@ -1,0 +1,4 @@
+#kaocha/v1
+{:tests [{:id :rendering
+          :test-paths ["test"]
+          :ns-patterns ["^racing-game\\.render3d-test$"]}]}

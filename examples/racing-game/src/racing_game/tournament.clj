@@ -148,7 +148,7 @@
 
 (defn- complete?
   []
-  (= 8 (:finished (az/value (simulation/snapshot)))))
+  (= (az/value simulation/racer-count) (:finished (az/value (simulation/snapshot)))))
 
 (defn- advance-fallback!
   [max-ticks chunk-ticks]
@@ -174,7 +174,7 @@
 
 (defn run-race!
   "Run one seeded native race. `:fallback` is accelerated and deterministic;
-  `:live` respects 120 Hz wall time so the eight real inference workers can
+  `:live` respects 120 Hz wall time so the independent native inference workers can
   publish their decisions while the simulation remains responsive."
   [{:keys [seed max-ticks chunk-ticks mode]
     :or {seed 0 max-ticks 8000 chunk-ticks 240 mode :fallback}}]
@@ -195,7 +195,7 @@
                                       :supported #{:fallback :live}})))
           race (az/value (simulation/snapshot))
           standings
-          (->> (range 8)
+          (->> (range (az/value simulation/racer-count))
                (mapv (fn [racer-id]
                        (merge
                         (select-keys
@@ -218,7 +218,7 @@
       {:seed seed
        :mode mode
        :advanced-ticks advanced
-       :complete (= 8 (:finished race))
+       :complete (= (az/value simulation/racer-count) (:finished race))
        :race race
        :cognition (core/cognition-status)
        :standings standings})))
@@ -261,7 +261,7 @@
    (let [{:keys [seeds] :as options} (merge default-options options)
          started (System/nanoTime)
          races (mapv #(run-race! (assoc options :seed %)) seeds)
-         scoreboard (->> (range 8)
+         scoreboard (->> (range (az/value simulation/racer-count))
                          (mapv #(scoreboard-row % races))
                          (sort-by (juxt (comp - :points)
                                        :average-finish-tick
@@ -372,7 +372,7 @@
                  (throw (ex-info "Paired race is missing a racer"
                                  {:seed seed :racer racer})))
                (paired-racer-row seed racer baseline llm)))
-           (for [seed seeds racer (range 8)] [seed racer]))
+           (for [seed seeds racer (range (az/value simulation/racer-count))] [seed racer]))
           per-racer
           (mapv
            (fn [racer]
@@ -385,7 +385,7 @@
                 (mean (map :finish-tick-delta entries))
                 :item-use-delta (sum (map :item-use-delta entries))
                 :hit-delta (sum (map :hit-delta entries))}))
-           (range 8))
+           (range (az/value simulation/racer-count)))
           baseline-summary (report-summary baseline-report)
           llm-summary (report-summary llm-report)]
       {:seeds seeds

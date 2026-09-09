@@ -174,7 +174,7 @@
      (into (sorted-map) (frequencies (map :teacher-action rows)))}))
 
 (def required-coverage
-  {:racers (set (range 8))
+  {:racers (set (range (az/value simulation/racer-count)))
    :ranks (set (range 1 9))
    :laps #{0 1 2}
    :personas #{0 1 2}

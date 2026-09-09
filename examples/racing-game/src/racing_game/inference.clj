@@ -69,17 +69,21 @@
 
 (az/defconst model-profile-granite-h-1b :u8 2)
 
-(az/defconst model-max-hidden-size :usize 1536)
+(az/defconst model-profile-granite-h-micro :u8 3)
 
-(az/defconst model-max-ffn-size :usize 4096)
+(az/defconst model-max-hidden-size :usize 2048)
+
+(az/defconst model-max-ffn-size :usize 8192)
 
 (az/defconst model-max-layer-count :usize 40)
 
-(az/defconst model-max-mamba-inner-size :usize 3072)
+(az/defconst model-max-mamba-inner-size :usize 4096)
 
-(az/defconst model-max-mamba-projection-size :usize 6448)
+(az/defconst model-max-mamba-projection-size :usize 8512)
 
-(az/defconst model-max-mamba-conv-size :usize 3328)
+(az/defconst model-max-mamba-conv-size :usize 4352)
+
+(az/defconst model-max-mamba-head-count :usize 64)
 
 (az/defconst model-max-attention-kv-size :usize 512)
 
@@ -125,7 +129,7 @@
 
 (az/defconst sequence-capacity :usize 160)
 
-(az/defconst sequence-racer-count :usize 12)
+(az/defconst sequence-racer-count :usize protocol/actor-count)
 
 (az/defvar sequence-mamba-floats :usize 66060288)
 
@@ -149,9 +153,9 @@
 
 (az/defconst action-head-token-count :usize 8)
 
-(az/defconst action-head-max-input-count :usize 12288)
+(az/defconst action-head-max-input-count :usize 16384)
 
-(az/defconst action-head-max-weight-count :usize 98304)
+(az/defconst action-head-max-weight-count :usize 131072)
 
 (az/defvar action-head-input-count :usize 6144)
 
@@ -163,7 +167,7 @@
 
 (az/defconst team-head-output-count :usize 3)
 
-(az/defconst team-head-max-weight-count :usize 36864)
+(az/defconst team-head-max-weight-count :usize 49152)
 
 (az/defvar team-head-weight-count :usize 18432)
 
@@ -279,7 +283,7 @@
    [:racer_count :u8]
    [:capacity :u16]
    [:state_bytes :usize]
-   [:positions [:array 12 :u16]]])
+   [:positions [:array sequence-racer-count :u16]]])
 
 (az/defstruct ForwardReport
   "One inspectable constrained token pass through all 32 native layers."
@@ -360,17 +364,17 @@
 
 (az/defvar sequence-memory-floats :usize 0)
 
-(az/defvar sequence-positions [:array 12 :u16]
-  (std-mem/zeroes (az/type [:array 12 :u16])))
+(az/defvar sequence-positions [:array sequence-racer-count :u16]
+  (std-mem/zeroes (az/type [:array sequence-racer-count :u16])))
 
-(az/defvar action-head-inputs [:array 147456 :f32]
-  (std-mem/zeroes (az/type [:array 147456 :f32])))
+(az/defvar action-head-inputs [:array 196608 :f32]
+  (std-mem/zeroes (az/type [:array 196608 :f32])))
 
-(az/defvar fused-observation-inputs [:array 18432 :f32]
-  (std-mem/zeroes (az/type [:array 18432 :f32])))
+(az/defvar fused-observation-inputs [:array 24576 :f32]
+  (std-mem/zeroes (az/type [:array 24576 :f32])))
 
-(az/defvar action-head-weights [:array 98304 :f32]
-  (std-mem/zeroes (az/type [:array 98304 :f32])))
+(az/defvar action-head-weights [:array 131072 :f32]
+  (std-mem/zeroes (az/type [:array 131072 :f32])))
 
 (az/defvar action-head-biases [:array 8 :f32]
   (std-mem/zeroes (az/type [:array 8 :f32])))
@@ -381,8 +385,8 @@
     :input_count 0 :output_count 0 :observation_schema 0 :action_schema 0
     :weight_count 0 :file_size 0}))
 
-(az/defvar team-head-weights [:array 36864 :f32]
-  (std-mem/zeroes (az/type [:array 36864 :f32])))
+(az/defvar team-head-weights [:array 49152 :f32]
+  (std-mem/zeroes (az/type [:array 49152 :f32])))
 
 (az/defvar team-head-biases [:array 3 :f32]
   (std-mem/zeroes (az/type [:array 3 :f32])))
@@ -1141,7 +1145,8 @@
           (when (ak/== (az/index tokenizer-vocabulary-slots slot)
                        tokenizer-empty-id)
             (set! (az/index tokenizer-vocabulary-slots slot) token)
-            (set! inserted true)))))
+            (set! inserted true)
+            (ak/break)))))
     inserted))
 
 (az/defn tokenizer-find-range
@@ -1162,7 +1167,8 @@
           (cond
             (ak/== token tokenizer-empty-id) (set! searching false)
             (tokenizer-token-equals-range token start length)
-            (do (set! result token) (set! searching false))))))
+            (do (set! result token) (set! searching false)))
+          (when (ak/! searching) (ak/break)))))
     result))
 
 (az/defn tokenizer-find-concat
@@ -1188,7 +1194,8 @@
             (ak/== token tokenizer-empty-id) (set! searching false)
             (tokenizer-token-equals-concat
              token left-start left-length right-start right-length)
-            (do (set! result token) (set! searching false))))))
+            (do (set! result token) (set! searching false)))
+          (when (ak/! searching) (ak/break)))))
     result))
 
 (az/defn tokenizer-pair-key
@@ -1226,7 +1233,8 @@
             (set! (az/index tokenizer-merge-pairs slot) pair)
             (set! (az/index tokenizer-merge-ranks slot) rank)
             (set! (az/index tokenizer-merge-tokens slot) token)
-            (set! inserted true)))))
+            (set! inserted true)
+            (ak/break)))))
     inserted))
 
 (az/defn tokenizer-find-merge
@@ -1250,7 +1258,8 @@
               (set! found true)
               (set! searching false)
               (set! rank (az/index tokenizer-merge-ranks slot))
-              (set! token (az/index tokenizer-merge-tokens slot)))))))
+              (set! token (az/index tokenizer-merge-tokens slot))))
+          (when (ak/! searching) (ak/break)))))
     (TokenizerMerge {:found found :rank rank :token token})))
 
 (az/defn initialize-tokenizer!
@@ -1375,10 +1384,23 @@
         (metadata-u32 (find-metadata "granitehybrid.ssm.time_step_rank") 0)
         attention-heads
         (metadata-u32 (find-metadata "granitehybrid.attention.head_count") 0)
-        ;; GGUF stores the KV-head count as one u16 per layer because Mamba
-        ;; layers use zero. Both supported Granite profiles use four KV heads
-        ;; in each of their four attention layers.
-        kv-heads (ak/as :u32 4)
+        ;; Hybrid metadata can use a per-layer KV-head array. Derive the
+        ;; actual KV projection width from the first attention tensor instead
+        ;; of silently assuming every model uses four KV heads.
+        kv-index (find-tensor (if (ak/== hidden 768)
+                                "blk.10.attn_k.weight" "blk.5.attn_k.weight"))
+        kv-heads
+        (if (and (> attention-heads 0) (> hidden 0)
+                 (ak/== (mod hidden (ak/max attention-heads 1)) 0)
+                 (< kv-index tensor-catalog-count)
+                 (ak/== (az/field (az/index tensor-catalog kv-index) dimension_count) 2)
+                 (ak/== (az/index (az/field (az/index tensor-catalog kv-index) dimensions) 0) hidden)
+                 (ak/== (mod (az/index (az/field (az/index tensor-catalog kv-index) dimensions) 1)
+                             (/ hidden attention-heads)) 0))
+          (ak/as :u32 (ak/intCast
+            (/ (az/index (az/field (az/index tensor-catalog kv-index) dimensions) 1)
+               (/ hidden attention-heads))))
+          (ak/as :u32 0))
         profile
         (cond
           (and (ak/== hidden 768) (ak/== ffn 2048) (ak/== layers 32)
@@ -1392,6 +1414,12 @@
                (ak/== heads 48) (ak/== attention-heads 12)
                (ak/== kv-heads 4))
           model-profile-granite-h-1b
+
+          (and (ak/== hidden 2048) (ak/== ffn 8192) (ak/== layers 40)
+               (ak/== inner 4096) (ak/== state 128) (ak/== groups 1)
+               (ak/== heads 64) (ak/== attention-heads 32)
+               (ak/== kv-heads 8))
+          model-profile-granite-h-micro
 
           :else model-profile-none)
         ^{:var true :zig/type :bool}
@@ -1427,9 +1455,9 @@
       (set! model-attention-scale
             (metadata-f32
              (find-metadata "granitehybrid.attention.scale")
-             (if (ak/== profile model-profile-granite-h-350m)
-               0.015625
-               0.0078125)))
+             (if (ak/== profile model-profile-granite-h-1b)
+               0.0078125
+               0.015625)))
       (set! model-residual-multiplier
             (metadata-f32
              (find-metadata "granitehybrid.residual_scale")
@@ -1885,7 +1913,8 @@
   :-
   :bool
   [[layer :usize]]
-  (if (ak/== model-profile-id model-profile-granite-h-1b)
+  (if (or (ak/== model-profile-id model-profile-granite-h-1b)
+          (ak/== model-profile-id model-profile-granite-h-micro))
     (or (ak/== layer 5)
         (ak/== layer 15)
         (ak/== layer 25)
@@ -2003,17 +2032,15 @@
   (let [initialized (ak/!= sequence-memory null)]
     (when initialized
       (let [memory (az/unwrap sequence-memory)]
-        (dotimes [index sequence-memory-floats]
-          (set! (az/index memory index) 0.0)))
+        (ak/memset (az/slice memory 0 sequence-memory-floats) 0.0))
       (dotimes [racer sequence-racer-count]
         (set! (az/index sequence-positions racer) 0))
-      (dotimes [index (* sequence-racer-count action-head-input-count)]
-        (set! (az/index action-head-inputs index) 0.0)))
+      (ak/memset (az/slice action-head-inputs 0 (* sequence-racer-count action-head-input-count)) 0.0))
     initialized))
 
 (az/defn initialize-sequences!
-  "Own one shared allocation containing twelve isolated model sequence states:
-  eight drivers followed by four team strategists."
+  "Own one shared allocation containing thirty isolated model sequence states:
+  twenty drivers followed by ten team strategists."
   :-
   :bool
   []
@@ -2047,23 +2074,19 @@
                          (* racer kv-count))
             value-start (+ sequence-mamba-floats sequence-conv-floats
                            sequence-kv-floats (* racer kv-count))]
-        (dotimes [index mamba-count]
-          (set! (az/index memory (+ mamba-start index)) 0.0))
-        (dotimes [index conv-count]
-          (set! (az/index memory (+ conv-start index)) 0.0))
-        (dotimes [index kv-count]
-          (set! (az/index memory (+ key-start index)) 0.0)
-          (set! (az/index memory (+ value-start index)) 0.0))
-        (dotimes [index action-head-input-count]
-          (set! (az/index action-head-inputs
-                          (+ (* racer action-head-input-count) index))
-                0.0))
+        (ak/memset (az/slice memory mamba-start (+ mamba-start mamba-count)) 0.0)
+        (ak/memset (az/slice memory conv-start (+ conv-start conv-count)) 0.0)
+        (ak/memset (az/slice memory key-start (+ key-start kv-count)) 0.0)
+        (ak/memset (az/slice memory value-start (+ value-start kv-count)) 0.0)
+        (ak/memset (az/slice action-head-inputs (* racer action-head-input-count)
+                    (* (+ racer 1) action-head-input-count)) 0.0)
         (set! (az/index sequence-positions racer) 0)))
     valid))
 
 (az/defn copy-last-hidden!
   "Copy one racer's most recent final normalized hidden state for offline
-  training or inspection. The caller owns `output` and at least 768 floats."
+  training or inspection. The caller owns `output` and at least
+  model-hidden-size floats (768, 1536 or 2048 for supported profiles)."
   :-
   :bool
   [[racer :usize]
@@ -2240,12 +2263,12 @@
         in-index (+ base 10)
         mamba-norm-index (+ base 11)
         out-index (+ base 12)
-        ^{:var true :zig/type [:array 48 :f32]}
-        a (std-mem/zeroes (az/type [:array 48 :f32]))
-        ^{:var true :zig/type [:array 48 :f32]}
-        d (std-mem/zeroes (az/type [:array 48 :f32]))
-        ^{:var true :zig/type [:array 48 :f32]}
-        dt-bias (std-mem/zeroes (az/type [:array 48 :f32]))
+        ^{:var [:array model-max-mamba-head-count :f32]}
+        a (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32]))
+        ^{:var [:array model-max-mamba-head-count :f32]}
+        d (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32]))
+        ^{:var [:array model-max-mamba-head-count :f32]}
+        dt-bias (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32]))
         ^{:var true :zig/type :bool}
         valid (and (< layer model-layer-count)
                    (ak/! (attention-layer? layer))
@@ -2282,8 +2305,10 @@
           (set! (az/index conv-state (+ state-start 2)) current)
           (set! (az/index convolved channel) (silu total))))
       (dotimes [head model-mamba-head-count]
+        ;; GGUF conversion already transforms HF A_log into -exp(A_log).
+        ;; Applying that transform twice changes the recurrent dynamics.
         (set! (az/index a head)
-              (- 0.0 (std-math/exp (tensor-element a-index head))))
+              (tensor-element a-index head))
         (set! (az/index d head) (tensor-element d-index head))
         (set! (az/index dt-bias head) (tensor-element dt-bias-index head)))
       (mamba-selective-step!
@@ -2452,12 +2477,16 @@
                    ffn-output)))
 
 (az/defn attention-layer-probe
-  "Execute one isolated attention+FFN layer with an empty single-token cache."
+  "350M-only diagnostic: isolated attention+FFN with a single-token cache.
+  Unsupported profiles/tokens return NaN before accessing fixed-size buffers."
   :-
   :f32
   [[layer :usize]
    [token :usize]
    [component :usize]]
+  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+            (>= token model-vocabulary-size))
+    (ak/return (std-math/nan :f32)))
   (if (or (ak/! (attention-layer? layer))
           (>= component model-hidden-size))
     0.0
@@ -2517,12 +2546,15 @@
               0.0)))))))
 
 (az/defn mamba-layer-zero-probe
-  "Execute the first token through Granite layer 0's normalized Mamba branch
-  and residual connection. The recurrent and convolution states start at zero."
+  "350M-only diagnostic: first-token Mamba branch with zero initial state.
+  Unsupported profiles/tokens return NaN before accessing fixed-size buffers."
   :-
   :f32
   [[token :usize]
    [component :usize]]
+  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+            (>= token model-vocabulary-size))
+    (ak/return (std-math/nan :f32)))
   (let [^{:var true :zig/type [:array 768 :f32]}
         residual (std-mem/zeroes (az/type [:array 768 :f32]))
         ^{:var true :zig/type [:array 768 :f32]}
@@ -2588,7 +2620,7 @@
                                (tensor-element conv-bias-index channel)))))
               (dotimes [head 48]
                 (set! (az/index a head)
-                      (- 0.0 (std-math/exp (tensor-element a-index head))))
+                      (tensor-element a-index head))
                 (set! (az/index d head) (tensor-element d-index head))
                 (set! (az/index dt-bias head)
                       (tensor-element dt-bias-index head)))
@@ -2615,11 +2647,15 @@
                  (* 0.246 (az/index branch-output component))))))))))
 
 (az/defn mamba-layer-zero-full-probe
-  "Execute the first token through the complete layer-0 Mamba and FFN block."
+  "350M-only diagnostic: first-token complete Mamba/FFN block.
+  Unsupported profiles/tokens return NaN before accessing fixed-size buffers."
   :-
   :f32
   [[token :usize]
    [component :usize]]
+  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+            (>= token model-vocabulary-size))
+    (ak/return (std-math/nan :f32)))
   (if (>= component model-hidden-size)
     0.0
     (let [^{:var true :zig/type [:array 768 :f32]}
@@ -2706,35 +2742,59 @@
          (ak/as :f32 (ak/floatFromInt quantized))))))
 
 (az/defn- q6-k-dot
-  "Scalar reference dot product for one 256-value GGML Q6_K block."
+  "SIMD dot product for one GGML Q6_K block, sixteen values per signed
+  subscale. Decode each packed plane once; preserve q6-k-value's weight layout."
   :-
   :f32
   [[block [:pointer {:size :c :const? true} :u8]]
    [input [:pointer {:size :c :const? true} :f32]]]
-  (let [^{:var true :zig/type :f32} total 0.0]
-    (dotimes [index 256]
-      (set! total (+ total (* (q6-k-value block index)
-                             (az/index input index)))))
-    total))
+  (let [delta-bits (+ (ak/as :u16 (az/index block 208))
+                      (* (ak/as :u16 (az/index block 209)) 256))
+        delta (ak/as :f32 (ak/floatCast (ak/as :f16 (ak/bitCast delta-bits))))
+        ^{:var [:vector 16 :f32]} total (ak/splat (ak/as :f32 0.0))]
+    (dotimes [group 16]
+      (let [sub-block (/ group 2)
+            within (* (mod group 2) 16)
+            low-index (+ (* (/ sub-block 4) 64) (* (mod sub-block 2) 32) within)
+            high-index (+ 128 (* (/ sub-block 4) 32) within)
+            ^{:zig/type :u3} low-shift (if (>= (mod sub-block 4) 2) 4 0)
+            ^{:zig/type :u3} high-shift (ak/intCast (* (mod sub-block 4) 2))
+            ^{:zig/type [:vector 16 :u8]}
+            low-packed (ak/bitCast (az/deref (az/cast (+ block low-index)
+                                             [:pointer {:size :one :const? true} [:array 16 :u8]])))
+            ^{:zig/type [:vector 16 :u8]}
+            high-packed (ak/bitCast (az/deref (az/cast (+ block high-index)
+                                              [:pointer {:size :one :const? true} [:array 16 :u8]])))
+            low (ak/& (ak/>> low-packed (ak/as (az/type [:vector 16 :u3]) (ak/splat low-shift)))
+                      (ak/as (az/type [:vector 16 :u8]) (ak/splat 15)))
+            high (ak/& (ak/>> high-packed (ak/as (az/type [:vector 16 :u3]) (ak/splat high-shift)))
+                       (ak/as (az/type [:vector 16 :u8]) (ak/splat 3)))
+            quantized (- (ak/as (az/type [:vector 16 :i16])
+                                (ak/intCast (+ low (* high (ak/as (az/type [:vector 16 :u8]) (ak/splat 16))))))
+                         (ak/as (az/type [:vector 16 :i16]) (ak/splat 32)))
+            scale (ak/as :i8 (ak/bitCast (az/index block (+ 192 group))))
+            scaled-delta (ak/as (az/type [:vector 16 :f32])
+                               (ak/splat (* delta (ak/as :f32 (ak/floatFromInt scale)))))
+            values (* scaled-delta (ak/as (az/type [:vector 16 :f32]) (ak/floatFromInt quantized)))
+            ^{:zig/type [:vector 16 :f32]}
+            inputs (ak/bitCast (az/deref (az/cast (+ input (* group 16))
+                                         [:pointer {:size :one :const? true} [:array 16 :f32]])))]
+        (set! total (+ total (* values inputs)))))
+    (ak/reduce :.Add total)))
 
 (az/defn- embedding-value-kernel
-  "Read one value from the model's Q6_K token embedding tensor."
+  "Read the active profile's embedding width and quantization, not a fixed
+  350M row stride. The supported GGUF catalog places embeddings at index1."
   :-
   :f32
   [[token :usize]
    [component :usize]]
   (if (or (ak/== (az/field model-summary valid) false)
           (< tensor-catalog-count 2)
-          (>= token 100352)
-          (>= component 768))
+          (>= token model-vocabulary-size)
+          (>= component model-hidden-size))
     0.0
-    (let [tensor (az/index tensor-catalog 1)
-          ^{:zig/type [:c-pointer :u8]}
-          bytes (ak/ptrFromInt (az/field tensor data_address))
-          row-offset (* token 630)
-          block-offset (* (/ component 256) 210)]
-      (q6-k-value (+ bytes row-offset block-offset)
-                  (mod component 256)))))
+    (tensor-element 1 (+ (* token model-hidden-size) component))))
 
 (az/defn embedding-value
   "Inspectable wrapper around the private hot-loop embedding decoder."
@@ -2916,10 +2976,14 @@
   (/ value (+ 1.0 (std-math/exp (- 0.0 value)))))
 
 (az/defn layer-zero-mlp-probe
-  "Run the pinned model's first dense FFN on one real token embedding."
+  "350M-only diagnostic: first dense FFN on a real token embedding.
+  Unsupported profiles/tokens return NaN before accessing fixed-size buffers."
   :-
   :f32
   [[token :usize]]
+  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+            (>= token model-vocabulary-size))
+    (ak/return (std-math/nan :f32)))
   (let [^{:var true :zig/type [:array 768 :f32]}
         hidden (std-mem/zeroes (az/type [:array 768 :f32]))
         ^{:var true :zig/type [:array 768 :f32]}
@@ -2998,45 +3062,45 @@
       total)))
 
 (az/defn forward-token!
-  "Run one token through all 32 layers for one independent racer sequence.
+  "Run one token through the active model's layers for an independent sequence.
   The vocabulary sentinel consumes one position-bound fused observation vector
   prepared by `forward-fused-observation!`; ordinary token calls are unchanged."
   :-
   ForwardReport
   [[racer :usize]
    [token :usize]]
-  (let [^{:var true :zig/type [:array 1536 :f32]}
-        hidden (std-mem/zeroes (az/type [:array 1536 :f32]))
-        ^{:var true :zig/type [:array 1536 :f32]}
-        normalized (std-mem/zeroes (az/type [:array 1536 :f32]))
-        ^{:var true :zig/type [:array 6448 :f32]}
-        projected (std-mem/zeroes (az/type [:array 6448 :f32]))
-        ^{:var true :zig/type [:array 3328 :f32]}
-        convolved (std-mem/zeroes (az/type [:array 3328 :f32]))
-        ^{:var true :zig/type [:array 3072 :f32]}
-        scan-output (std-mem/zeroes (az/type [:array 3072 :f32]))
-        ^{:var true :zig/type [:array 3072 :f32]}
-        gated-output (std-mem/zeroes (az/type [:array 3072 :f32]))
-        ^{:var true :zig/type [:array 1536 :f32]}
-        branch-output (std-mem/zeroes (az/type [:array 1536 :f32]))
-        ^{:var true :zig/type [:array 4096 :f32]}
-        ffn-gate (std-mem/zeroes (az/type [:array 4096 :f32]))
-        ^{:var true :zig/type [:array 4096 :f32]}
-        ffn-up (std-mem/zeroes (az/type [:array 4096 :f32]))
-        ^{:var true :zig/type [:array 4096 :f32]}
-        ffn-activated (std-mem/zeroes (az/type [:array 4096 :f32]))
-        ^{:var true :zig/type [:array 1536 :f32]}
-        ffn-output (std-mem/zeroes (az/type [:array 1536 :f32]))
-        ^{:var true :zig/type [:array 1536 :f32]}
-        query (std-mem/zeroes (az/type [:array 1536 :f32]))
-        ^{:var true :zig/type [:array 512 :f32]}
-        key (std-mem/zeroes (az/type [:array 512 :f32]))
-        ^{:var true :zig/type [:array 512 :f32]}
-        value (std-mem/zeroes (az/type [:array 512 :f32]))
-        ^{:var true :zig/type [:array 160 :f32]}
-        scores (std-mem/zeroes (az/type [:array 160 :f32]))
-        ^{:var true :zig/type [:array 1536 :f32]}
-        attention-output (std-mem/zeroes (az/type [:array 1536 :f32]))
+  (let [^{:var [:array model-max-hidden-size :f32]}
+        hidden (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
+        ^{:var [:array model-max-hidden-size :f32]}
+        normalized (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
+        ^{:var [:array model-max-mamba-projection-size :f32]}
+        projected (std-mem/zeroes (az/type [:array model-max-mamba-projection-size :f32]))
+        ^{:var [:array model-max-mamba-conv-size :f32]}
+        convolved (std-mem/zeroes (az/type [:array model-max-mamba-conv-size :f32]))
+        ^{:var [:array model-max-mamba-inner-size :f32]}
+        scan-output (std-mem/zeroes (az/type [:array model-max-mamba-inner-size :f32]))
+        ^{:var [:array model-max-mamba-inner-size :f32]}
+        gated-output (std-mem/zeroes (az/type [:array model-max-mamba-inner-size :f32]))
+        ^{:var [:array model-max-hidden-size :f32]}
+        branch-output (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
+        ^{:var [:array model-max-ffn-size :f32]}
+        ffn-gate (std-mem/zeroes (az/type [:array model-max-ffn-size :f32]))
+        ^{:var [:array model-max-ffn-size :f32]}
+        ffn-up (std-mem/zeroes (az/type [:array model-max-ffn-size :f32]))
+        ^{:var [:array model-max-ffn-size :f32]}
+        ffn-activated (std-mem/zeroes (az/type [:array model-max-ffn-size :f32]))
+        ^{:var [:array model-max-hidden-size :f32]}
+        ffn-output (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
+        ^{:var [:array model-max-hidden-size :f32]}
+        query (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
+        ^{:var [:array model-max-attention-kv-size :f32]}
+        key (std-mem/zeroes (az/type [:array model-max-attention-kv-size :f32]))
+        ^{:var [:array model-max-attention-kv-size :f32]}
+        value (std-mem/zeroes (az/type [:array model-max-attention-kv-size :f32]))
+        ^{:var [:array sequence-capacity :f32]}
+        scores (std-mem/zeroes (az/type [:array sequence-capacity :f32]))
+        ^{:var [:array model-max-hidden-size :f32]}
+        attention-output (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
         candidate-tokens
         (az/array-init [:array 8 :u32] [32 33 34 35 36 37 38 39])
         ^{:var true :zig/type [:array 8 :f32]}
@@ -3267,6 +3331,339 @@
     (when (ak/! valid)
       (set! (az/field report valid) false))
     report))
+
+(az/defstruct LanguageGeneration
+  "Experimental full-vocabulary generation, independent of racing action heads.
+  Stop:1 EOS,2 token limit,3 context limit,4 invalid input/model/token bytes.
+  Opt-in language workers deliver this verbatim; the simulation validates
+  plans separately. Generation success is not a claim of decision quality."
+  {:layout :extern}
+  [[:valid :bool] [:stop :u8] [:input_tokens :u16] [:output_tokens :u16]
+   [:byte_count :u16] [:tokens [:array 64 :u32]] [:bytes [:array 2048 :u8]]])
+
+(az/defn gpt2-codepoint-byte
+  "Invert GPT-2's byte-to-Unicode alphabet. This decodes tokenizer storage,
+  not a game command encoding. Concatenated output bytes form ordinary UTF-8."
+  :- :i16 [[code :u32]]
+  (cond
+    (or (and (>= code 33) (<= code 126))
+        (and (>= code 161) (<= code 172))
+        (and (>= code 174) (<= code 255))) (ak/intCast code)
+    (and (>= code 256) (<= code 288)) (ak/intCast (- code 256))
+    (and (>= code 289) (<= code 322)) (ak/intCast (- code 162))
+    (ak/== code 323) (ak/as :i16 173)
+    :else (ak/as :i16 -1)))
+
+(az/defn decode-language-token!
+  "Decode one real GGUF vocabulary entry into bytes. Return65535 on invalid
+  Unicode/alphabet or insufficient space; never silently truncate a token."
+  :- :u16 [[token :u32] [output [:c-pointer :u8]] [capacity :usize]]
+  (when (or (ak/! tokenizer-valid) (>= token tokenizer-token-count))
+    (ak/return (ak/as :u16 65535)))
+  (let [start (ak/as :usize (az/index tokenizer-token-starts token))
+        length (ak/as :usize (az/index tokenizer-token-lengths token))
+        ^{:var :usize} offset 0
+        ^{:var :u16} written 0]
+    (ak/while (< offset length)
+      (let [first-byte (az/index (az/unwrap model-bytes) (+ start offset))
+            ^{:var :u32} code first-byte]
+        (set! offset (+ offset 1))
+        (when (>= first-byte 128)
+          (when (or (< first-byte 194) (> first-byte 197) (>= offset length))
+            (ak/return (ak/as :u16 65535)))
+          (let [second-byte (az/index (az/unwrap model-bytes) (+ start offset))]
+            (when (or (< second-byte 128) (> second-byte 191))
+              (ak/return (ak/as :u16 65535)))
+            (set! code (+ (* (ak/as :u32 (- first-byte 192)) 64)
+                         (ak/as :u32 (- second-byte 128))))
+            (set! offset (+ offset 1))))
+        (let [byte (gpt2-codepoint-byte code)]
+          (when (or (< byte 0) (>= written capacity))
+            (ak/return (ak/as :u16 65535)))
+          (set! (az/index output written) (ak/intCast byte))
+          (set! written (+ written 1)))))
+    written))
+
+(az/defn next-language-token
+  "Greedy argmax over the pretrained model's ENTIRE vocabulary. No A-H or
+  pit-head scores influence this result. Consume the last normalized native
+  backbone state already retained by forward-token!. Invalid returns0xffffffff."
+  :- :u32 [[racer :usize]]
+  (when (or (>= racer sequence-racer-count) (ak/! tokenizer-valid)
+            (ak/== (az/index sequence-positions racer) 0))
+    (ak/return (ak/as :u32 0xffffffff)))
+  (let [separate (find-tensor "output.weight")
+        output (if (< separate tensor-catalog-count) separate
+                 (find-tensor "token_embd.weight"))
+        slot (ak/min (- (ak/as :usize (az/index sequence-positions racer)) 1)
+                     (- action-head-token-count 1))
+        hidden (ak/& (az/index action-head-inputs
+                      (+ (* racer action-head-input-count) (* slot model-hidden-size))))
+        ^{:var :u32} best 0xffffffff
+        ^{:var :f32} best-score -3.4e38]
+    (when (>= output tensor-catalog-count)
+      (ak/return (ak/as :u32 0xffffffff)))
+    (let [tensor (az/index tensor-catalog output)]
+      (when (or (ak/!= (az/field tensor dimension_count) 2)
+                (ak/!= (az/index (az/field tensor dimensions) 0) model-hidden-size)
+                (ak/!= (az/index (az/field tensor dimensions) 1) tokenizer-token-count))
+        (ak/return (ak/as :u32 0xffffffff))))
+    (dotimes [token tokenizer-token-count]
+      (let [score (tensor-row-dot-kernel output token hidden)]
+        (when (ak/! (std-math/isFinite score))
+          (ak/return (ak/as :u32 0xffffffff)))
+        (when (> score best-score)
+          (set! best-score score)
+          (set! best (ak/intCast token)))))
+    best))
+
+(az/defn vocabulary-token-id
+  "Find an exact tokenizer vocabulary spelling from the loaded GGUF. This
+  resolves model control tokens; ordinary user text is never parsed as roles."
+  :- :u32
+  [[spelling [:pointer {:size :c :const? true} :u8]] [length :usize]]
+  (when tokenizer-valid
+    (dotimes [token tokenizer-token-count]
+      (when (ak/== (az/index tokenizer-token-lengths token) length)
+        (let [start (az/index tokenizer-token-starts token)
+              ^:var same true]
+          (dotimes [i length]
+            (when (ak/!= (az/index (az/unwrap model-bytes) (+ start i))
+                        (az/index spelling i))
+              (set! same false)))
+          (when same (ak/return (ak/as :u32 (ak/intCast token))))))))
+  (ak/as :u32 0xffffffff))
+
+(az/defn- language-letter? :- :bool [[byte :u8]]
+  (or (and (>= byte 65) (<= byte 90)) (and (>= byte 97) (<= byte 122))))
+
+(az/defn- language-digit? :- :bool [[byte :u8]]
+  (and (>= byte 48) (<= byte 57)))
+
+(az/defn- language-space? :- :bool [[byte :u8]]
+  (or (ak/== byte 32) (and (>= byte 9) (<= byte 13))))
+
+(az/defn- language-lower :- :u8 [[byte :u8]]
+  (if (and (>= byte 65) (<= byte 90)) (+ byte 32) byte))
+
+(az/defn language-piece-length
+  "ASCII subset of Granite's published pre-tokenizer regex, in its alternative
+  order. BPE must not merge across these word/number/punctuation boundaries."
+  :- :usize [[bytes [:pointer {:size :c :const? true} :u8]] [length :usize]]
+  (when (ak/== length 0) (ak/return (ak/as :usize 0)))
+  (let [first-byte (az/index bytes 0)]
+    (when (and (ak/== first-byte 39) (>= length 2))
+      (let [second-byte (language-lower (az/index bytes 1))]
+        (when (or (ak/== second-byte 115) (ak/== second-byte 116)
+                  (ak/== second-byte 109) (ak/== second-byte 100))
+          (ak/return (ak/as :usize 2)))
+        (when (>= length 3)
+          (let [third-byte (language-lower (az/index bytes 2))]
+            (when (or (and (ak/== second-byte 114) (ak/== third-byte 101))
+                      (and (ak/== second-byte 118) (ak/== third-byte 101))
+                      (and (ak/== second-byte 108) (ak/== third-byte 108)))
+              (ak/return (ak/as :usize 3)))))))
+    (let [prefix (if (language-letter? first-byte) (ak/as :usize 0) (ak/as :usize 1))]
+      (when (and (< prefix length) (language-letter? (az/index bytes prefix))
+                 (ak/!= first-byte 10) (ak/!= first-byte 13)
+                 (ak/! (language-digit? first-byte)))
+        (let [^:var end (+ prefix 1)]
+          (ak/while (and (< end length) (language-letter? (az/index bytes end)))
+            (set! end (+ end 1)))
+          (ak/return end))))
+    (when (language-digit? first-byte)
+      (let [^{:var :usize} end 1]
+        (ak/while (and (< end (ak/min length 3)) (language-digit? (az/index bytes end)))
+          (set! end (+ end 1)))
+        (ak/return end)))
+    (let [prefix (if (ak/== first-byte 32) (ak/as :usize 1) (ak/as :usize 0))
+          ^:var end prefix]
+      (ak/while (and (< end length)
+                     (ak/! (language-space? (az/index bytes end)))
+                     (ak/! (language-letter? (az/index bytes end)))
+                     (ak/! (language-digit? (az/index bytes end))))
+        (set! end (+ end 1)))
+      (when (> end prefix)
+        (ak/while (and (< end length)
+                       (or (ak/== (az/index bytes end) 10) (ak/== (az/index bytes end) 13)))
+          (set! end (+ end 1)))
+        (ak/return end)))
+    (when (language-space? first-byte)
+      (let [^{:var :usize} end 0
+            ^{:var :usize} last-newline 0]
+        (ak/while (and (< end length) (language-space? (az/index bytes end)))
+          (set! end (+ end 1))
+          (when (or (ak/== (az/index bytes (- end 1)) 10)
+                    (ak/== (az/index bytes (- end 1)) 13))
+            (set! last-newline end)))
+        (ak/return (cond (> last-newline 0) last-newline
+                         (ak/== end length) end
+                         (> end 1) (- end 1)
+                         :else end))))
+    (ak/as :usize 1)))
+
+(az/defn tokenize-language-ascii
+  "Bounded ordinary text: apply Granite's word-splitting rule before GGUF BPE.
+  The old compact-head tokenizer is left unchanged for existing head fixtures."
+  :- TokenizationReport
+  [[bytes [:pointer {:size :c :const? true} :u8]] [length :usize]]
+  (let [^:var result (std-mem/zeroes (az/type TokenizationReport))
+        ^{:var :usize} offset 0
+        bound (ak/min length tokenizer-capacity)]
+    (set! (az/field result byte_count) (ak/intCast bound))
+    (set! (az/field result truncated) (> length tokenizer-capacity))
+    (set! (az/field result valid) tokenizer-valid)
+    (ak/while (and (< offset bound) (az/field result valid))
+      (let [size (language-piece-length (+ bytes offset) (- bound offset))
+            piece (tokenize-compact-ascii (+ bytes offset) size)]
+        (when (ak/! (az/field piece valid))
+          (set! (az/field result valid) false)
+          (set! (az/field result unsupported_index)
+                (ak/intCast (+ offset (az/field piece unsupported_index)))))
+        (dotimes [i (az/field piece token_count)]
+          (set! (az/index (az/field result tokens) (az/field result token_count))
+                (az/index (az/field piece tokens) i))
+          (set! (az/field result token_count) (+ (az/field result token_count) 1)))
+        (set! offset (+ offset size))))
+    result))
+
+(az/defn tokenize-language-chat-with-system
+  "Granite's real system/user/assistant frame with caller-provided plain text.
+  Content is tokenized separately from role controls, so a message cannot
+  impersonate another role by spelling a special token. Bounded ASCII proof."
+  :- TokenizationReport
+  [[system [:pointer {:size :c :const? true} :u8]] [system-length :usize]
+   [prompt [:pointer {:size :c :const? true} :u8]] [length :usize]]
+  (let [content (tokenize-language-ascii prompt length)
+        system-role (tokenize-language-ascii "system" 6)
+        system-content (tokenize-language-ascii system system-length)
+        user-role (tokenize-language-ascii "user" 4)
+        assistant-role (tokenize-language-ascii "assistant" 9)
+        start-role (vocabulary-token-id "<|start_of_role|>" 17)
+        end-role (vocabulary-token-id "<|end_of_role|>" 15)
+        eos (metadata-u32 (find-metadata "tokenizer.ggml.eos_token_id") 0xffffffff)
+        total (+ 10 (az/field content token_count)
+                    (az/field system-role token_count) (az/field system-content token_count)
+                   (az/field user-role token_count) (az/field assistant-role token_count))
+        ^:var result (std-mem/zeroes (az/type TokenizationReport))
+        ^{:var :usize} cursor 0]
+    (set! (az/field result byte_count) (az/field content byte_count))
+    (set! (az/field result truncated)
+          (or (az/field content truncated) (az/field system-content truncated)
+              (> total tokenizer-capacity)))
+    (when (or (ak/! tokenizer-valid) (ak/! (az/field content valid))
+              (ak/! (az/field system-content valid))
+              (az/field result truncated) (>= start-role tokenizer-token-count)
+              (>= end-role tokenizer-token-count) (>= eos tokenizer-token-count))
+      (ak/return result))
+    (set! (az/index (az/field result tokens) cursor) start-role)
+    (set! cursor (+ cursor 1))
+    (dotimes [i (az/field system-role token_count)]
+      (set! (az/index (az/field result tokens) cursor) (az/index (az/field system-role tokens) i))
+      (set! cursor (+ cursor 1)))
+    (set! (az/index (az/field result tokens) cursor) end-role)
+    (set! cursor (+ cursor 1))
+    (dotimes [i (az/field system-content token_count)]
+      (set! (az/index (az/field result tokens) cursor) (az/index (az/field system-content tokens) i))
+      (set! cursor (+ cursor 1)))
+    (set! (az/index (az/field result tokens) cursor) eos)
+    (set! cursor (+ cursor 1))
+    (set! (az/index (az/field result tokens) cursor) (ascii-byte-token 10))
+    (set! cursor (+ cursor 1))
+    (set! (az/index (az/field result tokens) cursor) start-role)
+    (set! cursor (+ cursor 1))
+    (dotimes [i (az/field user-role token_count)]
+      (set! (az/index (az/field result tokens) cursor) (az/index (az/field user-role tokens) i))
+      (set! cursor (+ cursor 1)))
+    (set! (az/index (az/field result tokens) cursor) end-role)
+    (set! cursor (+ cursor 1))
+    (dotimes [i (az/field content token_count)]
+      (set! (az/index (az/field result tokens) cursor) (az/index (az/field content tokens) i))
+      (set! cursor (+ cursor 1)))
+    (set! (az/index (az/field result tokens) cursor) eos)
+    (set! cursor (+ cursor 1))
+    (set! (az/index (az/field result tokens) cursor) (ascii-byte-token 10))
+    (set! cursor (+ cursor 1))
+    (set! (az/index (az/field result tokens) cursor) start-role)
+    (set! cursor (+ cursor 1))
+    (dotimes [i (az/field assistant-role token_count)]
+      (set! (az/index (az/field result tokens) cursor) (az/index (az/field assistant-role tokens) i))
+      (set! cursor (+ cursor 1)))
+    (set! (az/index (az/field result tokens) cursor) end-role)
+    (set! (az/field result token_count) (ak/intCast (+ cursor 1)))
+    (set! (az/field result valid) true)
+    result))
+
+(az/defn tokenize-language-chat
+  "Apply Granite's official default system message to a plain user message."
+  :- TokenizationReport
+  [[prompt [:pointer {:size :c :const? true} :u8]] [length :usize]]
+  (tokenize-language-chat-with-system
+   "You are a helpful assistant. Please ensure responses are professional, accurate, and safe." 90
+   prompt length))
+
+(az/defn generate-language-with-system!
+  "Bounded native autoregressive user-chat proof with real vocabulary decoding.
+  Does not train/load a racing head or install game actions. Callers must
+  validate replies and deadlines before changing a driving intention."
+  :- LanguageGeneration
+  [[racer :usize]
+   [system [:pointer {:size :c :const? true} :u8]] [system-length :usize]
+   [prompt [:pointer {:size :c :const? true} :u8]]
+   [length :usize] [max-new-tokens :usize]]
+  (let [^:var result (std-mem/zeroes (az/type LanguageGeneration))
+        tokenized (tokenize-language-chat-with-system system system-length prompt length)
+        eos (metadata-u32 (find-metadata "tokenizer.ggml.eos_token_id") 0xffffffff)]
+    (set! (az/field result stop) 4)
+    (when (or (ak/! tokenizer-valid) (ak/! (az/field tokenized valid))
+              (az/field tokenized truncated) (ak/== (az/field tokenized token_count) 0)
+              (>= eos tokenizer-token-count) (ak/! (reset-sequence! racer)))
+      (ak/return result))
+    (dotimes [i (az/field tokenized token_count)]
+      (when (ak/! (az/field (forward-token! racer (az/index (az/field tokenized tokens) i)) valid))
+        (ak/return result))
+      (set! (az/field result input_tokens) (+ (az/field result input_tokens) 1)))
+    (set! (az/field result valid) true)
+    (set! (az/field result stop) 2)
+    (dotimes [_ (ak/min max-new-tokens 64)]
+      (let [token (next-language-token racer)]
+        (when (ak/== token eos)
+          (set! (az/field result stop) 1)
+          (ak/return result))
+        (when (>= (az/field result byte_count) 2048)
+          (set! (az/field result valid) false)
+          (set! (az/field result stop) 4)
+          (ak/return result))
+        (let [size (decode-language-token! token
+                     (ak/& (az/index (az/field result bytes) (az/field result byte_count)))
+                     (- 2048 (az/field result byte_count)))]
+          (when (ak/== size 65535)
+            (set! (az/field result valid) false)
+            (set! (az/field result stop) 4)
+            (ak/return result))
+          (set! (az/field result byte_count) (+ (az/field result byte_count) size)))
+        (set! (az/index (az/field result tokens) (az/field result output_tokens)) token)
+        (set! (az/field result output_tokens) (+ (az/field result output_tokens) 1))
+        (when (>= (az/field result output_tokens) (ak/min max-new-tokens 64))
+          (ak/return result))
+        (when (>= (az/index sequence-positions racer) sequence-capacity)
+          (set! (az/field result stop) 3)
+          (ak/return result))
+        (when (ak/! (az/field (forward-token! racer token) valid))
+          (set! (az/field result valid) false)
+          (set! (az/field result stop) 4)
+          (ak/return result))))
+    result))
+
+(az/defn generate-language!
+  "Generate a plain user-chat reply using Granite's official default system."
+  :- LanguageGeneration
+  [[racer :usize] [prompt [:pointer {:size :c :const? true} :u8]]
+   [length :usize] [max-new-tokens :usize]]
+  (generate-language-with-system!
+   racer
+   "You are a helpful assistant. Please ensure responses are professional, accurate, and safe." 90
+   prompt length max-new-tokens))
 
 (az/defn kernel-self-test
   "Execute deterministic native fixtures without allocating or invoking a server."

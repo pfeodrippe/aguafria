@@ -1,6 +1,6 @@
 # Aguafria LLM Racing
 
-Eight Flecs racers run a 120 Hz native simulation while a real, local Granite
+Twenty Flecs racers run a 120 Hz native simulation while a real, local Granite
 350M model makes independent tactical decisions on fixed native workers that
 share one immutable model.
 The inference engine, quantized kernels, scheduler, simulation, and Vulkan
@@ -67,7 +67,7 @@ Useful forms:
 (race-log/write! {:per-racer-limit 8}) ; bound a focused export
 (race-log/write! {:include-raw? true}) ; opt in to raw prompts/tokens/provenance
 (require '[racing-game.monitor :as monitor])
-(monitor/status) ; decoded eight-racer ImGui state from the same native telemetry
+(monitor/status) ; decoded racer ImGui state from the same native telemetry
 (monitor/set-raw-protocol-visible! true) ; explicit opt-in; false clears raw bytes again
 (game/decision-outcome 0)
 (simulation/toggle-paused!)
@@ -88,10 +88,30 @@ geometric intent overlay, `F2` to hide/show the Dear ImGui cognition monitor,
 and `H` to take over or release racer 0. In reference
 driver mode, arrows or WASD steer/throttle/brake, Space uses the held item, and
 the first GLFW gamepad uses its left stick, triggers, and A button. The default
-remains eight independent AI racers. Racer 0 receives an extra contour only
+remains 20 independent AI racers, paired into 10 teams. Racer 0 receives an extra contour only
 while human control is active.
 
-The geometric overlay's eight rows show desired speed, average inference
+The always-visible **LIVE DRIVING** panel at the bottom right shows measured
+km/h, throttle and brake percentages/bars, steering angle, and driving mode.
+Choose **Driver chase → Driver** to follow any of R0–R19. **1–8** still selects
+R0–R7; **0** follows the leader. AI-requested speed and the corner planner's cap
+are labeled separately; neither is the measured speed. The top-left
+classification also shows each active racer's km/h. **F2** opens the detailed
+decision and team-radio history; it is not needed to see driving telemetry.
+
+The separate **Driver text history – F2** window is for the experimental
+unconstrained-language driver path: select **R0–R7**, then **Enable text driver**.
+It shows the exact words sent and returned, token counts, and measured queue /
+inference / total time. Identical consecutive exchanges collapse into one entry
+with a repeat count; **Show every call** expands them. Uncheck **Follow newest**
+to scroll older replies while the controls stay visible, or select **All racers**.
+The current race and each reply's race are labeled separately. The same entries are available through
+`(game/language-history 16)`. `(racing-game.log/write-language!)` saves a readable
+snapshot to `build/logs/driver-text.txt` (not a continuous recording). Enabling initially holds the selected car until a
+valid reply arrives. “Accepted” is validation, not proof of a sensible decision.
+This path is still experimental and does not yet replace the team model path.
+
+The geometric overlay's driver rows show desired speed, average inference
 latency, LLM/fallback source, pending work, and planned item use; thin lines on
 the track show each actor's lane goal and selected opponent. `decision-log` and
 `decision-logs` return the exact ordinary-English model observation by default.
@@ -196,7 +216,7 @@ rank/progress gains, and a per-persona routine pace distribution, with
 model/head provenance attached. Persona competence is reported only from real
 Granite decisions; a fallback-only tournament explicitly says it has no model
 evidence. Raw prompt bytes and token IDs never enter this report. To exercise
-the real eight Granite workers instead, call `game/start-headless!` and use
+the real native Granite workers instead, call `game/start-headless!` and use
 `:mode :live`; that mode deliberately advances at wall-clock 120 Hz rather than
 outrunning asynchronous inference.
 
@@ -273,8 +293,14 @@ contains no trainer, JVM, Python, or scripted post-policy.
 
 ```sh
 clojure -M:standalone
-./build/standalone/racing-game
+cd build/standalone
+./racing-game
 ```
+
+The always-visible FPS panel reports actual render cadence and milliseconds per
+frame averaged over the last 120 frames, not the 120 Hz physics target. To mirror
+performance counters to the terminal every five seconds, run
+`RACING_FPS_LOG=1 ./racing-game` from `build/standalone`.
 
 This emits and runs a JVM-free `ReleaseFast` Zig executable. The build folder
 contains the pinned GGUF, verified driver/team heads, manifest, and compiled
@@ -286,8 +312,8 @@ license texts and `THIRD_PARTY_NOTICES.md` are packaged under
 The standalone demonstrator opens the human-readable cognition monitor by
 default. Select any racer in its table to follow the latest `Saw / Chose /
 Result` explanation. The expanded legend explains the geometric HUD: left rows
-are racers 0-7 and their speed/latency/pending/item-use state; right boxes are
-1st-8th place with lap-progress width. Press `F2` to hide/show the monitor.
+identify racers and their speed/latency/pending/item-use state; the leaderboard
+shows all 20 places. Press `F2` to hide/show the monitor.
 Encoded prompts and token IDs remain absent unless `Show raw protocol` is
 explicitly checked.
 

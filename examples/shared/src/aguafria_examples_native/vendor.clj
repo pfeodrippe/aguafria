@@ -6,6 +6,8 @@
 (def dependencies
   {:flecs {:url "https://github.com/SanderMertens/flecs.git"
            :commit "14ad7136f550079b9c1efe15cc669b737a4bd1fd"}
+   :box3d {:url "https://github.com/erincatto/box3d.git"
+           :commit "47d7f7cc7e091142c08d11dc7d2e493c5d34f536"}
    :glfw {:url "https://github.com/glfw/glfw.git"
           :commit "d9d6f0f1f967807ffade6598ea9a631ebaf37a56"}
    :imgui {:url "https://github.com/ocornut/imgui.git"

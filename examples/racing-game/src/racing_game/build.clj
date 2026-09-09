@@ -3,6 +3,7 @@
   (:require [aguafria.zig :as az]
             [aguafria.zig.build :as zig-build]
             [aguafria-examples-native.build :as native-build]
+            [aguafria-examples-native.box3d :as box3d]
             [aguafria-examples-native.vendor :as native-vendor]
             [clojure.java.io :as io]
             [racing-game.model :as model])
@@ -40,7 +41,7 @@
                  (run-command! ["glslc" (.getAbsolutePath source)
                                 "-o" (.getAbsolutePath output)])
                  [name :built]))))
-        ["mesh.vert" "mesh.frag"])))
+        ["mesh.vert" "mesh.frag" "instances.vert"])))
 
 (defn prepare!
   []
@@ -112,7 +113,7 @@
                              (into-array StandardCopyOption
                                          [StandardCopyOption/REPLACE_EXISTING]))
                  [name {:status :packaged :output output}]))))
-        ["mesh.vert" "mesh.frag"])))
+        ["mesh.vert" "mesh.frag" "instances.vert"])))
 
 (defn package-manifest!
   []
@@ -171,6 +172,14 @@
      (copy-release-file!
       (io/file shared-vendor "glfw/LICENSE.md")
       "GLFW-zlib.txt")
+     :box3d
+     (copy-release-file!
+      (io/file shared-vendor "box3d/LICENSE")
+      "Box3D-MIT.txt")
+     :imgui
+     (copy-release-file!
+      (io/file shared-vendor "imgui/LICENSE.txt")
+      "Dear-ImGui-MIT.txt")
      :vulkan-headers
      (copy-release-file!
       (io/file shared-vendor "vulkan-headers/LICENSE.md")
@@ -194,6 +203,8 @@
   []
   (native-build/prepare-static!)
   (native-build/prepare-imgui-static!)
+  (native-build/prepare-imgui-controls! :static)
+  (box3d/build! :static)
   (prepare-shaders!)
   (package-model!)
   (package-action-head!)
@@ -212,7 +223,21 @@
       :optimize "ReleaseFast"
       :reloadable? false
       :async? false
-      :zig-args (native-build/imgui-standalone-link-arguments)})))
+      :zig-args (conj (native-build/imgui-standalone-link-arguments)
+                      (str (native-build/imgui-controls-path :static))
+                      (str (:static (box3d/paths))))})))
+
+(defn build-language-probe!
+  "Build the unchanged inference/text graph as a standalone correctness check.
+  Uses the verified model in resources/models, without copying it or loading
+  obsolete action heads. Run the output from this example's project root."
+  []
+  (model/verify!)
+  (zig-build/load-source-only! 'racing-game.language-probe)
+  (az/build! 'racing-game.language-probe
+    {:kind :exe :name "language-probe"
+     :output (io/file (project-root) "build/standalone/language-probe")
+     :optimize "ReleaseFast" :reloadable? false :async? false :zig-args ["-lc"]}))
 
 (defn build-inference-probe!
   "Build the same native graph without a window for repeatable timing."

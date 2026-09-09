@@ -126,6 +126,31 @@
 
 (az/defvar mesh-pipeline-layout vk/VkPipelineLayout null)
 
+(az/defvar instance-pipeline vk/VkPipeline null)
+
+(az/defvar instance-pipeline-layout vk/VkPipelineLayout null)
+
+(az/defstruct MappedVertexBuffer
+  [[:buffer vk/VkBuffer] [:memory vk/VkDeviceMemory]
+   [:mapped [:optional [:* :anyopaque]]] [:bytes :usize]])
+
+(az/defstruct InstanceMesh
+  [[:storage MappedVertexBuffer] [:revision :u64] [:vertices :u32] [:draw_frame :u64]])
+
+(az/defvar instance-meshes [:array 16 InstanceMesh]
+  (std-mem/zeroes (az/type [:array 16 InstanceMesh])))
+
+(az/defvar instance-stream MappedVertexBuffer
+  (std-mem/zeroes (az/type MappedVertexBuffer)))
+
+(az/defvar instance-stream-frame :u64 0xffffffffffffffff)
+
+(az/defvar instance-stream-used :usize 0)
+
+(az/defvar instance-draws :u32 0)
+
+(az/defvar instance-upload-bytes :u64 0)
+
 (az/defvar mesh-vertex-buffer vk/VkBuffer null)
 
 (az/defvar mesh-vertex-memory vk/VkDeviceMemory null)
@@ -555,12 +580,14 @@
                                         (ak/& module)))))
     module))
 
-(az/defn create-mesh-pipeline!
-  "Create the Vulkan triangle pipeline used by every Kenney model."
+(az/defn create-triangle-pipeline!
+  "Shared fixed-function configuration for streamed and GPU-instanced meshes."
   :-
   :void
-  []
-  (let [vertex-module (load-shader-module "resources/shaders/mesh.vert.spv")
+  [[instanced :bool]]
+  (let [vertex-module (load-shader-module
+                       (if instanced "resources/shaders/instances.vert.spv"
+                         "resources/shaders/mesh.vert.spv"))
         fragment-module (load-shader-module "resources/shaders/mesh.frag.spv")
         stages
         (az/array-init
@@ -575,24 +602,47 @@
             :stage vk/VK_SHADER_STAGE_FRAGMENT_BIT
             :module fragment-module
             :pName "main"})])
-        binding
-        (vk/VkVertexInputBindingDescription
-         {:binding 0
-          :stride (ak/intCast (ak/sizeOf mesh/GpuVertex))
-          :inputRate vk/VK_VERTEX_INPUT_RATE_VERTEX})
+        bindings
+        (az/array-init [:array 2 vk/VkVertexInputBindingDescription]
+          [(vk/VkVertexInputBindingDescription
+            {:binding 0 :stride (if instanced 40 (ak/intCast (ak/sizeOf mesh/GpuVertex)))
+             :inputRate vk/VK_VERTEX_INPUT_RATE_VERTEX})
+           (vk/VkVertexInputBindingDescription
+            {:binding 1 :stride (ak/intCast (ak/sizeOf mesh/GpuInstance))
+             :inputRate vk/VK_VERTEX_INPUT_RATE_INSTANCE})])
         attributes
+        (if instanced
+          (az/array-init [:array 8 vk/VkVertexInputAttributeDescription]
+            [(vk/VkVertexInputAttributeDescription {:location 0 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 0})
+             (vk/VkVertexInputAttributeDescription {:location 1 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 12})
+             (vk/VkVertexInputAttributeDescription {:location 2 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 24})
+             (vk/VkVertexInputAttributeDescription {:location 3 :binding 0 :format vk/VK_FORMAT_R32_SFLOAT :offset 36})
+             (vk/VkVertexInputAttributeDescription {:location 4 :binding 1 :format vk/VK_FORMAT_R32G32B32A32_SFLOAT :offset 0})
+             (vk/VkVertexInputAttributeDescription {:location 5 :binding 1 :format vk/VK_FORMAT_R32G32B32A32_SFLOAT :offset 16})
+             (vk/VkVertexInputAttributeDescription {:location 6 :binding 1 :format vk/VK_FORMAT_R32G32B32A32_SFLOAT :offset 32})
+             (vk/VkVertexInputAttributeDescription {:location 7 :binding 1 :format vk/VK_FORMAT_R32G32B32A32_SFLOAT :offset 48})])
         (az/array-init
-         [:array 2 vk/VkVertexInputAttributeDescription]
+         [:array 8 vk/VkVertexInputAttributeDescription]
          [(vk/VkVertexInputAttributeDescription
            {:location 0 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 0})
           (vk/VkVertexInputAttributeDescription
-           {:location 1 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 12})])
+           {:location 1 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 12})
+          (vk/VkVertexInputAttributeDescription
+           {:location 2 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 24})
+          (vk/VkVertexInputAttributeDescription
+           {:location 3 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 36})
+          (vk/VkVertexInputAttributeDescription
+           {:location 4 :binding 0 :format vk/VK_FORMAT_R32_SFLOAT :offset 48})
+          (vk/VkVertexInputAttributeDescription
+           {:location 5 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 52})
+          (std-mem/zeroes (az/type vk/VkVertexInputAttributeDescription))
+          (std-mem/zeroes (az/type vk/VkVertexInputAttributeDescription))]))
         vertex-input
         (vk/VkPipelineVertexInputStateCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
-          :vertexBindingDescriptionCount 1
-          :pVertexBindingDescriptions (ak/& binding)
-          :vertexAttributeDescriptionCount 2
+          :vertexBindingDescriptionCount (if instanced 2 1)
+          :pVertexBindingDescriptions (ak/& (az/index bindings 0))
+          :vertexAttributeDescriptionCount (if instanced 8 6)
           :pVertexAttributeDescriptions (ak/& (az/index attributes 0))})
         input-assembly
         (vk/VkPipelineInputAssemblyStateCreateInfo
@@ -652,11 +702,18 @@
           :logicOpEnable vk/VK_FALSE
           :attachmentCount 1
           :pAttachments (ak/& color-attachment)})
+        push-range (vk/VkPushConstantRange
+                     {:stageFlags vk/VK_SHADER_STAGE_VERTEX_BIT :offset 0
+                      :size (ak/intCast (ak/sizeOf mesh/InstanceCamera))})
+        layout-out (if instanced (ak/& instance-pipeline-layout) (ak/& mesh-pipeline-layout))
+        pipeline-out (if instanced (ak/& instance-pipeline) (ak/& mesh-pipeline))
         layout-info
         (vk/VkPipelineLayoutCreateInfo
-         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO})]
+         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
+          :pushConstantRangeCount (if instanced 1 0)
+          :pPushConstantRanges (if instanced (ak/& push-range) null)})]
     (check (vk/vkCreatePipelineLayout device (ak/& layout-info) null
-                                      (ak/& mesh-pipeline-layout)))
+                                      layout-out))
     (let [pipeline-info
           (vk/VkGraphicsPipelineCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
@@ -669,13 +726,121 @@
             :pMultisampleState (ak/& multisample)
             :pDepthStencilState (ak/& depth-stencil)
             :pColorBlendState (ak/& color-blend)
-            :layout mesh-pipeline-layout
+            :layout (az/deref layout-out)
             :renderPass render-pass
             :subpass 0})]
       (check (vk/vkCreateGraphicsPipelines device null 1 (ak/& pipeline-info)
-                                           null (ak/& mesh-pipeline))))
+                                           null pipeline-out)))
     (vk/vkDestroyShaderModule device fragment-module null)
     (vk/vkDestroyShaderModule device vertex-module null)))
+
+(az/defn create-mesh-pipeline! :- :void []
+  (create-triangle-pipeline! false))
+
+(az/defn create-mapped-vertex-buffer
+  :- MappedVertexBuffer [[bytes :usize]]
+  (let [^:var storage (std-mem/zeroes (az/type MappedVertexBuffer))
+        info (vk/VkBufferCreateInfo
+               {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO :size bytes
+                :usage vk/VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})
+        ^:var requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))]
+    (check (vk/vkCreateBuffer device (ak/& info) null (ak/& (az/field storage buffer))))
+    (vk/vkGetBufferMemoryRequirements device (az/field storage buffer) (ak/& requirements))
+    (let [allocation (vk/VkMemoryAllocateInfo
+                       {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+                        :allocationSize (az/field requirements size)
+                        :memoryTypeIndex
+                        (find-memory-type (az/field requirements memoryTypeBits)
+                          (ak/| vk/VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                                vk/VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))})]
+      (check (vk/vkAllocateMemory device (ak/& allocation) null (ak/& (az/field storage memory))))
+      (check (vk/vkBindBufferMemory device (az/field storage buffer) (az/field storage memory) 0))
+      (check (vk/vkMapMemory device (az/field storage memory) 0 bytes 0 (ak/& (az/field storage mapped)))))
+    (set! (az/field storage bytes) bytes)
+    storage))
+
+(az/defn destroy-mapped-vertex-buffer! :- :void [[storage [:* MappedVertexBuffer]]]
+  (when (ak/!= (az/field storage buffer) null)
+    (vk/vkUnmapMemory device (az/field storage memory))
+    (vk/vkDestroyBuffer device (az/field storage buffer) null)
+    (vk/vkFreeMemory device (az/field storage memory) null)
+    (set! (az/deref storage) (std-mem/zeroes (az/type MappedVertexBuffer)))))
+
+(az/defn draw-instances!
+  "Call from a FrameBuilder, after the frame fence and inside the render pass.
+  A slot owns one immutable 40-byte Blender mesh. Upload only on revision change;
+  per-frame traffic is 64 bytes per independently transformed part, not vertices.
+  Revision changes for a slot must precede every draw using it in that frame."
+  :- :bool
+  [[slot :usize] [revision :u64]
+   [vertices [:slice-const [:array 10 :f32]]]
+   [instances [:slice-const mesh/GpuInstance]] [camera mesh/InstanceCamera]]
+  (when (or (ak/! initialized) (ak/== active-command-buffer null)
+            (>= slot 16) (ak/== (az/field vertices len) 0)
+            (ak/!= (mod (az/field vertices len) 3) 0)
+            (> (az/field vertices len) 1048576))
+    (ak/return false))
+  (when (ak/!= instance-stream-frame frame-count)
+    (set! instance-stream-frame frame-count)
+    (set! instance-stream-used 0)
+    (set! instance-draws 0))
+  (when (> (+ instance-stream-used (az/field instances len)) mesh/instance-capacity)
+    (ak/return false))
+  (when (ak/== (az/field instances len) 0) (ak/return true))
+  (when (ak/== instance-pipeline null)
+    (create-triangle-pipeline! true))
+  (when (ak/== (az/field instance-stream buffer) null)
+    (set! instance-stream
+          (create-mapped-vertex-buffer (* mesh/instance-capacity (ak/sizeOf mesh/GpuInstance)))))
+  (let [entry (ak/& (az/index instance-meshes slot))
+        bytes (* (az/field vertices len) (ak/sizeOf (az/type [:array 10 :f32])))]
+    (when (or (ak/== (az/field (az/field entry storage) buffer) null)
+              (ak/!= (az/field entry revision) revision)
+              (ak/!= (az/field entry vertices) (az/field vertices len)))
+      ;; Never replace storage already referenced by this command buffer.
+      ;; A caller must use one asset revision consistently for a whole frame.
+      (when (and (ak/!= (az/field (az/field entry storage) buffer) null)
+                 (ak/== (az/field entry draw_frame) frame-count))
+        (ak/return false))
+      (when (> bytes (az/field (az/field entry storage) bytes))
+        (destroy-mapped-vertex-buffer! (ak/& (az/field entry storage)))
+        (set! (az/field entry storage) (create-mapped-vertex-buffer bytes)))
+      (ak/memcpy
+        (az/slice (az/cast (az/field (az/field entry storage) mapped) [:c-pointer :u8]) 0 bytes)
+        (std-mem/sliceAsBytes vertices))
+      (set! (az/field entry revision) revision)
+      (set! (az/field entry vertices) (ak/intCast (az/field vertices len)))
+      (set! instance-upload-bytes (+ instance-upload-bytes (ak/as :u64 (ak/intCast bytes)))))
+    (let [output (az/cast (az/field instance-stream mapped) [:c-pointer mesh/GpuInstance])
+          buffers (az/array-init [:array 2 vk/VkBuffer]
+                    [(az/field (az/field entry storage) buffer) (az/field instance-stream buffer)])
+          offsets (az/array-init [:array 2 vk/VkDeviceSize]
+                    [0 (* instance-stream-used (ak/sizeOf mesh/GpuInstance))])]
+      (ak/memcpy (az/slice output instance-stream-used (+ instance-stream-used (az/field instances len))) instances)
+      (vk/vkCmdBindPipeline active-command-buffer vk/VK_PIPELINE_BIND_POINT_GRAPHICS instance-pipeline)
+      (vk/vkCmdBindVertexBuffers active-command-buffer 0 2 (ak/& (az/index buffers 0)) (ak/& (az/index offsets 0)))
+      (vk/vkCmdPushConstants active-command-buffer instance-pipeline-layout
+        vk/VK_SHADER_STAGE_VERTEX_BIT 0 (ak/intCast (ak/sizeOf mesh/InstanceCamera)) (ak/& camera))
+      (vk/vkCmdDraw active-command-buffer (az/field entry vertices) (ak/intCast (az/field instances len)) 0 0)
+      (set! (az/field entry draw_frame) frame-count)
+      (set! instance-stream-used (+ instance-stream-used (az/field instances len)))
+      (set! instance-draws (+ instance-draws 1))))
+  true)
+
+(az/defn destroy-instance-resources! :- :void []
+  (dotimes [slot 16]
+    (destroy-mapped-vertex-buffer! (ak/& (az/field (az/index instance-meshes slot) storage))))
+  (destroy-mapped-vertex-buffer! (ak/& instance-stream))
+  (when (ak/!= instance-pipeline null)
+    (vk/vkDestroyPipeline device instance-pipeline null)
+    (vk/vkDestroyPipelineLayout device instance-pipeline-layout null))
+  (set! instance-pipeline null)
+  (set! instance-pipeline-layout null)
+  (set! instance-stream-frame 0xffffffffffffffff)
+  (set! instance-stream-used 0)
+  (set! instance-draws 0)
+  (set! instance-upload-bytes 0))
 
 (az/defn initialize-renderer!
   "Initialize Vulkan against an existing GLFW window."
@@ -887,6 +1052,7 @@
   (when initialized
     (set! overlay-renderer null)
     (renderer-wait-idle!)
+    (destroy-instance-resources!)
     (vk/vkDestroyPipeline device mesh-pipeline null)
     (vk/vkDestroyPipelineLayout device mesh-pipeline-layout null)
     (vk/vkUnmapMemory device mesh-vertex-memory)

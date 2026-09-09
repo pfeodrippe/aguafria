@@ -60,7 +60,7 @@
   [{:keys [racer target persona rank lap item progress speed urgent
            target-distance target-lane tactical-status]
     :or {racer 0}}]
-  (format (str "Driver %d, %s. Rank %d/8; lap %d; progress %d%%; speed %d. "
+  (format (str "Driver %d, %s. Rank %d/20; lap %d; progress %d%%; speed %d. "
                "Item %s. Rival %d: gap %d, %s. Track %s. %s.")
           racer (persona-text persona) rank lap
           (long (min 99.0 (* (max 0.0 progress) 100.0)))
@@ -116,9 +116,9 @@
 
 (defn- random-scenario
   [^Random random]
-  {:target (.nextInt random 8)
+  {:target (.nextInt random (az/value protocol/racer-count))
    :persona (.nextInt random 3)
-   :rank (inc (.nextInt random 8))
+   :rank (inc (.nextInt random (az/value protocol/racer-count)))
    :lap (.nextInt random 3)
    :item (.nextInt random 7)
    :progress (/ (inc (.nextInt random 19)) 20.0)

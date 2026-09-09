@@ -1,5 +1,5 @@
 (ns racing-game.render
-  "Allocation-free top-down race geometry for the shared Vulkan stream."
+  "Native 3D racing presentation and screen-space start indicators."
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
             [aguafria.std.math :as std-math]
@@ -7,7 +7,8 @@
             [aguafria-examples-native.mesh :as mesh]
             [racing-game.simulation :as simulation]
             [racing-game.telemetry :as telemetry]
-            [racing-game.track :as track]))
+            [racing-game.track :as track]
+            [racing-game.render3d :as render3d]))
 
 (az/defconst circle-segments :usize 18)
 
@@ -33,19 +34,12 @@
 (az/defvar world-y-scale :f32 1.0)
 
 (az/defn- racer-color
-  "Return the permanent display color for one of the eight racers."
+  "Use the same permanent identity color as the native 3D car and minimap."
   :-
   RacerColor
   [[identifier :u8]]
-  (cond
-    (ak/== identifier 0) (RacerColor {:r 0.05 :g 0.82 :b 1.00})
-    (ak/== identifier 1) (RacerColor {:r 1.00 :g 0.25 :b 0.66})
-    (ak/== identifier 2) (RacerColor {:r 0.38 :g 1.00 :b 0.28})
-    (ak/== identifier 3) (RacerColor {:r 1.00 :g 0.42 :b 0.08})
-    (ak/== identifier 4) (RacerColor {:r 0.62 :g 0.38 :b 1.00})
-    (ak/== identifier 5) (RacerColor {:r 1.00 :g 0.90 :b 0.22})
-    (ak/== identifier 6) (RacerColor {:r 0.18 :g 1.00 :b 0.72})
-    :else (RacerColor {:r 1.00 :g 0.30 :b 0.30})))
+  (let [color (az/index render3d/colors (mod (ak/as :usize identifier) simulation/racer-count))]
+    (RacerColor {:r (az/index color 0) :g (az/index color 1) :b (az/index color 2)})))
 
 (az/defn set-debug-overlay!
   "Show or hide native racer intent and cognition geometry at runtime."
@@ -87,7 +81,9 @@
    [g :f32]
    [b :f32]]
   (set! (az/index output index)
-        (mesh/GpuVertex {:x x :y y :z z :r r :g g :b b})))
+        (mesh/GpuVertex {:x x :y y :z z :r r :g g :b b
+                         :nx 0.0 :ny 0.0 :nz 0.0 :wx 0.0 :wy 0.0 :wz 0.0
+                         :roughness -1.0 :vx 0.0 :vy 0.0 :vz 1.0})))
 
 (az/defn append-triangle!
   :-
@@ -361,7 +357,7 @@
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
-    (dotimes [slot 4]
+    (dotimes [slot simulation/team-count]
       (let [sample (track/pose (* (ak/as :f32 (ak/floatFromInt slot)) 0.25) 0.0)
             x (az/field sample x)
             y (az/field sample y)
@@ -592,6 +588,48 @@
                               0.003 0.23 1.0 0.78 0.0)))))
     next))
 
+(az/defn append-minimap!
+  "North-up circuit overview independent of the world camera and zoom.
+  Colored markers are physical racer positions; white ring identifies the leader."
+  :- :usize
+  [[output [:c-pointer mesh/GpuVertex]] [count :usize]
+   [frame-width :i32] [frame-height :i32]]
+  (let [w (ak/as :f32 (ak/floatFromInt (ak/max frame-width 1)))
+        h (ak/as :f32 (ak/floatFromInt (ak/max frame-height 1)))
+        ;; Fixed physical aspect, occupying the upper-right 27% of the window.
+        size (ak/min (* w 0.27) (* h 0.29))
+        sx (/ size w) sy (/ size h)
+        cx (- 1.0 sx 0.03) cy (+ -1.0 sy 0.03)
+        ^{:var :usize} next count]
+    (set! next (append-quad! output next
+                            (- cx sx) (- cy sy) (+ cx sx) (- cy sy)
+                            (+ cx sx) (+ cy sy) (- cx sx) (+ cy sy)
+                            0.06 0.035 0.045 0.055))
+    (dotimes [i 192]
+      (let [a (track/pose (/ (ak/as :f32 (ak/floatFromInt i)) 192.0) 0.0)
+            b (track/pose (/ (ak/as :f32 (ak/floatFromInt (+ i 1))) 192.0) 0.0)]
+        (set! next (append-line! output next
+                                (+ cx (* (az/field a x) sx 1.5))
+                                (- cy (* (az/field a y) sy 1.5))
+                                (+ cx (* (az/field b x) sx 1.5))
+                                (- cy (* (az/field b y) sy 1.5))
+                                0.002 0.04 0.70 0.74 0.76))))
+    (let [pit (track/pit-pose 0.98 0.215)]
+      (set! next (append-screen-circle! output next
+                                        (+ cx (* (az/field pit x) sx 1.5))
+                                        (- cy (* (az/field pit y) sy 1.5))
+                                        0.014 0.025 1.0 1.0 1.0)))
+    (dotimes [i simulation/racer-count]
+      (let [racer (simulation/racer-view (ak/intCast i))
+            color (racer-color (ak/intCast i))
+            x (+ cx (* (az/field racer x) sx 1.5))
+            y (- cy (* (az/field racer y) sy 1.5))]
+        (set! next (append-screen-circle! output next x y 0.007 0.02
+                                          (az/field color r) (az/field color g) (az/field color b)))
+        (when (ak/== (az/field racer rank) 1)
+          (set! next (append-screen-circle! output next x y 0.014 0.015 1.0 1.0 1.0)))))
+    next))
+
 (az/defn build-frame!
   "Build the complete track, item, racer, intent, and rank view natively."
   {:attrs #{:export}}
@@ -601,14 +639,9 @@
    [frame-width :i32]
    [frame-height :i32]]
   (set! _ (configure-world-scale! frame-width frame-height))
-  (let [track-count (append-track! output 0)
-        pit-count (append-pits! output track-count)
-        pickup-count (append-pickups! output pit-count)
-        hazard-count (append-hazards! output pickup-count)
-        racer-vertices (append-racers! output hazard-count)
-        intent-vertices
-        (if debug-overlay-visible
-          (append-intent-lines! output racer-vertices)
-          racer-vertices)
-        state-count (append-race-state! output intent-vertices)]
-    (ak/as :u32 (ak/intCast state-count))))
+  (let [world-count (render3d/build-world! output frame-width frame-height)
+        intent-count (if debug-overlay-visible
+                       (render3d/intents! output world-count)
+                       world-count)
+        state-count (append-race-state! output intent-count)]
+    (ak/as :u32 (ak/intCast (append-minimap! output state-count frame-width frame-height)))))

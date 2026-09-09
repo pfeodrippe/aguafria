@@ -1,5 +1,6 @@
 (ns racing-game.native-test
   (:require [aguafria.zig :as az]
+            [aguafria.keyword :as ak]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -25,6 +26,52 @@
 (defn close?
   [expected actual tolerance]
   (<= (Math/abs (- (double expected) (double actual))) tolerance))
+
+(az/defn projection-cache-max-error
+  "Compare the compiled coarse points with the original runtime sampler."
+  :- :f32 []
+  (let [^{:var :f32} maximum 0.0]
+    (dotimes [i track/projection-samples]
+      (let [progress (/ (ak/as :f32 (ak/floatFromInt i))
+                        (ak/as :f32 (ak/floatFromInt track/projection-samples)))
+            original (track/pose progress 0.0)
+            cached (az/index track/projection-centers i)]
+        (set! maximum (ak/max maximum
+                       (ak/max (ak/abs (- (az/field original x) (az/index cached 0)))
+                               (ak/abs (- (az/field original y) (az/index cached 1))))))))
+    maximum))
+
+(deftest immutable-projection-cache-test
+  ;; World coordinates are kilometres: 1e-6 here is one millimetre. The fine
+  ;; refinement remains the original sampler, not an approximate lookup.
+  (is (<= (projection-cache-max-error) 0.000001)))
+
+(deftest twenty-driver-roster-test
+  ;; Read the initialized world; never reset or reposition a live race for QA.
+  (is (= [20 10 2 30] (mapv az/value [protocol/racer-count protocol/team-count
+                                     protocol/drivers-per-team protocol/actor-count])))
+  (is (apply = (map az/value [protocol/actor-count inference/sequence-racer-count worker/actor-count])))
+  (let [racers (mapv #(az/value (simulation/racer-view %)) (range (az/value protocol/racer-count)))
+        teams (mapv #(az/value (simulation/team-view %)) (range (az/value protocol/team-count)))]
+    (is (every? :valid racers))
+    (is (every? :valid teams))
+    (is (= (vec (range 20)) (mapv :id racers)))
+    (is (= (zipmap (range 10) (repeat 2)) (frequencies (map :team racers))))
+    (doseq [{:keys [id team teammate]} racers]
+      (is (= (quot id 2) team))
+      (is (= (bit-xor id 1) teammate))
+      (is (= id (:teammate (nth racers teammate)))))
+    (doseq [{:keys [id driver_a driver_b]} teams]
+      (is (= [(* id 2) (inc (* id 2))] [driver_a driver_b]))
+      (is (= id (:team (nth racers driver_a)) (:team (nth racers driver_b)))))
+    (is (false? (:valid (az/value (simulation/racer-view 20)))))
+    (is (false? (:valid (az/value (simulation/team-view 10))))))
+  (let [boxes (mapv simulation/pit-box-progress (range 10))
+        colors (mapv #(az/value (racing-game.render3d/racer-tint %)) (range 20))]
+    (is (= 10 (count (distinct boxes))))
+    (is (every? #(<= 0.965 % 1.025) boxes) "All work bays are on the full-width apron")
+    (is (every? #(> (* 4309.0 %) 12.0) (map - (rest boxes) boxes)))
+    (is (= 20 (count (distinct colors))))))
 
 (defn native-floats
   [^java.lang.foreign.Arena arena values]
@@ -176,6 +223,87 @@
               "Result after 1 second: +6.97% of a lap · rank 3rd to 2nd · 1 hit · item used."}
              (race-log/explanation trace))))))
 
+(deftest language-history-export-is-verbatim-and-readable-test
+  (let [entry {:racer 4 :sequence 21 :race 2
+               :observation "R4: 0 km/h. Ahead blocked; left clear; right blocked."
+               :instructions "Choose a safe driving plan."
+               :reply "pass left\nRadio: Je passe à gauche, équipe!"
+               :reason "accepted" :complete? true
+               :input-tokens 87 :output-tokens 12
+               :inference-ms 5300.0 :queue-ms 0.2 :total-ms 5300.2
+               ;; Never accidentally expose technical payloads added to data later.
+               :tokens [50 35 32] :encoded "SDAAAADB"}
+        rejected (assoc entry :sequence 22 :reply "" :complete? false
+                             :reason "model response was incomplete or exceeded the limit")
+        text (race-log/language-text-report [rejected entry] {})]
+    (is (str/includes? text (:observation entry)))
+    (is (str/includes? text (:reply entry)))
+    (is (str/includes? text "R4 | decision #22 | race 2"))
+    (is (< (.indexOf text "decision #22") (.indexOf text "decision #21")))
+    (is (str/includes? text "not a quality score"))
+    (is (str/includes? text "Generation did not finish normally."))
+    (is (str/includes? text "(No text returned)"))
+    (is (str/includes? text "Input 87 tokens, output 12 tokens"))
+    (is (str/includes? text "inference 5300.0 ms + queue 0.2 ms = 5300.2 ms total"))
+    (is (not (str/includes? text "tokens/s")))
+    (is (not (str/includes? text "SDAAAADB")))
+    (is (not (str/includes? text "[50 35 32]")))
+    (is (not (str/includes? text (:instructions entry))))
+    (is (str/includes? (race-log/language-text-report [entry] {:include-instructions? true})
+                       (:instructions entry)))
+    (is (str/includes? (race-log/language-text-report [] {}) "No retained driver text exchanges."))))
+
+(deftest unchanged-language-exchanges-are-collapsed-test
+  (let [entry {:racer 0 :sequence 147 :race 1 :instructions "Choose a command."
+               :observation "Ahead blocked; left blocked; right blocked."
+               :reply "follow" :reason "accepted" :complete? true
+               :generation-valid? true :generation-stop 1
+               :input-tokens 87 :output-tokens 1
+               :inference-ms 5405.4 :queue-ms 0.5 :total-ms 5405.9}
+        older (assoc entry :sequence 146 :inference-ms 5525.8)
+        text (race-log/language-text-report [entry older] {})]
+    (is (= 1 (count (race-log/language-exchange-groups [entry older] false))))
+    (is (str/includes? text "Unchanged across 2 calls (#146-#147)"))
+    (is (= 1 (count (re-seq #"Model replied:" text))))
+    (is (str/includes? text "for the latest call"))
+    (is (= 2 (count (re-seq #"Model replied:"
+                           (race-log/language-text-report [entry older] {:every-call? true})))))
+    (doseq [[key value] [[:racer 1] [:race 2] [:instructions "Different instructions"]
+                         [:observation "Left clear"] [:reply "hold"] [:reason "expired"]
+                         [:complete? false] [:generation-valid? false] [:generation-stop 2]]]
+      (is (= 2 (count (race-log/language-exchange-groups [entry (assoc older key value)] false)))
+          (str "Do not merge changed " key)))
+    (is (= 3 (count (race-log/language-exchange-groups
+                     [entry (assoc older :reply "hold") (assoc older :sequence 145)] false))))))
+
+(deftest native-language-grouping-boundaries-test
+  ;; Sequence0 is always invalid/zeroed. It supplies a complete ABI fixture;
+  ;; these detached values never mutate the live history or world.
+  (let [data (-> (az/value (simulation/language-exchange-at 0))
+                 (assoc :valid true :sequence 2)
+                 (assoc-in [:result :request :epoch] 1)
+                 (assoc-in [:result :request :system_byte_count] 1)
+                 (assoc-in [:result :request :prompt_byte_count] 1)
+                 (assoc-in [:result :generation :byte_count] 1)
+                 (assoc-in [:result :generation :valid] true)
+                 (assoc-in [:result :generation :stop] 1))
+        a (simulation/LanguageExchange data)]
+    (is (monitor/same-language-exchange? a a))
+    (doseq [[path value] [[[:valid] false] [[:reason] 1]
+                         [[:result :request :actor] 1] [[:result :request :epoch] 2]
+                         [[:result :generation :valid] false] [[:result :generation :stop] 2]
+                         [[:result :request :system_bytes 0] 65]
+                         [[:result :request :prompt_bytes 0] 65]
+                         [[:result :generation :bytes 0] 65]
+                         [[:result :request :prompt_byte_count] 0]]]
+      (is (not (monitor/same-language-exchange? a (simulation/LanguageExchange (assoc-in data path value))))
+          (str "Native boundary " path)))
+    (doseq [[path value] [[[:sequence] 3] [[:result :inference_us] 999]
+                         [[:result :generation :input_tokens] 99]
+                         [[:result :request :prompt_bytes 100] 65]]]
+      (is (monitor/same-language-exchange? a (simulation/LanguageExchange (assoc-in data path value)))
+          (str "Ignore timing/count/unused storage " path)))))
+
 (deftest development-monitor-abi-and-privacy-test
   (az/await!)
   (try
@@ -187,7 +315,7 @@
       (is (false? (:active status)))
       (is (false? (:overlay-installed status)))
       (is (false? (:raw-protocol-visible status)))
-      (is (= 8 (count (:racers status))))
+      (is (= (az/value simulation/racer-count) (count (:racers status))))
       (is (zero? (:input_token_count racer)))
       (is (every? zero? (:response racer)))
       (monitor/set-raw-protocol-visible! true)
@@ -348,7 +476,7 @@
       (simulation/set-race-seed! 73)
       (simulation/reset!)
       (simulation/step-many! 600)
-      (let [racers (mapv #(az/value (simulation/racer-view %)) (range 8))
+      (let [racers (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))
             physical-keys
             [:id :rank :lap :checkpoint :finished :item :shielded
              :progress :lane :speed :x :y :heading :finish_tick]
@@ -383,7 +511,7 @@
                {:racers
                 (mapv #(select-keys
                         (az/value (simulation/racer-view %)) physical-keys)
-                      (range 8))
+                      (range (az/value simulation/racer-count)))
                 :snapshot
                 (select-keys (az/value (simulation/snapshot)) snapshot-keys)})))
       (finally
@@ -509,10 +637,10 @@
          racer-id 0.40 0.0 0.05 simulation/item-none false)
         (simulation/make-decision!
          racer-id false simulation/deadline-on-time))
-      (let [views (mapv #(az/value (simulation/racer-view %)) (range 8))
+      (let [views (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))
             personas (mapv #(-> (simulation/current-observation %) az/value
                                 :persona)
-                           (range 8))]
+                           (range (az/value simulation/racer-count)))]
         (is (= #{0 1 2} (set personas)))
         (is (<= 4 (count (set (map :target_speed views)))))
         (is (every? #(<= 0.0 % 0.16) (map :target_speed views)))))
@@ -818,7 +946,7 @@
         (is (= 1001 (:revision (await-worker-result 0 15000))))
         (is (= 1003 (:revision (await-worker-result 1 15000))))
         (let [summary (core/worker-status)]
-          (is (= 12 (:threads summary)))
+          (is (= (az/value protocol/actor-count) (:threads summary)))
           (is (= [1 1 0 0 0 0 0 0 0 0 0 0] (:requests_by_actor summary)))
           (is (= [1 1 0 0 0 0 0 0 0 0 0 0] (:results_by_actor summary)))))
       (finally
@@ -836,21 +964,21 @@
       (simulation/step-many! 721)
       (let [expired (az/value (simulation/snapshot))
             cognition (core/cognition-status)]
-        (is (= 8 (:deadline_misses expired)))
-        (is (= 8 (:deadline_misses cognition)))
+        (is (= (az/value simulation/racer-count) (:deadline_misses expired)))
+        (is (= (az/value simulation/racer-count) (:deadline_misses cognition)))
         (is (every? #(= 1 (:deadline_misses
                             (az/value (simulation/racer-view %))))
-                    (range 8))))
+                    (range (az/value simulation/racer-count)))))
       (let [workers (await-workers-idle 10000)]
         (is (= [1 1 1 1 1 1 1 1 0 0 0 0] (:requests_by_actor workers)))
         (is (= [1 1 1 1 1 1 1 1 0 0 0 0] (:results_by_actor workers))))
       (simulation/step!)
       (let [cognition (core/cognition-status)]
         (is (zero? (:llm_entries cognition)))
-        (is (= 8 (:deadline_misses cognition)))
+        (is (= (az/value simulation/racer-count) (:deadline_misses cognition)))
         (is (every? #(= telemetry/source-fallback
                         (:source (az/value (simulation/racer-view %))))
-                    (range 8))))
+                    (range (az/value simulation/racer-count)))))
       (finally
         (core/stop-headless!)))))
 
@@ -882,7 +1010,7 @@
     (simulation/step-many! 8000)
     (let [race (az/value (simulation/snapshot))]
       (is (= simulation/race-state-finished (:state race)))
-      (is (= 8 (:finished race)))
+      (is (= (az/value simulation/racer-count) (:finished race)))
       (is (zero? (:items_used race)))
       (is (zero? (:hits race)))
       (is (zero? (:hazards_spawned race))))
@@ -895,12 +1023,12 @@
   (simulation/reset!)
   (simulation/step-many! 1200)
   (let [snapshot (az/value (simulation/snapshot))
-        racers (mapv #(az/value (simulation/racer-view %)) (range 8))
+        racers (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))
         cognition (az/value (telemetry/summary))
         recorded (reduce + (map #(min telemetry/entries-per-racer
                                      (telemetry/decision-count %))
-                                (range 8)))
-        latest (mapv #(az/value (telemetry/latest %)) (range 8))
+                                (range (az/value simulation/racer-count))))
+        latest (mapv #(az/value (telemetry/latest %)) (range (az/value simulation/racer-count)))
         semantic-log (core/decision-log 0)
         raw-log (core/decision-log 0 {:include-raw? true})
         semantic-trace (core/decision-trace 0)
@@ -910,9 +1038,9 @@
                   (map #(az/value (telemetry/outcome-at racer-id %))
                        (range (min telemetry/entries-per-racer
                                    (telemetry/decision-count racer-id)))))
-                (range 8))]
-    (is (= 8 (:racers snapshot)))
-    (is (= 8 (count racers)))
+                (range (az/value simulation/racer-count)))]
+    (is (= (az/value simulation/racer-count) (:racers snapshot)))
+    (is (= (az/value simulation/racer-count) (count racers)))
     (is (= (set (range 1 9)) (set (map :rank racers))))
     (is (pos? (:decisions snapshot)))
     (is (pos? (:items_used snapshot)))
@@ -981,8 +1109,8 @@
     (simulation/step-many! 6800)
     (let [finish (az/value (simulation/snapshot))
           finished-racers
-          (mapv #(az/value (simulation/racer-view %)) (range 8))]
-      (is (= 8 (:finished finish)))
+          (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))]
+      (is (= (az/value simulation/racer-count) (:finished finish)))
       (is (= simulation/race-state-finished (:state finish)))
       (is (= (set (range 1 9)) (set (map :rank finished-racers))))
       (is (every? :finished finished-racers))
@@ -1005,7 +1133,7 @@
         (select-keys (az/value (simulation/snapshot)) snapshot-keys)
         original-racers
         (mapv #(select-keys (az/value (simulation/racer-view %)) racer-keys)
-              (range 8))
+              (range (az/value simulation/racer-count)))
         outcome-keys
         [:valid :resolved :item_used :racer_id :start_rank :end_rank
          :hits_dealt :revision :start_tick :resolved_tick
@@ -1017,7 +1145,7 @@
                                     outcome-keys)
                       (range (min telemetry/entries-per-racer
                                   (telemetry/decision-count racer-id)))))
-              (range 8))
+              (range (az/value simulation/racer-count)))
         replay (core/capture-replay)
         replay-count (count replay)]
     (is (<= 1 replay-count simulation/replay-capacity))
@@ -1029,7 +1157,7 @@
           (select-keys (az/value (simulation/snapshot)) snapshot-keys)
           replayed-racers
           (mapv #(select-keys (az/value (simulation/racer-view %)) racer-keys)
-                (range 8))
+                (range (az/value simulation/racer-count)))
           replayed-outcomes
           (mapv (fn [racer-id]
                   (mapv #(select-keys (az/value
@@ -1037,7 +1165,7 @@
                                       outcome-keys)
                         (range (min telemetry/entries-per-racer
                                     (telemetry/decision-count racer-id)))))
-                (range 8))
+                (range (az/value simulation/racer-count)))
           replay-status (core/replay-status)
           cognition (az/value (telemetry/summary))]
       (is (= original-snapshot replayed-snapshot))
@@ -1111,8 +1239,8 @@
     (is (= 3 (:race-count report)))
     (is (= 3 (:complete-races report)))
     (is (= [0 1 2] (:seeds report)))
-    (is (= 8 (count scoreboard)))
-    (is (= (set (range 8)) (set (map :racer scoreboard))))
+    (is (= (az/value simulation/racer-count) (count scoreboard)))
+    (is (= (set (range (az/value simulation/racer-count))) (set (map :racer scoreboard))))
     (is (= (* 3 (reduce + (range 1 9)))
            (reduce + (map :points scoreboard))))
     (is (every? #(= 3 (:races %)) scoreboard))

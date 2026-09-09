@@ -4,7 +4,8 @@
   The labels, prompts, and linear head are team-specific. Feature extraction
   always runs through racing-game.inference, the exact Aguafria/Zig engine used
   by the live game; no external model runtime participates in this workflow."
-  (:require [racing-game.model :as model]
+  (:require [aguafria.zig :as az]
+            [racing-game.model :as model]
             [racing-game.protocol :as protocol]
             [racing-game.train-action-head :as train])
   (:import [java.io FileInputStream FileOutputStream ObjectInputStream
@@ -43,8 +44,8 @@
   "Render the exact ordinary-English prompt used by the native worker."
   [{:keys [team driver-a driver-b rank-a rank-b tire-a tire-b damage-a
            damage-b pit-a pit-b box-occupied]}]
-  (format (str "Team %d. A%d: rank %d/8, tire %d%% %s, damage %d%% %s, %s. "
-               "B%d: rank %d/8, tire %d%% %s, damage %d%% %s, %s. Box %s.")
+  (format (str "Team %d. A%d: rank %d/20, tire %d%% %s, damage %d%% %s, %s. "
+               "B%d: rank %d/20, tire %d%% %s, damage %d%% %s, %s. Box %s.")
           team driver-a rank-a tire-a (if (<= tire-a 46) "worn" "usable")
           damage-a (if (>= damage-a 60) "repair" "sound")
           (pit-state-text pit-a)
@@ -127,17 +128,17 @@
               {:tire-b 20 :pit-b 2}
               {:tire-a 47 :damage-a 59 :tire-b 47 :damage-b 59}
               {:tire-a 100 :damage-a 0 :tire-b 100 :damage-b 0}])))
-    (range 4))))
+    (range (az/value protocol/team-count)))))
 
 (defn random-scenario
   [^Random random]
-  (let [team (.nextInt random 4)
+  (let [team (.nextInt random protocol/team-count)
         complete
         {:team team
          :driver-a (* team 2)
          :driver-b (inc (* team 2))
-         :rank-a (inc (.nextInt random 8))
-         :rank-b (inc (.nextInt random 8))
+         :rank-a (inc (.nextInt random (az/value protocol/racer-count)))
+         :rank-b (inc (.nextInt random (az/value protocol/racer-count)))
          :tire-a (.nextInt random 101)
          :tire-b (.nextInt random 101)
          :damage-a (.nextInt random 101)

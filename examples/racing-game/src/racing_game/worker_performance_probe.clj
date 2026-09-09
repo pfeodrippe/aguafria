@@ -27,12 +27,12 @@
   (worker/InferenceRequest
    {:valid true
     :actor_kind worker/actor-kind-driver
-    :team (mod racer 4)
+    :team (quot racer protocol/drivers-per-team)
     :racer racer
     :rank (inc racer)
     :lap 0
     :item (mod racer 5)
-    :target (mod (inc racer) 8)
+    :target (mod (inc racer) (az/value protocol/racer-count))
     :persona (mod racer 3)
     :target_distance (min 9 (inc racer))
     :target_lane (mod racer 3)
@@ -92,12 +92,12 @@
    :maximum (last (sort values))})
 
 (defn run-sustained!
-  "Measure fresh consecutive eight-racer decisions. The warm-up batch is
+  "Measure fresh consecutive full-field decisions. The warm-up batch is
   reported separately and excluded from the latency distribution."
   [batch-count]
-  (let [warm-up (run-batch! 1 8 true)
+  (let [warm-up (run-batch! 1 (az/value protocol/racer-count) true)
         started (System/nanoTime)
-        batches (mapv #(run-batch! (+ 2 %) 8 false) (range batch-count))
+        batches (mapv #(run-batch! (+ 2 %) (az/value protocol/racer-count) false) (range batch-count))
         elapsed-ms (/ (- (System/nanoTime) started) 1000000.0)
         results (mapcat :results batches)
         total-ms (map #(/ (double (:total_us %)) 1000.0) results)
@@ -151,9 +151,9 @@
             (throw (ex-info "Sustained batch count must be positive"
                             {:batch-count batch-count})))
           (println :sustained (run-sustained! batch-count)))
-        (let [racer-count (if (= mode "all") 8 1)]
-          (println :first-batch (run-batch! 1 racer-count (= racer-count 8)))
-          (when (= racer-count 8)
+        (let [racer-count (if (= mode "all") (az/value protocol/racer-count) 1)]
+          (println :first-batch (run-batch! 1 racer-count (= racer-count (az/value protocol/racer-count))))
+          (when (= racer-count (az/value protocol/racer-count))
             (println :warm-batch (run-batch! 2 racer-count false)))))
       (finally
         (worker/stop!)

@@ -26,7 +26,10 @@
           (try
             (build/prepare!)
             (require 'racing-game.monitor :reload)
-            (az/await!)
+            ;; The entry module already links its transitive native graph.
+            ;; Awaiting every registered namespace also forces standalone JVM
+            ;; wrappers for thousands of unused Flecs/GLFW binding declarations.
+            (az/await! 'racing-game.monitor)
             {:run (ns-resolve 'racing-game.monitor 'run!)}
             (catch Throwable error {:error error}))]
       (if-let [run (:run outcome)]

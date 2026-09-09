@@ -7,3 +7,5 @@ resources/shaders/*.spv
 resources/models/*.gguf
 resources/models/*.part
 hs_err_pid*.log
+resources/geometry/*.blend1
+__pycache__/

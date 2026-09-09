@@ -965,7 +965,8 @@
         :when (and (not (contains? '#{let when when-not for dotimes case}
                                    operator))
                    (not (special-symbol? operator))
-                   (nil? (keyword/token-name (name operator))))]
+                   (or (= operator 'type)
+                       (nil? (keyword/token-name (name operator)))))]
   (when (contains? (ns-map *ns*) operator)
     (ns-unmap *ns* operator))
   (let [syntax {:kind :syntax

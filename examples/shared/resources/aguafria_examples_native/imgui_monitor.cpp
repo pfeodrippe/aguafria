@@ -16,7 +16,7 @@
 namespace {
 
 bool initialized = false;
-bool visible = true;
+bool visible = false;
 bool show_raw_protocol = false;
 bool show_only_granite = false;
 VkDevice monitor_device = VK_NULL_HANDLE;
@@ -24,6 +24,11 @@ GLFWwindow* monitor_window = nullptr;
 bool previous_f2 = false;
 int selected_racer = 0;
 int selected_history_offset = 0;
+unsigned int camera_command = 0;
+int camera_mode = 0;
+int camera_driver = 0;
+float camera_zoom = 18.0f;
+AguafriaImguiDrawCallback extra_draw = nullptr;
 AguafriaImguiSnapshot current = {};
 uint64_t latency_revision[AGUAFRIA_IMGUI_RACER_COUNT] = {};
 float latency_history[AGUAFRIA_IMGUI_RACER_COUNT][120] = {};
@@ -39,6 +44,18 @@ ImVec4 racer_color(uint8_t racer) {
         ImVec4(1.00f, 0.90f, 0.22f, 1.00f),
         ImVec4(0.18f, 1.00f, 0.72f, 1.00f),
         ImVec4(1.00f, 0.30f, 0.30f, 1.00f),
+        ImVec4(0.35f, 0.55f, 1.00f, 1.00f),
+        ImVec4(1.00f, 0.65f, 0.82f, 1.00f),
+        ImVec4(0.68f, 0.82f, 0.30f, 1.00f),
+        ImVec4(0.96f, 0.70f, 0.40f, 1.00f),
+        ImVec4(0.80f, 0.55f, 1.00f, 1.00f),
+        ImVec4(0.70f, 0.94f, 1.00f, 1.00f),
+        ImVec4(0.38f, 0.70f, 0.58f, 1.00f),
+        ImVec4(0.90f, 0.48f, 0.50f, 1.00f),
+        ImVec4(0.88f, 0.88f, 0.94f, 1.00f),
+        ImVec4(0.58f, 0.60f, 0.82f, 1.00f),
+        ImVec4(0.92f, 0.76f, 0.58f, 1.00f),
+        ImVec4(0.66f, 0.76f, 0.76f, 1.00f),
     };
     return colors[racer < AGUAFRIA_IMGUI_RACER_COUNT ? racer : 0];
 }
@@ -53,6 +70,18 @@ const char* ordinal(uint8_t rank) {
         case 6: return "6th";
         case 7: return "7th";
         case 8: return "8th";
+        case 9: return "9th";
+        case 10: return "10th";
+        case 11: return "11th";
+        case 12: return "12th";
+        case 13: return "13th";
+        case 14: return "14th";
+        case 15: return "15th";
+        case 16: return "16th";
+        case 17: return "17th";
+        case 18: return "18th";
+        case 19: return "19th";
+        case 20: return "20th";
         default: return "unranked";
     }
 }
@@ -67,18 +96,22 @@ const char* source_name(uint8_t source) {
 }
 
 const char* team_name(uint8_t team) {
-    static const char* names[] = {"Aurora", "Vortex", "Atlas", "Nova"};
-    return team < 4 ? names[team] : "Unknown";
+    static const char* names[] = {"Aurora", "Vortex", "Atlas", "Nova", "Comet",
+                                  "Apex", "Zenith", "Orbit", "Pulse", "Eclipse"};
+    return team < AGUAFRIA_IMGUI_TEAM_COUNT ? names[team] : "Unknown";
 }
 
 const char* team_short_name(uint8_t team) {
-    static const char* names[] = {"AUR", "VTX", "ATL", "NVA"};
-    return team < 4 ? names[team] : "UNK";
+    static const char* names[] = {"AUR", "VTX", "ATL", "NVA", "CMT",
+                                  "APX", "ZEN", "ORB", "PLS", "ECL"};
+    return team < AGUAFRIA_IMGUI_TEAM_COUNT ? names[team] : "UNK";
 }
 
 const char* pit_state_name(uint8_t state) {
-    static const char* names[] = {"on track", "pit called", "servicing", "rejoining"};
-    return state < 4 ? names[state] : "unknown pit state";
+    // State 4 is the display projection of separate race-classification data.
+    // It does not mean that a retired car made a pit visit.
+    static const char* names[] = {"on track", "pit called", "servicing", "rejoining", "DNF"};
+    return state < 5 ? names[state] : "unknown race state";
 }
 
 const char* radio_name(uint8_t code) {
@@ -86,9 +119,11 @@ const char* radio_name(uint8_t code) {
         "no radio yet", "tires losing grip", "pit stop confirmed",
         "box occupied; hold", "boxing now", "fresh tires; rejoining",
         "collision damage reported", "pit stop confirmed for repairs",
-        "repairs complete; rejoining", "stay out; continue racing"
+        "repairs complete; rejoining", "stay out; continue racing",
+        "DNF: overturned car; driver retired",
+        "DNF: car left supported course"
     };
-    return code < 10 ? names[code] : "unknown radio message";
+    return code < sizeof(names) / sizeof(names[0]) ? names[code] : "unknown radio message";
 }
 
 const char* team_action_name(uint8_t action) {
@@ -173,7 +208,7 @@ void draw_summary(const AguafriaImguiRacer& racer) {
         ImGui::TextWrapped("Observed: %s", racer.prompt);
     } else {
         std::snprintf(line, sizeof(line),
-                      "State: %s of 8 · lap %u · %u-%u%% through the lap · speed %u-%u%% of a lap/s · inventory: %s · %s.",
+                      "State: %s of 20 · lap %u · %u-%u%% through the lap · speed %u-%u%% of a lap/s · inventory: %s · %s.",
                       ordinal(racer.rank), racer.lap + 1,
                       racer.progress_bin * 10, (racer.progress_bin + 1) * 10,
                       racer.speed_bin, racer.speed_bin + 1, item_name(racer.item),
@@ -245,77 +280,62 @@ void draw_track_hud() {
     const ImVec4 yellow(1.0f, 0.78f, 0.0f, 1.0f);
     const ImVec4 muted(0.78f, 0.68f, 0.38f, 1.0f);
 
-    ImGui::SetNextWindowPos(ImVec2(14.0f, 14.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.78f);
-    if (ImGui::Begin("##aguafria-racer-hud", nullptr, flags)) {
-        ImGui::TextColored(yellow, "RACERS");
-        for (int index = 0; index < AGUAFRIA_IMGUI_RACER_COUNT; ++index) {
-            const AguafriaImguiRacer& racer = current.racers[index];
-            if (!racer.valid) {
-                ImGui::TextColored(muted, "R%d | waiting for race state", index);
-                continue;
-            }
-            ImGui::TextColored(
-                racer_color(racer.id),
-                "R%u %s | %s | tire %.0f%% | dmg %.0f%% | %s | %.1f ms | %s",
-                racer.id, team_short_name(racer.team), ordinal(racer.rank),
-                std::clamp(racer.tire_condition, 0.0f, 1.0f) * 100.0f,
-                std::clamp(racer.damage, 0.0f, 1.0f) * 100.0f,
-                pit_state_name(racer.pit_state),
-                static_cast<double>(racer.total_us) / 1000.0,
-                racer.pending ? "thinking" : "ready");
-        }
-    }
-    ImGui::End();
-
+    // Race broadcast, not a second full debugger covering half the viewport.
+    // Per-driver tires, damage, model timing and history remain in F2.
     ImGui::SetNextWindowPos(
         ImVec2(14.0f, ImGui::GetIO().DisplaySize.y - 14.0f),
         ImGuiCond_Always, ImVec2(0.0f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.78f);
     if (ImGui::Begin("##aguafria-team-radio", nullptr, flags)) {
-        ImGui::TextColored(yellow, "TEAM RADIO");
-        for (int team = 0; team < 4; ++team) {
+        ImGui::TextColored(yellow, "TEAM RADIO  /  F2 history");
+        for (int team = 0; team < AGUAFRIA_IMGUI_TEAM_COUNT; ++team) {
             const AguafriaImguiRadio& latest =
                 current.radio[team * AGUAFRIA_IMGUI_RADIO_PER_TEAM];
             if (current.radio_counts[team] == 0 || !latest.valid) {
                 ImGui::TextColored(muted, "%s | radio quiet", team_name(team));
+            } else if (latest.source == 3) {
+                ImGui::TextColored(racer_color(latest.target),
+                                  "Race control -> R%u | %s", latest.target,
+                                  radio_name(latest.code));
             } else if (latest.source == 1) {
                 ImGui::TextColored(
                     racer_color(latest.target),
-                    "R%u -> %s strategist | %s | tire %.0f%% | damage %.0f%%",
-                    latest.target, team_name(team), radio_name(latest.code),
-                    std::clamp(latest.tire_condition, 0.0f, 1.0f) * 100.0f,
-                    std::clamp(latest.damage, 0.0f, 1.0f) * 100.0f);
+                    "R%u > %s: %s",
+                    latest.target, team_short_name(team), radio_name(latest.code));
             } else {
                 ImGui::TextColored(
                     racer_color(latest.target),
-                    "%s strategist -> R%u | %s | AI #%llu | %.1f ms",
-                    team_name(team), latest.target, radio_name(latest.code),
-                    static_cast<unsigned long long>(latest.decision_revision),
-                    static_cast<double>(latest.latency_us) / 1000.0);
+                    "%s > R%u: %s",
+                    team_short_name(team), latest.target, radio_name(latest.code));
             }
         }
     }
     ImGui::End();
 
-    const float leaderboard_width = 290.0f;
+    const float leaderboard_width = 300.0f;
     ImGui::SetNextWindowPos(
-        ImVec2(std::max(14.0f, ImGui::GetIO().DisplaySize.x - leaderboard_width - 14.0f),
-               14.0f),
+        ImVec2(14.0f, 14.0f),
         ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(leaderboard_width, 0.0f), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.78f);
     if (ImGui::Begin("##aguafria-leaderboard", nullptr, flags)) {
-        ImGui::TextColored(yellow, "LEADERBOARD");
+        ImGui::TextColored(yellow, "CLASSIFICATION");
         for (int rank = 1; rank <= AGUAFRIA_IMGUI_RACER_COUNT; ++rank) {
             bool found = false;
             for (const AguafriaImguiRacer& racer : current.racers) {
                 if (racer.valid && racer.rank == rank) {
+                    if (racer.pit_state == 4) {
+                        ImGui::TextColored(racer_color(racer.id),
+                            "%u  R%u  %s  DNF", racer.rank,
+                            racer.id, team_short_name(racer.team));
+                        found = true;
+                        break;
+                    }
                     ImGui::TextColored(
-                        racer_color(racer.id), "%s | R%u | lap %u | %.0f%% | %s",
-                        ordinal(racer.rank), racer.id, racer.lap + 1,
-                        std::clamp(racer.progress, 0.0f, 1.0f) * 100.0f,
-                        racer.item == 0 ? "empty" : item_name(racer.item));
+                        racer_color(racer.id), "%u R%u %s L%u %3.0f km/h %s",
+                        racer.rank, racer.id, team_short_name(racer.team), racer.lap + 1,
+                        std::max(racer.speed, 0.0f) * 3600.0f,
+                        racer.pit_state == 0 ? "" : "PIT");
                     found = true;
                     break;
                 }
@@ -334,7 +354,49 @@ void draw_track_hud() {
     ImGui::SetNextWindowBgAlpha(0.78f);
     if (ImGui::Begin("##aguafria-controls", nullptr, flags)) {
         ImGui::TextColored(yellow,
-                           "F2 LOGS  |  F1 INTENTS  |  P PAUSE  |  R RESET");
+                           "F2 LOGS  |  P PAUSE  |  R RESET");
+    }
+    ImGui::End();
+}
+
+void draw_camera_controls() {
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, 14.0f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.88f);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize;
+    if (ImGui::Begin("##racing-camera-controls", nullptr, flags)) {
+        ImGui::SetNextItemWidth(170.0f);
+        if (ImGui::Combo("##camera", &camera_mode,
+                         "Front pack\0Driver chase\0Trackside\0Pit lane\0Full circuit\0")) {
+            camera_command = static_cast<unsigned int>(camera_mode + 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("-")) camera_command = 6;
+        ImGui::SameLine();
+        ImGui::Text("%.1fx", camera_zoom);
+        ImGui::SameLine();
+        if (ImGui::Button("+")) camera_command = 7;
+        if (camera_mode == 1) {
+            char label[32];
+            std::snprintf(label, sizeof(label), "R%d / %s", camera_driver,
+                          team_short_name(camera_driver / 2));
+            ImGui::SetNextItemWidth(170.0f);
+            if (ImGui::BeginCombo("Driver", label)) {
+                for (int driver = 0; driver < AGUAFRIA_IMGUI_RACER_COUNT; ++driver) {
+                    std::snprintf(label, sizeof(label), "R%d / %s", driver,
+                                  team_short_name(driver / 2));
+                    ImGui::PushStyleColor(ImGuiCol_Text, racer_color(driver));
+                    if (ImGui::Selectable(label, driver == camera_driver)) {
+                        camera_driver = driver;
+                        camera_command = 100u + static_cast<unsigned int>(driver);
+                    }
+                    ImGui::PopStyleColor();
+                }
+                ImGui::EndCombo();
+            }
+        }
+        ImGui::TextUnformatted("Wheel: zoom | 0: leaders | Driver menu: R0-R19");
     }
     ImGui::End();
 }
@@ -428,7 +490,11 @@ void draw_monitor() {
             const AguafriaImguiRadio& entry =
                 current.radio[selected_team * AGUAFRIA_IMGUI_RADIO_PER_TEAM + offset];
             if (!entry.valid) continue;
-            if (entry.source == 1) {
+            if (entry.source == 3) {
+                ImGui::TextWrapped("tick %llu | Race control -> R%u | %s",
+                    static_cast<unsigned long long>(entry.tick), entry.target,
+                    radio_name(entry.code));
+            } else if (entry.source == 1) {
                 ImGui::TextWrapped(
                     "tick %llu | R%u -> %s strategist | %s | tires %.0f%% | damage %.0f%%",
                     static_cast<unsigned long long>(entry.tick), entry.target,
@@ -601,7 +667,7 @@ extern "C" AguafriaImguiBool aguafria_imgui_initialize(
 
     monitor_device = info.Device;
     monitor_window = reinterpret_cast<GLFWwindow*>(window);
-    visible = true;
+    visible = false;
     initialized = true;
     return true;
 }
@@ -630,6 +696,8 @@ extern "C" void aguafria_imgui_render(AguafriaImguiAddress command_buffer) {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     draw_track_hud();
+    draw_camera_controls();
+    if (extra_draw != nullptr) extra_draw();
     if (visible) {
         draw_monitor();
     }
@@ -640,6 +708,45 @@ extern "C" void aguafria_imgui_render(AguafriaImguiAddress command_buffer) {
 
 extern "C" void aguafria_imgui_set_visible(AguafriaImguiBool next_visible) {
     visible = next_visible;
+}
+
+extern "C" unsigned int aguafria_imgui_camera_command(void) {
+    const unsigned int result = camera_command;
+    camera_command = 0;
+    return result;
+}
+
+extern "C" void aguafria_imgui_set_draw_callback(AguafriaImguiDrawCallback callback) {
+    extra_draw = callback;
+}
+
+extern "C" AguafriaImguiBool aguafria_imgui_panel_begin(
+    const char* title, float width, float anchor_x, float anchor_y) {
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos(ImVec2(screen.x * anchor_x, screen.y * anchor_y),
+                            ImGuiCond_Always, ImVec2(anchor_x, anchor_y));
+    ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.88f);
+    return ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
+}
+
+extern "C" void aguafria_imgui_panel_end(void) { ImGui::End(); }
+
+extern "C" void aguafria_imgui_label(const char* text, float r, float g, float b) {
+    ImGui::TextColored(ImVec4(r, g, b, 1), "%s", text);
+}
+
+extern "C" void aguafria_imgui_meter(const char* label, float fraction, float r, float g, float b) {
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(r, g, b, 1));
+    ImGui::ProgressBar(std::clamp(fraction, 0.0f, 1.0f), ImVec2(-1, 0), label);
+    ImGui::PopStyleColor();
+}
+
+extern "C" void aguafria_imgui_camera_status(unsigned int mode, float zoom) {
+    camera_mode = static_cast<int>(std::min(mode, 4u));
+    camera_zoom = zoom;
 }
 
 extern "C" AguafriaImguiBool aguafria_imgui_toggle_visible(void) {
@@ -668,6 +775,7 @@ extern "C" unsigned int aguafria_imgui_snapshot_size(void) {
 }
 
 extern "C" void aguafria_imgui_shutdown(void) {
+    extra_draw = nullptr;
     if (!initialized) {
         return;
     }

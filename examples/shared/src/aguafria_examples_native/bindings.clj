@@ -17,7 +17,12 @@
       (build/prepare-shared!)
       (doseq [{:keys [output]} specs]
         (ac/load-bindings! output))
-      (az/configure! {:zig-args (build/development-link-arguments)
+      ;; Optional libraries (e.g. Box3D) can be required first. Loading the
+      ;; graphics bindings must not discard their linker arguments. Preserve
+      ;; argument groups verbatim: deduplicating individual tokens can corrupt
+      ;; repeated options such as -framework followed by different names.
+      (az/configure! {:zig-args (into (vec (:zig-args (az/configuration)))
+                                     (build/development-link-arguments))
                       :reloadable? true})
       (reset! loaded? true)))
   {:loaded? @loaded?
@@ -31,4 +36,3 @@
                         [:namespace :count]))})
 
 (ensure-loaded!)
-

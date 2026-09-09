@@ -1,6 +1,7 @@
 (ns racing-game.log
   "Persistent, human-readable exports of the native cognition ring buffers."
-  (:require [clojure.java.io :as io]
+  (:require [aguafria.zig :as az]
+            [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
             [racing-game.core :as game]
@@ -70,7 +71,7 @@
   ([per-racer-limit]
    (decision-traces per-racer-limit {}))
   ([per-racer-limit options]
-   (->> (range 8)
+   (->> (range (az/value telemetry/racer-count))
         (mapcat (fn [racer]
                   (let [available (min (long telemetry/entries-per-racer)
                                        (long (telemetry/decision-count racer)))
@@ -90,6 +91,56 @@
 (defn default-text-file
   []
   (io/file (model/project-root) "build/logs/decision-traces.txt"))
+
+(defn language-exchange-groups
+  "Collapse adjacent identical content/outcomes, keeping every original call."
+  [entries every-call?]
+  (if every-call?
+    (map vector entries)
+    (partition-by #(select-keys % [:racer :race :instructions :observation :reply
+                                   :reason :complete? :generation-valid? :generation-stop]) entries)))
+
+(defn language-text-report
+  "Render the exact native exchanges used by the F2 text history, not the
+  legacy action-head decoder. Token counts are counts, not tokens/second."
+  [entries {:keys [include-instructions? every-call?]}]
+  (str "Aguafria Racing - driver text history\n"
+       "Newest first. Accepted means validated and installed, not a quality score.\n"
+       "Team-language decisions are not part of this history yet.\n\n"
+       (if (empty? entries)
+         "No retained driver text exchanges.\n"
+         (str/join "\n\n"
+           (map (fn [group]
+                  (let [{:keys [racer sequence race observation reply instructions reason
+                                complete? input-tokens output-tokens inference-ms queue-ms total-ms]}
+                        (first group)]
+                  (str (format "R%d | decision #%d | race %d | %s\n" racer sequence race reason)
+                       (when include-instructions? (str "Instructions sent: " instructions "\n"))
+                       "Observation sent: " observation "\n"
+                       "Model replied: " (if (seq reply) reply "(No text returned)") "\n"
+                       (when-not complete? "Generation did not finish normally.\n")
+                       (format (str "Input %d tokens, output %d tokens | inference %.1f ms "
+                                    "+ queue %.1f ms = %.1f ms total")
+                               input-tokens output-tokens inference-ms queue-ms total-ms)
+                       (when (> (count group) 1)
+                         (format "\nUnchanged across %d calls (#%d-#%d). Timings/token counts above are for the latest call."
+                                 (count group) (:sequence (last group)) sequence)))))
+                (language-exchange-groups entries every-call?))))
+       "\n"))
+
+(defn write-language!
+  "Export the same bounded exchanges as the game's Driver text history panel.
+  This is an on-demand snapshot, not a promise of continuous/full-race capture."
+  ([] (write-language! {}))
+  ([{:keys [limit text-file include-instructions? every-call?]
+     :or {limit 32 include-instructions? false}}]
+   (let [entries (game/language-history limit)
+         output (io/file (or text-file (io/file (model/project-root) "build/logs/driver-text.txt")))]
+     (io/make-parents output)
+     (spit output (language-text-report entries {:include-instructions? include-instructions?
+                                               :every-call? every-call?})
+           :encoding "UTF-8")
+     {:text output :exchange-count (count entries)})))
 
 (defn explain-protocol
   "Explain the reproducibility-oriented wire representation, separately."
@@ -164,7 +215,7 @@
      (format "Racer %d · decision %d · %s\n" racer revision controller)
      (if (seq prompt)
        (format "Saw: %s\n" prompt)
-       (format (str "State: %s of 8 · lap %d · %d-%d%% through the lap · "
+       (format (str "State: %s of 20 · lap %d · %d-%d%% through the lap · "
                     "speed %d-%d%% of a lap/s · inventory: %s · %s.\n")
                (ordinal (:rank observation)) (inc (:lap observation))
                (* 10 progress-bin) (* 10 (inc progress-bin))

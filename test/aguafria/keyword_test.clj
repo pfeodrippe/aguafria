@@ -60,6 +60,12 @@
                           #"use `ak/undefined`"
                           (az/emit-expr 'undefined))))
 
+  (testing "Zig primitive type does not hide the az/type structural form"
+    (is (= 'type (get-in (meta #'az/type) [:aguafria/syntax :name])))
+    (is (= "[4096]u8"
+           (emitter/emit-expr (the-ns 'aguafria.keyword-test)
+                              '(az/type [:array 4096 :u8])))))
+
   (testing "reader-hostile operators have named tokens"
     (is (= "(~bits)" (az/emit-expr '(ak/bit-not bits))))
     (is (= "(left ^ right)" (az/emit-expr '(ak/bit-xor left right))))
