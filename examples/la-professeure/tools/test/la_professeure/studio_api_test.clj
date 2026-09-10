@@ -1,6 +1,100 @@
 (ns la-professeure.studio-api-test
   (:require [clojure.test :refer [deftest is]]
+            [clojure.edn :as edn]
+            [la-professeure.core :as core]
             [la-professeure.tools.studio :as studio]))
+
+(deftest window-bounds-fit-available-displays
+  (let [main {:x 0 :y 25 :width 1728 :height 1067}
+        left {:x -1920 :y 0 :width 1920 :height 1080}
+        frame {:left 0 :top 28 :right 0 :bottom 0}
+        saved {:x 343 :y 168 :width 1100 :height 760}]
+    (is (= saved (studio/fit-window-bounds saved [main] frame)))
+    (is (= {:x 0 :y 53 :width 1728 :height 1039}
+           (studio/fit-window-bounds {:x -5000 :y -2000 :width 9000 :height 7000} [main] frame)))
+    (is (= {:x 628 :y 332 :width 1100 :height 760}
+           (studio/fit-window-bounds (assoc saved :x 4000 :y 2000) [main] frame)))
+    (is (= {:x -1800 :y 100 :width 1100 :height 760}
+           (studio/fit-window-bounds (assoc saved :x -1800 :y 100) [main left] frame)))
+    (is (= {:x 0 :y 100 :width 1100 :height 760}
+           (studio/fit-window-bounds (assoc saved :x -1800 :y 100) [main] frame)))
+    (is (= 1100 (:width (studio/fit-window-bounds (assoc saved :width 10) [main] frame))))
+    (doseq [bad [(assoc saved :width -1) (assoc saved :x Double/NaN) (assoc saved :y "200") nil]]
+      (is (thrown? clojure.lang.ExceptionInfo (studio/fit-window-bounds bad [main] frame))))
+    (is (= :display-too-small
+           (try (studio/fit-window-bounds saved [{:x 0 :y 0 :width 800 :height 600}] frame)
+                (catch clojure.lang.ExceptionInfo e (:code (ex-data e))))))))
+
+(deftest window-preferences-debounce-and-normal-bounds
+  (let [path (java.nio.file.Files/createTempFile "studio-window-qa-" ".edn"
+               (make-array java.nio.file.attribute.FileAttribute 0))
+        file (.toFile path) state (atom nil)
+        normal {:x 10 :y 50 :width 1100 :height 760 :normal 1}
+        read! #(edn/read-string (slurp file))]
+    (try
+      (studio/save-window-preferences! normal file state 0 false)
+      (is (zero? (.length file)) "Don't write on every motion event")
+      (studio/save-window-preferences! normal file state 499999999 false)
+      (is (zero? (.length file)))
+      (studio/save-window-preferences! normal file state 500000000 false)
+      (is (= {:version 1 :bounds (dissoc normal :normal)} (read!)))
+      (let [saved @state]
+        (studio/save-window-preferences! (assoc normal :normal 0 :width 1728) file state 1000000000 true)
+        (is (= saved @state) "Maximized/minimized geometry is ignored even at close"))
+      (studio/save-window-preferences! (assoc normal :width 1400) file state 1000000000 false)
+      (is (= 1100 (get-in (read!) [:bounds :width])))
+      (studio/save-window-preferences! (assoc normal :width 1400) file state 1000000001 true)
+      (is (= 1400 (get-in (read!) [:bounds :width])) "Close flushes the stable normal bounds")
+      (is (:saved? @state))
+      (studio/save-window-preferences! (assoc normal :width 1300) file state 2000000000 false)
+      (studio/save-window-preferences! (assoc normal :normal 0 :width 1728) file state 2000000001 true)
+      (is (= 1300 (get-in (read!) [:bounds :width])) "Closing maximized flushes the prior normal bounds")
+      (studio/save-window-preferences! (assoc normal :routing-visible? false) file state 3000000000 true)
+      (is (= {:routing-visible? false} (:panels (read!))))
+      (studio/save-window-preferences! (assoc normal :routing-visible? true) file state 4000000000 false)
+      (is (false? (get-in (read!) [:panels :routing-visible?])) "Panel-only edits use the same debounce")
+      (studio/save-window-preferences! (assoc normal :routing-visible? true) file state 4500000000 false)
+      (is (true? (get-in (read!) [:panels :routing-visible?])))
+      (studio/save-window-preferences! (assoc normal :routing-visible? true :editor-top 380.0) file state 5000000000 true)
+      (is (= {:routing-visible? true :editor-top 380.0} (:panels (read!))))
+      (let [failed (atom nil) impossible (java.io.File. file "child.edn")]
+        (is (thrown? Exception (studio/save-window-preferences! normal impossible failed 0 true)))
+        (is (string? (:error @failed)))
+        (is (nil? (studio/save-window-preferences! normal impossible failed 1000000000 false))
+            "Don't retry a failed disk write on every display refresh")
+        (is (thrown? Exception (studio/save-window-preferences! normal impossible failed 1000000001 true))
+            "Explicit flush may retry"))
+      (finally (java.nio.file.Files/deleteIfExists path)))))
+
+(deftest routing-visibility-api-schema
+  ;; Validate only: don't replace the live worker or enqueue audio commands.
+  (doseq [visible [true false]]
+    (let [command {:op :view/routing :args {:visible visible}}]
+      (is (= command (#'studio/validate-command! command)))))
+  (doseq [args [{} {:visible 1} {:visible "true"} {:visible nil} {:visible false :mute true}]]
+    (is (thrown? clojure.lang.ExceptionInfo
+          (#'studio/validate-command! {:op :view/routing :args args})))))
+
+(deftest editor-divider-api-schema
+  (let [command {:op :view/editor :args {:top 520.0}}]
+    (is (= command (#'studio/validate-command! command))))
+  (doseq [top [-1 Double/NaN Double/POSITIVE_INFINITY "520" nil]]
+    (is (thrown? clojure.lang.ExceptionInfo
+          (#'studio/validate-command! {:op :view/editor :args {:top top}})))))
+
+(deftest focus-marshals-to-render-thread
+  (let [queued (promise) completed (promise) calls (atom [])]
+    (with-redefs [core/on-render! (fn [f] (deliver queued f) completed)
+                  studio/focus-window-native! #(swap! calls conj (Thread/currentThread))]
+      (let [request (future (studio/focus-window!))
+            callback (deref queued 2000 nil)]
+        (try
+          (is (fn? callback))
+          (is (empty? @calls) "Enqueuing must not touch native window state")
+          (when callback (callback))
+          (is (= [(Thread/currentThread)] @calls))
+          (finally (deliver completed {:value :focused})))
+        (is (= :focused (deref request 2000 :timeout)))))))
 
 (defn- isolated [f]
   (with-redefs [studio/worker (atom :test-worker)
@@ -15,10 +109,13 @@
        (doseq [command [{:op :record/arm :args {:id "voice-test" :enabled true}}
                         {:op :record/enable :args {:enabled true}}
                         {:op :playback/boost :args {:enabled true}}
+                        {:op :view/routing :args {:visible false}}
+                        {:op :alert/dismiss}
                         {:op :record/fx} {:op :record/dry} {:op :record/toggle}]]
          (is (= :queued (:status (studio/submit! command)))))
        (doseq [command [{:op :record/enable :args {:enabled 1}}
                         {:op :playback/boost :args {:enabled "yes"}}
+                        {:op :view/routing :args {:visible "yes"}}
                         {:op :record/arm :args {:id "voice-test"}}
                         {:op :record/arm :args {:id 12 :enabled true}}
                         {:op :routing/select :args {:source -1 :send 0 :return 0 :headphones 0}}]]

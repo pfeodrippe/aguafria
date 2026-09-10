@@ -1,5 +1,8 @@
 # Dialogue recording tools
 
+The studio interface is English. Dialogue, character names and user-created
+take/profile names retain their original language; the DAW does not translate content.
+
 ## Native recording workspace
 
 Launch the game from its root with `clojure -M:dev:tools:desktop`, then in that
@@ -18,55 +21,78 @@ even if you switch to Bitwig. Returning to the game restores its previous manual
 mute choice; DAW playback is independent.
 Closing the studio window queues Stop and hides it without discarding a take
 (F1 from the game shows it again). `(studio/close!)` releases its resources and leaves the game running.
+Normal studio bounds are remembered in ignored `build/studio-window.edn`, separate
+from game/project settings. Restoration accounts for disconnected displays and
+window borders. The current layout minimum is 1100×760 content points. Native
+resizing is enabled: drag a window edge or corner like a normal desktop app.
+**Hide routing / Show routing** gives the timeline and editor the routing panel's
+space without changing any audio connections. The preference is remembered.
+API equivalent: `(studio/submit! {:op :view/routing :args {:visible false}})`.
+Drag the horizontal divider above **TAKE / EDIT** to allocate more room to tracks
+or the text editor; double-click it to reset. The split is remembered, and visible
+track rows adapt without stretching controls. API equivalent:
+`(studio/submit! {:op :view/editor :args {:top 532}})` (logical window points,
+clamped to keep both panels usable).
 The DAW-style workspace opens with
-**Pistes**: dialogue track headers aligned with real take clips and a seconds
-ruler. Each row is a dialogue take, **not** a full clip arranger. Empty passages say **À enregistrer**; narration/choices
+**Tracks**: dialogue track headers aligned with real take clips and a seconds
+ruler. Each row is a dialogue take, **not** a full clip arranger. Empty passages say **Not recorded**; narration/choices
 remain visible as context. The selected take's waveform is decoded from its WAV.
 
 Single-click a clip or ruler to position without playing. **Lecture**, a track's
 triangle, or a double-click auditions; **Pause / Reprendre** retains the audio
 engine's actual PCM cursor. **Space** toggles playback, **Home** rewinds and
 **Escape** stops/cancels. Editing a name consumes text keys, including Space.
-**+ / −** zoom from 2 to 60 seconds; **Tout** shows the full
+The take-name field supports click/drag selection, a visible caret, arrow keys,
+Shift-selection, Home/End, Backspace/Delete and Cmd/Ctrl+A/C/X/V. Double-click
+selects the whole name. Long names scroll within the field; its 120-byte limit
+never splits a UTF-8 character. Pasted tabs/newlines become spaces. Enter saves
+the name; Escape leaves editing without submitting it. This is a lightweight
+single-line editor, not a full IME/grapheme-aware text control.
+**+ / −** zoom from 2 to 60 seconds; **All** shows the full
 60-second range. The arrows beside the ruler pan time; arrows beside **Script**
 page through passages. **Script** shows the complete Markdown, with indentation.
-Click a passage to focus its full text below; **Haut / Suite** scroll it independently.
+Click a passage to focus its full text below; **Up / Down** scroll it independently.
 Its stable ID identifies the recording and matching Bitwig track. Wheel/two-finger
 scrolling targets the pane under the pointer; horizontal scrolling or Shift+wheel
 pans time. Option+wheel zooms around the pointer. Timeline/track scrollbars are
-draggable; **Suivre** controls automatic playback following. Native pinch is not
+draggable; **Follow** controls automatic playback following. Native pinch is not
 implemented. The lower waveform seeks unless you grab one of its trim edges.
 
 ### Record a passage
 
-1. Select a voiced passage in **Pistes** (its full text appears below).
-2. Click **Micro / entrée…** and choose your actual microphone from the list.
-3. For processed recording, choose **BlackHole 16ch** for both **Envoi 1/2 > Bitwig…**
-   and **Retour FX 3/4…**. In Bitwig, monitor an audio track from input 1/2,
+1. Select a voiced passage in **Tracks** (its full text appears below).
+2. Click **Mic / input…** and choose your actual microphone from the list.
+3. For processed recording, choose **BlackHole 16ch** for both **Send 1/2 > Bitwig…**
+   and **FX return 3/4…**. In Bitwig, monitor an audio track from input 1/2,
    apply its effects, and route its output to 3/4. Do not route it back to 1/2.
-4. Arm the passage with the red-circle button in its track header. Choose **Sec**
+4. Arm the passage with the red-circle button in its track header. Choose **Dry**
    (microphone only) or **FX** (paired dry and processed audio) next to global REC.
-5. Enable global **REC**, then press **LECTURE** (or Space). REC alone does not
+5. Enable global **REC**, then press **PLAY** (or Space). REC alone does not
    open the microphone. Count-in is off by default; optionally enable 3 seconds.
    The recording clip grows red while capturing. **STOP** saves the take and FX tail.
-6. Disable global **REC** to audition with **Lecture**; **Publier au jeu** publishes the selected
+6. Disable global **REC** to audition with **Play**; **Publish to game** publishes the selected
    validated wet take to the running game. No Bitwig save/export is needed.
 
-**Casque / écoute…** selects monitoring output. Direct monitoring requires headphones
+**Listening output…** selects playback/monitoring output. Live monitoring requires headphones
 to avoid acoustic feedback. Selecting a device is not proof of an effects return:
 check both input and return meters. With BlackHole selected as the source (for QA),
 source audio must arrive on channels 5/6, not the return pair 3/4.
 API clients can inspect `(:devices (studio/query))` and use `:routing/select` with
 `:source`, `:send`, `:return`, and `:headphones` device indices.
+Device menus mark the configured device **Selected**. Up/Down and Home/End move
+keyboard focus without changing the route; Enter applies it. Escape or a click
+outside closes the menu without activating the control underneath. Empty lists
+show a reconnect message, and unavailable pagination buttons are disabled.
+The selected marker confirms configuration only—not that audio is reaching it.
 
-**Annuler / Rétablir** (Command/Ctrl-Z and Shift-Command/Ctrl-Z) undo/redo saved
+**Undo / Redo** (Command/Ctrl-Z and Shift-Command/Ctrl-Z) undo/redo saved
 take edits. WAVs are never deleted by undo. Playback stops before changing the
 selected take through history. Game publication is an explicit, non-undoable
 boundary; undo does not retract audio already published to the game.
 
-**Lire mix** prepares and plays the selected take from every recorded passage
+**Play mix** prepares and plays the selected take from every recorded passage
 simultaneously, with a shared native 48 kHz sample clock and visible playhead.
-Play/Pause, Space and seeking then control that mix. **Mode prise** or Stop
+Play/Pause, Space and seeking then control that mix. **Take mode** or Stop
 returns to single-take audition; a track's triangle always auditions that take.
 The first mixer supports 16 clips and 120 seconds of total decoded source audio
 (about 46 MB of bounded PCM storage), with gain, stereo balance, fades, mute and
@@ -106,7 +132,7 @@ thread, not from an audio/render callback:
 (studio/command! {:op :transport/pause})
 (studio/command! {:op :transport/seek :args {:seconds 5.0}})
 (studio/command! {:op :selection/passage :args {:id "your-stable-passage-id"}})
-(studio/command! {:op :take/name :args {:name "Prise préférée"}})
+(studio/command! {:op :take/name :args {:name "Favorite take"}})
 (studio/command! {:op :take/trim :args {:from 5 :to 95}}) ; new WAV, original retained
 (studio/command! {:op :transport/stop})
 (studio/command! {:op :project/undo})
@@ -166,7 +192,7 @@ Recording in **FX** mode captures while you speak: the selected microphone is se
 BlackHole 1/2, Bitwig processes it and returns on 3/4. Our tool simultaneously
 retains the dry microphone and processed return as paired takes. **Stop**
 silences the send, retains the selected effect tail, then saves both WAVs and
-selects the processed take. **Lire → Publier au jeu** makes it available to the live
+selects the processed take. **Lire → Publish to game** makes it available to the live
 game. No intermediate dry recording pass, Bitwig recording, export or Save is
 needed. Bitwig's input monitoring must be enabled on the effects track. Use
 headphones if also monitoring externally; never feed the return back to the send.
@@ -178,15 +204,15 @@ devices are explicitly selected; system audio defaults are unchanged. Live takes
 reserve the selected tail within the 60-second buffer limit.
 The meter uses a square-root amplitude display scale, not calibrated dB.
 
-**Passe FX** sends that passage's dry take through BlackHole 16ch channels
+**Process FX** sends that passage's dry take through BlackHole 16ch channels
 1/2 and captures channels 3/4 plus the selected tail. Both ends must explicitly
 be BlackHole; other devices are refused for this operation. Bitwig must be
 configured to receive 1/2, process the signal and output 3/4, without routing the
 return back to 1/2. No audio-device global defaults are changed by this tool.
 
-**Prise préc. / Suiv.** select immutable takes for the focused passage.
-**Lire** previews the selection through the game's separate voice channel.
-**Publier au jeu** accepts only a processed, non-silent, unclipped take and atomically
+**Previous / Next** select immutable takes for the focused passage.
+**Play** previews the selection through the studio's independent audio output.
+**Publish to game** accepts only a processed, non-silent, unclipped take and atomically
 writes `resources/voices/<passage-id>.wav`. Take history and selection persist in
 `build/recording/project.edn` (schema 1). On first open, the old `takes.edn` is
 validated and migrated; the original is retained but is no longer the live index.
@@ -205,25 +231,29 @@ builds copy published voices and compile out that polling. Ambience is separate.
 - **Transport**: choose a 0/3-second countdown (Stop cancels before opening
   audio), 0/1/3/5-second tail, and automatic alignment. Input/return meters and
   elapsed time update during capture; clipping stays latched until the next take.
-  The waveform is normalized for visibility; meters are not calibrated dB.
-- **Align. oui**: estimate dry-to-return delay from up to two seconds of audio,
+  The waveform is normalized for visibility; held meters report digital peak dBFS,
+  not physical sound pressure or perceived loudness.
+- **Align: on**: estimate dry-to-return delay from up to two seconds of audio,
   searching 0–1 second. A confident, distinct match produces a new aligned WAV;
   dry and full return remain untouched. Silence, non-finite samples, ambiguous
   periodic sounds, or heavily altered effects can be refused without cutting audio.
-- **Prises**: click the name field and type (French accents supported), then
-  **Nommer**. Mark A, select B, and alternate **Écouter A/B**. Drag the amber
-  edges of the lower waveform to select a percentage range; **Réinitialiser**
-  restores 0–100%. **Rogner copie** creates another immutable take.
-  **Préférée** persists your preference; publishing remains explicit.
-- **Récupérer**: after an interrupted session, recover WAVs from the last committed
+- **Takes**: click the name field and type (Unicode supported), then
+  **Rename**. While editing, Cmd/Ctrl+Z undoes the draft and Cmd/Ctrl+Shift+Z
+  redoes it (Ctrl+Y also works). Paste is one edit; up to 32 draft edits are
+  retained independently of project Undo. Mark A, select B, and alternate
+  **Compare A/B**. Drag the amber
+  edges of the lower waveform to select a percentage range; **Reset**
+  restores 0–100%. **Trim copy** creates another immutable take.
+  **Favorite** persists your preference; publishing remains explicit.
+- **Recover**: after an interrupted session, recover WAVs from the last committed
   PCM checkpoint. The worker flushes audio and atomically updates its manifest
   approximately once per second. Uncommitted audio may be lost. Original PCM
   remains available; this is process-crash recovery, not a backup/power-loss guarantee.
-- **Routage**: name/save a profile and use **Profil suivant → Reconnecter** to
+- **Routing**: name/save a profile and use **Next profile → Reconnect** to
   re-enumerate and resolve exact device names. Missing or duplicate names fail
   closed. Profiles store our source/send/return/headphone choices and timing,
   not Bitwig's plugin state or system defaults.
-- **Écoute** is opt-in for the next FX take, off after reconnect.
+- **Monitoring** is opt-in for the next FX take, off after reconnect.
   It reads only return 3/4 and never writes back to the effects bus. Gain starts
   at 15%, capped at 50%. Only names containing Headphones, AirPods, or Casque
   are currently accepted; speakers/BlackHole/aggregate outputs are refused.
@@ -313,19 +343,27 @@ process. The adapter never rewrites the source note.
 ## Listening in the studio
 
 Click the triangle beside a recorded passage to audition its selected take.
-`Sortie d'écoute` chooses the device for both take playback and the mix. The
+`Listening output` chooses the device for both take playback and the mix. The
 studio and game share engine code but own independent engine/device instances;
 game mute and studio focus cannot mute the studio's playback.
 
-`Retour direct` means microphone/FX monitoring **during recording**, not playback
+`Monitoring` means microphone/FX monitoring **during recording**, not playback
 of saved takes. It requires headphones to avoid feedback. Bitwig send 1/2 and
 return 3/4 remain separate from the listening output.
 
-For a quiet take, toggle `Gain original` to `Écoute amplifiée`. This bounded,
+For a quiet take, toggle `Original gain` to `Audition boost`. This bounded,
 opt-in audition gain does not alter the WAV, Bitwig effects, mix, or published
 game voice. The API equivalent is
 `{:op :playback/boost :args {:enabled true}}`. Very quiet input/FX recordings still
 need their recording gain corrected; audition amplification is not that fix.
+
+During capture, the routing panel shows input and FX **peak dBFS** (held since
+the start of the take), separately from the moving bars. Stop ends the send,
+then `FX TAIL` keeps recording the chosen effects tail before saving automatically.
+Silence, clipping and very low levels produce a persistent warning bar. These
+are advisory recording checks; files are retained. `X` or `{:op :alert/dismiss}`
+acknowledges the warning. The API exposes the warning in `:alert`, linear held
+peaks in `:signal`, and effects-tail capture as `:record-control :phase 3`.
 
 ## Identity and recording safety
 

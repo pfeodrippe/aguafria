@@ -199,16 +199,19 @@
 (defonce native-loaded (atom false))
 
 (defn load-native! []
-  (when-not @native-loaded
-    (prepare!)
-    (ac/load-bindings! (bindings!))
-    (az/configure! {:module-zig-args
-                    (assoc (:module-zig-args (az/configuration)) "la-professeure.miniaudio"
-                           [(str "-I" (io/file (root) "build/vendor/miniaudio"))])
-                   :zig-args (into (vec (:zig-args (az/configuration)))
-                                   (concat [(str (native-path :shared))
-                                            (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
-    (reset! native-loaded true)))
+  ;; Startup and an nREPL require can arrive concurrently. Publish bindings once:
+  ;; duplicate imports change native type identities as well as racing assets.
+  (locking native-loaded
+    (when-not @native-loaded
+      (prepare!)
+      (ac/load-bindings! (bindings!))
+      (az/configure! {:module-zig-args
+                      (assoc (:module-zig-args (az/configuration)) "la-professeure.miniaudio"
+                             [(str "-I" (io/file (root) "build/vendor/miniaudio"))])
+                     :zig-args (into (vec (:zig-args (az/configuration)))
+                                     (concat [(str (native-path :shared))
+                                              (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
+      (reset! native-loaded true))))
 
 (defn standalone! []
   (prepare!) (native! :static) (native/prepare-static!)

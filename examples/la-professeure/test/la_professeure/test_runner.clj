@@ -8,6 +8,26 @@
 (def message {:version 1 :sequence 0 :revision 0 :clip "rain"
               :frames 8 :fps 8 :seconds 0 :playing? true})
 
+(deftest native-bootstrap-is-serialized
+  (let [loaded (atom false) calls (atom [])]
+    (with-redefs [build/native-loaded loaded
+                  build/prepare! #(do (swap! calls conj :prepare) (Thread/sleep 20))
+                  build/bindings! (constantly :test-bindings)
+                  aguafria.c/load-bindings! #(swap! calls conj %)
+                  aguafria.zig/configuration (constantly {})
+                  aguafria.zig/configure! (fn [_] (swap! calls conj :configure))]
+      (let [requests (doall (repeatedly 12 #(future (build/load-native!))))]
+        (doseq [request requests] @request))
+      (is @loaded)
+      (is (= [:prepare :test-bindings :configure] @calls))
+      (build/load-native!)
+      (is (= 3 (count @calls)) "Later requires do not re-import native types")))
+  (let [loaded (atom false)]
+    (with-redefs [build/native-loaded loaded
+                  build/prepare! #(throw (ex-info "Prepare failed" {}))]
+      (is (thrown? clojure.lang.ExceptionInfo (build/load-native!)))
+      (is (false? @loaded) "A failed preparation can be retried"))))
+
 (deftest markdown-dialogue
   (let [doc (dialogue/parse "# Scène\n#∆V Bonjour. [id:hello]\n:: Entrer.\n  #∆M Entrez ! ^enter\n  :: Parler.\n    #M Oui.\n:: Partir.\n  Au revoir.")
         root (:key (first (:nodes doc)))

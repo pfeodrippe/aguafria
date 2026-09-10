@@ -485,11 +485,16 @@
   (update-voice!)
   (set! rendered-frames (+ rendered-frames 1)))
 
+;; Render-thread canvas dimensions, restored by each independent window after
+;; building its frame. Text positions stay in logical screen points on Retina.
+(az/defvar canvas-width :f32 1100.0)
+(az/defvar canvas-height :f32 760.0)
+
 (az/defn vertex! :- :void
   [[x :f32] [y :f32] [u :f32] [v :f32] [rgb :u32] [textured :f32] [lit :f32]]
   (when (>= vertex-count gpu/frame-capacity) (debug/panic "La Professeure frame capacity exceeded" []))
   (set! (az/index vertices vertex-count)
-        (mesh/GpuVertex {:x (- (/ x 550.0) 1.0) :y (- (/ y 380.0) 1.0) :z 0.0
+        (mesh/GpuVertex {:x (- (/ (* x 2.0) canvas-width) 1.0) :y (- (/ (* y 2.0) canvas-height) 1.0) :z 0.0
                          :r (/ (ak/as :f32 (ak/floatFromInt (ak/& (ak/>> rgb 16) 255))) 255.0)
                          :g (/ (ak/as :f32 (ak/floatFromInt (ak/& (ak/>> rgb 8) 255))) 255.0)
                          :b (/ (ak/as :f32 (ak/floatFromInt (ak/& rgb 255))) 255.0)

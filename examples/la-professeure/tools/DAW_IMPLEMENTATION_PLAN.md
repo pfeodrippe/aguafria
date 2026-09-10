@@ -4,6 +4,10 @@
 
 Active issue-by-issue acceptance checklist: [`../AGENT_TODO.md`](../AGENT_TODO.md).
 
+The DAW uses English for its interface and generated messages. Content language
+is independent: dialogue, character names and existing take/profile names must
+not be translated or rewritten when the interface changes.
+
 ### Recording transport correction
 
 Use the documented [Bitwig Arranger recording sequence](https://www.bitwig.com/userguide/latest/recording_clips/):
@@ -29,6 +33,27 @@ in the game; mixer playback continued independently. A fresh unlocked screenshot
 (`build/recording-qa/daw-playhead-playing.png`) shows one continuous mix playhead.
 
 ### Required: simultaneous game and studio windows
+
+Both windows must support ordinary native resizing independently. For the studio,
+extra space expands the timeline and editor instead of stretching glyphs; panel
+dividers and visibility controls allocate space at small sizes. Transport remains
+reachable at a documented minimum size. Persist window bounds and panel sizes,
+clamping restored bounds to available displays. Verify framebuffer/swapchain
+recreation, pointer mapping and uninterrupted audio while resizing. GUI scaling is
+a separate user preference, as in [Bitwig's window anatomy](https://www.bitwig.com/userguide/latest/anatomy_of_the_bitwig_studio_window/).
+Studio native resizing is enabled, including the existing running window. Keep
+the remaining acceptance checks explicit; they no longer gate enabling the flag.
+
+Implemented foundation: independent logical studio canvas; expanding timeline,
+waveform and text; matching pointer coordinates; swapchain recreation; a 1100×760
+content-point minimum; and debounced normal-window bounds in ignored
+`build/studio-window.edn`. Restoration fits a currently available monitor work area
+including decorations. Invalid settings are reported without changing audio or
+project data. Routing collapse is implemented and its visibility is saved; it
+does not disconnect or mute audio. The track/editor divider is implemented with
+fixed-height virtualized rows. An unlocked native edge drag and fresh screenshot
+verified resizing from 1100×760 to 1283×844 without stretched text. Smaller-screen
+layout/GUI scaling, maximize/restore and recording-continuity checks remain open.
 
 The game and studio must be two independent native windows, not F1-switched
 views. Keep the existing JVM and main/render thread, but give the studio its own
