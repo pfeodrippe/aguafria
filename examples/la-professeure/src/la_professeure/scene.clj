@@ -42,6 +42,7 @@
 (az/defvar key-state [:array 4 :bool] (mem/zeroes (az/type [:array 4 :bool])))
 (az/defvar ui-key-state [:array 4 :bool] (mem/zeroes (az/type [:array 4 :bool])))
 (az/defvar glyph-advances [:array 256 :f32] (mem/zeroes (az/type [:array 256 :f32])))
+(az/defvar ui-glyph-advances [:array 256 :f32] (mem/zeroes (az/type [:array 256 :f32])))
 (az/defvar response :u32 0)
 (az/defvar hovered-choice :u32 0)
 (az/defvar mouse-was-down false)
@@ -397,7 +398,12 @@
     (when (ak/== file ak/null) (debug/panic "Missing glyph metrics; run :prepare" []))
     (ak/defer (set! _ (io/fclose file)))
     (when (ak/!= (io/fread (ak/& glyph-advances) 4 256 file) 256)
-      (debug/panic "Invalid glyph metrics" []))))
+      (debug/panic "Invalid glyph metrics" [])))
+  (let [file (io/fopen "resources/demo/ui-glyph-advances.bin" "rb")]
+    (when (ak/== file ak/null) (debug/panic "Missing UI glyph metrics; run :prepare" []))
+    (ak/defer (set! _ (io/fclose file)))
+    (when (ak/!= (io/fread (ak/& ui-glyph-advances) 4 256 file) 256)
+      (debug/panic "Invalid UI glyph metrics" []))))
 
 (az/defn initialize! :- :bool []
   ;; Use the linked loader, including in a JVM without a dylib search-path override.

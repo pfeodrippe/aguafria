@@ -131,13 +131,16 @@
   {128 \œ 129 \Œ 130 \‘ 131 \’ 132 \“ 133 \” 134 \– 135 \— 136 \… 137 \ })
 
 (defn atlas!
-  "Pack a licensed serif font, measured advances, backdrop and reloadable animation."
+  "Pack serif dialogue and sans-serif UI fonts, metrics, backdrop and animation."
   []
   (let [image (BufferedImage. 2048 1536 BufferedImage/TYPE_INT_ARGB)
         g (.createGraphics image) output (io/file (root) "resources/demo/atlas.rgba")
         font (.deriveFont (Font/createFont Font/TRUETYPE_FONT
                            (io/file (root) "resources/fonts/LibreBaskerville.ttf")) (float 44))
-        advances (doto (ByteBuffer/allocate (* 256 4)) (.order ByteOrder/LITTLE_ENDIAN))]
+        ui-font (.deriveFont (Font/createFont Font/TRUETYPE_FONT
+                              (io/file (root) "resources/fonts/IBMPlexSans-Regular.ttf")) (float 30))
+        advances (doto (ByteBuffer/allocate (* 256 4)) (.order ByteOrder/LITTLE_ENDIAN))
+        ui-advances (doto (ByteBuffer/allocate (* 256 4)) (.order ByteOrder/LITTLE_ENDIAN))]
     (try
       (.setRenderingHint g RenderingHints/KEY_TEXT_ANTIALIASING RenderingHints/VALUE_TEXT_ANTIALIAS_ON)
       (.setFont g font)
@@ -153,6 +156,17 @@
             (.drawString g glyph (int (+ 4 (* (mod code 32) 64)))
                          (int (+ (* (quot code 32) 80) 56))))))
       (.setClip g nil)
+      ;; Unused lower-right atlas area: 16 columns x 16 rows, below animation.
+      ;; Keep the existing atlas allocation and all game UVs unchanged.
+      (.setFont g ui-font)
+      (doseq [code (range 256)]
+        (let [glyph (str (get french-glyphs code (char code)))
+              x (+ 1024 (* (mod code 16) 64)) y (+ 736 (* (quot code 16) 50))]
+          (.putFloat ui-advances (float (.getWidth (.getStringBounds ui-font glyph (.getFontRenderContext g)))))
+          (when (or (<= 32 code 126) (<= 160 code 255) (contains? french-glyphs code))
+            (.setClip g (int (+ x 2)) (int (+ y 2)) 60 46)
+            (.drawString g glyph (int (+ x 4)) (int (+ y 38))))))
+      (.setClip g nil)
       (.setRenderingHint g RenderingHints/KEY_INTERPOLATION RenderingHints/VALUE_INTERPOLATION_BICUBIC)
       (.drawImage g (ImageIO/read (io/file (root) "resources/art/corridor.png")) 0 640 1024 896 nil)
       (let [animation (ImageIO/read (animation-file))]
@@ -162,6 +176,8 @@
         (.drawImage g animation 1024 640 nil))
       (with-open [out (io/output-stream (io/file (root) "resources/demo/glyph-advances.candidate.bin"))]
         (.write out (.array advances)))
+      (with-open [out (io/output-stream (io/file (root) "resources/demo/ui-glyph-advances.candidate.bin"))]
+        (.write out (.array ui-advances)))
       (let [b (byte-array (* 2048 1536 4))]
         (dotimes [i (* 2048 1536)]
           (let [argb (.getRGB image (mod i 2048) (quot i 2048))]
@@ -170,7 +186,9 @@
         (with-open [out (io/output-stream (io/file (str output ".candidate")))] (.write out b)))
       (doseq [[source target] [[(io/file (str output ".candidate")) output]
                                [(io/file (root) "resources/demo/glyph-advances.candidate.bin")
-                                (io/file (root) "resources/demo/glyph-advances.bin")]]]
+                                (io/file (root) "resources/demo/glyph-advances.bin")]
+                               [(io/file (root) "resources/demo/ui-glyph-advances.candidate.bin")
+                                (io/file (root) "resources/demo/ui-glyph-advances.bin")]]]
         (Files/move (.toPath source) (.toPath target)
                     (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING])))
       (finally (.dispose g)))

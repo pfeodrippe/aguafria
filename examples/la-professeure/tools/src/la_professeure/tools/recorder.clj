@@ -85,12 +85,16 @@
 (az/defn process-monitor! :- :void
   [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
   (when (ak/== output ak/null) (ak/return))
-  (let [gain (* 0.01 (ak/as :f32 (ak/floatFromInt (ak/min 50 (ak/atomicLoad :u32 (ak/& monitor-gain) :.acquire)))))]
+  (let [gain (* 0.01 (ak/as :f32 (ak/floatFromInt (ak/min 50 (ak/atomicLoad :u32 (ak/& monitor-gain) :.acquire)))))
+        ^{:var :f32} peak 0.0]
     (dotimes [i frames]
       (dotimes [c 2]
         (let [v (if (ak/== input ak/null) 0.0 (az/index input (+ (* i 16) 2 c)))]
+          (when (< (ak/abs v) 100.0) (set! peak (ak/max peak (ak/abs v))))
           (set! (az/index output (+ (* i 2) c))
-                (if (< (ak/abs v) 100.0) (* gain (ak/max -1.0 (ak/min 1.0 v))) 0.0)))))))
+                (if (< (ak/abs v) 100.0) (* gain (ak/max -1.0 (ak/min 1.0 v))) 0.0)))))
+    ;; Monitoring also drives the return meter when no take is being captured.
+    (update-signal-level! false peak)))
 
 (az/defn monitor-callback {:zig/qualifiers "callconv(.c)"} :- :void
   [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]

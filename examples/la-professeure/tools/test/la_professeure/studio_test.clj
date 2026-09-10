@@ -165,18 +165,19 @@
   (is (= 0 (routing-collapse-contract)) "Collapse reclaims space, dismisses old hits, preserves audio and selection"))
 
 (az/defn editor-divider-contract :- :u32 []
-  (let [old-top studio/editor-top old-height studio/window-height old-width studio/window-width
+  (let [old-mode studio/workspace-mode old-top studio/editor-top old-height studio/window-height old-width studio/window-width
         old-offset studio/track-offset old-drag studio/divider-drag old-grab studio/divider-grab
         old-click studio/clicked old-double studio/double-clicked old-down studio/mouse-down
         old-x studio/mouse-x old-y studio/mouse-y old-route studio/route-menu
         old-trim studio/trim-drag old-focus studio/name-focus
         selected studio/selected headphones studio/headphones phase studio/capture-phase]
-    (ak/defer (do (set! studio/editor-top old-top) (set! studio/window-height old-height)
+    (ak/defer (do (set! studio/workspace-mode old-mode) (set! studio/editor-top old-top) (set! studio/window-height old-height)
                  (set! studio/window-width old-width) (set! studio/track-offset old-offset)
                  (set! studio/divider-drag old-drag) (set! studio/divider-grab old-grab)
                  (set! studio/clicked old-click) (set! studio/double-clicked old-double)
                  (set! studio/mouse-down old-down) (set! studio/mouse-x old-x) (set! studio/mouse-y old-y)
                  (set! studio/route-menu old-route) (set! studio/trim-drag old-trim) (set! studio/name-focus old-focus)))
+    (set! studio/workspace-mode 0)
     (set! studio/window-height 760.0) (set! studio/window-width 1100.0)
     (studio/set-editor-top! 444.0)
     (when (or (ak/!= (studio/visible-row-count) 6) (ak/!= (studio/track-height) 262.0)
@@ -319,6 +320,33 @@
                      (studio/update-layout!) (studio/set-editor-top! (:top before))
                      (az/set-value! studio/track-offset (:offset before))))
         (studio/save-window! true)))))
+
+(defn restore-qa-recording-pointers!
+  "Opt-in QA cleanup: retain new labelled history/WAVs, but restore the pre-test
+  default dry/wet sources. Exact QA paths and revision guards prevent replacing
+  an intervening user edit. Does not change the selected passage/take or publish."
+  [id before qa-paths]
+  (let [op (keyword "qa" (str "restore-pointers-" (java.util.UUID/randomUUID)))
+        allowed (set qa-paths)]
+    (studio/register-command! op
+      {:description "Restore pre-QA dry/wet references; retain labelled QA takes."
+       :validate empty?
+       :handler
+       (fn [_]
+         (#'studio/change-takes! "Restore pre-QA recording pointers"
+           (fn [takes]
+             (let [current (get takes id)]
+               (doseq [k [:dry :wet]]
+                 (when-not (or (= (get current k) (get before k)) (contains? allowed (get current k)))
+                   (throw (ex-info "QA cleanup will not replace a changed user reference" {:id id :field k}))))
+               (update takes id
+                 (fn [entry]
+                   (reduce (fn [e k] (if (contains? before k) (assoc e k (get before k)) (dissoc e k)))
+                           entry [:dry :wet]))))))
+         {:restored true})})
+    (try
+      (studio/command! {:op op :args {} :expected-revision (:revision @studio/project)})
+      (finally (studio/unregister-command! op)))))
 
 (defn live-routing-playback-qa!
   "Opt-in live acceptance, NOT part of the automatic suite. Requires an open idle
@@ -569,6 +597,19 @@
             (aget pixels (+ 3 (* 4 (+ (+ (* (mod code 32) 64) x)
                                         (* 2048 (+ (* (quot code 32) 80) y)))))))))))
 
+(deftest sans-atlas-metrics-and-gutters
+  (let [pixels (java.nio.file.Files/readAllBytes (.toPath (io/file "resources/demo/atlas.rgba")))
+        metrics (java.nio.file.Files/readAllBytes (.toPath (io/file "resources/demo/ui-glyph-advances.bin")))
+        buffer (doto (java.nio.ByteBuffer/wrap metrics) (.order java.nio.ByteOrder/LITTLE_ENDIAN))]
+    (is (= 1024 (alength metrics)))
+    (is (every? #(and (Float/isFinite %) (<= 0.0 % 60.0))
+                (repeatedly 256 #(.getFloat buffer))))
+    (is (every? zero?
+          (for [code (range 256) y (range 50) x (range 64)
+                :when (or (< x 2) (>= x 62) (< y 2) (>= y 48))]
+            (aget pixels (+ 3 (* 4 (+ (+ 1024 (* (mod code 16) 64) x)
+                                        (* 2048 (+ 736 (* (quot code 16) 50) y)))))))))))
+
 (defn verify-live-windows!
   "Run explicitly with studio open. Verifies independent ownership and simultaneous progress."
   []
@@ -704,13 +745,128 @@
       (is (= 0 (az/value studio/trim-in)))
       (finally (doseq [[field value] (map vector fields before)] (az/set-value! field value))))))
 
+(az/defn workspace-presentation-contract :- :u32 []
+  (let [mode studio/workspace-mode enabled studio/record-enabled prior studio/workspace-record-prior
+        trim studio/trim-drag divider studio/divider-drag
+        focus studio/name-focus drag studio/name-drag menu studio/route-menu click studio/clicked
+        x studio/mouse-x y studio/mouse-y scroll studio/record-scroll height studio/record-text-height
+        offset studio/track-offset track-scroll studio/track-scroll window-h studio/window-height
+        count scene/passage-entity-count]
+    (ak/defer (do (set! studio/workspace-mode mode) (set! studio/record-enabled enabled)
+      (set! studio/workspace-record-prior prior) (set! studio/trim-drag trim)
+      (set! studio/divider-drag divider) (set! studio/name-focus focus) (set! studio/name-drag drag)
+      (set! studio/route-menu menu) (set! studio/clicked click) (set! studio/mouse-x x)
+      (set! studio/mouse-y y) (set! studio/record-scroll scroll) (set! studio/record-text-height height)
+      (set! studio/track-offset offset) (set! studio/track-scroll track-scroll)
+      (set! studio/window-height window-h) (set! scene/passage-entity-count count)))
+    (set! studio/workspace-mode 0) (set! studio/record-enabled 0)
+    (set! studio/trim-drag 1) (set! studio/divider-drag true)
+    (set! studio/name-focus true) (set! studio/name-drag true)
+    (set! studio/route-menu 2) (set! studio/clicked true)
+    (studio/set-workspace-mode! true)
+    (when (ak/!= studio/workspace-mode 1) (ak/return 1))
+    (when (or (ak/!= studio/record-enabled 1) (ak/!= studio/workspace-record-prior 0)) (ak/return 6))
+    (when (or (ak/!= studio/trim-drag 0) studio/divider-drag studio/name-focus studio/name-drag
+              (ak/!= studio/route-menu 0) studio/clicked) (ak/return 2))
+    (set! studio/mouse-x 300.0) (set! studio/mouse-y 210.0)
+    (set! studio/record-text-height 2000.0) (set! studio/record-scroll 0.0)
+    (studio/scroll-by! 2.0 -2.0 true true)
+    (when (ak/!= studio/record-scroll 48.0) (ak/return 3))
+    (set! studio/mouse-x 100.0) (set! studio/window-height 760.0)
+    (set! scene/passage-entity-count 20) (set! studio/track-offset 0) (set! studio/track-scroll 0.0)
+    (dotimes [_ 4] (studio/scroll-by! 0.0 -0.3 false false))
+    (when (ak/!= studio/track-offset 1) (ak/return 9))
+    (studio/scroll-by! 0.0 -1000.0 false false)
+    (when (ak/!= studio/track-offset 12) (ak/return 10))
+    (set! studio/mouse-x 300.0)
+    (set! studio/mouse-y (ak/as :f64 (ak/floatCast studio/editor-top)))
+    (set! studio/clicked true) (studio/divider-input!)
+    (when studio/divider-drag (ak/return 4))
+    (set! studio/record-enabled 0)
+    (studio/set-workspace-mode! true)
+    (when (ak/!= studio/record-enabled 0) (ak/return 7))
+    (studio/set-workspace-mode! false)
+    (when (or (ak/!= studio/workspace-mode 0) (ak/!= studio/record-enabled 0)) (ak/return 5))
+    (set! studio/record-enabled 1)
+    (studio/set-workspace-mode! true)
+    (set! studio/record-enabled 0)
+    (studio/set-workspace-mode! false)
+    (when (ak/!= studio/record-enabled 1) (ak/return 8)))
+  0)
+
+(deftest workspace-presentation-isolation
+  ;; Call on the render thread: no fake device flags, capture or project edits.
+  (let [session-fields [studio/selected studio/record-enabled studio/record-track
+                        studio/record-mode studio/capture-phase studio/headphones
+                        studio/microphone studio/return-input studio/effects-output
+                        studio/seek-seconds studio/preview-paused
+                        studio/timeline-start studio/timeline-seconds studio/editor-top]
+        session-before (mapv az/value session-fields)]
+    (is (= 0 (workspace-presentation-contract)) "Mode input is isolated and stale drags are dismissed")
+    (is (= session-before (mapv az/value session-fields)))))
+
+(deftest recording-workspace-phase-guidance
+  (let [text (fn [phase enabled? armed?]
+               (#'studio/native-string (studio/record-guidance phase enabled? armed?)))]
+    (is (= "Armed. Play to record." (text 0 true true)))
+    (is (= "REC off: enable REC to record." (text 0 false true)))
+    (is (= "Select and arm a voiced passage." (text 0 true false)))
+    (doseq [enabled? [true false]]
+      (is (= "Count-in running. Stop to cancel." (text 1 enabled? true)))
+      (is (= "Recording. Stop to save." (text 2 enabled? true)))
+      (is (= "Capturing FX tail. Saving shortly." (text 3 enabled? true)))))
+  (let [fields [studio/framebuffer-scale studio/window-width studio/routing-visible]
+        before (mapv az/value fields)]
+    (try
+      (az/set-value! studio/window-width 1100.0)
+      (az/set-value! studio/routing-visible true)
+      (doseq [scale [1.0 1.5 2.0]]
+        (az/set-value! studio/framebuffer-scale scale)
+        (let [xs (mapv #(studio/take-playhead-x % 5.0) [0.0 1.001 1.02 4.99 5.0 99.0])]
+          (is (apply <= xs))
+          (is (every? #(<= 242.0 % 883.0) xs))
+          (is (every? #(< (abs (- (* scale %) (Math/rint (* scale %)))) 0.0001) xs))
+          (is (= 242.0 (studio/take-playhead-x 0.0 0.0)))))
+      (finally (doseq [[field value] (map vector fields before)] (az/set-value! field value))))))
+
+(az/defn monitor-meter-contract :- :u32 []
+  (when (or recorder/running recorder/source-running recorder/monitoring) (ak/return 1))
+  (let [peak recorder/return-peak-ppm held recorder/return-held-ppm gain recorder/monitor-gain
+        ^{:var [:array 32 :f32]} input (mem/zeroes (az/type [:array 32 :f32]))
+        ^{:var [:array 4 :f32]} output (mem/zeroes (az/type [:array 4 :f32]))]
+    (ak/defer (do (set! recorder/return-peak-ppm peak) (set! recorder/return-held-ppm held)
+                 (set! recorder/monitor-gain gain)))
+    (set! recorder/monitor-gain 15)
+    (set! (az/index input 0) 0.9) ; Send channels must never feed the return meter.
+    (set! (az/index input 2) 0.25) (set! (az/index input 19) -0.5)
+    (recorder/process-monitor! (ak/& output) (ak/& input) 2)
+    (when (> (ak/abs (- (recorder/signal-peak false false) 0.5)) 0.00001) (ak/return 2))
+    (when (or (> (ak/abs (- (az/index output 0) 0.0375)) 0.00001)
+              (> (ak/abs (+ (az/index output 3) 0.075)) 0.00001)) (ak/return 3))
+    (recorder/process-monitor! (ak/& output) ak/null 2)
+    (when (ak/!= (recorder/signal-peak false false) 0.0) (ak/return 4)))
+  0)
+
+(deftest monitor-updates-return-meter-without-recording
+  (is (= 0 (monitor-meter-contract)) "Return 3/4, pre-monitor gain peak and silence reset"))
+
+(deftest live-meter-display-not-held-history
+  (is (= 0.0 (studio/meter-fraction false 0.8)))
+  (is (= 0.0 (studio/meter-fraction true -1.0)))
+  (is (= 1.0 (studio/meter-fraction true 2.0)))
+  (is (= 0.5 (studio/meter-fraction true 0.25)))
+  (doseq [input? [true false]]
+    (when-not (studio/meter-active? input?)
+      (is (zero? (studio/live-meter-fraction input?))))))
+
 (deftest daw-pointer-navigation
   (let [fields [studio/window-width studio/window-height studio/routing-visible studio/editor-top
                 studio/timeline-start studio/timeline-seconds studio/follow-playhead
                 studio/mouse-x studio/mouse-y studio/focus-scroll studio/focus-height
-                studio/page studio/track-scroll studio/track-offset studio/route-menu]
+                studio/page studio/track-scroll studio/track-offset studio/route-menu studio/workspace-mode]
         before (mapv az/value fields)]
     (try
+      (az/set-value! studio/workspace-mode 0)
       (az/set-value! studio/window-width 1100.0) (az/set-value! studio/window-height 760.0)
       (az/set-value! studio/routing-visible true)
       (az/set-value! studio/editor-top 444.0)

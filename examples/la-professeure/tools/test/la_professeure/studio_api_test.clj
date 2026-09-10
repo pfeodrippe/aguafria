@@ -75,6 +75,17 @@
     (is (thrown? clojure.lang.ExceptionInfo
           (#'studio/validate-command! {:op :view/routing :args args})))))
 
+(deftest workspace-mode-api-schema
+  (is (= #{:edit :record} (set (keys (:workspace-modes (studio/capabilities))))))
+  (is (= {:mode :workspace-mode} (get-in (studio/capabilities) [:commands :view/mode])))
+  (doseq [mode [:edit :record]]
+    (let [command {:op :view/mode :args {:mode mode}}]
+      (is (= command (#'studio/validate-command! command)))))
+  (doseq [args [{} {:mode nil} {:mode :take-grid} {:mode "record"}
+                {:mode :record :record true}]]
+    (is (thrown? clojure.lang.ExceptionInfo
+          (#'studio/validate-command! {:op :view/mode :args args})))))
+
 (deftest editor-divider-api-schema
   (let [command {:op :view/editor :args {:top 520.0}}]
     (is (= command (#'studio/validate-command! command))))

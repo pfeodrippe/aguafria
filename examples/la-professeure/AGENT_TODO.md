@@ -44,12 +44,43 @@ The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
 
 ## Next: studio recording interaction
 
-- [ ] Research clear, simple DAW interfaces and generate five distinct polished
+- [x] Research clear, simple DAW interfaces and generate five distinct polished
   UI concepts (user request). Compare recording discoverability, dialogue focus,
   routing clarity, editing efficiency, keyboard/API control and resize behavior.
-  Save the concepts and a design decision; implement the strongest direction in
-  the native app, then verify with real interaction and screenshots. Concepts
-  are design references, not evidence of implemented functionality.
+  Saved five images, exact prompts, references and the user's design decision in
+  `tools/design/2026-09-09-daw-concepts/`. Concepts are design references, not
+  evidence of implemented functionality.
+- [ ] Complete acceptance of the light native Edit / Record workspaces: shared
+  transport/routing, sans-serif controls, serif dialogue, clean transport icons.
+  First screenshots inspected; finish physical switching, long-text scrolling,
+  playback/recording continuity and minimum-size checks.
+  - [x] 14 targeted tests / 93 assertions passed: mode/input isolation, pointer
+    navigation, divider bounds, Unicode editing, font metrics/gutters and API.
+  - [x] Physical Edit/Record tab clicks and Record-mode "Listen to take" work.
+    Switched to Edit during real playback: PCM cursor 0.5145→1.7364 seconds,
+    output signal frames 24255→82908, same selected take and project revision 36.
+    Restored the user's paused cursor to 1.010625 seconds afterward.
+  - [x] Inspected fresh `studio-edit-light-verified.png`,
+    `studio-record-light-verified.png` and `studio-record-light-minimum.png`
+    (1100×760). Full selected prose, transport, meters and take playback fit.
+    Fixed stale nonzero idle meter bars; input/FX activity now follows actual
+    devices and instantaneous levels, independently from held peak history.
+  - [x] Verify requested Record-mode REC default: enable on entry, restore the
+    previous value on exit (both on/off), respect manual toggles and repeated tab
+    clicks. Never start/stop capture by changing a view. Keep explicit track arm,
+    unambiguous Play / REC, and separate Listen to take audition.
+    Native transition regression passed for both prior on/off, manual override and
+    repeated mode selection. Physical Edit→Record→Edit verified off→on→off with
+    no capture, cursor change or project mutation; inspected
+    `studio-record-auto-ready.png`. Left Record visible, REC ready but not capturing.
+    Actual switching during a microphone capture remains in broader acceptance.
+- [ ] Add an optional take-grid workspace based on concept 5, reusing its clear
+  icons throughout. Keep one shared session/engine/command worker; descriptors
+  advertise only implemented modes. New workflows use validated commands and
+  undo/history. Do not fragment the implementation into tiny namespaces.
+- [ ] Add restrained Vulkan shader polish after interaction acceptance: smooth
+  edges/icons, subtle panel/selection feedback, crisp text, reduced-motion support
+  and measured Retina frame cost. Verify dev shader reload and release output.
 - [ ] Complete studio resizing acceptance, following Bitwig's normal desktop-window
   behavior. Native resizing is now enabled in new AND already-open studio windows.
   Add adaptive timeline/editor space, draggable panel dividers and collapsible
@@ -87,6 +118,12 @@ The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
     timeline/editor. Further QA remains open, but does not disable the feature.
   - [ ] Finish native maximize/restore, minimum-size and playback/recording resize
     acceptance. Earlier captures taken while locked remain invalid visual evidence.
+    Minimum-size QA caught and fixed a real ordering bug: GLFW ignored platform
+    size limits while RESIZABLE was still false. Enable resizing before installing
+    limits. An actual edge drag now stops at 1100×760. Playback-resize QA passed:
+    cursor 0.1194→0.6523 s, output signal advances, both windows render, four
+    swapchain resizes, unchanged device/selection/project. Original paused cursor
+    restored. Recording resize and maximize/restore remain separate checks.
   - [x] Implement the draggable horizontal track/editor divider, bounded to keep
     both panels usable; double-click resets its position. Persist the split and
     expose `:view/editor`. Visible track rows now adapt from 3 to 32, with cached

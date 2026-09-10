@@ -8,6 +8,42 @@ The DAW uses English for its interface and generated messages. Content language
 is independent: dialogue, character names and existing take/profile names must
 not be translated or rewritten when the interface changes.
 
+### Selected visual direction and mode boundaries (2026-09-09)
+
+The five generated references and the user's selection are recorded in
+[`design/2026-09-09-daw-concepts/README.md`](design/2026-09-09-daw-concepts/README.md).
+Use the light editing desk as the base, a script-first Record workspace, and the
+last concept's clear transport icons. A take-grid view is a future mode, not a
+promise of Bitwig-style clip scheduling. Keep the common transport/routing and
+one recording session. Mode-specific actions may expand beyond presentation,
+but must use the existing validated command/undo path. Native layout and input
+dispatch stay explicit, in the studio namespace; no separate engine per mode.
+
+Current native implementation: Edit/Record tabs and F2, API `:view/mode`, mode
+discovery through `capabilities`, light surfaces, IBM Plex Sans controls, serif
+dialogue, triangle/circle transport icons, and focused input/return meters. Idle
+meters are gated by real device activity, not stale held peaks. Deferred shader
+polish must preserve readable type and simple controls, with Retina performance
+and dev/release checks—not add glow/noise or mask usability problems.
+
+Record-mode workflow default: save the current global REC enable value on entry,
+enable REC, and restore the saved value on exit. Re-selecting the current mode is
+idempotent and respects manual toggles. This preference transition never opens
+devices or interrupts capture/count-in/playback. Track arm remains explicit; the
+transport says **Play / REC** when starting it will record. **Listen to take** is
+an explicit audition path independent of global REC.
+
+Acceptance checkpoint: 14 targeted tests / 93 assertions passed (mode/input
+isolation, pointer navigation, divider bounds, font gutters/metrics, name editing,
+playhead alignment and API validation). Physical clicks switched Edit/Record and
+launched a saved take. Switching back to Edit kept playback running: PCM cursor
+0.5145→1.7364 seconds and non-silent output frames 24255→82908. Project revision
+36 and selected take were unchanged. Restored the user's paused cursor to
+1.010625 seconds. Fresh light Edit/Record screenshots and the 1100×760 Record
+layout were inspected in `build/recording-qa/studio-*-light-*.png`.
+Capture-mode transitions, long-text scrolling, maximize/restore and recording
+resize remain distinct open checks; this is not whole-DAW completion.
+
 ### Recording transport correction
 
 Use the documented [Bitwig Arranger recording sequence](https://www.bitwig.com/userguide/latest/recording_clips/):

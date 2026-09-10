@@ -18,7 +18,11 @@ https://github.com/pfeodrippe/vybe/blob/main/src/vybe/c.clj, but for zig.
 - [x] zig hot reload
 - [x] improve API
 - [ ] game
-  - [ ] show text
+  - [x] show text
+  - [ ] daw
+    - [ ] record process
+    - [ ] game update
+    - [ ] fx using bitwig
   - [ ] 2d animation
   - [ ] ipad animation sync (app?)
   - [ ] hot reloadable audio from tracks (will use bitwig)

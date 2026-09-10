@@ -33,13 +33,37 @@ or the text editor; double-click it to reset. The split is remembered, and visib
 track rows adapt without stretching controls. API equivalent:
 `(studio/submit! {:op :view/editor :args {:top 532}})` (logical window points,
 clamped to keep both panels usable).
-The DAW-style workspace opens with
+### Workspace modes
+
+**Edit** is the light timeline/take editor. **Record** focuses on the complete
+dialogue, arm state, live input/FX meters and saved-take audition. Click the tabs
+or press **F2**. Entering Record temporarily enables **REC**; leaving restores the
+REC setting from before entry. No microphone is opened until an armed passage is
+started with **Play / REC**. You can turn REC off manually within the mode;
+clicking the already-selected Record tab does not enable it again. **Listen to
+take** always auditions saved audio, even with REC enabled. Transport and routing
+remain shared: switching modes does not restart audio, select another take, move
+the cursor or interrupt an active recording/count-in.
+API equivalent: `(studio/submit! {:op :view/mode :args {:mode :record}})`;
+use `:edit` to return. `(studio/capabilities)` lists implemented modes.
+
+Modes are built-in views, not separate engines or runtime-loaded plugins.
+Their descriptors live in `workspace-modes`, with native draw/input handling in
+the same studio namespace. To add a mode, add its descriptor, explicit native
+dispatch and isolated pointer/scroll regions. Reuse the common transport and
+command worker. New project-changing actions must go through the command API,
+including its validation, recording guards and undo/history—not mutate takes in
+a drawing function. Clear stale drag/modal state on transitions and test that
+audio, devices, selection and cursor survive switching. A take-grid mode inspired
+by concept 5 is planned, not yet implemented.
+
+The Edit workspace opens with
 **Tracks**: dialogue track headers aligned with real take clips and a seconds
 ruler. Each row is a dialogue take, **not** a full clip arranger. Empty passages say **Not recorded**; narration/choices
 remain visible as context. The selected take's waveform is decoded from its WAV.
 
-Single-click a clip or ruler to position without playing. **Lecture**, a track's
-triangle, or a double-click auditions; **Pause / Reprendre** retains the audio
+Single-click a clip or ruler to position without playing. **Play**, a track's
+triangle, or a double-click auditions; **Pause / Resume** retains the audio
 engine's actual PCM cursor. **Space** toggles playback, **Home** rewinds and
 **Escape** stops/cancels. Editing a name consumes text keys, including Space.
 The take-name field supports click/drag selection, a visible caret, arrow keys,
@@ -60,14 +84,17 @@ implemented. The lower waveform seeks unless you grab one of its trim edges.
 
 ### Record a passage
 
-1. Select a voiced passage in **Tracks** (its full text appears below).
+1. Select a voiced passage in **Tracks**, or switch to **Record** for a larger
+   scrollable script with input/FX meters directly below it.
 2. Click **Mic / input…** and choose your actual microphone from the list.
 3. For processed recording, choose **BlackHole 16ch** for both **Send 1/2 > Bitwig…**
    and **FX return 3/4…**. In Bitwig, monitor an audio track from input 1/2,
    apply its effects, and route its output to 3/4. Do not route it back to 1/2.
-4. Arm the passage with the red-circle button in its track header. Choose **Dry**
+4. Arm the passage with the red-circle button in its track header, or **Arm passage**
+   in Record mode. Choose **Dry**
    (microphone only) or **FX** (paired dry and processed audio) next to global REC.
-5. Enable global **REC**, then press **PLAY** (or Space). REC alone does not
+5. Enable global **REC** (already enabled when entering Record mode), then press
+   **PLAY / REC** (or Space). REC alone does not
    open the microphone. Count-in is off by default; optionally enable 3 seconds.
    The recording clip grows red while capturing. **STOP** saves the take and FX tail.
 6. Disable global **REC** to audition with **Play**; **Publish to game** publishes the selected
