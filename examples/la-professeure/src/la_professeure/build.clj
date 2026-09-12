@@ -35,13 +35,22 @@
       (throw (ex-info "Set :source in dialogue.edn to a readable Markdown file" {:source path})))
     (let [file (.getCanonicalFile (if (.isAbsolute (io/file path)) (io/file path) (io/file (root) path)))]
       (when-not (and (.isFile file) (.canRead file))
-        (throw (ex-info "Cannot read dialogue Markdown; check :source in dialogue.edn" {:source (str file)})))
+        (throw (ex-info "Cannot read dialogue Markdown. Check the path and macOS iCloud Drive / Files and Folders access for the app launching the REPL; scripts do not bypass that permission."
+                        {:code :dialogue-source-unreadable :source (str file)})))
       file)))
 
 (defn compile-story! []
-  (let [source (story-source)]
+  (let [source (story-source)
+        registry (:recording-registry (edn/read-string (slurp (io/file (root) "dialogue.edn"))))]
+    (when (and registry
+               (not (and (string? registry) (not (.isBlank ^String registry)))))
+      (throw (ex-info "Set :recording-registry to a directory path" {:recording-registry registry})))
     (dialogue/compile! source
-                      (io/file (root) "build/dialogue" (subs (dialogue/digest (str source)) 0 16))
+                      (if registry
+                        (if (.isAbsolute (io/file registry))
+                          (io/file registry)
+                          (io/file (root) registry))
+                        (io/file (root) "build/dialogue" (subs (dialogue/digest (str source)) 0 16)))
                       (io/file (root) "resources/demo/story.lpdialogue"))))
 
 (def miniaudio-revision "9634bedb5b5a2ca38c1ee7108a9358a4e233f14d")
@@ -84,7 +93,7 @@
                     "  (:require [aguafria.std] [aguafria.keyword :as ak] [aguafria.zig :as az]))\n\n"
                     "(az/defconst c-api (ak/cImport (ak/cInclude \"miniaudio.h\")))\n\n"
                     (apply str (for [name audio-api]
-                                 (str "(az/defconst " name " {:attrs #{:public}} (az/field c-api " name "))\n\n"))))]
+                                 (str "(az/defconst " name " {:attrs #{:public}} (az/field c-api :" name "))\n\n"))))]
     (io/make-parents output)
     (when (not= source (when (.isFile output) (slurp output))) (spit output source))
     output))

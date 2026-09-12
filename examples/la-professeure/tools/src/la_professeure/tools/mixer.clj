@@ -41,6 +41,16 @@
   (when opened ((az/field recorder/api ma_device_uninit) (ak/& device)) (set! opened false))
   (ak/atomicStore :u8 (ak/& playing) 0 :.release))
 
+(az/defn handle-stopped-output! :- :bool []
+  (when (and opened
+             (ak/== ((az/field recorder/api ma_device_get_state) (ak/& device))
+                    (az/field recorder/api ma_device_state_stopped)))
+    ;; Closing the device leaves clip PCM, loop selection and cursor intact.
+    (close!)
+    (ak/atomicStore :u32 (ak/& peak) 0 :.release)
+    (ak/return true))
+  false)
+
 (az/defn reset! :- :void []
   (close!) (set! used 0) (set! clip-count 0) (set! duration 0)
   (ak/atomicStore :u64 (ak/& cursor) 0 :.release)

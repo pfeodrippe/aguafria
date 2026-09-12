@@ -194,6 +194,31 @@
       (is (not= (:abi-fingerprint signature-v1)
                 (:abi-fingerprint signature-v2))))))
 
+(deftest reference-refresh-does-not-resolve-literal-field-names-test
+  (let [refresh (var-get #'runtime/refresh-live-declaration-references)
+        c-api (runtime/declaration-info
+               {:module "fixture.foreign" :kind :const :name 'c-api
+                :declaration-key [:const 'c-api]
+                :value '(cImport (cInclude "audio.h"))})
+        alias (runtime/declaration-info
+               {:module "fixture.foreign" :kind :const :name 'ma_sound
+                :declaration-key [:const 'ma_sound]
+                :value '(field c-api ma_sound)})]
+    (with-redefs-fn
+      {#'runtime/registered-declarations-by-logical-id (constantly {})}
+      (fn []
+        (let [first-pass (refresh [c-api alias])
+              second-pass (refresh first-pass)
+              member (last (:value (second first-pass)))]
+          (is (nil? (:aguafria/zig-reference (meta member)))
+              "A C member name must not acquire a same-named local dependency")
+          (is (= (mapv :implementation-fingerprint first-pass)
+                 (mapv :implementation-fingerprint second-pass))
+              "Unchanged references must reach a stable identity")
+          (is (= [(:logical-id c-api)]
+                 (mapv first (:callable-dependency-fingerprints
+                              (second first-pass))))))))))
+
 (deftest selective-reference-refresh-keeps-compatible-function-edits-local-test
   (let [refresh (var-get
                  #'aguafria.zig.runtime/refresh-live-declaration-references)

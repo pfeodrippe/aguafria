@@ -8,7 +8,8 @@
             [aguafria-examples-native.bindings]
             [aguafria-examples-native.bindings.glfw :as vk]
             [aguafria-examples-native.bindings.runtime :as stdio]
-            [aguafria-examples-native.mesh :as mesh]))
+            [aguafria-examples-native.mesh :as mesh]
+            [aguafria-examples-native.readback :as readback]))
 
 (az/defstruct Color
   {:layout :extern}
@@ -80,6 +81,18 @@
 (az/defvar queue-family :u32 0)
 
 (az/defvar swapchain vk/VkSwapchainKHR null)
+
+(az/defvar swapchain-readable false)
+
+(az/defvar frame-revision :u64 0)
+
+(az/defvar frame-tick :u64 0)
+
+(az/defn set-frame-tag!
+  "Called by the application when it builds the geometry for this frame."
+  :- :void
+  [[revision :u64] [tick :u64]]
+  (az/set-many! frame-revision revision frame-tick tick))
 
 (az/defvar swapchain-format vk/VkFormat vk/VK_FORMAT_B8G8R8A8_UNORM)
 
@@ -277,6 +290,10 @@
             physical-device surface (ak/& format-count) (ak/& (az/index formats 0))))
     (set! swapchain-format (az/field (az/index formats 0) format))
     (set! swapchain-extent (az/field capabilities currentExtent))
+    (set! swapchain-readable
+          (and (readback/supported-format? swapchain-format)
+               (ak/!= (ak/& (az/field capabilities supportedUsageFlags)
+                            vk/VK_IMAGE_USAGE_TRANSFER_SRC_BIT) 0)))
     (let [requested-count (+ (az/field capabilities minImageCount) 1)
           maximum-count (az/field capabilities maxImageCount)
           actual-count (if (and (> maximum-count 0) (> requested-count maximum-count))
@@ -291,12 +308,14 @@
             :imageColorSpace (az/field (az/index formats 0) colorSpace)
             :imageExtent swapchain-extent
             :imageArrayLayers 1
-            :imageUsage vk/VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+            :imageUsage (ak/intCast (ak/| vk/VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                                          (if swapchain-readable vk/VK_IMAGE_USAGE_TRANSFER_SRC_BIT 0)))
             :imageSharingMode vk/VK_SHARING_MODE_EXCLUSIVE
             :preTransform (az/field capabilities currentTransform)
             :compositeAlpha vk/VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
             :presentMode vk/VK_PRESENT_MODE_FIFO_KHR
-            :clipped vk/VK_TRUE})]
+            :clipped (ak/intCast (if swapchain-readable vk/VK_FALSE vk/VK_TRUE))
+            :oldSwapchain swapchain})]
       (check (vk/vkCreateSwapchainKHR
               device (ak/& create-info) null (ak/& swapchain)))
       (check (vk/vkGetSwapchainImagesKHR device swapchain (ak/& image-count) null))
@@ -703,15 +722,19 @@
           :attachmentCount 1
           :pAttachments (ak/& color-attachment)})
         push-range (vk/VkPushConstantRange
-                     {:stageFlags vk/VK_SHADER_STAGE_VERTEX_BIT :offset 0
-                      :size (ak/intCast (ak/sizeOf mesh/InstanceCamera))})
+                     {:stageFlags (if instanced vk/VK_SHADER_STAGE_VERTEX_BIT
+                                    vk/VK_SHADER_STAGE_FRAGMENT_BIT)
+                      :offset 0
+                      :size (if instanced
+                              (ak/intCast (ak/sizeOf mesh/InstanceCamera))
+                              128)})
         layout-out (if instanced (ak/& instance-pipeline-layout) (ak/& mesh-pipeline-layout))
         pipeline-out (if instanced (ak/& instance-pipeline) (ak/& mesh-pipeline))
         layout-info
         (vk/VkPipelineLayoutCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
-          :pushConstantRangeCount (if instanced 1 0)
-          :pPushConstantRanges (if instanced (ak/& push-range) null)})]
+          :pushConstantRangeCount 1
+          :pPushConstantRanges (ak/& push-range)})]
     (check (vk/vkCreatePipelineLayout device (ak/& layout-info) null
                                       layout-out))
     (let [pipeline-info
@@ -736,6 +759,18 @@
 
 (az/defn create-mesh-pipeline! :- :void []
   (create-triangle-pipeline! false))
+
+(az/defn push-frame-data!
+  "Supply up to Vulkan's guaranteed 128 bytes of fragment push constants.
+  Call from the frame builder; data is copied into the active command buffer.
+  Existing mesh shaders can ignore this optional application-owned payload."
+  :- :void
+  [[data [:*const :anyopaque]] [byte-count :u32]]
+  (std-debug/assert (and (> byte-count 0) (<= byte-count 128)
+                         (ak/== (mod byte-count 4) 0)))
+  (std-debug/assert (ak/!= active-command-buffer null))
+  (vk/vkCmdPushConstants active-command-buffer mesh-pipeline-layout
+                         vk/VK_SHADER_STAGE_FRAGMENT_BIT 0 byte-count data))
 
 (az/defn create-mapped-vertex-buffer
   :- MappedVertexBuffer [[bytes :usize]]
@@ -985,7 +1020,52 @@
       ((az/unwrap overlay-renderer)
        (ak/intCast (ak/intFromPtr (az/unwrap command-buffer)))))
     (vk/vkCmdEndRenderPass command-buffer)
+    (when (ak/== (readback/status) 3)
+      (readback/record! command-buffer (az/index swapchain-images image-index)))
     (check (vk/vkEndCommandBuffer command-buffer))))
+
+(az/defn enable-readback!
+  "Upgrade an older live swapchain on the rendering thread, preserving the device and scene."
+  :- :bool
+  []
+  (when swapchain-readable (ak/return true))
+  (let [^:var capabilities (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))
+        ^{:var :u32} format-count 128
+        ^:var formats (std-mem/zeroes (az/type [:array 128 vk/VkSurfaceFormatKHR]))]
+    (when (or (ak/!= (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR
+                       physical-device surface (ak/& capabilities)) vk/VK_SUCCESS)
+              (ak/!= (vk/vkGetPhysicalDeviceSurfaceFormatsKHR
+                       physical-device surface (ak/& format-count)
+                       (ak/& (az/index formats 0))) vk/VK_SUCCESS))
+      (ak/return false))
+    ;; A resize/format change needs full attachment/pipeline recreation, not this upgrade.
+    (when (or (ak/== format-count 0)
+              (ak/!= (az/field (az/index formats 0) format) swapchain-format)
+              (ak/! (readback/supported-format? swapchain-format))
+              (ak/== (ak/& (az/field capabilities supportedUsageFlags)
+                           vk/VK_IMAGE_USAGE_TRANSFER_SRC_BIT) 0)
+              (ak/!= (az/field (az/field capabilities currentExtent) width)
+                      (az/field swapchain-extent width))
+              (ak/!= (az/field (az/field capabilities currentExtent) height)
+                      (az/field swapchain-extent height)))
+      (ak/return false))
+    (check (vk/vkDeviceWaitIdle device))
+    (let [old-swapchain swapchain]
+      (vk/vkFreeCommandBuffers device command-pool image-count (ak/& (az/index command-buffers 0)))
+      (dotimes [index image-count]
+        (vk/vkDestroyFramebuffer device (az/index framebuffers index) null)
+        (vk/vkDestroyImageView device (az/index image-views index) null))
+      (create-swapchain!)
+      (create-image-views!)
+      (create-framebuffers!)
+      (let [allocation (vk/VkCommandBufferAllocateInfo
+                         {:sType vk/VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO
+                          :commandPool command-pool :level vk/VK_COMMAND_BUFFER_LEVEL_PRIMARY
+                          :commandBufferCount image-count})]
+        (check (vk/vkAllocateCommandBuffers device (ak/& allocation)
+                                            (ak/& (az/index command-buffers 0)))))
+      (vk/vkDestroySwapchainKHR device old-swapchain null)))
+  swapchain-readable)
 
 (az/defn render!
   "Ask the application for a triangle frame and present it."
@@ -996,6 +1076,10 @@
         image-ready (az/index image-available synchronization-slot)
         rendering-done (az/index render-finished synchronization-slot)]
     (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
+    (when (ak/== (readback/status) 2)
+      (when (ak/! (and (enable-readback!)
+                       (readback/prepare! device physical-device swapchain-extent)))
+        (readback/reject!)))
     (check (vk/vkAcquireNextImageKHR
             device swapchain vk/VK_WHOLE_SIZE image-ready null (ak/& image-index)))
     (do
@@ -1023,6 +1107,9 @@
               :pSwapchains (ak/& swapchain)
               :pImageIndices (ak/& image-index)})]
         (check (vk/vkQueueSubmit graphics-queue 1 (ak/& submit-info) in-flight))
+        (when (ak/== (readback/status) 3)
+          (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
+          (readback/complete! device swapchain-format frame-count frame-revision frame-tick))
         (check (vk/vkQueuePresentKHR graphics-queue (ak/& present-info)))
         (set! frame-count (+ frame-count 1))
         (set! synchronization-slot (mod (+ synchronization-slot 1) 2)))))
@@ -1083,6 +1170,7 @@
     (set! device null)
     (set! graphics-queue null)
     (set! swapchain null)
+    (set! swapchain-readable false)
     (set! depth-image null)
     (set! depth-memory null)
     (set! depth-view null)

@@ -44,7 +44,7 @@
 (defonce ^:private module-compilation-locks (atom {}))
 (defonce ^:private external-file-fingerprints (atom {}))
 (defonce ^:private zig-version-cache (atom {}))
-(def ^:private declaration-reference-extraction-version 6)
+(def ^:private declaration-reference-extraction-version 7)
 (defonce ^:private declaration-reference-index
   (atom {:by-module {} :by-logical {} :references {} :revision 0
          :extraction-version declaration-reference-extraction-version}))
@@ -1309,6 +1309,28 @@
 
 (declare scalar-key declaration-reference-logical-ids)
 
+(defn- field-access-form?
+  [form]
+  (and (seq? form)
+       (= 3 (count form))
+       (symbol? (first form))
+       (= "field" (name (first form)))))
+
+(defn- walk-reference-values
+  "Postwalk expression references, keeping field selectors as identifier literals.
+  Also remove references incorrectly attached to selectors by older generations."
+  [f form]
+  (if (field-access-form? form)
+    (let [[op base member] form
+          member (walk/postwalk
+                  #(if (symbol? %)
+                     (vary-meta % dissoc :aguafria/zig-reference)
+                     %)
+                  member)]
+      (f (with-meta (list op (walk-reference-values f base) member)
+           (meta form))))
+    (walk/walk (partial walk-reference-values f) f form)))
+
 (defn- nested-form-values
   "Return every value in a Clojure form without recursive lazy-seq chains.
 
@@ -1324,6 +1346,9 @@
       (let [value (first pending)
             pending (next pending)]
         (recur (cond
+                 ;; The full form remains available for module-member lookup,
+                 ;; but its selector is not a same-module value reference.
+                 (field-access-form? value) (conj pending (second value))
                  (coll? value) (reduce conj pending value)
                  ;; Binding types are emitted code too, including ^{:var T}.
                  ;; Do not traverse unrelated metadata (source forms, docs, etc.).
@@ -6329,7 +6354,7 @@
                          refreshed
                        (merge
                         declaration
-                        (walk/postwalk
+                        (walk-reference-values
                          (fn [value]
                           (if (symbol? value)
                             (let [reference

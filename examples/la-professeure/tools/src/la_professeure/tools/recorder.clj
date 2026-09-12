@@ -57,6 +57,95 @@
 (az/defvar input-held-ppm :u32 0)
 (az/defvar return-held-ppm :u32 0)
 
+;; Preflight owns only a capture device and peak counters: no PCM retention or output.
+(az/defvar input-check-device Device ak/undefined)
+(az/defvar input-check-running :u32 0)
+(az/defvar input-check-channels :u32 2)
+(az/defvar input-check-offset :u32 0)
+(az/defvar input-check-peak :u32 0)
+(az/defvar input-check-held :u32 0)
+(az/defvar input-check-frames :u64 0)
+
+(az/defn input-check-active? :- :bool []
+  (> (ak/atomicLoad :u32 (ak/& input-check-running) :.acquire) 0))
+
+(az/defn stopped-device-mask
+  "Control-worker only. Owned devices that unexpectedly stopped: capture=1,
+   FX source/send=2, monitor=4, input check=8. Never probes uninitialized storage."
+  :- :u32 []
+  (let [stopped (az/field api ma_device_state_stopped)
+        ^{:var :u32} result 0]
+    (when (and running
+               (ak/== ((az/field api ma_device_get_state) (ak/& device)) stopped))
+      (set! result (| result 1)))
+    (when (and source-running
+               (ak/== ((az/field api ma_device_get_state) (ak/& source-device)) stopped))
+      (set! result (| result 2)))
+    (when (and monitoring
+               (ak/== ((az/field api ma_device_get_state) (ak/& monitor-device)) stopped))
+      (set! result (| result 4)))
+    (when (and (input-check-active?)
+               (ak/== ((az/field api ma_device_get_state) (ak/& input-check-device)) stopped))
+      (set! result (| result 8)))
+    result))
+
+(az/defn process-input-check! :- :void
+  [[input [:c-pointer :f32]] [frames :u32]]
+  (let [^{:var :f32} peak 0.0]
+    (when (ak/!= input ak/null)
+      (dotimes [i frames]
+        (dotimes [channel 2]
+          (let [sample (az/index input (+ (* i input-check-channels)
+                                         input-check-offset channel))]
+            (when (< (ak/abs sample) 100.0)
+              (set! peak (ak/max peak (ak/abs sample))))))))
+    (let [value (ak/as :u32 (ak/intFromFloat (* 1000000.0 (ak/min peak 1.0))))]
+      (ak/atomicStore :u32 (ak/& input-check-peak) value :.release)
+      (when (> value (ak/atomicLoad :u32 (ak/& input-check-held) :.acquire))
+        (ak/atomicStore :u32 (ak/& input-check-held) value :.release)))
+    (set! _ (ak/atomicRmw :u64 (ak/& input-check-frames) :.Add frames :.release))))
+
+(az/defn input-check-callback {:zig/qualifiers "callconv(.c)"} :- :void
+  [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
+   [input [:optional [:*const :anyopaque]]] [frames :u32]]
+  (set! _ pointer)
+  (set! _ output)
+  (process-input-check! (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
+
+(az/defn stop-input-check! :- :void []
+  ;; Lifecycle calls are serialized by the studio's control worker.
+  (when (input-check-active?)
+    (ak/atomicStore :u32 (ak/& input-check-running) 0 :.release)
+    ((az/field api ma_device_uninit) (ak/& input-check-device))))
+
+(az/defn start-input-check! :- :bool [[index :u32] [fx-source? :bool]]
+  (when (or (input-check-active?) running source-running monitoring
+            (ak/! initialized) (>= index capture-count))
+    (ak/return false))
+  (let [loopback? (and fx-source?
+                       (mem/eql :u8 (device-name true index) "BlackHole 16ch"))]
+    (set! input-check-channels (if loopback? 16 2))
+    (set! input-check-offset (if loopback? 4 0)))
+  (ak/atomicStore :u32 (ak/& input-check-peak) 0 :.release)
+  (ak/atomicStore :u32 (ak/& input-check-held) 0 :.release)
+  (ak/atomicStore :u64 (ak/& input-check-frames) 0 :.release)
+  (let [^:var config ((az/field api ma_device_config_init)
+                      (az/field api ma_device_type_capture))]
+    (set! (az/field config sampleRate) 48000)
+    (set! (az/field (az/field config capture) pDeviceID)
+          (ak/& (az/field (az/index capture-info index) id)))
+    (set! (az/field (az/field config capture) format) (az/field api ma_format_f32))
+    (set! (az/field (az/field config capture) channels) input-check-channels)
+    (set! (az/field config dataCallback) (ak/& input-check-callback))
+    (when (ak/!= ((az/field api ma_device_init)
+                  (ak/& context) (ak/& config) (ak/& input-check-device)) 0)
+      (ak/return false))
+    (when (ak/!= ((az/field api ma_device_start) (ak/& input-check-device)) 0)
+      ((az/field api ma_device_uninit) (ak/& input-check-device))
+      (ak/return false)))
+  (ak/atomicStore :u32 (ak/& input-check-running) 1 :.release)
+  true)
+
 (az/defn update-signal-level! :- :void [[input? :bool] [peak :f32]]
   (let [value (ak/as :u32 (ak/intFromFloat (* 1000000.0 (ak/min 1.0 (ak/max 0.0 peak)))))
         current (if input? (ak/& input-peak-ppm) (ak/& return-peak-ppm))
@@ -66,8 +155,11 @@
       (ak/atomicStore :u32 held value :.release))))
 
 (az/defn signal-peak :- :f32 [[input? :bool] [held? :bool]]
-  (let [value (if input? (if held? (ak/& input-held-ppm) (ak/& input-peak-ppm))
-                         (if held? (ak/& return-held-ppm) (ak/& return-peak-ppm)))]
+  (let [value (if input?
+                (if (input-check-active?)
+                  (if held? (ak/& input-check-held) (ak/& input-check-peak))
+                  (if held? (ak/& input-held-ppm) (ak/& input-peak-ppm)))
+                (if held? (ak/& return-held-ppm) (ak/& return-peak-ppm)))]
     (* 0.000001 (ak/as :f32 (ak/floatFromInt (ak/atomicLoad :u32 value :.acquire))))))
 
 (az/defn meter-input! :- :void [[value :f32]]
@@ -113,7 +205,7 @@
         (ak/!= (mem/indexOf (az/type :u8) name "Casque") ak/null))))
 
 (az/defn start-monitor! :- :bool [[return-index :u32] [headphone-index :u32]]
-  (when (or monitoring (ak/! initialized) (>= return-index capture-count)
+  (when (or monitoring (input-check-active?) (ak/! initialized) (>= return-index capture-count)
             (>= headphone-index playback-count) (ak/! (headphone-device? headphone-index))
             (ak/! (mem/eql (az/type :u8) (device-name true return-index) "BlackHole 16ch")))
     (ak/return false))
@@ -273,6 +365,7 @@
                   (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
 
 (az/defn stop! :- :void []
+  (stop-input-check!)
   (stop-monitor!)
   (when source-running
     ((az/field api ma_device_uninit) (ak/& source-device))
@@ -286,7 +379,7 @@
 (az/defn start!
   "Explicit device indices only. Mode 1 microphone; mode 2 sixteen-channel effects round-trip."
   :- :bool [[capture-index :u32] [playback-index :u32] [capture-mode :u32] [tail-frames :u32]]
-  (when (or running (ak/! initialized) (>= capture-index capture-count)
+  (when (or running (input-check-active?) (ak/! initialized) (>= capture-index capture-count)
             (and (ak/!= capture-mode 1) (ak/!= capture-mode 2))
             (and (ak/== capture-mode 2)
                  (or (>= playback-index playback-count) (ak/== dry-frames 0)
@@ -320,7 +413,7 @@
 (az/defn start-live!
   "Capture source and effects return concurrently. BlackHole source uses 5/6 for safe virtual input."
   :- :bool [[microphone-index :u32] [return-index :u32] [send-index :u32] [tail-frames :u32]]
-  (when (or running source-running (ak/! initialized)
+  (when (or running source-running (input-check-active?) (ak/! initialized)
             (>= microphone-index capture-count) (>= return-index capture-count)
             (>= send-index playback-count) (> tail-frames 480000)
             (ak/! (mem/eql (az/type :u8) (device-name true return-index) "BlackHole 16ch"))

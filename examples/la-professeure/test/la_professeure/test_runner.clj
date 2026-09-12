@@ -8,6 +8,25 @@
 (def message {:version 1 :sequence 0 :revision 0 :clip "rain"
               :frames 8 :fps 8 :seconds 0 :playing? true})
 
+(deftest audio-bindings-use-literal-member-keywords
+  (let [directory (.toFile (java.nio.file.Files/createTempDirectory
+                            "professeure-bindings-"
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
+        output (with-redefs [build/root (constantly directory)]
+                 (build/bindings!))
+        forms (with-open [reader (java.io.PushbackReader. (io/reader output))]
+                (binding [*read-eval* false]
+                  (loop [forms []]
+                    (let [form (read {:eof ::eof} reader)]
+                      (if (= ::eof form)
+                        forms
+                        (recur (conj forms form)))))))
+        exports (drop 2 forms)]
+    (is (= (count build/audio-api) (count exports)))
+    (doseq [[form native-name] (map vector exports build/audio-api)]
+      (is (= native-name (second form)))
+      (is (= (list 'az/field 'c-api (keyword native-name)) (last form))))))
+
 (deftest native-bootstrap-is-serialized
   (let [loaded (atom false) calls (atom [])]
     (with-redefs [build/native-loaded loaded

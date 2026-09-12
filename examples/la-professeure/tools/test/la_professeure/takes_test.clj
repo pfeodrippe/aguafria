@@ -76,7 +76,16 @@
     (takes/atomic-edn! manifest {:id "voice-test" :completed? false :streams {:dry {:file "dry.pcm" :frames 63}}})
     (let [entry (first (takes/recover-journal! manifest))]
       (is (= "voice-test" (:id entry))) (is (= :dry (:kind entry)))
-      (is (= 504 (alength (takes/pcm (:path entry))))) (is (= 800 (.length raw))))
+      (is (= 504 (alength (takes/pcm (:path entry))))) (is (= 800 (.length raw)))
+      (is (= [entry] (takes/recover-journal! manifest))
+          "Retry reuses the exact immutable PCM without another WAV")
+      (with-open [output (java.io.RandomAccessFile. (:path entry) "rw")]
+        (.seek output 44)
+        (.writeByte output 0))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"does not match retained PCM"
+            (takes/recover-journal! manifest))
+          "A damaged existing WAV is not trusted or overwritten")
+      (is (= (vec data) (vec (java.nio.file.Files/readAllBytes (.toPath raw))))))
     (takes/atomic-edn! manifest {:id "voice-test" :completed? true})
     (is (nil? (takes/recover-journal! manifest)))
     (takes/atomic-edn! manifest {:id "voice-test" :streams {:dry {:file "../escape.pcm" :frames 1}}})

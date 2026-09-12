@@ -1,10 +1,24 @@
 // Opt-in native UI QA. Coordinates are global screen points; bring the game forward first.
-// swift tools/test/studio_input.swift click 390 204
+// swift tools/test/studio_input.swift --target-pid <studio-jvm-pid> click 390 204
 import Foundation
 import CoreGraphics
 import AppKit
 
-let args = Array(CommandLine.arguments.dropFirst())
+var args = Array(CommandLine.arguments.dropFirst())
+if args.first == "--target-pid" {
+    guard args.count >= 3, let expected = Int32(args[1]), expected > 0 else {
+        fputs("--target-pid requires a positive process ID and a command\n", stderr)
+        exit(2)
+    }
+    // Check in this invocation, immediately before input or clipboard changes.
+    // Never trust a foreground assertion made by a previous REPL/tool call.
+    let actual = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    guard actual == expected else {
+        fputs("Input refused: expected foreground PID \(expected), found \(actual ?? -1)\n", stderr)
+        exit(3)
+    }
+    args.removeFirst(2)
+}
 func number(_ i: Int) -> Double { Double(args[i])! }
 func mouse(_ kind: CGEventType, _ x: Double, _ y: Double) {
     CGEvent(mouseEventSource: nil, mouseType: kind,
@@ -38,6 +52,8 @@ func scrollModifiers(_ flags: UInt64, down: Bool) {
     }
 }
 switch args.first {
+case "check-target":
+    print("Input target check passed; no input sent")
 case "paste", "check-copy":
     // Preserve all existing pasteboard representations; never print user contents.
     let board = NSPasteboard.general
@@ -66,17 +82,39 @@ case "click":
     mouse(.mouseMoved, number(1), number(2))
     mouse(.leftMouseDown, number(1), number(2))
     mouse(.leftMouseUp, number(1), number(2))
+case "click-sequence":
+    // A bounded burst through the OS event queue, not direct native hit testing.
+    guard args.count >= 5, args.count <= 65, (args.count - 1) % 2 == 0 else {
+        fputs("click-sequence requires 2–32 x/y pairs\n", stderr)
+        exit(2)
+    }
+    for i in stride(from: 1, to: args.count, by: 2) {
+        guard Double(args[i]) != nil, Double(args[i + 1]) != nil else {
+            fputs("click-sequence coordinates must be numbers\n", stderr)
+            exit(2)
+        }
+    }
+    for i in stride(from: 1, to: args.count, by: 2) {
+        mouse(.mouseMoved, number(i), number(i + 1))
+        mouse(.leftMouseDown, number(i), number(i + 1))
+        mouse(.leftMouseUp, number(i), number(i + 1))
+    }
 case "double":
     mouse(.mouseMoved, number(1), number(2))
     for _ in 0..<2 {
         mouse(.leftMouseDown, number(1), number(2))
         mouse(.leftMouseUp, number(1), number(2))
     }
-case "drag":
+case "drag", "drag-hold":
     let x = number(1), y = number(2), dx = number(3) - x, dy = number(4) - y
     mouse(.mouseMoved, x, y)
     mouse(.leftMouseDown, x, y)
     for i in 1...20 { mouse(.leftMouseDragged, x + dx * Double(i)/20, y + dy * Double(i)/20) }
+    if args.first == "drag-hold" {
+        // Keep the button held at the edge so the app, not synthetic movement,
+        // drives autoscroll. Bound the opt-in hold to five seconds.
+        Thread.sleep(forTimeInterval: max(0, min(5, number(5))))
+    }
     mouse(.leftMouseUp, number(3), number(4))
 case "key":
     // System Events reaches the Java-hosted GLFW keyboard responder reliably.
@@ -87,11 +125,32 @@ case "scroll":
     scrollModifiers(flags, down: true)
     defer { scrollModifiers(flags, down: false) }
     mouse(.mouseMoved, number(1), number(2))
-    let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
-                        wheel1: Int32(number(4)), wheel2: Int32(number(3)), wheel3: 0)
-    event?.flags = CGEventFlags(rawValue: flags)
-    event?.post(tap: .cghidEventTap)
-    Thread.sleep(forTimeInterval: 0.15)
+    // Pixel scrolling is a trackpad gesture. AppKit may discard an orphaned
+    // phase-less pixel event after a new app/window launch; send a complete
+    // begin/change/end sequence. Only the changed event carries movement.
+    // https://developer.apple.com/documentation/coregraphics/cgeventfield/scrollwheeleventscrollphase
+    for phase in [NSEvent.Phase.began, .changed, .ended] {
+        let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                            wheel1: phase == .changed ? Int32(number(4)) : 0,
+                            wheel2: phase == .changed ? Int32(number(3)) : 0, wheel3: 0)
+        event?.location = CGPoint(x: number(1), y: number(2))
+        event?.flags = CGEventFlags(rawValue: flags)
+        event?.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+        event?.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+case "hold-key":
+    // Verify edge-triggered navigation does not repeat while a key stays down.
+    guard args.count == 3, let code = UInt16(args[1]),
+          let seconds = Double(args[2]), seconds.isFinite,
+          seconds >= 0.05, seconds <= 2 else {
+        fputs("hold-key requires a keycode and 0.05–2 seconds\n", stderr)
+        exit(2)
+    }
+    let release = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
+    defer { release?.post(tap: .cghidEventTap) }
+    CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap)
+    Thread.sleep(forTimeInterval: seconds)
 case "raw-key":
     for down in [true, false] {
         let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(number(1)), keyDown: down)
@@ -108,7 +167,7 @@ case "text":
         event?.post(tap: .cghidEventTap)
     }
 default:
-    fputs("Usage: studio_input.swift click x y | double x y | drag x y x2 y2 | key keycode [flags] | raw-key keycode [flags] | scroll x y dx dy [flags] | paste string | check-copy expected | text string\n", stderr)
+    fputs("Usage: studio_input.swift [--target-pid PID] check-target | click x y | click-sequence x y x2 y2 [...] | double x y | drag x y x2 y2 | drag-hold x y x2 y2 seconds | key keycode [flags] | raw-key keycode [flags] | hold-key keycode seconds | scroll x y dx dy [flags] | paste string | check-copy expected | text string\n", stderr)
     exit(2)
 }
 Thread.sleep(forTimeInterval: 0.4)

@@ -25,6 +25,21 @@
   (is (= "circle_contains_q" (emit/identifier 'circle-contains?)))
   (is (= "reset_bang" (emit/identifier 'reset!))))
 
+(deftest callback-parameter-names-are-data
+  (let [callback (fn [names]
+                   [:*const
+                    [:fn {:callconv :.c}
+                     (mapv (fn [parameter type]
+                             {:name parameter :type type})
+                           names [[:c-pointer :u8] :i32 :i32])
+                     :u32]])
+        keywords (callback [:output :frame-width :frame-height])
+        symbols (callback '[output frame_width frame_height])]
+    (is (= "*const fn (output: [*c]u8, frame_width: i32, frame_height: i32) callconv(.c) u32"
+           (emit/emit-type keywords)))
+    (is (= (emit/emit-type symbols) (emit/emit-type keywords))
+        "Keyword name data preserves the existing callback ABI and spelling")))
+
 (deftest static-dependency-demotes-default-exports-without-development-containers-test
   (let [source
         (emit/emit-static-dependency-module

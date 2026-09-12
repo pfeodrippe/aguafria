@@ -405,6 +405,12 @@
     (when (ak/!= (io/fread (ak/& ui-glyph-advances) 4 256 file) 256)
       (debug/panic "Invalid UI glyph metrics" []))))
 
+(az/defn retain-key-presses!
+  "Keep a short press until the game polls it; never change Studio's input mode."
+  :- :void []
+  (when (ak/!= window ak/null)
+    (glfw/glfwSetInputMode window glfw/GLFW_STICKY_KEYS glfw/GLFW_TRUE)))
+
 (az/defn initialize! :- :bool []
   ;; Use the linked loader, including in a JVM without a dylib search-path override.
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
@@ -413,6 +419,7 @@
   (glfw/glfwWindowHint glfw/GLFW_RESIZABLE glfw/GLFW_FALSE)
   (set! window (glfw/glfwCreateWindow 1100 760 "La Professeure | Vulkan playground" ak/null ak/null))
   (when (ak/== window ak/null) (ak/return false))
+  (retain-key-presses!)
   (when (ak/! (gpu/initialize-renderer! window)) (ak/return false))
   (reload-visuals!)
   (when (ak/! (reload-story!)) (debug/panic "Missing/invalid dialogue asset; run :prepare" []))
@@ -588,7 +595,7 @@
         (set! start (+ end 1))))
     (+ row 32.0)))
 
-(az/defn build-frame {:attrs #{:export}} :- :u32
+(az/defn build-frame {:zig/qualifiers "callconv(.c)"} :- :u32
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (set! _ width) (set! _ height)
   (set! vertices output) (set! vertex-count 0)

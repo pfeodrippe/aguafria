@@ -31,8 +31,9 @@ Press **1–3** or click a response. **F1** toggles the development atelier;
 SPACE pauses animation, L toggles the light, and M mutes audio.
 
 `dialogue.edn` selects the Markdown input for both dev and standalone builds.
-It now points to `resources/dialogue/la-voiture.md`, copied from the author's
-Obsidian note. All scene text and `::` choices come from that file, including
+It now points directly to the author's original Obsidian `La Voiture.md`.
+This machine-specific path requires macOS permission to read iCloud Drive.
+All scene text and `::` choices come from that file, including
 nested branches. Tabs are normalized to four spaces without rewriting the source.
 `le-seuil.md` is only a
 test sample, not the game's default story. Nothing silently falls back to it.
@@ -40,8 +41,9 @@ In dev mode, saving the Markdown or changing `:source` reloads automatically;
 invalid edits retain the previous valid dialogue and report an error in
 `@la-professeure.core/status`. Use `-J-Dla-professeure.dialogue=/path/story.md`
 to override the file for a dev session or standalone build.
-The copied note is not a live iCloud connection: edit the local copy, or point
-`:source` at a readable synced Markdown file. The original note is untouched.
+The old project copy is not watched. `:recording-registry` explicitly retains
+the existing recording-ID sidecar when moving to the original source, so changing
+the path does not start a new identity registry. The tool never edits the note.
 The development-only [Bitwig adapter](tools/README.md) has its own
 Clojure `tools/deps.edn` project, or can run in the game's JVM via `:tools`.
 

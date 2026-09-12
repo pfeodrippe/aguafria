@@ -198,6 +198,22 @@
       {:frames lag :milliseconds (/ lag 48.0) :confidence confidence :distinctness distinct
        :accepted? (and (>= count 4800) (>= confidence 0.8) (> distinct 0.02))})))
 
+(defn- recovered-wav! [directory kind ^bytes data]
+  ;; A failed project save may leave the immutable WAV behind. Reuse only the
+  ;; exact durable PCM, never overwrite a take or trust a filename alone.
+  (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256") data)
+        fingerprint (.formatHex (java.util.HexFormat/of) digest)
+        target (io/file directory (str "recovered-" (name kind) "-" fingerprint ".wav"))]
+    (when (Files/isSymbolicLink (.toPath target))
+      (throw (ex-info "Recovery destination must not be a symbolic link" {:path target})))
+    (if (.exists target)
+      (do
+        (when-not (and (.isFile target)
+                       (java.util.Arrays/equals data ^bytes (pcm target)))
+          (throw (ex-info "Recovery destination does not match retained PCM" {:path target})))
+        (.getCanonicalPath target))
+      (write-wav! target data))))
+
 (defn recover-journal! [manifest]
   (let [{:keys [id completed? streams]} (read-state manifest nil)]
     (when-not (and (string? id) (re-matches #"[A-Za-z0-9_-]+" id))
@@ -211,10 +227,9 @@
                                     (not (Files/isSymbolicLink (.toPath original)))
                                     (<= 1 frames 2880000) (>= (.length raw) (* frames 8)))
                        (throw (ex-info "Invalid recovery file/bounds" {:file file})))
-                     (let [data (byte-array (* frames 8))
-                           target (io/file dir (str "recovered-" (name kind) "-" (java.util.UUID/randomUUID) ".wav"))]
+                     (let [data (byte-array (* frames 8))]
                        (with-open [in (RandomAccessFile. raw "r")] (.readFully in data))
-                       {:id id :kind kind :path (write-wav! target data)}))))]
+                       {:id id :kind kind :path (recovered-wav! dir kind data)}))))]
         recovered))))
 
 (defn resolve-device [names wanted]

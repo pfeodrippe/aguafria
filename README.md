@@ -136,6 +136,7 @@ introduce a second runtime abstraction:
 | `if`, `when`, `cond` | Zig control flow |
 | `while`, `doseq` | Zig loops |
 | `set!` | assignment |
+| `(az/set-many! target value ...)` | ordered assignments; later values may read earlier writes |
 | `(az/field p :x)` | `p.x` |
 | `(az/index values i)` | `values[i]` |
 | `(Point {:x 1.0 :y 2.0})` | typed struct literal |

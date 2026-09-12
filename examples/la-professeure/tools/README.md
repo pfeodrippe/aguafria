@@ -36,12 +36,29 @@ clamped to keep both panels usable).
 ### Workspace modes
 
 **Edit** is the light timeline/take editor. **Record** focuses on the complete
-dialogue, arm state, live input/FX meters and saved-take audition. Click the tabs
-or press **F2**. Entering Record temporarily enables **REC**; leaving restores the
-REC setting from before entry. No microphone is opened until an armed passage is
-started with **Play / REC**. You can turn REC off manually within the mode;
-clicking the already-selected Record tab does not enable it again. **Listen to
-take** always auditions saved audio, even with REC enabled. Transport and routing
+dialogue, live input/FX meters and saved-take audition. **Takes** compares Dry,
+FX and Favorite cards with the same editor below. Click the tabs or press **F2**.
+Dry/FX shows the selected version of that type when applicable, otherwise its
+latest reference; Favorite retains the explicitly chosen favorite. Click a card
+to select, its triangle to play/pause/resume, or double-click to audition.
+Play/Space in Takes also only auditions; its RECORD button starts a new take for
+the selected passage, without using Edit's armed row.
+In **Record**, select a voiced passage, then click **Record new take** (or the
+top **RECORD** button). No separate arm or global-REC step is required. Every
+press starts a fresh take; existing takes are retained. Selection alone never
+opens the microphone. During count-in/capture/tail, the target cannot change.
+**Check input** opens only the selected input for ten seconds to show its level.
+It does not save audio, send it to Bitwig or play it through speakers. Use
+**Stop check** or **Stop** to finish early; **Record new take** closes the check
+and begins a fresh take. Stop the check before changing devices or Dry/FX mode.
+API: `{:op :routing/check-input :args {:enabled true}}` (false stops it).
+This verifies input signal, not external effects or suitable recording gain.
+**Play**, **Space** and **Listen to
+take** audition from the waveform's selected position, even with REC enabled;
+the same button becomes **Pause take** / **Resume take**. It never records.
+API: `:transport/audition` toggles this cue-aware audition, while
+`:transport/launch` explicitly starts the selected take from the beginning.
+Transport and routing
 remain shared: switching modes does not restart audio, select another take, move
 the cursor or interrupt an active recording/count-in.
 API equivalent: `(studio/submit! {:op :view/mode :args {:mode :record}})`;
@@ -54,8 +71,10 @@ dispatch and isolated pointer/scroll regions. Reuse the common transport and
 command worker. New project-changing actions must go through the command API,
 including its validation, recording guards and undo/history—not mutate takes in
 a drawing function. Clear stale drag/modal state on transitions and test that
-audio, devices, selection and cursor survive switching. A take-grid mode inspired
-by concept 5 is planned, not yet implemented.
+audio, devices, selection and cursor survive switching. Takes cards use validated
+selection/audition commands and reject stale snapshots. Empty Dry/FX slots prepare
+Record mode; they never start capture. Physical grid acceptance is still tracked
+in `AGENT_TODO.md`.
 
 The Edit workspace opens with
 **Tracks**: dialogue track headers aligned with real take clips and a seconds
@@ -84,21 +103,25 @@ implemented. The lower waveform seeks unless you grab one of its trim edges.
 
 ### Record a passage
 
-1. Select a voiced passage in **Tracks**, or switch to **Record** for a larger
-   scrollable script with input/FX meters directly below it.
+1. Switch to **Record** and select a voiced passage. The full scrollable script
+   is shown with input/FX meters below it. Text-only rows cannot be recorded.
 2. Click **Mic / input…** and choose your actual microphone from the list.
 3. For processed recording, choose **BlackHole 16ch** for both **Send 1/2 > Bitwig…**
    and **FX return 3/4…**. In Bitwig, monitor an audio track from input 1/2,
    apply its effects, and route its output to 3/4. Do not route it back to 1/2.
-4. Arm the passage with the red-circle button in its track header, or **Arm passage**
-   in Record mode. Choose **Dry**
-   (microphone only) or **FX** (paired dry and processed audio) next to global REC.
-5. Enable global **REC** (already enabled when entering Record mode), then press
-   **PLAY / REC** (or Space). REC alone does not
-   open the microphone. Count-in is off by default; optionally enable 3 seconds.
-   The recording clip grows red while capturing. **STOP** saves the take and FX tail.
-6. Disable global **REC** to audition with **Play**; **Publish to game** publishes the selected
+4. Choose **Dry** (microphone only) or **FX** (paired dry and processed audio).
+5. Click **Record new take** or the top **RECORD** button. Count-in is off by
+   default; optionally enable 3 seconds. **STOP** saves the take and FX tail.
+   To record another passage, select it and press Record again—no arm step.
+6. **Play** / **Listen to take** auditions without recording. **Publish to game** publishes the selected
    validated wet take to the running game. No Bitwig save/export is needed.
+
+For the traditional **Edit** workflow only, the track's red circle selects the
+recording target; enable global **REC**, then **Play / REC**. That Edit arm never
+overrides the selected passage when pressing Record in the focused Record view.
+API: `(studio/command! {:op :record/start :args {:id "voice-your-id"}})` starts
+a new take for that stable Markdown ID, using the current Dry/FX mode and count-in.
+`:transport/stop` saves or cancels count-in; `:transport/audition` never records.
 
 **Listening output…** selects playback/monitoring output. Live monitoring requires headphones
 to avoid acoustic feedback. Selecting a device is not proof of an effects return:
@@ -106,6 +129,14 @@ check both input and return meters. With BlackHole selected as the source (for Q
 source audio must arrive on channels 5/6, not the return pair 3/4.
 API clients can inspect `(:devices (studio/query))` and use `:routing/select` with
 `:source`, `:send`, `:return`, and `:headphones` device indices.
+
+If an owned input/FX device stops unexpectedly, Studio stops capture and retains
+available audio as **Interrupted take** entries. An empty return does not discard
+the dry recording. Listen before using these partial takes. If saving fails,
+**AUDIO STOPPED** means the PCM is retained and **Stop** retries saving. Input
+checks and monitoring report their own stopped-device warning; a monitor failure
+does not stop healthy capture devices. Studio never silently chooses another mic.
+
 Device menus mark the configured device **Selected**. Up/Down and Home/End move
 keyboard focus without changing the route; Enter applies it. Escape or a click
 outside closes the menu without activating the control underneath. Empty lists
@@ -147,6 +178,11 @@ fully navigable in this first integration. Take edits stop the snapshot so new
 waveforms cannot silently replace the source still being heard.
 
 ## Control API (existing nREPL)
+
+`(studio/worker-status)` reports worker health without touching native code, even
+while a Zig edit fails to compile. After fixing an error, a stopped worker can be
+restarted with `(studio/restart-worker!)` without reopening windows or recordings.
+This refuses to replace a live worker; already-consumed commands are not replayed.
 
 The UI's recording/playback/editing jobs and external commands use the same
 serialized worker. No additional server or JVM is started. Call from a client
@@ -210,8 +246,8 @@ workspace share the game's Flecs passage entities.
 The native recorder and workspace live in `tools/src/la_professeure/tools/`.
 The Clojure portion schedules work and allocates unique take paths. The audio
 callback, channel routing and WAV decoding/encoding are native. Microphone
-capture starts with **Lecture** when global **REC** is enabled and a passage is
-armed, after the optional countdown, using the visibly selected input;
+capture starts with **Record new take** in Record mode, after the optional
+countdown, using the visibly selected input. Edit retains arm + REC + Play;
 **Stop** saves a dry WAV under `build/recording/<passage-id>/`. Back up takes;
 this directory is ignored by Git. Capture is bounded to 60 seconds at 48 kHz.
 
@@ -219,10 +255,15 @@ Recording in **FX** mode captures while you speak: the selected microphone is se
 BlackHole 1/2, Bitwig processes it and returns on 3/4. Our tool simultaneously
 retains the dry microphone and processed return as paired takes. **Stop**
 silences the send, retains the selected effect tail, then saves both WAVs and
-selects the processed take. **Lire → Publish to game** makes it available to the live
+selects the processed take. **Listen to take → Publish to game** makes it available to the live
 game. No intermediate dry recording pass, Bitwig recording, export or Save is
 needed. Bitwig's input monitoring must be enabled on the effects track. Use
 headphones if also monitoring externally; never feed the return back to the send.
+
+The track-row triangle and **Listen to take / Resume take** only audition saved
+audio, even with REC enabled. In Record mode the main **PLAY** control also only
+auditions; **RECORD** starts a fresh take for the selected passage. The clock
+distinguishes **PLAYING**, **PAUSED**, **COUNT-IN**, **RECORDING**, and **FX TAIL**.
 
 For a repeatable virtual source, selecting **BlackHole 16ch** as the microphone
 reads **5/6** (not 1/2). Route a source there; send and return remain on 1/2 and
@@ -276,11 +317,26 @@ builds copy published voices and compile out that polling. Ambience is separate.
   PCM checkpoint. The worker flushes audio and atomically updates its manifest
   approximately once per second. Uncommitted audio may be lost. Original PCM
   remains available; this is process-crash recovery, not a backup/power-loss guarantee.
+- **Listening output stopped**: playback pauses and retains its position. Press
+  **Resume** to retry that output, or explicitly choose another listening device.
+  The top transport controls the active mix even in Record mode; **Listen to
+  take** auditions the selected take instead. Recovery never changes audio files.
 - **Routing**: name/save a profile and use **Next profile → Reconnect** to
   re-enumerate and resolve exact device names. Missing or duplicate names fail
   closed. Profiles store our source/send/return/headphone choices and timing,
   not Bitwig's plugin state or system defaults.
+  Expand **Routing tools +** for profile management, reconnect, **Process take FX**
+  and **Recover takes**. Input/output selectors and monitoring remain visible
+  when this section is collapsed. Device controls are disabled during recording
+  or an input check; stop that activity before changing the route. Automation
+  can expand it with `{:op :view/routing-tools :args {:visible true}}`.
 - **Monitoring** is opt-in for the next FX take, off after reconnect.
+  The **Monitor level** fader controls only live headphone monitoring, from 0%
+  (silent) to the existing 50% cap. Click or drag it; this does not enable
+  monitoring, alter recordings, or change saved-take playback gain. Automation
+  uses `{:op :routing/monitor-level :args {:percent 15}}`; `query` reports the
+  current value under `:monitoring`. The level can be adjusted during capture
+  without changing the capture target or route.
   It reads only return 3/4 and never writes back to the effects bus. Gain starts
   at 15%, capped at 50%. Only names containing Headphones, AirPods, or Casque
   are currently accepted; speakers/BlackHole/aggregate outputs are refused.
@@ -431,6 +487,21 @@ disconnect, inspect the project before retrying; partial additions are retained.
 
 ## Verification
 
+For a live desktop started with `:studio-test`, GPU rendering can be checked from
+nREPL without relying on the desktop compositor's cached window image:
+
+```clojure
+(require '[la-professeure.studio-test :as qa])
+(qa/capture-window-qa! true "build/recording-qa/studio.png") ; false for game
+```
+
+Call this off the render thread while recording is idle, with an existing output
+directory. It queues native work, replays the latest normal frame through Vulkan,
+and writes a PNG plus returns frame metadata. It briefly waits for the GPU and
+recreates that window's targets; use it for QA, not per-frame recording. It neither
+opens audio inputs nor publishes a take. GPU evidence does not replace physical
+mouse/trackpad or operating-system window-composition checks.
+
 ```sh
 clojure -M:dev:test
 node test/controller_test.js
@@ -444,3 +515,12 @@ preservation. These simulated host checks are supplemented by **real Bitwig
 a WAV clip retained through text edits, a custom track name preserved, a removed
 cue's track retained, a new cue added, and save/close/reopen retaining all seven
 tracks (including two unrelated tracks) and the audio clip. See `../QA.md`.
+
+## Dialogue recording status
+
+Record-mode passage rows indicate whether a take is missing, matches the current
+script, changed, interrupted or unverified. New recordings remember the speaker
+and text version at capture start; later script edits never rewrite that history.
+Old/imported takes without this metadata require review. “Recorded” describes a
+script match, not audio quality or publication. `studio/query` exposes this under
+`:dialogue`, alongside the watched source's status.

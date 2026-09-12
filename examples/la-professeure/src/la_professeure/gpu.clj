@@ -23,9 +23,9 @@
   (az/type
    [:*const
     [:fn {:callconv :.c}
-     [{:name output :type [:c-pointer mesh/GpuVertex]}
-      {:name frame_width :type :i32}
-      {:name frame_height :type :i32}]
+     [{:name :output :type [:c-pointer mesh/GpuVertex]}
+      {:name :frame-width :type :i32}
+      {:name :frame-height :type :i32}]
      :u32]]))
 
 (az/defstruct RendererSnapshot
@@ -38,7 +38,11 @@
    [:images :u32]
    [:queue_family :u32]])
 
-(az/defconst frame-capacity :usize 16384)
+;; A dense Studio view includes 32 clip waveforms (24,576 vertices before any
+;; text or controls), plus the take editor and device picker. The old 16K
+;; placeholder budget could not even cover those waveforms. This allocation is
+;; shared by the buffer size, atlas offset and checked vertex writer.
+(az/defconst frame-capacity :usize 131072)
 
 (az/defconst atlas-bytes :usize (* 2048 1536 4))
 
@@ -130,6 +134,11 @@
 (az/defvar mapped-mesh-vertices [:optional [:* :anyopaque]] null)
 
 (az/defvar mesh-vertex-count :u32 0)
+
+;; Scoped render-thread QA scratch, never part of either window's saved context.
+;; Normal frames neither allocate a readback buffer nor wait for a CPU copy.
+(az/defvar readback-requested :bool false)
+(az/defvar readback-buffer vk/VkBuffer null)
 
 (az/defvar shader-code [:array 16384 :u32]
   (std-mem/zeroes (az/type [:array 16384 :u32])))
@@ -333,12 +342,15 @@
             :imageColorSpace (az/field (az/index formats 0) colorSpace)
             :imageExtent swapchain-extent
             :imageArrayLayers 1
-            :imageUsage vk/VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+            :imageUsage (if readback-requested
+                          (ak/| vk/VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                                vk/VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+                          vk/VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
             :imageSharingMode vk/VK_SHARING_MODE_EXCLUSIVE
             :preTransform (az/field capabilities currentTransform)
             :compositeAlpha vk/VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
             :presentMode vk/VK_PRESENT_MODE_FIFO_KHR
-            :clipped vk/VK_TRUE})]
+            :clipped (if readback-requested vk/VK_FALSE vk/VK_TRUE)})]
       (check (vk/vkCreateSwapchainKHR
               device (ak/& create-info) null (ak/& swapchain)))
       (check (vk/vkGetSwapchainImagesKHR device swapchain (ak/& image-count) null))
@@ -878,6 +890,61 @@
         (az/field color b)
         (az/field color a)])})}))
 
+(az/defn- record-readback!
+  "Copy the actual color attachment, then restore its presentation layout."
+  :- :void
+  [[command-buffer vk/VkCommandBuffer]
+   [image-index :u32]]
+  (when (ak/== readback-buffer null)
+    (ak/return))
+  (let [image (az/index swapchain-images image-index)
+        range (vk/VkImageSubresourceRange
+               {:aspectMask vk/VK_IMAGE_ASPECT_COLOR_BIT
+                :levelCount 1
+                :layerCount 1})
+        ^:var barrier
+        (vk/VkImageMemoryBarrier
+         {:sType vk/VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+          :srcAccessMask vk/VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+          :dstAccessMask vk/VK_ACCESS_TRANSFER_READ_BIT
+          :oldLayout vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+          :newLayout vk/VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+          :srcQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
+          :dstQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
+          :image image
+          :subresourceRange range})
+        region
+        (vk/VkBufferImageCopy
+         {:imageSubresource (vk/VkImageSubresourceLayers
+                             {:aspectMask vk/VK_IMAGE_ASPECT_COLOR_BIT
+                              :layerCount 1})
+          :imageExtent (vk/VkExtent3D
+                        {:width (az/field swapchain-extent width)
+                         :height (az/field swapchain-extent height)
+                         :depth 1})})
+        host-barrier
+        (vk/VkBufferMemoryBarrier
+         {:sType vk/VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER
+          :srcAccessMask vk/VK_ACCESS_TRANSFER_WRITE_BIT
+          :dstAccessMask vk/VK_ACCESS_HOST_READ_BIT
+          :srcQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
+          :dstQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
+          :buffer readback-buffer
+          :size vk/VK_WHOLE_SIZE})]
+    (vk/vkCmdPipelineBarrier
+     command-buffer vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+     vk/VK_PIPELINE_STAGE_TRANSFER_BIT 0 0 null 0 null 1 (ak/& barrier))
+    (vk/vkCmdCopyImageToBuffer
+     command-buffer image vk/VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+     readback-buffer 1 (ak/& region))
+    (set! (az/field barrier srcAccessMask) vk/VK_ACCESS_TRANSFER_READ_BIT)
+    (set! (az/field barrier dstAccessMask) 0)
+    (set! (az/field barrier oldLayout) vk/VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+    (set! (az/field barrier newLayout) vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+    (vk/vkCmdPipelineBarrier
+     command-buffer vk/VK_PIPELINE_STAGE_TRANSFER_BIT
+     vk/VK_PIPELINE_STAGE_HOST_BIT 0 0 null 1 (ak/& host-barrier) 1 (ak/& barrier))))
+
 (az/defn record-frame
   :- :void
   [[image-index :u32]
@@ -933,6 +1000,7 @@
         (vk/vkCmdDraw command-buffer mesh-vertex-count 1 0 0)))
 
     (vk/vkCmdEndRenderPass command-buffer)
+    (record-readback! command-buffer image-index)
     (check (vk/vkEndCommandBuffer command-buffer))))
 
 (az/defn render!
@@ -991,6 +1059,89 @@
         (set! frame-count (+ frame-count 1))
         (set! synchronization-slot (mod (+ synchronization-slot 1) 2)))))
   true)
+
+(az/defn- reuse-frame-vertices {:zig/qualifiers "callconv(.c)"}
+  :- :u32
+  [[output [:c-pointer mesh/GpuVertex]]
+   [width :i32]
+   [height :i32]]
+  (set! _ output)
+  (set! _ width)
+  (set! _ height)
+  mesh-vertex-count)
+
+(az/defn capture-frame!
+  "Opt-in render-thread QA. Returns tightly packed BGRA/RGBA bytes, or zero
+   when unavailable. Recreates this window's targets without clipping, renders
+   the most recent normal frame's mapped vertices through its actual pipeline,
+   and waits for GPU completion before copying to output. Does not invoke app
+   drawing/input again. Scratch is released; audio/project state is untouched."
+  :- :usize
+  [[output [:c-pointer :u8]]
+   [capacity :usize]]
+  (when (or (ak/! initialized)
+             readback-requested
+             (ak/== mesh-vertex-count 0)
+             (ak/== output null)
+             (ak/== capacity 0))
+    (ak/return 0))
+  (let [^:var capabilities (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))]
+    (check (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR
+            physical-device surface (ak/& capabilities)))
+    (when (ak/== (ak/& (az/field capabilities supportedUsageFlags)
+                       vk/VK_IMAGE_USAGE_TRANSFER_SRC_BIT) 0)
+      (ak/return 0)))
+  (set! readback-requested true)
+  (ak/defer (set! readback-requested false))
+  (when (ak/! (recreate-swapchain!))
+    (ak/return 0))
+  (when (and (ak/!= swapchain-format vk/VK_FORMAT_B8G8R8A8_UNORM)
+             (ak/!= swapchain-format vk/VK_FORMAT_B8G8R8A8_SRGB)
+             (ak/!= swapchain-format vk/VK_FORMAT_R8G8B8A8_UNORM)
+             (ak/!= swapchain-format vk/VK_FORMAT_R8G8B8A8_SRGB))
+    (ak/return 0))
+  (let [size (* (ak/as :usize (az/field swapchain-extent width))
+                (az/field swapchain-extent height) 4)
+        ^{:var vk/VkBuffer} buffer null
+        ^{:var vk/VkDeviceMemory} memory null
+        ^{:var [:optional [:* :anyopaque]]} mapped null
+        ^:var requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))
+        buffer-info (vk/VkBufferCreateInfo
+                     {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+                      :size size
+                      :usage vk/VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                      :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})]
+    (when (or (> size capacity) (ak/== output null))
+      (ak/return 0))
+    (check (vk/vkCreateBuffer device (ak/& buffer-info) null (ak/& buffer)))
+    ;; Destroy the bound buffer before freeing its memory, including early exits.
+    (ak/defer (do
+                (vk/vkDestroyBuffer device buffer null)
+                (when (ak/!= memory null)
+                  (vk/vkFreeMemory device memory null))))
+    (vk/vkGetBufferMemoryRequirements device buffer (ak/& requirements))
+    (let [memory-type (find-memory-type
+                       (az/field requirements memoryTypeBits)
+                       (ak/| vk/VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                             vk/VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+          allocation (vk/VkMemoryAllocateInfo
+                      {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+                       :allocationSize (az/field requirements size)
+                       :memoryTypeIndex memory-type})]
+      (when (ak/== memory-type 0xffffffff)
+        (ak/return 0))
+      (check (vk/vkAllocateMemory device (ak/& allocation) null (ak/& memory))))
+    (check (vk/vkBindBufferMemory device buffer memory 0))
+    (check (vk/vkMapMemory device memory 0 size 0 (ak/& mapped)))
+    (ak/defer (vk/vkUnmapMemory device memory))
+    (set! readback-buffer buffer)
+    (ak/defer (set! readback-buffer null))
+    (when (ak/! (render! (ak/& reuse-frame-vertices)))
+      (ak/return 0))
+    (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
+    (ak/memcpy (az/slice output 0 size)
+               (az/slice (az/cast mapped [:c-pointer :u8]) 0 size))
+    size))
 
 (az/defn renderer-snapshot
   :- RendererSnapshot

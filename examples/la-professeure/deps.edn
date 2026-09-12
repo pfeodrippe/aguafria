@@ -13,6 +13,7 @@
   :tools {:extra-paths ["tools/src" "tools/resources"]
           :extra-deps {org.clojure/data.json {:mvn/version "2.5.2"}}}
   :studio-test {:extra-paths ["tools/src" "tools/resources" "tools/test"]
+                :extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
                 :main-opts ["-m" "la-professeure.studio-test"]}
   :tool {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
          :main-opts ["-m" "la-professeure.build" "tool"]}

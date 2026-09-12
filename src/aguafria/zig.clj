@@ -932,6 +932,29 @@
   [type]
   (and (vector? type) (= "optional" (some-> type first name))))
 
+(defmacro set-many!
+  "Assign target/value pairs in order inside an Aguafria declaration.
+
+      (az/set-many!
+        x (+ x 1)
+        y (* x 2)
+        (az/field state total) (+ x y))
+
+  Expands to a `do` containing ordinary `set!` forms. Each assignment completes
+  before the next target and value are evaluated, so later pairs observe earlier
+  writes. Targets may be locals, globals, fields, indices, or dereferences. With
+  no arguments it is a no-op. This is sequential assignment, not a parallel swap."
+  [& assignments]
+  (when (odd? (count assignments))
+    (throw (ex-info "set-many! requires an even number of target/value forms"
+                    {:assignments assignments})))
+  (with-meta
+    (cons 'do
+          (map (fn [[target value]]
+                 (with-meta (list 'set! target value) (meta &form)))
+               (partition 2 assignments)))
+    (meta &form)))
+
 (defmacro cast
   "Cast an optional opaque/C pointer to `output-type`, checking alignment.
 
