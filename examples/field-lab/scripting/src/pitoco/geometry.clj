@@ -211,3 +211,23 @@
                     :center-m center :refinement refinement :version 1}
            :metrics (assoc measures :sphere-volume-relative-error
                            (- 1.0 (/ (:volume measures) analytic-volume))))))
+
+(defn box-mesh
+  "Conforming six-tetrahedra subdivision per Cartesian cell. Lengths are metres."
+  [[nx ny nz] [lx ly lz]]
+  (when-not (and (every? #(and (integer? %) (pos? %)) [nx ny nz])
+                 (every? #(and (number? %) (Double/isFinite (double %)) (pos? %)) [lx ly lz]))
+    (throw (ex-info "Positive integer subdivisions and finite positive lengths required" {})))
+  (let [node (fn [i j k] (+ i (* (inc nx) (+ j (* (inc ny) k)))))
+        points (vec (for [k (range (inc nz)) j (range (inc ny)) i (range (inc nx))]
+                      [(* lx (/ (double i) nx)) (* ly (/ (double j) ny)) (* lz (/ (double k) nz))]))
+        cells (vec (mapcat
+                    (fn [[i j k]]
+                      (let [a (node i j k) b (node (inc i) j k)
+                            c (node (inc i) (inc j) k) d (node i (inc j) k)
+                            e (node i j (inc k)) f (node (inc i) j (inc k))
+                            g (node (inc i) (inc j) (inc k)) h (node i (inc j) (inc k))]
+                        [[a b c g] [a c d g] [a d h g]
+                         [a h e g] [a e f g] [a f b g]]))
+                    (for [k (range nz) j (range ny) i (range nx)] [i j k])))]
+    {:points points :cells cells}))

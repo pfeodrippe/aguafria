@@ -10,29 +10,57 @@
             [field-lab.surface :as surface]
             [aguafria.std.debug :as debug]
             [aguafria.std.mem :as mem]
+            [aguafria.std.fmt :as fmt]
             [aguafria.zig :as az]
             [aguafria-examples-native.bindings]
             [aguafria-examples-native.bindings.glfw :as glfw]
             [aguafria-examples-native.imgui-bindings]
+            [aguafria-examples-native.imgui-controls]
+            [aguafria-examples-native.bindings.imgui-controls :as ui]
             [aguafria-examples-native.bindings.imgui :as imgui]
             [aguafria-examples-native.mesh :as mesh]
             [aguafria-examples-native.renderer :as renderer]
             [aguafria-examples-native.readback :as readback]
             [field-lab.physics :as physics]
             [field-lab.scene :as scene]
-            [field-lab.panel]
+            [field-lab.panel :as native-panel]
             [field-lab.panel-api :as panel]))
 
-(az/defextern pitoco_tick_v1
+(az/defextern pitoco_aguafria_tick_v1
   {:zig/prefix "pub extern" :attrs #{:public}}
   :- :void
   [[panel [:c-pointer panel/LabPanel]]])
 
-(az/defextern lab_render_capture
+(az/defextern pitoco_aguafria_submit_v1
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :void
-  [[command :u64] [panel [:c-pointer panel/LabPanel]]
-   [nodes :i32] [tetrahedra :i32] [capture-status :i32]])
+  :- :u32 [[command [:pointer {:size :c :const? true} panel/PitocoCommandV1]] [ticket [:c-pointer :u64]]])
+
+(az/defextern pitoco_aguafria_shutdown_v1
+  {:zig/prefix "pub extern" :attrs #{:public}}
+  :- :void [])
+
+(az/defvar host-service-state :u8 0)
+
+(az/defn request-host-stop!
+  "Retire an extension host on its owning thread before changing its native generation."
+  :- :void []
+  (ak/atomicStore :u8 (ak/& host-service-state) 1 :.release))
+
+(az/defn host-stopped?
+  :- :bool []
+  (ak/== (ak/atomicLoad :u8 (ak/& host-service-state) :.acquire) 2))
+
+(az/defn resume-host!
+  :- :void []
+  (ak/atomicStore :u8 (ak/& host-service-state) 0 :.release))
+
+(az/defn service-host!
+  :- :void [[state-panel [:* panel/LabPanel]]]
+  (let [state (ak/atomicLoad :u8 (ak/& host-service-state) :.acquire)]
+    (when (ak/== state 1)
+      (pitoco_aguafria_shutdown_v1)
+      (ak/atomicStore :u8 (ak/& host-service-state) 2 :.release))
+    (when (ak/== state 0) (pitoco_aguafria_tick_v1 state-panel))))
 
 (az/defconst aguafria-development-overlays true)
 
@@ -75,6 +103,126 @@
 
 (az/defvar revision-word :u32 0)
 
+;; The controller and UI exchange commands/status, never mutable solver storage.
+;; Phases: 0 offline, 1 ready, 2 queued, 3 running, 4 publishing, 5 done,
+;; 6 cancellation requested, 7 cancelled, 8 failed, 9 stale publication.
+(az/defvar job-phase :u8 0)
+
+(az/defvar job-command :u64 0)
+
+(az/defvar job-progress-word :u64 0)
+
+(az/defvar job-target-ticks :u32 60)
+
+(az/defvar job-duration :f64 0.25)
+
+(az/defvar job-ipc :u8 0)
+
+(az/defvar job-panel-request :u8 0)
+
+(az/defn request-job-panel!
+  "Ask the UI thread to show or hide the authored job controls."
+  :- :void [[visible :bool]]
+  (ak/atomicStore :u8 (ak/& job-panel-request) (if visible 1 2) :.release))
+
+(az/defn job-status
+  :- :u8 []
+  (ak/atomicLoad :u8 (ak/& job-phase) :.acquire))
+
+(az/defn set-job-status!
+  :- :void [[phase :u8]]
+  (ak/atomicStore :u8 (ak/& job-phase) phase :.release))
+
+(az/defn transition-job!
+  :- :bool [[before :u8] [after :u8]]
+  (ak/== (ak/cmpxchgStrong :u8 (ak/& job-phase) before after :.acq_rel :.acquire) null))
+
+(az/defn take-job-command!
+  :- :u64 []
+  (ak/atomicRmw :u64 (ak/& job-command) :.Xchg 0 :.acq_rel))
+
+(az/defn report-job-progress!
+  :- :void [[tick :u32] [substeps :u32]]
+  (ak/atomicStore :u64 (ak/& job-progress-word)
+                  (ak/| (ak/<< (ak/as :u64 tick) 32) (ak/as :u64 substeps)) :.release))
+
+(az/defn job-progress
+  :- :u64 []
+  (ak/atomicLoad :u64 (ak/& job-progress-word) :.acquire))
+
+(az/defn queue-scene-job!
+  :- :bool [[source :u32] [ticks :u32] [ipc :bool]]
+  (let [phase (job-status)]
+    (when (or (ak/== phase 0) (and (>= phase 2) (<= phase 4)) (ak/== phase 6)
+              (< source 1) (> source 3) (< ticks 1) (> ticks 14400)) (ak/return false))
+    (when (ak/! (transition-job! phase 2)) (ak/return false))
+    (ak/atomicStore :u32 (ak/& job-target-ticks) ticks :.release)
+    (report-job-progress! 0 0)
+    (ak/atomicStore :u64 (ak/& job-command)
+                    (ak/| (ak/<< (ak/as :u64 ticks) 32) (ak/as :u64 source)
+                          (if ipc (ak/as :u64 8) (ak/as :u64 0))) :.release)
+    true))
+
+(az/defn cancel-scene-job!
+  :- :void []
+  (when (ak/! (transition-job! 2 6))
+    (set! _ (transition-job! 3 6))))
+
+(az/defn job-text!
+  :- :void [[text [:slice-const :u8]]]
+  (ui/aguafria_ui_wrapped_text (az/field text ptr) (az/field text len) 0.8 0.86 0.9))
+
+(az/defn draw-job-panel!
+  {:attrs #{:export}}
+  :- :void []
+  (let [phase (job-status)
+        panel-request (ak/atomicRmw :u8 (ak/& job-panel-request) :.Xchg 0 :.acq_rel)]
+    (when (ak/!= panel-request 0)
+      (set! native-panel/authored-jobs-visible (ak/== panel-request 1)))
+    (when (ak/! native-panel/authored-jobs-visible) (ak/return))
+    (let [visible (ui/aguafria_ui_window_begin_at "Pitoco / authored bake jobs" 250.0 160.0 430.0 340.0)]
+      (defer (ui/aguafria_ui_window_end))
+      (when (ak/== visible 0) (ak/return))
+      (when (ak/!= (ui/aguafria_ui_button "Close") 0)
+        (set! native-panel/authored-jobs-visible false))
+      (when (ak/== phase 0)
+        (job-text! "No authored bake worker is attached.")
+        (job-text! "The optional Clojure controller supplies these jobs; standalone playback works independently.")
+        (ak/return))
+      (job-text! "Offline FEM jobs / Clojure scene data")
+      (if (or (ak/== phase 1) (>= phase 7) (ak/== phase 5))
+        (do
+          (set! _ (ui/aguafria_ui_slider_double "Duration" (ak/& job-duration)
+                                                (/ 1.0 240.0) 6.0 "%.3f s"))
+          (set! _ (ui/aguafria_ui_checkbox "IPC contact (experimental / slower)" (ak/& job-ipc)))
+          (let [ticks (ak/as :u32 (ak/intFromFloat (ak/round (* 240.0 job-duration))))]
+            (when (ak/!= (ui/aguafria_ui_button "Bake one ball") 0)
+              (set! _ (queue-scene-job! 1 ticks (ak/!= job-ipc 0))))
+            (ui/aguafria_ui_same_line)
+            (when (ak/!= (ui/aguafria_ui_button "Bake three balls") 0)
+              (set! _ (queue-scene-job! 2 ticks (ak/!= job-ipc 0))))
+            (when (ak/!= (ui/aguafria_ui_button "Bake box + tetrahedron") 0)
+              (set! _ (queue-scene-job! 3 ticks (ak/!= job-ipc 0)))))
+          (job-text! "Complete caches appear in the viewport. Playback remains available."))
+        (do
+          (when (or (ak/== phase 2) (ak/== phase 3))
+            (when (ak/!= (ui/aguafria_ui_button "Cancel bake") 0) (cancel-scene-job!)))
+          (when (ak/== phase 4) (job-text! "Publishing complete cache..."))
+          (when (ak/== phase 6) (job-text! "Cancellation requested; finishing the native batch..."))))
+      (let [progress (job-progress)
+            tick (ak/>> progress 32)
+            target (ak/atomicLoad :u32 (ak/& job-target-ticks) :.acquire)
+            ^{:var [:array 160 :u8]} buffer ak/undefined
+            label (catch (fmt/bufPrintZ (ak/& buffer) "{d}/{d} ticks | {d} steps in frame"
+                                         [tick target (ak/& progress 4294967295)]) (ak/return))]
+        (ui/aguafria_ui_progress (ak/floatCast (ak/min 1.0 (/ (ak/as :f64 (ak/floatFromInt tick))
+                                                               (ak/as :f64 (ak/floatFromInt target)))))
+                                 (az/field label ptr)))
+      (when (ak/== phase 5) (job-text! "Published. Use PLAY or the timeline below."))
+      (when (ak/== phase 7) (job-text! "Cancelled. The previous cache is retained."))
+      (when (ak/== phase 8) (job-text! "Bake failed. Details: build/authored-job-status.edn"))
+      (when (ak/== phase 9) (job-text! "Scene changed during baking; the result was discarded.")))))
+
 (az/defvar cache-request-state :u8 0)
 
 (az/defvar pending-cache [:optional [:* cache/Cache]] null)
@@ -85,6 +233,11 @@
 
 (az/defvar cache-request-result :u8 0)
 
+(az/defvar pending-scripted false)
+
+(az/defvar pending-scene-parameters scene/ScriptedScene
+  (mem/zeroes (az/type scene/ScriptedScene)))
+
 (az/defn request-scripting!
   "Enable the optional external controller on the native owning thread."
   :- :u64
@@ -93,7 +246,7 @@
                  {:abi_version 1 :struct_size (ak/sizeOf panel/PitocoCommandV1)
                   :operation 9 :reserved 0 :integer 0 :text directory})
         ^{:var :u64} ticket 0]
-    (if (ak/== (panel/pitoco_submit_v1 (ak/& command) (ak/& ticket)) 1) ticket 0)))
+    (if (ak/== (pitoco_aguafria_submit_v1 (ak/& command) (ak/& ticket)) 1) ticket 0)))
 
 (az/defn live-revision
   :- :u32
@@ -108,6 +261,7 @@
     (ak/return false))
   (az/set-many!
     pending-cache owned
+    pending-scripted false
     pending-group null
     pending-cache-revision revision)
   (ak/atomicStore :u8 (ak/& cache-request-result) 0 :.release)
@@ -122,8 +276,22 @@
     (ak/return false))
   (az/set-many!
     pending-group owned
+    pending-scripted false
     pending-cache null
     pending-cache-revision revision)
+  (ak/atomicStore :u8 (ak/& cache-request-result) 0 :.release)
+  (ak/atomicStore :u8 (ak/& cache-request-state) 2 :.release)
+  true)
+
+(az/defn request-scene!
+  "Copy scene provenance into the ownership mailbox; the UI publishes both together."
+  :- :bool
+  [[owned [:* group/Group]] [revision :u32] [parameters scene/ScriptedScene]]
+  (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& cache-request-state) 0 1 :.acq_rel :.acquire) null)
+    (ak/return false))
+  (az/set-many!
+    pending-group owned pending-cache null pending-scripted true
+    pending-scene-parameters parameters pending-cache-revision revision)
   (ak/atomicStore :u8 (ak/& cache-request-result) 0 :.release)
   (ak/atomicStore :u8 (ak/& cache-request-state) 2 :.release)
   true)
@@ -143,6 +311,7 @@
         (do
           (if (ak/!= pending-group null) (scene/adopt-group! (az/unwrap pending-group))
               (scene/adopt-cache! owned))
+          (when pending-scripted (scene/set-scripted-scene! pending-scene-parameters))
           (az/set-many!
             (az/field controls baking) 0
             (az/field controls paused) 1
@@ -260,7 +429,7 @@
   :- :void
   []
   (let [config (scene/config)
-        file (panel/lab_export_begin_mesh (az/field config radius)
+        file (native-panel/export-begin! (az/field config radius)
                                      (az/field config mass)
                                      (az/field config height)
                                      (az/field config gravity)
@@ -275,18 +444,34 @@
                                      (if scene/continuum 2 (if scene/deformable 1 0))
                                      scene/stiffness)]
     (when (ak/== file null) (set! (az/field controls exported) -1) (ak/return))
-    (let [^{:var :bool} success true]
+    (let [^{:var :bool} success true
+          scripted (scene/scripted-scene)]
+      (when (ak/!= scripted null)
+        (when (ak/== 0 (native-panel/export-scene-source! file
+                         (ak/& (az/index (az/field (az/unwrap scripted) source_hash) 0))
+                         (ak/intCast scene/body-count) scene/dt))
+          (set! success false))
+        (dotimes [body scene/body-count]
+          (let [item (az/unwrap (scene/mesh-cache-at body))
+                observation (az/field (cache/frame-info item 0) observation)
+                gravity (az/index (az/field (az/unwrap scripted) gravity) body)]
+            (when (ak/== 0 (native-panel/export-scene-body! file (ak/intCast body)
+                             (az/field observation mass) (az/field item young) (az/field item poisson)
+                             (az/field gravity x) (az/field gravity y) (az/field gravity z)
+                             (if (az/index (az/field (az/unwrap scripted) floor) body) 1 0)
+                             (az/field (az/field item config) friction)))
+              (set! success false)))))
       (dotimes [body scene/body-count]
         (let [owned (scene/mesh-cache-at body)]
           (when (ak/!= owned null)
             (dotimes [node (az/field (az/field (az/unwrap owned) reference) len)]
               (let [point (az/index (az/field (az/unwrap owned) reference) node)]
-                (when (ak/== 0 (panel/lab_export_reference_body file (ak/intCast body) (ak/intCast node)
+                (when (ak/== 0 (native-panel/export-reference! file (ak/intCast body) (ak/intCast node)
                                                                (az/field point x) (az/field point y) (az/field point z)))
                   (set! success false))))
             (dotimes [index (az/field (az/field (az/unwrap owned) cells) len)]
               (let [cell (az/index (az/field (az/unwrap owned) cells) index)]
-                (when (ak/== 0 (panel/lab_export_cell_body file (ak/intCast body) (ak/intCast index)
+                (when (ak/== 0 (native-panel/export-cell! file (ak/intCast body) (ak/intCast index)
                                                         (ak/intCast (az/index cell 0)) (ak/intCast (az/index cell 1))
                                                         (ak/intCast (az/index cell 2)) (ak/intCast (az/index cell 3))))
                   (set! success false)))))))
@@ -299,7 +484,7 @@
                 omega (az/field state omega)
                 q (az/field state orientation)]
             (when (ak/== 0
-                         (panel/lab_export_sample
+                         (native-panel/export-sample!
                           file
                           (ak/intCast body)
                           (az/field state time)
@@ -340,7 +525,7 @@
                       velocity (if (ak/!= owned null) (cache/velocity (az/unwrap owned) (ak/intCast i) particle)
                                    (az/index (az/field sample velocities) particle))]
                   (when (ak/== 0
-                               (panel/lab_export_particle file
+                               (native-panel/export-particle! file
                                                           (ak/intCast body)
                                                           (ak/intCast particle)
                                                           (* (ak/as :f64 (ak/floatFromInt i))
@@ -352,7 +537,7 @@
                                                           (az/field velocity y)
                                                           (az/field velocity z)))
                     (set! success false))))))))
-      (when (ak/== 0 (panel/lab_export_end_mesh file)) (set! success false))
+      (when (ak/== 0 (native-panel/export-end! file)) (set! success false))
       (set! (az/field controls exported) (if success 1 -1)))))
 
 (az/defn draw-ui!
@@ -436,16 +621,17 @@
               (ak/max (az/field controls speed) (/ (physics/length (az/field observation momentum)) (az/field observation mass)))
               (az/field controls clearance) (ak/min (az/field controls clearance) (az/field observation minimum-height))
               (az/field controls compression)
-              (ak/max (az/field controls compression) (- 1.0 (/ (az/field frame height) (* 2.0 (az/field config radius)))))
+              (ak/max (az/field controls compression) (- 1.0 (/ (az/field frame height) (cache/reference-height item))))
               (az/field controls volume_ratio)
               (+ (az/field controls volume_ratio) (/ (az/field frame volume-ratio) (ak/as :f64 (ak/floatFromInt scene/body-count))))))))
-      (lab_render_capture command (ak/& controls) nodes tetrahedra (ak/intCast (readback/status))))
+      (native-panel/render! command (ak/& controls) nodes tetrahedra (ak/intCast (readback/status))
+                                (ak/!= (scene/scripted-scene) null) (ak/& draw-job-panel!)))
     (when (ak/== (az/field controls action) 9)
       (set! _ (readback/acknowledge!))
       (set! _ (readback/request! "exports/frame.ppm"))
       (set! (az/field controls action) 0))
     (consume-request!)
-    (pitoco_tick_v1 (ak/& controls))
+    (service-host! (ak/& controls))
     (set! scene/requested-continuum (ak/== (az/field controls deform) 2))
     (ak/atomicStore :u64 (ak/& status-word)
                     (ak/| (ak/as :u64 scene/count)
@@ -608,7 +794,7 @@
     (renderer/renderer-wait-idle!)
     (renderer/set-overlay-renderer! null)
     (imgui/aguafria_imgui_shutdown)
-    (panel/pitoco_shutdown_v1)
+    (pitoco_aguafria_shutdown_v1)
     (scene/shutdown!)
     (renderer/shutdown-renderer!)
     (glfw/glfwDestroyWindow window)

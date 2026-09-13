@@ -1,11 +1,51 @@
 (ns field-lab.fem-job
   "Clojure-authored meshes, boundary conditions and reproducible native FEM jobs."
   (:require [clojure.edn :as edn]
+            [pitoco.geometry :as geometry]
             [clojure.java.io :as io]
             [clojure.set :as set]
+            [clojure.string :as str]
             [aguafria.zig :as az]
-            [field-lab.fem :as fem]
-            [field-lab.fem-export :as export]))
+            [field-lab.fem :as fem]))
+
+(defn von-mises
+  "Equivalent stress in Pa from a symmetric row-major Cauchy stress tensor."
+  [[xx xy xz _ yy yz _ _ zz]]
+  (Math/sqrt (+ (* 0.5 (+ (Math/pow (- xx yy) 2.0)
+                           (Math/pow (- yy zz) 2.0)
+                           (Math/pow (- zz xx) 2.0)))
+                (* 3.0 (+ (* xy xy) (* xz xz) (* yz yz))))))
+
+(defn- data-array! [writer name type components rows]
+  (.write writer (str "<DataArray type=\"" type "\" Name=\"" name
+                      "\" NumberOfComponents=\"" components "\" format=\"ascii\">\n"))
+  (doseq [row rows]
+    (.write writer (str (str/join " " (if (sequential? row) row [row])) "\n")))
+  (.write writer "</DataArray>\n"))
+
+(defn write-vtu!
+  "Write ParaView/VTK XML. Coordinates remain undeformed; use Warp By Vector
+  with displacement_m and scale 1 for physical displacement. Stress is per tet."
+  [result path]
+  (let [{:keys [points cells]} (get-in result [:job :mesh])
+        target (io/file path)]
+    (io/make-parents target)
+    (with-open [writer (io/writer target)]
+      (.write writer "<?xml version=\"1.0\"?>\n<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n<UnstructuredGrid>\n")
+      (.write writer (str "<Piece NumberOfPoints=\"" (count points) "\" NumberOfCells=\"" (count cells) "\">\n<Points>\n"))
+      (data-array! writer "reference_position_m" "Float64" 3 points)
+      (.write writer "</Points>\n<Cells>\n")
+      (data-array! writer "connectivity" "Int64" 1 (flatten cells))
+      (data-array! writer "offsets" "Int64" 1 (map #(* 4 %) (range 1 (inc (count cells)))))
+      (data-array! writer "types" "UInt8" 1 (repeat (count cells) 10))
+      (.write writer "</Cells>\n<PointData Vectors=\"displacement_m\">\n")
+      (data-array! writer "displacement_m" "Float64" 3 (:displacements-m result))
+      (data-array! writer "reaction_N" "Float64" 3 (:reactions-N result))
+      (.write writer "</PointData>\n<CellData Scalars=\"von_mises_Pa\" Tensors=\"stress_Pa\">\n")
+      (data-array! writer "stress_Pa" "Float64" 9 (:stress-Pa result))
+      (data-array! writer "von_mises_Pa" "Float64" 1 (map von-mises (:stress-Pa result)))
+      (.write writer "</CellData>\n</Piece>\n</UnstructuredGrid>\n</VTKFile>\n"))
+    (.getCanonicalPath target)))
 
 (defn subtract
   [a b]
@@ -39,24 +79,9 @@
      :gradients [(mapv #(- (+ %1 %2 %3)) gb gc gd) gb gc gd]}))
 
 (defn box-mesh
-  "Conforming six-tetrahedra subdivision per Cartesian cell. Lengths are metres."
-  [[nx ny nz] [lx ly lz]]
-  (when-not (and (every? #(and (integer? %) (pos? %)) [nx ny nz])
-                 (every? #(and (number? %) (Double/isFinite (double %)) (pos? %)) [lx ly lz]))
-    (throw (ex-info "Positive integer subdivisions and finite positive lengths required" {})))
-  (let [node (fn [i j k] (+ i (* (inc nx) (+ j (* (inc ny) k)))))
-        points (vec (for [k (range (inc nz)) j (range (inc ny)) i (range (inc nx))]
-                      [(* lx (/ (double i) nx)) (* ly (/ (double j) ny)) (* lz (/ (double k) nz))]))
-        cells (vec (mapcat
-                    (fn [[i j k]]
-                      (let [a (node i j k) b (node (inc i) j k)
-                            c (node (inc i) (inc j) k) d (node i (inc j) k)
-                            e (node i j (inc k)) f (node (inc i) j (inc k))
-                            g (node (inc i) (inc j) (inc k)) h (node i (inc j) (inc k))]
-                        [[a b c g] [a c d g] [a d h g]
-                         [a h e g] [a e f g] [a f b g]]))
-                    (for [k (range nz) j (range ny) i (range nx)] [i j k])))]
-    {:points points :cells cells}))
+  "Conforming Cartesian tetrahedra, shared with the independent scripting library."
+  [subdivisions lengths]
+  (geometry/box-mesh subdivisions lengths))
 
 (defn boundary-faces [{:keys [cells]}]
   (->> cells
@@ -232,7 +257,7 @@
   (let [summary {:output (.getCanonicalPath (io/file output)) :report (:report result)}
         mesh-path (str output ".vtu")]
     (if (get-in result [:report :converged])
-      (assoc summary :vtu (export/write-vtu! result mesh-path))
+      (assoc summary :vtu (write-vtu! result mesh-path))
       (do
         ;; A failed rerun must not leave a previous successful mesh beside its
         ;; new diagnostics, where it could be mistaken for the current result.

@@ -4,6 +4,255 @@ This is the working checklist, not a completion claim. Keep game and studio in
 separate windows. Preserve recordings, Markdown IDs and existing user edits.
 The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
 
+## Short status — what is actually left
+
+The dialogue-recording workflow is implemented; final platform/hardware acceptance
+is not complete. Do not restart the whole roadmap or repeat completed tests.
+
+Final physical acceptance needs a person/device, not further feature development:
+
+1. Record a short spoken take with the selected microphone, Stop, then Listen to
+   take; confirm intelligible playback and no unwanted game audio while in Studio.
+2. Use the actual trackpad to scroll and pinch the Edit timeline; confirm smooth,
+   pointer-anchored interaction. Native event/zoom math is already verified.
+3. With a physical audio interface/headphones available, disconnect/reconnect
+   during monitoring or a disposable take; confirm visible interruption and
+   recovery. Current output inventory has speakers and virtual/aggregate devices,
+   not a physical detachable headphone/interface endpoint.
+
+No automated result should be relabelled as these physical checks. The same
+remaining acceptance boundary has been reported across consecutive goal passes;
+once the final exact-source regression terminates, pause automated pursuit for
+that external confirmation instead of adding features or repeating passing probes.
+
+Final exact-source regression completed successfully: **128 tests / 2,848
+assertions, zero failures/errors**, `/tmp/professeure-final-acceptance-regression.log`.
+This includes the final native overlay-sizing change. The app remains running;
+automated pursuit is blocked only on the physical acceptance above, not a build,
+login or failing-test problem. Resume with physical-test results or a concrete
+newly observed defect. Do not claim the full goal achieved without that evidence.
+
+- Verified: Dry/FX capture, saved-take playback signal, cancellation, publication
+  and game hot reload, separate windows, native mouse/keyboard interaction and
+  current Vulkan-rendered layout. Latest isolated suite: 128 tests, 2,848
+  assertions, zero failures/errors.
+- Still unverified: physical pinch delivery, real microphone/headphone quality,
+  audible speaker playback and physical device unplug/reconnection.
+- IME marked-text presentation and candidate anchoring are now implemented in a
+  small AppKit composition view. Actual input-method/compositor acceptance and
+  general shaping of the committed Vulkan draft are not established by the probe.
+- Latest audio state: selected MacBook Pro Speakers became unmuted at volume 13
+  during the final visual check, without an agent audio-setting change. Native
+  playback reports signal; listener confirmation and physical-device checks
+  remain distinct from that evidence. Keep the user's current settings unchanged.
+- Full arranger/MIDI/plugin parity is a separate expansion, not a reason to keep
+  rebuilding the dialogue recorder before handing it over.
+
+Fresh status inspection: worker running with no new failures (historical count
+193), no recording and no current alert. Inspected actual Vulkan frame
+`/tmp/professeure-status-studio.png`; the output-mute warning is visible and the
+selected passage, waveform and record/audition controls are readable. System mute
+and recordings were not changed.
+
+## Current verification strategy — native interaction through nREPL
+
+The goal is not complete, but desktop login is not a blocker for native QA.
+Per the user's September 12 direction, inject clicks and other supported events
+through Aguafria into the application's production hit-testing path; inspect
+actual Vulkan readback and native audio/state evidence. Keep the existing JVM.
+Use OS input only for OS-specific delivery, focus and composition checks, with
+the existing foreground guard. Native injected clicks are not physical mouse
+acceptance, and cached WindowServer images are not fresh renderer evidence.
+
+Earlier sleep/login interruptions blocked OS-input attempts, not this workflow.
+The resumed pass completed Record -> PREPARING -> capture -> Stop -> saved-take
+playback through native button injection. Actual-window video:
+`/tmp/professeure-preparing-native-events.mp4` (615 frames, 10.693 seconds).
+Inspected frame `/tmp/professeure-preparing-visible.png` shows PREPARING and
+"Opening audio devices. Stop to cancel." with Stop available. The real BlackHole
+test take contains 1.1 seconds of audio, peak 0.05141075; playback produced
+1,323 non-silent output frames. This used virtual test audio, not the microphone.
+
+A second injected Record/Stop probe caught real preparation phase 1 and returned
+to idle with no capture started and no take created. Inspected fresh Vulkan
+readback `/tmp/professeure-native-gpu-after-cancel.png` shows the cancellation
+message and restored controls. The successful capture's labelled QA take remains
+in history; all original takes and dry/wet/selected/published references were
+preserved (project revision 159). Nothing was published to the game.
+Latest full isolated regression: 121 tests / 2,722 assertions, zero failures/errors.
+
+### Follow-up: late preparation cancellation race
+
+The repeatable native test subsequently reproduced a later timing window: Stop
+was clicked in phase 1, but the worker had already passed its initial check and
+continued opening the device. It saved a 0.17-second unwanted QA take. This
+contradicts a general cancellation-complete claim despite the earlier passing
+probe. The QA file `1dae35d2-e5f1-42b8-a013-d89c27800a38-dry.wav` is retained and
+labelled; original take references were restored (revision 162), nothing published.
+
+- [x] Verify the final start-commit fix. Native callbacks are held during device
+  opening: no PCM retention or effects send. A render-thread commit rechecks
+  native/API Stop, then changes session ownership, visible capture phase and the
+  callback gate together. Cancelled preparation closes devices without a take or
+  recovery journal. Test both callback paths and late UI/API Stop in the isolated
+  suite, then repeat real native Record/Stop and successful Dry/FX capture.
+  Passed: **123 tests / 2,739 assertions**, zero failures/errors, in
+  `/tmp/professeure-start-commit-regression.log`. Eight consecutive live native
+  Record/Stop probes caught phase 1 and created no take/project change. Inspected
+  fresh Vulkan frame `/tmp/professeure-start-commit-cancelled.png`: idle controls,
+  original selected waveform and explicit cancellation message.
+  Successful Dry capture: 1.13 s, peak 0.05141075, 1,323 non-silent audition frames;
+  FX return: 2.13 s including tail, peak 0.00318486, 1,323 non-silent audition
+  frames. Files `4a5aba57-75b0-44dc-a56f-b3f485872609-dry.wav` and
+  `38c76153-8517-4196-948e-ebee7d7de366-{dry,wet}.wav` remain labelled QA history.
+  Original takes and dry/wet/selected/published references all preserved, revision
+  167. No game publication. Hot-reloaded into the existing JVM, no restart.
+- [x] Make preparation cancellation reproducible without desktop login through
+  `live-preparation-cancel-qa!`. It uses native button hit-testing, explicit
+  BlackHole input, no forced initialization delay, and guarded cleanup that
+  preserves unexpected QA takes and restores original references.
+
+### Native pinch and visible timeline acceptance — September 12
+
+- [x] Implement a macOS Studio-only magnification bridge. AppKit queues bounded
+  events in a stable native library; the production render tick consumes them.
+  Zoom stays anchored under the pointer, clamps to 2–60 seconds and disables
+  Follow. Record/Takes mode, menus, other panes and the game window reject zoom.
+  Detach removes the event monitor; repeated attachment is idempotent.
+- [x] Hot-reload and verify the real native queue: 30 -> 18.195919 seconds,
+  with the pointer's time remaining exactly 25 seconds. Game-window input was
+  rejected. A 1,000-event burst through the 64-entry queue yielded 11.036377
+  seconds versus the expected 11.036383, with no lost aggregate magnification.
+  Original project/take state stayed unchanged (revision 167).
+- [x] Replace arbitrary fractional ruler labels with stable readable intervals.
+  Inspected actual Vulkan readback `/tmp/professeure-pinch-readable-ruler.png`:
+  labels use 2-second intervals after zoom, with unclipped controls and waveform.
+- [x] Inspect fresh game and Record-mode Vulkan frames, not cached OS images:
+  `/tmp/professeure-game-current-native.png` and
+  `/tmp/professeure-studio-current-native.png`. Game text is clean; the visited
+  branch is dimmed and the unvisited sibling remains available. Studio controls
+  are English; existing user-authored take names remain untouched.
+- [x] Isolated regression: **125 tests / 2,802 assertions, zero failures/errors**,
+  `/tmp/professeure-pinch-ruler-regression.log`.
+- [ ] Physical-finger/AppKit gesture delivery acceptance. Injecting into the same
+  native queue verifies downstream behavior, not an actual hardware gesture.
+
+### Keyboard passage navigation follow-up
+
+- [x] Add Up/Down and Page Up/Down navigation to Edit's track list, Record and
+  Takes. Keep selection visible, allow held-key repeats, preserve transport and
+  track arm state, and block navigation during capture/pending commands or text
+  entry. Device menus keep their existing keyboard ownership.
+- [x] Live nREPL input through the production key callback selected passage 12,
+  scrolled the list to offset 4, left the command queue empty and did not change
+  the project. Inspected fresh Vulkan frame
+  `/tmp/professeure-keyboard-passage-visible.png`: highlighted last passage,
+  matching full script, disabled audition for its absent take. Restored prior
+  selection, scroll, text focus and cursor; no recording or publication.
+- [x] Bound extreme finite pinch magnification before exponential conversion,
+  avoiding f32 overflow while retaining the 2–60 second zoom limits.
+- [x] Isolated regression: **126 tests / 2,843 assertions, zero failures/errors**,
+  `/tmp/professeure-passage-keyboard-final.log`. Initial QA failed on construction
+  of inferred bool/C ABI values, not an app crash; typed native helpers now cover
+  those fields and exercise the production key callback. Tests cover all three
+  modes, bounds, repeat/release/modifier handling, focus/capture/pending-command
+  guards, empty lists, silent selection and preserved playback/arming ownership.
+
+### IME key ownership — September 12
+
+- [x] Inspect actual GLFW Cocoa key/composition ordering and Apple text-input
+  contracts. Prevent Enter/Backspace/Delete/arrows/Escape from editing/submitting
+  the application draft while macOS owns marked text. Normal committed character
+  delivery remains intact. Discard composition on mode/route/take changes or blur.
+- [x] Hot-reload the adapter and native handlers into the existing JVM. The
+  actual-view `ime-keyboard-qa-contract!` returned 0: six editing keys preserved
+  `QA`, committed text arrived exactly once as `QAé`, and only the next Enter
+  queued Rename. Draft/history/command state restored in the same render task.
+  Project stayed at revision 167; no take rename, audio change or publication.
+- [x] Inspect `/tmp/professeure-ime-composition-hint.png` from the real Vulkan
+  target: the amber composition underline is visible. Existing persistent audio
+  warning covers the normal status hint; do not claim that hint was visible.
+  Switching back to Record cleared native marked text; prior UI state restored.
+- [x] Add marked-text presentation and candidate anchoring using a dedicated
+  public AppKit text-input client for the focused name field. Keep committed
+  editing/undo/Rename in Aguafria and the rest of the UI in Vulkan. Unique native
+  class names support replacing the content-addressed bridge without swizzling.
+  Live contract returned 0: a real first-responder key event inserts once;
+  Japanese/French/Chinese marked text and caret geometry match; commit reaches
+  the existing character callback once; subsequent Enter alone queues Rename.
+  Inspected `/tmp/professeure-ime-native-preedit.png` (native view raster) and
+  `/tmp/professeure-after-ime-studio.png` (actual Vulkan frame after restoration).
+  Project revision remains 167, worker failures remain 193, no capture/alert.
+  Final isolated regression: **128 tests / 2,848 assertions, zero failures/errors**,
+  `/tmp/professeure-ime-presentation-regression.log`; process exited successfully.
+  No further feature expansion in this pass, per the user's wrap-up direction.
+- [x] Inspect actual WindowServer composition without activating/moving Studio
+  or Codex. `/tmp/professeure-ime-final-window.png` shows the native marked text
+  alongside the Vulkan editor, tightly sized and no longer covering the waveform.
+  The first capture exposed an overly wide background; fixed natural text sizing
+  and added an exact width check to the native probe. Explicit module recompile
+  was required to bind the changed bridge (re-evaluating unchanged definitions
+  alone retained the previous bridge). Focused live contract passes after that
+  recompile; previous full 128/2,848 suite predates this small sizing adjustment.
+  Original UI/draft restored; project revision 167 preserved; Codex remained
+  foreground. This closes overlay compositing, not human candidate interaction.
+- [ ] Full physical input-method acceptance. The native probe invokes AppKit
+  protocol methods, not a human IME. General shaping of committed draft text
+  remains a separate limitation; do not extend scope further in this pass.
+- [x] Fresh isolated regression: **127 tests / 2,844 assertions, zero
+  failures/errors**, `/tmp/professeure-ime-final-regression.log`. The first launch
+  read the test file while it was being edited and stopped with a reader error;
+  the fresh run used settled sources. Do not edit loaded test sources during
+  startup again.
+
+### Selected-output mute diagnosis — September 12
+
+- [x] Distinguish the retained low-level test-take warning from the current
+  microphone. Read-only macOS check: output volume 75, input volume 25, output
+  muted. Studio selects MacBook Pro Speakers, with no capture or input check.
+- [x] Read the selected device's master mute by Core Audio UID on the control
+  worker. Renderer/API consume an expiring, device-specific snapshot; unsupported
+  or stale states are Unknown. Never alter system mute/volume or open a device.
+- [x] Live UI/API both report Muted for the actual speakers. Inspected real Vulkan
+  frame `/tmp/professeure-selected-output-muted.png`: amber output selector and
+  preserved playback/recording controls. Project remains revision 167. Read-only
+  system check still reports the original volume/mute values.
+- [x] Resolve the new diagnostic's pointer-nullability and native-clock boundary
+  mistakes. Worker failure count stabilized at 193 after correction; prior errors
+  remain historical evidence. Cleared only the resulting diagnostic-error banner
+  through the public API, not any project/media state.
+- [x] Fresh isolated regression: **128 tests / 2,848 assertions, zero
+  failures/errors**, `/tmp/professeure-output-mute-final.log`. Covers empty/long/
+  unknown UID, cache states, wrong-device rejection, expiry and the existing
+  Studio suite. Subsequent live read still has failure count 193, no active
+  recording, unchanged revision 167 and selected-output state Muted.
+- [ ] Audible hardware playback requires an explicit decision about the current
+  mute setting. Asked asynchronously; leave it unchanged without a reply.
+
+## Remaining work — reconciled priority list
+
+Do not treat the old unchecked historical entries as new work or repeat a passing
+recording cycle simply because they still mention an earlier lock-screen block.
+The core Dry/FX recording, saved-take playback, publication watcher, transport,
+resize, scrolling and native cancellation paths have concrete evidence below.
+
+1. Fresh game/Studio layout and dialogue revisit checks passed above. Continue
+   only demonstrated visual issues; do not repeatedly rerun completed audio or
+   layout checks as a substitute for closing the remaining input/hardware gaps.
+2. Input gaps: physical pinch delivery; full platform IME pre-edit presentation
+   and general
+   complex-script shaping are not covered by the passing Unicode editing tests.
+   Keep ordinary wheel/Option-zoom evidence distinct from physical trackpad use.
+3. Hardware/audio gaps: real-source microphone gain/acoustics still need checking;
+   do not infer a current microphone problem from a saved QA take's warning.
+   The selected speakers are currently system-muted (verified above).
+   Physical headphone monitoring and unplug/reappearance are not proven
+   by the successful BlackHole/owned-device interruption probes.
+4. Keep the full DAW expansion roadmap explicit in the implementation plan
+   (multitrack clip editing, automation/MIDI/plugins, packaging/accessibility).
+   These are not secretly implemented by the dialogue recorder and must not be
+   advertised as finished Bitwig parity.
+
 ## Completion checkpoint — 2026-09-12
 
 The recording workflow is implemented and undergoing acceptance, not finished.
@@ -13,12 +262,238 @@ and OS-driven resize/minimize/scroll interactions. Older entries below retain
 their original dates and limitations; a later pass supersedes only the specific
 case it retested, not every related acceptance gate.
 
+An earlier awake-desktop pass resolved that interruption. Kept JVM 64167
+running and activated Studio without minimizing or repositioning other apps.
+Fresh OS captures now match the native mode. Dry Publish mouse input, final-width
+playhead motion, and a consolidated mouse-driven Record/Stop/Listen/Publish path
+all passed below. Full isolated regression remains green (117 tests / 1,129
+assertions). These close those specific gates, not the entire objective or the
+broader DAW roadmap; retain the remaining acceptance items and limitations.
+
 Next, in order:
 
-1. Complete a single end-to-end game/Studio acceptance pass: dialogue branches,
-   recording/playback, publication, focus muting, and live source updates.
-2. Finish the selected light-layout polish and minimum/wide-window review;
-   retain explicit limits for hardware disconnects, multi-display and IME tests.
+- [x] Fix preparation/cancellation ordering. A new isolated worker regression
+  reproduced eight failures: the UI phase stayed STOPPED during initialization,
+  and both native UI Stop and queued API Stop still allowed zero-count-in capture
+  to start. PREPARING now precedes initialization; its countdown clock is cleared
+  until initialization succeeds. The worker checks pending Stop before starting
+  capture, leaving normal command consumption/acknowledgment in place. No added
+  count-in delay for successful starts. Isolated suite: **121 tests / 2,720
+  assertions, zero failures/errors**, `/tmp/professeure-preparing-after.log`
+  (before: `/tmp/professeure-preparing-before.log`). Covers both Stop sources,
+  unsuccessful initialization returning to idle, and normal zero-count-in start.
+  Hot-reloaded into nREPL 64351 without restarting JVM 64167. Project revision
+  157, take entries and selection unchanged; no recording or publication done.
+  Actual OS-input acceptance remains open: the guarded driver returned exit 4
+  because the desktop was asleep/locked, and sent no input. The window capture
+  `/tmp/professeure-startup-checkpoint.png` was inspected for layout only; it is
+  not evidence of fresh startup/cancellation behavior on that sleeping desktop.
+
+1. Finish remaining device/error-state acceptance. Transient PREPARING and
+   native-button cancellation are now verified above. Virtual loopback and
+   owned-device interruption are verified;
+   physical microphone/headphone quality and hardware removal are not implied.
+2. Continue platform input acceptance: actual IME pre-edit/composition and
+   physical trackpad gestures are not established by Unicode boundary tests.
+3. Reconcile remaining combined-workflow gates against the evidence below.
+   Do not repeat completed minimum/wide layout or cursor-motion checks merely
+   because their historical entries still describe an earlier interruption.
+   Broader DAW capabilities remain in the roadmap, not a prototype-completion claim.
+
+- [x] Extended the opt-in disposable-JVM interruption probe to dry capture, FX
+  return, and FX source/send. All three real BlackHole cases passed using the
+  production stop-detection/interrupted-save/remember path. Preserved each stream's
+  available frame count, original dialogue fingerprint and Interrupted status;
+  repeated polling emitted no duplicate save/event. Reopened the same endpoints
+  and received new PCM without restarting the application/device context.
+  `/tmp/professeure-fx-interruption-verified.log` records:
+  dry 48,000 frames; return-stop wet/dry 51,360 / 49,440 frames; source-stop
+  wet/dry 56,160 / 48,000 frames. Both wet files have nonzero waveform peak
+  0.00318486. Original dry fixture passes the native audio validator. Artifacts
+  are retained under `build/recording-qa/interrupted-{54405c27-ef00-46da-a4c3-07e23ae11eae,
+  e1864be6-26fd-4064-a449-96cfaaeafb58,3bf1231a-0207-4d5f-a4f7-0ad62f33d5c5}/`.
+  The disposable fixture substitutes project storage, checkpointing and UI
+  callbacks; it does not prove durable-journal failure handling, physical device
+  removal, OS interaction, or full Bitwig UI setup. It uses no physical mic and
+  never redefines the running Studio's callbacks. Initial custom CLI invocation
+  omitted nREPL from its test classpath and exited before audio; the corrected
+  invocation completed with exit 0. Running project/takes/selection remain exactly
+  unchanged at revision 157, no active capture. Cancellation wording now describes
+  preparation as well as count-in: "Recording cancelled before capture started."
+  Full isolated suite after these changes: **121 tests / 2,722 assertions,
+  zero failures/errors**, `/tmp/professeure-fx-interruption-regression.log`.
+  Hot reload into the existing app passed; worker remains running and idle.
+  The desktop briefly passed the input guard after a bounded display wake, then
+  returned to loginwindow before the video helper became ready. The helper
+  refused before clicks/capture; no new video or take was made in the live app.
+
+- [x] Fix composed-character name editing, including the native display path.
+  The original `e` + U+0301 probe stopped at byte 1 inside the character;
+  six new navigation fixtures reproduced 12 failures before the fix.
+  Studio now uses stateful utf8proc 2.11.0 extended grapheme boundaries for
+  arrows, deletion, mouse hit-testing, and whole-character load/paste truncation
+  at 120 bytes. Joined neighbors settle the caret after edits. Display scratch
+  is NFC-composed for the Latin atlas without rewriting stored name bytes or
+  allocating on the heap. This is not full complex-script shaping or IME support.
+  Dependency pinned to `d7bf128df773c2a1a7242eb80e51e91a769fc985`; embedded Zig
+  builds the 374 KB generated/ignored archive, activated by Studio only. License
+  notices are included under `tools/resources/licenses/`. No game standalone
+  dependency or system-installed Unicode library is required.
+  Final isolated suite: **120 tests / 2,689 assertions, zero failures/errors**,
+  `/tmp/professeure-grapheme-verified.log`. The native byte-offset wrapper passes
+  all 766 Unicode 17.0 GraphemeBreakTest vectors in both directions, including
+  offsets inside multibyte encodings. Editor tests cover delete/undo, mouse
+  boundaries, capacity, joining an existing accent, and equal NFC/NFD glyph widths.
+  Intermediate retries failed (source-load syntax, deduplicated framework flags,
+  and an optional-pointer cast); these are not acceptance results. Corrected
+  argument handling preserves repeated flag pairs and the scratch cast is typed.
+  Reloaded into existing nREPL 64351 / JVM 64167 without restart or state migration.
+  Native input contract returns 0; library argument count is one. Actual guarded
+  OS paste entered `QA café` (decomposed): Backspace produced `QA caf`, Cmd+Z
+  restored the original bytes, and Left/Shift+Right selected bytes 6–9 together.
+  Inspected `/tmp/professeure-composed-name-selected.png`: one correctly drawn,
+  selected `é`. Text-only row selection cleared the draft; returning to Mangue
+  restored `Retour aligné`. No Rename/Enter/save was sent. Original project
+  revision 157, all take entries, selected passage and published WAV hash remain
+  unchanged. Record mode and stopped transport restored. A malformed first QA
+  command stalled the client before connecting; stopped only that verified client,
+  not the app, and the corrected OS run passed. Fresh 240-frame live sample:
+  119.994 submitted FPS, interval p99 8.620 ms/max 8.712 ms, UI-build p95 0.521 ms,
+  zero intervals over 16.67 ms. This is live-dev cadence, not GPU timestamp timing.
+
+- [x] September 12 checkpoint rerun: **117 tests / 1,129 assertions, zero
+  failures/errors**, isolated JVM (`/tmp/professeure-checkpoint-regression.log`).
+  Inspected fresh game and Studio OS captures at
+  `/tmp/professeure-checkpoint-game.png` and
+  `/tmp/professeure-checkpoint-studio.png`. The game shows the visited door-handle
+  choice dimmed beside the unvisited knock choice. Guarded OS key 1 opens the
+  already-visited branch, Space reveals its response, and the visible authored
+  child is “Lire l’autocollant.” (`/tmp/professeure-checkpoint-nested.png`).
+  OS Backspace restores the parent; F1 returns to the separate Studio window.
+  Selected take, stored take entries and project revision 157 are unchanged;
+  no capture, publication or source edit in this pass. The composed-accent probe
+  ran and restored its byte buffer within one render-queue callback, without
+  editing a saved name. This pass does not claim new source-watch, physical-audio
+  or IME acceptance. One initial read-only status query used the wrong arity;
+  corrected to the existing zero-argument API before proceeding.
+
+- [x] Make effects optional for publication, not just recording. Studio's default
+  Dry capture previously reached an enabled Publish button that rejected dry
+  takes. Publish now accepts selected dry or processed recordings from the
+  passage's history, with the same native finite/silence/clipping validation and
+  atomic replacement. Isolated real-WAV regressions cover both kinds, silent and
+  clipped audio, missing selections, unsafe IDs and unchanged source bytes.
+  Full suite: **117 tests / 1,129 assertions, zero failures/errors**
+  (`/tmp/professeure-dry-publication.log`). Reloaded into the existing JVM.
+  Selected an existing labelled QA dry take and inspected the actual Vulkan
+  frame at `/tmp/professeure-dry-publish-ready.png`. Native Publish-button input
+  advanced the real game's voice revision 11 → 12; restoring the original WAV
+  advanced 12 → 13. Original SHA-256 and all take references are restored; the
+  recovery copy remains under `build/recording-qa/`. An initial capture attempt
+  raced the selected-take refresh and refused while busy; waiting for idle fixed
+  that QA precondition. The guarded OS click was refused, so this is native UI
+  plus actual watcher evidence, not a new physical-input acceptance claim.
+
+- [x] Identify why OS capture/input stopped reflecting the live renderer.
+  macOS reported main display 1 inactive (`active=0`) and asleep (`asleep=1`);
+  foreground PID 165 was `loginwindow`. The render thread and native UI continued
+  running, but the desktop was unavailable for current visual/input acceptance.
+  Both `tools/test/studio_input.swift` and `tools/test/window_video.swift` now
+  preflight active awake displays and the login-window foreground, failing with
+  explicit exit status 4 before input/clipboard changes or encoder setup. Tested
+  the actual sleeping-desktop path: both refused, paste refusal preserved the
+  clipboard change counter, and no video file was created. Video argument usage
+  still exits 2. No display wake, login bypass or application restart attempted.
+  Final visual/mouse acceptance needs the desktop awake and unlocked; this
+  diagnosis does not close the motion or physical Publish gates.
+
+- [x] Record and analyze actual track-playhead motion, not just a still.
+  `tools/test/window_video.swift` verifies window ID + owner PID and uses a
+  desktop-independent ScreenCaptureKit window filter, with audio/microphone off.
+  The first built-in `screencapture -v -l` attempt captured the display instead;
+  its guarded click refused another app's window. That failed recording was
+  permanently deleted. A first standalone Swift attempt needed AppKit's
+  WindowServer initialization; the helper now initializes without activation.
+  Wrong-owner capture refuses without creating a file. A successful synchronized
+  Studio-only video contains 690 frames; the moving track line appears in 342
+  frames (4.60 s), with zero missing/duplicate-line frames or backward steps.
+  X advances 490 → 686 physical pixels; largest forward step is 2 px. H.264
+  thresholded width is 3–4 px for the nominal 4-px line. Native audio telemetry
+  agrees: 203 playing samples, 0 → 4.676 s, no x reversals, pixel-aligned values.
+  Evidence: `/tmp/professeure-studio-motion-synced.mp4` and inspected
+  `/tmp/professeure-motion-playing.png`. Playback uses the native button path;
+  it is not a new OS-click acceptance claim. Video rate isn't a 120-FPS claim.
+- [x] Finish the take-editor motion follow-up. Video inspection revealed that
+  Edit showed only trim handles while Record had a playback cursor. Both now
+  render the same frame-sampled cursor, with a consistent 2-point width and
+  bounded right edge. Added a native vertex-geometry regression for both modes.
+  First thin-line capture verified movement but the H.264 color detector missed
+  three frames; don't infer real rendering dropouts from compressed pixels alone.
+  The subsequent width-adjusted video failed in macOS before its first sample;
+  no file or acceptance evidence was produced. Repeat the final-width capture.
+  Three analyzer tests reject stationary footage and detect missing/duplicate
+  lines and reverse motion. All original project/take data remains unchanged.
+  Final native regression: **115 tests / 1,095 assertions, zero failures/errors**
+  (`/tmp/professeure-playhead-final-retry.log`). An earlier run had two compile
+  errors from the new test's untyped runtime integer branch; explicit `:u32`
+  expectation fixed it. Final-width Vulkan readback inspected at
+  `/tmp/professeure-editor-final-width-gpu.png`: one full-height cursor at physical
+  x=564, exactly 4 pixels wide, separate from trim handles. The later 60-Hz
+  recording helper stalled without a file; stopped only its verified PID 2387,
+  and added a process-local deadline for stalled OS awaits. This is not evidence
+  of a game/Studio stall. Restored Record mode, stopped playback, and verified
+  project/takes equal the pre-QA snapshot. Final-width OS motion remains open.
+  On the next verification pass, OS still capture returned Edit while the live
+  native mode query and actual Vulkan attachment both showed Record. CG window
+  metadata confirmed window 133843 belongs to the current JVM 64167 at the
+  expected bounds. Treat `/tmp/professeure-studio-window-current.png` as stale
+  composition evidence, not the current UI. Resolve capture/presentation
+  freshness before another motion run; merely getting a PNG or an encoder-start
+  callback does not establish that the current window is being observed.
+  Resumed with an awake desktop: synchronized ScreenCaptureKit readiness and
+  guarded OS Play input using `live-playhead-video-qa!`. Final video
+  `/tmp/professeure-editor-synchronized-final-2.mp4` has 618 frames; 247 moving
+  frames span 0.825–5.087 s, x=498→1458 px, with zero missing/duplicate lines or
+  backwards steps. H.264 thresholded width is 2–4 px; largest forward step 10 px.
+  Inspected `/tmp/professeure-editor-final-playing.png`: both track and editor
+  cursors visible. Native 120-sample cursor advances 0.377→4.300 s with no
+  reversals and 205,065 non-silent output frames by the last sample. Decoder
+  rawvideo DTS quantization warnings did not affect decoded frame count or
+  strictly increasing source timestamps. This is motion evidence, not an FPS
+  benchmark. An earlier unsynchronized clip failed the motion assertion; its
+  telemetry probe referenced an absent accessor. Another guarded click refused
+  foreground ownership. Neither failed attempt is counted. Final replay stopped,
+  Record view restored, take references unchanged. Three analyzer tests pass.
+
+- [x] Close Dry Publish physical-input acceptance. A guarded OS click on Publish
+  advanced game voice revision 14→15, and restoration advanced it to 16 with the
+  original hash. Original SHA-256 and all take references match the pre-QA state.
+  This supersedes only the earlier native-only limitation for Dry Publish.
+- [x] Consolidated resumed recording acceptance: guarded OS passage selection,
+  Record, Stop, Listen and Publish. A new labelled 220/330 Hz virtual QA source
+  passed through the configured FX send/return; dry/wet pair
+  `6cd4c398-af34-4329-a8a9-074daef8e840` is retained. The wet take is 2.79 s,
+  peak 0.003185, has the captured Mangue fingerprint and Recorded status, and
+  audition outputs 9,702 non-silent frames at 0.377 s. Inspected actual window
+  capture `/tmp/professeure-resumed-live-recording.png`: correct frozen text,
+  RECORDING state, live waveform and input/return meters. The configured return
+  is quiet (-50 dBFS); the UI warns, rather than claiming good recording level.
+  Signal presence does not itself identify or certify a particular effect.
+  Publish advanced the real game watcher 17→18; restoring original bytes advanced
+  18→19. Prior routing and selected/dry/wet/published pointers restored; no QA
+  tone remains published and the test source is stopped. This is virtual audio,
+  not a physical microphone/headphone listening test. Full isolated suite passes
+  117 tests / 1,129 assertions in `/tmp/professeure-resumed-acceptance-tests.log`.
+- [x] Reinspect current minimum/wide Edit and Record compositions. Actual OS
+  captures at 1100×760 and 1400×900 logical points show readable text, visible
+  transport, routing, waveform and take controls without overlap. Wide evidence:
+  `/tmp/professeure-final-record-wide.png` and
+  `/tmp/professeure-final-edit-wide.png`; minimum evidence is the resumed Record
+  capture and final Edit motion frame above. Switched modes with guarded OS
+  clicks, resized through the normal render-thread window helper, then restored
+  1100×760 and Record. This pass verifies composition and mode clicks, not a new
+  physical window-edge drag. Existing mouse/trackpad resize acceptance remains
+  separately documented. No recorded media or take selection changed by resizing.
 
 - [x] Scope the take-name editor to its selected target. Reproduced a loaded
   empty passage with zero duration but the preceding “Retour aligné” name.
@@ -46,18 +521,76 @@ Next, in order:
   disabled actions/waveform preserved project revision 135, transport, selection,
   trim, event cursor and pending action. These are native, not OS-input clicks.
   Selecting the real Mangue take restores enabled controls and its saved waveform.
-- [ ] Complete Compare readiness beyond the empty-take guard: distinguish an
-  unmarked A reference from a usable A/B pair before inviting comparison.
-- [ ] Repeat physical take-name editing/switching and transient PREPARING/live
-  recording captures when macOS delivers input again. Require a verified focused
+- [x] Complete A/B readiness and selected-waveform playback identity. This is
+  optional human listening to dry/processed audio or alternate performances of
+  the same passage, not automatic quality scoring. The UI distinguishes no A,
+  A marked/select B, listen A/B, and unavailable files. The API rejects same-take
+  and unmarked comparisons before opening audio. A removed from the passage's
+  history is unavailable even if its file remains. Reference A does not drive
+  selected B's playhead or per-take pause; global transport still controls it.
+  Full isolated suite: **114 tests / 1,094 assertions, zero failures/errors**
+  (`/tmp/professeure-comparison-final.log`). Hot-reloaded the existing Studio.
+  Native Mark A click produced “A marked: select B”; disabled Compare preserved
+  state, and direct API comparison returned `:comparison-not-ready`/`:select-b`.
+  Inspected `/tmp/professeure-comparison-marked.png` and
+  `/tmp/professeure-comparison-playing-b.png`. For actual audio, temporarily set
+  the nondurable reference to an existing dry take while keeping the selected
+  processed take unchanged: A output 113,337 non-silent frames and completed at
+  2.38 s; B's native button click output 10,143 non-silent frames at 0.248 s.
+  A's first “still playing” assertion was too late for the short clip; completion
+  plus actual PCM/cursor establishes playback, not that failed assertion. No
+  acoustic listening claim. The pair setup was a controlled reference fixture,
+  not a physical take-selection test. Restored reference, Record mode and stopped
+  transport; project/take selection remained exactly unchanged at revision 135.
+- [x] Guarded OS-input Record → Stop → Listen → Publish acceptance. The click
+  driver reads the Studio's current content position for each click, checks the
+  foreground PID, and AX-hit-tests the destination before mouse-down. An initial
+  stale-coordinate attempt aborted before Record and restored routing. Retried
+  with dynamic coordinates: five OS clicks recorded a 2.87-second BlackHole →
+  Bitwig → Studio return and auditioned 3,528 non-silent output frames. The saved
+  take has the Mangue capture-text fingerprint and Recorded status. Inspected
+  `/tmp/professeure-os-recording-fx.png`: live script, waveform, meters and Stop.
+  Bitwig's actual window shows input 1/2, return 3/4 and its Tool effect; no
+  Bitwig settings were changed. This uses a labelled 220/330 Hz QA signal, not
+  a new physical microphone/acoustic-listening claim. QA dry/wet files remain
+  in history; prior take references and routing were restored.
+  Actual OS Publish click advanced game voice revision 6 → 7 with a changed
+  content hash; restoring the original WAV advanced 7 → 8 and restored the hash.
+  SHA-256 confirms byte-exact original restoration. A recovery copy remains in
+  `build/recording-qa/voice-backup-2047bbd7-b2d1-4d5f-ba16-fe891b5f409e.wav`.
+  The opt-in helper now preserves an idle game's remembered voice node instead
+  of assuming it must be unset. Original selection/publication references were
+  restored and both transports stopped; no sample was left published.
+  Final isolated regression suite: **114 tests / 1,094 assertions, zero
+  failures/errors** (`/tmp/professeure-os-workflow-final.log`).
+- [x] Repeat physical take-name editing/switching with guarded OS input.
+  Actual mouse focus, System Events Cmd+A, and clipboard-preserving paste entered
+  `QA – fenêtre éphémère`. Inspected `/tmp/professeure-name-draft-os.png`.
+  Clicking the text-only first row cleared the draft and focus; clicking Mangue
+  restored `Retour aligné`. Project and all take entries stayed byte-for-value
+  unchanged; no Enter/Rename/save was sent. Reusable opt-in
+  `live-name-draft-os-qa!` repeats this path and restores selection/mode/scroll.
+  Its first cleanup used a host write to an inferred Boolean without a writable
+  schema; replaced with the existing native reset function. The complete retry
+  passed and restored Record mode. This verifies accented paste, not IME input.
+  Final isolated suite: **114 tests / 1,094 assertions, zero failures/errors**
+  (`/tmp/professeure-name-os-final.log`).
+- [x] Capture transient PREPARING at device startup. Closed by the September 12
+  native-event/video pass at the top of this file, including a separate real
+  phase-1 Stop cancellation with no take created. The following earlier OS-input
+  attempt remains historical evidence, not a prerequisite for native testing.
+  Require a verified focused
   window/field before typing; a failed nREPL assertion does not make the shell
   command fail, so never chain subsequent typing behind an unchecked assertion.
   Latest retry: OS click focused the name field, but Cmd+A/Unicode input did not
   change its text. The foreground process subsequently resolved to macOS
   `loginwindow` (PID 165); desktop capture was black while individual window
   capture remained readable. No Enter/save was sent and no stored name changed.
-  Add an immediate target-PID guard to the opt-in input helper before retrying;
-  do not rely on a focus check from an earlier tool call.
+  The opt-in input helper now accepts `--target-pid PID` and checks foreground
+  immediately before any input/clipboard operation in that invocation. Wrong-PID
+  text test exited 3 without sending input. Use the guard on subsequent OS tests;
+  it supplements, not replaces, verifying the correct window/field in that JVM.
+  Do not rely on a focus check from an earlier tool call.
 
 - [x] Active game voice focus suppression, not just its Boolean flag. Navigated
   to the real published Mangue passage: playing=true, native sound volume 0.8,
@@ -427,7 +960,7 @@ Next, in order:
   repeated switching and remaining trackpad/resize cases remain separate gates.
   Restored Mangue selection; project revision 82, routing, monitoring and stopped
   transport match the pre-QA snapshot. No recording or publishing in this pass.
-- [ ] Finish frame-timing instrumentation acceptance (240-sample bounded native
+- [x] Finish frame-timing instrumentation acceptance (240-sample bounded native
   ring and API distributions). Baseline actual submitted cadence: Edit 120.44,
   Record 119.90, Takes 120.01 FPS. This is dev cadence, not standalone release or
   p95 evidence. Only disposable profiling storage was explicitly migrated during
@@ -436,7 +969,8 @@ Next, in order:
   9.236 ms, maximum 9.332 ms; zero intervals over 16.67 ms. UI build p95
   0.530 ms, render-call wall time p95 1.749 ms (not GPU timestamp timing).
   Native ring/reset contract passed 1 test / 1 assertion. Full regression and
-  other-view distribution acceptance remain open. Worker recovered from the
+  other-view distributions subsequently passed below and in the checkpoint.
+  Worker recovered from the
   explicit profiling-layout migration guard (historical failure count now 37).
   After script-cache fix, measured 240 frames per mode: Edit 119.98 FPS / p99
   8.769 ms / max 8.841 ms; Record 120.01 / 8.767 / 8.886; Takes 120.00 /
@@ -531,8 +1065,9 @@ Next, in order:
   after the 5.7-second take ended and correctly restarted it; it is not counted
   as pause evidence. Restored stopped transport at zero, empty mix, original
   output and project revision 82; dismissed only the injected QA warning.
-- [ ] Extend failure acceptance to actual hardware
-  removal/reappearance, and FX-pair interruption. A stopped instance test does
+- [ ] Extend failure acceptance to actual hardware removal/reappearance and
+  backend callback stalls. FX-pair owned-instance interruption now passes the
+  disposable real-PCM probes in the checkpoint. A stopped instance test does
   not prove every backend's device-removal behavior or unchanged-but-stalled
   audio callbacks.
 - [x] Fix long take-name selection dragging: edge scrolling is elapsed-time
@@ -1138,11 +1673,14 @@ remain real Vars. Preserve metadata and verify emitted/native behavior.
   one operation; restore text/caret/selection, and clear redo after a new edit.
 - [x] Verify long-name drag/autoscroll behavior in the native window; see the
   September 12 edge-scroll regression and OS held-drag evidence above.
-- [ ] Extend text-entry acceptance to IME/composed graphemes. These are not
-  implied by codepoint editing or the successful long-name drag checks.
+- [x] Add composed-grapheme editing and verify native/OS accent interactions.
+  See the Unicode 17.0 conformance and real-window evidence in the checkpoint.
+- [ ] Extend text-entry acceptance to platform IME pre-edit/composition and
+  general complex-script shaping. These are not implied by grapheme navigation.
 - [x] Verify OS Option-scroll pointer-anchored zoom and Shift-scroll horizontal
-  pan, without moving track rows or leaving a modifier stuck. Native pinch is
-  still a separate, unimplemented gesture; do not conflate it with scrolling.
+  pan, without moving track rows or leaving a modifier stuck. Native pinch was
+  subsequently implemented; see the September 12 native-queue evidence above.
+  Physical pinch acceptance remains distinct from scrolling.
 
 Manuals consulted: [Recording Clips](https://www.bitwig.com/userguide/latest/recording_clips/)
 and [Transport](https://www.bitwig.com/userguide/latest/the_window_menus_transport_area/).
@@ -1151,9 +1689,13 @@ Arranger/Launcher parity. Do not imply features that are not implemented.
 
 ## Existing fixes needing final visual/interaction acceptance
 
-- [ ] Verify the stable, single, pixel-aligned DAW playhead in motion.
-- [ ] Verify the game is silent while studio is focused or recording, without
+- [x] Verify the stable, single, pixel-aligned DAW playhead in motion.
+  Closed by the final-width ScreenCaptureKit video and native cursor samples
+  in the completion checkpoint above; not a 120-FPS presentation claim.
+- [x] Verify the game is silent while studio is focused or recording, without
   muting studio monitoring/playback; preserve the game's manual mute choice.
+  Closed by the actual voice gain/cursor + independent Studio PCM evidence
+  above and the game-audio-focus-isolation regression; not acoustic measurement.
 - [ ] Verify French glyphs have no stray dots in both windows at native scale.
 - [ ] Verify text-only Markdown-driven game and UTF-8-safe typewriter reveal;
   Space/click reveals immediately. Art/animation is deferred by request.

@@ -22,6 +22,24 @@
 (az/defvar device Device ak/undefined)
 (az/defvar initialized false)
 (az/defvar running false)
+(az/defvar capture-enabled :u8 1)
+
+(az/defn hold-capture! :- :void []
+  ;; Devices may open asynchronously while PREPARING remains cancellable.
+  ;; Neither input samples nor effects sends belong to a take until committed.
+  (ak/atomicStore :u8 (ak/& capture-enabled) 0 :.release))
+
+(az/defn release-capture! :- :void []
+  (ak/atomicStore :u8 (ak/& capture-enabled) 1 :.release))
+
+(az/defn capture-held? :- :bool []
+  (ak/== (ak/atomicLoad :u8 (ak/& capture-enabled) :.acquire) 0))
+
+(az/defn- silence-preparing-output! :- :void
+  [[output [:c-pointer :f32]] [frames :u32]]
+  (when (ak/!= output ak/null)
+    (dotimes [i (* frames 16)]
+      (set! (az/index output i) 0.0))))
 (az/defvar playback-info [:c-pointer DeviceInfo] ak/null)
 (az/defvar capture-info [:c-pointer DeviceInfo] ak/null)
 (az/defvar playback-count :u32 0)
@@ -227,6 +245,9 @@
 (az/defn process-source!
   "Live source callback: retain dry stereo, send only 1/2. Never read the return bus."
   :- :void [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
+  (when (capture-held?)
+    (silence-preparing-output! output frames)
+    (ak/return))
   (let [start (ak/atomicLoad :u64 (ak/& source-frames) :.monotonic)
         stopping (ak/!= (ak/atomicLoad :u8 (ak/& source-stop) :.acquire) 0)
         count (if stopping (ak/as :u64 0) (ak/min (ak/as :u64 frames) (- max-frames live-tail start)))
@@ -323,6 +344,9 @@
 (az/defn process-block!
   "Mode 1 captures dry. Mode 2 sends a dry take. Modes 2/3 retain only return 3/4."
   :- :void [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
+  (when (capture-held?)
+    (silence-preparing-output! output frames)
+    (ak/return))
   (let [start (ak/atomicLoad :u64 (ak/& recorded-frames) :.monotonic)
         ^{:var :f32} peak 0.0
         ^{:var :f32} sent-peak 0.0]
@@ -374,7 +398,8 @@
   (when running
     ((az/field api ma_device_uninit) (ak/& device))
     (set! running false)
-    (when (ak/== mode 1) (set! dry-frames (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire)))))
+    (when (ak/== mode 1) (set! dry-frames (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire))))
+  (release-capture!))
 
 (az/defn start!
   "Explicit device indices only. Mode 1 microphone; mode 2 sixteen-channel effects round-trip."

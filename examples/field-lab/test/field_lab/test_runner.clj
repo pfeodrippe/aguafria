@@ -17,17 +17,18 @@
     field-lab.mesh-cache-test
     field-lab.contact-mesh-test
     field-lab.coupled-fem-test
+    field-lab.variational-test
     field-lab.mesh-group-test
     field-lab.spherical-source-test
     field-lab.readback-test])
 
 (defn -main
   [& _]
-  ;; Export checks call the actual adapter but never open a native window.
-  ;; Configure its archive before loading tests that materialize app functions.
-  (let [panel (str (build/prepare-panel!))
+  ;; Export checks call the native AguaFria export code but never open a native window.
+  ;; Configure the extension host before loading tests that materialize app functions.
+  (let [host (str (build/prepare-host! :dynamic-lib))
         arguments (vec (:zig-args (az/configuration)))]
-    (az/configure! {:zig-args (if (some #{panel} arguments) arguments (conj arguments panel))}))
+    (az/configure! {:zig-args (if (some #{host} arguments) arguments (conj arguments host))}))
   (apply require test-namespaces)
   (let [result (apply test/run-tests test-namespaces)]
     (shutdown-agents)

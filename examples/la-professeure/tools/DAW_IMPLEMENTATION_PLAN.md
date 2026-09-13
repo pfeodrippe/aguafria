@@ -4,6 +4,18 @@
 
 Active issue-by-issue acceptance checklist: [`../AGENT_TODO.md`](../AGENT_TODO.md).
 
+Native QA uses Aguafria/nREPL event injection into production hit-testing,
+render-thread state checks and actual Vulkan readback. Desktop login must not
+block that workflow. OS-specific input/composition QA needs an awake display and
+an unlocked user session. The opt-in Swift input/video tools reject a sleeping desktop or login-window foreground
+before sending input, touching the clipboard or starting the encoder. A valid
+window ID, saved screenshot or successful encoder-start callback alone does not
+prove freshness: WindowServer retained an old Studio image during display sleep
+while native rendering continued. GPU readback remains renderer evidence, not
+substitute evidence for current OS composition or physical mouse interaction.
+Keep these evidence categories separate rather than requiring OS mouse delivery
+for every native button or audio test.
+
 Global transport and passage audition have distinct ownership. Pause/Resume and
 Space control the loaded sound even after selecting a different or unrecorded
 passage; Resume preserves its cursor and never schedules recording, including
@@ -48,6 +60,35 @@ continuous PCM, and a saved take marked changed against the new words. The note
 was restored byte-for-byte; the take matched the restored text. Prior selected
 takes/routing were restored, the labelled QA take retained, and nothing published.
 Physical input and derived-audio end-to-end acceptance remain separate gates.
+
+Owned-device interruption acceptance now also covers both sides of a real
+BlackHole FX pair in a disposable JVM: stopping source/send or return preserves
+each available PCM prefix and its captured dialogue fingerprint, marks the takes
+Interrupted, and does not duplicate entries/events on the next poll. The same
+endpoints reopen and deliver new PCM. UI/checkpoint/project-storage effects are
+isolated in this probe; it is not physical-unplug or durable-journal acceptance.
+Detailed frame counts and retained artifacts are in `AGENT_TODO.md`.
+
+The core recording path now also has guarded OS-input acceptance: select a
+passage, Record, Stop, Listen, and Publish. A real 2.87-second processed test
+return played non-silent PCM through Studio. The game's file watcher reloaded
+the published take without an explicit reload call, then reloaded the restored
+original; SHA-256 verifies restoration. Labelled QA takes and a recovery copy
+are retained, while previous routing and selected/published references are
+restored. This does not certify physical-microphone acoustics or all remaining
+interaction cases. The OS driver resolves current window coordinates for every
+click and refuses wrong-PID foreground/hit targets. Optional A/B remains a human
+comparison of two takes of one passage, never a requirement to record or publish.
+
+Effects are optional throughout the workflow: Publish accepts either a selected
+dry recording or a processed take. Both use the same native audio validator;
+silent, clipped or invalid audio and absent selections fail before replacing the
+game asset. Real-WAV regressions and native Publish-button input with the game's
+live watcher verify the Dry path. The original published voice and take pointers
+were restored after QA. A subsequent awake-desktop pass also verifies the actual
+OS Publish click for Dry, and a consolidated passage/Record/Stop/Listen/Publish
+sequence with the configured FX return. See the active checklist for the retained
+QA pair, real watcher revisions, audio validation and restoration evidence.
 
 Derived-audio acceptance now includes an actual sample-exact trimmed copy and a
 real Bitwig processed return retaining the capture-time fingerprint. The latter
@@ -310,6 +351,21 @@ stopped dragging; original draft/history restored, project revision unchanged.
 Latest combined native suite: 27 tests / 214 assertions passed. This does not
 claim IME composition or grapheme-cluster navigation support.
 
+Composed-character follow-up (September 12): use Unicode extended grapheme
+boundaries for name arrows, selection, deletion and the 120-byte load/paste limit.
+Keep stored bytes unchanged; normalize bounded display scratch to NFC so the
+existing Latin atlas renders decomposed French accents correctly. This is not
+general complex-script shaping or platform IME pre-edit support. Native Studio
+uses [utf8proc 2.11.0](https://github.com/JuliaStrings/utf8proc/tree/v2.11.0), pinned
+to `d7bf128df773c2a1a7242eb80e51e91a769fc985`, built with embedded Zig by
+`build/studio-text!`. Its archive is generated/ignored and is not linked into
+the game's standalone executable. Preserve its MIT/Unicode notices in
+`tools/resources/licenses/utf8proc.txt` when distributing Studio. The native
+byte-offset wrapper is checked against Unicode 17.0's 766
+[GraphemeBreakTest cases](https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakTest.txt)
+vendored with their Unicode license under `tools/test/`. Acceptance results and
+live-window evidence belong in `AGENT_TODO.md`, not an inferred completion claim.
+
 September 12 acceptance follow-up: Record mode's long script now clips individual
 glyph geometry/UVs at fractional scroll offsets, rather than dropping whole lines.
 Overlong words wrap between UTF-8 codepoints. A runtime-only French fixture reached
@@ -450,8 +506,19 @@ keyboard zoom, modified scrolling, ruler dragging and trackpad gestures.[^arrang
 For our GLFW interface, implement two-axis scrolling and a documented modifier for
 pointer-anchored zoom first. GLFW exposes scroll offsets for mouse wheels/touchpads;
 its portable input API does not provide a general native pinch/magnification event.
-Do not advertise pinch until a platform-specific bridge is implemented and tested.
+The macOS Studio now has that bridge: a stable native AppKit event monitor queues
+magnification only for the Studio window; the existing render tick applies it.
 Use callbacks so very short clicks/key presses cannot disappear between frames.[^glfw]
+
+The bridge follows Apple's incremental [magnification event](https://developer.apple.com/documentation/appkit/nsevent/magnification)
+and [local event monitor](https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents%28matching%3Ahandler%3A%29)
+APIs. It removes its monitor on detach and keeps callbacks out of reloadable code.
+Our zoom policy uses `exp(-magnification)` around the pointer, bounded to 2–60
+seconds. A mutex-protected 64-entry queue coalesces excess deltas. Only the Edit
+timeline consumes zoom; other modes/panes and the game are isolated. Native queue
+injection, burst handling and fresh Vulkan rendering passed; physical-finger
+delivery remains a separate acceptance check. The ruler uses stable absolute
+time steps rather than arbitrary fractions of the current viewport.
 
 Routing is a patchbay, not a single input dropdown. Ableton's documented model includes
 track sources/destinations, monitoring, MIDI routing, internal submixes and resampling.[^routing]
@@ -636,13 +703,18 @@ not the continuous control API. Bitwig Save is not our recording/export command.
    button auditions. Ruler/body dragging seeks; trimming starts only at visible handles.
 4. Vertical wheel/two-finger movement scrolls the pane under the pointer. Horizontal
    movement pans time. Shift+vertical scroll pans; Option+vertical scroll zooms around
-   the pointer. Buttons remain available. Native pinch is a separate future bridge.
+   the pointer. macOS pinch uses the same timeline zoom path; buttons remain available.
 5. Scrollbars and viewport indicators make hidden content discoverable. Follow-playback
    is explicit. Manual pan/zoom must not immediately be undone by camera-style following.
 6. Hover help, selected/playing/paused/recording states, drag cursor and boundaries are
    visible. Controls never perform a different operation because their label was clipped.
 7. Preserve full Markdown, stable IDs, real waveforms, A/B, non-destructive takes,
    guarded monitoring, recovery and publication. Never auto-open a microphone on navigation.
+8. Up/Down and Page Up/Down navigate visible passage lists, including held-key
+   repeats. Keep the selection in view, reset only the newly selected passage's
+   editor position and leave playback ownership/arming intact. Text focus and
+   device menus consume their own keys; pending commands and capture block passage
+   changes. Modified arrows and release events must not navigate accidentally.
 
 ## Phases and acceptance gates
 
@@ -926,6 +998,86 @@ empty layout. Native hit-test clicks on seven disabled controls plus the empty
 waveform preserve project, transport and trim state. This does not replace the
 physical input gate or prove that an A reference has been marked for comparison.
 
+### Playback motion acceptance
+
+Both the track and the selected take editor show playback position, including
+Edit mode alongside trim handles. Reuse one audio-cursor sample per UI frame;
+pixel-align the cursor and keep its full two-point width inside the waveform.
+An unrelated playing passage must never drive the selected take's cursor.
+
+For motion QA, `tools/test/window_video.swift` is an opt-in macOS 15+ helper,
+not a game dependency. It captures one verified window and no audio or microphone
+using [Apple's desktop-independent window filter](https://developer.apple.com/documentation/screencapturekit/sccontentfilter).
+`analyze_playhead.py` scans a specified physical-pixel track ROI with ffmpeg/numpy;
+its motion summary reports missing or duplicate lines and backward steps. Video
+compression affects thresholded line width, so compare footage with native cursor
+telemetry rather than equating every color-threshold miss with a renderer defect.
+Do not use unscoped display recording when other applications are open.
+
+### Take-name editing acceptance
+
+macOS composition safety: GLFW's Cocoa key callback runs before
+`interpretKeyEvents` ([GLFW source](https://github.com/glfw/glfw/blob/master/src/cocoa_window.m)).
+While the Studio view reports marked text through Apple's
+[`NSTextInputClient`](https://developer.apple.com/documentation/appkit/nstextinputclient),
+the application must leave Enter/Escape/navigation/deletion keys to the input
+method. Committed characters still arrive through GLFW's character callback.
+A later Enter performs Rename. Blur, mode/route changes and take replacement
+discard composition so it cannot leak into another take. Use public AppKit APIs;
+no private-ivar reads or view-class swizzling. An amber underline identifies the
+composition state. The focused take-name field now has a dedicated AppKit
+`NSTextInputClient` view for transient marked text. System fonts shape that text;
+its screen-space rectangle anchors candidates beside the caret. The committed
+draft, limits, undo and Rename remain in the existing Aguafria editor. No global
+view-class replacement, window activation or replacement editor is involved.
+Each content-addressed bridge build has a distinct Objective-C class name, and
+detaching removes the old view before a new bridge is installed.
+
+The opt-in `ime-keyboard-qa-contract!` targets the actual first responder. An
+ordinary AppKit key event inserts exactly one character; marked Japanese, French
+and Chinese text is available through the public substring API and renders in
+the native view. Its candidate rectangle is verified in logical window points.
+Six editing keys leave the uncommitted draft alone, `é` commits through GLFW's
+actual character callback, and only a subsequent AppKit Enter queues Rename.
+It restores the draft, edit history, focus and command state within one render
+task. The tiny native probe is test-only, not included in the shipped Studio
+adapter or game. No OS input-method selection or persisted rename is performed.
+The inspected native-view raster is `/tmp/professeure-ime-native-preedit.png`.
+This AppKit overlay is not part of a Vulkan-only framebuffer capture. Physical
+input-method candidate interaction remains a distinct manual acceptance check;
+the probe does not establish that or general shaping of the committed
+Vulkan-rendered draft. Final compositor delivery was subsequently verified by
+inspecting `/tmp/professeure-ime-final-window.png`, captured from the actual
+Studio window without changing application focus. That check caught and fixed
+excess blank overlay width; the native probe now asserts natural text sizing.
+
+Take-name editing has a separate guarded OS acceptance helper:
+`live-name-draft-os-qa!`. It selects all, pastes an accented draft, switches to
+a text-only row, then returns to the original take. The draft clears and the
+saved name returns; project/take data is unchanged. The clipboard is restored
+by the input driver. This covers ordinary Unicode paste, not IME composition.
+
+### Optional A/B audition
+
+A/B means listening to two saved takes of one passage: an original dry voice
+versus its effects return, or two performances of the same words. The human
+chooses; there is no automatic quality score. It is not part of the required
+select-passage → record → listen → publish workflow.
+
+Mark the selected take as A, select a different take as B, then alternate the
+explicit “listen A”/“listen B” action. Until a usable pair exists, show a disabled
+action with the next step or missing-file explanation. A reference belongs to
+one passage and must still exist in that passage's history and on disk. Apply
+the same readiness rules in the command API. The selected waveform continues
+to represent B: reference A uses the independent global transport and must not
+borrow B's cursor/per-take pause indication. API snapshots expose readiness.
+
+Native/host/API regressions pass in the full suite (114 tests, 1,094 assertions).
+Live native hit testing verifies marking and disabled comparison. Real existing
+dry/processed takes produce nonzero PCM on both sides, with an inspected actual
+Vulkan frame during B playback. These do not claim physical-device listening or
+OS-driven selection of the full pair; retain those acceptance distinctions.
+
 Selection presentation follows stable passage IDs, not the previous worker
 refresh. Waveform uploads validate the selected ID atomically on the render
 thread. Until matching data arrives, display a loading state and disable
@@ -940,6 +1092,24 @@ not all rapid-switch stress cases. See AGENT_TODO.md for evidence and open gates
 
 ## Device startup versus count-in
 
+### Selected-output audibility diagnostics
+
+Studio must distinguish produced PCM from audible hardware output. Query the
+selected device's stable Core Audio UID, not the system-default device or its
+display name. Read its master output mute using
+[`kAudioHardwarePropertyDeviceForUID`](https://developer.apple.com/documentation/coreaudio/kaudiohardwarepropertydeviceforuid)
+and [`kAudioDevicePropertyMute`](https://developer.apple.com/documentation/coreaudio/kaudiodevicepropertymute).
+Core Audio queries run on the control worker; rendering consumes a device-indexed
+snapshot that expires after two seconds. Missing/unsupported master controls are
+Unknown, not Unmuted. Changing the selected output invalidates the old snapshot.
+
+The output selector shows an amber **Output muted (macOS)** state. It remains a
+device selector, not an unmute button. `query` exposes
+`:playback :system-mute-state` as `:muted`, `:unmuted` or `:unknown`. No system
+volume/mute writes, automatic output changes or extra audio devices are allowed.
+An unmuted master is not proof of audibility: channel gain, external equipment and
+physical listening remain separate checks.
+
 With count-in set to zero, recording still needs time to open audio devices.
 Show **PREPARING / Opening audio devices. Stop to cancel.** during that interval;
 show **COUNT-IN** only while its deadline is in the future. Do not report active
@@ -948,7 +1118,45 @@ Routing meters use the same countdown predicate, and an unused Dry-mode FX
 return stays bypassed. Persistent level warnings identify their source as the
 last take, not a live microphone measurement.
 The corrected labels are live-reloaded; the full isolated Studio suite passes
-109 tests / 1,057 assertions. Capturing the corrected transient UI remains open.
+109 tests / 1,057 assertions. Transient UI capture was still open at that checkpoint;
+the September 12 native-event pass below closes it.
+
+The September 12 worker-ordering pass fixes more than the label: PREPARING is
+published before blocking recorder initialization, and the count-in clock starts
+only after initialization succeeds. Before beginning capture, check native UI
+Stop and queued API Stop; a cancellation arriving during preparation must prevent
+zero-count-in capture. Leave Stop queued for normal acknowledgment, without
+reordering other commands. Initialization failure returns to idle through the
+existing command cleanup. The new regression reproduced eight failures before
+the fix; the full isolated suite now passes 121 tests / 2,720 assertions. The fix
+is hot-reloaded without changes to takes or the project. That pass's OS input
+guard refused a sleeping/locked session, so it established no OS-input acceptance.
+
+The subsequent native-button pass recorded the actual Studio window (615 frames,
+10.693 seconds) and inspected PREPARING before real BlackHole capture began.
+Record/Stop/saved-take playback succeeded with a 1.1-second non-silent test take.
+A separate native Stop caught real preparation phase 1, returned to idle and
+created no take. Fresh Vulkan readback confirmed restored controls and the
+cancellation message. Original recording references were preserved; the new
+labelled QA take remains in history, with no game publication. This verifies
+native hit-testing and live rendering, not physical mouse or microphone behavior.
+Evidence paths and latest 121-test / 2,722-assertion result are in AGENT_TODO.md.
+
+A repeatable follow-up found a later Stop race during the actual device open,
+after the worker's first check. The final start boundary now holds native audio
+callbacks (silent output, no PCM retention) until a render-thread commit rechecks
+UI/API Stop and publishes session ownership, phase 2 and the callback gate together.
+Cancellation closes the prepared devices without creating a take or recovery
+journal; Stop remains queued for its normal acknowledgment. Existing empty path
+reservations are not deleted. Normal recorder callers retain immediate-start
+behavior unless they explicitly hold capture.
+
+Verification: 123 tests / 2,739 assertions pass, including late UI/API cancellation
+and both native callback gates. Eight real native Record/Stop repetitions created
+no takes; a fresh GPU frame was inspected. Subsequent real Dry and FX captures
+saved and played non-silent audio, preserving original take references. The
+existing JVM received the fix through hot reload. See the reconciled priorities
+at the top of AGENT_TODO.md instead of treating older acceptance notes as blockers.
 
 ## Game keyboard delivery
 

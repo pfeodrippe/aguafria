@@ -27,8 +27,10 @@
         radius (az/field (scene/config) radius)
         ^{:var :f64} extent 0.0]
     (dotimes [i scene/body-count]
-      (let [position (az/field (scene/body-state (ak/intCast i)) position)]
-        (set! extent (ak/max extent (+ radius (p/length (p/add position (p/scale target -1.0))))))))
+      (let [position (az/field (scene/body-state (ak/intCast i)) position)
+            owned (scene/mesh-cache-at i)
+            body-radius (if (ak/!= owned null) (az/field (az/field (az/unwrap owned) config) radius) radius)]
+        (set! extent (ak/max extent (+ body-radius (p/length (p/add position (p/scale target -1.0))))))))
     (ak/max minimum (+ 1.0 (* 2.6 extent)))))
 
 (az/defn emit!
@@ -81,11 +83,12 @@
                                     (+ 4.0 (* (- (az/field measured z) 4.0) projection))))
                     normal (az/index normals index)
                     unit (p/scale normal (/ 1.0 (ak/max 1.0e-12 (p/length normal))))
-                    local (if (ak/!= owned null)
+                    local (if (ak/!= (scene/scripted-scene) null) (p/v 1.0 1.0 1.0)
+                            (if (ak/!= owned null)
                             (p/scale (p/add (az/index (az/field (az/unwrap owned) reference) index)
                                              (p/scale (az/field (az/field (cache/frame-info (az/unwrap owned) 0) observation) center) -1.0))
                                      (/ 1.0 (az/field (scene/config) radius)))
-                            (az/index mesh/points index))
+                            (az/index mesh/points index)))
                     view (p/add position (p/scale eye -1.0))
                     depth (ak/max 0.01 (p/dot view forward))
                     film-x (/ (* 2.1 (p/dot view right)) depth)

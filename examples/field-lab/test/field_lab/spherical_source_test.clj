@@ -4,7 +4,6 @@
             [aguafria.keyword :as ak]
             [field-lab.physics :as physics]
             [field-lab.mesh-cache :as cache]
-            [field-lab.refined-job :as refined]
             [field-lab.coupled-job :as joint]
             [field-lab.nonlinear-job :as job]
             [field-lab.nonlinear-fem :as dynamics]
@@ -26,7 +25,7 @@
 
 (deftest mass-is-preserved-as-physical-boundary-refines
   (doseq [level [0 1 2]]
-    (let [result (refined/build! {:refinement level :seconds (/ 1.0 240.0)
+    (let [result (job/bake-cache! {:refinement level :seconds (/ 1.0 240.0)
                                  :config {:gravity 0.0 :vx 0.0 :vz 0.0 :spin 0.0}})
           owned (:cache result)]
       (try

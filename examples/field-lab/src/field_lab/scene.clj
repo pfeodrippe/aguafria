@@ -103,9 +103,25 @@
   []
   (mesh-cache-at 0))
 
+(az/defstruct ScriptedScene
+  {:layout :extern}
+  [[:gravity [:array 3 p/Vec3]] [:floor [:array 3 :bool]]
+   [:source_hash [:array 65 :u8]]])
+
+(az/defvar scripted-scene-id :u64 0)
+
+(az/defn scripted-scene
+  :- [:optional [:*const ScriptedScene]]
+  []
+  (when (or (ak/== world null) (ak/== scripted-scene-id 0)) (ak/return null))
+  (let [value (ecs/ecs_get_id world output scripted-scene-id)]
+    (if (ak/== value null) null (az/cast value [:*const ScriptedScene]))))
+
 (az/defn clear-mesh-cache!
   :- :void
   []
+  (when (ak/!= scripted-scene-id 0)
+    (ecs/ecs_remove_id world output scripted-scene-id))
   (let [owned (single-mesh-cache)
         collection (mesh-group)]
     (when (ak/!= owned null)
@@ -234,6 +250,7 @@
     world (ecs/ecs_init)
     mesh-cache-id 0
     mesh-group-id 0
+    scripted-scene-id 0
     config-id (component! "BallConfig" (ak/sizeOf p/Config) (ak/alignOf p/Config))
     state-id (component! "BallState" (ak/sizeOf p/State) (ak/alignOf p/State))
     soft-id (component! "DeformableBody" (ak/sizeOf soft/Body) (ak/alignOf soft/Body))
@@ -304,7 +321,7 @@
   :- :void
   [[owned [:* group/Group]]]
   (debug/assert (group/complete? owned))
-  (debug/assert (ak/== (az/field owned count) 3))
+  (debug/assert (and (> (az/field owned count) 0) (<= (az/field owned count) 3)))
   (clear-mesh-cache!)
   (when (ak/== mesh-group-id 0)
     (set! mesh-group-id (component! "MeshCacheGroup" (ak/sizeOf MeshGroupRef) (ak/alignOf MeshGroupRef))))
@@ -314,7 +331,7 @@
     (ecs/ecs_set_id world output mesh-group-id (ak/sizeOf MeshGroupRef) (ak/& reference))
     (ecs/ecs_set_id world source config-id (ak/sizeOf p/Config) (ak/& settings))
     (az/set-many!
-      body-count 3
+      body-count (az/field owned count)
       deformable true
       continuum true
       requested-continuum true
@@ -325,7 +342,8 @@
       revision (+ revision 1))
     (store-material!)
     (dotimes [tick count]
-      (dotimes [body 3]
+      (set! (az/index history tick) (experiments/single-ball settings))
+      (dotimes [body body-count]
         (let [item (group/item owned body)
               frame (cache/frame-info item (ak/intCast tick))
               observation (az/field frame observation)
@@ -335,8 +353,19 @@
             (az/field summary velocity) (p/scale (az/field observation momentum) (/ 1.0 (az/field observation mass)))
             (az/field summary time) (az/field frame time)
             (az/index (az/field (az/index history tick) bodies) body) summary))))
-    (dotimes [body 3] (ecs/ecs_remove_id world (az/index bodies body) ecs/EcsDisabled))
+    (dotimes [body 3]
+      (if (< body body-count)
+        (ecs/ecs_remove_id world (az/index bodies body) ecs/EcsDisabled)
+        (ecs/ecs_add_id world (az/index bodies body) ecs/EcsDisabled)))
     (seek! 0)))
+
+(az/defn set-scripted-scene!
+  "Flecs owns the source identity and per-body field settings alongside the cache."
+  :- :void
+  [[parameters ScriptedScene]]
+  (when (ak/== scripted-scene-id 0)
+    (set! scripted-scene-id (component! "ScriptedScene" (ak/sizeOf ScriptedScene) (ak/alignOf ScriptedScene))))
+  (ecs/ecs_set_id world output scripted-scene-id (ak/sizeOf ScriptedScene) (ak/& parameters)))
 
 (az/defn step!
   :- :bool

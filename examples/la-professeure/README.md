@@ -1,7 +1,8 @@
 # La Professeure
 
-Aguafria Zig narrative-RPG prototype, not an educational game. Painted atmosphere,
-French dialogue in Libre Baskerville, animated rain and 2D lighting.
+Aguafria Zig narrative-RPG prototype, not an educational game. Currently text-only,
+with Markdown-driven French dialogue in Libre Baskerville and typewriter reveal.
+Art, animation and lighting assets are retained for later use.
 Rendering is direct Vulkan, using GPU-address-based data inputs inspired by
 [No Graphics API](https://www.sebastianaaltonen.com/blog/no-graphics-api).
 GLFW handles window/input; miniaudio handles sound. No raylib or other game engine.
@@ -27,8 +28,9 @@ ReleaseFast optimization. Standalone contains neither the JVM watcher nor glslc.
 Shader logic edits must preserve the current vertex/root-data interface;
 GPU resource/layout changes require an explicit safe resource rebuild.
 
-Press **1–3** or click a response. **F1** toggles the development atelier;
-SPACE pauses animation, L toggles the light, and M mutes audio.
+Press **1–3** or click a response. **Space** reveals the text immediately;
+**Backspace** returns to the parent choices. **F1** switches to the separate Studio
+window; **M** mutes dialogue audio. Background music is disabled.
 
 `dialogue.edn` selects the Markdown input for both dev and standalone builds.
 It now points directly to the author's original Obsidian `La Voiture.md`.

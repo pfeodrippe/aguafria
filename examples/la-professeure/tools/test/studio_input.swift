@@ -3,8 +3,26 @@
 import Foundation
 import CoreGraphics
 import AppKit
+import ApplicationServices
+
+// A sleeping/locked desktop may retain old window images. Never wake it by
+// posting input or modify its clipboard while pretending to exercise Studio.
+var displayCount: UInt32 = 0
+guard CGGetActiveDisplayList(0, nil, &displayCount) == .success else {
+    fputs("Input refused: cannot inspect active displays\n", stderr)
+    exit(4)
+}
+var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+guard displayCount > 0,
+      CGGetActiveDisplayList(displayCount, &displays, &displayCount) == .success,
+      displays.prefix(Int(displayCount)).contains(where: { CGDisplayIsAsleep($0) == 0 }),
+      NSWorkspace.shared.frontmostApplication?.bundleIdentifier != "com.apple.loginwindow" else {
+    fputs("Input refused: desktop asleep or at login; unlock/wake it before UI QA. No input sent.\n", stderr)
+    exit(4)
+}
 
 var args = Array(CommandLine.arguments.dropFirst())
+var expectedPID: pid_t?
 if args.first == "--target-pid" {
     guard args.count >= 3, let expected = Int32(args[1]), expected > 0 else {
         fputs("--target-pid requires a positive process ID and a command\n", stderr)
@@ -17,10 +35,22 @@ if args.first == "--target-pid" {
         fputs("Input refused: expected foreground PID \(expected), found \(actual ?? -1)\n", stderr)
         exit(3)
     }
+    expectedPID = expected
     args.removeFirst(2)
 }
 func number(_ i: Int) -> Double { Double(args[i])! }
 func mouse(_ kind: CGEventType, _ x: Double, _ y: Double) {
+    if kind == .leftMouseDown, let expected = expectedPID {
+        var element: AXUIElement?
+        let status = AXUIElementCopyElementAtPosition(
+            AXUIElementCreateSystemWide(), Float(x), Float(y), &element)
+        var owner: pid_t = -1
+        if let element = element { AXUIElementGetPid(element, &owner) }
+        guard status == .success, owner == expected else {
+            fputs("Click refused: point belongs to PID \(owner), expected \(expected); AX status \(status.rawValue)\n", stderr)
+            exit(3)
+        }
+    }
     CGEvent(mouseEventSource: nil, mouseType: kind,
             mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: .left)?.post(tap: .cghidEventTap)
     Thread.sleep(forTimeInterval: 0.025)

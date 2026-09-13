@@ -85,6 +85,17 @@
           (is (pos? (:elastic-energy observation)))
           (is (< (apply max (map abs total)) 1.0e-9))
           (is (< (apply max (map abs torque)) 1.0e-9))
+          ;; The implicit path must preserve exactly the same energy and force
+          ;; assembly while omitting explicit stability bounds and telemetry.
+          (let [optimized (az/value (dynamics/elastic-objective! state true))
+                optimized-forces (mapv #(job/vector-data (dynamics/particle-force state %))
+                                       (range (count points)))
+                energy-only (az/value (dynamics/elastic-objective! state false))]
+            (is (= (select-keys observation [:elastic-energy :minimum-jacobian]) optimized))
+            (is (= forces optimized-forces))
+            (is (= optimized energy-only))
+            (is (= forces (mapv #(job/vector-data (dynamics/particle-force state %))
+                                (range (count points))))))
           (let [h 1.0e-7
                 node 12
                 original (deformed node)

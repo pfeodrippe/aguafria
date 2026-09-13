@@ -71,6 +71,13 @@
       (let [run (load-desktop!)]
         (println "Starting the GLFW/Vulkan loop on this JVM's first OS thread.")
         (flush)
+        (future
+          (try
+            (require 'field-lab.live)
+            ((requiring-resolve 'field-lab.live/start-authored-controller!))
+            (catch Throwable error
+              (spit "build/authored-controller-startup-error.edn"
+                    (pr-str {:message (ex-message error)})))))
         (run))
       (finally
         (nrepl/stop-server server)

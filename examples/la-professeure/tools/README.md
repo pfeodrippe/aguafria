@@ -90,18 +90,33 @@ Shift-selection, Home/End, Backspace/Delete and Cmd/Ctrl+A/C/X/V. Double-click
 selects the whole name. Long names scroll within the field; its 120-byte limit
 never splits a UTF-8 character. Pasted tabs/newlines become spaces. Enter saves
 the name; Escape leaves editing without submitting it. This is a lightweight
-single-line editor, not a full IME/grapheme-aware text control.
+single-line editor with grapheme-aware navigation. On macOS, a small native
+composition overlay shows marked text beside the caret and anchors the input
+method's candidate window there. Enter confirms the composition; a later Enter
+saves the name. Escape cancels composition without submitting the name. Committed
+text still uses the game's font renderer; arbitrary complex-script shaping is
+not guaranteed. Actual hardware/input-method acceptance is still pending.
 **+ / −** zoom from 2 to 60 seconds; **All** shows the full
 60-second range. The arrows beside the ruler pan time; arrows beside **Script**
 page through passages. **Script** shows the complete Markdown, with indentation.
 Click a passage to focus its full text below; **Up / Down** scroll it independently.
+In the Edit track list, Record passage list or Takes view, keyboard **Up / Down**
+selects the previous/next passage; **Page Up / Page Down** moves one visible page.
+Selection stays visible and does not start playback or recording. Text-entry and
+device-menu focus retain their own keys; capture locks passage navigation.
 Its stable ID identifies the recording and matching Bitwig track. Wheel/two-finger
 scrolling targets the pane under the pointer; horizontal scrolling or Shift+wheel
-pans time. Option+wheel zooms around the pointer. Timeline/track scrollbars are
-draggable; **Follow** controls automatic playback following. Native pinch is not
-implemented. The lower waveform seeks unless you grab one of its trim edges.
+pans time. Option+wheel or macOS pinch over the Edit timeline zooms around the
+pointer. Timeline/track scrollbars are draggable; **Follow** controls automatic
+playback following. Manual zoom turns Follow off. The lower waveform seeks
+unless you grab one of its trim edges.
 
 ### Record a passage
+
+If the listening-output selector says **Output muted (macOS)**, check that
+device's macOS Sound settings. The playback meter can show audio even while the
+hardware is muted. Studio reports the selected device's master mute and never
+changes system volume or mute automatically.
 
 1. Switch to **Record** and select a voiced passage. The full scrollable script
    is shown with input/FX meters below it. Text-only rows cannot be recorded.

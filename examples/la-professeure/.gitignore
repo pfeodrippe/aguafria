@@ -9,3 +9,4 @@
 /resources/shaders/*.spv
 .DS_Store
 /hs_err_pid*.log
+/tools/test/__pycache__/

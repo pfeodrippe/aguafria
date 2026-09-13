@@ -1,5 +1,6 @@
 (ns field-lab.mesh-cache-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [pitoco.geometry :as geometry]
+            [clojure.test :refer [deftest is]]
             [aguafria.zig :as az]
             [aguafria.keyword :as ak]
             [aguafria.std.heap :as heap]
@@ -7,7 +8,6 @@
             [field-lab.fem :as fem]
             [field-lab.physics :as p]
             [field-lab.mesh-cache :as cache]
-            [field-lab.refined-job :as refined]
             [field-lab.nonlinear-job :as job]
             [field-lab.fem-job :as linear]
             [field-lab.scene :as scene]
@@ -37,7 +37,7 @@
 (deftest oriented-refined-boundary
   (doseq [level [0 1 2]]
     (let [{:keys [points] :as mesh} (nth (iterate job/refine (job/sphere-mesh 0.45 [0.0 0.0 0.0])) level)
-          faces (refined/boundary-faces mesh)
+          faces (geometry/boundary-faces mesh)
           signs (map (fn [[a b c]]
                        (linear/dot (points a)
                                    (linear/cross (linear/subtract (points b) (points a))
@@ -48,7 +48,7 @@
 (deftest owned-cache-replay-and-rendered-mesh
   (scene/initialize!)
   (try
-    (let [result (refined/build! {:refinement 1 :seconds 0.05})
+    (let [result (job/bake-cache! {:refinement 1 :seconds 0.05})
           owned (:cache result)
           initial (az/value (cache/position owned 0 12))
           final (az/value (cache/position owned 12 12))

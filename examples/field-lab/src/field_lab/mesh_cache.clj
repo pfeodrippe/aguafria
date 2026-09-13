@@ -114,3 +114,14 @@
   :- Frame
   [[cache [:* Cache]] [index :u32]]
   (az/index (az/field cache frames) index))
+
+(az/defn reference-height
+  "Reference y extent; a height change is not a material strain tensor."
+  :- :f64
+  [[owned [:* Cache]]]
+  (let [^{:var :f64} lower 1.0e30
+        ^{:var :f64} upper -1.0e30]
+    (dotimes [node (az/field (az/field owned reference) len)]
+      (let [y (az/field (az/index (az/field owned reference) node) y)]
+        (az/set-many! lower (ak/min lower y) upper (ak/max upper y))))
+    (- upper lower)))

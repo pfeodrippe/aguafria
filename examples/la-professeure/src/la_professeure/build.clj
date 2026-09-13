@@ -6,6 +6,7 @@
             [aguafria-examples-native.build :as native]
             [la-professeure.dialogue :as dialogue]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.edn :as edn])
   (:import [java.awt Color RenderingHints Font]
            [java.awt.image BufferedImage]
@@ -224,6 +225,58 @@
   :prepared)
 
 (defonce native-loaded (atom false))
+
+(def utf8proc-revision "d7bf128df773c2a1a7242eb80e51e91a769fc985")
+(defonce ^:private studio-text-build-lock (Object.))
+
+(defn studio-native-library!
+  "Build a content-addressed Studio AppKit adapter using the embedded Zig."
+  [directory basename]
+  (locking studio-text-build-lock
+    (let [directory (io/file directory)
+          source (io/file directory (str basename ".m"))
+          header (io/file directory (str basename ".h"))
+          hash (subs (dialogue/digest (str (slurp source) (slurp header))) 0 16)
+          output (io/file (root) "build/native"
+                          (str "lib" (str/replace basename "_" "-") "-" hash ".dylib"))]
+      (when-not (and (.isFile output) (pos? (.length output)))
+        (io/make-parents output)
+        (let [sdk (.trim (run! ["xcrun" "--sdk" "macosx" "--show-sdk-path"]))]
+          (run! [(az/zig-executable) "cc" "-dynamiclib" "-O2" "-fobjc-arc" "-fblocks"
+                 "-isysroot" sdk "-framework" "AppKit" "-framework" "Foundation"
+                 "-framework" "CoreAudio"
+                 (str "-DLP_STUDIO_IME_CLASS=LPStudioComposition_" hash)
+                 (str "-Wl,-install_name," output) "-o" output source])))
+      {:include (str "-I" directory) :library (str output)})))
+
+(defn studio-gestures!
+  "Studio-only AppKit input adapter. Interaction policy remains in Aguafria."
+  []
+  (studio-native-library! (io/file (root) "tools/native") "studio_gestures"))
+
+(defn studio-text!
+  "Studio-only Unicode support. Compile the pinned source with embedded Zig;
+  neither the game nor its standalone build acquires this tool dependency."
+  []
+  (locking studio-text-build-lock
+    (let [vendor (io/file (root) "build/vendor/utf8proc")
+          output (io/file (root) "build/native" (str "libutf8proc-" utf8proc-revision ".a"))
+          candidate (io/file (str output ".candidate"))]
+      (when-not (.isDirectory (io/file vendor ".git"))
+        (io/make-parents (io/file vendor ".keep"))
+        (run! ["git" "clone" "--depth" "1" "--branch" "v2.11.0"
+               "https://github.com/JuliaStrings/utf8proc.git" vendor]))
+      (when-not (= utf8proc-revision (.trim (run! ["git" "-C" vendor "rev-parse" "HEAD"])))
+        (throw (ex-info "Unexpected utf8proc checkout" {:path (str vendor)})))
+      (when-not (and (.isFile output) (pos? (.length output)))
+        (io/make-parents output)
+        (run! [(az/zig-executable) "build-lib" "-static" "-OReleaseFast" "-fPIC"
+               "-DUTF8PROC_STATIC" "-lc" (str "-I" vendor)
+               (str "-femit-bin=" candidate) (io/file vendor "utf8proc.c")])
+        (Files/move (.toPath candidate) (.toPath output)
+                    (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE])))
+      {:include (str "-I" vendor)
+       :library (str output)})))
 
 (defn load-native! []
   ;; Startup and an nREPL require can arrive concurrently. Publish bindings once:

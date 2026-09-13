@@ -10,6 +10,66 @@
             [la-professeure.core :as core]
             [la-professeure.tools.studio :as studio]))
 
+(deftest publication-allows-dry-and-processed-with-the-same-audio-validation
+  ;; Real temporary WAVs and the production native validator; intercept only
+  ;; publication/project side effects so this isolated suite cannot touch voices.
+  (let [directory (java.nio.file.Files/createTempDirectory
+                    "studio-publish-" (make-array java.nio.file.attribute.FileAttribute 0))]
+    (doseq [kind [:dry :wet]
+            [level valid?] [[0.1 true] [0.0 false] [2.0 false]]]
+      (let [path (str (.resolve directory (str (name kind) "-" level ".wav")))
+            data (doto (java.nio.ByteBuffer/allocate (* 32 8))
+                   (.order java.nio.ByteOrder/LITTLE_ENDIAN))
+            _ (dotimes [_ 64] (.putFloat data (float level)))
+            _ (files/write-wav! path (.array data))
+            source (vec (java.nio.file.Files/readAllBytes (.toPath (io/file path))))
+            index (atom {"voice-qa" {:selected path :history [{:path path :kind kind}]}})
+            writes (atom [])
+            commits (atom [])]
+        (with-redefs-fn
+          {#'studio/focused-id (constantly "voice-qa")
+           #'studio/takes index
+           #'studio/message! identity
+           #'studio/atomic-write!
+           (fn [destination write!]
+             (with-open [out (java.io.ByteArrayOutputStream.)]
+               (write! out)
+               (swap! writes conj {:target (str destination) :bytes (vec (.toByteArray out))})))
+           #'studio/change-takes!
+           (fn [label change barrier?]
+             (swap! commits conj [label barrier?])
+             (swap! index change))}
+          (fn []
+            (if valid?
+              (do
+                (is (.endsWith (studio/publish!) "/resources/voices/voice-qa.wav"))
+                (is (= [{:target "resources/voices/voice-qa.wav" :bytes source}] @writes))
+                (is (= [["Publish to game" true]] @commits))
+                (is (= path (get-in @index ["voice-qa" :published]))))
+              (do
+                (is (= :invalid-audio
+                       (try (studio/publish!) nil
+                            (catch clojure.lang.ExceptionInfo error (:code (ex-data error))))))
+                (is (empty? @writes))
+                (is (empty? @commits))
+                (is (nil? (get-in @index ["voice-qa" :published])))))
+            (is (= source (vec (java.nio.file.Files/readAllBytes (.toPath (io/file path)))))
+                "Publication never edits its source take")))))))
+
+(deftest publication-rejects-missing-selection-before-native-or-file-effects
+  (doseq [[id entry] [["voice-qa" {}]
+                     ["voice-qa" {:selected "absent.wav" :history []}]
+                     ["../unsafe" {:selected "test.wav" :history [{:path "test.wav" :kind :dry}]}]
+                     [nil {}]]]
+    (with-redefs-fn
+      {#'studio/focused-id (constantly id)
+       #'studio/takes (atom {id entry})
+       #'recorder/validate-take! (fn [_] (throw (AssertionError. "Unexpected native validation")))
+       #'studio/atomic-write! (fn [& _] (throw (AssertionError. "Unexpected publication")))}
+      #(is (= :take-unavailable
+              (try (studio/publish!) nil
+                   (catch clojure.lang.ExceptionInfo error (:code (ex-data error)))))))))
+
 (deftest comparison-readiness-follows-real-takes-and-passage
   (let [directory (java.nio.file.Files/createTempDirectory
                     "studio-comparison-" (make-array java.nio.file.attribute.FileAttribute 0))
@@ -571,6 +631,7 @@
                 :track-offset studio/track-offset
                 :record-scroll studio/record-scroll
                 :countdown-seconds studio/countdown-seconds
+                :countdown-until studio/countdown-until
                 :busy studio/busy
                 :capture-phase studio/capture-phase
                 :passage-count scene/passage-entity-count
@@ -963,6 +1024,109 @@
                             (catch clojure.lang.ExceptionInfo e (:code (ex-data e))))))
                 (is (= before @state))
                 (is (= [[:render]] @events) "Reject before device or playback side effects")))))))))
+
+(deftest stop-during-preparation-prevents-zero-count-in-capture
+  (doseq [stop-source [:ui :api :none :initialization-failure]]
+    (with-control-state
+      {:passage-count 2 :selected 1 :record-track 0 :record-mode 1
+       :record-enabled 0 :workspace-mode 1 :countdown-seconds 0
+       :preview-node 1 :preview-paused true :seek-seconds 2.0
+       :busy 0 :capture-phase 0}
+      (fn [state events]
+        (let [queue (java.util.concurrent.LinkedBlockingQueue.)
+              pending (atom 0)
+              starts (atom 0)
+              replies (atom [])
+              stop-ticket {:command {:op :transport/stop :args {}}}]
+          (.offer queue {:command {:op :record/start :args {:id "voice-two"}}})
+          (with-redefs-fn
+            {#'studio/command-queue queue
+             #'studio/check-playback-devices! (fn [])
+             #'studio/check-audio-devices! (fn [])
+             #'studio/expire-input-check! (fn [])
+             #'studio/stop-input-check! (fn [])
+             #'studio/stop-mix! (fn [])
+             #'studio/stop-voice! (fn [])
+             #'studio/alert! (fn [_])
+             #'studio/message! (fn [text] (swap! events conj [:message text]))
+             #'studio/warning! (fn [_])
+             #'studio/emit-event! (fn [_])
+             #'studio/checkpoint! (fn [_])
+             #'studio/begin-countdown-clock! (fn [])
+             #'studio/complete-request! (fn [_ reply] (swap! replies conj reply))
+             #'studio/take-action! #(let [action @pending] (reset! pending 0) action)
+             #'studio/stop-requested? #(= 2 @pending)
+             #'recorder/done? (constantly false)
+             #'recorder/initialize!
+             (fn []
+               (is (= 1 (:capture-phase @state))
+                   "PREPARING must be visible before device initialization blocks")
+               (case stop-source
+                 :ui (reset! pending 2)
+                 :api (.offer queue stop-ticket)
+                 nil)
+               (not= stop-source :initialization-failure))
+             #'studio/start-take! (fn [_] (swap! starts inc))
+             #'studio/start-live-take! #(throw (AssertionError. "Unexpected FX capture"))}
+            (fn []
+              (#'studio/worker-iteration! false)
+              (if (= stop-source :none)
+                (is (= 1 @starts) "Zero count-in still starts without an artificial delay")
+                (do
+                  (is (zero? @starts) "Stop during preparation must not open capture")
+                  (#'studio/worker-iteration! false)
+                  (is (zero? @starts))
+                  (is (nil? @studio/armed))
+                  (is (nil? @studio/session))
+                  (is (zero? (:capture-phase @state)))
+                  (is (zero? (:busy @state)))
+                  (when (contains? #{:ui :api} stop-source)
+                    (is (some #{[:message "Recording cancelled before capture started."]}
+                              @events)))))
+              (is (= {:revision 12} @studio/project))
+              (is (= (if (= stop-source :initialization-failure) :error :done)
+                     (:status (first @replies)))))))))))
+
+(deftest capture-start-commit-rechecks-stop-after-device-opening
+  ;; Isolated host test: final initialization can finish after the first worker
+  ;; Stop check. The callback gate must stay closed until the render-thread commit.
+  (doseq [stop-source [:ui :api :none]]
+    (let [queue (java.util.concurrent.LinkedBlockingQueue.)
+          pending (atom 0)
+          session (atom nil)
+          armed (atom {:id "voice-qa" :action 1 :until 0})
+          events (atom [])
+          capture {:id "voice-qa" :path "reserved-qa.wav"}]
+      (with-redefs-fn
+        {#'studio/command-queue queue
+         #'studio/session session
+         #'studio/armed armed
+         #'studio/stop-requested? #(= 2 @pending)
+         #'studio/render!
+         (fn [f]
+           ;; Stop arrives only now, after device startup returned.
+           (case stop-source
+             :ui (reset! pending 2)
+             :api (.offer queue {:command {:op :transport/stop}})
+             nil)
+           (f))
+         #'studio/begin-capture-presentation! #(swap! events conj :visible-capture)
+         #'recorder/release-capture! #(swap! events conj :accept-pcm)
+         #'recorder/stop! #(swap! events conj :close-devices)
+         #'studio/begin-recovery! #(swap! events conj :journal)}
+        (fn []
+          (is (= (= stop-source :none) (#'studio/commit-capture-start! capture)))
+          (if (= stop-source :none)
+            (do
+              (is (= capture @session))
+              (is (nil? @armed))
+              (is (= [:visible-capture :accept-pcm :journal] @events)))
+            (do
+              (is (nil? @session))
+              (is (= "voice-qa" (:id @armed)) "Normal Stop still owns its acknowledgment")
+              (is (= [:close-devices] @events))
+              (is (= (if (= stop-source :ui) 2 0) @pending))
+              (is (= (if (= stop-source :api) 1 0) (.size queue))))))))))
 
 (deftest focused-play-is-audition-even-with-global-rec-enabled
   (doseq [mode [1 2]]

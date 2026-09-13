@@ -209,7 +209,7 @@
   Build with embedded Zig; no second copy of imgui.cpp or game-specific logic."
   [mode]
   (case mode :shared (prepare-imgui-shared!) :static (prepare-imgui-static!))
-  (let [{:keys [root imgui-root imgui-shared imgui-static]} (paths)
+  (let [{:keys [root imgui-root imgui-shared imgui-static vulkan-root glfw-shared]} (paths)
         source (io/file root "resources/aguafria_examples_native/imgui_controls.cpp")
         header (io/file root "resources/aguafria_examples_native/imgui_controls.h")
         base (case mode :shared imgui-shared :static imgui-static)
@@ -221,8 +221,9 @@
         (run-command!
           (into ["zig" "build-lib" (case mode :shared "-dynamic" :static "-static")
                  "-OReleaseFast" "-fPIC" (str "-I" imgui-root)
+                 (str "-I" (io/file vulkan-root "include"))
                  (str "-femit-bin=" output) (str source)]
-                (case mode :shared [(str imgui-shared) "-lc" "-lc++"]
+                (case mode :shared [(str imgui-shared) (str glfw-shared) "-lc" "-lc++"]
                            :static ["-lc++"])))
         {:status :built :output output}))))
 

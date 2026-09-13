@@ -125,6 +125,40 @@
        (* lambda (elastic/inner cofactors cofactors))
        (* 2.0 (ak/abs pressure) (ak/sqrt invariant)))))
 
+(az/defstruct ElasticObjective {:layout :extern}
+  [[:elastic-energy :f64] [:minimum-jacobian :f64]])
+
+(az/defn elastic-objective!
+  "Implicit iterations need elastic energy and optionally forces. Explicit stability
+  bounds and telemetry belong to the explicit step and saved-frame paths."
+  :- ElasticObjective
+  [[state [:* Dynamics]] [forces :bool]]
+  (let [mesh (az/field state mesh)
+        elements (az/field mesh elements)
+        ^:var result (ElasticObjective {:elastic-energy 0.0 :minimum-jacobian 1.0e30})]
+    (when forces
+      (dotimes [node (az/field (az/field state forces) len)]
+        (set! (az/index (az/field state forces) node) (p/v 0.0 0.0 0.0))))
+    (dotimes [index (az/field elements len)]
+      (let [element (az/index elements index)
+            gradient (deformation state element)
+            response (elastic/evaluate gradient (az/field state material))
+            volume (az/field element volume)]
+        (az/set-many!
+          (az/field result elastic-energy)
+          (+ (az/field result elastic-energy) (* volume (az/field response energy-density)))
+          (az/field result minimum-jacobian)
+          (ak/min (az/field result minimum-jacobian) (az/field response jacobian)))
+        (when forces
+          (dotimes [local 4]
+            (let [node (az/index (az/field element nodes) local)
+                  basis (az/index (az/field element gradients) local)]
+              (set! (az/index (az/field state forces) node)
+                    (p/add (az/index (az/field state forces) node)
+                           (p/scale (elastic/apply-vector (az/field response pk1) basis)
+                                    (- volume)))))))))
+    result))
+
 (az/defn evaluate!
   :- Observables
   [[state [:* Dynamics]]]
