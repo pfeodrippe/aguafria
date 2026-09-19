@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.float-mode-exe
+  "Converted from float_mode_exe.zig"
   (:require aguafria.std
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

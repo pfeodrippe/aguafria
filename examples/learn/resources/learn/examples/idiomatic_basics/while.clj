@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.while
+  "Converted from test_while.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

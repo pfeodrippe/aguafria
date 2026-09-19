@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.bit-offset-of-offset-of
+  "Converted from test_bitOffsetOf_offsetOf.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

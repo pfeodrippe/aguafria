@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-types.struct-default-field-values
+  "Converted from struct_default_field_values.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

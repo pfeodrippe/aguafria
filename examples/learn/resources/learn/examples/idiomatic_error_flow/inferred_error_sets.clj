@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.inferred-error-sets
+  "Converted from test_inferred_error_sets.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

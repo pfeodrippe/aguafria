@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-metaprogramming.comptime-max-with-bool
+  "Converted from test_comptime_max_with_bool.zig"
   (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

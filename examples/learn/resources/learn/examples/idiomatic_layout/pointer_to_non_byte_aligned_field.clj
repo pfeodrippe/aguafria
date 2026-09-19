@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.pointer-to-non-byte-aligned-field
+  "Converted from test_pointer_to_non-byte_aligned_field.zig"
   (:require aguafria.std
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

@@ -214,6 +214,7 @@
           (write-text! output source)
           {:file file :id id :source-sha256 sha256
            :status :translated-front-end-error
+           :authored-source (:source override)
            :clojure-path output
            :diagnostic (.getMessage failure)
            :reason (:reason override)})
@@ -235,6 +236,7 @@
                                      (if override {} report)))
           {:file file :id id :source-sha256 sha256
            :status :translated :verification :pending
+           :authored-source (:source override)
            :clojure-path output
            :report report}))
       (catch Exception failure
@@ -988,9 +990,13 @@
                                (:status translation))
         content (cond
                   translated?
-                  (str "<pre><code class=\"language-clojure\">"
+                  (str "<figure class=\"learn-aguafria\">"
+                       "<figcaption class=\"clojure-cap\"><cite class=\"file\">"
+                       (escape-html (.getName (io/file (or (:authored-source translation)
+                                                           (:clojure-path translation)))))
+                       "</cite></figcaption><pre><code class=\"language-clojure\">"
                        (escape-html (slurp (:clojure-path translation)))
-                       "</code></pre>"
+                       "</code></pre></figure>"
                        (when-let [diagnostic (when-not (:repl-transcript translation)
                                                (:diagnostic translation))]
                          (str "<p>Expected Aguafria diagnostic: "

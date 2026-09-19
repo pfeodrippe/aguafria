@@ -1,4 +1,5 @@
 (ns learn.fragments.propagate-remaining-errors
+  "Converted from handle_some_error_scenarios.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

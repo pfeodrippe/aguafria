@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.type-coercion
+  "Converted from test_type_coercion.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

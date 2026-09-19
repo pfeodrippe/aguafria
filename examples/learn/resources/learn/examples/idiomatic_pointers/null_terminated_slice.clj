@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.null-terminated-slice
+  "Converted from test_null_terminated_slice.zig"
   (:require aguafria.std
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

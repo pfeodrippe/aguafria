@@ -1,4 +1,5 @@
 (ns learn.fragments.specialized-writer
+  "Converted from Emitted print Function"
   (:require [aguafria.zig :as az]))
 
 (az/defn write-formatted [:error-union :void]

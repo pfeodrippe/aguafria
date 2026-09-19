@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-state.static-local-variable
+  "Converted from test_static_local_variable.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

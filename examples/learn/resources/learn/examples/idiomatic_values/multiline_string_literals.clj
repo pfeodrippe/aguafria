@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-values.multiline-string-literals
+  "Converted from multiline_string_literals.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst hello-world-in-c

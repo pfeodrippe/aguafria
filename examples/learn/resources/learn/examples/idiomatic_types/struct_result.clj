@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-types.struct-result
+  "Converted from test_struct_result.zig"
   (:require aguafria.std
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

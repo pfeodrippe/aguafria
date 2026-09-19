@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.enum-export-error
+  "Converted from enum_export_error.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst Foo

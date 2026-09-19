@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.float-mode-obj
+  "Converted from float_mode_obj.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

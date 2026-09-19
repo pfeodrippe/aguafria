@@ -1,4 +1,5 @@
 (ns learn.fragments.cleanup-on-error
+  "Converted from errdefer_example.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

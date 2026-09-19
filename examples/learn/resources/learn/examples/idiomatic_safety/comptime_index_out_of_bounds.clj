@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-safety.comptime-index-out-of-bounds
+  "Converted from test_comptime_index_out_of_bounds.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defcomptime reject-sixth-byte

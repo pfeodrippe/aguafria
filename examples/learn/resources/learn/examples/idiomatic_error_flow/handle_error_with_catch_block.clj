@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.handle-error-with-catch-block
+  "Converted from handle_error_with_catch_block.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defimport parsing "error_union_parsing_u64.zig" [parseU64])

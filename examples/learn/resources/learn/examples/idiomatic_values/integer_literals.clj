@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-values.integer-literals
+  "Converted from integer_literals.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst decimal-int 98222)

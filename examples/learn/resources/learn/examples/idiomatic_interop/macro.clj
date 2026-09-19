@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.macro
+  "Converted from macro.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

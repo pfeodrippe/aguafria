@@ -1,4 +1,5 @@
 (ns learn.fragments.error-trace-storage
+  "Converted from stack_trace_struct.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defstruct StackTrace

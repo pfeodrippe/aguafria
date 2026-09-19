@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.mathtest
+  "Converted from mathtest.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defn add :i32

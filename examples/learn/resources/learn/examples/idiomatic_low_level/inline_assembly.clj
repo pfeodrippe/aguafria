@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-low-level.inline-assembly
+  "Converted from inline_assembly.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

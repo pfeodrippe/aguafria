@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-low-level.assembly-syntax-explained
+  "Converted from Assembly Syntax Explained.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

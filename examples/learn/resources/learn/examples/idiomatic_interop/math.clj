@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.math
+  "Converted from math.zig"
   (:refer-clojure :exclude [print])
   (:require [aguafria.zig :as az]))
 

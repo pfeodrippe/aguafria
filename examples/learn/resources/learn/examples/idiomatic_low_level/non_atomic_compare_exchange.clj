@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-low-level.non-atomic-compare-exchange
+  "Converted from not_atomic_cmpxchgStrong.zig"
   (:require [aguafria.zig :as az]))
 
 ;; This describes compare/exchange's result, but provides no atomicity.

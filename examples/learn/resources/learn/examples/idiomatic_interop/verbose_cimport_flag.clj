@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.verbose-cimport-flag
+  "Converted from verbose_cimport_flag.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

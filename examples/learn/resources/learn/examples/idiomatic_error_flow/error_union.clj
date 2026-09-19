@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.error-union
+  "Converted from test_error_union.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

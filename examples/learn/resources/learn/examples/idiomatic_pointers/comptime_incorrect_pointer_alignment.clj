@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.comptime-incorrect-pointer-alignment
+  "Converted from test_comptime_incorrect_pointer_alignment.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

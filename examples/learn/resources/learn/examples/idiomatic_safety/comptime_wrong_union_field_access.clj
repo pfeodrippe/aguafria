@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-safety.comptime-wrong-union-field-access
+  "Converted from test_comptime_wrong_union_field_access.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst Foo

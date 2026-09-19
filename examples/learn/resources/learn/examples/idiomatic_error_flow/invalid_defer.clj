@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.invalid-defer
+  "Converted from test_invalid_defer.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

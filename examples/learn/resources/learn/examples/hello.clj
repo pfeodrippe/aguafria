@@ -1,4 +1,5 @@
 (ns learn.curated.hello
+  "Converted from hello.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.Io.File :as std-file]
             [aguafria.std.process :as process]

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-metaprogramming.inline-call
+  "Converted from inline_call.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

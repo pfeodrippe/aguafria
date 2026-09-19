@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-safety.comptime-invalid-enum-cast
+  "Converted from test_comptime_invalid_enum_cast.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

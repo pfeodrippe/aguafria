@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-low-level.opaque
+  "Converted from test_opaque.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.fn-type-inference
+  "Converted from test_fn_type_inference.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

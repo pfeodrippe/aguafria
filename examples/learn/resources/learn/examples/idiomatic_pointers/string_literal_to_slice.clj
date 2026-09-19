@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.string-literal-to-slice
+  "Converted from test_string_literal_to_slice.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defn accept-mutable-string :void

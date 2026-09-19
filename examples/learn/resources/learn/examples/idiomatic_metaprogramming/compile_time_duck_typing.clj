@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-metaprogramming.compile-time-duck-typing
+  "Converted from compile-time_duck_typing.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defn- maximum T

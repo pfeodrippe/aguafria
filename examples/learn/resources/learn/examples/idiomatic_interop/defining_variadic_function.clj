@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.defining-variadic-function
+  "Converted from test_defining_variadic_function.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

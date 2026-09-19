@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-bindings.destructuring-block
+  "Converted from destructuring_block.zig"
   (:require aguafria.std
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

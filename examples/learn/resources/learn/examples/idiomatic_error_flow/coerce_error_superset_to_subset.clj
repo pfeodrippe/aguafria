@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.coerce-error-superset-to-subset
+  "Converted from test_coerce_error_superset_to_subset.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst FileOpenError

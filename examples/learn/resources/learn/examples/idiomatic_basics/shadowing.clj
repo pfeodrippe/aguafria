@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.shadowing
+  "Converted from test_shadowing.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst pi 3.14)

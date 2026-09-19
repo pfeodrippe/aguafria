@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-types.anonymous-struct-name
+  "Converted from anonymous_struct_name.zig"
   (:require [aguafria.zig :as az]))
 
 ;; The declaration supplies the name used by the self-referential pointer type.

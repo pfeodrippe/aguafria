@@ -1,4 +1,5 @@
 (ns learn.fragments.handle-all-errors
+  "Converted from handle_all_error_scenarios.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

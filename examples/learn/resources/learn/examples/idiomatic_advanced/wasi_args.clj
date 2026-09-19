@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-advanced.wasi-args
+  "Converted from wasi_args.zig"
   (:require aguafria.std
             [aguafria.std.debug :as debug]
             [aguafria.std.process :as process]

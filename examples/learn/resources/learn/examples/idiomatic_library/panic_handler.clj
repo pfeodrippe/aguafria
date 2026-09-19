@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-library.panic-handler
+  "Converted from panic_handler.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.std.process :as process]

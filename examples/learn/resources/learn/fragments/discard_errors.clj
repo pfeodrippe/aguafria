@@ -1,4 +1,5 @@
 (ns learn.fragments.discard-errors
+  "Converted from handle_no_error_scenarios.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defn- do-a-different-thing :void [[text [:slice :u8]]]

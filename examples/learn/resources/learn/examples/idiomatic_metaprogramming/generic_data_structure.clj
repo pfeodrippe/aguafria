@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-metaprogramming.generic-data-structure
+  "Converted from generic_data_structure.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

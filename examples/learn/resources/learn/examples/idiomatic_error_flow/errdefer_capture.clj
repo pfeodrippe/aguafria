@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.errdefer-capture
+  "Converted from test_errdefer_capture.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.ambiguous-coercion
+  "Converted from test_ambiguous_coercion.zig"
   (:require [aguafria.zig :as az]))
 
 (az/deftest ambiguous-comptime-coercion-test

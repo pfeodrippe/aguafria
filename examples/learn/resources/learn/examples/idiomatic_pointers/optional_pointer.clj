@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.optional-pointer
+  "Converted from test_optional_pointer.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

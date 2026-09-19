@@ -1,4 +1,5 @@
 (ns learn.fragments.weak-compare-exchange
+  "Converted from cmpxchgWeakButNotAtomic"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

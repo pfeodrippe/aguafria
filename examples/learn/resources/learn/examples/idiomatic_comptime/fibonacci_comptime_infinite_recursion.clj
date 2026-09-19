@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-comptime.fibonacci-comptime-infinite-recursion
+  "Converted from fibonacci_comptime_infinite_recursion.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

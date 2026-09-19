@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-values.comments
+  "Converted from comments.zig"
   (:require aguafria.std
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

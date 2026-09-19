@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-state.comptime-evaluation
+  "Converted from test_comptime_evaluation.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

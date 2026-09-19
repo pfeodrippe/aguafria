@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-low-level.call-modifier
+  "Converted from builtin.CallModifier struct.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst CallModifier

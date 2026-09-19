@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.null-terminated-slicing
+  "Converted from test_null_terminated_slicing.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

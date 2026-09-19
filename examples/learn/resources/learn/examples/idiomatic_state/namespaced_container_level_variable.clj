@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-state.namespaced-container-level-variable
+  "Converted from test_namespaced_container_level_variable.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

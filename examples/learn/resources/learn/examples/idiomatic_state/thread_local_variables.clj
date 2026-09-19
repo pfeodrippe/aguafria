@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-state.thread-local-variables
+  "Converted from test_thread_local_variables.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.Thread :as thread]

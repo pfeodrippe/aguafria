@@ -121,3 +121,75 @@ test("deep links reveal only their own language panel", () => {
   assert.equal(clicks, 2);
   assert.equal(scrolls, 2);
 });
+
+test("Aguafria is the default; explicit Zig links and per-example controls still work", () => {
+  function page(hash) {
+    const elements = new Map();
+    function example(id) {
+      const tabs = ["z", "a"].map(language => {
+        const panelId = `${id}-${language}`;
+        const tabId = `${panelId}t`;
+        const attributes = new Map([["role", "tab"], ["aria-controls", panelId]]);
+        const listeners = {};
+        const tab = {
+          getAttribute: key => attributes.get(key),
+          setAttribute: (key, value) => attributes.set(key, value),
+          addEventListener: (event, handler) => { listeners[event] = handler; },
+          click: () => listeners.click(),
+          keydown: key => listeners.keydown({key, preventDefault() {}}),
+          focus() { this.focused = true; }
+        };
+        const panel = {
+          hidden: language === "a",
+          getAttribute: () => tabId,
+          closest() { return this; },
+          scrollIntoView() { this.scrolled = true; }
+        };
+        elements.set(panelId, panel);
+        elements.set(tabId, tab);
+        return tab;
+      });
+      return {
+        querySelector: () => ({querySelectorAll: () => tabs}),
+        querySelectorAll: () => []
+      };
+    }
+    const examples = [example("first"), example("second")];
+    const context = vm.createContext({
+      location: {hash},
+      document: {
+        querySelectorAll: selector => selector === ".learn-example" ? examples : [],
+        getElementById: id => elements.get(id)
+      },
+      window: {addEventListener() {}}
+    });
+    for (const file of ["prism-core.min.js", "prism-clojure.js"]) {
+      vm.runInContext(fs.readFileSync(path.join(resources, "vendor/prism", file), "utf8"), context);
+    }
+    vm.runInContext(fs.readFileSync(path.join(resources, "reference.js"), "utf8"), context);
+    return id => elements.get(id);
+  }
+
+  for (const hash of ["", "#comptime"]) {
+    const get = page(hash);
+    for (const id of ["first", "second"]) {
+      assert.equal(get(`${id}-a`).hidden, false);
+      assert.equal(get(`${id}-z`).hidden, true);
+      assert.equal(get(`${id}-at`).getAttribute("aria-selected"), "true");
+      assert.equal(get(`${id}-zt`).getAttribute("aria-selected"), "false");
+      assert.equal(get(`${id}-at`).tabIndex, 0);
+      assert.equal(get(`${id}-zt`).tabIndex, -1);
+      assert.equal(get(`${id}-at`).focused, undefined);
+    }
+  }
+  const get = page("#second-z");
+  assert.equal(get("first-a").hidden, false);
+  assert.equal(get("second-z").hidden, false);
+  assert.equal(get("second-a").hidden, true);
+  get("first-zt").click();
+  assert.equal(get("first-z").hidden, false);
+  get("first-zt").keydown("ArrowRight");
+  assert.equal(get("first-a").hidden, false);
+  assert.equal(get("first-at").focused, true);
+  assert.equal(get("second-z").hidden, false);
+});

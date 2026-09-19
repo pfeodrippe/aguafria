@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-bindings.destructuring-return-value
+  "Converted from destructuring_return_value.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]

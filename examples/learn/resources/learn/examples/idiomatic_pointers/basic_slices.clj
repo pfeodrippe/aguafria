@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.basic-slices
+  "Converted from test_basic_slices.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

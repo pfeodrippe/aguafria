@@ -150,6 +150,37 @@
       (is (nil? (re-find #"\(az/(?:defn-?|deftest)\s*\n" code)))
       (is (nil? (re-find #"\(az/deftest\s+\"" code))))))
 
+(deftest authored-namespaces-identify-the-original-zig-example
+  (let [files (for [[file {:keys [source]}] (ref/read-edn "resources/learn/overrides.edn")
+                    :when source]
+                [source file])
+        fragments (ref/read-edn "resources/learn/fragment-overrides.edn")
+        blocks (for [{:keys [id attributes]} (:snippets (ref/inventory))
+                     :let [source (:source (get fragments id))]
+                     :when source]
+                 [source (second (str/split attributes #"\|" 2))])]
+    (is (= 305 (count (concat files blocks))))
+    (doseq [[source original] (concat files blocks)
+            :let [form (read-string (slurp (io/resource source)))]]
+      (testing source
+        (is (= 'ns (first form)))
+        (is (str/starts-with? (or (nth form 2 nil) "")
+                             (str "Converted from " original)))))))
+
+(deftest aguafria-panel-shows-its-actual-source-filename
+  (let [path "resources/learn/examples/idiomatic_state/comptime_variables.clj"
+        translation {:status :translated :clojure-path path
+                     :authored-source "learn/examples/idiomatic_state/comptime_variables.clj"}
+        panel (ref/example-panel ["<figure>original</figure>" "test_comptime_variables.zig"]
+                                 translation 1)]
+    (is (str/includes? panel
+                      "<figcaption class=\"clojure-cap\"><cite class=\"file\">comptime_variables.clj</cite></figcaption>"))
+    (is (str/includes? panel "&quot;Converted from test_comptime_variables.zig&quot;"))
+    (is (= "<figure>original</figure>" (ref/original-document panel)))
+    (is (str/includes? (ref/example-panel ["original" "file.zig"]
+                                         (assoc translation :authored-source "examples/<file>.clj") 1)
+                       "&lt;file&gt;.clj</cite>"))))
+
 (deftest examples-show-code-without-work-log-comments
   (doseq [file ["draft.zig" "hello.zig"]
           verification [:pending :output-matched :diagnostics-matched
@@ -212,6 +243,8 @@
     (ref/emit-clojure source lesson {})
     (try
       (require lesson)
+      (is (= "Converted from test_integer_pointer_conversion.zig"
+             (:doc (meta (the-ns lesson)))))
       (let [test-var (ns-resolve lesson 'integer-pointer-conversion-test)
             output (with-out-str
                      (binding [*err* *out*]

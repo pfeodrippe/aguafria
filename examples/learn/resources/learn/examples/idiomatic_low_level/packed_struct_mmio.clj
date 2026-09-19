@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-low-level.packed-struct-mmio
+  "Converted from packed_struct_mmio.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

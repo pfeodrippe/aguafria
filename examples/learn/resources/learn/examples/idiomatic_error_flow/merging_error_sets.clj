@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.merging-error-sets
+  "Converted from test_merging_error_sets.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

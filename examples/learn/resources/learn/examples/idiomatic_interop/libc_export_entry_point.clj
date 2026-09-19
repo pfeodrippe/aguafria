@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.libc-export-entry-point
+  "Converted from libc_export_entry_point.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]

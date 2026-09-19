@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.incorrect-pointer-alignment
+  "Converted from test_incorrect_pointer_alignment.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.mem :as mem]

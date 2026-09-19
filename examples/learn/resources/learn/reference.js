@@ -48,7 +48,8 @@ document.querySelectorAll(".learn-inline").forEach(example => {
   });
 });
 
-// Original Zig remains visible without JavaScript. Selection is per-example.
+// Original Zig remains visible without JavaScript. Interactive examples default
+// to Aguafria; explicit language links are applied after initialization.
 document.querySelectorAll(".learn-example").forEach(example => {
   const tablist = example.querySelector('[role="tablist"]');
   const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
@@ -76,6 +77,7 @@ document.querySelectorAll(".learn-example").forEach(example => {
       }
     });
   });
+  select(tabs[1]);
   example.querySelectorAll('[role="tabpanel"] pre code').forEach(code => {
     const button = document.createElement("button");
     button.className = "learn-copy";
@@ -97,8 +99,8 @@ document.querySelectorAll(".learn-example").forEach(example => {
   });
 });
 
-// A link to an Aguafria panel must reveal it, not leave the target hidden behind
-// the default Zig tab. Ordinary upstream heading anchors remain untouched.
+// Explicit links select their language, overriding the Aguafria default only for
+// that example. Ordinary upstream heading anchors remain untouched.
 function revealLinkedPanel() {
   let id;
   try { id = decodeURIComponent(location.hash.slice(1)); }

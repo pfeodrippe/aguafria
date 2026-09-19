@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-low-level.global-assembly
+  "Converted from test_global_assembly.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

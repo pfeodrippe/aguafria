@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-types.enum-literals
+  "Converted from test_enum_literals.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

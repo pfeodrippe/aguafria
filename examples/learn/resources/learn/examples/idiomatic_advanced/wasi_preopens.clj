@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-advanced.wasi-preopens
+  "Converted from wasi_preopens.zig"
   (:require aguafria.std
             [aguafria.std.log :as log]
             [aguafria.std.process :as process]

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-types.struct-default-value
+  "Converted from struct_default_value.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defconst Threshold

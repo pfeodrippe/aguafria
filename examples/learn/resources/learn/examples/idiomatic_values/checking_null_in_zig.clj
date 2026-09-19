@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-values.checking-null-in-zig
+  "Converted from checking_null_in_zig.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defstruct Foo [])

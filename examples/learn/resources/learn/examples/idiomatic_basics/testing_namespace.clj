@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.testing-namespace
+  "Converted from testing_namespace.zig"
   (:require aguafria.std
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

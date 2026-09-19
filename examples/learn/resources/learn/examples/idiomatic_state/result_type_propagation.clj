@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-state.result-type-propagation
+  "Converted from result_type_propagation.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

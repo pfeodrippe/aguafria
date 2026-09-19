@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.entry-point
+  "Converted from entry_point.zig"
   (:require aguafria.std
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

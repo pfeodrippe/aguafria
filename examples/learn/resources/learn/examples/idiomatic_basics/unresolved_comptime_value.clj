@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.unresolved-comptime-value
+  "Converted from test_unresolved_comptime_value.zig"
   (:require [aguafria.zig :as az]))
 
 (az/defn- maximum T

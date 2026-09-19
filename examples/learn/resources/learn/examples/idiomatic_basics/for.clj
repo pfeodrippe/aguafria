@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.for
+  "Converted from test_for.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

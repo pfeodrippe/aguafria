@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-metaprogramming.compileLog-builtin
+  "Converted from test_compileLog_builtin.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

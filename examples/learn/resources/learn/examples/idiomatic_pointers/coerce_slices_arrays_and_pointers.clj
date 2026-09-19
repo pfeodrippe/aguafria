@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.coerce-slices-arrays-and-pointers
+  "Converted from test_coerce_slices_arrays_and_pointers.zig"
   (:require aguafria.std
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

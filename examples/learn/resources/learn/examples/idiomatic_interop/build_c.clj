@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.build-c
+  "Converted from build_c.zig"
   (:require [aguafria.std :as std]
             [aguafria.zig :as az]))
 

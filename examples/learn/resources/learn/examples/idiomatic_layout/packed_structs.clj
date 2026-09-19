@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.packed-structs
+  "Converted from test_packed_structs.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

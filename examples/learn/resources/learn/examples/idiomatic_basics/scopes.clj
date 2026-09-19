@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.scopes
+  "Converted from test_scopes.zig"
   (:require [aguafria.zig :as az]))
 
 (az/deftest separate-scopes-test

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.variable-alignment
+  "Converted from test_variable_alignment.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

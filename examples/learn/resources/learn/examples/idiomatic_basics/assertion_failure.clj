@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.assertion-failure
+  "Converted from test_assertion_failure.zig"
   (:refer-clojure :exclude [assert])
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))

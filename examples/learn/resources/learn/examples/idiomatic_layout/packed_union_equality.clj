@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.packed-union-equality
+  "Converted from test_packed_union_equality.zig"
   (:require aguafria.std
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

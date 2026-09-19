@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.coerce-error-subset-to-superset
+  "Converted from test_coerce_error_subset_to_superset.zig"
   (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

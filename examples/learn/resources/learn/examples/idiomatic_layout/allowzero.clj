@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.allowzero
+  "Converted from test_allowzero.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

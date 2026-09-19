@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-error-flow.switch-on-errors
+  "Converted from test_switch_on_errors.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

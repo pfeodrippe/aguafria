@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-layout.aligned-struct-fields
+  "Converted from test_aligned_struct_fields.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-types.undefined-active-union-field
+  "Converted from undefined_active_union_field.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]

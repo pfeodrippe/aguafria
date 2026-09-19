@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-comptime.top-level-fields
+  "Converted from TopLevelFields.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

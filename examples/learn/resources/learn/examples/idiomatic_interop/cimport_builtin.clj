@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-interop.cimport-builtin
+  "Converted from cImport_builtin.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

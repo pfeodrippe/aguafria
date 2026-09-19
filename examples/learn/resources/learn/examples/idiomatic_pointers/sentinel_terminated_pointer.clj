@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.sentinel-terminated-pointer
+  "Converted from sentinel-terminated_pointer.zig"
   (:require aguafria.std
             [aguafria.std.c :as c]
             [aguafria.zig :as az]))

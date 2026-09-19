@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.sentinel-mismatch
+  "Converted from test_sentinel_mismatch.zig"
   (:require [aguafria.zig :as az]))
 
 (az/deftest sentinel-mismatch-test

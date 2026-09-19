@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.noreturn
+  "Converted from test_noreturn.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

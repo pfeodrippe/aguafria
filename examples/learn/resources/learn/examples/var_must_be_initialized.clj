@@ -1,4 +1,5 @@
 (ns learn.examples.var-must-be-initialized
+  "Converted from var_must_be_initialized.zig"
   (:require [aguafria.zig :as az]))
 
 ;; Intentionally invalid: a local binding needs an initial value.

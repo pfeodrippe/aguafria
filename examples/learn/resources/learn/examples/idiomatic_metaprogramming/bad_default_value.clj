@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-metaprogramming.bad-default-value
+  "Converted from bad_default_value.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.std.log :as log]

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.pointer-arithmetic
+  "Converted from test_pointer_arithmetic.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

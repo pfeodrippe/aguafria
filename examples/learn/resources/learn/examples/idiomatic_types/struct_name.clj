@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-types.struct-name
+  "Converted from struct_name.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]

@@ -1,5 +1,7 @@
 (ns learn.examples.idiomatic-values.tldoc-comments
-  "This module provides functions for retrieving the current date and
+  "Converted from tldoc_comments.zig
+
+  This module provides functions for retrieving the current date and
   time with varying degrees of precision and accuracy. It does not
   depend on libc, but will use functions from it if available."
   (:require [aguafria.zig :as az]))

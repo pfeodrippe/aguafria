@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-pointers.comptime-pointers
+  "Converted from test_comptime_pointers.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

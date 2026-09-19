@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-safety.comptime-invalid-error-set-cast
+  "Converted from test_comptime_invalid_error_set_cast.zig"
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 

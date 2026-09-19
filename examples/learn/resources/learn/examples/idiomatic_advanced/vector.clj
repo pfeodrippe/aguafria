@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-advanced.vector
+  "Converted from test_vector.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

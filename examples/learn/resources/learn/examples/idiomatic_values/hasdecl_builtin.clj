@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-values.hasdecl-builtin
+  "Converted from test_hasDecl_builtin.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]

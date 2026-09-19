@@ -1,4 +1,5 @@
 .learn-example { margin-block: 1em; }
+.learn-aguafria .clojure-cap { background: #fcdba5; }
 .learn-tabs { display: flex; gap: .25em; border-bottom: 1px solid #888; }
 .learn-tabs[hidden], .learn-example [hidden] { display: none; }
 .learn-tabs button { font: inherit; color: inherit; background: transparent;
@@ -17,6 +18,7 @@
 .language-clojure .token.operator { color: #653199; }
 .language-clojure .token.punctuation { color: #555; }
 @media (prefers-color-scheme: dark) {
+  .learn-aguafria .clojure-cap { background: #b27306; color: #000; }
   .language-clojure .token.comment { color: #a5b39a; }
   .language-clojure .token.string, .language-clojure .token.char { color: #a8c98e; }
   .language-clojure .token.symbol { color: #e5b578; }

@@ -1,4 +1,5 @@
 (ns learn.examples.idiomatic-basics.arrays
+  "Converted from test_arrays.zig"
   (:require aguafria.std
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]

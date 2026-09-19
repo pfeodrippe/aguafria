@@ -4,6 +4,23 @@ Goal: the whole Zig 0.16.0 reference, not a selected tutorial. Completed for the
 requested scope: original document unchanged, Aguafria alternatives and real
 REPL output added, required comparisons passing. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Default interactive example tabs to Aguafria Zig. Keep explicit Zig links,
+      independent switching and keyboard navigation working; preserve the original
+      Zig fallback without JavaScript. Six JavaScript tests and strict `verify!`
+      pass; rebuilt the served reference. An isolated headless browser check hung
+      before returning a DOM and was stopped, so it supplies no additional evidence.
+
+- [x] Follow-up: show each Aguafria example's actual Clojure filename in a source
+      caption matching the Zig tab, and put `Converted from <original Zig name>`
+      in each authored namespace docstring. Keep existing namespace documentation
+      and the original Zig HTML intact. Rebuild, reverify outputs, and check the UI.
+      All 305 authored namespaces have provenance docstrings and filename captions.
+      39 tests / 5,856 assertions and five JavaScript tests pass. The full output
+      sweep, block/inline checks and fresh-JVM `clojure -M:verify` pass. Browser
+      inspection of test_comptime_variables.zig confirms comptime_variables.clj,
+      the real namespace docstring, and the recorded REPL result; all 305 captions
+      and 290 REPL panels are present. Evidence: .tmp/learn-caption.F9yiHe/.
+
 - [x] Generic differential verification uses each original Zig example as the
       oracle: compare output, test results or semantic diagnostics without
       hand-written expected answers per case. Equal process exit codes alone
@@ -244,7 +261,7 @@ type-position array casts). The final all-292 fresh-evidence sweep passes:
 161 output matches, 78 diagnostic matches, 50 compilation-only matches, and
 three reviewed special cases. The rebuilt site has 290 genuine REPL panels.
 
-Learn regressions: 37 tests / 5,240 assertions pass via the dedicated nREPL,
+Learn regressions: 39 tests / 5,856 assertions pass via the dedicated nREPL,
 including ordinary require + native test invocation after verifier cleanup.
 The current emitter suite passes 39 tests / 184 assertions; the earlier focused
 callable tests passed 5 / 46, canonical API 2 / 30, converter cleanup 4 / 27.
