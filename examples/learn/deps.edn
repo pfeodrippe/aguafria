@@ -2,7 +2,11 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         aguafria/aguafria {:local/root "../.."}}
  :aliases
- {:dev {:extra-paths ["test"]
+ {:prepare {:replace-paths []
+            :replace-deps {org.clojure/tools.deps.cli {:mvn/version "0.9.49"}}
+            :exec-fn clojure.tools.deps.cli.api/prep
+            :exec-args {:force true}}
+  :dev {:extra-paths ["test"]
         :jvm-opts ["--enable-native-access=ALL-UNNAMED"]}
   :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
           :main-opts ["-m" "nrepl.cmdline"]}

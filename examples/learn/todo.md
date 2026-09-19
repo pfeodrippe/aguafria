@@ -1,3 +1,8 @@
 - [x] rename to same examples folder
-- [ ] unable to start repl in some file and evaluate the file, e.g. learn.example.hello, having error Could not locate aguafria/std/Io/File__init.class, aguafria/std/Io/File.clj or aguafria/std/Io/File.cljc on classpath.
-- [ ] no need for {:zig/qualifiers "!"}, it could be :!void instead
+- [x] unable to start repl in some file and evaluate the file, e.g. learn.example.hello, having error Could not locate aguafria/std/Io/File__init.class, aguafria/std/Io/File.clj or aguafria/std/Io/File.cljc on classpath.
+- [x] no need for {:zig/qualifiers "!"}, it could be :!void instead
+- [ ] (main) should call the function and we should see the log
+- [ ] why when I evaluate (debug/print "Hello, {s}!\n" ["World"]), I don't have the result/log from it ? I just see (aguafria.std.debug/print "Hello, {s}!\n" ["World"]) being returned
+- [ ] fix (maximum :bool false true)
+- [ ] all examples should also have a `comment` form in the end so people can reproduce the exact output from the repl
+- [ ] we should have a option in the tab to see both zig and aguafria zig side by side (with their shell and repl outputs)

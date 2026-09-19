@@ -1,4 +1,6 @@
-{:paths ["src" "resources"]
+{:paths ["src" "resources" "generated"]
+
+ :deps/prep-lib {:alias :prepare :fn std! :ensure "generated/aguafria/std"}
 
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.apache.commons/commons-compress {:mvn/version "1.28.0"}
@@ -6,7 +8,12 @@
 
  :aliases
 
- {:build {:deps {org.clojure/clojure {:mvn/version "1.12.5"}
+ {:prepare {:replace-paths ["src" "resources"]
+            :ns-default aguafria.zig.prepare
+            :exec-fn aguafria.zig.prepare/std!}
+
+  :build {:extra-paths ["src" "resources"]
+          :deps {org.clojure/clojure {:mvn/version "1.12.5"}
                   io.github.clojure/tools.build {:mvn/version "0.10.14"}
                   org.apache.commons/commons-compress {:mvn/version "1.28.0"}
                   org.tukaani/xz {:mvn/version "1.12"}}

@@ -3,10 +3,11 @@
 
   Packages are ordinary Clojure data. Aguafria's embedded Zig fetches and
   verifies each archive, the converter discovers its public declarations, and
-  `aguafria.pkg` interns those declarations as ordinary documented Vars.
-  No dependency-specific Clojure source is generated."
+  generated namespace entry points intern those declarations as ordinary
+  documented Vars. `:prepare` refreshes the catalog and ignored entry points."
   (:require [aguafria.zig.convert :as convert]
             [aguafria.zig.emitter :as emitter]
+            [aguafria.zig.prepare :as prepare]
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -418,6 +419,11 @@
   [form]
   (when (and (seq? form) (symbol? (first form)) (symbol? (second form)))
     (let [[operator declaration-name & tail] form
+          ;; Function declarations put their return type before docs/attributes.
+          ;; Do not mistake that type (which may be a vector) for parameters.
+          tail (if (#{"defn" "defn-"} (clojure.core/name operator))
+                 (next tail)
+                 tail)
           [documentation tail] (if (string? (first tail))
                                  [(first tail) (next tail)]
                                  [nil tail])
@@ -431,9 +437,12 @@
        :payload payload})))
 
 (defn- public-declaration?
-  [{:keys [attributes]}]
-  (or (true? (:public attributes))
-      (contains? (set (:attrs attributes)) :public)))
+  [{:keys [operator attributes]}]
+  (case (clojure.core/name operator)
+    "defn" true
+    "defn-" false
+    (or (true? (:public attributes))
+        (contains? (set (:attrs attributes)) :public))))
 
 (defn- declaration-zig-name
   [{:keys [name attributes]}]
@@ -784,17 +793,21 @@
 
   Intended for a tools.deps exec alias before starting the JVM:
 
-      :prepare-packages
+      :prepare
       {:exec-fn aguafria.zig.package/prepare!
        :exec-args {:config \"aguafria-packages.edn\"
                    :output \"resources/aguafria/zig-packages.edn\"}}
 
   The config is either the package map itself or `{:packages package-map}`.
   Public nested Zig modules are exposed both as nested `aguafria.pkg.*`
-  namespaces and as unambiguous flattened Vars in the package root namespace."
-  [{:keys [config output]
+  namespaces and as unambiguous flattened Vars in the package root namespace.
+
+  Add `generated` to the project's classpath. Rerun prep after changing packages,
+  then start a fresh REPL; no `aguafria.pkg` bootstrap require is necessary."
+  [{:keys [config output generated-dir]
     :or {config "aguafria-packages.edn"
-         output "resources/aguafria/zig-packages.edn"}}]
+         output "resources/aguafria/zig-packages.edn"
+         generated-dir "generated"}}]
   (let [configuration (read-edn config)
         packages (or (:packages configuration) configuration)
         specs (into (sorted-map)
@@ -814,9 +827,13 @@
                  :packages specs
                  :schema-version 1
                  :zig-version (:zig-version (runtime/toolchain-information)))
-        output-file (.getCanonicalFile (io/file output))]
+        output-file (.getCanonicalFile (io/file output))
+        entrypoints (prepare/write-entrypoints!
+                     {:kind :packages :namespaces namespaces
+                      :generated-dir generated-dir})]
     (write-string-if-changed! output-file (pprint-edn catalog))
     {:catalog (.getAbsolutePath output-file)
+     :entrypoints entrypoints
      :member-count (:member-count catalog)
      :namespace-count (count namespaces)
      :package-count (count specs)
@@ -826,12 +843,15 @@
 (defn- reference-form-builder
   [reference]
   (fn [& arguments]
-    (with-meta (apply list (:symbol reference) arguments)
-      {:aguafria/zig-reference reference})))
+    (if (= :function (:category reference))
+      ((requiring-resolve 'aguafria.zig.jvm/invoke-reference!) reference arguments)
+      (with-meta (apply list (:symbol reference) arguments)
+        {:aguafria/zig-reference reference}))))
 
 (defn- catalog-reference
   [member]
   {:category (:category member)
+   :signature (:signature member)
    :import (:package member)
    :kind :import-member
    :member (:zig-name member)
@@ -846,8 +866,10 @@
        (when (seq documentation) (str documentation "\n\n"))
        "This Var represents Zig `" package "." zig-name "` ("
        (name category) ") from `" source "`. Inside an `az/defn` it emits "
-       "the Zig reference directly. Calling it at the Clojure REPL returns "
-       "inspectable Aguafria form data."))
+       "the Zig reference directly. "
+       (if (= :function category)
+         "Calling this Var from Clojure or Java executes native Zig, specializing comptime arguments as needed."
+         "This declaration represents Zig type/constant syntax inside Aguafria forms.")))
 
 (defn- install-member!
   [target-ns member]
@@ -938,8 +960,7 @@
        :namespace-count (count namespace-names)
        :package-count (count (:packages catalog))})))
 
-(defn install-resource-catalogs!
-  "Discover and install every `aguafria/zig-packages.edn` on the classpath."
+(defn- resource-catalogs
   []
   (let [loader (.getContextClassLoader (Thread/currentThread))
         resources (vec (enumeration-seq
@@ -948,14 +969,37 @@
       (throw (ex-info "No generated Aguafria Zig package catalog is on the classpath"
                       {:aguafria/phase :zig-package-catalog
                        :resource package-catalog-resource
-                       :prepare-with "clojure -X:prepare-packages"})))
-    (let [catalogs (mapv read-edn resources)
-          installed (mapv install-catalog! catalogs)]
+                       :prepare-with "clojure -X:prepare"})))
+    (mapv read-edn resources)))
+
+(defn install-namespace!
+  "Load one prepared package namespace using its classpath catalog.
+  Called by generated entry points; ordinary require and :reload preserve Vars."
+  [target-ns]
+  (let [namespace-name (ns-name target-ns)
+        catalogs (resource-catalogs)
+        matches (for [catalog catalogs
+                      entry (:namespaces catalog)
+                      :when (= namespace-name (:name entry))]
+                  (assoc catalog :namespaces [entry]))]
+    (when-not (= 1 (count matches))
+      (throw (ex-info "Expected exactly one catalog defining the package namespace"
+                      {:namespace namespace-name :catalog-count (count matches)
+                       :prepare-with "clojure -X:prepare"})))
+    (let [result (install-catalog! (first matches))]
       (reset! installed-catalogs catalogs)
-      {:catalog-count (count resources)
-       :member-count (reduce + 0 (map :member-count installed))
-       :namespace-count (reduce + 0 (map :namespace-count installed))
-       :package-count (reduce + 0 (map :package-count installed))})))
+      result)))
+
+(defn install-resource-catalogs!
+  "Eagerly install every `aguafria/zig-packages.edn` on the classpath."
+  []
+  (let [catalogs (resource-catalogs)
+        installed (mapv install-catalog! catalogs)]
+    (reset! installed-catalogs catalogs)
+    {:catalog-count (count catalogs)
+     :member-count (reduce + 0 (map :member-count installed))
+     :namespace-count (reduce + 0 (map :namespace-count installed))
+     :package-count (reduce + 0 (map :package-count installed))}))
 
 (defn catalog-info
   "Return compact information for installed package catalogs."

@@ -55,12 +55,15 @@
 (defn- reference-form-builder
   [reference]
   (fn [& arguments]
-    (with-meta (apply list (:symbol reference) arguments)
-      {:aguafria/zig-reference reference})))
+    (if (= :function (:category reference))
+      ((requiring-resolve 'aguafria.zig.jvm/invoke-reference!) reference arguments)
+      (with-meta (apply list (:symbol reference) arguments)
+        {:aguafria/zig-reference reference}))))
 
 (defn- member-reference
   [member]
   {:category (:category member)
+   :signature (:signature member)
    :kind :std
    :symbol (:symbol member)
    :zig-name (:zig-name member)})
@@ -71,9 +74,10 @@
        (when (seq documentation) (str documentation "\n\n"))
        "This Var represents Zig `" zig-name "` (" (name category) ") from `"
        source "`, generated against Zig " zig-version ". Inside an `az/defn` "
-       "form it emits the Zig reference directly. Calling it at the Clojure "
-       "REPL returns inspectable Aguafria form data; it does not execute Zig "
-       "until that form is compiled."))
+       "form it emits the Zig reference directly. "
+       (if (= :function category)
+         "Calling this Var from Clojure or Java executes native Zig, specializing comptime arguments as needed."
+         "This declaration represents Zig type/constant syntax inside Aguafria forms.")))
 
 (defn- install-member!
   [target-ns member]

@@ -1,9 +1,9 @@
 (ns aguafria.pkg
   "Bootstrap EDN-cataloged third-party Zig package namespaces.
 
-  Require this namespace before package namespaces in the same `ns` form.
-  No package-specific Clojure source exists: the generated EDN catalog is the
-  authority and its declarations are interned as ordinary Vars."
+  Optional eager installation and catalog inspection. Prepared `aguafria.pkg.*`
+  namespaces can be required directly. The EDN catalog remains the authority;
+  generated entry points only make each namespace discoverable."
   (:require [aguafria.zig.package :as package]))
 
 (def installation

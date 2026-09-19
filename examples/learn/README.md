@@ -15,6 +15,7 @@ complete original HTML byte-for-byte; a regression test enforces this.
 From this directory:
 
 ```sh
+clojure -X:prepare         # prepare local Aguafria before starting the REPL
 clojure -M:translate       # regenerate displayed namespaces and emitted Zig
 clojure -M:blocks          # handwritten blocks; check syntax and shared native fixtures
 clojure -M:inlines         # check short forms; compare closed expression outputs
@@ -32,9 +33,17 @@ All native builds use **Aguafria’s embedded Zig**, never a `zig` found on PATH
 No other example is a dependency. Normal builds work from the hash-locked,
 MIT-licensed snapshot and do not download the reference again.
 Each lesson can be loaded directly in a fresh REPL. Nested std namespaces have
-their own classpath entry points; no preliminary `[aguafria.std]` import is needed.
+their own prepared classpath entry points under Aguafria's ignored `generated/`;
+no preliminary `[aguafria.std]` import is needed.
 Error-returning functions use `:!void`, `:!u32`, or `:!MyType`; composite payloads
 use `[:! payload-type]` (equivalent to `[:error-union payload-type]`).
+
+Calling an `az/defn` or imported function Var executes native Zig from ordinary
+Clojure or Java. Generic/comptime calls are specialized natively. For example,
+`(debug/print "Hello, {s}!\n" ["World"])` prints and returns `nil` (Zig `void`),
+while `(math/sqrt 9.0)` returns `3.0`. Bound Clojure output writers receive
+stdout/stderr from synchronous calls, including CIDER's output buffer.
+Use a quoted form with `az/emit-expr` when you want source instead of execution.
 
 Teaching examples are hand-written under `resources/learn/example/`, with
 `learn.example.*` namespaces and Zig-derived filenames (`test_if.zig` becomes

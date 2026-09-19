@@ -297,9 +297,23 @@ depend on one another.
 ## Project development
 
 ```sh
+clojure -X:prepare
 clojure -M:check-keyword
 clojure -M:test
 ```
+
+`:prepare` creates std namespace entry points under ignored `generated/` from
+the checked-in catalog. Nested namespaces such as `aguafria.std.Io.File` then
+work with ordinary `require`. Packaged JARs include these entry points. Local
+and Git consumers can run `clojure -X:deps prep` before starting their REPL;
+the Learn example exposes that standard dependency prep as `clojure -X:prepare`.
+
+For third-party Zig packages, add `generated` to the project's `:paths` and use
+`{:prepare {:exec-fn aguafria.zig.package/prepare!}}` in `:aliases`. Rerun
+`clojure -X:prepare` when `aguafria-packages.edn` changes, then restart the REPL.
+This updates the catalog and `aguafria.pkg.*` entry points, including removal of
+obsolete ones. Ordinary Maven/Clojure dependencies still use normal tools.deps;
+they are not automatically interpreted as Zig packages.
 
 Kaocha configuration lives in [`tests.edn`](tests.edn). Release packaging uses
 the deps.edn-native [`build.clj`](build.clj) tasks through the

@@ -5105,7 +5105,8 @@
     (into {}
           (keep
            (fn [declaration]
-             (when (contains? requested (:declaration-key declaration))
+             (when (and (contains? requested (:declaration-key declaration))
+                        (not-any? generic-function-argument? (:args declaration)))
                (let [qualified-name (:qualified-name declaration)
                      token (subs (sha256 (pr-str [qualified-name
                                                   (:abi-fingerprint declaration)]))
@@ -11772,7 +11773,7 @@
          :generation (or (:wrapper-generation owner-binding) generation)
          :close! close!}))))
 
-(defn invoke!
+(defn- invoke-uncaptured!
   "Invoke the latest loaded generation of a scalar Zig Var. Non-exported
   declarations receive a cached development-only trampoline on first call."
   [function arguments]
@@ -11784,16 +11785,26 @@
         (locking compile-lock
           (current-function-declaration (get @registry module)
                                         qualified-name))
-        _ (materialize-jvm-callable! qualified-name)
-        _ (doseq [zig-type (concat (map :type (:args declaration))
-                                   [(:return declaration)])
-                  :when (and zig-type
-                             (not= :void zig-type)
-                             (not (contains? scalar-layouts
-                                             (scalar-key zig-type))))]
-            (ensure-native-type-binding! module zig-type))
-        function-binding (acquire-function-binding! qualified-name arguments nil)]
-    (invoke-binding! module function-binding arguments)))
+        generic? (some generic-function-argument? (:args declaration))]
+    (if generic?
+      ((requiring-resolve 'aguafria.zig.jvm/invoke-generic!) declaration arguments)
+      (let [_ (materialize-jvm-callable! qualified-name)
+            _ (doseq [zig-type (concat (map :type (:args declaration))
+                                      [(:return declaration)])
+                      :when (and zig-type
+                                 (not= :void zig-type)
+                                 (not (contains? scalar-layouts
+                                                 (scalar-key zig-type))))]
+                (ensure-native-type-binding! module zig-type))
+            function-binding (acquire-function-binding! qualified-name arguments nil)]
+        (invoke-binding! module function-binding arguments)))))
+
+(defn invoke!
+  "Invoke a Zig Var from any Clojure/Java caller. Generic calls are specialized
+  natively; synchronous native output follows the caller's Clojure writers."
+  [function arguments]
+  ((requiring-resolve 'aguafria.zig.jvm/call-with-output)
+   #(invoke-uncaptured! function arguments)))
 
 (defn invoke-version!
   "Invoke a retained scalar ABI version of an exported Zig function. Obtain

@@ -24,10 +24,10 @@
     (is (= "std/math/sqrt.zig" (:zig/source (meta #'math/sqrt))))
     (is (str/includes? (:doc (meta #'math/sqrt)) "square root")))
 
-  (testing "calling a std Var at the JVM REPL returns inspectable form data"
-    (is (= '(aguafria.std.math/sqrt x) (math/sqrt 'x)))
+  (testing "calling a std Var executes Zig; quoted forms remain inspectable"
+    (is (= 3.0 (math/sqrt 9.0)))
     (is (= "@import(\"std\").math.sqrt(x)"
-           (az/emit-expr (math/sqrt 'x)))))
+           (az/emit-expr '(aguafria.std.math/sqrt x)))))
 
   (testing "the generated catalog exposes the complete namespace graph"
     (is (> (:member-count (std/catalog-info)) 20000))

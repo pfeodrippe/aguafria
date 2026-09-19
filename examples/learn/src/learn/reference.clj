@@ -97,8 +97,8 @@
          :text (subs source start)}))))
 
 (defn inventory []
-  (verify-snapshot!)
-  (let [template (slurp (io/file upstream-dir "doc/langref.html.in"))
+  (let [lock (verify-snapshot!)
+        template (slurp (io/file upstream-dir "doc/langref.html.in"))
         html (slurp (io/file upstream-dir "index.html"))
         references (mapv second (re-seq #"\{#code\|([^#]+)#\}" template))
         snippets (re-seq #"(?s)\{#(syntax|syntax_block|shell_samp)(?:\|([^#]+))?#\}(.*?)\{#end(?:syntax|_syntax_block|_shell_samp)#\}" template)]
@@ -112,8 +112,11 @@
               :referenced? (boolean (some #{(.getName file)} references))
               :sha256 (sha256 file)
               :manifest (manifest (slurp file))})
-           (filter #(.isFile %)
-                   (sort-by str (file-seq (io/file upstream-dir "doc/langref")))))
+           ;; Only the pinned sources are lessons, never local Zig cache files.
+           (->> (keys (:files lock))
+                (filter #(str/starts-with? % "doc/langref/"))
+                sort
+                (map #(io/file upstream-dir %))))
      :snippets
      (mapv (fn [index [_ kind attributes source]]
              {:id (str "snippet-" (inc index))

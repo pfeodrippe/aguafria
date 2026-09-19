@@ -6,6 +6,23 @@
 (def ^:private fixture-namespace
   'aguafria.pkg.catalog-fixture)
 
+(deftest catalog-understands-canonical-function-declarations-test
+  (let [public (#'package/declaration-parts
+                '(az/defn serialize [:array 36 :u8]
+                   "Serialize a UUID."
+                   {:zig/name "serialize", :attrs #{:public}}
+                   [[uuid Uuid]]
+                   uuid))
+        default-public (#'package/declaration-parts '(az/defn ready :bool [] true))
+        private (#'package/declaration-parts '(az/defn- helper :u8 [] 0))]
+    (is (#'package/public-declaration? public))
+    (is (#'package/public-declaration? default-public))
+    (is (false? (#'package/public-declaration? private)))
+    (is (= "Serialize a UUID." (:documentation public)))
+    (is (= "serialize" (#'package/declaration-zig-name public)))
+    (is (= 1 (#'package/function-param-count public)))
+    (is (= 0 (#'package/function-param-count default-public)))))
+
 (defn- forget-fixture!
   []
   (when (find-ns fixture-namespace)
@@ -37,7 +54,7 @@
                  :zig-alias "fixture_pkg"
                  :zig-name "v4.new"}]}]})))
     (let [var (ns-resolve fixture-namespace 'v4-new)
-          form ((var-get var) 'io)]
+          form '(aguafria.pkg.catalog-fixture/v4-new io)]
       (is (var? var))
       (is (= "v4.new" (:zig/name (meta var))))
       (is (= "pub fn new(io: std.Io) Uuid"
@@ -48,4 +65,3 @@
              (emitter/emit-expr (the-ns fixture-namespace) form))))
     (finally
       (forget-fixture!))))
-

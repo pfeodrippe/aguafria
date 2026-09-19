@@ -1,6 +1,7 @@
 (ns build
   "Build and publish self-contained Aguafria platform JARs."
-  (:require [clojure.edn :as edn]
+  (:require [aguafria.zig.prepare :as prepare]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.tools.build.api :as b])
@@ -145,7 +146,7 @@
         pom (str prefix ".pom")
         {:keys [archive signature]} (download! platform)]
     (b/delete {:path root})
-    (b/copy-dir {:src-dirs ["src" "resources"] :target-dir classes})
+    (b/copy-dir {:src-dirs ["src" "resources" "generated"] :target-dir classes})
     (doseq [file ["LICENSE" "THIRD_PARTY_NOTICES.md"]]
       (b/copy-file {:src file :target (str classes "/" file)}))
     (b/copy-file {:src archive
@@ -159,7 +160,7 @@
                   :version release-version
                   :basis @basis
                   :src-pom :none
-                  :src-dirs ["src"]
+                  :src-dirs ["src" "generated"]
                   :resource-dirs ["resources"]
                   :repos {}
                   :pom-data pom-data
@@ -167,7 +168,7 @@
     (b/jar {:class-dir classes :jar-file jar})
     (b/copy-file {:src (b/pom-path {:class-dir classes :lib lib}) :target pom})
 
-    (b/copy-dir {:src-dirs ["src"] :target-dir sources})
+    (b/copy-dir {:src-dirs ["src" "generated"] :target-dir sources})
     (doseq [file ["README.md" "LICENSE" "THIRD_PARTY_NOTICES.md"]]
       (b/copy-file {:src file :target (str sources "/" file)}))
     (b/jar {:class-dir sources :jar-file source-jar})
@@ -189,6 +190,7 @@
 (defn package
   "Build one self-contained Maven artifact per selected OS."
   [{:keys [version] :as options}]
+  (prepare/std! {})
   (let [release-version (or (some-> version str) (current-version))]
     (parse-version release-version)
     (b/delete {:path (str target-dir "/work")})

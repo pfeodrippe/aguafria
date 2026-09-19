@@ -4,6 +4,28 @@ Goal: the whole Zig 0.16.0 reference, not a selected tutorial. Completed for the
 requested scope: original document unchanged, Aguafria alternatives and real
 REPL output added, required comparisons passing. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Move std entry points from `src/` to ignored `generated/`, using the existing
+      catalogs and standard source-dependency prep. Name aliases `:prepare`.
+      Extend package prep to generate normal `aguafria.pkg.*` entry points,
+      refreshing added/changed/removed dependencies without a bootstrap require.
+      Include std entry points in packaged JARs; verify fresh REPLs and rebuild Learn.
+      Verified standard source-dependency prep in an isolated consumer, direct
+      std imports from a code JAR, and direct third-party UUID imports/calls.
+      Generated source entry points were moved to a recoverable `.tmp` backup.
+- [x] Make ordinary JVM calls execute native Zig for imported function Vars and
+      comptime/generic functions, rather than returning form data or attempting
+      to marshal `type` across the C ABI. Verify the user's `maximum :bool`
+      example, `debug/print`, actual return values, error propagation and edits.
+      Route synchronous native output to bound Clojure writers, restoring process
+      streams on failure. Name the bridge `aguafria.zig.jvm`: no nREPL middleware
+      or development-only restriction. A plain Java program verifies native
+      boolean/numeric results and printing; six bridge tests / 26 assertions pass,
+      including adapter reuse, native state and hot reload.
+      Combined library regression suite: 87 tests / 3,789 assertions, no failures.
+      Rebuilt 290 real REPL transcripts; all 292 file outcomes, 41 Learn tests /
+      7,899 assertions and six JavaScript tests pass. Visually checked the served
+      page with Aguafria selected, highlighting and native output.
+
 - [x] Make nested std namespaces directly requireable from a clean REPL,
       without `aguafria.std` bootstrap imports or reference-runner setup.
       Generate classpath entry points from the existing std catalog.
@@ -13,8 +35,8 @@ REPL output added, required comparisons passing. Compiler gaps are not `ZIG_ONLY
       / 3,719 assertions and 41 Learn tests / 7,899 assertions pass. Rebuilt all
       290 REPL transcripts and checked all 292 file outcomes. Browser inspection
       confirms syntax highlighting, `:!void`, real output and independent tabs.
-      This entrypoint change is std-only: third-party packages still require
-      `aguafria.pkg` bootstrap, confirmed in a separate fresh JVM.
+      The prepared entry points above supersede the initial std-only solution;
+      both std and third-party packages now support ordinary direct requires.
 
 - [x] Flatten the 290 authored files into `resources/learn/example/` with
       `learn.example.*` namespaces and put the 15 explanatory blocks under

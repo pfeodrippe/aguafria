@@ -11,13 +11,17 @@ It also consumes `uuid-zig` as a normal pinned Zig dependency. Prepare its EDN
 Var catalog once (and whenever the package pin changes):
 
 ```sh
-clojure -X:prepare-packages
+clojure -X:prepare
 ```
 
 The server then requires `[aguafria.pkg.uuid :as uuid]` and calls ordinary
 catalog Vars such as `uuid/v4-new` and `uuid/urn-serialize`. The generated
-catalog is checked in, so a prepared checkout remains editor- and REPL-friendly
-without dependency-specific Clojure wrapper files.
+catalog is checked in. The local library additionally prepares ignored namespace
+entry points in `generated/`, allowing direct package requires without a
+bootstrap import. To test that development version, run `clojure -X:deps prep
+:aliases '[:local-aguafria]'`, then `clojure -X:local-aguafria:prepare` before
+starting a new local REPL. The published 0.1.7 dependency remains the default;
+its server still uses its existing bootstrap import until the next release.
 
 ## Run and hot reload
 
