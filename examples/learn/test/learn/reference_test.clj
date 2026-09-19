@@ -118,7 +118,7 @@
         blocks [{:id "block" :status :translated :verification :syntax-roundtrip-passed
                  :context-review "The original is an incomplete illustration without output."}]
         inlines [{:id "inline" :status :translated :verification :output-matched}]
-        overrides {"example.zig" {:source "learn/examples/example.clj"}}
+        overrides {"example.zig" {:source "learn/example/example.clj"}}
         inputs [catalog translations blocks inlines overrides]]
     (is (empty? (apply ref/acceptance-problems inputs)))
     (doseq [[path value expected]
@@ -150,35 +150,61 @@
       (is (nil? (re-find #"\(az/(?:defn-?|deftest)\s*\n" code)))
       (is (nil? (re-find #"\(az/deftest\s+\"" code))))))
 
-(deftest authored-namespaces-identify-the-original-zig-example
+(deftest authored-examples-and-snippets-use-standard-clojure-namespaces
   (let [files (for [[file {:keys [source]}] (ref/read-edn "resources/learn/overrides.edn")
                     :when source]
-                [source file])
+                [source file "example"])
         fragments (ref/read-edn "resources/learn/fragment-overrides.edn")
         blocks (for [{:keys [id attributes]} (:snippets (ref/inventory))
                      :let [source (:source (get fragments id))]
                      :when source]
-                 [source (second (str/split attributes #"\|" 2))])]
+                 [source (second (str/split attributes #"\|" 2)) "snippet"])]
     (is (= 305 (count (concat files blocks))))
-    (doseq [[source original] (concat files blocks)
-            :let [form (read-string (slurp (io/resource source)))]]
+    (doseq [[group entries] [["example" files] ["snippet" blocks]]
+            :let [declared (set (map (comp #(.getName %) io/file first) entries))
+                  on-disk (filter #(.isFile %)
+                                  (file-seq (io/file "resources/learn" group)))]]
+      (is (= declared (set (map #(.getName %) on-disk)))))
+    (doseq [[source original group] (concat files blocks)
+            :let [code (slurp (io/resource source))
+                  form (read-string code)
+                  basename (.getName (io/file source))]]
       (testing source
         (is (= 'ns (first form)))
-        (is (str/starts-with? (or (nth form 2 nil) "")
-                             (str "Converted from " original)))))))
+        (is (= (str "learn/" group) (.getParent (io/file source))))
+        (is (re-matches #"[A-Za-z0-9_]+\.clj" basename))
+        (is (= source
+               (str (-> (str (second form))
+                        (str/replace "." "/")
+                        (str/replace "-" "_")) ".clj")))
+        (when (str/ends-with? original ".zig")
+          (is (= (str (-> original
+                          (str/replace #"\.zig$" "")
+                          (str/replace #"[^A-Za-z0-9_]" "_")) ".clj")
+                 basename)))
+        (is (= (symbol (str "learn." group "."
+                            (-> basename
+                                (str/replace #"\.clj$" "")
+                                (str/replace #"[^A-Za-z0-9-]+" "-"))))
+               (second form)))
+        (is (not (str/includes? code "Converted from "))))))
+  (is (str/starts-with?
+       (nth (read-string (slurp (io/resource "learn/example/tldoc_comments.clj"))) 2)
+       "This module provides functions")))
 
 (deftest aguafria-panel-shows-its-actual-source-filename
-  (let [path "resources/learn/examples/idiomatic_state/comptime_variables.clj"
+  (let [path "resources/learn/example/test_comptime_variables.clj"
         translation {:status :translated :clojure-path path
-                     :authored-source "learn/examples/idiomatic_state/comptime_variables.clj"}
+                     :authored-source "learn/example/test_comptime_variables.clj"}
         panel (ref/example-panel ["<figure>original</figure>" "test_comptime_variables.zig"]
                                  translation 1)]
     (is (str/includes? panel
-                      "<figcaption class=\"clojure-cap\"><cite class=\"file\">comptime_variables.clj</cite></figcaption>"))
-    (is (str/includes? panel "&quot;Converted from test_comptime_variables.zig&quot;"))
+                      "<figcaption class=\"clojure-cap\"><cite class=\"file\">test_comptime_variables.clj</cite></figcaption>"))
+    (is (str/includes? panel "(ns learn.example.test-comptime-variables"))
+    (is (not (str/includes? panel "Converted from")))
     (is (= "<figure>original</figure>" (ref/original-document panel)))
     (is (str/includes? (ref/example-panel ["original" "file.zig"]
-                                         (assoc translation :authored-source "examples/<file>.clj") 1)
+                                         (assoc translation :authored-source "example/<file>.clj") 1)
                        "&lt;file&gt;.clj</cite>"))))
 
 (deftest examples-show-code-without-work-log-comments
@@ -188,7 +214,7 @@
     (let [markup (ref/example-panel ["<figure>original</figure>" file]
                                     {:status :translated
                                      :verification verification
-                                     :clojure-path "resources/learn/examples/hello.clj"}
+                                     :clojure-path "resources/learn/example/hello.clj"}
                                     1)]
       (is (not (str/includes? markup "learn-status")))
       (is (not (str/includes? markup "learn-authorship")))
@@ -211,20 +237,20 @@
         (is (not (str/includes? code "Generated from")))
         (is (not (str/includes? code "Edit and reevaluate")))
         (is (not (str/includes? code ":explicit-return")))
-        (is (nil? (re-find #"learn\.examples\.[^\s)]+_[0-9a-f]{8}" code)))))))
+        (is (nil? (re-find #"learn\.example\.[^\s)]+_[0-9a-f]{8}" code)))))))
 
 (deftest verified-examples-show-code-without-success-badges
   (let [markup (ref/example-panel ["<figure>original</figure>" "hello.zig"]
                                   {:status :translated
                                    :verification :output-matched
-                                   :clojure-path "resources/learn/examples/hello.clj"}
+                                   :clojure-path "resources/learn/example/hello.clj"}
                                   1)]
     (is (not (str/includes? markup "learn-status")))
     (is (not (str/includes? markup "learn-authorship")))
     (is (str/includes? markup "language-clojure"))))
 
 (deftest exact-displayed-clojure-is-evaluated
-  (let [namespace-symbol 'learn.examples.displayed_source_test
+  (let [namespace-symbol 'learn.example.displayed-source-test
         source (str "(ns " namespace-symbol " (:require [aguafria.zig :as az]))\n"
                     "(az/defconst answer 42)")
         emitted (ref/emit-clojure source namespace-symbol {})]
@@ -237,14 +263,13 @@
     (is (not (contains? (loaded-libs) namespace-symbol)))))
 
 (deftest a-verified-lesson-can-be-required-and-called-normally
-  (let [lesson 'learn.examples.idiomatic-pointers.integer-pointer-conversion
-        source (slurp (io/resource "learn/examples/idiomatic_pointers/integer_pointer_conversion.clj"))
+  (let [lesson 'learn.example.test-integer-pointer-conversion
+        source (slurp (io/resource "learn/example/test_integer_pointer_conversion.clj"))
         result (atom nil)]
     (ref/emit-clojure source lesson {})
     (try
       (require lesson)
-      (is (= "Converted from test_integer_pointer_conversion.zig"
-             (:doc (meta (the-ns lesson)))))
+      (is (nil? (:doc (meta (the-ns lesson)))))
       (let [test-var (ns-resolve lesson 'integer-pointer-conversion-test)
             output (with-out-str
                      (binding [*err* *out*]
@@ -258,6 +283,18 @@
         (remove-ns lesson)
         (dosync (alter @#'clojure.core/*loaded-libs* disj lesson))))))
 
+(deftest conversion-drafts-do-not-change-handwritten-namespace-defaults
+  (doseq [file ["comments.zig" "base64.zig"]
+          :let [example (first (filter #(= file (:file %)) (:examples (ref/inventory))))
+                translation (ref/translate-one! example)
+                emitted (slurp (str "build/emitted/" file))]]
+    (is (= :translated (:status translation)))
+    (is (false? (aguafria.zig.project/converted-module?
+                 (symbol (str "learn.example." (str/replace file #"\.zig$" ""))))))
+    (if (= file "comments.zig")
+      (is (str/includes? emitted "pub fn main()"))
+      (is (str/includes? emitted "return decoded_length;")))))
+
 (deftest larger-blocks-have-exact-source-syntax-checks
   (let [block (first (filter #(= "snippet-646" (:id %))
                             (:snippets (ref/inventory))))
@@ -266,7 +303,7 @@
     (is (= :output-matched (:verification result)))
     (is (= :shared-context-fixture (:verification-scope result)))
     (is (= :output-matched (get-in result [:comparison :status])))
-    (is (= "learn/fragments/specialized_identity.clj" (:authored-source result)))
+    (is (= "learn/snippet/performFn_3.clj" (:authored-source result)))
     (is (= (:source-sha256 block) (:source-sha256 result)))
     (is (= (:clojure-sha256 result) (ref/sha256 (:clojure-path result))))
     (is (= (:emitted-sha256 result) (ref/sha256 (:emitted-path result))))
@@ -432,7 +469,7 @@
                     :value {:exit 0}}
         panel (ref/example-panel match
                                  {:status :translated
-                                  :clojure-path "resources/learn/examples/hello.clj"
+                                  :clojure-path "resources/learn/example/hello.clj"
                                   :repl-transcript transcript} 1)
         aguafria (subs panel (str/index-of panel "id=\"learn-example-1-a\""))]
     (is (= original (first match)))

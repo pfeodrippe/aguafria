@@ -1,9 +1,0 @@
-(ns learn.examples.idiomatic-errors.comptime-invalid-cast
-  "Converted from test_comptime_invalid_cast.zig"
-  (:require [aguafria.keyword :as ak]
-            [aguafria.zig :as az]))
-
-(az/defcomptime reject-negative-unsigned-value
-  (let [^{:zig/type :i32} signed-value -1
-        ^{:zig/type :u32} unsigned-value (ak/intCast signed-value)]
-    (set! _ unsigned-value)))

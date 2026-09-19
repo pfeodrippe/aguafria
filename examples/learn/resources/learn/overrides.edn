@@ -1,711 +1,711 @@
 {"Assembly Syntax Explained.zig"
- {:source "learn/examples/idiomatic_low_level/assembly_syntax_explained.clj"}
+ {:source "learn/example/Assembly_Syntax_Explained.clj"}
  "inline_assembly.zig"
- {:source "learn/examples/idiomatic_low_level/inline_assembly.clj"}
+ {:source "learn/example/inline_assembly.clj"}
  "test_global_assembly.zig"
- {:source "learn/examples/idiomatic_low_level/global_assembly.clj"}
+ {:source "learn/example/test_global_assembly.clj"}
  "builtin.CallModifier struct.zig"
- {:source "learn/examples/idiomatic_low_level/call_modifier.clj"}
+ {:source "learn/example/builtin_CallModifier_struct.clj"}
  "not_atomic_cmpxchgStrong.zig"
- {:source "learn/examples/idiomatic_low_level/non_atomic_compare_exchange.clj"}
+ {:source "learn/example/not_atomic_cmpxchgStrong.clj"}
  "packed_struct_mmio.zig"
- {:source "learn/examples/idiomatic_low_level/packed_struct_mmio.clj"}
+ {:source "learn/example/packed_struct_mmio.clj"}
  "test_illegal_behavior.zig"
- {:source "learn/examples/idiomatic_low_level/illegal_behavior.clj"}
+ {:source "learn/example/test_illegal_behavior.clj"}
  "test_opaque.zig"
- {:source "learn/examples/idiomatic_low_level/opaque.clj"}
+ {:source "learn/example/test_opaque.clj"}
  "test_pass_by_reference_or_value.zig"
- {:source "learn/examples/idiomatic_low_level/pass_by_reference_or_value.clj"}
+ {:source "learn/example/test_pass_by_reference_or_value.clj"}
  "test_pointer_casting.zig"
- {:source "learn/examples/idiomatic_low_level/pointer_casting.clj"}
+ {:source "learn/example/test_pointer_casting.clj"}
  "test_reduce_builtin.zig"
- {:source "learn/examples/idiomatic_low_level/reduce_builtin.clj"}
+ {:source "learn/example/test_reduce_builtin.clj"}
  "test_shuffle_builtin.zig"
- {:source "learn/examples/idiomatic_low_level/shuffle_builtin.clj"}
+ {:source "learn/example/test_shuffle_builtin.clj"}
  "test_splat_builtin.zig"
- {:source "learn/examples/idiomatic_low_level/splat_builtin.clj"}
+ {:source "learn/example/test_splat_builtin.clj"}
  "test_wasmMemoryGrow_builtin.zig"
- {:source "learn/examples/idiomatic_low_level/wasm_memory_grow_builtin.clj"}
+ {:source "learn/example/test_wasmMemoryGrow_builtin.clj"}
  "test_wrong_union_access.zig"
- {:source "learn/examples/idiomatic_low_level/wrong_union_access.clj"}
+ {:source "learn/example/test_wrong_union_access.clj"}
  "zero_bit_types.zig"
- {:source "learn/examples/idiomatic_low_level/zero_bit_types.clj"}
+ {:source "learn/example/zero_bit_types.clj"}
  "test_switch.zig"
- {:source "learn/examples/idiomatic_low_level/switch.clj"}
+ {:source "learn/example/test_switch.clj"}
  "test_tagName.zig"
- {:source "learn/examples/idiomatic_low_level/tag_name.clj"}
+ {:source "learn/example/test_tagName.clj"}
  "bad_default_value.zig"
- {:source "learn/examples/idiomatic_metaprogramming/bad_default_value.clj"}
+ {:source "learn/example/bad_default_value.clj"}
  "compile-time_duck_typing.zig"
- {:source "learn/examples/idiomatic_metaprogramming/compile_time_duck_typing.clj"}
+ {:source "learn/example/compile_time_duck_typing.clj"}
  "compiler_generated_function.zig"
- {:source "learn/examples/idiomatic_metaprogramming/compiler_generated_function.clj"}
+ {:source "learn/example/compiler_generated_function.clj"}
  "generic_data_structure.zig"
- {:source "learn/examples/idiomatic_metaprogramming/generic_data_structure.clj"}
+ {:source "learn/example/generic_data_structure.clj"}
  "inline_call.zig"
- {:source "learn/examples/idiomatic_metaprogramming/inline_call.clj"}
+ {:source "learn/example/inline_call.clj"}
  "inline_prong_range.zig"
- {:source "learn/examples/idiomatic_metaprogramming/inline_prong_range.clj"}
+ {:source "learn/example/inline_prong_range.clj"}
  "test_comptime_max_with_bool.zig"
- {:source "learn/examples/idiomatic_metaprogramming/comptime_max_with_bool.clj"}
+ {:source "learn/example/test_comptime_max_with_bool.clj"}
  "test_comptime_mismatched_type.zig"
- {:source "learn/examples/idiomatic_metaprogramming/comptime_mismatched_type.clj"}
+ {:source "learn/example/test_comptime_mismatched_type.clj"}
  "test_compileLog_builtin.zig"
- {:source "learn/examples/idiomatic_metaprogramming/compileLog_builtin.clj"}
+ {:source "learn/example/test_compileLog_builtin.clj"}
  "test_setEvalBranchQuota_builtin.zig"
- {:source "learn/examples/idiomatic_metaprogramming/setEvalBranchQuota_builtin.clj"}
+ {:source "learn/example/test_setEvalBranchQuota_builtin.clj"}
  "test_without_setEvalBranchQuota_builtin.zig"
- {:source "learn/examples/idiomatic_metaprogramming/without_setEvalBranchQuota_builtin.clj"}
+ {:source "learn/example/test_without_setEvalBranchQuota_builtin.clj"}
  "test_inline_switch_union_tag.zig"
- {:source "learn/examples/idiomatic_metaprogramming/inline_switch_union_tag.clj"}
+ {:source "learn/example/test_inline_switch_union_tag.clj"}
  "test_switch_dispatch_loop.zig"
- {:source "learn/examples/idiomatic_metaprogramming/switch_dispatch_loop.clj"}
+ {:source "learn/example/test_switch_dispatch_loop.clj"}
  "test_switch_non-exhaustive.zig"
- {:source "learn/examples/idiomatic_metaprogramming/switch_non_exhaustive.clj"}
+ {:source "learn/example/test_switch_non_exhaustive.clj"}
  "test_unhandled_enumeration_value.zig"
- {:source "learn/examples/idiomatic_metaprogramming/unhandled_enumeration_value.clj"}
+ {:source "learn/example/test_unhandled_enumeration_value.clj"}
  "entry_point.zig"
- {:source "learn/examples/idiomatic_interop/entry_point.clj"}
+ {:source "learn/example/entry_point.clj"}
  "enum_export.zig"
- {:source "learn/examples/idiomatic_interop/enum_export.clj"}
+ {:source "learn/example/enum_export.clj"}
  "enum_export_error.zig"
- {:source "learn/examples/idiomatic_interop/enum_export_error.clj"}
+ {:source "learn/example/enum_export_error.clj"}
  "export_builtin.zig"
- {:source "learn/examples/idiomatic_interop/export_builtin.clj"}
+ {:source "learn/example/export_builtin.clj"}
  "export_builtin_equivalent_code.zig"
- {:source "learn/examples/idiomatic_interop/export_builtin_equivalent_code.clj"}
+ {:source "learn/example/export_builtin_equivalent_code.clj"}
  "libc_export_entry_point.zig"
- {:source "learn/examples/idiomatic_interop/libc_export_entry_point.clj"}
+ {:source "learn/example/libc_export_entry_point.clj"}
  "cImport_builtin.zig"
- {:source "learn/examples/idiomatic_interop/cimport_builtin.clj"}
+ {:source "learn/example/cImport_builtin.clj"}
  "macro.zig"
- {:source "learn/examples/idiomatic_interop/macro.clj"}
+ {:source "learn/example/macro.clj"}
  "verbose_cimport_flag.zig"
- {:source "learn/examples/idiomatic_interop/verbose_cimport_flag.clj"}
+ {:source "learn/example/verbose_cimport_flag.clj"}
  "test_comptime_call_extern_function.zig"
- {:source "learn/examples/idiomatic_interop/comptime_call_extern_function.clj"}
+ {:source "learn/example/test_comptime_call_extern_function.clj"}
  "test_defining_variadic_function.zig"
- {:source "learn/examples/idiomatic_interop/defining_variadic_function.clj"}
+ {:source "learn/example/test_defining_variadic_function.clj"}
  "test_variadic_function.zig"
- {:source "learn/examples/idiomatic_interop/variadic_function.clj"}
+ {:source "learn/example/test_variadic_function.clj"}
  "float_mode_exe.zig"
- {:source "learn/examples/idiomatic_interop/float_mode_exe.clj"}
+ {:source "learn/example/float_mode_exe.clj"}
  "float_mode_obj.zig"
- {:source "learn/examples/idiomatic_interop/float_mode_obj.clj"}
+ {:source "learn/example/float_mode_obj.clj"}
  "math.zig"
- {:source "learn/examples/idiomatic_interop/math.clj"}
+ {:source "learn/example/math.clj"}
  "math_add.zig"
- {:source "learn/examples/idiomatic_interop/math_add.clj"}
+ {:source "learn/example/math_add.clj"}
  "mathtest.zig"
- {:source "learn/examples/idiomatic_interop/mathtest.clj"}
+ {:source "learn/example/mathtest.clj"}
  "build.zig"
- {:source "learn/examples/idiomatic_interop/build.clj"}
+ {:source "learn/example/build.clj"}
  "build_c.zig"
- {:source "learn/examples/idiomatic_interop/build_c.clj"}
+ {:source "learn/example/build_c.clj"}
  "build_object.zig"
- {:source "learn/examples/idiomatic_interop/build_object.clj"}
+ {:source "learn/example/build_object.clj"}
  "base64.zig"
- {:source "learn/examples/idiomatic_library/base64.clj"}
+ {:source "learn/example/base64.clj"}
  "cli_allocation.zig"
- {:source "learn/examples/idiomatic_library/cli_allocation.clj"}
+ {:source "learn/example/cli_allocation.clj"}
  "panic_handler.zig"
- {:source "learn/examples/idiomatic_library/panic_handler.clj"}
+ {:source "learn/example/panic_handler.clj"}
  "print.zig"
- {:source "learn/examples/idiomatic_library/print.clj"}
+ {:source "learn/example/print.clj"}
  "print_comptime-known_format.zig"
- {:source "learn/examples/idiomatic_library/print_comptime_known_format.clj"}
+ {:source "learn/example/print_comptime_known_format.clj"}
  "redundant_fqn.zig"
- {:source "learn/examples/idiomatic_library/redundant_fqn.clj"}
+ {:source "learn/example/redundant_fqn.clj"}
  "stack_trace.zig"
- {:source "learn/examples/idiomatic_library/stack_trace.clj"}
+ {:source "learn/example/stack_trace.clj"}
  "std_options.zig"
- {:source "learn/examples/idiomatic_library/std_options.clj"}
+ {:source "learn/example/std_options.clj"}
  "test_allocator.zig"
- {:source "learn/examples/idiomatic_library/allocator.clj"}
+ {:source "learn/example/test_allocator.clj"}
  "test_print_too_many_args.zig"
- {:source "learn/examples/idiomatic_library/print_too_many_args.clj"}
+ {:source "learn/example/test_print_too_many_args.clj"}
  "test_setRuntimeSafety_builtin.zig"
- {:source "learn/examples/idiomatic_library/set_runtime_safety.clj"}
+ {:source "learn/example/test_setRuntimeSafety_builtin.clj"}
  "test_void_in_hashmap.zig"
- {:source "learn/examples/idiomatic_library/void_in_hashmap.clj"}
+ {:source "learn/example/test_void_in_hashmap.clj"}
  "poc_printValue_fn.zig"
- {:source "learn/examples/idiomatic_library/poc_print_value.clj"}
+ {:source "learn/example/poc_printValue_fn.clj"}
  "poc_print_fn.zig"
- {:source "learn/examples/idiomatic_library/poc_print.clj"}
+ {:source "learn/example/poc_print_fn.clj"}
  "test_aligned_struct_fields.zig"
- {:source "learn/examples/idiomatic_layout/aligned_struct_fields.clj"}
+ {:source "learn/example/test_aligned_struct_fields.clj"}
  "test_bitOffsetOf_offsetOf.zig"
- {:source "learn/examples/idiomatic_layout/bit_offset_of_offset_of.clj"}
+ {:source "learn/example/test_bitOffsetOf_offsetOf.clj"}
  "test_incorrect_pointer_alignment.zig"
- {:source "learn/examples/idiomatic_layout/incorrect_pointer_alignment.clj"}
+ {:source "learn/example/test_incorrect_pointer_alignment.clj"}
  "test_misaligned_pointer.zig"
- {:source "learn/examples/idiomatic_layout/misaligned_pointer.clj"}
+ {:source "learn/example/test_misaligned_pointer.clj"}
  "test_missized_packed_struct.zig"
- {:source "learn/examples/idiomatic_layout/missized_packed_struct.clj"}
+ {:source "learn/example/test_missized_packed_struct.clj"}
  "test_overaligned_packed_struct.zig"
- {:source "learn/examples/idiomatic_layout/overaligned_packed_struct.clj"}
+ {:source "learn/example/test_overaligned_packed_struct.clj"}
  "test_packed_struct_equality.zig"
- {:source "learn/examples/idiomatic_layout/packed_struct_equality.clj"}
+ {:source "learn/example/test_packed_struct_equality.clj"}
  "test_packed_struct_field_address.zig"
- {:source "learn/examples/idiomatic_layout/packed_struct_field_address.clj"}
+ {:source "learn/example/test_packed_struct_field_address.clj"}
  "test_packed_structs.zig"
- {:source "learn/examples/idiomatic_layout/packed_structs.clj"}
+ {:source "learn/example/test_packed_structs.clj"}
  "test_packed_union_equality.zig"
- {:source "learn/examples/idiomatic_layout/packed_union_equality.clj"}
+ {:source "learn/example/test_packed_union_equality.clj"}
  "test_pointer_to_non-byte_aligned_field.zig"
- {:source "learn/examples/idiomatic_layout/pointer_to_non_byte_aligned_field.clj"}
+ {:source "learn/example/test_pointer_to_non_byte_aligned_field.clj"}
  "test_variable_alignment.zig"
- {:source "learn/examples/idiomatic_layout/variable_alignment.clj"}
+ {:source "learn/example/test_variable_alignment.clj"}
  "test_variable_func_alignment.zig"
- {:source "learn/examples/idiomatic_layout/variable_func_alignment.clj"}
+ {:source "learn/example/test_variable_func_alignment.clj"}
  "test_volatile.zig"
- {:source "learn/examples/idiomatic_layout/volatile.clj"}
+ {:source "learn/example/test_volatile.clj"}
  "test_allowzero.zig"
- {:source "learn/examples/idiomatic_layout/allowzero.clj"}
+ {:source "learn/example/test_allowzero.clj"}
  "runtime_incorrect_pointer_alignment.zig"
- {:source "learn/examples/idiomatic_safety/runtime_incorrect_pointer_alignment.clj"}
+ {:source "learn/example/runtime_incorrect_pointer_alignment.clj"}
  "runtime_index_out_of_bounds.zig"
- {:source "learn/examples/idiomatic_safety/runtime_index_out_of_bounds.clj"}
+ {:source "learn/example/runtime_index_out_of_bounds.clj"}
  "runtime_invalid_enum_cast.zig"
- {:source "learn/examples/idiomatic_safety/runtime_invalid_enum_cast.clj"}
+ {:source "learn/example/runtime_invalid_enum_cast.clj"}
  "runtime_invalid_error_code.zig"
- {:source "learn/examples/idiomatic_safety/runtime_invalid_error_code.clj"}
+ {:source "learn/example/runtime_invalid_error_code.clj"}
  "runtime_invalid_error_set_cast.zig"
- {:source "learn/examples/idiomatic_safety/runtime_invalid_error_set_cast.clj"}
+ {:source "learn/example/runtime_invalid_error_set_cast.clj"}
  "runtime_shrExact_overflow.zig"
- {:source "learn/examples/idiomatic_safety/runtime_shrExact_overflow.clj"}
+ {:source "learn/example/runtime_shrExact_overflow.clj"}
  "runtime_unwrap_error.zig"
- {:source "learn/examples/idiomatic_safety/runtime_unwrap_error.clj"}
+ {:source "learn/example/runtime_unwrap_error.clj"}
  "runtime_wrong_union_field_access.zig"
- {:source "learn/examples/idiomatic_safety/runtime_wrong_union_field_access.clj"}
+ {:source "learn/example/runtime_wrong_union_field_access.clj"}
  "test_comptime_index_out_of_bounds.zig"
- {:source "learn/examples/idiomatic_safety/comptime_index_out_of_bounds.clj"}
+ {:source "learn/example/test_comptime_index_out_of_bounds.clj"}
  "test_comptime_invalid_enum_cast.zig"
- {:source "learn/examples/idiomatic_safety/comptime_invalid_enum_cast.clj"}
+ {:source "learn/example/test_comptime_invalid_enum_cast.clj"}
  "test_comptime_invalid_error_code.zig"
- {:source "learn/examples/idiomatic_safety/comptime_invalid_error_code.clj"}
+ {:source "learn/example/test_comptime_invalid_error_code.clj"}
  "test_comptime_invalid_error_set_cast.zig"
- {:source "learn/examples/idiomatic_safety/comptime_invalid_error_set_cast.clj"}
+ {:source "learn/example/test_comptime_invalid_error_set_cast.clj"}
  "test_comptime_shrExact_overflow.zig"
- {:source "learn/examples/idiomatic_safety/comptime_shrExact_overflow.clj"}
+ {:source "learn/example/test_comptime_shrExact_overflow.clj"}
  "test_comptime_unreachable.zig"
- {:source "learn/examples/idiomatic_safety/comptime_unreachable.clj"}
+ {:source "learn/example/test_comptime_unreachable.clj"}
  "test_comptime_unwrap_error.zig"
- {:source "learn/examples/idiomatic_safety/comptime_unwrap_error.clj"}
+ {:source "learn/example/test_comptime_unwrap_error.clj"}
  "test_comptime_wrong_union_field_access.zig"
- {:source "learn/examples/idiomatic_safety/comptime_wrong_union_field_access.clj"}
+ {:source "learn/example/test_comptime_wrong_union_field_access.clj"}
  "compile_variables.zig"
- {:source "learn/examples/idiomatic_state/compile_variables.clj"}
+ {:source "learn/example/compile_variables.clj"}
  "test_blocks.zig"
- {:source "learn/examples/idiomatic_state/blocks.clj"}
+ {:source "learn/example/test_blocks.clj"}
  "test_comptime_evaluation.zig"
- {:source "learn/examples/idiomatic_state/comptime_evaluation.clj"}
+ {:source "learn/example/test_comptime_evaluation.clj"}
  "test_comptime_variables.zig"
- {:source "learn/examples/idiomatic_state/comptime_variables.clj"}
+ {:source "learn/example/test_comptime_variables.clj"}
  "test_container-level_comptime_expressions.zig"
- {:source "learn/examples/idiomatic_state/container_level_comptime_expressions.clj"}
+ {:source "learn/example/test_container_level_comptime_expressions.clj"}
  "test_container_level_variables.zig"
- {:source "learn/examples/idiomatic_state/container_level_variables.clj"}
+ {:source "learn/example/test_container_level_variables.clj"}
  "test_namespaced_container_level_variable.zig"
- {:source "learn/examples/idiomatic_state/namespaced_container_level_variable.clj"}
+ {:source "learn/example/test_namespaced_container_level_variable.clj"}
  "test_static_local_variable.zig"
- {:source "learn/examples/idiomatic_state/static_local_variable.clj"}
+ {:source "learn/example/test_static_local_variable.clj"}
  "test_thread_local_variables.zig"
- {:source "learn/examples/idiomatic_state/thread_local_variables.clj"}
+ {:source "learn/example/test_thread_local_variables.clj"}
  "runtime_vs_comptime.zig"
- {:source "learn/examples/idiomatic_state/runtime_vs_comptime.clj"}
+ {:source "learn/example/runtime_vs_comptime.clj"}
  "result_location_interfering_with_swap.zig"
- {:source "learn/examples/idiomatic_state/result_location_interfering_with_swap.clj"}
+ {:source "learn/example/result_location_interfering_with_swap.clj"}
  "result_type_propagation.zig"
- {:source "learn/examples/idiomatic_state/result_type_propagation.clj"}
+ {:source "learn/example/result_type_propagation.clj"}
  "TopLevelFields.zig"
- {:source "learn/examples/idiomatic_comptime/top_level_fields.clj"}
+ {:source "learn/example/TopLevelFields.clj"}
  "export_any_symbol_name.zig"
- {:source "learn/examples/idiomatic_comptime/export_any_symbol_name.clj"}
+ {:source "learn/example/export_any_symbol_name.clj"}
  "fibonacci_comptime_infinite_recursion.zig"
- {:source "learn/examples/idiomatic_comptime/fibonacci_comptime_infinite_recursion.clj"}
+ {:source "learn/example/fibonacci_comptime_infinite_recursion.clj"}
  "test_fibonacci_comptime_overflow.zig"
- {:source "learn/examples/idiomatic_comptime/fibonacci_comptime_overflow.clj"}
+ {:source "learn/example/test_fibonacci_comptime_overflow.clj"}
  "test_fibonacci_comptime_unreachable.zig"
- {:source "learn/examples/idiomatic_comptime/fibonacci_comptime_unreachable.clj"}
+ {:source "learn/example/test_fibonacci_comptime_unreachable.clj"}
  "test_inline_else.zig"
- {:source "learn/examples/idiomatic_advanced/inline_else.clj"}
+ {:source "learn/example/test_inline_else.clj"}
  "test_inline_switch.zig"
- {:source "learn/examples/idiomatic_advanced/inline_switch.clj"}
+ {:source "learn/example/test_inline_switch.clj"}
  "test_peer_type_resolution.zig"
- {:source "learn/examples/idiomatic_advanced/peer_type_resolution.clj"}
+ {:source "learn/example/test_peer_type_resolution.clj"}
  "test_vector.zig"
- {:source "learn/examples/idiomatic_advanced/vector.clj"}
+ {:source "learn/example/test_vector.clj"}
  "wasi_args.zig"
- {:source "learn/examples/idiomatic_advanced/wasi_args.clj"}
+ {:source "learn/example/wasi_args.clj"}
  "wasi_preopens.zig"
- {:source "learn/examples/idiomatic_advanced/wasi_preopens.clj"}
+ {:source "learn/example/wasi_preopens.clj"}
  "comments.zig"
- {:source "learn/examples/idiomatic_values/comments.clj"}
+ {:source "learn/example/comments.clj"}
  "doc_comments.zig"
- {:source "learn/examples/idiomatic_values/doc_comments.clj"}
+ {:source "learn/example/doc_comments.clj"}
  "tldoc_comments.zig"
- {:source "learn/examples/idiomatic_values/tldoc_comments.clj"}
+ {:source "learn/example/tldoc_comments.clj"}
  "identifiers.zig"
- {:source "learn/examples/idiomatic_values/identifiers.clj"}
+ {:source "learn/example/identifiers.clj"}
  "values.zig"
- {:source "learn/examples/idiomatic_values/values.clj"}
+ {:source "learn/example/values.clj"}
  "integer_literals.zig"
- {:source "learn/examples/idiomatic_values/integer_literals.clj"}
+ {:source "learn/example/integer_literals.clj"}
  "float_literals.zig"
- {:source "learn/examples/idiomatic_values/float_literals.clj"}
+ {:source "learn/example/float_literals.clj"}
  "float_special_values.zig"
- {:source "learn/examples/idiomatic_values/float_special_values.clj"}
+ {:source "learn/example/float_special_values.clj"}
  "string_literals.zig"
- {:source "learn/examples/idiomatic_values/string_literals.clj"}
+ {:source "learn/example/string_literals.clj"}
  "multiline_string_literals.zig"
- {:source "learn/examples/idiomatic_values/multiline_string_literals.clj"}
+ {:source "learn/example/multiline_string_literals.clj"}
  "checking_null_in_zig.zig"
- {:source "learn/examples/idiomatic_values/checking_null_in_zig.clj"}
+ {:source "learn/example/checking_null_in_zig.clj"}
  "test_optional_type.zig"
- {:source "learn/examples/idiomatic_values/optional_type.clj"}
+ {:source "learn/example/test_optional_type.clj"}
  "test_TypeOf_builtin.zig"
- {:source "learn/examples/idiomatic_values/typeof_builtin.clj"}
+ {:source "learn/example/test_TypeOf_builtin.clj"}
  "test_this_builtin.zig"
- {:source "learn/examples/idiomatic_values/this_builtin.clj"}
+ {:source "learn/example/test_this_builtin.clj"}
  "test_field_builtin.zig"
- {:source "learn/examples/idiomatic_values/field_builtin.clj"}
+ {:source "learn/example/test_field_builtin.clj"}
  "test_hasDecl_builtin.zig"
- {:source "learn/examples/idiomatic_values/hasdecl_builtin.clj"}
+ {:source "learn/example/test_hasDecl_builtin.clj"}
  "addWithOverflow_builtin.zig"
- {:source "learn/examples/idiomatic_values/add_with_overflow_builtin.clj"}
+ {:source "learn/example/addWithOverflow_builtin.clj"}
  "test_intCast_builtin.zig"
- {:source "learn/examples/idiomatic_values/intcast_builtin.clj"}
+ {:source "learn/example/test_intCast_builtin.clj"}
  "test_no_op_casts.zig"
- {:source "learn/examples/idiomatic_values/no_op_casts.clj"}
+ {:source "learn/example/test_no_op_casts.clj"}
  "test_coerce_tuples_arrays.zig"
- {:source "learn/examples/idiomatic_values/coerce_tuples_arrays.clj"}
+ {:source "learn/example/test_coerce_tuples_arrays.clj"}
  "catch.zig"
- {:source "learn/examples/idiomatic_error_flow/catch.clj"}
+ {:source "learn/example/catch.clj"}
  "catch_err_return.zig"
- {:source "learn/examples/idiomatic_error_flow/catch_err_return.clj"}
+ {:source "learn/example/catch_err_return.clj"}
  "handle_error_with_catch_block.zig"
- {:source "learn/examples/idiomatic_error_flow/handle_error_with_catch_block.clj"}
+ {:source "learn/example/handle_error_with_catch_block.clj"}
  "try.zig"
- {:source "learn/examples/idiomatic_error_flow/try.clj"}
+ {:source "learn/example/try.clj"}
  "defer_unwind.zig"
- {:source "learn/examples/idiomatic_error_flow/defer_unwind.clj"}
+ {:source "learn/example/defer_unwind.clj"}
  "error_return_trace.zig"
- {:source "learn/examples/idiomatic_error_flow/error_return_trace.clj"}
+ {:source "learn/example/error_return_trace.clj"}
  "error_union_parsing_u64.zig"
- {:source "learn/examples/idiomatic_error_flow/error_union_parsing_u64.clj"}
+ {:source "learn/example/error_union_parsing_u64.clj"}
  "single_value_error_set.zig"
- {:source "learn/examples/idiomatic_error_flow/single_value_error_set.clj"}
+ {:source "learn/example/single_value_error_set.clj"}
  "single_value_error_set_shortcut.zig"
- {:source "learn/examples/idiomatic_error_flow/single_value_error_set_shortcut.clj"}
+ {:source "learn/example/single_value_error_set_shortcut.clj"}
  "test_coerce_error_subset_to_superset.zig"
- {:source "learn/examples/idiomatic_error_flow/coerce_error_subset_to_superset.clj"}
+ {:source "learn/example/test_coerce_error_subset_to_superset.clj"}
  "test_coerce_error_superset_to_subset.zig"
- {:source "learn/examples/idiomatic_error_flow/coerce_error_superset_to_subset.clj"}
+ {:source "learn/example/test_coerce_error_superset_to_subset.clj"}
  "test_errdefer_capture.zig"
- {:source "learn/examples/idiomatic_error_flow/errdefer_capture.clj"}
+ {:source "learn/example/test_errdefer_capture.clj"}
  "test_error_union.zig"
- {:source "learn/examples/idiomatic_error_flow/error_union.clj"}
+ {:source "learn/example/test_error_union.clj"}
  "test_inferred_error_sets.zig"
- {:source "learn/examples/idiomatic_error_flow/inferred_error_sets.clj"}
+ {:source "learn/example/test_inferred_error_sets.clj"}
  "test_merging_error_sets.zig"
- {:source "learn/examples/idiomatic_error_flow/merging_error_sets.clj"}
+ {:source "learn/example/test_merging_error_sets.clj"}
  "test_while_error_capture.zig"
- {:source "learn/examples/idiomatic_error_flow/while_error_capture.clj"}
+ {:source "learn/example/test_while_error_capture.clj"}
  "test_while_null_capture.zig"
- {:source "learn/examples/idiomatic_error_flow/while_null_capture.clj"}
+ {:source "learn/example/test_while_null_capture.clj"}
  "test_invalid_defer.zig"
- {:source "learn/examples/idiomatic_error_flow/invalid_defer.clj"}
+ {:source "learn/example/test_invalid_defer.clj"}
  "test_noreturn_from_exit.zig"
- {:source "learn/examples/idiomatic_error_flow/noreturn_from_exit.clj"}
+ {:source "learn/example/test_noreturn_from_exit.clj"}
  "test_switch_on_errors.zig"
- {:source "learn/examples/idiomatic_error_flow/switch_on_errors.clj"}
+ {:source "learn/example/test_switch_on_errors.clj"}
  "test_unresolved_comptime_value.zig"
- {:source "learn/examples/idiomatic_basics/unresolved_comptime_value.clj"}
+ {:source "learn/example/test_unresolved_comptime_value.clj"}
  "hello.zig"
- {:source "learn/examples/hello.clj"
+ {:source "learn/example/hello.clj"
   :reason "Use readable local names, public/implicit-return defaults and normal std Vars."}
  "hello_again.zig"
- {:source "learn/examples/hello_again.clj"
+ {:source "learn/example/hello_again.clj"
   :reason "Minimal idiomatic counterpart of the stderr Hello World example."}
  "test_src_builtin.zig"
- {:source "learn/examples/src_builtin.clj"
+ {:source "learn/example/test_src_builtin.clj"
   :reason "@src reports the generated Zig file, whose locations differ from the original. Assert adjacent native let-binding lines and the column offset from their names instead of the original file's fixed line 10; preserve function/file checks."}
  "var_must_be_initialized.zig"
- {:source "learn/examples/var_must_be_initialized.clj"
+ {:source "learn/example/var_must_be_initialized.clj"
   :expected-front-end-error "let expects an even Clojure binding vector"
   :reason "Both languages require local bindings to provide an initializer; Aguafria diagnoses the malformed binding before invoking Zig."}
  "test_while.zig"
- {:source "learn/examples/idiomatic_basics/while.clj"
+ {:source "learn/example/test_while.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_while_break.zig"
- {:source "learn/examples/idiomatic_basics/while_break.clj"
+ {:source "learn/example/test_while_break.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_while_continue.zig"
- {:source "learn/examples/idiomatic_basics/while_continue.clj"
+ {:source "learn/example/test_while_continue.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_while_continue_expression.zig"
- {:source "learn/examples/idiomatic_basics/while_continue_expression.clj"
+ {:source "learn/example/test_while_continue_expression.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_while_else.zig"
- {:source "learn/examples/idiomatic_basics/while_else.clj"
+ {:source "learn/example/test_while_else.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_while_nested_break.zig"
- {:source "learn/examples/idiomatic_basics/while_nested_break.clj"
+ {:source "learn/example/test_while_nested_break.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_empty_block.zig"
- {:source "learn/examples/idiomatic_basics/empty_block.clj"
+ {:source "learn/example/test_empty_block.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_labeled_break.zig"
- {:source "learn/examples/idiomatic_basics/labeled_break.clj"
+ {:source "learn/example/test_labeled_break.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_defer.zig"
- {:source "learn/examples/idiomatic_basics/defer.clj"
+ {:source "learn/example/test_defer.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_wraparound_semantics.zig"
- {:source "learn/examples/idiomatic_basics/wraparound_semantics.clj"
+ {:source "learn/example/test_wraparound_semantics.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_integer_widening.zig"
- {:source "learn/examples/idiomatic_basics/integer_widening.clj"
+ {:source "learn/example/test_integer_widening.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_fibonacci_recursion.zig"
- {:source "learn/examples/idiomatic_basics/fibonacci_recursion.clj"
+ {:source "learn/example/test_fibonacci_recursion.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_truncate_builtin.zig"
- {:source "learn/examples/idiomatic_basics/truncate_builtin.clj"
+ {:source "learn/example/test_truncate_builtin.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_round_builtin.zig"
- {:source "learn/examples/idiomatic_basics/round_builtin.clj"
+ {:source "learn/example/test_round_builtin.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_basic_slices.zig"
- {:source "learn/examples/idiomatic_pointers/basic_slices.clj"
+ {:source "learn/example/test_basic_slices.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_slices.zig"
- {:source "learn/examples/idiomatic_pointers/slices.clj"
+ {:source "learn/example/test_slices.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_slice_bounds.zig"
- {:source "learn/examples/idiomatic_pointers/slice_bounds.clj"
+ {:source "learn/example/test_slice_bounds.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_single_item_pointer.zig"
- {:source "learn/examples/idiomatic_pointers/single_item_pointer.clj"
+ {:source "learn/example/test_single_item_pointer.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_pointer_arithmetic.zig"
- {:source "learn/examples/idiomatic_pointers/pointer_arithmetic.clj"
+ {:source "learn/example/test_pointer_arithmetic.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_comptime_pointers.zig"
- {:source "learn/examples/idiomatic_pointers/comptime_pointers.clj"
+ {:source "learn/example/test_comptime_pointers.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_comptime_pointer_conversion.zig"
- {:source "learn/examples/idiomatic_pointers/comptime_pointer_conversion.clj"
+ {:source "learn/example/test_comptime_pointer_conversion.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_integer_pointer_conversion.zig"
- {:source "learn/examples/idiomatic_pointers/integer_pointer_conversion.clj"
+ {:source "learn/example/test_integer_pointer_conversion.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_multidimensional_arrays.zig"
- {:source "learn/examples/idiomatic_pointers/multidimensional_arrays.clj"
+ {:source "learn/example/test_multidimensional_arrays.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_null_terminated_array.zig"
- {:source "learn/examples/idiomatic_pointers/null_terminated_array.clj"
+ {:source "learn/example/test_null_terminated_array.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_null_terminated_slice.zig"
- {:source "learn/examples/idiomatic_pointers/null_terminated_slice.clj"
+ {:source "learn/example/test_null_terminated_slice.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_null_terminated_slicing.zig"
- {:source "learn/examples/idiomatic_pointers/null_terminated_slicing.clj"
+ {:source "learn/example/test_null_terminated_slicing.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_string_literal_to_const_slice.zig"
- {:source "learn/examples/idiomatic_pointers/string_literal_to_const_slice.clj"
+ {:source "learn/example/test_string_literal_to_const_slice.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_string_literal_to_slice.zig"
- {:source "learn/examples/idiomatic_pointers/string_literal_to_slice.clj"
+ {:source "learn/example/test_string_literal_to_slice.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_optional_pointer.zig"
- {:source "learn/examples/idiomatic_pointers/optional_pointer.clj"
+ {:source "learn/example/test_optional_pointer.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_pointer_coerce_const_optional.zig"
- {:source "learn/examples/idiomatic_pointers/pointer_coerce_const_optional.clj"
+ {:source "learn/example/test_pointer_coerce_const_optional.clj"
   :reason "Hand-written idiomatic counterpart: meaningful bindings, ordinary let scopes, and named tests; preserve the original behavior, including intentional failures."}
  "test_type_coercion.zig"
- {:source "learn/examples/idiomatic_pointers/type_coercion.clj"
+ {:source "learn/example/test_type_coercion.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_coerce_large_to_small.zig"
- {:source "learn/examples/idiomatic_pointers/coerce_large_to_small.clj"
+ {:source "learn/example/test_coerce_large_to_small.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_int_to_float_coercion.zig"
- {:source "learn/examples/idiomatic_pointers/int_to_float_coercion.clj"
+ {:source "learn/example/test_int_to_float_coercion.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_failed_int_to_float_coercion.zig"
- {:source "learn/examples/idiomatic_pointers/failed_int_to_float_coercion.clj"
+ {:source "learn/example/test_failed_int_to_float_coercion.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_ambiguous_coercion.zig"
- {:source "learn/examples/idiomatic_pointers/ambiguous_coercion.clj"
+ {:source "learn/example/test_ambiguous_coercion.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_coerce_optionals.zig"
- {:source "learn/examples/idiomatic_pointers/coerce_optionals.clj"
+ {:source "learn/example/test_coerce_optionals.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_coerce_to_error_union.zig"
- {:source "learn/examples/idiomatic_pointers/coerce_to_error_union.clj"
+ {:source "learn/example/test_coerce_to_error_union.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_coerce_optional_wrapped_error_union.zig"
- {:source "learn/examples/idiomatic_pointers/coerce_optional_wrapped_error_union.clj"
+ {:source "learn/example/test_coerce_optional_wrapped_error_union.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_sentinel_mismatch.zig"
- {:source "learn/examples/idiomatic_pointers/sentinel_mismatch.clj"
+ {:source "learn/example/test_sentinel_mismatch.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_comptime_invalid_null_pointer_cast.zig"
- {:source "learn/examples/idiomatic_pointers/comptime_invalid_null_pointer_cast.clj"
+ {:source "learn/example/test_comptime_invalid_null_pointer_cast.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "runtime_invalid_null_pointer_cast.zig"
- {:source "learn/examples/idiomatic_pointers/runtime_invalid_null_pointer_cast.clj"
+ {:source "learn/example/runtime_invalid_null_pointer_cast.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_comptime_incorrect_pointer_alignment.zig"
- {:source "learn/examples/idiomatic_pointers/comptime_incorrect_pointer_alignment.clj"
+ {:source "learn/example/test_comptime_incorrect_pointer_alignment.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_coerce_slices_arrays_and_pointers.zig"
- {:source "learn/examples/idiomatic_pointers/coerce_slices_arrays_and_pointers.clj"
+ {:source "learn/example/test_coerce_slices_arrays_and_pointers.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "sentinel-terminated_pointer.zig"
- {:source "learn/examples/idiomatic_pointers/sentinel_terminated_pointer.clj"
+ {:source "learn/example/sentinel_terminated_pointer.clj"
   :reason "Hand-written coercion lesson using named tests while preserving the original types, behavior and intentional diagnostics."}
  "test_for.zig"
- {:source "learn/examples/idiomatic_basics/for.clj"
+ {:source "learn/example/test_for.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_for_nested_break.zig"
- {:source "learn/examples/idiomatic_basics/for_nested_break.clj"
+ {:source "learn/example/test_for_nested_break.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_arrays.zig"
- {:source "learn/examples/idiomatic_basics/arrays.clj"
+ {:source "learn/example/test_arrays.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_inline_for.zig"
- {:source "learn/examples/idiomatic_basics/inline_for.clj"
+ {:source "learn/example/test_inline_for.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_tuples.zig"
- {:source "learn/examples/idiomatic_basics/tuples.clj"
+ {:source "learn/example/test_tuples.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_scopes.zig"
- {:source "learn/examples/idiomatic_basics/scopes.clj"
+ {:source "learn/example/test_scopes.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_shadowing.zig"
- {:source "learn/examples/idiomatic_basics/shadowing.clj"
+ {:source "learn/example/test_shadowing.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_switch_continue.zig"
- {:source "learn/examples/idiomatic_basics/switch_continue.clj"
+ {:source "learn/example/test_switch_continue.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_switch_continue_equivalent.zig"
- {:source "learn/examples/idiomatic_basics/switch_continue_equivalent.clj"
+ {:source "learn/example/test_switch_continue_equivalent.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_noreturn.zig"
- {:source "learn/examples/idiomatic_basics/noreturn.clj"
+ {:source "learn/example/test_noreturn.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_unreachable.zig"
- {:source "learn/examples/idiomatic_basics/unreachable.clj"
+ {:source "learn/example/test_unreachable.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_void_ignored.zig"
- {:source "learn/examples/idiomatic_basics/void_ignored.clj"
+ {:source "learn/example/test_void_ignored.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_expression_ignored.zig"
- {:source "learn/examples/idiomatic_basics/expression_ignored.clj"
+ {:source "learn/example/test_expression_ignored.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "test_assertion_failure.zig"
- {:source "learn/examples/idiomatic_basics/assertion_failure.clj"
+ {:source "learn/example/test_assertion_failure.clj"
   :reason "Hand-written array/control-flow lesson using named tests while preserving the original operations, behavior and intentional failures."}
  "assign_undefined.zig"
- {:source "learn/examples/idiomatic_basics/assign_undefined.clj"
+ {:source "learn/example/assign_undefined.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_call_builtin.zig"
- {:source "learn/examples/idiomatic_basics/call_builtin.clj"
+ {:source "learn/example/test_call_builtin.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "constant_identifier_cannot_change.zig"
- {:source "learn/examples/idiomatic_basics/constant_identifier_cannot_change.clj"
+ {:source "learn/example/constant_identifier_cannot_change.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_fn_reflection.zig"
- {:source "learn/examples/idiomatic_basics/fn_reflection.clj"
+ {:source "learn/example/test_fn_reflection.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_fn_type_inference.zig"
- {:source "learn/examples/idiomatic_basics/fn_type_inference.clj"
+ {:source "learn/example/test_fn_type_inference.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_functions.zig"
- {:source "learn/examples/idiomatic_basics/functions.clj"
+ {:source "learn/example/test_functions.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_if.zig"
- {:source "learn/examples/idiomatic_basics/if.clj"
+ {:source "learn/example/test_if.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_if_optionals.zig"
- {:source "learn/examples/idiomatic_basics/if_optionals.clj"
+ {:source "learn/example/test_if_optionals.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_inline_while.zig"
- {:source "learn/examples/idiomatic_basics/inline_while.clj"
+ {:source "learn/example/test_inline_while.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "mutable_var.zig"
- {:source "learn/examples/idiomatic_basics/mutable_var.clj"
+ {:source "learn/example/mutable_var.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "null.zig"
- {:source "learn/examples/idiomatic_basics/null.clj"
+ {:source "learn/example/null.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "optional_integer.zig"
- {:source "learn/examples/idiomatic_basics/optional_integer.clj"
+ {:source "learn/example/optional_integer.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_detect_leak.zig"
- {:source "learn/examples/idiomatic_basics/testing_detect_leak.clj"
+ {:source "learn/example/testing_detect_leak.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_detect_test.zig"
- {:source "learn/examples/idiomatic_basics/testing_detect_test.clj"
+ {:source "learn/example/testing_detect_test.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_error_with_if.zig"
- {:source "learn/examples/idiomatic_basics/testing_error_with_if.clj"
+ {:source "learn/example/testing_error_with_if.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_failure.zig"
- {:source "learn/examples/idiomatic_basics/testing_failure.clj"
+ {:source "learn/example/testing_failure.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_introduction.zig"
- {:source "learn/examples/idiomatic_basics/testing_introduction.clj"
+ {:source "learn/example/testing_introduction.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_namespace.zig"
- {:source "learn/examples/idiomatic_basics/testing_namespace.clj"
+ {:source "learn/example/testing_namespace.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_null_with_if.zig"
- {:source "learn/examples/idiomatic_basics/testing_null_with_if.clj"
+ {:source "learn/example/testing_null_with_if.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "testing_skip.zig"
- {:source "learn/examples/idiomatic_basics/testing_skip.clj"
+ {:source "learn/example/testing_skip.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "destructuring_arrays.zig"
- {:source "learn/examples/idiomatic_bindings/destructuring_arrays.clj"
+ {:source "learn/example/destructuring_arrays.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "destructuring_block.zig"
- {:source "learn/examples/idiomatic_bindings/destructuring_block.clj"
+ {:source "learn/example/destructuring_block.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "destructuring_mixed.zig"
- {:source "learn/examples/idiomatic_bindings/destructuring_mixed.clj"
+ {:source "learn/example/destructuring_mixed.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "destructuring_return_value.zig"
- {:source "learn/examples/idiomatic_bindings/destructuring_return_value.clj"
+ {:source "learn/example/destructuring_return_value.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "destructuring_to_existing.zig"
- {:source "learn/examples/idiomatic_bindings/destructuring_to_existing.clj"
+ {:source "learn/example/destructuring_to_existing.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "destructuring_vectors.zig"
- {:source "learn/examples/idiomatic_bindings/destructuring_vectors.clj"
+ {:source "learn/example/destructuring_vectors.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_divExact_remainder.zig"
- {:source "learn/examples/idiomatic_errors/comptime_divExact_remainder.clj"
+ {:source "learn/example/test_comptime_divExact_remainder.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_division_by_zero.zig"
- {:source "learn/examples/idiomatic_errors/comptime_division_by_zero.clj"
+ {:source "learn/example/test_comptime_division_by_zero.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_invalid_cast.zig"
- {:source "learn/examples/idiomatic_errors/comptime_invalid_cast.clj"
+ {:source "learn/example/test_comptime_invalid_cast.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_invalid_cast_truncate.zig"
- {:source "learn/examples/idiomatic_errors/comptime_invalid_cast_truncate.clj"
+ {:source "learn/example/test_comptime_invalid_cast_truncate.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_out_of_bounds_float_to_integer_cast.zig"
- {:source "learn/examples/idiomatic_errors/comptime_out_of_bounds_float_to_integer_cast.clj"
+ {:source "learn/example/test_comptime_out_of_bounds_float_to_integer_cast.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_overflow.zig"
- {:source "learn/examples/idiomatic_errors/comptime_overflow.clj"
+ {:source "learn/example/test_comptime_overflow.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_reaching_unreachable.zig"
- {:source "learn/examples/idiomatic_errors/comptime_reaching_unreachable.clj"
+ {:source "learn/example/test_comptime_reaching_unreachable.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_remainder_division_by_zero.zig"
- {:source "learn/examples/idiomatic_errors/comptime_remainder_division_by_zero.clj"
+ {:source "learn/example/test_comptime_remainder_division_by_zero.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_shlExact_overflow.zig"
- {:source "learn/examples/idiomatic_errors/comptime_shlExact_overflow.clj"
+ {:source "learn/example/test_comptime_shlExact_overflow.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_comptime_unwrap_null.zig"
- {:source "learn/examples/idiomatic_errors/comptime_unwrap_null.clj"
+ {:source "learn/example/test_comptime_unwrap_null.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_divExact_remainder.zig"
- {:source "learn/examples/idiomatic_errors/runtime_divExact_remainder.clj"
+ {:source "learn/example/runtime_divExact_remainder.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_division_by_zero.zig"
- {:source "learn/examples/idiomatic_errors/runtime_division_by_zero.clj"
+ {:source "learn/example/runtime_division_by_zero.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_invalid_cast.zig"
- {:source "learn/examples/idiomatic_errors/runtime_invalid_cast.clj"
+ {:source "learn/example/runtime_invalid_cast.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_invalid_cast_truncate.zig"
- {:source "learn/examples/idiomatic_errors/runtime_invalid_cast_truncate.clj"
+ {:source "learn/example/runtime_invalid_cast_truncate.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_out_of_bounds_float_to_integer_cast.zig"
- {:source "learn/examples/idiomatic_errors/runtime_out_of_bounds_float_to_integer_cast.clj"
+ {:source "learn/example/runtime_out_of_bounds_float_to_integer_cast.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_overflow.zig"
- {:source "learn/examples/idiomatic_errors/runtime_overflow.clj"
+ {:source "learn/example/runtime_overflow.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_reaching_unreachable.zig"
- {:source "learn/examples/idiomatic_errors/runtime_reaching_unreachable.clj"
+ {:source "learn/example/runtime_reaching_unreachable.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_remainder_division_by_zero.zig"
- {:source "learn/examples/idiomatic_errors/runtime_remainder_division_by_zero.clj"
+ {:source "learn/example/runtime_remainder_division_by_zero.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_shlExact_overflow.zig"
- {:source "learn/examples/idiomatic_errors/runtime_shlExact_overflow.clj"
+ {:source "learn/example/runtime_shlExact_overflow.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "runtime_unwrap_null.zig"
- {:source "learn/examples/idiomatic_errors/runtime_unwrap_null.clj"
+ {:source "learn/example/runtime_unwrap_null.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_anonymous_struct.zig"
- {:source "learn/examples/idiomatic_types/anonymous_struct.clj"
+ {:source "learn/example/test_anonymous_struct.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "anonymous_struct_name.zig"
- {:source "learn/examples/idiomatic_types/anonymous_struct_name.clj"
+ {:source "learn/example/anonymous_struct_name.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_anonymous_union.zig"
- {:source "learn/examples/idiomatic_types/anonymous_union.clj"
+ {:source "learn/example/test_anonymous_union.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "change_active_union_field.zig"
- {:source "learn/examples/idiomatic_types/change_active_union_field.clj"
+ {:source "learn/example/change_active_union_field.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_coerce_unions_enums.zig"
- {:source "learn/examples/idiomatic_types/coerce_unions_enums.clj"
+ {:source "learn/example/test_coerce_unions_enums.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_enum_literals.zig"
- {:source "learn/examples/idiomatic_types/enum_literals.clj"
+ {:source "learn/example/test_enum_literals.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_enums.zig"
- {:source "learn/examples/idiomatic_types/enums.clj"
+ {:source "learn/example/test_enums.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_exhaustive_switch.zig"
- {:source "learn/examples/idiomatic_types/exhaustive_switch.clj"
+ {:source "learn/example/test_exhaustive_switch.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_simple_union.zig"
- {:source "learn/examples/idiomatic_types/simple_union.clj"
+ {:source "learn/example/test_simple_union.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "struct_default_field_values.zig"
- {:source "learn/examples/idiomatic_types/struct_default_field_values.clj"
+ {:source "learn/example/struct_default_field_values.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "struct_default_value.zig"
- {:source "learn/examples/idiomatic_types/struct_default_value.clj"
+ {:source "learn/example/struct_default_value.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "struct_name.zig"
- {:source "learn/examples/idiomatic_types/struct_name.clj"
+ {:source "learn/example/struct_name.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_struct_result.zig"
- {:source "learn/examples/idiomatic_types/struct_result.clj"
+ {:source "learn/example/test_struct_result.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_structs.zig"
- {:source "learn/examples/idiomatic_types/structs.clj"
+ {:source "learn/example/test_structs.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_switch_modify_tagged_union.zig"
- {:source "learn/examples/idiomatic_types/switch_modify_tagged_union.clj"
+ {:source "learn/example/test_switch_modify_tagged_union.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_switch_tagged_union.zig"
- {:source "learn/examples/idiomatic_types/switch_tagged_union.clj"
+ {:source "learn/example/test_switch_tagged_union.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_tagged_union.zig"
- {:source "learn/examples/idiomatic_types/tagged_union.clj"
+ {:source "learn/example/test_tagged_union.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_tagged_union_with_tag_values.zig"
- {:source "learn/examples/idiomatic_types/tagged_union_with_tag_values.clj"
+ {:source "learn/example/test_tagged_union_with_tag_values.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "undefined_active_union_field.zig"
- {:source "learn/examples/idiomatic_types/undefined_active_union_field.clj"
+ {:source "learn/example/undefined_active_union_field.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "test_union_method.zig"
- {:source "learn/examples/idiomatic_types/union_method.clj"
+ {:source "learn/example/test_union_method.clj"
   :reason "Hand-written idiomatic lesson using meaningful bindings and named tests where applicable, preserving the original behavior and intentional failures."}
  "invalid_doc-comment.zig"
  {:status :zig-only

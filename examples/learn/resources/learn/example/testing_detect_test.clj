@@ -1,0 +1,14 @@
+(ns learn.example.testing-detect-test
+  (:require aguafria.std
+            [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
+            [aguafria.zig :as az]))
+
+(az/defconst builtin (ak/import "builtin"))
+
+(az/deftest detect-test-build-test
+  (try (testing/expect (test-build?))))
+
+(az/defn- test-build? :bool
+  []
+  (az/field builtin :is_test))

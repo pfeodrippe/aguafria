@@ -32,10 +32,15 @@ All native builds use **Aguafria’s embedded Zig**, never a `zig` found on PATH
 No other example is a dependency. Normal builds work from the hash-locked,
 MIT-licensed snapshot and do not download the reference again.
 
-Teaching examples are hand-written under `resources/learn/examples/`, with normal
-`let` bindings, meaningful names and named test Vars. The converter provides drafts
-for comparison, not finished lessons: strict acceptance rejects drafts even when
+Teaching examples are hand-written under `resources/learn/example/`, with
+`learn.example.*` namespaces and Zig-derived filenames (`test_if.zig` becomes
+`test_if.clj`, declaring `learn.example.test-if`). They use normal `let` bindings,
+meaningful names and named test Vars. The converter provides drafts for
+comparison, not finished lessons: strict acceptance rejects drafts even when
 their native tests pass.
+Spaces, dots and hyphens in upstream basenames become underscores, so every
+Clojure file matches normal `require` lookup. Namespace symbols use hyphens:
+`Assembly_Syntax_Explained.clj` declares `learn.example.Assembly-Syntax-Explained`.
 `resources/learn/overrides.edn` maps authored sources and narrowly justified
 `ZIG_ONLY` exceptions. Generated namespaces, emitted Zig, test reports
 and the site live under ignored `build/`. The native harness evaluates the exact
@@ -55,12 +60,13 @@ Test symbols supply their native names; no duplicate test-label metadata is
 needed. Comparisons pair AST-derived runner labels by declaration order while
 preserving test counts, results and printed data. REPL transcripts retain the
 actual symbol-derived names, not the comparison's normalized labels.
-The 15 larger explanatory Zig blocks have hand-written translations under
-`resources/learn/fragments/`. Eight have shared native fixtures: the same inputs
-and supporting functions run the original and emitted code, comparing their real
-output. Six omit required context and receive syntax checks only; these are not
-reported as executed. An intentionally incomplete function stays incomplete,
-leaving Zig to diagnose its missing return rather than inventing a value.
+The 15 larger explanatory Zig blocks live under `resources/learn/snippet/`,
+with `learn.snippet.*` namespaces. Eight have shared native fixtures:
+the same inputs and supporting functions run the original and emitted code,
+comparing their real output. Six omit required context and receive syntax checks
+only; these are not reported as executed. An intentionally incomplete function
+stays incomplete, leaving Zig to diagnose its missing return rather than
+inventing a value.
 The file-discovery block additionally checks imports under test filters and
 native/cross-target compilation. Its known empty-test-count difference is recorded
 explicitly; meaningful test identities and their actual output must still agree.
@@ -69,7 +75,7 @@ C, JavaScript and PEG blocks remain unchanged, with contextual `ZIG_ONLY` notes.
 From the dedicated REPL, require a lesson and call its test directly:
 
 ```clojure
-(require '[learn.examples.idiomatic-pointers.integer-pointer-conversion
+(require '[learn.example.test-integer-pointer-conversion
            :refer [integer-pointer-conversion-test]])
 (integer-pointer-conversion-test)
 ```

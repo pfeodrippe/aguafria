@@ -86,8 +86,8 @@ test("every authored lesson keeps its exact text after highlighting", () => {
       }
     }
   }
-  visit(path.join(resources, "examples"));
-  visit(path.join(resources, "fragments"));
+  visit(path.join(resources, "example"));
+  visit(path.join(resources, "snippet"));
 });
 
 test("deep links reveal only their own language panel", () => {

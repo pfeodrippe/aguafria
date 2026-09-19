@@ -1,0 +1,9 @@
+(ns learn.example.test-intCast-builtin
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
+
+(az/deftest integer-cast-panic-test
+  (let [^{:var :u16} wide 0xabcd] ; runtime-known
+    (set! _ (& wide))
+    (let [^{:zig/type :u8} narrow (ak/intCast wide)]
+      (set! _ narrow))))

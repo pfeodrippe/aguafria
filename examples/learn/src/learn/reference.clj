@@ -190,7 +190,9 @@
   (let [id (example-id file)
         override (get (read-edn "resources/learn/overrides.edn") file)
         output (str "build/translations/" id ".clj")
-        options {:namespace (symbol (str "learn.examples." id))
+        ;; Converter catalogs carry different defaults from handwritten code.
+        ;; Never register them under the lesson's namespace.
+        options {:namespace (symbol (str "learn.reference.draft." id))
                  :cache-dir ".aguafria/zig"
                  :source-display-path file}]
     (try
@@ -297,7 +299,7 @@
               emitted-path (str "build/snippets/" id ".emitted.zig")
               override (get (read-edn "resources/learn/fragment-overrides.edn") id)
               fixture (get (read-edn "resources/learn/fragment-fixtures.edn") id)
-              options {:namespace (symbol (str "learn.snippets." id))
+              options {:namespace (symbol (str "learn.reference.draft." id))
                        :cache-dir ".aguafria/zig"
                        :source-display-path title}]
           (write-text! input source)

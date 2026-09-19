@@ -4,22 +4,27 @@ Goal: the whole Zig 0.16.0 reference, not a selected tutorial. Completed for the
 requested scope: original document unchanged, Aguafria alternatives and real
 REPL output added, required comparisons passing. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Flatten the 290 authored files into `resources/learn/example/` with
+      `learn.example.*` namespaces and put the 15 explanatory blocks under
+      `resources/learn/snippet/` with `learn.snippet.*` namespaces. Match original
+      Zig-derived filenames, replacing spaces, dots and hyphens with underscores
+      for ordinary Clojure resource lookup; use hyphens in namespace symbols.
+      Remove conversion-provenance docstrings,
+      retain real documentation, update references/captions and verify outputs.
+      Fresh verification: 40 tests / 7,385 assertions, all 292 file outcomes,
+      snippet/inline checks and six JavaScript tests pass. Every namespace maps
+      to its actual resource path; rebuilt and checked the served captions.
+
 - [x] Default interactive example tabs to Aguafria Zig. Keep explicit Zig links,
       independent switching and keyboard navigation working; preserve the original
       Zig fallback without JavaScript. Six JavaScript tests and strict `verify!`
-      pass; rebuilt the served reference. An isolated headless browser check hung
-      before returning a DOM and was stopped, so it supplies no additional evidence.
+      pass; rebuilt the served reference. Isolated browser DOM checks confirm
+      307 Aguafria selections by default and 306 plus one explicit Zig selection.
 
-- [x] Follow-up: show each Aguafria example's actual Clojure filename in a source
-      caption matching the Zig tab, and put `Converted from <original Zig name>`
-      in each authored namespace docstring. Keep existing namespace documentation
-      and the original Zig HTML intact. Rebuild, reverify outputs, and check the UI.
-      All 305 authored namespaces have provenance docstrings and filename captions.
-      39 tests / 5,856 assertions and five JavaScript tests pass. The full output
-      sweep, block/inline checks and fresh-JVM `clojure -M:verify` pass. Browser
-      inspection of test_comptime_variables.zig confirms comptime_variables.clj,
-      the real namespace docstring, and the recorded REPL result; all 305 captions
-      and 290 REPL panels are present. Evidence: .tmp/learn-caption.F9yiHe/.
+- [x] Show each Aguafria example's actual Clojure filename in a caption matching
+      the Zig tab. Keep original namespace documentation and the Zig HTML intact.
+      Conversion-provenance docstrings are now removed: the matching filenames
+      identify the source without repeating it in the code.
 
 - [x] Generic differential verification uses each original Zig example as the
       oracle: compare output, test results or semantic diagnostics without
