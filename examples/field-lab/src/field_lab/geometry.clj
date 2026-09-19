@@ -7,18 +7,15 @@
             [aguafria.std.mem :as mem]
             [field-lab.physics :as p]))
 
-(az/defextern nextafter {:zig/prefix "pub extern"}
-  :- :f64 [[value :f64] [direction :f64]])
-
 (az/defextern fegetround {:zig/prefix "pub extern"} :- :c_int [])
 
 (az/defstruct Interval [[:lower :f64] [:upper :f64]])
 
 (az/defn down :- :f64 [[value :f64]]
-  (nextafter value (- (math/inf :f64))))
+  (math/nextAfter :f64 value (- (math/inf :f64))))
 
 (az/defn up :- :f64 [[value :f64]]
-  (nextafter value (math/inf :f64)))
+  (math/nextAfter :f64 value (math/inf :f64)))
 
 (az/defn point :- Interval [[value :f64]]
   (Interval {:lower value :upper value}))
@@ -259,7 +256,7 @@
       (set! alpha (* alpha 0.5)))
     0.0))
 
-(az/defn edge-less?
+(az/defn- edge-less?
   :- :bool [[context :u8] [left :u64] [right :u64]]
   (set! _ context)
   (< left right))

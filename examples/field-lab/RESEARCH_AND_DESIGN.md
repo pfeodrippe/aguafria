@@ -1,5 +1,522 @@
 # Field Lab: procedural engineering in AguaFria Zig
 
+## Solver decision review — 2026-09-13
+
+### Independent elastic-wave impact benchmark
+
+An elastic bar striking a rigid wall tests wave propagation and contact together.
+The [Ansys VM265 verification case](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/ans_vm/Hlp_V_VM265.html)
+uses this problem: a compression wave reflects at the free end and returns to
+the contact end before separation. Pitoco's variant uses free three-dimensional
+tetrahedra with Poisson ratio zero and SI dimensions; it does not reproduce
+VM265's constrained shell discretization. The longitudinal wave and stress/velocity
+relations follow [Bower, Applied Mechanics of Solids, section 4.3](https://solidmechanics.org/Text/Chapter4_3/Chapter4_3.php).
+
+For length L, cross-sectional area A, density ρ, modulus E and incoming speed v:
+c = sqrt(E/ρ), contact duration = 2L/c, force = ρcvA and total impulse = 2ρALv.
+The center velocity rises linearly from -v to +v during ideal contact. These
+reference functions use no FEM solver output. Force comparisons integrate the
+analytical pulse over each sampling interval, including bins straddling impact
+or release. Hyperelastic corrections are limited by requiring v/c ≤ 0.001.
+
+The first 36-node / 48-tet pilot uses L=0.1 m, A=0.0004 m², E=1 MPa,
+ρ=1000 kg/m³ and v=0.01 m/s. Its strain scale is 0.0003162. Reference mass,
+force, contact duration and impulse are 0.04 kg, 0.126491 N, 6.32456 ms and
+0.0008 N s. With 256 maximum steps per contact duration and 128 output bins,
+the measured rebound ratio is 0.87699, force-pulse relative L1 error 0.15587 and
+mechanical energy loss 0.16570. All steps complete, with 113 rejected trials
+retried. This is evidence of numerical error, not a validation pass.
+
+The pilot saved complete data in `build/rod-impact-probe.edn`; its ad-hoc launcher
+then failed on a malformed cleanup expression. The permanent CLI uses structured
+`try/finally` and atomic study records, retaining partial samples on numerical
+failure and refusing to overwrite earlier records. Spatial/time comparisons
+completed in `build/rod-impact-refinement-study.edn`. Reference, integration,
+assumption validation and failure-publication checks pass 6 tests / 51 assertions
+(`build/rod-impact-final-tests.log`).
+
+Reproduction entry point:
+
+```sh
+clojure -M:impact-study '{:benchmark :rod-impact
+                         :cases [{:divisions [1 8 1]}
+                                 {:divisions [1 16 1]}
+                                 {:divisions [1 8 1] :steps-per-contact 512}]
+                         :output "exports/rod-impact-study.edn"}'
+```
+
+### Variable-step BDF2 implementation
+
+[Convergent IPC, section 8.2](https://arxiv.org/html/2307.15908v1) compares BDF2
+with implicit Euler and Newmark for contact-pressure accuracy and dissipation.
+It motivates testing another integrator, not assuming that higher order alone
+fixes nonsmooth contact. The variable-step coefficients and backward-Euler startup
+follow the [Waiwera time-stepping formulation](https://waiwera.readthedocs.io/en/latest/setup_time.html#bdf2).
+
+`variational.clj` now implements BDF2 in AguaFria Zig. Apply the same BDF2 derivative
+to x'=v and Mv'=f. For step ratio r=h/h_previous, define
+s=h(1+r)/(1+2r) and q=r²/(1+2r). The position predictor is
+x_hat=x_n+q*Δx_previous+s*(v_n+q*Δv_previous)+s²*g.
+Minimize the existing inertial potential plus s² times the elastic/contact
+potential, then compute v_next=(x_next−x_n−q*Δx_previous)/s. The friction origin
+is x_n+q*Δx_previous with effective duration s; the actual collision path remains
+x_n to x_next. The existing CCD, volume certificate, Newton tolerances and
+rollback rules remain active. No new C++ implementation is introduced.
+
+The workspace owns accepted displacement/velocity increments, previous duration
+and contact impulse. History persists across output frames and bounded work
+batches. Failed trials never commit history. Switching away from BDF2 invalidates
+it on the next accepted step; direct external state edits require a new context
+or explicit `reset-history!`. A history timestamp rejects reuse after an external
+time change. Step growth is capped at 2×, below the classical sufficient
+zero-stability limit 1+sqrt(2); that bound is not a nonlinear-contact stability
+proof. See [Akrivis et al., variable two-step BDF](https://link.springer.com/article/10.1007/s10543-024-01007-y).
+
+Contact impulse is integrated independently from force: ΔI_next=q*ΔI_previous+s*F_next.
+This is BDF2 quadrature for I'=F, not a value reconstructed from momentum change.
+Reported sample-average forces therefore use the method's integrated impulse;
+they should not be described as instantaneous endpoint forces. Constant gravity
+still contributes exactly M*g*h per accepted velocity step.
+
+The independent elastic dilation reference gives phase errors 2.14363e-4,
+5.41387e-5 and 1.35563e-5 at 2 / 1 / 0.5 ms: near-fourfold reduction under halving.
+Splitting the run into output intervals preserves the trajectory; injecting a
+failed solve after accepted history produces the same subsequent result. Initial
+coefficient, dilation, friction and two-body contact checks pass 4 tests / 138
+assertions (`build/bdf2-focused-tests.log`). Evidence:
+`build/bdf2-dilation-evidence.edn`. The broader regression passes 35 tests / 632
+assertions, adding variable-step ballistics, history reset, authored settings and
+cache publication (`build/bdf2-regression.log`). The completed rod comparison
+uses the same solver identity and physical inputs, changing only integration or
+the stated joint refinement:
+
+| Method | Axial cells | Force relative L1 error | Rebound ratio | Mechanical energy loss |
+| --- | --- | --- | --- | --- |
+| Backward Euler | 32 | 5.600% | 0.95626 | 6.001% |
+| BDF2 | 32 | 29.267% | 0.96496 | 2.409% |
+| BDF2 | 64 | 8.245% | 0.97899 | 1.202% |
+| BDF2 | 128 | 2.147% | 0.98738 | 0.601% |
+
+BDF2 reduces dissipation but increases force error at the matched 32-cell
+resolution. Joint refinement reduces its force error substantially; this does not
+qualify a default change. Evidence: `build/bdf2-rod-comparison-study.edn`.
+The 128-cell result is in `build/bdf2-rod-128-study.edn`; the inspected plot
+`build/bdf2-rod-comparison.png` / `.pdf` compares all four runs after verifying
+identical solver identities, analytical references and output times. The 256-cell
+study is running to test a 1% force/rebound benchmark target. This is a target for
+those measured quantities in this specific small-strain experiment, not a general
+research certification.
+
+The coarse three-ball BDF2 scene completes 0.6 s / 145 frames at a 0.5 ms cap,
+using 43 nodes / 80 tetrahedra per body: 1,301 accepted steps and two rejections.
+Minimum reported J is 0.39532. Integrated floor impulse is 256.82266 N s; momentum
+balance residual components are [-2.70e-7, 5.41e-11, -5.06e-8] N s. Independent
+final-coordinate determinants remain positive, and reference-volume lumped mass,
+centers and velocities agree with recorded observables. These are final-coordinate
+checks and do not independently verify intermediate contact paths or convergence.
+Evidence: `build/bdf2-three-ball-study.edn`,
+`build/bdf2-three-ball-final-verification.edn`.
+
+The new native workspace and experimental method label are loaded in the original
+application. A three-frame BDF2 smoke bake passes, preserving the historical
+revision 61 / 145-frame / tick-72 cache. The standalone build also passes. Evidence:
+`build/bdf2-live-smoke.edn`, `build/bdf2-presentation-reload.edn`,
+`build/bdf2-standalone-build.log`. Keep BDF2 experimental and backward Euler default.
+
+### Small-strain energy precision and coupled refinement
+
+The nonlinear solve was spending excessive work on backtracking at small
+strains. An independent 80-digit evaluation of the original stable Neo-Hookean
+energy identified cancellation between large, nearly equal terms. At axial
+strain 1e-8, E=1 MPa and ν=0, the old binary64 calculation returned
+2.2670383e-11 Pa instead of 4.9999998e-11 Pa: a 54.66% error. A rotated 1e-10
+strain could even produce a negative energy instead of approximately 5e-15 Pa.
+This was an implementation accuracy defect, not a reason to relax tolerances.
+
+`hyperelastic.clj` now evaluates the same constitutive energy through
+G=FᵀF−I near a proper rotation, using compensated products/sums and a series for
+z−log(1+z). The determinant increment uses d/(1+sqrt(1+d)); the energy rearranges
+its cancelling linear terms before evaluating them. The original expression
+remains for large strain and inverted configurations. PK1 stress and its
+analytical tangent are unchanged. The precision oracle in
+`tools/verify.py material` uses Python Decimal at 80 digits and exact binary64
+input values, independently evaluating the original expression.
+
+All 48 exported cases pass the oracle (the old expression passed 8/48), including
+rotation, axial strain, shear, compression and inversion. Two additional compiled
+regressions pass 49 assertions, including an independent Clojure BigDecimal
+energy reference and energy-gradient/PK1 consistency. Existing hyperelastic and
+implicit suites pass 25 tests / 274 assertions, and the standalone build passes.
+Evidence: `build/hyperelastic-compensated-precision.json`,
+`build/compensated-energy-tests.log`, `build/compensated-material-regression.log`
+and `build/compensated-material-standalone-build.log`.
+
+For the original rod discretization, the corrected material reduces Newton
+iterations from 13,368 to 4,196, backtracks from 336,697 to 86,679 and rejected
+trials from 113 to 31. The first output interval falls from 575 iterations and
+15,905 backtracks to 11 iterations and zero backtracks. Recorded wall time falls
+from 121.1 s to 36.9 s, but background load differed; work counts provide the
+stronger comparison. Physical discretization error remains.
+
+Following the joint refinement principle in
+[Convergent IPC, section 8.3](https://arxiv.org/html/2307.15908v1), the completed
+corrected-material study halves axial cell size, maximum timestep and contact
+distance together. Initial gap stays 2 μm, Courant number stays 0.03125, and
+contact-distance/cell-size stays 8e-5. These ratios are our chosen experiment,
+not the paper's numerical parameter values.
+
+| Axial cells | Maximum steps/contact | Contact distance | Rebound speed / incoming | Force relative L1 error | Mechanical energy loss |
+| --- | --- | --- | --- | --- | --- |
+| 8 | 512 | 1 μm | 0.88953 | 19.004% | 13.555% |
+| 16 | 1024 | 0.5 μm | 0.93185 | 10.068% | 8.844% |
+| 32 | 2048 | 0.25 μm | 0.95628 | 5.602% | 5.997% |
+| 64 | 4096 | 0.125 μm | 0.97131 | 2.737% | 4.113% |
+
+All cases complete, retain positive sampled element Jacobians and have momentum
+balance residuals below 8.3e-11 N s. The monotone error reduction supports the
+refinement direction. The finest case still underpredicts rebound by 2.87% and
+loses 4.11% mechanical energy with no prescribed damping or friction; it is not a
+validation pass. Next compare further refinement and temporal integration on
+this benchmark before accepting a higher-order method for three-ball contact.
+Evidence: `build/compensated-rod-refinement-study.edn`,
+`build/compensated-rod-fine-study.edn`, and the inspected four-level plot
+`build/compensated-rod-comparison.png` (also PDF). All four cases have identical
+solver identities, references and output times. Earlier results
+in `build/rod-coupled-refinement-study.edn` use the original energy and are retained
+as historical evidence, not mixed into this convergence table.
+
+An additional 32-cell case halves only the timestep (4096 maximum steps/contact)
+with contact distance fixed at 0.25 μm. Rebound improves from 0.95628 to 0.96101,
+and energy loss decreases from 5.997% to 4.752%, but force error increases from
+5.602% to 7.341%. Temporal refinement alone does not monotonically improve this
+contact pulse. The CLI now accepts explicit `:integration :newmark` for comparison
+against the same analytical reference; backward Euler remains the default.
+Unknown integration names are rejected; the later BDF2 implementation is described above. The corrected-energy Newmark
+rod case completes at 32 cells / 2048 steps/contact / 0.25 μm. All physical
+settings, compiled solver identities, analytical references and output times
+match the corresponding backward-Euler run. Newmark improves rebound to 0.97318
+and has only 0.00105% net mechanical energy gain, but force-pulse L1 error rises
+to 59.333% (backward Euler: 5.602%). This demonstrates why energy conservation
+alone cannot qualify contact accuracy. It is consistent with the paper's
+pressure-oscillation caution, but does not prove that mechanism explains every
+error. Newmark remains an explicit research option, not the UI default; earlier
+failed three-ball experiments are retained. Evidence:
+`build/compensated-rod-newmark-study.edn`,
+`build/compensated-rod-integration-comparison.edn`. Benchmark tests pass 6 tests /
+51 assertions in `build/rod-integration-options-tests.log`.
+
+
+The live reload must also rebuild native callers that can inline material
+expressions. Updating only the material entry point left the FEM assembly and
+cache writer using old expressions. `live/reload-solvers!` now reloads those
+callers under the existing exclusive solver guard and mailbox reservation. A
+completed two-frame three-ball bake verifies identical direct/cached initial
+elastic energies around 1.7e-29 J, all steps complete, and the pre-existing
+revision 61 / 145-frame / tick-72 cache remains intact. Evidence:
+`build/compensated-cache-live-smoke.edn`. An isolated cache/playback regression
+and mailbox-failure guard pass 2 tests / 19 assertions
+(`build/compensated-cache-regression-ready.log`). The initial ad-hoc test launcher
+omitted the extension-host link setup; the corrected launcher uses the same setup
+as `field-lab.test-runner`. Historical caches retain their original
+measurements; the fix applies to newly baked data.
+
+### Completed mesh and boundary sensitivity
+
+The same-version three-ball experiment completes at both 43 and 205 nodes per
+body (80 and 640 tetrahedra), at a fixed 0.5 ms timestep cap and 100 μm contact
+distance. Authored dimensions, density, material, initial velocities, gravity,
+friction and output times match. Refinement projects new boundary points onto
+the intended sphere, changing the represented volume as well as FEM resolution.
+
+| Body | Maximum center trajectory difference | Final center velocity difference |
+| --- | --- | --- |
+| Left | 22.587 mm | 0.06540 m/s |
+| Middle | 12.376 mm | 0.08182 m/s |
+| Right | 31.844 mm | 0.08581 m/s |
+
+The coarse and refined meshes have masses of 13.582969 and 15.024653 kg per
+ball; the analytic sphere at the authored density has mass 15.550884 kg.
+Relative mass errors are -12.65% and -3.38%. These results expose substantial
+mesh/geometry sensitivity. They do not establish convergence or isolate the
+error due to FEM interpolation. The completed fixed-polyhedron study preserves
+the boundary and mass (13.582969 kg/body), while refining 43 to 205 nodes. Maximum
+center differences remain 13.082 / 12.716 / 14.117 mm. Thus curved-boundary change
+is not the only source of mesh sensitivity. The refined run has positive final
+cell volumes, minimum reported J=0.36496 and 24 rejected trials. Evidence:
+`build/fixed-domain-comparison.edn`. Both mesh studies predate the compensated
+energy calculation and remain historical sensitivity measurements.
+
+The refined run accepts 1,409 steps and retries 18 rejected trials, with minimum
+reported J = 0.467679 and final mechanical energy 72.201737 J. Its measured
+external contact impulse is [0.656538, 288.633855, 0.213289] N s; momentum balance
+residual is [4.97e-8, -2.36e-10, 9.28e-9] N s. Independent determinants computed
+from final particle coordinates remain positive in all bodies and reproduce
+the reported final volume ratios within 3e-15. These final-coordinate checks
+do not independently certify every intermediate configuration. Different mesh
+topologies are compared through body observables, not by arbitrary node indices.
+Evidence: `build/mesh-comparison.edn`, generated by `build/compare-mesh.clj` from
+`build/mesh-coarse-ipc-study.edn` and `build/mesh-refined-ipc-study.edn`.
+
+### Contact-distance sensitivity and cached solver identity
+
+All three 0.6 s runs at contact distances 100 / 50 / 25 micrometres complete
+with the timestep cap fixed at 0.25 ms and 43 FEM nodes per ball. Source data
+other than contact distance, solver identity and output times match exactly.
+
+| Contact-distance change | Maximum center difference | Maximum final-node difference | Maximum final nodal-velocity difference |
+| --- | --- | --- | --- |
+| 100 → 50 μm | 0.25685 mm | 0.56956 mm | 0.02233 m/s |
+| 50 → 25 μm | 0.16457 mm | 0.62246 mm | 0.01942 m/s |
+
+Center sensitivity decreases, but final-node sensitivity is not monotone.
+These runs do not establish contact convergence. Mechanical final energies are
+62.4724 / 62.5142 / 62.5223 J. Minimum reported J values are approximately
+0.44689 / 0.44641 / 0.44618. Rejected trials total 1 / 0 / 1 and are retried;
+all runs complete. Signed contact impulses and finite momentum residuals remain
+in each record. Evidence: `build/clearance-comparison.edn`, generated by
+`build/compare-clearance.clj` from `build/clearance-{100um,50um,25um}-study.edn`.
+This is a fixed-mesh, fixed-timestep sensitivity study. The sharper potential
+may require temporal refinement. The 25 μm / 0.125 ms run now completes with
+4,896 accepted steps and no rejected trials. Relative to 0.25 ms, maximum center,
+final-node and final nodal-velocity differences are 0.67629 mm, 1.74999 mm and
+0.10878 m/s. Final mechanical energy rises from 62.5223 to 63.1776 J. The measured
+temporal sensitivity exceeds the distance-only changes; neither test establishes
+convergence or uniquely explains the nonmonotonicity. Evidence:
+`build/clearance-25um-time-comparison.edn`,
+`build/clearance-25um-125us-study.edn`.
+
+### Profiled conservative rounding
+
+A native sample of the refined three-ball bake locates significant work in the
+positive-volume path certificate and its C libm `nextafter` calls. The geometry
+module now uses Zig's standard `math.nextAfter` for the same outward rounding.
+The interval formulas, round-to-nearest requirement, subdivision budget and
+failure behavior are unchanged. The code does not depend on libm errno or
+floating-point exception flags; this replacement preserves values, not those
+side effects. Tests cover every binary64 exponent with three boundary mantissas
+and both signs, including zeros, subnormals, infinities and NaNs. All 24,576
+directional comparisons agree with Java Math.nextUp/nextDown (NaN class checked).
+
+The identical 205-node / 640-tet positive-path microbenchmark takes a median
+47.69 ms per 100 calls with libm and 26.65 ms with the native operation, across
+three alternating samples: 1.79× for this certificate only. Both versions agree
+on translation, shear, inversion and a path crossing zero volume despite a
+positive final determinant. This is not a full-bake speed claim. Evidence:
+`build/outward-rounding-benchmark.json`, `build/benchmark-outward-rounding.py`,
+`build/outward-rounding-evidence.edn`, `build/refined-ipc-sample.txt`.
+
+The full implicit regression passes 18 tests / 226 assertions with the optimized
+geometry library. Independent native ABI checks also pass (maximum relative
+gradient error 9.76e-9; Newton matrix residual 8.89e-9). The complete coarse
+three-ball trajectory at 1 ms retains 728 accepted steps and four rejected
+trials. Maximum center, final-node and final-velocity differences from the prior
+binary are 4.47e-14 m, 1.22e-13 m and 1.58e-12 m/s. The comparison checks identical
+scene data and output times, and records changed binary identities. Wall times
+have different competing workloads and cannot support a full-bake speed claim.
+Evidence: `build/native-rounding-implicit-tests.log`,
+`build/native-rounding-abi-verification.json`,
+`build/native-rounding-trajectory-agreement.edn`.
+
+The UI now identifies the method attached to the cached result. Flecs owns a
+separate `ScriptedSolver` component, avoiding any resize of existing
+`ScriptedScene` storage during hot reload. New publications copy the method
+through the same ownership mailbox as their cache. Historical supplementation
+requires both the source hash and cache revision to match on the owning thread.
+Unknown metadata is displayed as unrecorded, never inferred from next-job radios.
+The original revision 61 displays "Implicit IPC / backward Euler". Native tests
+cover valid/stale/busy publication, metadata reset and code mapping (22 assertions).
+The standalone build succeeds. Export hashes before/after the UI change agree
+for all CSVs, configuration and source provenance. Evidence:
+`build/cached-solver-label-captures/verification.edn`,
+`build/cached-solver-export-agreement.json`.
+
+### Measured contact impulses
+
+Implicit reports now contain `:contact-impulse` (x/y/z, N s) and
+`:ground-impulse` (its vertical component). AguaFria sums the contact-potential
+gradient after convergence and integrates the force only when the step is
+accepted: h*f1 for backward Euler, h*(f0+f1)/2 for Newmark. It does not derive
+this quantity from a velocity difference or a momentum residual. Internal body
+contact forces cancel under a common translation; in the current model the
+remaining external contact resultant belongs to the fixed floor, including
+friction. This interpretation must be extended if other fixed boundaries or
+actuators are introduced. It is not a per-body pressure or pair-impulse measure.
+The discrete balance follows the [Convergent IPC formulation, section 7](https://arxiv.org/html/2307.15908v1#S7).
+
+The full coarse 0.6 s three-ball case at a 1 ms cap completes with the same four
+retried steps. The integrated contact impulse is
+[-0.335956322, 258.430373596, 0.031811393] N s. Subtracting gravity and this
+measured impulse from momentum change leaves
+[8.334e-8, -8.299e-11, 1.590e-7] N s. The solve uses a 1e-7 m/s residual tolerance;
+these finite residuals are recorded, not rounded to zero. Final nodal positions
+and velocities differ from the prior solver by at most 1.12e-13 m and
+1.74e-12 m/s. The measurement has not materially changed the trajectory.
+Evidence: `build/implicit-measured-impulse-study.edn`,
+`build/implicit-impulse-trajectory-agreement.edn`. Tests cover signed friction
+impulses, pair-force cancellation and exclusion of rejected trials. The full
+implicit suite passes 17 tests / 224 assertions.
+
+Repeating that complete case at a 1e-8 m/s nonlinear tolerance, with the same
+scene, timestep and solver identity, gives momentum errors
+[-3.593e-9, -7.526e-11, 3.020e-9] N s. Final nodal positions change by at most
+1.228e-8 m and velocities by 1.584e-7 m/s. Nonlinear solve error in this case
+is much smaller than the previously measured timestep sensitivity. Both cases
+take 728 accepted steps and four rejected trials. Observed wall times are
+90.15 / 91.33 s; these are single-run timings with concurrent host work.
+Evidence: `build/implicit-tight-tolerance-study.edn`,
+`build/implicit-tolerance-comparison.edn`.
+
+New scripted publications include these reports in their hashed source envelope,
+which native CSV exports already retain. Old reports without impulse fields stay
+unmeasured; summaries use null rather than manufacturing a zero or deriving a
+measurement from the conservation equation being tested. This measurement closes
+one diagnostic gap; it does not establish temporal/spatial/material accuracy.
+
+### Time integration follow-up
+
+The implicit solver now supports authored `:integration :newmark` alongside the
+default `:backward-euler`. This is the beta=1/4, gamma=1/2 incremental potential
+in [Convergent IPC, sections 5–6](https://arxiv.org/html/2307.15908v1#S5):
+the inertia predictor includes the old internal/contact force, the potential
+multiplier is h²/4, and velocity is 2(x1−x0)/h−v0. Friction uses that same endpoint
+velocity mapping: its displacement origin is x0+h*v0/2 and its effective
+duration is h/2. The old-force evaluation instead uses origin x0−h*v0/2.
+These affine origins never replace the physical collision geometry. CCD,
+positive-volume filtering, convergence checks and rejected-step rollback remain
+in force. The numerical implementation is AguaFria Zig; the existing IPC C++
+adapter only exposes its friction origin setter.
+
+An independent scalar RK4 reference for uniform dilation of a regular tetrahedron
+checks the implementation without using the native solver as its own reference.
+At 4 / 2 / 1 ms, the measured phase errors are 1.404e-4 / 3.524e-5 / 8.820e-6
+(dimensionless stretch and velocity scaled by 50/s), approximately fourfold
+improvement per halving. At 1 ms the relative mechanical-energy error is
+5.698e-5 for Newmark versus 0.09869 for backward Euler over 0.04 s. This is a
+specific unforced elastic oscillator, not a general energy-conservation claim.
+Ballistic motion, rollback, authored settings and ground friction pass as well.
+Evidence: `build/newmark-dilation-evidence.edn`, `build/newmark-regression.log`
+(17 tests / 182 assertions), `build/newmark-native-verification.json`.
+
+The paper's section 8.2 warns that Newmark can produce pressure oscillations
+with sharp barriers, while BDF-2 and implicit Euler can suppress them. Therefore
+Newmark is an explicit research option; the UI/default remains backward Euler.
+Contact-distance, timestep and mesh studies must accompany any default change.
+The same three-ball collision fails with Newmark at both 1 and 0.5 ms caps,
+at 0.125671 s and 0.144087 s respectively. Rejected-step retries reach their
+minimum admissible step without solving; neither run is published. Evidence:
+`build/newmark-three-ball-1ms-failure.edn` and
+`build/newmark-three-ball-500us-failure.edn`. This is a negative qualification
+result, not proof that all failures are explained by the paper's instability
+discussion. The 0.25 ms case also stops at 0.146939 s
+(`build/newmark-three-ball-250us-study.edn`, including native failure details).
+No Newmark preset qualification is claimed. The original
+backward-Euler cases at these caps completed. Study failures now retain native
+diagnostics in `:failure` instead of only the exception message.
+
+The refined backward-Euler case completed and was published in the original
+window as revision 61: 145 frames / 0.6 s, 3 × 205 nodes / 640 tetrahedra,
+0.5 ms maximum step. Its 1406.79 s wall time includes concurrent verification
+work; it is not a speed benchmark. The exported source is
+`bf237e29f2fe0a11c58b2a4f741e8ff7a5d5540f528bb5e92640f946413d1805`.
+Independent CSV verification recomputes all sampled element determinants and
+lumped-mass centers/velocities: minimum J 0.467906, minimum y 7.594e-7 m,
+maximum center discrepancy 7.22e-16 m, and 89,175 particle rows. A deliberately
+inverted exported element is rejected. This checks saved states, not the
+continuous trajectory between them. Ground impulse is unavailable, so the
+verification explicitly reports momentum balance as unchecked, with null
+impulse/residual. Final mechanical energy is 72.1810 J from 83.2689 J initially;
+this alone does not separate friction from numerical dissipation. Evidence:
+`build/refined-ipc-verified-export/verification.json`,
+`build/refined-ipc-framed-captures/verification.edn`. Repeated same-tick native
+captures have identical RGB hashes. The displayed cache remains this verified
+backward-Euler result, not any failed Newmark attempt.
+
+Changing the native export list also exposed a stale-library build bug. CMake
+now declares `variational.exports` as a link dependency, so a changed export
+surface forces relinking before a source-fingerprinted library is published.
+The new symbol and independent native adapter checks pass with the rebuilt
+library. Historical compiled libraries are preserved for existing jobs.
+
+### Nonlinear contact foundation
+
+This review responds to numerical errors, not just display quality. The present
+explicit FEM / discrete contact-repair path is not the preferred foundation for
+general, large-deformation offline contact workloads. Retain it for comparison;
+prioritize the existing implicit variational path and qualify it before making
+it the default. An algorithm name alone does not validate this implementation.
+
+[SideFX's solve-method documentation](https://www.sidefx.com/docs/houdini/finiteelements/solvemethod.html)
+recommends global nonlinear (GNL) over the legacy single-linearization method.
+[Its collision documentation](https://www.sidefx.com/docs/houdini/finiteelements/collisions.html)
+describes continuous surface detection and deliberately bounded soft repulsion.
+Thus Houdini is not an error-free oracle, and copying its UI or increasing a
+collision-pass count does not reproduce its nonlinear solve.
+
+[Incremental Potential Contact, Li et al. 2020](https://ipc-sim.github.io/file/IPC-paper-350ppi.pdf)
+provides a suitable alternative: minimize the implicit incremental potential,
+with collision-filtered line search and inversion protection. Section 5 also
+states that friction lagging is not guaranteed to converge. Pitoco must retain
+failure/rollback when its requested momentum residual cannot be met.
+
+[Convergent IPC, Li et al.](https://arxiv.org/abs/2307.15908)
+addresses refinement consistency of the original discrete barriers. The
+[Toolkit configuration](https://ipctk.xyz/tutorials/convergent.html) requires
+area weighting, the improved-max collision set, and physical barriers together.
+Our pinned adapter enables all three. This makes it a defensible candidate, not
+a completed convergence result. Contact activation distance still needs study.
+
+Current executable evidence: `build/ipc-snapshot-three-ball-study.edn` contains
+all 145 frames of the same coarse three-ball scene at 1 ms and 0.5 ms caps.
+Both finish; rejected trials total 4 and 0. Minimum reported J values are
+0.447785 and 0.446206. The center trajectory changes by 2.2959 mm, final nodes by
+4.8732 mm, and final nodal velocities by 0.25991 m/s. These differences are too
+large to claim temporal qualification. Final mechanical energies are 59.8502 J
+and 61.4311 J, from the same 75.2789 J initial state. Physical friction and
+backward-Euler numerical damping both contribute; do not attribute all loss to
+one of them. The completed 0.25 ms case has final energy 62.4724 J. Comparing 0.5 / 0.25 ms
+reduces maximum center differences to 1.2768 mm, final-node differences to
+3.1317 mm, and final velocity differences to 0.18312 m/s. This downward trend is
+consistent with refinement but is not a requested-error qualification. Source
+and solver identities match (`build/ipc-snapshot-time-comparison.edn`). Spatial
+refinement and a less dissipative integration scheme still need investigation.
+
+`build/ipc-snapshot-agreement.edn` compares the native snapshot with the original
+development-dispatch run at 1 ms. Maximum final position difference is
+6.50e-14 m; velocity difference is 1.50e-12 m/s. Both have four rejected trials.
+The old final-frame-only reading of zero rejections was incorrect. Snapshot
+execution took 112.79 s versus 154.40 s for development execution; other host work
+was not fully controlled, so this is observed timing rather than a speed guarantee.
+
+
+The inspector had a separate bake entry that bypassed authored jobs and rebuilt
+43-node legacy balls. That routing is now intercepted, when the controller is
+attached, before the legacy loop consumes the action. A released native request
+copies the inspector configuration; the controller builds ordinary scene data
+and uses the selected method/refinement. Busy requests leave the published cache
+intact and show job status. Isolated tests cover one/three bodies, parameter
+preservation, immutable mailbox snapshots and no fallback (4 tests / 129
+assertions). Native implicit/lifetime/persistence tests separately pass 15 tests /
+153 assertions. The final standalone binary builds without opening another GUI.
+Standalone authored IPC scheduling still needs a native worker or an attached
+controller; this change does not make the JVM mandatory for existing playback.
+
+
+| Error being checked | Control / evidence required |
+| --- | --- |
+| Nonlinear momentum residual | Authored velocity tolerance (m/s), checked before accepting a step |
+| Time integration error / backward-Euler damping | Same scene at successively smaller steps; compare motion and energy |
+| Spatial/contact discretization | Mesh and barrier-distance refinement with unchanged physical inputs |
+| Geometric admissibility | Whole-path CCD, positive volume, valid initial mesh, rollback on failure |
+| Real specimen accuracy | Measured geometry, constitutive data, friction and independent experiments |
+
+The previous explicit compiled benchmark retained exact histories/reports and
+reduced the paired median from 8.597 s to 1.446 s on its 60 ms test. That is an
+execution-speed result, not a remedy for contact-model error. The next native
+snapshot includes the implicit FEM/Newton loop as well, preserving its tolerances
+and pinned IPC adapter. The GUI can remain hot reloadable while each bake uses a
+fixed solver generation. A changed generation invalidates the bake.
+
+
 The first milestone is a native, inspectable sphere-impact experiment. The longer
 term product is a Houdini-inspired procedural workbench for mechanical, electrical,
 thermal, and coupled-field research. Flecs is the scene and data backbone; numerical
@@ -806,7 +1323,7 @@ occluded-window capture initially returned a stale tick-100 image despite the
 status reporting tick 240. Foregrounding the existing window produced the
 verified tick-240 capture. Renderer-owned, frame-tagged readback remains needed.
 
-The streaming checker `tools/verify_mesh_export.py` reconstructed nodal masses
+The streaming checker `tools/verify.py mesh` reconstructed nodal masses
 from reference tetrahedra and checked every one of 874,107 particle records.
 Maximum mass-weighted center error was 4.00e-15 m and velocity error 8.44e-15 m/s.
 Minimum particle y was zero. Energy fell from 604.170 J to 591.939 J (2.0244%).
@@ -920,7 +1437,7 @@ contact limitations, with no CCD or edge-crossing guarantee. External Clojure
 can generate the source data independently, but standalone typed job submission,
 clothing, paper and arbitrary plugin-defined solver nodes remain pending.
 
-`tools/verify_mesh_export.py` now accepts comma-separated per-body node/cell
+`tools/verify.py mesh` now accepts comma-separated per-body node/cell
 counts and uses each body's mass and gravity for reconstruction and momentum
 balance. It also validates/copies the source hash artifact. The unchanged
 three-ball baseline still passes: 874,107 particle records, center error below
@@ -1333,7 +1850,7 @@ Our integration still needs complete temporal, spatial, and contact-clearance
 qualification; using Toolkit does not by itself establish research accuracy.
 
 Independent finite differences and Coulomb/floor/inversion checks are executable
-through `tools/verify_variational.py`. Longer isolated impact results and remaining
+through `tools/verify.py abi`. Longer isolated impact results and remaining
 failures are tracked in `AGENT_TODO.md`. The explicit impulse integrator remains
 available for comparison; its prolonged near-zero-gap stall is not resolved by
 this alternative integrator.
@@ -1469,3 +1986,1771 @@ failures/errors (`build/explicit-batch-tests.log`), including the previous
 three-body impact and implicit contact checks. The standalone executable and
 app bundle rebuild successfully (`build/explicit-batch-build.log`). These verify
 the implementation change; the longer authored collision remains unqualified.
+
+## Coupled position repair resolves the authored mutual-contact stall
+
+The subsequent rejected-trial diagnostics identify position residual, not a
+constitutive failure or the explicit stability condition: one rejected trial
+had penetration 1.0000456e-9 m, minimum Jacobian 0.9762, and stability number
+2.6085e-5 against the 0.25 limit. Increasing sequential contact sweeps from 48 to
+128 did not remove the stall and was discarded.
+
+The fallback now solves the interacting position constraints together. For the
+current signed vertex/face and plane gaps g and their Jacobian J, it minimizes
+one half dx^T M dx subject to g + J dx >= 0. Its dual system uses the existing
+normal-complementarity solver with A = J M^-1 J^T. A length scale of 1e-6 m scales
+the right-hand side for numerical conditioning and is undone when applying the
+position corrections; it does not change the constrained minimizer or introduce
+a contact clearance. Normals and barycentric weights are re-evaluated for up to
+eight solves. Capacity is 128 constraints; capacity/solve failures reject the
+trial. The same penetration limit and material/stability checks remain in force.
+Velocities are resolved separately; position repair does not inject an impulse.
+
+This derives a coupled version of mass-weighted constraint projection, related
+to the projection framework in [Müller et al., Position Based Dynamics (2006)](https://matthias-research.github.io/pages/publications/posBasedDyn.pdf).
+The tetrahedral constitutive forces and integration remain FEM; the paper is not
+being cited as validation of this hybrid contact algorithm. Vertex/face position
+repair is still a discrete method and does not establish continuous collision
+freedom or cover all edge crossings. IPC remains the separate continuous-contact
+research path. Contact convergence and measured-material validation remain open.
+
+Collision geometry also now uses the actual FEM point after the rest/displacement
+round trip, rather than the requested point before floating-point rounding.
+Focused tests verify center-of-mass preservation, unchanged momentum/kinetic
+energy, and exact equality between surface and represented FEM positions across
+unequal masses. A material-collapse trial verifies rejection, complete rollback,
+and preservation of the reduced retry step across a host yield.
+
+The full authored box/tetrahedron collision now bakes, publishes and renders all
+145 frames (0.6 seconds). The first completed run took 37.49 seconds. Three
+subsequent runs with the same mesh/materials measured:
+
+| Maximum step (microseconds) | Wall seconds | Rejected steps | Minimum Jacobian | Maximum sampled penetration (m) |
+| --- | --- | --- | --- | --- |
+| 100 | 20.23 | 0 | 0.39459 | 9.987e-10 |
+| 50 | 40.42 | 0 | 0.39822 | 9.934e-10 |
+| 25 | 58.27 | 0 | 0.39966 | 7.648e-10 |
+
+Temporal qualification is not complete: maximum center-trajectory differences
+are 8.34 mm then 7.66 mm; maximum final-node differences are 4.38 cm then 3.22 cm.
+The sequence improves, but neither the small number of levels nor the remaining
+differences justify a convergence claim. Mesh refinement must be studied too.
+Total energy never exceeds its initial 103.19438 J beyond roundoff in these runs;
+final energies are 71.1540, 71.1571 and 70.8348 J. This includes inelastic contact
+and friction and is not an isolated test of constitutive damping.
+
+The displayed 50-microsecond cache and the corresponding study have identical
+canonical source SHA-256 dced24498940a32389e167378b3f6617fa7e59ea223ed99ec8901e87bb49e225.
+An independent CSV verifier recomputes mass-weighted centers/velocities from all
+8,990 particle rows and reference tetrahedra. Maximum errors are 2.22e-16 m and
+8.88e-16 m/s; vertical momentum balance error is 9.60e-12 N s using the separately
+recorded integrator ground impulse. No sampled vertex is below the floor.
+
+Evidence: `build/position-block-bake.edn`, `build/position-block-collision.png`,
+`build/position-block-step-study.edn`, `build/position-block-step-summary.edn`,
+and `build/position-block-verified-export/verification.json`. Reproduce the
+numerical study with `coupled-job/scene-step-study!` and the original
+`scenes/solid-impact.clj` data.
+
+The authored three-ball floor/collision run also completes all 145 frames at
+50 microseconds, with 615 nodes and 1,920 tetrahedra. Its first full run took
+99.74 seconds, rejected no steps, and reached minimum J = 0.469137 at tick 43
+(0.17917 seconds). The independent export verifier checks all 89,175 particle
+rows, body masses, reference topology, and source identity. No sampled vertex
+is below the floor. Vertical momentum balance error is 2.46e-11 N s; energy
+decreases from 83.26888 J to 76.00391 J, including friction/inelastic contact.
+Evidence: `build/three-ball-full-bake.edn`,
+`build/three-ball-full-verified-export/verification.json`, and
+`build/three-ball-framed.png`. Source SHA-256:
+c16898757f637aa87dabeccd2f531c2d9e328a7ec030c1f72384a310154e0a67.
+
+The existing development window retains revision 53 while shader/presentation
+changes are applied. Camera framing now uses actual cached FEM bounds and body
+height; a Frame (F) control makes small authored solids visible. The native
+capture verifies floor/mesh alignment and visible three-body deformation.
+The complete physics regression passes 92 tests / 2,217 assertions; the updated
+standalone executable/app build passes as well (`build/position-block-regression.log`,
+`build/position-block-framing-build.log`). This is implementation verification,
+not a completion claim for physical calibration, garments, paper, or later work.
+
+All three authored-ball time-step runs complete without rejected steps:
+
+| Maximum step (microseconds) | Wall seconds | Minimum Jacobian | Final energy (J) |
+| --- | --- | --- | --- |
+| 100 | 48.39 | 0.46695 | 75.97747 |
+| 50 | 93.50 | 0.46914 | 76.00391 |
+| 25 | 181.85 | 0.46911 | 76.01813 |
+
+The 100-to-50-microsecond comparison changes center trajectories by at most
+0.3181 mm, final node positions by 0.5796 mm, and final node velocities by
+0.03707 m/s. Halving again reduces those differences to 0.1172 mm, 0.2373 mm,
+and 0.01421 m/s. This establishes decreasing temporal sensitivity for this
+specific mesh and duration; it is not an exact-error estimate or mesh/material
+qualification. Maximum sampled penetration is 4.04e-17 m across these runs.
+Evidence: `build/three-ball-time-study.edn`, `build/three-ball-time-summary.edn`.
+The existing `coupled-job/summarize-scene-run` and `compare-scene-runs` functions
+produce the measurements and reject comparisons with changed scenes, solver
+versions, output times, or particle counts. Missing impulse measurements leave
+momentum balance unavailable. Ten focused assertions check these reporting rules.
+
+The explicit velocity phase previously repeated full force/stability-bound
+assembly even when positions were unchanged. `coupled-fem/refresh-motion!` now
+compares represented FEM points against the synchronized surface and recomputes
+only kinetic energy/momentum when they match. Per-body summation order is
+preserved. Any changed point triggers the original full observer. This is
+valid for the present velocity-independent elastic force model; it is not a
+general rule for future velocity-dependent constitutive forces.
+
+A repeated full three-ball bake took 59.44 seconds versus 93.50 seconds before
+the change. All measured histories, final particle positions/velocities and
+solver reports are exactly equal. Native checks also compare the fast path
+against full assembly for unequal meshes/densities and changed velocities, and
+verify full reevaluation after an explicit position change. Evidence:
+`build/motion-refresh-three-ball.edn`. Neither wall time nor exact agreement
+on this workload establishes a performance or determinism guarantee for others.
+
+The box/tetrahedron verification also has exactly equal histories, final particle
+state and reports, taking 34.53 seconds versus 40.42 seconds previously
+(`build/motion-refresh-box.edn`). The full isolated regression passes 94 tests /
+2,231 assertions (`build/motion-refresh-regression.log`). The subsequent UI mesh
+selector passes two focused tests / 88 assertions, including legacy command
+defaults, rejection of busy/invalid requests, actual source topology, and
+preserved physical inputs. The final standalone rebuild passes
+(`build/mesh-selection-tests.log`, `build/mesh-selection-build.log`).
+
+The finer authored three-ball UI job completes and publishes revision 54:
+145 frames, 3,627 nodes / 15,360 tetrahedra, zero rejected steps, minimum
+J = 0.363457 and maximum sampled penetration 3.18e-17 m. The independent
+verifier checks 525,915 particle records and reference-mesh mass measures.
+Minimum sampled y is zero; vertical momentum balance error is 2.45e-11 N s.
+Energy decreases from 85.44361 J to 79.02800 J. Native captures show the
+actual refined surface at tick 43 (`build/three-ball-refined-contact.png`)
+and at the minimum-J tick 139 (`build/three-ball-refined-peak.png`).
+
+The new `verify.py mesh --compare-to <verified-export>` option checks
+the baseline manifest and compares identically sampled center trajectories.
+The 205-to-1,209-node refinement changes centers by up to 7.7866 mm and center
+velocities by 0.13049 m/s. The material, density, gravity, friction, nominal
+sphere shape/size, initial velocity and integration inputs match; solver
+fingerprints match the optimized coarse run, whose trajectories were already
+shown to equal the archived coarse export exactly. This provenance check is
+separate from the CSV tool's exported-field comparison.
+
+Density stays fixed while the spherical boundary approximation improves:
+per-body volume changes from 0.01365878 to 0.01401550 m³ and mass from
+15.02465 to 15.41705 kg. This is a curved-domain refinement study; its differences
+include geometry/mass approximation as well as finite-element resolution.
+The finer mesh still needs a time-step study and another spatial level.
+These results do not complete spatial qualification or material calibration.
+
+Evidence: `build/three-ball-refined-full.edn`,
+`build/three-ball-refined-verified-export/verification.json`,
+`build/three-ball-spatial-provenance.edn`. Fine source SHA-256:
+36ca134287c7622740c8f7e479f5f8e0fe6da3a800bb7cb96ea3dface0fbb52f.
+
+### Detailed embedded rendering (2026-09-13)
+
+Primary source: Doug L. James, *Phong Deformation: A better C0 interpolant for
+embedded deformation*, ACM TOG 39(4), 2020,
+[DOI 10.1145/3386569.3392371](https://doi.org/10.1145/3386569.3392371).
+The old Pixar PDF address redirects to a library page. The complete nine-page
+paper was obtained from the current library's publication index:
+[Pixar author PDF](https://research.pixar.com/docs/2020.SiggraphPapers.J.pdf).
+Sections 3–6 were read, including regularization and the accuracy limitations.
+
+The implemented interpolant is equation 14:
+
+```
+x_render(X) = sum_i beta_i x_i + 1/2 sum_i beta_i F_i (X - X_i)
+```
+
+For each reference vertex, adjacent cell centroids define `r_k` and unit vectors
+`u_k`. Equations 24–27 give `A = sum u_k u_k^T`, `b = -sum u_k`,
+`(A + I) lambda = b`, and normalized weights proportional to
+`(1 + lambda dot u_k) / |r_k|`. We use the paper's epsilon = 1. The vertex
+reconstruction weights and inverse reference bases are precomputed; frame
+updates reconstruct gradients, transfer positions and recompute triangle normals.
+This is C0 interpolation. Third-order accuracy requires suitably accurate vertex
+gradients; sparse/boundary neighborhoods do not generally satisfy that condition.
+It is not higher-order FEM and does not improve the underlying contact solve.
+
+Pitoco keeps this data in independently owned `embedding/Render` allocations;
+`mesh-cache/Cache` and historical simulation data retain their layouts. The caller
+must keep the immutable source alive. Every render point has a containing cell
+and barycentric weights. Binding rejects nonfinite/outside points (dimensionless
+boundary tolerance 1e-12). No negative-weight extrapolation beyond that tolerance
+is used. Generic point binding alone does not establish triangle containment
+across cavities in a nonconvex source; that validation remains required for
+arbitrary authored render assets.
+
+The first viewport adapter creates a 1,106-point / 2,208-triangle sphere only
+when the source boundary passes spherical and convex checks. Its radius is
+99.9% of the minimum center-to-boundary-plane distance. This makes its rest
+geometry fit inside the current inscribed simulation polyhedron; the resulting
+inset is reported in the UI. This preview is deliberately distinguishable from
+the measured contact boundary. A future enclosing simulation cage authored from
+the detailed asset is needed to reduce that mismatch. A Phong preview crossing
+a body's enabled ground plane uses the linear barycentric interpolant for that
+body/frame, with a visible method count. The measured mesh is used if linear
+transfer also fails. No individual vertex is clamped. This does not yet
+certify every embedded triangle or inter-body contact at every interpolated time.
+
+A `[V]` viewport button/key switches the two representations on the same cached
+frame. The worker, velocities, FEM particles, contact forces and cache cursor
+are unaffected. Render allocations are retired on cache revision changes and
+application shutdown. Generic authored binding, velocity transfer, normal
+attribute transfer and nonconvex primitive coverage are still open work.
+
+### Final BDF2 rod refinement
+
+`build/bdf2-rod-256-study.edn` completed with 256 axial cells, Tc/16384 maximum
+step and 31.25 nm barrier distance, maintaining the physical 2 micrometre gap.
+Force-pulse relative L1 error is **1.026435%**; rebound-speed error is **0.769167%**;
+mechanical energy loss is **0.303289%**. Four trials were rejected; minimum J is
+0.99958619 and momentum-balance residual is -6.0893e-11 N s. Wall time: 746.09 s.
+The stated 1% force target **fails**; the rebound target passes. The five-case
+comparison now verifies matching solver identities, references and sample times.
+No extra run was launched merely to cross this threshold, and this benchmark
+does not certify the ball, shell or future multiphysics workloads.
+
+### Separating rod discretization errors (2026-09-13)
+
+The previous 32/64/128/256 sequence changed axial resolution, timestep and barrier
+clearance together. Its decreasing error is useful evidence for that sequence,
+but does not identify a spatial order, temporal order or dominant error source.
+Its Cartesian cell aspect ratio also grows from 6.4 to 51.2 because the transverse
+cell size remains 20 mm. Aspect ratio alone does not establish the cause of the
+observed contact oscillations.
+
+Research informing the next experiment:
+
+- [SideFX FEM solve methods](https://www.sidefx.com/docs/houdini/finiteelements/solvemethod.html)
+  recommends global nonlinear solving for new projects. Pitoco already assembles
+  nonlinear material/contact forces and uses a global Newton solve; calling a
+  solver implicit does not establish impact accuracy.
+- [SideFX mesh guidelines](https://www.sidefx.com/docs/houdini/finiteelements/geometry.html)
+  calls for inspecting mesh quality and avoiding small angles/irregular elements.
+  This motivates measuring cell dimensions and section distortion independently
+  of rendering resolution.
+- [SideFX collisions](https://www.sidefx.com/docs/houdini/finiteelements/collisions.html)
+  describes bounded soft collision forces and surface continuous detection.
+  Pitoco's IPC barrier is a different contact formulation; it must be qualified
+  on its own numerical evidence rather than presented as Houdini's algorithm.
+- [Dabaghi et al., weighted mass redistribution](https://arxiv.org/html/1601.00778v1),
+  introduction and sections 3–4, explains why contact-node inertia and time
+  integration can cause artificial oscillations. Their mass redistribution
+  preserves total mass while removing contact-node inertia, and is studied for
+  a one-dimensional Signorini problem with a clamped end. This is a candidate
+  research direction, not evidence that modifying masses in our three-dimensional
+  IPC problem would be correct. No masses were changed.
+- [Bleyer's P1 mass-lumping derivation](https://comet-fenics.readthedocs.io/en/latest/demo/tips_and_tricks/mass_lumping.html)
+  gives row-sum mass as element volume divided by its vertex count. Pitoco's
+  rho*volume/4 tetrahedral contribution agrees with that rule; this does not
+  make its wave dispersion or contact response exact.
+
+The benchmark now saves maximum axial velocity and height spread across each
+material cross-section, transverse speed/kinetic energy, and the endpoint
+resultant of the contact gradient. These are sampled diagnostics, not continuous
+extrema. The endpoint force is distinct from the method-consistent impulse
+divided by the output interval used in the existing force-pulse error.
+Manufactured planar and warped fields verify section indexing and mass-weighted
+energy. The comparison helper rejects changes to multiple controls, physical
+parameters, solver identity or output times. Baseline and variants hold physical
+gap, material, speed, output cadence and tolerances fixed, changing only timestep,
+clearance, transverse divisions or axial divisions. No visual playback changes
+are part of this headless qualification.
+
+The first isolated run is preserved as a failure in
+`build/rod-isolated-controls-study.edn`. Its baseline reproduces the earlier
+32-cell result exactly. Halving only the timestep fails at accepted time
+0.0062751447318876614 s, leaving 8.966785647324116e-15 s to the requested output.
+That remaining interval is much smaller than the smallest accepted step
+(1.9301011109426144e-7 s). Newton exhausts its budget with velocity residual
+1.1807295085767832e-8 m/s against the unchanged 1e-9 m/s tolerance.
+
+This identifies an output-boundary scheduling defect separately from impact
+accuracy. [PETSc's TSAdapt source](https://petsc.org/release/src/ts/adapt/interface/tsadapt.c.html)
+explicitly handles this class of problem: MATCHSTEP adjusts the final steps to
+avoid an unreasonably small last interval. Pitoco now uses the same principle:
+if the remaining interval fits in one permitted step, take it; if it lies between
+one and two permitted steps, split it equally; otherwise take the permitted step.
+Pitoco keeps a strict step cap, including BDF2's growth cap, rather than using
+PETSc's optional small increase. The remaining physical interval is integrated;
+the existing roundoff threshold and nonlinear tolerance were not increased.
+The solver fingerprint records the new boundary policy. Regression covers
+near-integer output boundaries, all three integrators, exact reported end time,
+bounded minimum step and ballistic displacement.
+
+With that fix, all five cases complete in
+`build/rod-isolated-controls-fixed-study.edn`. Regression passes 30 tests / 415
+assertions, including the original BDF2 output-partition and rejection-history
+checks. The comparison verifies identical solver identity, physical reference
+and output times; each variant changes exactly one setting.
+
+| Changed control | Force-pulse L1 error | Rebound error | Mechanical energy loss |
+| --- | ---: | ---: | ---: |
+| Baseline: [1 32 1], Tc/2048, 250 nm | 31.0446% | 3.5032% | 2.4089% |
+| Timestep Tc/4096 | 49.3267% | 2.8546% | 1.5770% |
+| Clearance 125 nm | 12.1252% | 3.5778% | 2.5159% |
+| Transverse mesh [2 32 2] | 20.0819% | 3.5055% | 2.4273% |
+| Axial mesh [1 64 1] | 5.2287% | 1.9953% | 1.0659% |
+
+The inspected plot is `build/rod-controls-comparison.png` (also PDF/CSV), with
+verification in `build/rod-controls-comparison.edn`. No case passes the force or
+rebound 1% targets. The scheduling fix changes some adaptive step sequences;
+its benefit is completing the formerly failing solve, not uniformly reducing
+physical error. The old baseline and new baseline must not be mixed as the
+same solver version.
+
+These experiments isolate sensitivities, not a unique cause or convergence
+order. Transverse refinement alone does not remove section velocity variation.
+Halving clearance lowers the output-averaged force error but raises the maximum
+sampled endpoint force from 4.16 to 8.94 times the reference. Therefore the next
+force audit must measure accepted-step force/impulse histories and output-bin
+averaging independently. A lower binned L1 metric can hide short force spikes;
+it must not be used alone to promote a contact formulation or integrator.
+
+The optional rod setting `:audit-forces? true` now observes each accepted native
+step through `advance!` with `:maximum-attempts 1`. It records accepted begin/end
+times, the difference in cumulative method-consistent contact impulse, and the
+endpoint contact-gradient resultant. Rejected attempts do not contribute records.
+A failure retains the accepted prefix of its current output interval alongside
+the existing completed output samples. Observation does not recompute forces or
+modify the accepted state.
+
+For accepted step k, let e_k = I_k - I_ref,k, where I_ref,k is the exact integral
+of the analytical pulse over that step. The audited metric is sum(abs(e_k))/I_ref.
+The output-bin metric instead sums abs(sum(e_k)) within each bin. By the triangle
+inequality it can be smaller when positive and negative force errors cancel.
+Both metrics, their difference, endpoint and step-average peaks, accepted-step
+count, time coverage and impulse reconciliation are retained. These remain
+discrete measurements; neither a sampled maximum nor this norm bounds continuous
+contact force between accepted states.
+
+The two 32-cell audits complete in `build/rod-accepted-force-study.edn`:
+
+| Clearance | Accepted steps | Step-average force L1 | Output-bin force L1 | Maximum accepted endpoint / reference |
+| --- | ---: | ---: | ---: | ---: |
+| 250 nm | 3,138 | 53.7382% | 31.0446% | 7.0805 |
+| 125 nm | 3,296 | 28.7777% | 12.1252% | 10.1023 |
+
+The observer tests pass 11 tests / 127 assertions, including a manufactured
+alternating force whose error vanishes when averaged into one bin, rejected-step
+exclusion, failure-prefix retention and exact native output equality with audit
+enabled/disabled. Independent comparison to the earlier 32-cell runs verifies
+identical solver/physical settings, saved observables and summaries. One earlier
+contact-energy report differs by one ULP; all other report fields match exactly.
+Time coverage errors are zero and impulse mismatches are below 9e-19 N s.
+The verifier is `build/export-force-audit.clj`; results are in
+`build/force-audit-verification.edn`. The inspected full-impact and early-contact
+plot is `build/force-audit-comparison.png` (also PDF; CSV step/bin data retained).
+
+This provides evidence for the force-oscillation concern discussed in
+[Convergent IPC section 8.2](https://arxiv.org/html/2307.15908v1#S8.SS2), but does
+not identify a unique cause in Pitoco. The next comparison keeps clearance and
+timestep fixed while refining the axial mesh, then changes only timestep on the
+finer mesh. Transverse resolution stays fixed, so this cannot establish general
+three-dimensional mesh convergence.
+
+The audited axial/time comparison also completes. All cases keep clearance at
+250 nm, material, physical gap and output cadence fixed:
+
+| Axial cells | Maximum timestep | Accepted-step force L1 | Output-bin force L1 | Rebound error | Energy loss |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 32 | Tc/2048 | 53.7382% | 31.0446% | 3.5032% | 2.4089% |
+| 64 | Tc/2048 | 14.1175% | 5.2287% | 1.9953% | 1.0659% |
+| 128 | Tc/2048 | 3.2725% | 1.6015% | 1.1557% | 0.5817% |
+| 128 | Tc/4096 | 13.5774% | 3.3025% | 1.1574% | 0.4708% |
+
+The last three runs took 55.01 / 50.07 / 147.79 seconds, respectively.
+`build/audited-mesh-time-verification.edn` verifies matching solver and experiment
+fingerprints, physical reference and output times, exactly one changed control
+between adjacent rows, full accepted-time coverage and reconciled impulses.
+The source study is `build/rod-audited-mesh-time-study.edn`; no case qualifies.
+The timestep sensitivity of force remains large despite nearly unchanged rebound.
+Further time refinement alone is not justified as an accuracy fix. An independent
+1D bar comparison can isolate contact-boundary inertia and spatial effects before
+attempting a production contact/mass-discretization change. The weighted mass
+redistribution literature discussed above provides a candidate comparison, not
+authorization to treat a 1D formulation as a validated 3D replacement.
+
+### Independent contact-boundary reference (2026-09-13)
+
+`tools/verify.py rod` independently assembles a uniform, linear P1 bar:
+length 0.1 m, area 0.0004 m², Young's modulus 1 MPa, density 1000 kg/m³,
+incoming speed 0.01 m/s and initial gap 2 micrometres. It uses a free far end,
+zero damping and a rigid frictionless obstacle. Its characteristic-wave reference
+has force rho*c*v*A for 2L/c after impact. This is a different boundary-value
+problem from the clamped example in
+[Dabaghi et al.](https://arxiv.org/html/1601.00778v1).
+
+The comparison retains total mass 0.04 kg. Standard variants use row-sum lumping
+or the consistent element mass matrix. Redistributed variants use the paper's
+element weights w0=0, w1=2 and all remaining weights 1, then row-sum lumping.
+The zero-inertia boundary is eliminated through static force balance. One variant
+retains the same independently reconstructed IPC physical squared-distance
+barrier (250 nm clearance, 1000 Pa parameter); the other imposes hard Signorini
+contact. The element weighting is not arbitrary deletion of boundary mass.
+
+The dimensionless ODE uses SciPy DOP853, splitting integration at the analytical
+pulse edges to integrate absolute force error. Massive boundary positions use
+a logarithmic coordinate to preserve positive trial gaps. No native Pitoco
+solver or generated solver code is imported. Five self-check groups cover mass
+and free translation, barrier gradients, static boundary balance, reduced energy
+gradients and analytical lumped/consistent free-bar eigenvalues.
+
+The first refinement pair (rtol 1e-10/1e-12, maximum steps L/(32Nc)/L/(64Nc))
+failed at the 32-cell lumped model: rebound changed by 2.18e-7 and common-time
+force by 0.00148 of the plateau. Its failed record remains in
+`build/independent-rod-reference-verified.json`. Keeping the same acceptance
+thresholds, the tighter pair (rtol 1e-12/2.5e-14, steps L/(64Nc)/L/(128Nc))
+passes all 12 comparisons. Maximum differences: integrated force error 2.13e-7,
+rebound ratio 2.72e-9, common-time force ratio 1.63e-5. The 12 fine runs have
+sampled relative energy drift below 3e-12.
+
+| Cells | Lumped + barrier force L1 | Consistent + barrier | Redistributed + barrier | Redistributed + hard contact |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 178.4113% | 170.2588% | 8.6524% | 9.0127% |
+| 32 | 167.7921% | 156.2931% | 4.7726% | 5.0768% |
+| 64 | 152.1767% | 134.7190% | 2.5850% | 2.7741% |
+
+The large force errors persist after tightening integration; the full consistent
+mass matrix alone does not remove them. Redistributing mass reduces the error
+under the unchanged barrier law, without dissipative integration explaining the
+result. The 64-cell redistributed/barrier rebound error is still 1.1668%, so
+neither force nor rebound meets the 1% target. Peaks are sampled diagnostics,
+not continuous bounds. This identifies a mechanism in this 1D model; nonlinear
+3D tetrahedra, transverse motion and surface contact quadrature remain distinct.
+
+Completed evidence: `build/independent-rod-reference-tight.json` (24 cases, 12
+refinement comparisons, NumPy/SciPy versions and matching source SHA), its log,
+and `build/independent-rod-reference-comparison.png` / PDF. The figure is generated
+by `build/plot-independent-rod-reference.py` from completed fine-run traces.
+
+For a possible multidimensional extension,
+[Monjaraz Tec, Gross and Krack](https://arxiv.org/pdf/2111.07693), section 2,
+combines static boundary equilibrium with interior dynamics and discusses
+massless component-mode synthesis. Its development explicitly assumes linear
+elasticity and linear, fixed contact kinematics; nonlinear materials and moving
+contact directions are future work there. It therefore supplies a comparison
+architecture, not a justified replacement for Pitoco's large-deformation balls.
+No production solver, body masses or live cache changed in this experiment.
+
+### Native inertia audit and 3D redistribution feasibility (2026-09-13)
+
+Further research reviewed
+[Tkachuk's variational mass-matrix thesis](https://elib.uni-stuttgart.de/server/api/core/bitstreams/8c7605a1-9e25-45ee-a874-617637706589/content),
+sections 4.3.3, 5.1 and 5.2.4. It requires compatibility/rank conditions for
+singular matrices and distinguishes rigid-motion consistency from preservation
+of total mass. Its illustrated 3D singular element uses modified 27-node
+interpolation with separate velocity/momentum spaces, not the current four-node
+tetrahedron. This rules out treating a change to scalar nodal weights as an
+implementation of that formulation.
+[Ligurs and Renard's frictional-contact study](https://doi.org/10.1093/qjmam/hbr004) also
+distinguishes normal and tangential inertia; a frictionless 1D result cannot
+justify removing both indiscriminately.
+
+The new AguaFria `impact-study/inertia-audit` integrates current position and
+velocity fields over reference tetrahedra. It uses material mass rho0*V0 and
+the exact P1 product integral V0*(1+delta_ij)/20. The calculation returns both
+integrated and actual nodal mass, inertia, kinetic energy and linear/angular
+momentum. Tensors and angular momentum share the integrated center as origin;
+local coordinates avoid subtraction of large world-coordinate second moments.
+No simulation storage is modified. `audit-inertia!` wraps authored solid data
+and records the native implementation identity. Rod impact reports now retain
+the audit before and after integration.
+
+Analytical tests cover a uniform simplex with spin and translation, doubling
+its current size without changing material mass, a translated origin at 2^25 m,
+and a sheared box. The tetrahedron exposes the expected factor-five nodal versus
+integrated inertia about its center. The full focused suite passes **14 tests /
+241 assertions**, including force-audit trajectory preservation. Evidence:
+`build/inertia-audit-radius-tests.log`.
+
+For the actual ball source, radius 0.15 m, density 1100 kg/m³ and a prescribed
+2 rad/s rigid spin, the tensor Frobenius errors are:
+
+| Nodes / tetrahedra | Fixed polyhedron | Refined spherical boundary |
+| --- | ---: | ---: |
+| 43 / 80 | 36.6898% | 36.6898% |
+| 205 / 640 | 9.82356% | 10.2889% |
+| 1209 / 5120 | 2.84203% | 3.05225% |
+
+These compare two mass discretizations on each identical represented domain;
+they do not include error relative to a geometrically exact sphere. The fixed
+polyhedron's integrated inertia stays constant through refinement, while its
+nodal inertia approaches it. Source data, native identity and all measurements
+are retained in `build/ball-inertia-study.edn`. The independent Python verifier
+uses four-point degree-two quadrature at physical points, rather than the native
+algebraic sum formula. All six cases pass at rtol 1e-11 / atol 1e-12:
+`build/ball-inertia-verification.json`, `build/verify-ball-inertia.py`, and the
+points/cells/metrics CSV files.
+
+There is also a simple necessary feasibility test for a particular proposed
+replacement: make every surface node massless and assign positive scalar masses
+only to interior nodes, while retaining total mass M, center c and inertia I.
+It must satisfy trace(I)/(2M) <= max_interior |x-c|². For the spherical sequence,
+required mean squared radii are 0.0123455 / 0.0131944 / 0.0134225 m², while the
+largest available interior squared radii are 0 / 0.005625 / 0.01265625 m².
+**Every spherical level fails this bound.** The fine fixed-polyhedron case passes
+the necessary bound, which does not prove a full moment-preserving redistribution
+exists. `surface-massless-radius-bound` makes this distinction explicit.
+The Clojure check retains matching native implementation identities in
+`build/ball-inertia-radius-bound.edn`; an independent face-incidence/radius check
+agrees in `build/ball-inertia-radius-verification.json`.
+
+This rejects a scalar, all-surface transfer on these meshes. It does not reject
+normal-only inertia changes, an explicitly restricted contact patch, mixed
+interpolation or a non-diagonal operator. Those require their own nonlinear
+energy/force derivation and rigid-motion checks. Production masses and the live
+cache remain unchanged. The next contact implementation must address this
+operator/interpolation choice rather than copy the 1D weight rule.
+
+### Coupled tetrahedral inertia implementation (2026-09-13)
+
+The implicit context now has an experimental consistent-mass option. For a P1
+tetrahedron its scalar element matrix is rho0*V0*(I+11^T)/20, independently
+applied to each spatial component. Native AguaFria code applies the matrix
+without assembling it densely. A Jacobi-preconditioned CG solve computes its
+inverse action; the element inequality Ml/5 <= Mc <= Ml bounds the preconditioned
+condition number by five. The option verifies uniform-density nodal row sums
+before reconstructing each body's reference density. It cannot be switched
+after an accepted step.
+
+The objective uses 1/2*delta^T*M*delta, its gradient uses M*delta, and nonlinear
+convergence measures the inverse-mass-scaled velocity residual. Newmark computes
+its initial force acceleration using the same inverse action; BE/BDF2 retain
+their applicable affine predictors. Sparse assembly adds the local Mc-Ml
+correction after elastic Hessian projection, through the existing native block
+interface. No C++ implementation was added. Context observables integrate kinetic
+energy with Mc; mass, center, linear momentum and uniform-gravity potential use
+the unchanged row sums. The frequency bound is conservatively multiplied by five.
+
+The first mixed-density inverse test exposed a weakness in stopping on a global
+weighted residual alone: maximum component-relative solution error was 1.48e-8,
+failing the unchanged 1e-9 target. Adding the
+[LAPACK componentwise backward-error check](https://www.netlib.org/lapack/explore-html/db/d65/group__la__lin__berr_ga56eebc95b5d984d77c0dc2e444e98e6a.html)
+fixed that manufactured test, but the rod exposed why it was the wrong universal
+acceptance criterion. The original failure logs remain available.
+
+First, transverse and vertical gradient maxima differed by about 1e14. The
+inverse action now normalizes its RHS independently per body and spatial axis
+by max_i(|rhs_i|/sqrt(Ml_ii)). These are independent scalar blocks, so this
+transformation preserves the equations. It is not automatically applicable to
+a future direction-coupled operator. A regression repeats the actual first-step
+rod configuration instead of relying only on positive manufactured loads.
+
+Second, a later iteration failed the componentwise 1e-14 check at a zero-load
+node, even after scaling. Independent SciPy Cholesky factorization of the
+exported mass matrix found weighted relative solution errors below 6.68e-16
+on all axes. The zero-load node's componentwise backward error was 6.85e-12,
+while the corresponding block's relative residual was 2.53e-16. Evidence:
+`build/consistent-mass-failure-independent.json`, its CSV inputs and
+`build/verify-mass-failure.py`. Continuing CG to resolve such relative tails
+was not a useful measure of the accuracy required by the nonlinear solve.
+
+The final acceptance criterion recomputes the true residual and requires
+||r||_(Ml^-1)/||rhs||_(Ml^-1) <= 1e-12 separately for every body and axis,
+including after rescaling to the original equations. Values are normalized
+before squaring. Since the symmetrically preconditioned mass matrix has
+spectrum in [1/5,1], this yields a relative Ml-weighted solution-error bound
+of 5e-12 in exact arithmetic. This follows the relationship between residual,
+conditioning and forward error described in
+[Templates for the Solution of Linear Systems, stopping criteria](https://www.netlib.org/templates/templates.html).
+It replaces the componentwise acceptance rule; that routine remains available
+as a diagnostic. The iteration cap remains 64 and the weighted residual
+tolerance remains 1e-12. Finite-precision arithmetic and model discretization
+still need the independent regression and physical benchmark checks.
+
+This operator addresses the measured nodal inertia approximation and supplies
+coupled-mass infrastructure. It does not remove contact-boundary inertia. The
+independent 1D results already show that consistent mass alone does not cure
+contact-force spikes. Contact qualification and a suitable mixed formulation
+remain separate requirements.
+
+The controlled native rod pair now completes with identical authored geometry,
+material, integration, clearance, timestep cap, solver identity and output times;
+only `:mass-model` changes. The lumped initial and sampled observables match the
+prior audited baseline exactly. Final consistent kinetic energy agrees with the
+independent element-integral audit within 8.48e-22 J, and accepted-step impulses
+reconcile with output impulses within 1.09e-18 N s. Regression: **47 tests /
+916 assertions**, no failures or errors.
+
+| Measured quantity | Lumped | Consistent |
+| --- | ---: | ---: |
+| Accepted-step force L1 error | 53.7382% | 16.3821% |
+| Output-bin force L1 error | 31.0446% | 9.3599% |
+| Rebound-speed error | 3.5032% | 2.2224% |
+| Mechanical energy loss | 2.4089% | 1.1025% |
+| Accepted endpoint peak / analytical plateau | 7.0805 | 4.6573 |
+| Rejected trials | 1 | 30 |
+| Wall time on this run | 29.11 s | 87.00 s |
+
+This is sensitivity to the inertia model at fixed numerical controls, not a
+convergence study. The smaller errors come with increased cost and do not meet
+the physical qualification target. Evidence:
+`build/consistent-mass-scaled-rod-study.edn`,
+`build/consistent-mass-study-verification.edn`,
+`build/consistent-mass-block-norm-regression.log`.
+
+The resulting force histories are exported as CSV and plotted in
+`build/consistent-mass-comparison.png` / PDF; both the full impact and early
+contact are shown, retaining accepted-step spikes that output averaging hides.
+The plot was visually inspected. The guarded live reload succeeds at revision
+3 and retains 145 frames / cursor 72. Its backend and mass-policy metadata
+match the study. Two Vulkan readbacks match the previous RGB hash exactly.
+The standalone executable and Pitoco.app bundle build successfully without
+opening another GUI. See `build/consistent-mass-live-reload.edn`,
+`build/consistent-mass-live-captures/`, `build/consistent-mass-standalone-build.log`
+and `build/consistent-mass-package.log`. The historical cache is not rebaked
+or relabelled by the reload. The authored UI continues to use the default
+lumped operator; consistent mass is an explicit benchmark/native-context option.
+
+Earlier output-boundary-fix delivery checks: the standalone executable and macOS
+bundle build successfully;
+the controlled reload reports the new boundary policy while retaining revision
+3, 145 cached frames and cursor 72. Two subsequent tick-72 captures are identical
+and match the previous preview RGB hash. See
+`build/output-boundary-live-reload.edn`, `build/output-boundary-live-captures/`,
+`build/output-boundary-standalone-build.log` and `build/output-boundary-package.log`.
+The existing cached trajectories remain historical results from their original
+solver; reloading does not rebake or relabel them as new physics results.
+
+The historical 145-frame cache exposed unconstrained Phong floor excursions of
+0.4694 / 0.1082 / 0.4055 mm for the three bodies, despite its nonpenetrating FEM
+boundary. This is why the floor fallback is required. The sphere's rest inset is
+2.8103 mm. These are display-transfer measurements, not changes to the physics.
+A manufactured two-tetrahedron shear reproduces the overshoot with all physical
+vertices at or above the floor, and verifies exact linear fallback.
+
+Surface emission now accepts an explicit vertex capacity and preflights all
+bodies before writing. The short-buffer check uses a one-vertex sentinel and
+requires zero emitted vertices with unchanged memory. The initial isolated
+integration harness had allocated only 8,192 vertices for a 13,248-vertex preview
+and crashed (`build/hs_err_pid18901.log`); its corrected allocation is 32,768, and the
+production caller supplies the actual 524,285 slots after its background triangle.
+The running GUI was not used for this failing test. Code/test files must remain
+unchanged while a process is loading them to avoid mixed source revisions.
+
+Final embedding verification passes 9 tests / 124 assertions and the standalone
+build. The current viewport uses this code in the original JVM/window, preserving
+revision 61, 145 frames and cursor 72. The linear fallback activates on 4 / 1 / 6
+frames; minimum displayed heights are 0.0770 / 0.0556 / 0.0145 mm. Native Vulkan
+captures at ticks 100 and 72 reproduce identical pixels on repetition. Evidence:
+`build/embedding-live-inspection.edn`, `build/embedding-live-reload.edn`,
+`build/embedding-visual-comparison.edn`, `build/embedding-final-captures/`.
+
+The remaining sharp lighting band has a separate candidate cause in
+`shadeBall`: the environment is sampled once in the mirror direction, with a
+hard floor/sky branch, even though the BRDF has nonzero roughness. Proper
+specular environment lighting integrates the BRDF over incident directions;
+roughness should broaden that response. See the primary
+[Filament reference, specular IBL integration and sampling](https://google.github.io/filament/main/filament.html#lighting/imagebasedlights/distantlightprobes/specularbrdfintegration).
+The rough specular environment correction is now implemented as described below;
+improved mesh shadows remain open. The same-frame comparison confirms that the
+underside band is not fully explained by that one-mirror-direction term.
+
+
+### Rough specular environment integration (2026-09-13)
+
+Primary source: Eric Heitz, *Sampling the GGX Distribution of Visible Normals*,
+JCGT 7(4), 2018, [complete paper](https://jcgt.org/published/0007/04/01/paper.pdf).
+Sections 1–5 and appendices A/B were read. The shader transforms the view into
+an ellipsoid's hemisphere configuration, samples its projected area, and maps
+sampled normals back to GGX. Reflection gives
+`pdf(L) = G1_Smith(V) D(H) / (4 NoV)` and estimator weight
+`F G_Schlick(V,L) / G1_Smith(V)`. The existing approximate Schlick BRDF geometry
+term is retained, so cancelling it against the different exact Smith sampling
+term would be incorrect. Cancelling the common `NoV` algebraically keeps their
+ratio finite at grazing angles without altering the sampled view direction.
+
+The final shader uses 128 deterministic Hammersley samples. Rejected reflected
+rays below the normal hemisphere contribute zero. The lower world hemisphere
+is a constant distant ground proxy; the upper hemisphere is the procedural
+studio environment. The viewport grid is excluded from this lighting proxy.
+This is not scene ray tracing. Direct-light/material constants remain as before
+for comparison; their calibration, the diffuse ambient approximation, consistency
+between direct/indirect Fresnel parameters, and inter-body occlusion remain work.
+
+`tools/verify.py lighting` compares a CPU implementation of the estimator
+with independent tensor Gauss-Legendre hemisphere quadrature. Reflection symmetry
+lets the reference integrate azimuth on [0, pi]; quadrature nodes cluster near
+the opposite-view direction and resolve the narrow grazing lobe. Uniform azimuth
+quadrature at the original resolution was insufficient there and was replaced.
+The 256-to-512 quadrature refinement changes the reference by at most 2.04725e-7
+relative across 36 cases: roughness 0.26 / 0.49 / 0.8, NoV 0.001 / 0.01 / 0.05 /
+0.15 / 0.5 / 1, and Fresnel F0 0.055 / 1. Maximum reference reflectance is
+0.985857; single-scattering GGX may lose energy, so unity is an upper bound.
+
+The prior 128-sample NDF estimator reaches 21.2151% relative error over eight
+view azimuths. Visible-normal errors at 64 / 128 / 256 / 4096 samples are
+1.71908% / 0.950809% / 0.416856% / 0.0165049%. The bounded 128-sample acceptance
+is 1% on this grid, with reference refinement below 1e-6. It passes. This does
+not establish error bounds for arbitrary roughness, colored/high-frequency
+lighting, or actual GPU arithmetic. Both checker and shader hashes are recorded
+in `build/environment-integration-final.json`.
+
+GLSL compilation and SPIR-V validation pass. The existing window uses the new
+pipeline with cache revision 61 unchanged. Captures of ticks 100 / 72 / 100 / 72
+repeat pixel-exactly (`build/environment-vndf-captures/verification.edn`). A
+normals-only diagnostic was captured separately and the production shader
+restored. The underside lighting band is still visible in the production image;
+the direct-only diagnostic reproduces it while the specular-environment-only
+capture does not (`build/environment-direct-diagnostic/` and
+`build/environment-indirect-diagnostic/`). This identifies the responsible lighting
+contribution, not a proof that all normal transfer is correct. Finite emitters and
+bounced illumination are the next lighting work. Hard projected mesh shadows also remain. This is a validated improvement to one
+lighting term, not a claim of finished rendering or simulation accuracy.
+
+
+The standalone build passes (`build/environment-standalone-build.log`) and
+produces `build/pitoco` and `build/Pitoco.app`; neither was launched. The
+production SPIR-V was restored after diagnostic captures and its hash matches
+the validated candidate. Evidence hashes are in
+`build/environment-final-provenance.json`.
+
+
+### Finite studio emitters and multiple importance sampling (2026-09-13)
+
+Primary references read: PBRT fourth edition,
+[12.4, Area Lights](https://pbr-book.org/4ed/Light_Sources/Area_Lights), and
+[2.2.3, Multiple Importance Sampling](https://pbr-book.org/4ed/Monte_Carlo_Integration/Improving_Efficiency).
+A uniform disk sample has area density `1/A`; its direction density at the
+receiver is `distance² / (A cos_emitter)`. For equal sample counts, balance MIS
+sums two sample means of `f_r NoL / (pdf_area + pdf_GGX)`, one sampled on the
+emitter and the other from the GGX visible-normal distribution. A reflected ray
+must hit the emitting side of the disk. Below-surface, behind-emitter and missed
+samples contribute zero. This handles finite illumination extent, not occlusion.
+
+`mesh.frag` implements that integral with 128 samples per technique per light.
+The shared `visibleHalfVector` function also serves environment reflection.
+The two preview disks are centered at (-3,12,4) and (4,3,-3), face the origin,
+and have radii 4 and 2 metres. Their radiance is fixed by the on-axis relationship
+`E_reference = pi L R² / (d² + R²)`, using the previous RGB light strengths as
+reference irradiances. A moving receiver therefore sees proper distance and
+emitter-orientation changes. These are explicit studio choices, not calibrated
+real lamps. The old ambient term, distant environment proxy and hard projected
+ground shadows remain; direct/emitter visibility and bounced illumination are
+not solved. No simulation cache or physical collision data was changed.
+
+The existing `tools/verify.py lighting` now has `--area-lights`. It compares
+uniform-area, balance-MIS and power-MIS estimates against independent polar disk
+quadrature (Gauss-Legendre in squared radius, uniform azimuth). The 108 cases
+cover roughness 0.26 / 0.49 / 0.8, normal tilt 0 / 60 / 85 / 100 degrees, NoV
+0.15 / 0.5 / 1, and distance/radius pairs (4,2), (13,4), (sqrt(34),2), with eight
+rotations for the sample estimates. The 128-to-256 reference refinement has
+maximum absolute difference 1.1181e-6. Analytical coaxial irradiance checks at
+four distances agree within 2.89e-13 relative; a reversed emitter contributes zero.
+
+The 128-sample uniform-area estimator reaches 34.401% relative error in this
+sweep. Balance MIS at 128 samples per technique reaches 8.149%; these do not
+have equal sample cost. At equal 256 total samples, uniform-area maximum error
+is 10.992%. Balance MIS at 512 per technique reaches 3.921%; power MIS reaches
+2.622% there. The strict 1% sampling target FAILS. This is retained in
+`build/area-light-final-check.json`; `--area-lights --check` exits 1. The analytical
+formula checks pass, and the previous 36 constant-environment checks still pass
+(`build/environment-area-regression.json`). A broad integration-accuracy claim
+would be incorrect; progressive/refined rendering remains needed.
+
+Actual Vulkan captures also compare 128 / 512 / 2048 samples per technique on
+the same two frames. Body masks come from the normals-only versus shaded image
+at identical geometry, camera and tick. At tick 100, the 128-to-2048 difference
+has mean absolute error 0.13644 RGB8 levels, 99th percentile 1 and maximum 5
+across 173,312 body pixels. Tick 72 gives 0.13647 / 1 / 4 across 223,107 pixels.
+The 512-to-2048 means are 0.04786 / 0.04815, maxima 2. These are tone-mapped,
+quantized image differences, not linear-radiance truth. The 2048 result itself
+is a finite estimate. See `build/area-light-gpu-density.json` and the respective
+capture directories. The production 128-sample shader was restored afterwards.
+
+The native viewport now shows broader highlights and smoother underside shading.
+Repeated production captures at ticks 100 / 72 match exactly. Cache revision 61,
+145 frames and restored cursor 72 are preserved. GLSL compilation, SPIR-V
+validation and standalone build pass (`build/area-light-standalone-build.log`);
+no extra app was launched. Source/binary/evidence hashes are in
+`build/area-light-final-provenance.json`. Hard shadows, light transport, authored
+lighting controls and contact/render transfer qualification remain before calling
+the ball-rendering milestone complete.
+
+
+### Native construction for shared triangle visibility (2026-09-13)
+
+The existing contact surface already owns triangle points, indices, a refittable
+binary hierarchy and vertex adjacency. Its previous construction path is a
+Clojure median split. The new `contact-mesh/build-hierarchy!` fills that same
+layout entirely in AguaFria Zig, enabling standalone callers to construct it.
+The original host `build!` remains unchanged while the renderer is connected.
+
+Primary source read: PBRT fourth edition,
+[7.3, Bounding Volume Hierarchies](https://pbr-book.org/4ed/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies),
+especially construction and the bucket surface-area heuristic. Pitoco uses 12
+buckets on the longest bounding-box-centroid axis. Prefix/suffix scans select
+the minimum sum of child surface area times triangle count. Single-triangle
+leaves preserve the existing Surface layout and its `2 * faces - 1` capacity.
+Coincident centroid bounds use an index split. Starting at depth 32, equal-count
+splits cap worst-case total depth at 49 for 80,000 faces; this fits the existing
+64-entry closest-point traversal stack. Preorder child offsets follow subtree
+sizes, allowing the existing reverse-order refit to operate unchanged.
+
+The builder checks counts, finite coordinates bounded by 1e50 and every vertex
+index before topology or adjacency writes. Repeated indices and zero-area
+triangles are accepted for unsigned geometry infrastructure, not certified as
+closed contact solids. Failure means the supplied geometry must not be queried
+until restored or rebuilt successfully. Success fills leaves, parent/child links,
+vertex incident offsets/indices, and bottom-up bounds. Temporary work is owned
+and freed; existing Surface and TreeNode layouts remain unchanged.
+
+The isolated regression passes 21 tests / 348 assertions. New checks cover tree
+coverage and adjacency; deterministic rebuilding; 400 closest-point comparisons
+against existing convex/concave surfaces; incremental versus full refit;
+nonfinite/out-of-range coordinate and index rejection before topology writes;
+and allocation capacity. The 80,000-face coincident-centroid case reaches depth
+17. A deliberately skewed 1,000-face distribution reaches depth 42 and exercises
+the depth cap. Evidence: `build/native-hierarchy-tests.log`.
+
+An existing comparator `geometry/edge-less?` also required private visibility:
+its public development bridge has C calling convention, while Zig's sort expects
+a native-ABI comparator. Making the local helper `az/defn-` fixes that mismatch.
+The callback has no external caller. It does not change sorting semantics.
+
+This construction work does not yet alter viewport shadows. Next, the renderer
+needs a bounded storage buffer for triangle geometry/hierarchy, synchronized by
+its existing single in-flight fence. Serialization must conservatively round
+bounds around the same float32 points used for rendering. GPU ray traversal needs
+edge-consistent intersections, self-intersection handling and actual emitter
+visibility in both MIS techniques. PBRT's
+[ray-aligned triangle intersection discussion](https://pbr-book.org/4ed/Shapes/Triangle_Meshes)
+was reviewed for this next step; a robust GPU implementation is not yet present.
+Cache revision, tick and measured/embedded mode must invalidate the geometry
+packet. Projected floor shadows remain until the connected path is verified.
+
+
+The full standalone application build passes
+(`build/native-hierarchy-standalone-build.log`). A separate ReleaseSafe native
+smoke executable invokes the 80,000-face construction/audit directly and exits
+successfully. `otool -L` lists only `/usr/lib/libSystem.B.dylib`, with no JVM or
+application host dependency. Its single end-to-end run took 0.135 s, including
+allocation, construction, structural audit and destruction; this is not a
+representative performance benchmark. Build/run evidence is in
+`build/native-hierarchy-smoke-build.log` and
+`build/native-hierarchy-smoke-result.json`. The original GUI and its simulation
+cache were not used for the native tests or restarted.
+
+## Displayed-triangle visibility (tested preview implementation)
+
+The display hierarchy now has a bounded, owned GPU packet: a 16-word scene
+header, per-body counts, 32-byte hierarchy nodes, float32 positions, and uint32
+triangle indices. The serializer rounds lower/upper bounds outwards with
+`nextAfter`, and rejects invalid data or insufficient space before writing a
+body. The scene header is published only after all bodies succeed. Revision,
+tick, measured/embedded mode, buffer pointer, and buffer capacity participate in
+invalidation. This packet describes the displayed geometry, not a new simulation
+or contact certificate.
+
+The shared Vulkan renderer allocates coherent host-visible storage and a fragment
+storage-buffer descriptor. Its existing single in-flight fence protects updates;
+the following queue submission orders the host writes before shader reads, per
+[Vulkan's host write ordering guarantees](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-submission-host-writes).
+The descriptor and shader pipeline must be installed together. The shader loader
+also checks for truncation and has a 256 KiB capacity; this shader exceeded the
+previous 64 KiB limit.
+
+Traversal uses a 64-entry stack with bounds checks and a node-count work limit.
+Malformed addresses, indices, or exhausted traversal return an error that fails
+dark. Slab intersection handles both signed zeros explicitly. The ray-aligned
+triangle shear follows [PBRT 4e section 6.5](https://pbr-book.org/4ed/Shapes/Triangle_Meshes),
+using symmetric compensated float32 products for shared edges. This is an
+adaptation: it does not claim equivalence to PBRT's float64 edge fallback. GPU
+regression cases are generated by `tools/verify.py visibility`, whose
+reference uses independent float64 Moller–Trumbore algebra and exhaustive
+triangle traversal, including optional snapshots of actual published packets.
+
+Visibility is evaluated for each sample in both finite-emitter MIS techniques;
+it is not a separate average multiplied into the lighting integral. The ground
+uses a Lambertian area integral, with visibility inside that sum. A successful
+packet disables the old projected shadow triangles. The old projection remains
+a fallback when packet publication fails.
+
+[PBRT's numerical-error analysis](https://pbr-book.org/4ed/Shapes/Managing_Rounding_Error)
+explains why an arbitrary fixed ray epsilon can create acne or detached shadows.
+Our primary positions still come from raster interpolation, so their error is
+not the bounded ray-hit error used by PBRT. The present origin guard is
+32 float32 epsilons times world-coordinate scale, along the geometric triangle
+normal. **It remains a preview tolerance**, not a proof for arbitrary model
+scales or tightly separated surfaces. Deriving raster-position error bounds,
+checking thin gaps, shadow-sampling convergence, indirect mesh visibility and
+physically consistent material parameters remain open work.
+
+The first isolated integration regression passes 31 tests / 622 assertions,
+including topology serialization, outward bounds, nonfinite/short-output
+rejection, frame publication, capacity changes with the same pointer, cursor
+changes, and measured/embedded topology switching. Evidence:
+`build/gpu-visibility-regression.log`. Live/GPU results are recorded below only
+after they are actually run.
+
+
+The production Vulkan checks passed 230 cases: the 110 primitive cases plus 120
+rays through all three actual display hierarchies, compared against exhaustive
+float64 intersections of the serialized positions/triangles. The published packet
+contained 145,756 words for this scene. Capture and oracle evidence:
+`build/visibility-gpu-primitives.json`, `build/visibility-gpu-packet.json` and
+`build/visibility-packet-72.bin`.
+
+Floor samples were increased from 32 to 256 after inspection exposed banding.
+One completed 1024-sample comparison at tick 100 measured mean absolute floor
+RGB8 error 0.1620 -> 0.02949 and maximum 15 -> 4. It is a quantized display
+comparison, not radiometric convergence (`build/visibility-floor-density.json`).
+The dense candidate then aborted the development process after a Vulkan fence
+wait returned failure. Disassembly resolves the failing call to
+`vkWaitForFences`; the old assertion discarded the actual VkResult. A driver
+workload timeout/device loss is suspected but not proven. The new error handler
+prints the VkResult. The dense candidate is **rejected for live use**. Splitting
+expensive rendering into bounded submissions and recovering device failures are
+open requirements, rather than treating arbitrary sampling increases as safe.
+
+The 256-sample production shader was restored. One replacement development JVM
+(port 52800) restored all 145 cached frames from the previously verified export,
+without integration. Positions and velocities came from the saved decimal
+round-trip data; observables were re-evaluated. At ticks 100 and 72, the viewport
+crop x=[450,1950), y=[320,1180) is byte-identical to the pre-crash production
+capture. Repeated full images within the new revision 3 are also identical.
+Evidence: `build/visibility-recovered-captures/verification.edn` and
+`build/visibility-recovery-pixel-comparison.json`. This verifies recovery of the
+visible state, not a new physical convergence result.
+
+The final standalone application build also passes after the improved Vulkan
+error reporting (`build/gpu-visibility-final-standalone-build.log`). Source,
+binary and evidence hashes are recorded in `build/visibility-provenance.json`.
+
+## Bounded raster submissions and presentation ownership
+
+Sustained use of the 256-sample, untiled renderer also failed. The improved error
+handler captured `VkResult -4` in `build/visibility-recovery-desktop.log`:
+[`VK_ERROR_DEVICE_LOST`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html).
+This contradicts any inference that the earlier short capture sequence proved
+sustained stability. The driver-level reason for losing the device remains
+unconfirmed.
+
+Inspection found a separate, definite synchronization defect. The renderer
+rotated two presentation-completion semaphores by CPU frame index. Waiting for a
+submission fence does not prove that presentation has finished consuming its
+semaphore. [Khronos's swapchain semaphore reuse guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html)
+prescribes one completion semaphore per acquired image, reused after that
+image's acquisition wait. The implementation now follows that rule. It does not
+establish that this defect was the sole cause of the observed device loss.
+
+The new optional renderer path holds one acquired swapchain image for a complete
+frame and splits rasterization into at most 256-by-256-pixel regions in Pitoco.
+The frame builder runs once; host geometry and the copied push constants remain
+fixed across submissions. Each tile waits for the previous fence before reusing
+the command buffer. Only the first submission consumes the acquisition
+semaphore, and only the last signals the image's presentation semaphore. UI and
+readback are recorded once, after the last scene tile.
+
+The first pass clears and stores both color and depth. Subsequent passes load
+and store them, with an explicit attachment memory dependency. The passes retain
+identical attachment formats/subpasses/dependencies; only load/store operations
+and initial layouts differ, which [Vulkan render-pass compatibility](https://docs.vulkan.org/spec/latest/chapters/renderpass.html#renderpass-compatibility)
+allows. The mesh pipeline uses a dynamic scissor while retaining the full-image
+viewport. The full render area is retained so the final UI pass can cover the
+window. This prioritizes correctness; attachment bandwidth and CPU submission
+cost still need profiling. A pixel bound is not an absolute execution-time bound
+for arbitrary shaders and geometry.
+
+The validation environment now includes Khronos validation layers 1.4.357.0.
+Homebrew also updated Vulkan loader/headers, SPIR-V tools/headers, and glslang as
+dependencies; `build/vulkan-validation-install.log` records this change. Thus a
+successful new run cannot by itself isolate the code fix from loader-version
+effects. Synchronization validation is enabled via the documented
+[`VK_VALIDATION_VALIDATE_SYNC=1`](https://github.com/KhronosGroup/Vulkan-ValidationLayers/blob/main/docs/syncval_usage.md)
+setting in the verification run. Results are recorded only after execution.
+
+### SideFX comparison: scheduling is separate from the integrator
+
+SideFX documents both progressive image updates and bucket rendering in
+[Karma Render Properties](https://www.sidefx.com/docs/houdini/nodes/lop/karmarenderproperties.html).
+Karma CPU buckets partition an image, and checkpoint files can resume interrupted
+work. This supports adopting bounded spatial work and persisted results in
+Pitoco. It does **not** establish that our Vulkan scissor implementation is
+Karma's implementation, nor that a fixed tile size prevents every device timeout.
+Pitoco currently presents only a completed tiled frame; progressive accumulation,
+render checkpoints and device reconstruction remain separate work.
+
+SideFX's [FEM setup guidance](https://www.sidefx.com/docs/houdini/finiteelements/setup.html)
+connects failures to measurable conditions: tet quality, positive mass, linear
+solve iteration limits, substeps and collision passes. Its
+[FEM collision documentation](https://www.sidefx.com/docs/houdini/finiteelements/collisions.html)
+also explicitly describes soft repulsion and possible penetration; surface CCD
+and static SDF collision have different guarantees. Thus “Houdini-like” is a
+workflow reference, not a claim that every Houdini method is exact or that one
+method is universally best. Pitoco's existing IPC path still requires the
+recorded spatial/time convergence and material calibration before research use.
+
+### Executed validation and the failed dense tile experiment
+
+Khronos core/synchronization validation actually loaded through a project-local
+manifest pointing to Homebrew's absolute dylib path. It found the missing
+`VK_KHR_get_physical_device_properties2` instance dependency for portability
+and a color LOAD dependency missing from the new continuation render pass.
+Both were corrected. The next run logged no validation errors and produced
+identical repeated captures; its viewport crops at ticks 100 and 72 were exactly
+equal to the earlier untiled production images (`build/tiled-pixel-comparison.json`).
+The isolated native regression remained 32 tests / 787 assertions passing.
+
+The subsequent 1024-sample floor candidate **still terminated with device loss**
+before its first capture, even with 256-pixel tiles. Evidence is retained in
+`build/tiled-validation-desktop-3.log` and the 04:32:38 macOS crash report.
+This refutes treating that tile size plus clean synchronization validation as a
+sufficient safety condition. The optimized native stack merged the error
+branches, so it did not establish which Vulkan call failed. Operation-labelled
+checks and submit-through-fence wall timing were added for the next run. Smaller
+64-pixel tiles are a candidate workload reduction, not a demonstrated cure.
+
+The [MoltenVK configuration reference](https://github.com/KhronosGroup/MoltenVK/blob/main/Docs/MoltenVK_Configuration_Parameters.md)
+documents driver log levels and the distinction between device and physical
+device loss. Diagnostic runs enable driver logging. `MVK_CONFIG_RESUME_LOST_DEVICE`
+is deliberately not enabled: silently continuing past a failed submission would
+not establish that a saved frame is complete or correct.
+
+### Work decomposition for the next offline renderer
+
+Read the architecture and formulation sections of Laine, Karras and Aila,
+[“Megakernels Considered Harmful: Wavefront Path Tracing on GPUs” (HPG 2013)](https://research.nvidia.com/sites/default/files/pubs/2013-07_Megakernels-Considered-Harmful/laine2013hpg_paper.pdf).
+The paper separates logic, material evaluation and ray casting using bounded
+queues and persistent path state. It explains how divergence and register use
+can harm a single large kernel, while recording the extra memory/bandwidth cost
+of splitting work. Its NVIDIA performance results are not measurements of our
+Apple GPU and do not establish the instruction that caused our hang.
+
+[PBRT 4e §15.1](https://www.pbr-book.org/4ed/Wavefront_Rendering_on_GPUs/Mapping_Path_Tracing_to_the_GPU)
+discusses this same trade-off and adopts a wavefront GPU renderer, with selective
+stage fusion. For Pitoco, the implementation decision is to bound samples/rays
+per invocation as well as pixels per dispatch, retain linear radiance and sample
+identity between jobs, and resolve completed work into the viewport separately.
+The current scissor scheduler only supplies the pixel partition. The shader's
+16/32/32 preview profile reduces the problematic nested workload; it does not
+implement wavefront queues or floating-point accumulation. Those remain required
+before offering dense offline quality presets again.
+
+The diagnostic 64-pixel run subsequently provided the missing driver evidence:
+Metal reported `VK_TIMEOUT`, command-buffer error code 2, and
+`kIOGPUCommandBufferCallbackErrorHang` in a render encoder. The operation-labelled
+panic identifies `vkWaitForFences`, frame 77, tile 342. No dense candidate was
+loaded in that run; the old 128/256/128 profile itself was enough to trigger it.
+`build/tiled-validation-desktop-4.log` preserves the driver messages. This is a
+GPU execution hang; the exact shader instruction or driver defect remains
+unidentified. Clean Vulkan synchronization validation does not resolve it.
+
+The replacement 16/32/32 profile's viewport differs from the preceding profile
+by mean absolute RGB8 0.24057 at tick 100 and 0.24505 at tick 72 (specified crop),
+with channel maxima 17 and 26. This is an explicit quality trade-off, not evidence
+of unchanged lighting or radiometric convergence. See
+`build/preview-quality-difference.json`. Repeated captures within the new profile
+remain pixel-identical. Native regression and the standalone application build
+pass with operation-labelled diagnostics and workload timing enabled.
+
+### Frame failure containment and macro correctness
+
+The native renderer now converts frame-execution device loss into a stopped
+state. It exits before further commands, marks queued readbacks failed, and
+returns false to the application; Pitoco pauses and changes its window title.
+CPU cache ownership is unchanged. Device recreation is not implemented.
+An isolated injected-error test exercises the early return and a subsequent
+frame request without initializing a GPU; it also checks that the frame callback
+is never executed. The full focused regression passes 33 tests / 794 assertions.
+
+The cross-namespace failure macro exposed an AguaFria emitter defect: syntax
+quotation produces fully qualified symbols, and dotted namespace names were
+being emitted as illegal unquoted Zig import aliases. Import aliases now use
+quoted identifiers where needed, consistently at declaration and reference
+sites. The 30-test / 137-assertion emitter suite passes, and the failure macro
+compiles and executes through the native test path. This keeps the renderer
+helpers ordinary Clojure macros without a special language construct.
+
+Final execution evidence: the lighter profile completed 60 seeks across five
+cached times over 375.95 seconds without logged Vulkan validation errors or
+Metal hangs. Maximum sampled completed-frame submission time was 25.166 ms;
+this is not a worst-case guarantee. Failure containment was then hot-reloaded
+into the same JVM. The 145-frame cache survived, and repeated post-reload full
+images at ticks 100/72 exactly match their pre-reload preview images. The final
+standalone application build passes. See `build/preview-stress-result.edn`,
+`build/containment-reload-pixel-comparison.json`, and
+`build/device-loss-containment-standalone-build.log`.
+
+### Mixed tetrahedral contact candidate: element construction (2026-09-13)
+
+[Hauret, 2010, author-posted full text](https://www.researchgate.net/publication/222546512_Mixed_interpretation_and_extensions_of_the_equivalent_mass_matrix_approach_for_elastodynamics_with_contact)
+provides a nonlinear action with independent displacement, velocity and momentum
+spaces (§2.1). The compatibility of those spaces is essential; choosing a
+singular matrix arbitrarily is insufficient. Section 3.2 mentions bubble
+enrichment as an extension. Its numerical example uses hexahedra and a simple
+transfer preserving total mass, without enforcing the inertia tensor (§4.1.1).
+The paper also distinguishes normal and tangential boundary inertia (§3.2,
+Remark 11). It therefore supplies a relevant framework, but does not validate
+the particular tetrahedron or a frictional ball solver implemented here.
+
+The following is our derived candidate, not a formula attributed to that paper.
+It avoids transferring point masses to the existing interior vertices. It adds
+four internal vector displacement coefficients per tetrahedron and uses a
+separate discontinuous affine velocity field. This changes the approximation
+space and the work required per element; it is not a cheap replacement for the
+existing four-node element.
+
+For barycentric coordinates l_0,...,l_3, define
+
+    B = l_0*l_1*l_2*l_3
+    Psi_i = 168*B*(9*l_i - 1)
+    Phi_i = l_i - Psi_i
+    u(X) = sum_i Phi_i(X)*q_i + sum_i Psi_i(X)*r_i
+    p(X) = sum_i l_i(X)*r_dot_i
+
+The q coefficients share the ordinary vertex displacement trace across faces.
+The r coefficients are internal projection coefficients, not positions of
+interior material nodes. On every face B=0, hence Psi=0 and Phi=l. The shape
+functions sum to one, and q_i=r_i reproduces every affine displacement exactly.
+
+The coefficient 168 follows from exact simplex moments. With A_ji=integral
+l_j*l_i and H_ji=integral l_j*B*l_i, choose Psi_i=sum_k B*l_k*(H^-1*A)_ki.
+The simplex identity
+
+    integral_T product_i l_i^a_i
+      = 6*V*product_i factorial(a_i) / factorial(3 + sum_i a_i)
+
+gives Psi_i above and
+
+    integral_T l_j*Phi_i = 0
+    integral_T l_j*Psi_i = V*(1 + delta_ij)/20.
+
+Consequently the L2 projection of u onto P1 is sum_i l_i*r_i. Taking both
+velocity and momentum spaces as discontinuous P1 yields zero inertia for q
+and the ordinary positive definite consistent tetrahedral mass block for r.
+This is a mixed projection, not mass scaling or an assertion that all points
+on the body's surface physically have zero density. It retains the exact
+kinetic energy and mass moments for affine velocity fields, including rigid
+translation and rotation about the rest configuration. It does not retain
+all higher-order velocity content of the enriched displacement field.
+
+The native implementation is `src/field_lab/mixed_tetra.clj`. It evaluates the
+eight scalar basis functions and rest-world gradients, the mixed mass entries,
+kinetic energy, and integrated Stable Neo-Hookean energy/gradient/exact Hessian.
+Its quadrature is constructed natively using bounded Gauss-Legendre root solves,
+then mapped to the tetrahedron with the positive Duffy Jacobian. Six points per
+axis integrate the degree-eight rest-stiffness polynomials exactly; nonlinear
+constitutive terms require quadrature refinement. The independent verifier
+uses rational polynomial algebra and exact monomial integrals, rather than
+repeating the native quadrature or stress/tangent implementation.
+
+This is an element implementation, not an integrated contact solver. Before
+integration, verify positive stiffness of the massless boundary block, the
+correct six rigid stiffness modes, finite-deformation objectivity and quadrature
+sensitivity. Then implement global assembly with shared q and cell-owned r,
+consistent body loads/observables, and a constrained implicit solve. Its singular
+mass must not be passed to the current invertible-mass residual helper.
+
+The enriched deformation gradient varies inside each tetrahedron. Existing
+linear-tetrahedron inversion tests do not apply: positivity at quadrature points
+alone cannot certify a positive Jacobian throughout an element or along a line
+search. The whole-element/path bound described below now supplies a conservative
+sufficient test. It must be integrated into the solver before the candidate
+can advance production ball states. Normal-only contact treatment, tangential
+waves/friction, moving contact geometry and space/time convergence remain open.
+The live GUI and its historical cache are unchanged by this isolated work.
+
+The element checks now pass **11 tests / 458 assertions**. They include finite
+rotation objectivity of non-affine energy and forces, torque balance, a sheared
+rest tetrahedron, and malformed quadrature/volume/inversion rejection.
+`build/mixed-tetra-verified-tests.log` retains the result. The initial failed
+mass-energy test was a Clojure fixture error (`into` onto a sequence reordered
+coefficients); correcting it to a vector restored the intended boundary/internal
+ordering without changing native inertia code.
+
+Independent rational polynomial integration verifies the partition and all P1
+projection moments exactly. For E=10000 Pa, nu=0.3 and the unit reference tet,
+the native rest Hessian differs from that independent matrix by at most
+8.01e-11 N/m. The full stiffness has exactly six rigid modes; its smallest
+non-rigid eigenvalue is 633.85 N/m. The massless boundary block is positive
+definite (smallest eigenvalue 23790.21 N/m). Static condensation retains six
+rigid modes and no additional zero modes. The internal mass block is positive
+definite; the twelve boundary displacement DOFs are the intended mass nullspace.
+These checks establish properties of this element at rest, not global contact
+well-posedness or physical convergence.
+
+For the recorded non-affine displacement, quadrature orders 6/8/10/12 give
+energies 8.4028445271 / 8.4029452902 / 8.4029468877 / 8.4029468823 J. Successive
+changes shrink from 1.01e-4 to 1.60e-6 to 5.42e-9 J. This is one smooth
+quadrature study; it does not establish a universally sufficient order.
+
+#### A conservative whole-element and path bound
+
+[Johnen, Remacle and Geuzaine, geometrical validity of curvilinear elements](https://www.gmsh.info/doc/preprints/gmsh_curved_preprint.pdf)
+explain why point sampling cannot establish positive Jacobians and use Bernstein
+polynomial bounds. Our first implementation uses the convex-hull property on
+the deformation-gradient entries, followed by outward interval evaluation of
+the determinant. It is simpler and looser than their adaptive determinant-basis
+method; it must not be described as that full algorithm.
+
+Let d_i=r_i-q_i and F_a=I+sum_i q_i outer g_i, where g_i=grad l_i.
+The degree-four Bernstein representation of F has 35 controls, only fourteen
+of which need distinct formulas:
+
+    22 controls: F_a
+    alpha=(0,2,1,1), missing j and doubled k:
+        F_a + 14*(9*d_k-sum_i d_i) outer g_j       (j != k; 12 controls)
+    alpha=(1,1,1,1):
+        F_a + 126*sum_i d_i outer g_i
+            - 7*(sum_i d_i) outer (sum_i g_i).
+
+The independent verifier reconstructs all polynomial basis derivatives from
+these controls and checks exact rational equality. Native arithmetic uses the
+existing strict interval operations, including outward rounding. Taking the
+component envelope of both endpoint control sets also contains F at every
+point along a straight coefficient path. A positive determinant lower bound
+therefore certifies the entire element throughout that path. Nonfinite inputs,
+overflow or a non-default rounding mode return an unbounded/inconclusive result.
+A bound spanning zero is inconclusive; it does not classify the element as
+inverted. Subdivision or tighter bounds remain necessary for useful acceptance
+of larger deformations. Boundary collision detection remains a separate check.
+
+A manufactured counterexample makes this distinction testable. With all q=0,
+r_1,x=0.058869298663277475 m and other r=0, all 216 six-point-per-axis Gauss
+samples have J>0.091. At barycentric coordinates
+[0, 0.5310234280197912, 0.2344882859901044, 0.2344882859901044], J<-0.091.
+The new interval bound refuses to certify this state. Another test has valid
+half-turn endpoints but a collapsing midpoint and similarly remains uncertified.
+Thus `Response.valid` only describes successful quadrature evaluation; callers
+must separately obtain a positive path certificate before accepting a step.
+
+Final element evidence is retained in `build/mixed-tetra-native-evidence.edn`,
+`build/mixed-tetra-path-bounds.edn`, `build/mixed-tetra-independent.json` and
+`build/mixed-tetra-verified-tests.log`. The independent verifier rejects stale
+native source fingerprints. The standalone ReleaseSafe probe, including the
+path bound, builds and executes with exit code 0; its sole dynamic dependency
+is libSystem. See `build/mixed-tetra-standalone-final-build.log` and
+`build/mixed-tetra-native-smoke`. Read-only live status still reports 145 frames,
+cursor 72, no active bake and no failure. The experimental element is not yet
+connected to any authored ball job or viewport mode.
+
+
+### Native global assembly for the mixed candidate
+
+The element construction now has a global operator in `mixed_tetra.clj`.
+For V mesh vertices and C cells, the coefficient vector contains V shared
+boundary coefficients followed by four private coefficients per cell, each a
+three-vector. Sharing q enforces the linear face trace; r remains discontinuous.
+This is a native AguaFria Zig assembly; its Clojure-facing tests are callers.
+
+For a backward-Euler step h, eliminate the P1 velocity through
+`r_dot_new = (r_new-r_old)/h` and define `r_hat = r_old+h*r_dot_old`.
+The incremental potential is
+
+```
+I(q,r) = sum_cells E_cell(q,r)
+       + sum_cells (r-r_hat)^T M_cell (r-r_hat)/(2 h^2)
+       - sum_cells rho*V/4 * g dot sum_i r_i
+       - generalized_loads dot (q,r).
+```
+
+These are our discrete equations specialized from the mixed displacement/velocity
+setting, not a claim that this particular element or backward-Euler choice is
+Hauret's published contact algorithm. The current kernel assembles this potential,
+its gradient and exact local Hessians. `tangent-product!` gathers/scatters those
+cached 24-by-24 element blocks, avoiding a dense global matrix. The local blocks
+still cost 576 doubles per cell, and energy/derivative evaluation remains expensive;
+this is not a performance qualification.
+
+Uniform gravity loads only r because `integral Phi_i = 0` and
+`integral Psi_i = V/4`. The arbitrary-load input is an already integrated vector
+of generalized forces. For example, constant reference-face traction contributes
+`area*traction/3` to its three q vertices and nothing to the bubble functions.
+A separate integration layer is needed for nonuniform/follower loads. Inertial
+prediction on q is intentionally ignored; solving those equations is an algebraic
+equilibrium problem. The operator never inverts the singular global mass matrix.
+
+The assembly regression passes 14 tests and 515 assertions, including all previous
+element checks, finite differences of the entire 39-component two-cell potential,
+a directional tangent check, invalid inputs and analytic free fall. Two connected
+tets with 120/60 kg/m^3 densities, 1/6 and 1/3 m^3 volumes and different materials
+satisfy every backward-Euler equation under uniform translation. This is an
+analytic solution check, not a completed nonlinear trajectory solver.
+
+`tools/verify.py tetra` separately integrates rational shape polynomials,
+transforms gradients to the second cell and assembles global stiffness and mass.
+Native tangents agree within 1.90e-10 N/m at h=10 and 20 ms. The global stiffness
+has six rigid modes, its 15-by-15 q block is positive definite, and the mass has
+15 zero eigenvalues with a positive definite private block. Independent NumPy
+linear solves recover the analytic free-fall displacement at both timesteps.
+Evidence is retained in `build/mixed-assembly-tangent-{10ms,20ms}.csv`,
+`build/mixed-assembly-final-independent.log` and `build/mixed-tetra-independent.json`.
+
+The nonlinear constrained driver, its stopping criterion, global path certification,
+contact reactions and full observables are still required. A successful assembly
+response does not certify geometry or accept a step. The element's conservative
+Bernstein/interval bound must guard the higher-order interior, with separate
+boundary collision detection. Existing ball jobs continue using their prior
+solver; no clothing or paper scenario is implied by this assembly milestone.
+
+
+### Constrained mixed backward-Euler prototype
+
+The native `field-lab.mixed-solver` now turns the assembled incremental potential
+into constrained steps. Its optimization structure is informed by
+[Bertsekas, Projected Newton Methods (1982)](https://web.mit.edu/dimitrib/www/ProjectedNewton.pdf)
+and [PETSc's bounded Newton line-search implementation](https://petsc.org/main/src/tao/bound/impls/bnk/bnls.c.html).
+Bertsekas motivates combining projection with second-order directions and a
+sufficient-decrease search; PETSc provides a concrete bounded Newton implementation.
+Our code is a smaller experimental implementation, not an implementation of every
+safeguard in PETSc or a claim to inherit the paper's convergence theorem.
+
+The solver operates on componentwise displacement bounds. Equal bounds prescribe
+supports. Lower bounds on the shared q vertices' y displacements describe a
+horizontal ground plane; upper bounds describe a ceiling. Bounds on all vertices
+of the linear boundary trace protect the entire face from that plane. This does
+not handle general triangle/triangle contact, self-contact or friction.
+
+Each iteration identifies binding constraints with correctly signed forces and
+solves the remaining Newton equations using Jacobi-preconditioned CG over cached
+element tangent products. Nonpositive curvature/nonfinite recurrence rejects that
+Newton direction. Projection and an Armijo decrease test guard the update; a
+failed Newton search retries with diagonally scaled projected gradient descent.
+The first-order stopping test is the infinity norm of the free or incorrectly
+signed bound forces, in newtons. Fixed supports contribute reaction rather than
+residual. This does not certify a local/global minimum or physical accuracy.
+
+Every trial also needs a positive whole-element Jacobian bound along both the
+current-iterate-to-trial segment and the original-timestep-start-to-trial segment.
+The latter prevents accepting a Newton path whose final physical interpolation
+would cross an inversion. The initial state must already be feasible and certified;
+the solver does not silently move it into bounds. An inconclusive certificate
+rejects the trial. Result status distinguishes success, invalid inputs, uncertified
+initial geometry, invalid initial energy, iteration exhaustion and failed line
+search. Scratch iterates from a failed solve must not be published to a job/cache.
+
+The regression passes **18 tests / 553 assertions**, including prior element and
+assembly tests. Native free fall reaches force residual below 2.9e-12 N. The
+10 ms floor step takes three Newton iterations, with a 1.27e-8 N residual and a
+0.954 whole-path Jacobian lower bound. Ceiling contact, fixed supports, global
+momentum balance, invalid bounds and hidden-inversion rejection are covered.
+
+An independent NumPy/SciPy verifier evaluates rational shape polynomials at NumPy
+Gauss points and implements the original constitutive energy/PK1 separately.
+Bound-constrained SLSQP followed by a root solve on the identified free variables
+recovers native solutions within 1.81e-13 m (10 ms) and 2.13e-14 m (5 ms).
+The active constraints and reaction signs agree. This independently checks the
+nonlinear algebraic solution, not contact accuracy against a physical experiment.
+`tools/verify.py mixed`, `build/mixed-solver-evidence.edn` and
+`build/mixed-solver-independent.json` preserve the evidence.
+
+A repeated-step test drops the same two-cell 40 kg body from a 1 mm gap under
+9.81 m/s^2 gravity. Runs of 40 ms complete at timesteps 1, 0.5 and 0.25 ms,
+with 40, 80 and 160 accepted steps. Maximum per-step momentum-balance error is
+5.73e-12 N s and every physical path has a Jacobian lower bound above 0.753.
+The analytic free-flight contact time is about 14.278 ms; the sampled first
+contact times are 14, 14.5 and 14.25 ms, respectively.
+
+| Timestep | Peak ground reaction | Final mechanical energy |
+| --- | --- | --- |
+| 1 ms | 372.63 N | 0.25805 J |
+| 0.5 ms | 396.35 N | 0.31609 J |
+| 0.25 ms | 409.45 N | 0.35127 J |
+
+Initial mechanical energy is 0.3924 J. Energy decreases at every accepted step,
+but backward-Euler dissipation remains substantial and affects the force history.
+These runs demonstrate repeated certified contact steps and timestep sensitivity;
+they do not establish temporal/mesh convergence or qualify the impact model.
+A suitable integration scheme, rod benchmark and general mesh/job adapter are next.
+The inspected plot is `build/mixed-solver-trajectory.png` (also PDF), with full
+states in EDN and observables in CSV. The standalone ReleaseSafe floor-contact
+probe also builds and exits 0, linking only libSystem; its execution uses no JVM.
+
+The application ball modes remain unchanged. Normal/tangential behavior,
+large-deformation boundary contact, tighter geometric bounds, renderer work and
+the later clothing/paper/rain/audio/circuit scenarios remain open requirements.
+
+### Owned mixed jobs and the first rod refinement study (2026-09-19)
+
+`field-lab.mixed-job` owns the native mesh, coefficient fields and workspace.
+Clojure scene data supplies tetrahedra, initial fields, density/material and an
+optional frictionless horizontal plane. Allocation/configuration failures release
+owned storage. A successful step publishes displacement, velocity, time, step
+count and the accepted contact reaction together. A failed solve may overwrite
+scratch workspace but preserves these accepted observables. The Clojure callback
+scope releases storage in `finally`; a native standalone ownership/contact probe
+also executes with exit 0 in ReleaseSafe, linking only libSystem.
+
+Mass, momentum, kinetic energy and angular momentum use the consistent private
+P1 velocity field and its moment-compatible displacement projection. Angular
+momentum is the integral of `(X + u) × rho*v`; it is not computed by placing the
+private coefficients at invented interior points. Tests include rigid translation
+and spin, heterogeneous two-cell fixture agreement, invalid initial fields and
+failed-step rollback. The updated mixed regression passes 22 tests / 588
+assertions (`build/mixed-rod-run.log`).
+
+For the plane, the accepted upward reaction is the sum of positive y residuals
+at binding lower-bound boundary coefficients. Backward Euler associates impulse
+`dt * reaction` with that accepted step. This resultant is computed from the KKT
+residual, independently of the momentum difference used to audit it. The current
+adapter has no general boundary/contact or friction implementation.
+
+`run-mixed-rod-impact!` uses the existing free-end rod reference: L=0.1 m,
+width=0.02 m, E=1 MPa, rho=1000 kg/m³, nu=0, speed=0.01 m/s, gap=2 µm, no
+body force. Wave speed is sqrt(E/rho); reference force is rho*c*v*A, contact
+duration Tc=2L/c and rebound speed equals incoming speed. The strain scale is
+3.16e-4. The tetrahedral material is nonlinear, so this small-strain reference
+has finite-strain approximation error; it is not an exact nonlinear solution.
+The transverse mesh remains one Cartesian cell per direction, with six tetrahedra
+per Cartesian cell. Axial refinement alone is not full spatial convergence.
+
+| Axial cells | Step | Accepted steps | Force pulse L1 error | Peak force / reference | Rebound / incoming | Energy loss |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | Tc/32 | 50 | 27.06% | 2.143 | 0.70275 | 46.22% |
+| 2 | Tc/64 | 99 | 29.47% | 3.111 | 0.76638 | 34.20% |
+| 4 | Tc/64 | 99 | 15.23% | 1.865 | 0.79017 | 32.24% |
+| 4 | Tc/128 | 197 | 16.85% | 2.224 | 0.83826 | 23.58% |
+
+The first exploratory run used Debug; the three controlled refinement runs use
+ReleaseSafe. All 445 accepted steps are plane-feasible and have positive whole
+physical-path Jacobian certificates (minimum bound above 0.9988). Maximum
+per-step momentum discrepancy is 2.07e-11 N s. This verifies accounting and
+feasibility, **not impact accuracy**. At fixed step, axial refinement reduces
+force error. Halving the step reduces dissipation but increases the sampled
+initial contact force peak. The rebound deficit and force errors remain large;
+these results do not demonstrate asymptotic convergence or meet the earlier
+1% impact targets. Do not replace the production ball solver on this evidence.
+
+The inspected four-panel plot is `build/mixed-rod-comparison.png` (also PDF and
+CSV). Raw cases are `build/mixed-rod-first.edn` and
+`build/mixed-rod-refinement.edn`, including source/definition provenance,
+authored mesh, material and every accepted step. The production study entry
+point is `clojure -M:impact-study` with `:benchmark :mixed-rod-impact`; README
+contains an executable example. It atomically checkpoints data, refuses to
+overwrite existing results and retains accepted prefixes on failure. The shared
+IPC/mixed persistence regression passes 3 tests / 28 assertions, including an
+injected mixed failure that must never become `:completed`.
+
+Re-reading [Dabaghi et al., §§4.2–5](https://arxiv.org/html/1601.00778v1)
+reinforces the need to qualify both force and energy when changing integration.
+Their analysis and hybrid scheme concern a linear one-dimensional Signorini
+problem with a particular redistribution. They do not prove stability or
+accuracy of this three-dimensional enriched hyperelastic element. Next work is
+a suitable less-dissipative integration treatment with independent free-motion
+and contact checks, followed by controlled temporal, axial/transverse mesh and
+quadrature studies. Simply switching to midpoint/Newmark and accepting improved
+energy retention would leave contact-force behavior unqualified.
+
+### SDIRK2, small-strain precision and independent modal evidence (2026-09-19)
+
+The experimental mixed adapter now implements Alexander SDIRK2. The original
+[Alexander paper abstract](https://epubs.siam.org/doi/10.1137/0714068) was accessible;
+its full text was not read. The coefficients and two-stage structure were checked
+against the primary [MOOSE implementation](https://raw.githubusercontent.com/idaholab/moose/master/framework/src/timeintegrators/LStableDirk2.C).
+Our native equations are derived from the Runge–Kutta tableau, not copied source.
+For gamma=1−1/sqrt(2), each constrained displacement solve has effective step
+gamma*h. Stage two uses prediction u0+2(1−gamma)h*v1+(2gamma−1)h*v0; the accepted
+velocity is (u2−u0−(1−gamma)h*v1)/(gamma*h). Only private displacement coefficients
+have inertia. Boundary coefficients satisfy the constrained elastic residual.
+
+The accepted impulse is h*((1−gamma)*F1+gamma*F2); the endpoint force remains F2.
+The rod harness audits momentum against this impulse rather than h*F2. Neither
+stage publishes state. Both must succeed, and the initial-to-stage and
+stage-to-stage deformation paths must have positive whole-element Jacobian
+bounds before committing positions, velocity, clock and reactions together.
+Status 6 reports an uncertified connecting path. This establishes the implemented
+transaction and geometric checks; it does not establish contact order or accuracy.
+
+Smooth-motion tests uncovered precision loss from explicitly forming I+H before
+computing tiny strains. `evaluate-gradient` now computes the metric strain,
+determinant change and stress increments directly from H near identity, with the
+same material formula and a general-deformation fallback. Tests cover dilation
+at 1e-12 through 1e-8 and agreement around the fallback. The mixed element uses
+this path; the production ball constitutive entry point is unchanged. The final
+mixed/material regression passes **36 tests / 738 assertions**, including an
+actual second-stage failure, unchanged accepted state and successful retry.
+
+This improves precision but does not eliminate all line-search stagnation. At
+1e-11 N tolerance, backward Euler's 32-step modal run still reaches its iteration
+limit on tick 9 with residual 5.14e-11 N. The retained log is
+`build/sdirk-mode-stable-final.log`. The successful study uses 1e-9 N (100 times
+stricter than the adapter default), explicitly stored in its exported evidence.
+
+The independent modal oracle builds exact-polynomial stiffness and consistent
+mass, eliminates massless coordinates, and solves the generalized eigenproblem.
+The chosen frequency is 35.03057 rad/s; initial velocity amplitude is 1e-4 m/s.
+Over 0.7 periods, native nonlinear displacement/velocity are compared to the
+small-amplitude sinusoid in a mass-weighted phase-space norm. This reference is
+a linearization, not an exact nonlinear solution. All six ReleaseSafe runs pass:
+
+| Steps | Backward Euler relative error | SDIRK2 relative error |
+| ---: | ---: | ---: |
+| 16 | 0.448688 | 0.0133598 |
+| 32 | 0.259837 | 0.00335508 |
+| 64 | 0.140103 | 0.000839714 |
+
+Fine/medium error ratios are 0.5392 and 0.2503 respectively. The repository helper
+`mixed-job-test/write-mode-evidence!` refuses to overwrite CSV output; the Python
+oracle rejects incomplete cases, excessive residuals and incorrect error ratios.
+`build/sdirk-mode-independent.json` records results, tolerances and source hashes.
+README contains the reproduction commands. The standalone ReleaseSafe SDIRK
+contact executable was rebuilt after the precision change and exits 0, linking
+only libSystem; it does not require a JVM at runtime.
+
+The matched rod rerun on the changed sources remains unfavorable for impact:
+
+| Method, 4 axial cells, Tc/128 | Force L1 error | Peak/reference | Rebound/incoming | Energy loss |
+| --- | ---: | ---: | ---: | ---: |
+| Backward Euler | 16.85% | 2.224 | 0.83826 | 23.58% |
+| SDIRK2 | 75.47% | 4.075 | 0.89093 | 6.90% |
+
+Both runs finish 197 accepted steps; all plane heights are feasible and physical
+paths are certified. Maximum step momentum discrepancy is 4.60e-11 N s. SDIRK2
+retains more energy but produces stronger force ringing; it is **not promoted**.
+Raw results and definition fingerprints are in
+`build/mixed-rod-precision-comparison.edn`. Transverse/spatial convergence and
+contact qualification remain open, as does the stricter precision limit above.
+
+The primary preprint [You, Zheng and Li, 2026](https://arxiv.org/html/2602.08094v1)
+discusses integration dissipation and proposes energy-controlled A-search, with
+an animation-oriented bias toward low-frequency motion. Its energy behavior
+does not establish engineering force accuracy for our mixed formulation.
+A-search is not implemented here. The present measured force failure is why
+energy retention alone cannot select the production method. The next numerical
+gate is controlled contact force/rebound/energy convergence. Clothing, paper,
+rain/audio and circuit simulation remain later, unimplemented milestones.
+
+### Isolating mixed-contact force ringing (2026-09-19)
+
+The next investigation separates time integration, nonlinear material effects,
+and the spatial approximation. `tools/verify.py mixed --rod-study` reads
+completed authored rod data exported to JSON. It assembles the same 3D mesh using
+independent exact-polynomial linear stiffness and consistent private inertia.
+Each constrained step is solved through a contact compliance matrix and dual
+nonnegative least squares. It uses neither native quadrature nor Newton/CG.
+Stationarity, gap, complementarity and momentum residuals are checked explicitly.
+The linearization is restricted to the nu=0, gravity-free rod benchmark.
+
+At the original amplitude and four axial cells, backward Euler's independent
+force history differs from native by 0.00201% in normalized L1. SDIRK differs by
+2.204%, failing the unchanged 0.5% comparison gate. This failure is retained in
+`build/mixed-rod-linear-comparison.json` (status `comparison-failed`); it must not
+be used as a passing native validation. Lowering speed from 0.01 to 0.001 m/s
+and gap from 2 µm to 0.2 µm preserves impact time and lowers strain by ten.
+The native SDIRK run completes 197 steps; independent force discrepancy drops to
+0.0605%, passing the gate. This supports sensitivity to finite-strain effects
+in the original oscillatory history, rather than identifying a native time-step
+implementation error. It does not prove nonlinear correctness for all impacts.
+
+For a second independent check, eliminate the massless boundary through static
+contact equilibrium at each adaptive DOP853 evaluation, and integrate only the
+private dynamic coefficients plus accumulated contact impulse. This estimates
+the time-continuous limit of the chosen spatial model. It is not the spatial
+continuum. Displacement, velocity and impulse are nondimensionalized using
+speed*contact-duration, speed, and mass*speed. An initial unscaled absolute
+error-budget run failed its refinement check; that log remains preserved.
+With scaled tolerances 1e-9 and 1e-11, the small-amplitude force error changes by
+4.57e-8 and rebound ratio by 3.38e-8. The tighter run has sampled relative energy
+drift 1.35e-9 and momentum discrepancy below 4.75e-19 N s. Yet its force error
+is **80.927%**, and rebound/incoming is **0.90016**. Therefore temporal accuracy
+and energy retention alone cannot repair this coarse spatial approximation.
+Completed evidence is `build/mixed-rod-final-independent.json`; it includes input
+and source hashes, dependency versions, traces and comparison outcomes.
+
+Native ReleaseSafe refinements on frozen solver sources give:
+
+| Axial cells | SDIRK step | Force L1 error | Peak/reference | Rebound/incoming | Energy loss |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 4 | Tc/128 | 75.47% | 4.075 | 0.89093 | 6.90% |
+| 4 | Tc/256 | 83.78% | 4.268 | 0.89536 | 3.02% |
+| 8 | Tc/128 | 29.69% | 2.935 | 0.94535 | 3.53% |
+
+The two new refinement cases complete 590 accepted steps, stay plane-feasible,
+and retain positive physical-path certificates; momentum discrepancy stays
+below 1.98e-11 N s. Their raw artifact is
+`build/mixed-rod-ringing-refinement.edn`. The smaller-amplitude study is
+`build/mixed-rod-small-amplitude.edn`. Axial refinement helps at this fixed step,
+but transverse refinement and a time-resolved spatial sequence are still needed.
+In particular, numerical filtering changes when mesh frequencies change, so the
+29.69% result alone cannot establish spatial convergence or meet the 1% target.
+
+The primary [massless-boundary study, §2.1](https://arxiv.org/html/2111.07693v1)
+reports difficulties with higher-order integrators and uses a conditional Verlet
+scheme with static boundary equilibrium. Its linear, fixed-contact setting is
+useful for this diagnostic but does not validate large-deformation balls.
+[Dabaghi et al., §5](https://arxiv.org/html/1601.00778v1) derive a hybrid scheme
+for their particular one-dimensional redistribution. Neither paper proves our
+enriched tetrahedron's accuracy. The measured error now directs the next work
+toward controlled spatial/formulation convergence, with temporal resolution
+checked independently. No additional damping, production integrator switch or
+new UI scene was introduced by this diagnostic.
+
+The eight-cell independent comparison subsequently passes: native/linear force
+history difference is 0.0170%. Adaptive integration gives force L1 error
+42.1822% and rebound ratio 0.949523; tightening scaled tolerances changes these
+by 1.50e-7 and 1.95e-8, with sampled relative energy drift 1.31e-10. Thus axial
+refinement improves the time-resolved spatial model too (coarse force error
+80.927%, fine 42.182%). This is only a two-mesh axial trend, not full spatial
+convergence. `build/mixed-rod-eight-independent.json` has status `verified` for
+its independent comparison and tolerance checks, **not** for physical impact
+accuracy. The inspected figure `build/mixed-contact-diagnosis.png` / PDF shows
+native refinement, independent small-amplitude forces, energy and rebound.
+The next gate is a time-resolved spatial sequence including transverse
+resolution, with the existing force/rebound targets unchanged.
+
+### Exact block tangents and frozen mixed kernels (2026-09-19)
+
+Refinement exposed the cost of the mixed element: each quadrature point rebuilt
+24 directional material tangents, repeating invariant and cofactor work. The
+native kernel now contracts the exact Hessian into 3×3 blocks for each pair of
+shape gradients. Its material derivative agrees with Eq. 21 and the determinant
+cross-product structure in §4.5 of
+[Smith, de Goes and Kim (2018)](https://www.tkim.graphics/NEO/StableNeoHookean2018.pdf).
+The author's PDF was downloaded and those sections read after the web reader
+hit its size limit; the old Pixar URL redirects to a library landing page.
+
+For gradients a,b, deformation F and cofactor C, the contracted block is
+
+    s*(a dot b)*I + d*(F*a) outer (F*b)
+      + lambda*(C*a) outer (C*b) - p*[F*(a cross b)]_cross
+    s = mu*(1 - 1/(1+F:F))
+    d = 2*mu/(1+F:F)^2
+    p = lambda*(det(F)-alpha).
+
+This is our direct contraction of the existing material tangent. Invariants and
+F/C gradient products are shared; opposite node-pair blocks are transposes.
+The determinant contribution stays polynomial, with no inverse F. Quadrature,
+material energy/stress, mass, geometry certificates and convergence criteria
+are unchanged. No reduced integration, Hessian projection or artificial damping
+was introduced. The full nonlinear finite-difference Hessian tests still pass.
+Independent exact-polynomial checks find maximum absolute errors 8.00e-11 for
+the rest element and 2.04e-10 for the two-cell assembled tangent. Rigid nullspaces,
+positive private mass and the free-fall solve retain their expected properties.
+Fresh evidence is under `build/block-hessian/`.
+
+Seven warm ReleaseSafe samples of 512 changing-input element evaluations show
+median time decreasing from 2.203 s to 1.722 s (1.28× throughput). Returning a
+changing Hessian checksum prevents unused-work elimination; checksum difference
+is roundoff-sized. Raw timings and source hashes are
+`build/mixed-element-before.edn` and `build/mixed-element-after.edn`.
+
+A larger avoidable cost was that mixed studies still used reloadable numerical
+calls, while the coupled solver already had a frozen native-kernel scope. That
+existing scope now supports the mixed adapter through one private exported step
+boundary. It compiles ReleaseSafe code with fixed numerical dependencies, records
+source/artifact hashes, owns the foreign-call buffers and rejects changed solver
+definitions before another call. The application configuration remains unchanged.
+The scope is synchronous and specific to the same compiler/layout generation;
+it is not the planned stable external plugin ABI. Native create/configure/read/
+destroy remain usable from the authoring JVM, and no C++ solver was added.
+
+Mixed rod studies default to `:execution :snapshot`; explicit
+`:execution :reloadable` retains a development comparison. The kernel mode and
+provenance appear in the experiment record. Tests compare both BE and SDIRK
+trajectories, positions, energies, momenta and contact reactions across both
+execution paths. They force a failed step after accepted motion, verify rollback
+and retry, reject changed definitions, and check that compilation does not alter
+the hot-reload configuration. The combined suite passes **37 tests / 795
+assertions**; the persistence/reference harness passes **3 tests / 36 assertions**.
+
+The matched four-axial-cell SDIRK bake completes 197 accepted steps in 108.043 s
+through reloadable calls and 8.082 s through the frozen kernel: **13.37× for this
+measured case**. Settings, physical source fingerprints, initial conditions and
+every accepted sample compare exactly. Both timings exclude kernel compilation;
+an earlier frozen run took 12.177 s, so this is not a universal performance
+guarantee. `build/mixed-execution-comparison.edn` records the comparison and kernel
+hashes. The freshly rebuilt standalone SDIRK probe also exits successfully.
+
+The same frozen kernel completes the following spatial studies:
+
+| Mesh divisions (x,y,z) | Step | Force L1 error | Peak/reference | Rebound ratio | Energy loss | Bake seconds |
+| --- | --- | --- | --- | --- | --- | --- |
+| [1 4 1] | Tc/128 | 75.47% | 4.075 | 0.89093 | 6.90% | 8.082 |
+| [1 8 1] | Tc/256 | 41.04% | 3.257 | 0.94450 | 2.49% | 27.027 |
+| [1 16 1] | Tc/256 | 14.41% | 2.476 | 0.97266 | 1.64% | 54.470 |
+| [2 8 2] | Tc/256 | 38.39% | 4.238 | 0.92987 | 4.17% | 95.922 |
+
+These runs total 1,376 accepted steps, with nonnegative sampled boundary height,
+certified path Jacobian lower bounds at least 0.9950 and maximum step momentum
+discrepancy 4.83e-11 N s. Evidence is `build/mixed-rod-spatial-snapshot.edn`.
+Axial refinement helps, but the transverse case improves force L1 error only
+slightly while worsening rebound, energy loss and peak force. Neither the 1%
+force target nor the 1% rebound target is met. The finer meshes still need an
+independent temporal-resolution check; these finite-step results do not prove
+spatial convergence. The experimental formulation remains unqualified, and
+clothing, paper/wind, rain/audio and circuit simulations remain unfinished.
+The inspected `build/mixed-spatial-refinement.png` / PDF plots the unsmoothed
+accepted-step forces, center velocity and mechanical energy for all four cases.
+
+### Resolved time error and rejected space restrictions (2026-09-19)
+
+The faster frozen kernel enabled 3,139 further native accepted steps without
+altering material, contact, mass or tolerances:
+
+| Mesh | Native step | Raw force L1 error | Rebound ratio | Energy loss | Seconds |
+| --- | --- | --- | --- | --- | --- |
+| [1 16 1] | Tc/512 | 23.313% | 0.973368 | 0.880% | 109.29 |
+| [1 16 1] | Tc/1024 | 31.298% | 0.973469 | 0.283% | 218.41 |
+| [2 8 2] | Tc/512 | 37.340% | 0.931066 | 2.204% | 194.63 |
+
+All sampled boundary heights stay nonnegative, path certificates stay positive
+(minimum lower bound 0.9931), and step momentum discrepancy is at most
+1.71e-11 N s. These are solver invariants, not accuracy evidence. The completed
+record is `build/mixed-rod-fine-time.edn`.
+
+Independent exact-polynomial linear contact at the original Tc/256 step agrees
+with the native force history to 0.01534% on [1 16 1] and 0.21425% on [2 8 2],
+passing the existing 0.5% linear/native gate. Adaptive DOP853 at two tolerances
+gives force errors 29.4913% and 35.8410%, respectively, and rebound ratios
+0.973788 and 0.933408. Tightening tolerance changes force errors by 3.15e-8 and
+1.18e-6; fine-run sampled relative energy drift is below 5.07e-10. The independent
+record `build/mixed-rod-fine-independent.json` verifies these checks, not physical
+qualification. The sixteen-cell 14.414% result was partly numerical filtering.
+
+`compare-mixed-time-refinement` now compares native histories using the same
+observation windows, by summing accepted fine-step impulses without force
+interpolation. It requires matching physics/fingerprints, complete contiguous
+histories, consistent cumulative impulse and nested output boundaries. It keeps
+raw errors alongside rebinned errors so averaging cannot conceal oscillations.
+For [1 16 1] at a common Tc/256 window, native errors are 14.414%, 22.224% and
+28.508% for Tc/256, Tc/512 and Tc/1024. The fine integral is preserved within
+2.17e-18 N s. However, Tc/1024 still differs from the independent time-limit
+**force history** by 27.694%, even though their scalar errors look close. This is
+why scalar force error alone is insufficient to claim temporal convergence.
+Evidence: `build/mixed-rod-time-comparison-final.json`, with input/source hashes.
+The comparison/persistence/reference tests pass **5 tests / 56 assertions**.
+
+Reviewing [Monjaraz Tec et al., §§3.1–3.2](https://arxiv.org/html/2111.07693v1)
+confirms that their massless reduced models retain boundary flexibility while
+approximating inertia; their static/dynamic split is not equivalent to our local
+enrichment. MacNeal and modified Craig–Bampton provide published alternatives
+for linear models, but this paper does not justify transplanting them unchanged
+into the nonlinear ball solver.
+
+Before changing native layouts, two restrictions of our existing polynomial
+space were evaluated independently. They are our diagnostic constructions, not
+the paper's methods. First, retain enrichment in cells incident on the lowest
+vertices and impose r=q in the remaining cells. Because Phi+Psi=l, those cells
+become ordinary P1 tetrahedra. Second, retain enrichment everywhere but identify
+the r coefficients associated with the same rest vertex, making projected P1
+velocity continuous. Both use congruent stiffness/mass transformations and audit
+all affine velocity moments. No mass is removed or rescaled.
+
+Neither restriction improves the tested contact response. At eight axial cells,
+the boundary-star and continuous-velocity force errors are 51.091% and 79.448%,
+versus 46.397% for the original time-resolved model at the same Tc/256 windows
+(`build/mixed-eight-common-window.json`). The earlier 42.182% value used wider
+Tc/128 windows and must not be used as this comparison's baseline. At sixteen
+cells, boundary-star gives 42.888% versus 29.491%. The transverse boundary-star
+case fails the unchanged rebound-tolerance check (difference 1.10e-5 versus a
+1e-5 gate); the sixteen-cell continuous-velocity case fails its force-tolerance
+check. These failed records remain in `build/mixed-localized-enrichment.json`
+and `build/mixed-continuous-velocity.json`. No native implementation was promoted.
+
+The verifier exposes these experiments through `--restriction boundary-star`
+or `--restriction continuous-velocity`, and distinguishes `diagnostic-complete`
+from native comparison verification. Its generalized static/dynamic partition
+reproduces the original sixteen-cell adaptive result within 1e-12. All original
+plane bounds remain checked; contact on a mass-carrying coordinate is unsupported
+in this adaptive diagnostic and a violated bound rejects the run. The next
+formulation decision must address spatial wave/contact accuracy, not simply
+remove degrees of freedom or add damping. Clothing and later scenarios remain
+unfinished.
+The inspected `build/mixed-time-resolution.png` / PDF presents the common-window
+forces, numerical energy loss and error comparison, with the failed qualification
+explicitly identified.

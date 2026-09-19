@@ -7,6 +7,7 @@
             [aguafria.std.heap :as heap]
             [aguafria.std.debug :as debug]
             [aguafria.std.math :as math]
+            [aguafria.std.mem :as mem]
             [field-lab.fem :as fem]
             [field-lab.build :as build]
             [field-lab.physics :as p]
@@ -197,6 +198,283 @@
   (let [size (az/field (az/field surface tree) len)]
     (dotimes [index size]
       (refit-node! surface (- (- size 1) index)))))
+
+(az/defstruct SplitBucket
+  [[:bounds Box] [:count :usize]])
+
+(az/defstruct BuildRange
+  [[:node :usize] [:parent :usize] [:start :usize] [:count :usize] [:depth :usize]])
+
+(az/defn vector-coordinate
+  :- :f64
+  [[value p/Vec3] [axis :usize]]
+  (if (ak/== axis 0) (az/field value x)
+      (if (ak/== axis 1) (az/field value y) (az/field value z))))
+
+(az/defn face-bounds
+  :- Box
+  [[surface [:* Surface]] [index :usize]]
+  (let [face (az/index (az/field surface faces) index)
+        a (az/index (az/field surface points) (az/index face 0))
+        b (az/index (az/field surface points) (az/index face 1))
+        c (az/index (az/field surface points) (az/index face 2))]
+    (Box {:lower (min-vector a (min-vector b c))
+          :upper (max-vector a (max-vector b c))})))
+
+(az/defn box-center
+  :- p/Vec3
+  [[bounds Box]]
+  (p/add (p/scale (az/field bounds lower) 0.5) (p/scale (az/field bounds upper) 0.5)))
+
+(az/defn union-box
+  :- Box
+  [[a Box] [b Box]]
+  (Box {:lower (min-vector (az/field a lower) (az/field b lower))
+        :upper (max-vector (az/field a upper) (az/field b upper))}))
+
+(az/defn box-area
+  :- :f64
+  [[bounds Box]]
+  (let [extent (p/add (az/field bounds upper) (p/scale (az/field bounds lower) -1.0))
+        x (az/field extent x)
+        y (az/field extent y)
+        z (az/field extent z)]
+    (* 2.0 (+ (* x y) (* y z) (* z x)))))
+
+(az/defn split-bucket
+  :- :usize
+  [[bounds Box] [axis :usize] [lower :f64] [span :f64]]
+  (let [offset (/ (- (vector-coordinate (box-center bounds) axis) lower) span)]
+    (ak/intFromFloat (ak/min 11.0 (ak/max 0.0 (* 12.0 offset))))))
+
+(az/defn partition-faces!
+  "Twelve-bucket SAH on the longest centroid axis. Single-face leaves retain
+  the existing contact hierarchy ABI; coincident centers split by index."
+  :- :usize
+  [[surface [:* Surface]] [order [:slice :usize]] [start :usize] [count :usize]]
+  (let [initial (box-center (face-bounds surface (az/index order start)))
+        ^:var centers (Box {:lower initial :upper initial})
+        ^:var buckets (mem/zeroes (az/type [:array 12 SplitBucket]))
+        ^:var prefix (mem/zeroes (az/type [:array 11 SplitBucket]))
+        ^{:var :usize} axis 0]
+    (dotimes [offset count]
+      (let [center (box-center (face-bounds surface (az/index order (+ start offset))))]
+        (set! centers (union-box centers (Box {:lower center :upper center})))))
+    (let [extent (p/add (az/field centers upper) (p/scale (az/field centers lower) -1.0))]
+      (dotimes [candidate 3]
+        (when (> (vector-coordinate extent candidate) (vector-coordinate extent axis))
+          (set! axis candidate)))
+      (let [span (vector-coordinate extent axis)
+            lower (vector-coordinate (az/field centers lower) axis)]
+        (when (<= span 0.0) (ak/return (ak/divTrunc count 2)))
+        (dotimes [offset count]
+          (let [bounds (face-bounds surface (az/index order (+ start offset)))
+                bucket (ak/& (az/index buckets (split-bucket bounds axis lower span)))]
+            (set! (az/field bucket bounds)
+                  (if (ak/== (az/field bucket count) 0) bounds
+                      (union-box (az/field bucket bounds) bounds)))
+            (ak/+= (az/field bucket count) 1)))
+        (let [^:var accumulated (mem/zeroes (az/type SplitBucket))]
+          (dotimes [i 11]
+            (let [bucket (az/index buckets i)]
+              (when (> (az/field bucket count) 0)
+                (set! (az/field accumulated bounds)
+                      (if (ak/== (az/field accumulated count) 0) (az/field bucket bounds)
+                          (union-box (az/field accumulated bounds) (az/field bucket bounds))))
+                (ak/+= (az/field accumulated count) (az/field bucket count)))
+              (set! (az/index prefix i) accumulated))))
+        (let [^:var accumulated (mem/zeroes (az/type SplitBucket))
+              ^{:var :f64} minimum 1.0e300
+              ^{:var :usize} split 0]
+          (dotimes [offset 11]
+            (let [i (- 11 offset)
+                  bucket (az/index buckets i)
+                  left (az/index prefix (- i 1))]
+              (when (> (az/field bucket count) 0)
+                (set! (az/field accumulated bounds)
+                      (if (ak/== (az/field accumulated count) 0) (az/field bucket bounds)
+                          (union-box (az/field accumulated bounds) (az/field bucket bounds))))
+                (ak/+= (az/field accumulated count) (az/field bucket count)))
+              (when (and (> (az/field left count) 0) (> (az/field accumulated count) 0))
+                (let [cost (+ (* (ak/as :f64 (ak/floatFromInt (az/field left count)))
+                                 (box-area (az/field left bounds)))
+                              (* (ak/as :f64 (ak/floatFromInt (az/field accumulated count)))
+                                 (box-area (az/field accumulated bounds))))]
+                  (when (< cost minimum)
+                    (az/set-many! minimum cost split (- i 1)))))))
+          (let [^{:var :usize} left-count 0]
+            (dotimes [offset count]
+              (let [index (+ start offset)
+                    face (az/index order index)]
+                (when (<= (split-bucket (face-bounds surface face) axis lower span) split)
+                  (az/set-many!
+                    (az/index order index) (az/index order (+ start left-count))
+                    (az/index order (+ start left-count)) face
+                    left-count (+ left-count 1)))))
+            (if (and (> left-count 0) (< left-count count)) left-count
+                (ak/divTrunc count 2))))))))
+
+(az/defn build-hierarchy!
+  "Build/refit an owned Surface entirely in native code. Validates finite bounded
+  points and triangle indices before writing topology; accepts open/degenerate
+  triangles for unsigned queries. Does not certify an oriented solid boundary."
+  :- :bool
+  [[surface [:* Surface]]]
+  (let [points (az/field surface points)
+        faces (az/field surface faces)
+        count (az/field faces len)]
+    (when (or (ak/== count 0) (> count 80000) (ak/== (az/field points len) 0)
+              (> (az/field points len) 20000)
+              (ak/!= (az/field (az/field surface tree) len) (- (* 2 count) 1))
+              (ak/!= (az/field (az/field surface leaves) len) count)
+              (ak/!= (az/field (az/field surface offsets) len) (+ (az/field points len) 1))
+              (ak/!= (az/field (az/field surface incidents) len) (* count 3)))
+      (ak/return false))
+    (dotimes [i (az/field points len)]
+      (dotimes [axis 3]
+        (let [value (vector-coordinate (az/index points i) axis)]
+          (when (or (ak/! (math/isFinite value)) (> (ak/abs value) 1.0e50))
+            (ak/return false)))))
+    (dotimes [i count]
+      (dotimes [corner 3]
+        (when (>= (az/index (az/index faces i) corner) (az/field points len))
+          (ak/return false))))
+    ;; Build adjacency too: move-point! must work on a natively initialized surface.
+    (dotimes [i (+ (az/field points len) 1)]
+      (set! (az/index (az/field surface offsets) i) 0))
+    (dotimes [i count]
+      (dotimes [corner 3]
+        (ak/+= (az/index (az/field surface offsets) (+ 1 (az/index (az/index faces i) corner))) 1)))
+    (dotimes [i (az/field points len)]
+      (ak/+= (az/index (az/field surface offsets) (+ i 1))
+             (az/index (az/field surface offsets) i)))
+    (let [cursor (fem/allocate :usize (az/field points len))]
+      (defer ((az/field heap/page_allocator free) cursor))
+      (dotimes [i (az/field points len)]
+        (set! (az/index cursor i) (az/index (az/field surface offsets) i)))
+      (dotimes [i count]
+        (dotimes [corner 3]
+          (let [vertex (az/index (az/index faces i) corner)]
+            (az/set-many!
+              (az/index (az/field surface incidents) (az/index cursor vertex)) (ak/intCast i)
+              (az/index cursor vertex) (+ 1 (az/index cursor vertex)))))))
+    (let [order (fem/allocate :usize count)
+          ^:var pending (mem/zeroes (az/type [:array 128 BuildRange]))
+          ^{:var :usize} size 1]
+      (defer ((az/field heap/page_allocator free) order))
+      (dotimes [i count] (set! (az/index order i) i))
+      (set! (az/index pending 0) (BuildRange {:node 0 :parent 0 :start 0 :count count :depth 0}))
+      (while (> size 0)
+        (ak/-= size 1)
+        (let [range (az/index pending size)
+              node (az/field range node)
+              start (az/field range start)
+              range-count (az/field range count)
+              depth (az/field range depth)]
+          (if (ak/== range-count 1)
+            (set-tree! surface node (az/field range parent) 0 0 (az/index order start) true)
+            (let [;; Keep total depth at most 49 for the existing 64-entry query stack.
+                  left-count (if (>= depth 32) (ak/divTrunc range-count 2)
+                                 (partition-faces! surface order start range-count))
+                  left (+ node 1)
+                  right (+ node (* 2 left-count))]
+              (debug/assert (< (+ size 1) 128))
+              (set-tree! surface node (az/field range parent) left right 0 false)
+              (az/set-many!
+                (az/index pending size)
+                (BuildRange {:node right :parent node :start (+ start left-count)
+                             :count (- range-count left-count) :depth (+ depth 1)})
+                (az/index pending (+ size 1))
+                (BuildRange {:node left :parent node :start start
+                             :count left-count :depth (+ depth 1)})
+                size (+ size 2))))))
+      (refit! surface)
+      true)))
+
+(az/defn packed-hierarchy-words
+  :- :usize
+  [[surface [:* Surface]]]
+  (+ 4 (* 8 (az/field (az/field surface tree) len))
+     (* 4 (az/field (az/field surface points) len))
+     (* 4 (az/field (az/field surface faces) len))))
+
+(az/defn float-word
+  :- :u32
+  [[value :f32]]
+  (ak/bitCast value))
+
+(az/defn pack-hierarchy!
+  "Bounded std430 word packet: header, 32-byte nodes, vec4 points, uvec4 faces.
+  Bounds round outwards around the same float32 positions used by the viewport.
+  Returns zero without writes on invalid input or insufficient caller capacity."
+  :- :usize
+  [[surface [:* Surface]] [output [:c-pointer :u32]] [capacity :usize]]
+  (let [points (az/field surface points)
+        faces (az/field surface faces)
+        tree (az/field surface tree)
+        words (packed-hierarchy-words surface)]
+    (when (or (ak/== output null) (< capacity words)
+              (ak/== (az/field faces len) 0) (> (az/field faces len) 80000)
+              (ak/== (az/field points len) 0) (> (az/field points len) 20000)
+              (ak/!= (az/field tree len) (- (* 2 (az/field faces len)) 1)))
+      (ak/return 0))
+    (dotimes [i (az/field points len)]
+      (dotimes [axis 3]
+        (let [value (vector-coordinate (az/index points i) axis)]
+          (when (or (ak/! (math/isFinite value)) (> (ak/abs value) 1.0e12))
+            (ak/return 0)))))
+    (dotimes [i (az/field faces len)]
+      (dotimes [corner 3]
+        (when (>= (az/index (az/index faces i) corner) (az/field points len))
+          (ak/return 0))))
+    (dotimes [i (az/field tree len)]
+      (let [node (az/index tree i)
+            bounds (az/field node bounds)]
+        (dotimes [axis 3]
+          (let [lower (vector-coordinate (az/field bounds lower) axis)
+                upper (vector-coordinate (az/field bounds upper) axis)]
+            (when (or (ak/! (math/isFinite lower)) (ak/! (math/isFinite upper))
+                      (> lower upper) (> (ak/abs lower) 1.0e12) (> (ak/abs upper) 1.0e12))
+              (ak/return 0))))
+        (if (az/field node leaf)
+          (when (>= (az/field node face) (az/field faces len)) (ak/return 0))
+          (when (or (<= (az/field node left) i) (<= (az/field node right) i)
+                    (>= (az/field node left) (az/field tree len))
+                    (>= (az/field node right) (az/field tree len)))
+            (ak/return 0)))))
+    (az/set-many!
+      (az/index output 0) (ak/intCast (az/field tree len))
+      (az/index output 1) (ak/intCast (az/field points len))
+      (az/index output 2) (ak/intCast (az/field faces len))
+      (az/index output 3) 0)
+    (dotimes [i (az/field tree len)]
+      (let [node (az/index tree i)
+            bounds (az/field node bounds)
+            base (+ 4 (* 8 i))]
+        (dotimes [axis 3]
+          (let [lower (ak/as :f32 (ak/floatCast (vector-coordinate (az/field bounds lower) axis)))
+                upper (ak/as :f32 (ak/floatCast (vector-coordinate (az/field bounds upper) axis)))]
+            (az/set-many!
+              (az/index output (+ base axis))
+              (float-word (math/nextAfter :f32 lower (- (math/inf :f32))))
+              (az/index output (+ base 4 axis))
+              (float-word (math/nextAfter :f32 upper (math/inf :f32))))))
+        (az/set-many!
+          (az/index output (+ base 3)) (if (az/field node leaf) 0xffffffff (ak/intCast (az/field node left)))
+          (az/index output (+ base 7)) (ak/intCast (if (az/field node leaf) (az/field node face)
+                                                    (az/field node right))))))
+    (let [base (+ 4 (* 8 (az/field tree len)))]
+      (dotimes [i (az/field points len)]
+        (dotimes [axis 3]
+          (set! (az/index output (+ base (* 4 i) axis))
+                (float-word (ak/floatCast (vector-coordinate (az/index points i) axis)))))
+        (set! (az/index output (+ base (* 4 i) 3)) 0)))
+    (let [base (+ 4 (* 8 (az/field tree len)) (* 4 (az/field points len)))]
+      (dotimes [i (az/field faces len)]
+        (dotimes [corner 3]
+          (set! (az/index output (+ base (* 4 i) corner)) (az/index (az/index faces i) corner)))
+        (set! (az/index output (+ base (* 4 i) 3)) 0)))
+    words))
 
 (az/defn move-point!
   "Update incident leaves and ancestors after a contact correction."

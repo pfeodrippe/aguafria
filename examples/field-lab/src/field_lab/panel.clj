@@ -11,6 +11,8 @@
             [aguafria-examples-native.bindings.runtime :as stdio]
             [aguafria-examples-native.imgui-controls]
             [aguafria-examples-native.bindings.imgui-controls :as ui]
+            [field-lab.scene :as scene]
+            [field-lab.surface :as surface]
             [clojure.java.io :as io]))
 
 (let [header (io/file "native/panel.h")
@@ -106,10 +108,20 @@
     (when (ak/!= (ui/aguafria_ui_invisible_button title 182 66) 0)
       (set! (az/field panel selected) id))))
 
+(az/defvar frame-request :u8 0)
+
+(az/defn request-frame!
+  :- :void []
+  (ak/atomicStore :u8 (ak/& frame-request) 1 :.release))
+
 (az/defn input!
   :- :void [[panel [:* api/LabPanel]] [input ui/AguafriaUIInput]]
   (set! (az/field panel action) 0)
+  (when (ak/!= (ak/atomicRmw :u8 (ak/& frame-request) :.Xchg 0 :.acq_rel) 0)
+    (set! (az/field panel distance) 0.25))
   (when (ak/== (az/field input text_input) 0)
+    (when (pressed? 86) (set! surface/embedded-enabled (ak/! surface/embedded-enabled)))
+    (when (pressed? 70) (set! (az/field panel distance) 0.25))
     (when (and (pressed? 32) (ak/== (az/field panel baking) 0))
       (set! (az/field panel paused) (if (ak/== (az/field panel paused) 0) 1 0)))
     (when (pressed? 82) (set! (az/field panel action) 1))
@@ -138,7 +150,7 @@
     (when (ak/!= (az/field input right_drag) 0)
       (az/set-many! (az/field panel yaw) (- (az/field panel yaw) (* (az/field input delta_x) 0.006))
                     (az/field panel pitch) (ak/max 0.08 (ak/min 1.3 (+ (az/field panel pitch) (* (az/field input delta_y) 0.005))))))
-    (set! (az/field panel distance) (ak/max 4.0 (ak/min 24.0 (- (az/field panel distance) (* (az/field input wheel) 0.6)))))))
+    (set! (az/field panel distance) (ak/max 0.25 (ak/min 24.0 (- (az/field panel distance) (* (az/field input wheel) 0.6)))))))
 
 (az/defn style!
   :- :void []
@@ -178,10 +190,24 @@
   (ui/aguafria_ui_cursor 785 24 0)
   (when (ak/!= (ui/aguafria_ui_button "Authored jobs") 0)
     (set! authored-jobs-visible (ak/! authored-jobs-visible)))
+  (ui/aguafria_ui_cursor 900 24 0)
+  (when (ak/!= (ui/aguafria_ui_button "Frame (F)") 0)
+    (set! (az/field panel distance) 0.25))
   (ui/aguafria_ui_window_end))
 
 (az/defconst model-items [:array 26 :u8]
   (az/array-init [:array 26 :u8] [82 105 103 105 100 0 88 80 66 68 0 67 111 110 116 105 110 117 117 109 32 70 69 77 0 0]))
+
+(az/defn cached-solver-label
+  :- [:slice-const :u8] []
+  (let [method (scene/scripted-solver)]
+    (cond
+      (ak/== method 1) "Explicit FEM / discrete contact"
+      (ak/== method 2) "Explicit FEM / continuous contact"
+      (ak/== method 3) "Implicit IPC / backward Euler"
+      (ak/== method 4) "Implicit IPC / Newmark (experimental)"
+      (ak/== method 5) "Implicit IPC / BDF2 (experimental)"
+      :else "Cached solver not recorded")))
 
 (az/defn explorer!
   :- :void [[panel [:* api/LabPanel]] [height :f32] [nodes :i32] [tets :i32] [scripted :bool]]
@@ -207,16 +233,29 @@
            (if (ak/!= (az/field panel deform) 0) "Deformable XPBD / f64" "Rigid body / f64")))
   (text! "240 Hz / offline bake")
   (if (> nodes 0)
-    (do (textf! "%d nodes / %d tets" nodes tets) (wrapped! "Refined cache / Clojure job"))
+    (do
+      (textf! "%d nodes / %d tets" nodes tets)
+      (wrapped! (if scripted (cached-solver-label) "Refined cache / Clojure job")))
     (text! (if (ak/!= (az/field panel deform) 0) "43 nodes / 80 tetrahedra" "Sphere-plane CCD")))
   (ui/aguafria_ui_spacing)
   (ui/aguafria_ui_item_width 190)
   (when (ak/!= (ui/aguafria_ui_combo "##material_solver" (ak/& (az/field panel deform)) (ak/& (az/index model-items 0))) 0)
     (set! (az/field panel action) 6))
-  (label! "AUTHORITATIVE STORE")
-  (text! "Flecs components")
-  (text! (if scripted "ScriptedScene / mesh caches" "BallConfig / BallState"))
-  (textf! "Revision %d" (az/field panel revision))
+  (when (> nodes 0)
+    (ui/aguafria_ui_spacing)
+    (when (ak/!= (ui/aguafria_ui_button_size
+                  (if surface/embedded-enabled "Measured mesh [V]" "Embedded preview [V]") 190 25) 0)
+      (set! surface/embedded-enabled (ak/! surface/embedded-enabled)))
+    (when surface/embedded-enabled
+      (if (> surface/embedded-linear 0)
+        (textf! "Linear near floor: %u" surface/embedded-linear)
+        (textf! "Embedded bodies: %u" surface/embedded-count))
+      (textf! "Rest inset: %.2f mm" (* 1000.0 surface/maximum-inset))
+      (when (> surface/embedded-rejected 0) (wrapped! "Invalid preview: showing measured mesh"))))
+  (if (> nodes 0)
+    (textf! (if surface/visibility-ready "Triangle shadows / r%d" "Projected shadows / r%d")
+            (az/field panel revision))
+    (textf! "Cache revision %d" (az/field panel revision)))
   (when (ak/== nodes 0)
     (ui/aguafria_ui_cursor_y_set (ak/max (+ (ui/aguafria_ui_cursor_y) 8) (- height 364)))
     (label! "VIEWPORT")
@@ -333,10 +372,11 @@
     (ui/aguafria_ui_cursor (- width 330) (+ y 31) 1)
     (text! "Bake first. Play measured cache.")
     (ui/aguafria_ui_cursor (- width 330) (+ y 53) 1)
-    (label! (if (ak/!= nodes 0)
+    (label! (if scripted (cached-solver-label)
+              (if (ak/!= nodes 0)
               (if (> (az/field panel mode) 1) "FEM / triangle contact + friction" "FEM / nodal plane contact")
               (if (ak/== (az/field panel deform) 2) "FEM / coarse convex contact"
-                (if (ak/!= (az/field panel deform) 0) "XPBD elastic network" "Rigid contact dynamics")))))
+                (if (ak/!= (az/field panel deform) 0) "XPBD elastic network" "Rigid contact dynamics"))))))
   (ui/aguafria_ui_window_end))
 
 (az/defn transport!
@@ -387,13 +427,21 @@
     (explorer! panel (az/field input height) nodes tets scripted)
     (parameters! panel (az/field input width) (az/field input height) nodes capture-status scripted)
     (ui/aguafria_ui_background_alpha 0)
-    (ui/aguafria_ui_panel_begin "view label" 239 74 440 68)
+    (ui/aguafria_ui_panel_begin "view label" 239 74 440 88)
     (let [baking (ak/!= (az/field panel baking) 0)]
       (colored! (if (ak/== (az/field panel exported) -2) "SOLVER FAILED / PARTIAL CACHE"
                    (if baking "BAKING / SOLVER TIME INDEPENDENT OF DISPLAY"
                      (if (ak/!= (az/field panel paused) 0) "CACHE PAUSED / SPACE TO PLAY" "CACHE PLAYBACK / MEASURED SIMULATION")))
                 (if baking 0.24 1.0) (if baking 0.84 0.72) (if baking 0.72 0.25)))
-    (label! (if (ak/!= (az/field panel deform) 0) "01 / Simulated elastic tetrahedral surface" "01 / Rigid sphere contact study"))
+    (label! (if (and surface/embedded-enabled (> surface/embedded-count 0))
+              (if (> surface/embedded-linear 0) "01 / Embedded preview / linear near floor"
+                  "01 / Embedded preview / Phong deformation")
+              (if (ak/!= (az/field panel deform) 0) "01 / Measured FEM boundary"
+                  "01 / Rigid sphere contact study")))
+    (label! (if (and (ak/== (az/field panel paused) 0)
+                     (ak/== (az/field panel baking) 0))
+              "Playback lighting / pause for detailed shadows"
+              "Inspection lighting / detailed shadows"))
     (ui/aguafria_ui_window_end)
     (graph! panel (az/field input width) (az/field input height) nodes scripted)
     (transport! panel (az/field input width) (az/field input height) nodes)

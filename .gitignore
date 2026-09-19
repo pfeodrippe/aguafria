@@ -1,4 +1,5 @@
 .aguafria/
+.tmp/
 .clj-kondo/.cache/
 resources/clj-kondo.exports/**/.cache/
 .m2/

@@ -105,7 +105,10 @@
     (if move
       (do
         (dynamics/set-particle! state node point velocity)
-        (contact/move-point! (az/field body surface) node point))
+        ;; FEM stores displacement from rest. The rest/displacement round trip
+        ;; can round the requested point; collision geometry must use the point
+        ;; actually represented by the mechanical state.
+        (contact/move-point! (az/field body surface) node (dynamics/position state node)))
       (set! (az/index (az/field state velocities) node) velocity))))
 
 (az/defn project-vertex!
@@ -232,6 +235,40 @@
           (az/field result center) (p/add (az/field result center)
                                          (p/scale (az/field value center) (az/field value mass))))))
     (set! (az/field result center) (p/scale (az/field result center) (/ 1.0 (az/field result mass))))
+    result))
+
+(az/defn refresh-motion!
+  "Refresh observables after a velocity-only contact phase. The caller supplies
+  the last full observation with synchronized collision positions. Plane repair
+  can still move a point: detect that and recompute forces/geometry observables."
+  :- dynamics/Observables
+  [[assembly [:* Assembly]] [previous dynamics/Observables]]
+  (let [bodies (az/field assembly bodies)
+        ^:var result previous]
+    (az/set-many!
+      (az/field result kinetic-energy) 0.0
+      (az/field result momentum) (p/v 0.0 0.0 0.0))
+    (dotimes [index (az/field bodies len)]
+      (let [body (az/index bodies index)
+            state (az/field body state)
+            ^{:var :f64} kinetic 0.0
+            ^:var momentum (p/v 0.0 0.0 0.0)]
+        (dotimes [node (az/field (az/field state masses) len)]
+          (let [point (dynamics/position state node)
+                measured (az/index (az/field (az/field body surface) points) node)
+                velocity (az/index (az/field state velocities) node)
+                mass (az/index (az/field state masses) node)]
+            (when (or (ak/!= (az/field point x) (az/field measured x))
+                      (ak/!= (az/field point y) (az/field measured y))
+                      (ak/!= (az/field point z) (az/field measured z)))
+              (ak/return (observe! assembly)))
+            (az/set-many!
+              kinetic (+ kinetic (* 0.5 mass (p/dot velocity velocity)))
+              momentum (p/add momentum (p/scale velocity mass)))))
+        ;; Preserve the full observer's per-body summation order.
+        (az/set-many!
+          (az/field result kinetic-energy) (+ (az/field result kinetic-energy) kinetic)
+          (az/field result momentum) (p/add (az/field result momentum) momentum))))
     result))
 
 (az/defn valid?
@@ -1101,13 +1138,130 @@
       (ak/return report))
     (solve-contact-rows! assembly (ak/& (az/index rows 0)) count)))
 
+(az/defstruct PositionContact
+  [[:row VelocityContact] [:distance :f64]])
+
+(az/defstruct PositionReport {:layout :extern}
+  [[:completed :bool] [:status :u32] [:passes :u32] [:contacts :u32] [:penetration :f64]])
+
+(az/defn collect-position-contacts!
+  "Gather signed vertex/face and plane constraints. Returning 129 signals
+  capacity exhaustion; the caller must reject the whole trial."
+  :- :usize
+  [[assembly [:* Assembly]] [contacts [:c-pointer PositionContact]]]
+  (let [bodies (az/field assembly bodies)
+        empty (ContactWeight {:body 0 :node 0 :weight 0.0})
+        ^{:var :usize} count 0]
+    (dotimes [a (az/field bodies len)]
+      (let [source (az/index bodies a)
+            source-surface (az/field source surface)
+            state (az/field source state)]
+        (dotimes [b (az/field bodies len)]
+          (when (ak/!= a b)
+            (let [target (az/field (az/index bodies b) surface)]
+              (dotimes [node (az/field (az/field source-surface points) len)]
+                (when (< (az/index (az/field source-surface offsets) node)
+                         (az/index (az/field source-surface offsets) (+ node 1)))
+                  (let [point (dynamics/position state node)]
+                    (when (candidate? target point)
+                      (let [closest (contact/closest-point target point)]
+                        (when (<= (az/field closest signed-distance) position-tolerance)
+                          (when (ak/== count 128) (ak/return 129))
+                          (let [face (az/index (az/field target faces) (az/field closest face))
+                                ^:var row (VelocityContact
+                                           {:entries [(ContactWeight {:body a :node node :weight 1.0})
+                                                      empty empty empty]
+                                            :normal (az/field closest normal) :friction 0.0 :ground false})]
+                            (dotimes [local 3]
+                              (set! (az/index (az/field row entries) (+ local 1))
+                                    (ContactWeight {:body b :node (az/index face local)
+                                                    :weight (- (fem/component (az/field closest weights) local))})))
+                            (set! (az/index contacts count)
+                                  (PositionContact {:row row :distance (az/field closest signed-distance)}))
+                            (ak/+= count 1)))))))))))
+        (when (az/field state floor)
+          (dotimes [node (az/field (az/field state masses) len)]
+            (let [height (az/field (dynamics/position state node) y)]
+              (when (<= height position-tolerance)
+                (when (ak/== count 128) (ak/return 129))
+                (set! (az/index contacts count)
+                      (PositionContact
+                       {:row (VelocityContact
+                              {:entries [(ContactWeight {:body a :node node :weight 1.0}) empty empty empty]
+                               :normal (p/v 0.0 1.0 0.0) :friction 0.0 :ground true})
+                        :distance height}))
+                (ak/+= count 1)))))))
+    count))
+
+(az/defn resolve-position-block!
+  "Sequential linearization of mass-weighted minimum-distance repair:
+  minimize dx^T M dx / 2 subject to g + J dx >= 0. Positions only; velocity
+  impulses are resolved separately. Caller owns all-body rollback on failure."
+  :- PositionReport
+  [[assembly [:* Assembly]]]
+  (let [^{:var [:array 128 PositionContact]} contacts ak/undefined
+        ^:var report (PositionReport {:completed false :status 0 :passes 0 :contacts 0 :penetration 0.0})
+        length-scale 1.0e-6]
+    (dotimes [pass 9]
+      (let [count (collect-position-contacts! assembly (ak/& (az/index contacts 0)))]
+        (set! (az/field report contacts) (ak/intCast count))
+        (when (> count 128)
+          (set! (az/field report status) 1)
+          (ak/return report))
+        (set! (az/field report penetration) 0.0)
+        (dotimes [i count]
+          (set! (az/field report penetration)
+                (ak/max (az/field report penetration) (- (az/field (az/index contacts i) distance)))))
+        (when (<= (az/field report penetration) position-tolerance)
+          (set! (az/field report completed) true)
+          (ak/return report))
+        (when (ak/== pass 8)
+          (set! (az/field report status) 2)
+          (ak/return report))
+        (let [system (create-normal-system! count)]
+          (defer (destroy-normal-system! system))
+          (dotimes [i count]
+            ;; Scale the RHS into a numerically useful range without changing
+            ;; the constrained minimizer; undo this scale on the displacement.
+            (set-normal-rhs! system i (/ (az/field (az/index contacts i) distance) length-scale))
+            (dotimes [j count]
+              (set-normal-entry! system i j
+                                 (contact-row-inner assembly (az/field (az/index contacts i) row)
+                                                            (az/field (az/index contacts j) row)))))
+          (let [solved (solve-normal-system! system)]
+            (when (ak/!= (az/field solved status) 0)
+              (set! (az/field report status) (+ 10 (az/field solved status)))
+              (ak/return report)))
+          (dotimes [i count]
+            (let [row (az/field (az/index contacts i) row)
+                  magnitude (* length-scale (ak/max 0.0 (normal-impulse system i)))]
+              (dotimes [local 4]
+                (let [entry (az/index (az/field row entries) local)]
+                  (when (ak/!= (az/field entry weight) 0.0)
+                    (let [body (az/index (az/field assembly bodies) (az/field entry body))
+                          mass (az/index (az/field (az/field body state) masses) (az/field entry node))
+                          change (p/scale (az/field row normal) (/ (* magnitude (az/field entry weight)) mass))]
+                      (apply-correction! body (az/field entry node) change (p/v 0.0 0.0 0.0) true)))))))
+          (ak/+= (az/field report passes) 1))))
+    (set! (az/field report status) 2)
+    report))
+
+(az/defstruct ExplicitRejection
+  "Reason: 0 none, 1 position residual, 2 invalid material state,
+  3 stability bound, 4 closing velocity. Values describe the rejected trial."
+  {:layout :extern}
+  [[:reason :u32] [:step :f64] [:penetration :f64] [:closing-speed :f64]
+   [:minimum-jacobian :f64] [:stability-number :f64]])
+
 (az/defstruct ExplicitTask
   [[:assembly [:* Assembly]] [:target :f64] [:maximum-step :f64]
    [:observation dynamics/Observables] [:report Report]
-   [:next-step :f64] [:minimum-step :f64] [:attempts :u64] [:status :u32]])
+   [:next-step :f64] [:minimum-step :f64] [:attempts :u64] [:status :u32]
+   [:last-rejection ExplicitRejection]])
 
 (az/defstruct ExplicitProgress {:layout :extern}
-  [[:status :u32] [:attempts :u64] [:next-step :f64] [:minimum-step :f64]])
+  [[:status :u32] [:attempts :u64] [:next-step :f64] [:minimum-step :f64]
+   [:last-rejection ExplicitRejection]])
 
 (az/defn explicit-task
   :- ExplicitTask
@@ -1121,6 +1275,8 @@
      {:assembly assembly :target (+ time duration) :maximum-step maximum-step
       :observation observation :next-step 0.0 :minimum-step 1.0e300 :attempts 0
       :status (if valid 0 2)
+      :last-rejection (ExplicitRejection {:reason 0 :step 0.0 :penetration 0.0
+                                          :closing-speed 0.0 :minimum-jacobian 0.0 :stability-number 0.0})
       :report (Report {:completed false :substeps 0 :rejected 0 :time time
                        :minimum-jacobian (az/field observation minimum-jacobian)
                        :maximum-penetration 0.0 :ground-impulse 0.0 :pair-impulse 0.0})})))
@@ -1140,7 +1296,8 @@
 (az/defn explicit-progress
   :- ExplicitProgress [[task [:* ExplicitTask]]]
   (ExplicitProgress {:status (az/field task status) :attempts (az/field task attempts)
-                     :next-step (az/field task next-step) :minimum-step (az/field task minimum-step)}))
+                     :next-step (az/field task next-step) :minimum-step (az/field task minimum-step)
+                     :last-rejection (az/field task last-rejection)}))
 
 (az/defn advance-explicit-batch!
   "Bound native Verlet work by attempted steps, including retries. Status 0 yields
@@ -1169,6 +1326,7 @@
                       (ak/min remaining (ak/min maximum-step
                         (/ 0.35 (ak/sqrt (ak/max 1.0 (az/field observation frequency-squared-bound)))))))
             ^{:var :bool} accepted false
+            ^{:var :bool} positions-solved true
             ^{:var :f64} ground-impulse 0.0
             ^{:var :f64} pair-impulse 0.0
             ^:var contact-residual (Residual {:penetration 0.0 :closing-speed 0.0})]
@@ -1200,8 +1358,13 @@
             (when (and (<= (az/field contact-residual penetration) position-tolerance)
                        (<= (az/field contact-residual closing-speed) velocity-tolerance))
               (ak/break)))
+          (set! positions-solved true)
+          (when (> (az/field contact-residual penetration) position-tolerance)
+            (let [repair (resolve-position-block! assembly)]
+              (set! positions-solved (az/field repair completed))
+              (set! contact-residual (residual assembly))))
           (set! observation (observe! assembly))
-          (set! accepted (and (valid? observation)
+          (set! accepted (and positions-solved (valid? observation)
                               (<= (* h h (az/field observation frequency-squared-bound)) 0.25)
                               (<= (az/field contact-residual penetration) position-tolerance)))
           (when accepted
@@ -1221,10 +1384,20 @@
                 (ak/+= pair-impulse (az/field block pair-impulse))
                 (ak/+= ground-impulse (az/field block ground-impulse))
                 (set! contact-residual (residual assembly))))
-            (set! observation (observe! assembly))
+            (set! observation (refresh-motion! assembly observation))
             (set! accepted (and (valid? observation)
                                 (<= (az/field contact-residual closing-speed) velocity-tolerance))))
           (when (ak/! accepted)
+            (set! (az/field task last-rejection)
+                  (ExplicitRejection
+                   {:reason (cond (> (az/field contact-residual penetration) position-tolerance) 1
+                                  (ak/! (valid? observation)) 2
+                                  (> (* h h (az/field observation frequency-squared-bound)) 0.25) 3
+                                  :else 4)
+                    :step h :penetration (az/field contact-residual penetration)
+                    :closing-speed (az/field contact-residual closing-speed)
+                    :minimum-jacobian (az/field observation minimum-jacobian)
+                    :stability-number (* h h (az/field observation frequency-squared-bound))}))
             (checkpoint! assembly true)
             (az/set-many!
               observation (observe! assembly)

@@ -22,6 +22,8 @@
                  :main-opts ["-m" "field-lab.nonlinear-job"]}
   :impact-study {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
                  :main-opts ["-m" "field-lab.impact-study"]}
+  :scene-study {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+                :main-opts ["-m" "field-lab.coupled-job"]}
   :build {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
           :main-opts ["-m" "field-lab.build"]}
   :test {:extra-paths ["test"]

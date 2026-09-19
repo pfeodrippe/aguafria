@@ -1,0 +1,5 @@
+/.cpcache/
+/.nrepl-port
+/.aguafria/
+/build/
+/.clj-kondo/.cache/

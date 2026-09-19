@@ -110,6 +110,16 @@
 
 (az/defvar scripted-scene-id :u64 0)
 
+;; Cached solver identity: 0 unrecorded, 1 explicit/discrete, 2 explicit/continuous,
+;; 3 implicit IPC/backward Euler, 4 implicit IPC/Newmark, 5 implicit IPC/BDF2.
+(az/defvar scripted-solver-id :u64 0)
+
+(az/defn scripted-solver
+  :- :u32 []
+  (when (or (ak/== world null) (ak/== scripted-solver-id 0)) (ak/return 0))
+  (let [value (ecs/ecs_get_id world output scripted-solver-id)]
+    (if (ak/== value null) 0 (az/deref (az/cast value [:*const :u32])))))
+
 (az/defn scripted-scene
   :- [:optional [:*const ScriptedScene]]
   []
@@ -122,6 +132,8 @@
   []
   (when (ak/!= scripted-scene-id 0)
     (ecs/ecs_remove_id world output scripted-scene-id))
+  (when (ak/!= scripted-solver-id 0)
+    (ecs/ecs_remove_id world output scripted-solver-id))
   (let [owned (single-mesh-cache)
         collection (mesh-group)]
     (when (ak/!= owned null)
@@ -251,6 +263,7 @@
     mesh-cache-id 0
     mesh-group-id 0
     scripted-scene-id 0
+    scripted-solver-id 0
     config-id (component! "BallConfig" (ak/sizeOf p/Config) (ak/alignOf p/Config))
     state-id (component! "BallState" (ak/sizeOf p/State) (ak/alignOf p/State))
     soft-id (component! "DeformableBody" (ak/sizeOf soft/Body) (ak/alignOf soft/Body))
@@ -365,7 +378,17 @@
   [[parameters ScriptedScene]]
   (when (ak/== scripted-scene-id 0)
     (set! scripted-scene-id (component! "ScriptedScene" (ak/sizeOf ScriptedScene) (ak/alignOf ScriptedScene))))
-  (ecs/ecs_set_id world output scripted-scene-id (ak/sizeOf ScriptedScene) (ak/& parameters)))
+  (ecs/ecs_set_id world output scripted-scene-id (ak/sizeOf ScriptedScene) (ak/& parameters))
+  (when (ak/!= scripted-solver-id 0)
+    (ecs/ecs_remove_id world output scripted-solver-id)))
+
+(az/defn set-scripted-solver!
+  "Update cached provenance on the Flecs owning thread, separately from job settings."
+  :- :void [[method :u32]]
+  (debug/assert (<= method 5))
+  (when (ak/== scripted-solver-id 0)
+    (set! scripted-solver-id (component! "ScriptedSolver" (ak/sizeOf :u32) (ak/alignOf :u32))))
+  (ecs/ecs_set_id world output scripted-solver-id (ak/sizeOf :u32) (ak/& method)))
 
 (az/defn step!
   :- :bool

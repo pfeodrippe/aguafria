@@ -12,8 +12,12 @@
     field-lab.soft-body-test
     field-lab.fem-test
     field-lab.hyperelastic-test
+    field-lab.mixed-tetra-test
+    field-lab.mixed-solver-test
+    field-lab.mixed-job-test
     field-lab.ball-fem-test
     field-lab.impact-study-test
+    field-lab.embedding-test
     field-lab.mesh-cache-test
     field-lab.contact-mesh-test
     field-lab.coupled-fem-test

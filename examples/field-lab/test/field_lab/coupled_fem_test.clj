@@ -56,6 +56,71 @@
 (defn energy [observation]
   (+ (:elastic-energy observation) (:kinetic-energy observation) (:potential-energy observation)))
 
+(deftest compiled-kernel-result-and-cancellation
+  (let [options {:bodies 2 :refinement 0 :seconds 0.012 :maximum-step 0.00005
+                 :geometry :sphere :contact-method :discrete}
+        baseline (joint/head-on-study! options)]
+    (joint/with-compiled-kernel!
+      (fn []
+        (let [snapshot (joint/head-on-study! options)]
+          (is (= (:history baseline) (:history snapshot)))
+          (is (= (:reports baseline) (:reports snapshot)))
+          (is (= :standalone-snapshot (get-in snapshot [:solver-version 'field-lab.coupled-job/kernel :mode]))))
+        (joint/with-system! [(joint/sphere {:refinement 0 :velocity [1.0 0.0 0.0]})]
+          (fn [assembly [state] _]
+            (let [cancel (atom false)
+                  failure (try
+                            (joint/advance! assembly 0.001 0.00005
+                                            {:maximum-attempts 1 :cancelled? #(deref cancel)
+                                             :on-progress (fn [_] (reset! cancel true))})
+                            nil
+                            (catch clojure.lang.ExceptionInfo error (ex-data error)))]
+              (is (:cancelled? failure))
+              (is (= 1 (get-in failure [:report :attempts])))
+              (is (= 0.00005 (get-in failure [:report :time])))
+              (joint/advance! assembly 0.001 0.00005)
+              (is (< (abs (- 0.00105 (get-in (az/value (dynamics/evaluate! state)) [:center :x]))) 1.0e-12)))))))))
+
+(deftest compiled-kernel-rejects-stale-and-closed-handles
+  (joint/with-system! [(joint/sphere {:refinement 0 :velocity [1.0 0.0 0.0]})]
+    (fn [assembly [state] _]
+      (let [before (select-keys (job/snapshot state 43) [:positions-m :velocities-m-s])
+            escaped (joint/with-compiled-kernel!
+                      (fn []
+                        (with-redefs [coupled/advance-explicit-batch! (fn [& _] (throw (ex-info "Unexpected fallback" {})))]
+                          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Solver changed"
+                                               (joint/advance! assembly 0.001 0.00005))))
+                        joint/*explicit-batch*))
+            task (coupled/create-explicit-task! assembly 0.001 0.00005)]
+        (try
+          (is (thrown? IllegalStateException (escaped task 1)))
+          (is (= before (select-keys (job/snapshot state 43) [:positions-m :velocities-m-s])))
+          (finally (coupled/destroy-explicit-task! task)))))))
+
+(deftest velocity-observables-match-full-assembly
+  (joint/with-system!
+    [(joint/sphere {:refinement 0 :center [-0.2 1.0 0.0] :density 900.0})
+     (joint/sphere {:refinement 1 :center [0.2 1.0 0.0] :density 1300.0})]
+    (fn [assembly states descriptions]
+      (let [previous (coupled/observe! assembly)]
+        (doseq [[state description] (map vector states descriptions)
+                node (range (count (get-in description [:mesh :points])))]
+          (dynamics/set-particle! state node (dynamics/position state node)
+                                 {:x (* node 0.01) :y (- 0.1 (* node 0.02)) :z 0.03}))
+        (let [refreshed (az/value (coupled/refresh-motion! assembly previous))]
+          (is (= refreshed (az/value (coupled/observe! assembly))))
+          (is (pos? (:kinetic-energy refreshed)))))
+      ;; Exercise the guard: a position edit invalidates strain energy, bounds,
+      ;; center, and potential energy even though the previous observation exists.
+      (let [previous (coupled/observe! assembly)
+            state (first states)
+            point (az/value (dynamics/position state 1))]
+        (dynamics/set-particle! state 1 (update point :x + 0.01)
+                               (dynamics/particle-velocity state 1))
+        (let [refreshed (az/value (coupled/refresh-motion! assembly previous))]
+          (is (= refreshed (az/value (coupled/observe! assembly))))
+          (is (> (:elastic-energy refreshed) (:elastic-energy (az/value previous)))))))))
+
 (deftest mass-weighted-coulomb-impulse
   (doseq [friction [0.0 0.3 3.0]]
     (joint/with-system!
@@ -475,10 +540,9 @@
                   (is (= (:positions-m expected) (:positions-m result)))
                   (is (= (:velocities-m-s expected) (:velocities-m-s result))))))))))))
 
-(deftest explicit-retry-state-survives-batch-boundaries
-  ;; Reproduce the authored box/tetrahedron's first mutual contact. Preserving
-  ;; only accepted time, but forgetting the reduced retry h, causes this case
-  ;; to retry the same rejected large step whenever a host batch yields.
+(deftest explicit-contact-state-survives-batch-boundaries
+  ;; The authored box/tetrahedron previously stalled at its first contact.
+  ;; It must now finish this frame identically across native batch budgets.
   (let [bodies (:bodies (load-file "scenes/solid-impact.clj"))
         node-counts (mapv #(count (get-in % [:mesh :points])) bodies)
         contact-start
@@ -500,11 +564,11 @@
                     (let [before (az/value (coupled/explicit-progress task))
                           report (az/value (coupled/advance-explicit-batch! task budget))
                           after (az/value (coupled/explicit-progress task))]
-                      (is (= budget (- (:attempts after) (:attempts before))))
-                      (is (false? (:completed report)))
-                      (is (zero? (:status after)))))
+                      (is (<= 0 (- (:attempts after) (:attempts before)) budget))
+                      (is (= (:completed report) (= 1 (:status after))))
+                      (is (#{0 1} (:status after)))))
                   (let [report (az/value (coupled/advance-explicit-batch! task 0))]
-                    (is (pos? (:rejected report)))
+                    (is (:completed report))
                     {:report report
                      :progress (az/value (coupled/explicit-progress task))
                      :states (mapv #(select-keys (job/snapshot %1 %2)
@@ -513,3 +577,138 @@
         reference (run-batches 64)]
     (doseq [budget [1 8]]
       (is (= reference (run-batches budget))))))
+
+(az/defstruct PositionCheck {:layout :extern}
+  [[:report coupled/PositionReport] [:penetration-before :f64] [:penetration-after :f64]
+   [:center-error :f64] [:momentum-error :f64] [:kinetic-error :f64] [:surface-error :f64]])
+
+(az/defn position-block-probe!
+  :- PositionCheck [[assembly [:* coupled/Assembly]]]
+  ;; Start with disjoint solids, then construct an overlapping trial state.
+  (dotimes [index 2]
+    (let [body (az/index (az/field assembly bodies) index)
+          state (az/field body state)]
+      (dynamics/set-particle! state 1 (p/add (dynamics/position state 1) (p/v 0.02 0.0 0.0))
+                               (dynamics/particle-velocity state 1))
+      (coupled/synchronize! body)))
+  (let [before (coupled/observe! assembly)
+        penetration (az/field (coupled/residual assembly) penetration)
+        report (coupled/resolve-position-block! assembly)
+        after (coupled/observe! assembly)
+        ^{:var :f64} surface-error 0.0]
+    (dotimes [index (az/field (az/field assembly bodies) len)]
+      (let [body (az/index (az/field assembly bodies) index)
+            state (az/field body state)]
+        (dotimes [node (az/field (az/field state masses) len)]
+          (set! surface-error
+                (ak/max surface-error
+                        (p/length (p/add (dynamics/position state node)
+                                         (p/scale (az/index (az/field (az/field body surface) points) node) -1.0))))))))
+    (PositionCheck
+     {:report report :penetration-before penetration
+      :penetration-after (az/field (coupled/residual assembly) penetration)
+      :center-error (p/length (p/add (az/field after center) (p/scale (az/field before center) -1.0)))
+      :momentum-error (p/length (p/add (az/field after momentum) (p/scale (az/field before momentum) -1.0)))
+      :kinetic-error (ak/abs (- (az/field after kinetic-energy) (az/field before kinetic-energy)))
+      :surface-error surface-error})))
+
+(deftest coupled-position-repair-preserves-mass-and-velocity
+  (let [body (fn [points density velocity]
+               {:mesh {:points points :cells [[0 1 2 3]]}
+                :material {:young-Pa 10000.0 :poisson-ratio 0.3}
+                :density-kg-m3 density :gravity [0.0 0.0 0.0] :floor? false :friction 0.0
+                :initial-velocities (vec (repeat 4 velocity))})
+        source (fn [height density]
+                 (body [[-0.04 height 0.2] [-0.01 height 0.2]
+                        [-0.04 (+ height 0.1) 0.2] [-0.04 height 0.3]]
+                       density [1.0 0.2 0.3]))]
+    (doseq [ratio [0.1 1.0 10.0]]
+      (joint/with-system!
+        [(source 0.2 1000.0) (source 0.5 (* ratio 1000.0))
+         (body [[0.0 0.0 0.0] [1.0 0.0 0.0] [0.0 1.0 0.0] [0.0 0.0 1.0]]
+               0.5 [-0.5 0.1 0.0])]
+        (fn [assembly _ _]
+          (let [result (az/value (position-block-probe! assembly))]
+            (is (> (:penetration-before result) 0.005))
+            (is (get-in result [:report :completed]) (pr-str result))
+            (is (<= (:penetration-after result) 1.0e-9))
+            (is (< (:center-error result) 1.0e-14))
+            (is (zero? (:momentum-error result)))
+            (is (zero? (:kinetic-error result)))
+            (is (zero? (:surface-error result)))))))))
+
+(deftest explicit-rejected-material-trial-resumes-with-reduced-step
+  (let [description {:mesh {:points [[0.0 0.0 0.0] [0.1 0.0 0.0]
+                                      [0.0 0.1 0.0] [0.0 0.0 0.1]]
+                            :cells [[0 1 2 3]]}
+                     :material {:young-Pa 1000.0 :poisson-ratio 0.3}
+                     :density-kg-m3 1000.0 :gravity [0.0 0.0 0.0] :floor? false :friction 0.0
+                     :initial-velocities [[0.0 0.0 0.0] [-100.0 0.0 0.0]
+                                          [0.0 0.0 0.0] [0.0 0.0 0.0]]}
+        run (fn [split?]
+              (joint/with-system! [description]
+                (fn [assembly states _]
+                  (let [task (coupled/create-explicit-task! assembly 0.001 0.001)
+                        snapshot #(select-keys (job/snapshot (first states) 4)
+                                               [:positions-m :velocities-m-s])
+                        initial (snapshot)]
+                    (try
+                      (when split?
+                        (let [report (az/value (coupled/advance-explicit-batch! task 1))
+                              progress (az/value (coupled/explicit-progress task))]
+                          (is (= 1 (:rejected report)))
+                          (is (zero? (:substeps report)))
+                          (is (zero? (:time report)))
+                          (is (= 0.0005 (:next-step progress)))
+                          (is (= 2 (get-in progress [:last-rejection :reason])))
+                          (is (= initial (snapshot)))))
+                      (let [report (az/value (coupled/advance-explicit-batch! task (if split? 1 2)))
+                            progress (az/value (coupled/explicit-progress task))]
+                        (is (= 1 (:substeps report)))
+                        (is (= 0.0005 (:time report)))
+                        (is (= 2 (:attempts progress)))
+                        {:report report :progress progress :state (snapshot)})
+                      (finally (coupled/destroy-explicit-task! task)))))))]
+    (is (= (run false) (run true)))))
+
+(deftest authored-step-report-accounting
+  ;; A known 2 kg momentum budget: gravity contributes -2 N s over 0.1 s,
+  ;; the recorded floor impulse contributes +1 N s, and final momentum is -1.
+  (let [frame (fn [time center momentum kinetic potential]
+                {:time time :volume-ratio 1.0
+                 :observation {:mass 2.0 :center center :momentum {:y momentum}
+                               :elastic-energy 0.0 :kinetic-energy kinetic
+                               :potential-energy potential}})
+        run {:scene {:bodies [{:gravity [0.0 -10.0 0.0]}]
+                     :bake {:seconds 0.1 :maximum-step 0.001}}
+             :solver-version {:source "fixture"}
+             :maximum-step 0.001 :frames 2 :nodes [1] :tetrahedra [0]
+             :reports [{:substeps 100 :rejected 0 :minimum-jacobian 1.0
+                        :maximum-penetration 0.0 :ground-impulse 1.0}]
+             :histories [[(frame 0.0 {:x 0.0 :y 1.0 :z 0.0} 0.0 0.0 20.0)
+                          (frame 0.1 {:x 0.0 :y 0.975 :z 0.0} -1.0 0.25 19.5)]]
+             :final-particles [{:positions-m [[0.0 0.975 0.0]]
+                                :velocities-m-s [[0.0 -0.5 0.0]]}]}
+        summary (joint/summarize-scene-run run)
+        changed (-> run
+                    (assoc :maximum-step 0.0005)
+                    (assoc-in [:scene :bake :maximum-step] 0.0005)
+                    (assoc-in [:histories 0 1 :observation :center :x] 0.003)
+                    (update-in [:histories 0 1 :observation :center :y] + 0.004)
+                    (assoc-in [:final-particles 0 :positions-m 0] [0.003 0.979 0.0])
+                    (assoc-in [:final-particles 0 :velocities-m-s 0] [0.03 -0.46 0.0]))
+        comparison (joint/compare-scene-runs run changed)]
+    (is (zero? (:vertical-momentum-balance-error-N-s summary)))
+    (is (= 20.0 (:initial-energy-J summary) (:maximum-energy-J summary)))
+    (is (= 19.75 (:final-energy-J summary)))
+    (is (nil? (:vertical-momentum-balance-error-N-s
+               (joint/summarize-scene-run (update-in run [:reports 0] dissoc :ground-impulse)))))
+    (is (< (abs (- 0.005 (:maximum-center-trajectory-difference-m comparison))) 1.0e-15))
+    (is (< (abs (- 0.005 (:maximum-final-node-difference-m comparison))) 1.0e-15))
+    (is (< (abs (- 0.05 (:maximum-final-node-velocity-difference-m-s comparison))) 1.0e-15))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"same scene"
+                         (joint/compare-scene-runs run (assoc-in changed [:scene :bodies 0 :gravity] [0 -9 0]))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"same solver"
+                         (joint/compare-scene-runs run (assoc changed :solver-version {}))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identical sample times"
+                         (joint/compare-scene-runs run (assoc-in changed [:histories 0 1 :time] 0.2))))))

@@ -1,7 +1,9 @@
 (ns field-lab.coupled-job
   "Clojure-authored scopes for multiple interacting finite-deformation solids."
   (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [aguafria.zig :as az]
+            [aguafria.keyword :as ak]
             [field-lab.coupled-fem :as coupled]
             [field-lab.contact-mesh :as contact]
             [field-lab.nonlinear-fem :as dynamics]
@@ -12,7 +14,24 @@
             [field-lab.fem-job :as linear]
             [pitoco.geometry :as geometry]))
 
-(defn with-system!
+(az/defn pitoco_explicit_snapshot_batch
+  "Internal same-build snapshot boundary. Task and reachable layouts must match
+  the recorded compiler/solver version; this is not a public plugin ABI."
+  {:attrs #{:export}}
+  :- :void
+  [[task [:* coupled/ExplicitTask]] [attempts :u32]
+   [report [:* coupled/Report]] [progress [:* coupled/ExplicitProgress]]]
+  (az/set-many!
+    (az/deref report) (coupled/advance-explicit-batch! task attempts)
+    (az/deref progress) (coupled/explicit-progress task)))
+
+(def ^:dynamic *explicit-batch* nil)
+
+(def ^:dynamic *kernel-provenance* nil)
+
+(defonce ^:private solver-lifetime-lock (java.util.concurrent.locks.ReentrantReadWriteLock.))
+
+(defn- with-system*
   "Own all meshes, states and contact surfaces for f. Nothing escapes this scope.
   Each description is a nonlinear-job map. Attached bodies must be unconstrained."
   [descriptions f]
@@ -41,6 +60,25 @@
         (attach 0 []))
       (finally (coupled/destroy! assembly)))))
 
+(defn with-system!
+  "Keep a solver generation alive for the complete native ownership scope."
+  [descriptions f]
+  (let [lock (.readLock solver-lifetime-lock)]
+    (.lock lock)
+    (try
+      (with-system* descriptions f)
+      (finally (.unlock lock)))))
+
+(defn with-solver-update!
+  "Refuse layout changes while any scoped system exists, including direct REPL jobs."
+  [f]
+  (let [lock (.writeLock solver-lifetime-lock)]
+    (when-not (.tryLock lock)
+      (throw (ex-info "A scoped native system still owns this solver generation" {})))
+    (try
+      (f)
+      (finally (.unlock lock)))))
+
 (defn advance!
   "Advance one owned frame in bounded native batches. Cancellation and progress
   callbacks run on the host between batches; accepted states remain resumable."
@@ -63,8 +101,10 @@
        (try
          (loop [accepted nil]
            (check-cancellation! accepted)
-           (let [report (merge (az/value (coupled/advance-explicit-batch! task maximum-attempts))
-                               (az/value (coupled/explicit-progress task)))]
+           (let [report (if *explicit-batch*
+                          (*explicit-batch* task maximum-attempts)
+                          (merge (az/value (coupled/advance-explicit-batch! task maximum-attempts))
+                                 (az/value (coupled/explicit-progress task))))]
              (when on-progress (on-progress report))
              (cond
                (:completed report) report
@@ -118,14 +158,148 @@
 (defn solver-version
   ([] (solver-version :discrete))
   ([contact-method]
-   (merge (when (= contact-method :ipc) ((requiring-resolve 'field-lab.variational/solver-version)))
-          (job/cache-solver-version)
-         {'field-lab.contact-mesh/native-library (contact/ccd-version)}
-         (into (sorted-map)
-               (for [module ['field-lab.contact-mesh 'field-lab.coupled-fem]
-                     :let [info (az/module-info module)]]
-                 [module (mapv #(select-keys % [:logical-id :implementation-fingerprint :schema-fingerprint])
-                               (sort-by (comp pr-str :logical-id) (:definitions info)))])))))
+   (if (= contact-method :mixed)
+     ((requiring-resolve 'field-lab.mixed-job/solver-version))
+     (merge (when *kernel-provenance* {'field-lab.coupled-job/kernel *kernel-provenance*})
+            (when (= contact-method :ipc) ((requiring-resolve 'field-lab.variational/solver-version)))
+            (job/cache-solver-version)
+            {'field-lab.contact-mesh/native-library (contact/ccd-version)}
+            (into (sorted-map)
+                  (for [module ['field-lab.contact-mesh 'field-lab.coupled-fem]
+                        :let [info (az/module-info module)]]
+                    [module (mapv #(select-keys % [:logical-id :implementation-fingerprint :schema-fingerprint])
+                                  (sort-by (comp pr-str :logical-id) (:definitions info)))]))))))
+
+(defn- snapshot-interface [contact-method]
+  (let [address java.lang.foreign.ValueLayout/ADDRESS
+        integer java.lang.foreign.ValueLayout/JAVA_INT
+        real java.lang.foreign.ValueLayout/JAVA_DOUBLE
+        pointer #(az/pointer-segment (az/value %) 0)]
+    (case contact-method
+      :discrete
+      {:module 'field-lab.coupled-job
+       :symbol "pitoco_explicit_snapshot_batch"
+       :binding #'*explicit-batch*
+       :layouts [address integer address address]
+       :buffers #(vector
+                  (coupled/Report {:completed false :substeps 0 :rejected 0 :time 0.0
+                                   :minimum-jacobian 1.0 :maximum-penetration 0.0
+                                   :ground-impulse 0.0 :pair-impulse 0.0})
+                  (coupled/ExplicitProgress
+                   {:status 0 :attempts 0 :next-step 0.0 :minimum-step 0.0
+                    :last-rejection {:reason 0 :step 0.0 :penetration 0.0 :closing-speed 0.0
+                                     :minimum-jacobian 0.0 :stability-number 0.0}}))
+       :arguments (fn [[task attempts]] [(pointer task) (int attempts)])}
+
+      :ipc
+      (do
+        (require 'field-lab.variational)
+        {:module 'field-lab.variational
+         :symbol "pitoco_implicit_snapshot_batch"
+         :binding (ns-resolve 'field-lab.variational '*advance-batch*)
+         :layouts [address address real real real integer integer address]
+         :buffers #(vector
+                    ((ns-resolve 'field-lab.variational 'Report)
+                     {:completed false :status 0 :substeps 0 :iterations 0 :backtracks 0
+                      :rejected 0 :minimum-step 0.0 :time 0.0 :minimum-jacobian 1.0
+                      :contact-energy 0.0 :friction-energy 0.0 :residual 0.0
+                      :contact-impulse {:x 0.0 :y 0.0 :z 0.0} :ground-impulse 0.0}))
+         :arguments (fn [[workspace task clearance pressure tolerance iterations attempts]]
+                      [(pointer workspace) (pointer task) (double clearance) (double pressure)
+                       (double tolerance) (int iterations) (int attempts)])})
+
+      :mixed
+      (do
+        (require 'field-lab.mixed-job)
+        {:module 'field-lab.mixed-job
+         :symbol "pitoco_mixed_snapshot_step"
+         :binding (ns-resolve 'field-lab.mixed-job '*advance-step*)
+         :layouts [address real integer address]
+         :buffers #(vector
+                    ((ns-resolve 'field-lab.mixed-solver 'Report)
+                     {:status 1 :iterations 0 :cg-iterations 0 :line-trials 0
+                      :gradient-fallbacks 0 :force-residual 0.0 :energy 0.0 :path-lower-bound 0.0}))
+         :arguments (fn [[context duration integration]]
+                      [(pointer context) (double duration) (int integration)])})
+
+      (throw (ex-info "Compiled snapshots support :discrete, :ipc or :mixed" {:contact-method contact-method})))))
+
+(defn with-compiled-kernel!
+  "Run synchronous f with a frozen ReleaseSafe solver, preserving owned job buffers.
+  The implicit snapshot links the pinned IPC library; all FEM/Newton code is AguaFria.
+  This private layout boundary is valid only for the recorded build and lifetime."
+  ([f] (with-compiled-kernel! :discrete f))
+  ([contact-method f]
+   (when *kernel-provenance*
+     (throw (ex-info "Compiled kernel scopes cannot be nested" {})))
+   (let [{:keys [module symbol layouts buffers arguments] binding-var :binding}
+         (snapshot-interface contact-method)
+         version (solver-version contact-method)
+         compiler (select-keys (az/configuration) [:target :cpu])
+         boundary (mapv #(select-keys % [:logical-id :implementation-fingerprint :schema-fingerprint])
+                         (sort-by (comp pr-str :logical-id) (:definitions (az/module-info module))))
+         source (str (pr-str [version boundary compiler contact-method :snapshot-abi-2 :ReleaseSafe])
+                     (az/zig-executable))
+         digest (fn [bytes]
+                  (apply str (map #(format "%02x" (bit-and 255 %))
+                                  (.digest (java.security.MessageDigest/getInstance "SHA-256") bytes))))
+         hash (digest (.getBytes source "UTF-8"))
+         output (io/file "build/kernels" hash (str "libpitoco_" (name contact-method) ".dylib"))
+         manifest (io/file (.getParentFile output) "build.edn")
+         modules (if (= contact-method :mixed)
+                   ['field-lab.physics 'field-lab.fem 'field-lab.geometry 'field-lab.hyperelastic
+                    'field-lab.mixed-tetra 'field-lab.mixed-solver 'field-lab.mixed-job]
+                   (cond-> ['field-lab.physics 'field-lab.fem 'field-lab.hyperelastic
+                          'field-lab.nonlinear-fem 'field-lab.mesh-cache
+                          'field-lab.contact-mesh 'field-lab.coupled-fem]
+                     (= contact-method :ipc) (conj 'field-lab.variational)))
+         declarations (into {(ns-resolve module (clojure.core/symbol symbol))
+                             (var-get (ns-resolve module (clojure.core/symbol symbol)))}
+                            (for [module modules [_ declaration] (ns-interns module)
+                                  :when (not= declaration binding-var)]
+                              [declaration (var-get declaration)]))]
+     (io/make-parents output)
+     ;; This changes only the artifact, never the GUI's hot-reload configuration.
+     (locking #'with-compiled-kernel!
+       (with-open [channel (java.nio.channels.FileChannel/open
+                            (.toPath (io/file (.getParentFile output) ".build.lock"))
+                            (into-array java.nio.file.StandardOpenOption
+                                        [java.nio.file.StandardOpenOption/CREATE java.nio.file.StandardOpenOption/WRITE]))
+                   lock (.lock channel)]
+         (when-not (and (.isFile output) (.isFile manifest))
+           (let [artifact (az/build! module
+                                    {:kind :dynamic-lib :output output :optimize "ReleaseSafe"
+                                     :reloadable? false :async? false
+                                     :zig-args (if (= contact-method :ipc)
+                                                 (:zig-args (az/configuration)) ["-lc"])})]
+             (spit manifest
+                   (pr-str (select-keys artifact [:kind :output-path :source-path :command :optimize])))))))
+     (when-not (= version (solver-version contact-method))
+       (throw (ex-info "Solver changed while compiling its snapshot" {})))
+     (with-open [arena (java.lang.foreign.Arena/ofConfined)]
+       (let [owned (buffers)]
+         (try
+           (let [lookup (java.lang.foreign.SymbolLookup/libraryLookup (.toPath output) arena)
+                 symbol (.orElseThrow (.find lookup symbol))
+                 descriptor (java.lang.foreign.FunctionDescriptor/ofVoid
+                             (into-array java.lang.foreign.MemoryLayout layouts))
+                 handle (.downcallHandle (java.lang.foreign.Linker/nativeLinker) symbol descriptor
+                                         (make-array java.lang.foreign.Linker$Option 0))
+                 segments (mapv az/native-segment owned)
+                 advance (fn [& values]
+                           (when-not (every? (fn [[declaration value]] (identical? value (var-get declaration)))
+                                             declarations)
+                             (throw (ex-info "Solver changed during the compiled kernel scope" {})))
+                           (.invokeWithArguments handle (into-array Object (into (arguments values) segments)))
+                           (apply merge (mapv az/value owned)))]
+             (with-bindings {binding-var advance
+                             #'*kernel-provenance*
+                             {:mode :standalone-snapshot :contact-method contact-method :optimize "ReleaseSafe"
+                              :source-sha256 hash :artifact-sha256 (digest (java.nio.file.Files/readAllBytes (.toPath output)))
+                              :artifact (.getCanonicalPath output)}}
+               (f)))
+           (finally
+             (doseq [buffer (reverse owned)] (.close ^java.lang.AutoCloseable buffer)))))))))
 
 (defn with-integrator!
   "Own optional solver scratch for an entire bake; f receives advance(seconds)."
@@ -137,7 +311,8 @@
           (fn [workspace]
             (let [advance (requiring-resolve 'field-lab.variational/advance!)]
               (f #(advance workspace % maximum-step clearance barrier-pressure
-                            (select-keys options [:cancelled? :on-progress]))))))
+                            (select-keys options [:cancelled? :on-progress :velocity-tolerance
+                                                  :maximum-newton-iterations :integration]))))))
     :continuous (f #(advance-continuous! assembly % maximum-step clearance))
     :discrete (f #(advance! assembly % maximum-step
                            (select-keys options [:cancelled? :on-progress])))))
@@ -242,14 +417,26 @@
     (throw (ex-info "Expected :pitoco/solid-scene-v1 with one to three solid bodies" {})))
   (when (or (seq (remove #{:format :title :bodies :bake} (keys scene)))
             (and bake (not (map? bake)))
-            (seq (remove #{:seconds :maximum-step :contact-method :clearance :barrier-pressure} (keys bake))))
+            (seq (remove #{:seconds :maximum-step :contact-method :clearance :barrier-pressure
+                                    :velocity-tolerance :maximum-newton-iterations :integration} (keys bake))))
     (throw (ex-info "Unknown or malformed scene/bake field" {})))
-  (let [{:keys [seconds maximum-step contact-method clearance barrier-pressure] :as integration}
-        (merge {:seconds 1.0 :maximum-step 0.0001 :contact-method :discrete :clearance 1.0e-5 :barrier-pressure 1000.0} bake)
+  (let [{:keys [seconds maximum-step contact-method clearance barrier-pressure
+                velocity-tolerance maximum-newton-iterations integration] :as integration-settings}
+        (merge {:seconds 1.0 :maximum-step 0.0001 :contact-method :discrete
+                :clearance 1.0e-5 :barrier-pressure 1000.0}
+               (when (= :ipc (:contact-method bake))
+                 {:velocity-tolerance 1.0e-7 :maximum-newton-iterations 100 :integration :backward-euler})
+               bake)
         finite? #(and (number? %) (Double/isFinite (double %)))]
+    (when (and (not= contact-method :ipc)
+               (some #(contains? bake %) [:velocity-tolerance :maximum-newton-iterations :integration]))
+      (throw (ex-info "Nonlinear solve controls require :contact-method :ipc" {})))
     (when-not (and (finite? seconds) (<= (/ 1.0 240.0) seconds 60.0)
                    (< (abs (- (* seconds 240.0) (Math/rint (* seconds 240.0)))) 1.0e-8)
                    (finite? maximum-step) (pos? maximum-step)
+                   (or (not= contact-method :ipc)
+                       (and (#{:backward-euler :newmark :bdf2} integration) (finite? velocity-tolerance) (pos? velocity-tolerance)
+                            (integer? maximum-newton-iterations) (<= 1 maximum-newton-iterations 10000)))
                    (#{:discrete :continuous :ipc} contact-method)
                    (finite? clearance) (< 1.0e-12 clearance) (<= clearance 0.01)
                    (finite? barrier-pressure) (< 0.0 barrier-pressure) (<= barrier-pressure 1.0e12))
@@ -273,7 +460,7 @@
         (throw (ex-info "Body IDs must be unique within a scene" {})))
       (when (> (* frames nodes) 8000000)
         (throw (ex-info "Scene exceeds the total 384 MB particle-storage budget" {})))
-      (assoc scene :bodies descriptions :bake integration))))
+      (assoc scene :bodies descriptions :bake integration-settings))))
 
 (defn- presentation-config
   "Compatibility data for the current viewport; physics comes from the body description."
@@ -348,10 +535,11 @@
        (throw (ex-info "Job callbacks must be functions" {:key key}))))
    (bake-scene* scene nil options)))
 
-(defn bake-cache!
-  [{:keys [refinement seconds maximum-step stiffness config geometry]
-    :or {refinement 1 seconds 1.0 maximum-step 0.0001 stiffness 10000.0 config {} geometry :sphere}}]
-  (when-not (and (integer? refinement) (<= 0 refinement 2)
+(defn ball-scene
+  "Build ordinary scene data from the ball inspector, preserving physical inputs."
+  [{:keys [refinement seconds maximum-step stiffness config geometry bodies]
+    :or {bodies 3 refinement 1 seconds 1.0 maximum-step 0.0001 stiffness 10000.0 config {} geometry :sphere}}]
+  (when-not (and (#{1 3} bodies) (integer? refinement) (<= 0 refinement 2)
                  (number? seconds) (Double/isFinite (double seconds)) (<= (/ 1.0 240.0) seconds 60.0)
                  (< (abs (- (* seconds 240.0) (Math/rint (* seconds 240.0)))) 1.0e-8)
                  (number? maximum-step) (Double/isFinite (double maximum-step)) (pos? maximum-step)
@@ -364,23 +552,33 @@
                           (<= 0.0 gravity 20.0) (<= 0.0 friction 1.0)
                           (<= -4.0 vx 4.0) (<= -4.0 vz 4.0) (<= -20.0 spin 20.0))
             (throw (ex-info "Invalid coupled ball configuration in SI units" {})))
-        descriptions (mapv (fn [side]
-                              (let [center [(* side 2.3 radius) (+ height radius) 0.0]
-                                    velocity [(* (- side) vx) 0.0 (* (- side) vz)]
-                                    description (sphere
-                                                 {:refinement refinement :radius radius :center center
-                                                  :velocity velocity :young stiffness
-                                                  :geometry geometry
-                                                  :gravity [0.0 (- gravity) 0.0] :floor? true :friction friction})]
-                                (assoc description
-                                       :density-kg-m3 (/ mass (get-in description [:mesh :metrics :volume]))
-                                       :initial-velocities
-                                       (mapv #(mapv + velocity (linear/cross [0.0 spin 0.0] (linear/subtract % center)))
-                                             (get-in description [:mesh :points]))))) [-1.0 0.0 1.0])
-        result (bake-scene* {:format :pitoco/solid-scene-v1
-                             :bodies descriptions
-                             :bake {:seconds seconds :maximum-step maximum-step}} settings {})]
-    (assoc result :config settings)))
+        sides (if (= bodies 1) [0.0] [-1.0 0.0 1.0])
+        descriptions
+        (mapv
+         (fn [side]
+           (let [center [(* side 2.3 radius) (+ height radius) 0.0]
+                 direction (if (= bodies 1) 1.0 (- side))
+                 velocity [(* direction vx) 0.0 (* direction vz)]
+                 description (sphere {:refinement refinement :radius radius :center center
+                                      :velocity velocity :young stiffness :geometry geometry
+                                      :gravity [0.0 (- gravity) 0.0] :floor? true :friction friction})
+                 points (get-in description [:mesh :points])
+                 velocity-at (fn [point]
+                               (mapv + velocity
+                                     (linear/cross [0.0 spin 0.0] (linear/subtract point center))))]
+             (assoc description
+                    :density-kg-m3 (/ mass (get-in description [:mesh :metrics :volume]))
+                    :initial-velocities (mapv velocity-at points))))
+         sides)]
+    {:config settings
+     :scene {:format :pitoco/solid-scene-v1
+             :bodies descriptions
+             :bake {:seconds seconds :maximum-step maximum-step}}}))
+
+(defn bake-cache!
+  [options]
+  (let [{:keys [config scene]} (ball-scene options)]
+    (assoc (bake-scene* scene config {}) :config config)))
 
 (defn normal-impulses!
   "Solve A*impulse + velocity >= 0 with nonnegative complementary impulses.
@@ -404,3 +602,189 @@
             (throw (ex-info "Coupled normal solve did not satisfy complementarity" report)))
           {:report report :impulses (mapv #(coupled/normal-impulse owned %) (range size))})
         (finally (coupled/destroy-normal-system! owned))))))
+
+(defn scene-step-study!
+  "Bake the same authored mesh/material scene at several maximum time steps.
+  Return measured histories and owned-cache samples; release every native cache.
+  Optional :on-result receives each completed run, allowing incremental evidence."
+  ([source maximum-steps] (scene-step-study! source maximum-steps {}))
+  ([source maximum-steps {:keys [on-result] :as options}]
+   (when-not (and (vector? maximum-steps) (<= 1 (count maximum-steps) 16)
+                  (every? #(and (number? %) (Double/isFinite (double %)) (pos? %)) maximum-steps)
+                  (or (nil? on-result) (ifn? on-result)))
+     (throw (ex-info "Use 1–16 finite positive maximum steps and an optional result callback" {})))
+   (mapv
+    (fn [maximum-step]
+      (let [started (System/nanoTime)
+            result (bake-scene! (assoc-in source [:bake :maximum-step] maximum-step)
+                                (select-keys options [:cancelled? :on-progress :on-frame]))
+            owned (:group result)]
+        (try
+          (let [frames (:frames result)
+                histories (mapv (fn [body]
+                                  (let [item (group/item owned body)]
+                                    (mapv #(az/value (cache/frame-info item %)) (range frames))))
+                                (range (:bodies result)))
+                final-particles
+                (mapv (fn [body nodes]
+                        (let [item (group/item owned body)]
+                          {:positions-m (mapv #(job/vector-data (cache/position item (dec frames) %)) (range nodes))
+                           :velocities-m-s (mapv #(job/vector-data (cache/velocity item (dec frames) %)) (range nodes))}))
+                      (range (:bodies result)) (:nodes result))
+                report {:maximum-step maximum-step
+                        :wall-seconds (/ (- (System/nanoTime) started) 1.0e9)
+                        :scene (:scene result) :solver-version (:solver-version result)
+                        :frames frames :nodes (:nodes result) :tetrahedra (:tetrahedra result)
+                        :reports (:reports result) :histories histories :final-particles final-particles}]
+            (when on-result (on-result report))
+            report)
+          (finally (group/destroy! owned)))))
+    maximum-steps)))
+
+(defn summarize-scene-run
+  "Reduce a completed scene study to SI measurements and conservation residuals.
+  Ground impulse is a separately integrated solver measurement. Its absence
+  leaves momentum balance unavailable; it must never be interpreted as zero."
+  [{:keys [scene histories reports] :as run}]
+  (let [initial (mapv first histories)
+        final (mapv last histories)
+        energy (fn [frame]
+                 (reduce + (map (:observation frame)
+                                [:elastic-energy :kinetic-energy :potential-energy])))
+        total-energies (apply mapv + (mapv #(mapv energy %) histories))
+        ground-impulse (when (every? #(contains? % :ground-impulse) reports)
+                         (reduce + 0.0 (map :ground-impulse reports)))
+        contact-impulse (when (every? #(contains? % :contact-impulse) reports)
+                          (into {} (for [axis [:x :y :z]]
+                                     [axis (reduce + 0.0 (map #(get-in % [:contact-impulse axis]) reports))])))
+        momentum-errors
+        (when contact-impulse
+          (into {} (for [[axis component] [[:x 0] [:y 1] [:z 2]]]
+                     [axis (- (reduce + 0.0
+                                      (map (fn [before after body]
+                                             (- (get-in after [:observation :momentum axis])
+                                                (get-in before [:observation :momentum axis])
+                                                (* (- (:time after) (:time before))
+                                                   (get-in before [:observation :mass])
+                                                   (nth (:gravity body) component))))
+                                           initial final (:bodies scene)))
+                              (axis contact-impulse))])))
+        gravity-impulse
+        (reduce + (map (fn [first-frame last-frame body]
+                         (* (- (:time last-frame) (:time first-frame))
+                            (get-in first-frame [:observation :mass])
+                            (second (:gravity body))))
+                       initial final (:bodies scene)))
+        momentum-change (- (reduce + (map #(get-in % [:observation :momentum :y]) final))
+                           (reduce + (map #(get-in % [:observation :momentum :y]) initial)))]
+    (merge (select-keys run [:maximum-step :wall-seconds :frames :nodes :tetrahedra])
+           {:substeps (reduce + 0 (map :substeps reports))
+            :rejected (reduce + 0 (map :rejected reports))
+            :minimum-jacobian (apply min (map :minimum-jacobian reports))
+            :maximum-sampled-penetration-m
+            (when (every? #(contains? % :maximum-penetration) reports)
+              (apply max (map :maximum-penetration reports)))
+            :maximum-output-solve-residual-m-s
+            (when (every? #(contains? % :residual) reports) (apply max (map :residual reports)))
+            :minimum-volume-ratio (apply min (map :volume-ratio (mapcat identity histories)))
+            :initial-energy-J (first total-energies)
+            :final-energy-J (peek total-energies)
+            :maximum-energy-J (apply max total-energies)
+            :ground-impulse-N-s ground-impulse
+            :contact-impulse-N-s contact-impulse
+            :momentum-balance-error-N-s momentum-errors
+            :vertical-momentum-balance-error-N-s
+            (when ground-impulse (- momentum-change gravity-impulse ground-impulse))})))
+
+(defn compare-scene-runs
+  "Compare the same scene/mesh at different time steps and identical sample times.
+  Absolute differences quantify sensitivity; they do not declare convergence."
+  [coarse fine]
+  (when-not (= (update (:scene coarse) :bake dissoc :maximum-step)
+               (update (:scene fine) :bake dissoc :maximum-step))
+    (throw (ex-info "Time comparison requires the same scene except for maximum step" {})))
+  (when-not (= (:solver-version coarse) (:solver-version fine))
+    (throw (ex-info "Time comparison requires the same solver version" {})))
+  (when-not (and (= (mapv #(mapv :time %) (:histories coarse))
+                    (mapv #(mapv :time %) (:histories fine)))
+                 (= (mapv #(count (:positions-m %)) (:final-particles coarse))
+                    (mapv #(count (:positions-m %)) (:final-particles fine))))
+    (throw (ex-info "Time comparison requires identical sample times and particle counts" {})))
+  (let [distance (fn [a b] (geometry/length (geometry/subtract a b)))
+        centers (fn [run]
+                  (map (fn [frame] (mapv (get-in frame [:observation :center]) [:x :y :z]))
+                       (mapcat identity (:histories run))))
+        positions (fn [run] (mapcat :positions-m (:final-particles run)))
+        velocities (fn [run] (mapcat :velocities-m-s (:final-particles run)))]
+    {:steps-s [(:maximum-step coarse) (:maximum-step fine)]
+     :maximum-center-trajectory-difference-m (apply max (map distance (centers coarse) (centers fine)))
+     :maximum-final-node-difference-m (apply max (map distance (positions coarse) (positions fine)))
+     :maximum-final-node-velocity-difference-m-s
+     (apply max (map distance (velocities coarse) (velocities fine)))}))
+
+(defn write-scene-study!
+  "Persist completed time-step cases atomically, including source and solver identity.
+  :execution is :development or :snapshot. :output is required and must be new.
+  Failures preserve completed cases; this does not resume an incomplete native step."
+  [source {:keys [maximum-steps output execution] :or {execution :development} :as options}]
+  (when-not (and (string? output) (seq output) (#{:development :snapshot} execution))
+    (throw (ex-info "Supply :output and :execution :development or :snapshot" {})))
+  (let [scene (normalize-scene source)
+        file (.getCanonicalFile (io/file output))
+        runs (atom [])
+        started (str (java.time.Instant/now))
+        write! (fn [status extra]
+                 (let [temporary (io/file (.getParentFile file) (str ".study-" (random-uuid) ".tmp"))
+                       record (merge {:format :pitoco/scene-step-study-v1 :status status
+                                      :started-at started :execution execution
+                                      :source scene :maximum-steps maximum-steps :runs @runs} extra)]
+                   (try
+                     (spit temporary (pr-str record))
+                     (java.nio.file.Files/move
+                      (.toPath temporary) (.toPath file)
+                      (into-array java.nio.file.CopyOption
+                                  [java.nio.file.StandardCopyOption/ATOMIC_MOVE
+                                   java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
+                     (finally (java.nio.file.Files/deleteIfExists (.toPath temporary))))))
+        run! (fn []
+               (scene-step-study!
+                scene maximum-steps
+                (assoc (select-keys options [:cancelled? :on-progress :on-frame])
+                       :on-result (fn [result]
+                                    (swap! runs conj result)
+                                    (write! :running {})
+                                    (when-let [on-result (:on-result options)] (on-result result))))))]
+    (when (and (= execution :snapshot) (not (#{:discrete :ipc} (get-in scene [:bake :contact-method]))))
+      (throw (ex-info "Compiled snapshots support discrete or implicit IPC solid jobs" {})))
+    (io/make-parents file)
+    ;; Exclusive creation prevents accidentally replacing an earlier research run.
+    (java.nio.file.Files/createFile (.toPath file) (make-array java.nio.file.attribute.FileAttribute 0))
+    (write! :running {})
+    (try
+      (if (= execution :snapshot) (with-compiled-kernel! (get-in scene [:bake :contact-method]) run!) (run!))
+      (let [summary (mapv summarize-scene-run @runs)
+            comparisons (mapv #(apply compare-scene-runs %) (partition 2 1 @runs))]
+        (write! :completed {:summaries summary :comparisons comparisons})
+        {:output (.getCanonicalPath file) :status :completed :summaries summary :comparisons comparisons})
+      (catch Throwable error
+        (write! (if (:cancelled? (ex-data error)) :cancelled :failed)
+                {:message (ex-message error) :failure (ex-data error)})
+        (throw error)))))
+
+(defn -main [& [source-file options]]
+  (when-not (and source-file options)
+    (throw (ex-info "Usage: clojure -M:scene-study scene.clj '{:maximum-steps [...] :output ... :execution :snapshot}'" {})))
+  (az/configure! {:optimize "ReleaseSafe"})
+  (try
+    (prn (write-scene-study!
+          (if (.endsWith ^String source-file ".clj")
+            (load-file source-file)
+            (edn/read-string (slurp source-file)))
+          (assoc (edn/read-string options)
+                 :on-frame (fn [{:keys [tick frames report]}]
+                             (when (or (zero? (mod tick 24)) (= tick (dec frames)))
+                               (binding [*out* *err*]
+                                 (prn (merge {:tick tick :frames frames}
+                                             (select-keys report [:time :iterations :backtracks :rejected])))
+                                 (flush)))))))
+    (finally (shutdown-agents))))

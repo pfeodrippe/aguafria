@@ -105,7 +105,7 @@
 
 ;; The controller and UI exchange commands/status, never mutable solver storage.
 ;; Phases: 0 offline, 1 ready, 2 queued, 3 running, 4 publishing, 5 done,
-;; 6 cancellation requested, 7 cancelled, 8 failed, 9 stale publication.
+;; 6 cancellation requested, 7 cancelled, 8 failed, 9 stale publication, 10 solver reload.
 (az/defvar job-phase :u8 0)
 
 (az/defvar job-command :u64 0)
@@ -116,7 +116,11 @@
 
 (az/defvar job-duration :f64 0.25)
 
-(az/defvar job-ipc :u8 0)
+(az/defvar job-contact-method :u32 1)
+
+(az/defvar job-inspector-request BakeRequest (mem/zeroes (az/type BakeRequest)))
+
+(az/defvar job-refinement :u32 1)
 
 (az/defvar job-panel-request :u8 0)
 
@@ -150,18 +154,39 @@
   :- :u64 []
   (ak/atomicLoad :u64 (ak/& job-progress-word) :.acquire))
 
-(az/defn queue-scene-job!
-  :- :bool [[source :u32] [ticks :u32] [ipc :bool]]
+(az/defn queue-configured-scene-job!
+  :- :bool
+  [[source :u32] [ticks :u32] [ipc :bool] [refinement :u32]
+   [inspector [:optional [:* BakeRequest]]]]
   (let [phase (job-status)]
-    (when (or (ak/== phase 0) (and (>= phase 2) (<= phase 4)) (ak/== phase 6)
-              (< source 1) (> source 3) (< ticks 1) (> ticks 14400)) (ak/return false))
+    (when (or (ak/== phase 0) (and (>= phase 2) (<= phase 4)) (ak/== phase 6) (ak/== phase 10)
+              (< source 1) (> source 4) (< ticks 1) (> ticks 14400) (> refinement 2)
+              (ak/!= (ak/== source 4) (ak/!= inspector null)))
+      (ak/return false))
     (when (ak/! (transition-job! phase 2)) (ak/return false))
+    (when (ak/!= inspector null)
+      (set! job-inspector-request (az/deref (az/unwrap inspector))))
     (ak/atomicStore :u32 (ak/& job-target-ticks) ticks :.release)
     (report-job-progress! 0 0)
     (ak/atomicStore :u64 (ak/& job-command)
                     (ak/| (ak/<< (ak/as :u64 ticks) 32) (ak/as :u64 source)
+                          (ak/<< (ak/as :u64 (+ refinement 1)) 4)
                           (if ipc (ak/as :u64 8) (ak/as :u64 0))) :.release)
     true))
+
+(az/defn queue-refined-scene-job!
+  :- :bool [[source :u32] [ticks :u32] [ipc :bool] [refinement :u32]]
+  (queue-configured-scene-job! source ticks ipc refinement null))
+
+(az/defn inspector-job-request
+  "Worker reads this snapshot only after consuming the released source-4 command."
+  :- BakeRequest []
+  job-inspector-request)
+
+(az/defn queue-scene-job!
+  "Preserve the original command entry point's 205-node ball preset."
+  :- :bool [[source :u32] [ticks :u32] [ipc :bool]]
+  (queue-refined-scene-job! source ticks ipc 1))
 
 (az/defn cancel-scene-job!
   :- :void []
@@ -190,19 +215,36 @@
         (job-text! "The optional Clojure controller supplies these jobs; standalone playback works independently.")
         (ak/return))
       (job-text! "Offline FEM jobs / Clojure scene data")
+      (when (ak/== phase 10)
+        (job-text! "Reloading native solver declarations. Cached playback remains available.")
+        (ak/return))
       (if (or (ak/== phase 1) (>= phase 7) (ak/== phase 5))
         (do
           (set! _ (ui/aguafria_ui_slider_double "Duration" (ak/& job-duration)
                                                 (/ 1.0 240.0) 6.0 "%.3f s"))
-          (set! _ (ui/aguafria_ui_checkbox "IPC contact (experimental / slower)" (ak/& job-ipc)))
+          (when (ak/!= (ui/aguafria_ui_radio "Implicit FEM / continuous contact"
+                                           (if (ak/== job-contact-method 1) 1 0)) 0)
+            (set! job-contact-method 1))
+          (when (ak/!= (ui/aguafria_ui_radio "Explicit FEM / discrete comparison"
+                                           (if (ak/== job-contact-method 0) 1 0)) 0)
+            (set! job-contact-method 0))
+          (job-text! "Ball mesh / FEM nodes per body")
+          (when (ak/!= (ui/aguafria_ui_radio "43" (if (ak/== job-refinement 0) 1 0)) 0)
+            (set! job-refinement 0))
+          (ui/aguafria_ui_same_line)
+          (when (ak/!= (ui/aguafria_ui_radio "205" (if (ak/== job-refinement 1) 1 0)) 0)
+            (set! job-refinement 1))
+          (ui/aguafria_ui_same_line)
+          (when (ak/!= (ui/aguafria_ui_radio "1209" (if (ak/== job-refinement 2) 1 0)) 0)
+            (set! job-refinement 2))
           (let [ticks (ak/as :u32 (ak/intFromFloat (ak/round (* 240.0 job-duration))))]
             (when (ak/!= (ui/aguafria_ui_button "Bake one ball") 0)
-              (set! _ (queue-scene-job! 1 ticks (ak/!= job-ipc 0))))
+              (set! _ (queue-refined-scene-job! 1 ticks (ak/== job-contact-method 1) job-refinement)))
             (ui/aguafria_ui_same_line)
             (when (ak/!= (ui/aguafria_ui_button "Bake three balls") 0)
-              (set! _ (queue-scene-job! 2 ticks (ak/!= job-ipc 0))))
+              (set! _ (queue-refined-scene-job! 2 ticks (ak/== job-contact-method 1) job-refinement)))
             (when (ak/!= (ui/aguafria_ui_button "Bake box + tetrahedron") 0)
-              (set! _ (queue-scene-job! 3 ticks (ak/!= job-ipc 0)))))
+              (set! _ (queue-scene-job! 3 ticks (ak/== job-contact-method 1)))))
           (job-text! "Complete caches appear in the viewport. Playback remains available."))
         (do
           (when (or (ak/== phase 2) (ak/== phase 3))
@@ -235,8 +277,40 @@
 
 (az/defvar pending-scripted false)
 
+(az/defvar pending-scene-solver :u32 0)
+
 (az/defvar pending-scene-parameters scene/ScriptedScene
   (mem/zeroes (az/type scene/ScriptedScene)))
+
+(az/defstruct CachedSolverRequest
+  [[:revision :u32] [:method :u32] [:source_hash [:array 65 :u8]]])
+
+(az/defvar cached-solver-request-state :u8 0)
+
+(az/defvar pending-cached-solver CachedSolverRequest (mem/zeroes (az/type CachedSolverRequest)))
+
+(az/defn request-cached-solver!
+  "Supplement historical provenance only when both revision and source hash match."
+  :- :bool [[request CachedSolverRequest]]
+  (when (> (az/field request method) 5) (ak/return false))
+  (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& cached-solver-request-state) 0 1 :.acq_rel :.acquire) null)
+    (ak/return false))
+  (set! pending-cached-solver request)
+  (ak/atomicStore :u8 (ak/& cached-solver-request-state) 2 :.release)
+  true)
+
+(az/defn consume-cached-solver!
+  :- :void []
+  (when (ak/!= (ak/atomicLoad :u8 (ak/& cached-solver-request-state) :.acquire) 2) (ak/return))
+  (defer (ak/atomicStore :u8 (ak/& cached-solver-request-state) 0 :.release))
+  (let [source (scene/scripted-scene)]
+    (when (or (ak/== source null) (ak/!= (az/field pending-cached-solver revision) scene/revision))
+      (ak/return))
+    (dotimes [index 65]
+      (when (ak/!= (az/index (az/field pending-cached-solver source_hash) index)
+                   (az/index (az/field (az/unwrap source) source_hash) index))
+        (ak/return)))
+    (scene/set-scripted-solver! (az/field pending-cached-solver method))))
 
 (az/defn request-scripting!
   "Enable the optional external controller on the native owning thread."
@@ -283,18 +357,25 @@
   (ak/atomicStore :u8 (ak/& cache-request-state) 2 :.release)
   true)
 
-(az/defn request-scene!
+(az/defn request-scene-with-solver!
   "Copy scene provenance into the ownership mailbox; the UI publishes both together."
   :- :bool
-  [[owned [:* group/Group]] [revision :u32] [parameters scene/ScriptedScene]]
+  [[owned [:* group/Group]] [revision :u32] [parameters scene/ScriptedScene] [method :u32]]
+  (when (> method 5) (ak/return false))
   (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& cache-request-state) 0 1 :.acq_rel :.acquire) null)
     (ak/return false))
   (az/set-many!
     pending-group owned pending-cache null pending-scripted true
-    pending-scene-parameters parameters pending-cache-revision revision)
+    pending-scene-parameters parameters pending-cache-revision revision pending-scene-solver method)
   (ak/atomicStore :u8 (ak/& cache-request-result) 0 :.release)
   (ak/atomicStore :u8 (ak/& cache-request-state) 2 :.release)
   true)
+
+(az/defn request-scene!
+  "Compatibility entry: an unrecorded method must never be guessed from UI settings."
+  :- :bool
+  [[owned [:* group/Group]] [revision :u32] [parameters scene/ScriptedScene]]
+  (request-scene-with-solver! owned revision parameters 0))
 
 (az/defn cache-result
   :- :u8
@@ -311,7 +392,9 @@
         (do
           (if (ak/!= pending-group null) (scene/adopt-group! (az/unwrap pending-group))
               (scene/adopt-cache! owned))
-          (when pending-scripted (scene/set-scripted-scene! pending-scene-parameters))
+          (when pending-scripted
+            (scene/set-scripted-scene! pending-scene-parameters)
+            (scene/set-scripted-solver! pending-scene-solver))
           (az/set-many!
             (az/field controls baking) 0
             (az/field controls paused) 1
@@ -357,10 +440,10 @@
   true)
 
 (az/defn request-view!
-  "Queue seek/pause (3), export (4), or stop bake (8) on the native UI thread."
+  "Queue seek/pause (3), export (4), stop bake (8), or play cache (9) on the UI thread."
   :- :bool
   [[action :u32] [cursor :u32]]
-  (when (ak/! (or (ak/== action 3) (ak/== action 4) (ak/== action 8)))
+  (when (ak/! (or (ak/== action 3) (ak/== action 4) (ak/== action 8) (ak/== action 9)))
     (ak/return false))
   (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& request-state) 0 1 :.acq_rel :.acquire) null)
     (ak/return false))
@@ -402,6 +485,9 @@
       (az/field controls cursor) (ak/intCast (ak/min (az/field pending-request cursor) (- scene/count 1))))
     (when (ak/== (az/field pending-request action) 3)
       (set! (az/field controls paused) 1))
+    (when (and (ak/== (az/field pending-request action) 9)
+               (ak/== (az/field controls baking) 0) (> scene/count 1))
+      (set! (az/field controls paused) 0))
     (ak/atomicStore :u8 (ak/& request-state) 0 :.release)))
 
 (az/defn edited-config
@@ -417,6 +503,27 @@
                    :vx (az/field controls vx)
                    :vz (az/field controls vz)
                    :spin (az/field controls spin)}))
+
+(az/defn route-inspector-bake!
+  "Route ordinary FEM controls to the attached offline worker before the legacy loop.
+  A busy worker must never cause an unnoticed fallback to the coarse solver."
+  :- :void []
+  (when (and (ak/== (az/field controls deform) 2) (ak/!= (job-status) 0)
+             (or (ak/== (az/field controls action) 1)
+                 (ak/== (az/field controls action) 5)
+                 (ak/== (az/field controls action) 6)))
+    (let [ticks (ak/as :u32 (ak/intFromFloat (ak/round (* 240.0 (az/field controls duration)))))
+          ^:var request (BakeRequest {:config (edited-config)
+                                :bodies (if (ak/== (az/field controls mode) 3) 3 1)
+                                :model 2 :young (az/field controls stiffness)
+                                :duration (/ (ak/as :f64 (ak/floatFromInt ticks)) 240.0)
+                                :action 1 :cursor 0})]
+      (set! _ (queue-configured-scene-job! 4 ticks (ak/== job-contact-method 1)
+                                          job-refinement (ak/& request)))
+      (az/set-many!
+        (az/field controls action) 0
+        (az/field controls baking) 0
+        native-panel/authored-jobs-visible true))))
 
 (az/defn material-energy
   :- :f64
@@ -632,6 +739,7 @@
       (set! (az/field controls action) 0))
     (consume-request!)
     (service-host! (ak/& controls))
+    (route-inspector-bake!)
     (set! scene/requested-continuum (ak/== (az/field controls deform) 2))
     (ak/atomicStore :u64 (ak/& status-word)
                     (ak/| (ak/as :u64 scene/count)
@@ -649,21 +757,52 @@
   [[:spheres [:array 3 [:array 4 :f32]]] [:rotations [:array 3 [:array 4 :f32]]]
    [:camera [:array 4 :f32]] [:viewport [:array 4 :f32]]])
 
+(az/defvar shader-reload-request :u8 0)
+
+(az/defn request-shader-reload!
+  "After compiling shader files, queue pipeline replacement on the render thread."
+  :- :void []
+  (ak/atomicStore :u8 (ak/& shader-reload-request) 1 :.release))
+
+(az/defn service-shader-reload!
+  :- :void []
+  (when (or (ak/!= (ak/atomicRmw :u8 (ak/& shader-reload-request) :.Xchg 0 :.acq_rel) 0)
+            (ak/== renderer/scene-storage-layout null))
+    (renderer/renderer-wait-idle!)
+    (when (renderer/device-lost?) (ak/return))
+    (renderer/initialize-scene-storage! 8388608)
+    (renderer/configure-render-tiles! 64)
+    (surface/clear-embeddings!)
+    (let [pipeline renderer/mesh-pipeline
+          layout renderer/mesh-pipeline-layout]
+      (renderer/create-mesh-pipeline!)
+      (glfw/vkDestroyPipeline renderer/device pipeline null)
+      (glfw/vkDestroyPipelineLayout renderer/device layout null))
+    (set! surface/framing-enabled true)
+    (native-panel/request-frame!)))
+
 (az/defn build-frame!
   {:attrs #{:export}}
   :- :u32
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (debug/assert (and (> width 0) (> height 0)))
+  (service-shader-reload!)
+  (when (renderer/device-lost?) (ak/return 0))
   (consume-cache!)
+  (consume-cached-solver!)
+  (surface/set-visibility-target! (renderer/scene-storage-words) 2097152)
   (renderer/set-frame-tag! scene/revision scene/cursor)
   (let [config (scene/config)
         ^:var frame (FrameData {:spheres [[0.0 0.0 0.0 0.0] [0.0 0.0 0.0 0.0] [0.0 0.0 0.0 0.0]]
                                 :rotations [[0.0 0.0 0.0 1.0] [0.0 0.0 0.0 1.0]
                                             [0.0 0.0 0.0 1.0]]
                                 :camera [(az/field controls yaw) (az/field controls pitch)
-                                         (ak/floatCast (surface/camera-distance (ak/as :f64 (az/field controls distance)))) 0.0]
+                                         (ak/floatCast (surface/camera-distance (ak/as :f64 (az/field controls distance))))
+                                         (ak/floatCast (az/field (surface/camera-target) y))]
                                 :viewport [1280.0 820.0 (ak/floatFromInt scene/body-count)
-                                           (if scene/deformable 1.0 0.0)]})]
+                                           (+ (ak/as :f32 (if scene/deformable 1.0 0.0))
+                                              (ak/as :f32 (if (and (ak/== (az/field controls paused) 0)
+                                                                   (ak/== (az/field controls baking) 0)) 2.0 0.0)))]})]
     (dotimes [i scene/body-count]
       (let [state (scene/body-state (ak/intCast i))
             center (az/field state position)
@@ -701,7 +840,7 @@
                            :vz 0.0})))
   (if scene/deformable
     (+ 3
-       (surface/emit! (ak/& (az/index output 3))
+       (surface/emit-bounded! (ak/& (az/index output 3)) 524285
                       (ak/as :f64 (az/field controls yaw))
                       (ak/as :f64 (az/field controls pitch))
                       (surface/camera-distance (ak/as :f64 (az/field controls distance)))))
@@ -717,7 +856,10 @@
   (let [window (glfw/glfwCreateWindow 1280 820 "Pitoco - AguaFria" null null)]
     (debug/assert (ak/!= window null))
     (glfw/glfwFocusWindow window)
+    (renderer/configure-scene-storage! 8388608)
+    (renderer/configure-render-tiles! 64)
     (debug/assert (renderer/initialize-renderer! window))
+    (set! surface/framing-enabled true)
     (set! scene/requested-continuum (ak/== (az/field controls deform) 2))
     (scene/initialize!)
     (scene/set-material! true (az/field controls stiffness))
@@ -733,12 +875,14 @@
                                                      (az/field interop image_count))))
     (renderer/set-overlay-renderer! (ak/& draw-ui!))
     (let [^{:var :f64} previous (glfw/glfwGetTime)
+          ^{:var :i32} previous-paused (az/field controls paused)
           ^{:var :f64} accumulator 0.0]
       (while (ak/== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE)
         (glfw/glfwPollEvents)
         (let [now (glfw/glfwGetTime)
-              elapsed (ak/min 0.1 (ak/max 0.0 (- now previous)))]
-          (set! previous now)
+              elapsed (if (ak/== previous-paused (az/field controls paused))
+                        (ak/max 0.0 (- now previous)) 0.0)]
+          (az/set-many! previous now previous-paused (az/field controls paused))
           (cond
             (or (ak/== (az/field controls action) 1)
                 (ak/== (az/field controls action) 5)
@@ -782,19 +926,26 @@
               (do
                 (set! accumulator
                       (+ accumulator (* elapsed (ak/as :f64 (az/field controls rate)))))
-                (while (>= accumulator scene/dt)
-                  (if (< (+ scene/cursor 1) scene/count)
-                    (scene/seek! (+ scene/cursor 1))
-                    (if (ak/!= (az/field controls loop) 0)
-                      (scene/seek! 0)
-                      (set! (az/field controls paused) 1)))
-                  (set! accumulator (- accumulator scene/dt))))
+                (let [playback (cache/playback-step scene/cursor scene/count accumulator scene/dt
+                                                   (ak/!= (az/field controls loop) 0))]
+                  (when (ak/!= scene/cursor (az/field playback cursor))
+                    (scene/seek! (az/field playback cursor)))
+                  (set! accumulator (az/field playback remainder))
+                  (when (az/field playback ended) (set! (az/field controls paused) 1))))
               (set! accumulator 0.0)))
-          (set! _ (renderer/render! (ak/& build-frame!))))))
+          ;; Playback lighting has bounded sample counts. Inspection retains
+          ;; small GPU tiles for the more expensive reference lighting pass.
+          (renderer/configure-render-tiles!
+            (if (and (ak/== (az/field controls paused) 0) (ak/== (az/field controls baking) 0)) 0 64))
+          (when (ak/! (renderer/render! (ak/& build-frame!)))
+            (az/set-many! (az/field controls baking) 0 (az/field controls paused) 1)
+            (glfw/glfwSetWindowTitle window "Pitoco - GPU stopped (CPU cache retained)")
+            (glfw/glfwWaitEventsTimeout 0.05)))))
     (renderer/renderer-wait-idle!)
     (renderer/set-overlay-renderer! null)
     (imgui/aguafria_imgui_shutdown)
     (pitoco_aguafria_shutdown_v1)
+    (surface/clear-embeddings!)
     (scene/shutdown!)
     (renderer/shutdown-renderer!)
     (glfw/glfwDestroyWindow window)

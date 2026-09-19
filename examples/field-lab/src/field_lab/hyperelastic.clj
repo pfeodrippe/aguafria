@@ -82,6 +82,93 @@
   (p/dot (az/field deformation c0)
          (p/cross (az/field deformation c1) (az/field deformation c2))))
 
+(az/defn compensated-dot
+  "Recover product and summation roundoff when a dot product nearly cancels offset."
+  :- :f64
+  [[a p/Vec3] [b p/Vec3] [offset :f64]]
+  (let [x (* (az/field a x) (az/field b x))
+        y (* (az/field a y) (az/field b y))
+        z (* (az/field a z) (az/field b z))
+        values (az/array-init [:array 7 :f64]
+                 [x y z offset
+                  (ak/mulAdd :f64 (az/field a x) (az/field b x) (- x))
+                  (ak/mulAdd :f64 (az/field a y) (az/field b y) (- y))
+                  (ak/mulAdd :f64 (az/field a z) (az/field b z) (- z))])
+        ^{:var :f64} sum 0.0
+        ^{:var :f64} correction 0.0]
+    (dotimes [index 7]
+      (let [value (az/index values index)
+            next (+ sum value)]
+        (ak/+= correction (if (>= (ak/abs sum) (ak/abs value))
+                           (+ (- sum next) value)
+                           (+ (- value next) sum)))
+        (set! sum next)))
+    (+ sum correction)))
+
+(az/defn metric-strain
+  "FᵀF-I, with compensated dot products to retain small strains after rotation."
+  :- Matrix [[deformation Matrix]]
+  (let [a (az/field deformation c0)
+        b (az/field deformation c1)
+        c (az/field deformation c2)
+        xx (compensated-dot a a -1.0)
+        yy (compensated-dot b b -1.0)
+        zz (compensated-dot c c -1.0)
+        xy (compensated-dot a b 0.0)
+        xz (compensated-dot a c 0.0)
+        yz (compensated-dot b c 0.0)]
+    (Matrix {:c0 (p/v xx xy xz) :c1 (p/v xy yy yz) :c2 (p/v xz yz zz)})))
+
+(az/defn logarithm-remainder
+  "z-log(1+z) without subtracting first-order terms; caller keeps |z| below 0.125."
+  :- :f64 [[z :f64]]
+  (let [^{:var :f64} result (/ 1.0 24.0)
+        ^{:var :u32} index 23]
+    (while (>= index 2)
+      (set! result (- (/ 1.0 (ak/as :f64 (ak/floatFromInt index))) (* z result)))
+      (ak/-= index 1))
+    (* z z result)))
+
+(az/defn strain-energy-from-metric
+  "Equivalent energy near any proper rotation, expressed in second-order strains.
+  The original signed-J formula remains valid for large strains and inversion."
+  :- :f64
+  [[strain Matrix] [parameters Material] [invariant :f64] [jacobian :f64]]
+  (let [mu (az/field parameters mu)
+        lambda (az/field parameters lambda)
+        rest-shift (- 1.0 (az/field parameters alpha))
+        volume-shift (- jacobian (az/field parameters alpha))]
+    (when (and (> jacobian 0.0) (< (inner strain strain) 0.0625))
+      (let [a (az/field strain c0)
+            b (az/field strain c1)
+            c (az/field strain c2)
+            q (+ (az/field a x) (az/field b y) (az/field c z))
+            second (- (+ (* (az/field a x) (az/field b y))
+                         (* (az/field b y) (az/field c z))
+                         (* (az/field c z) (az/field a x)))
+                      (+ (* (az/field a y) (az/field a y))
+                         (* (az/field a z) (az/field a z))
+                         (* (az/field b z) (az/field b z))))
+            higher (+ second (determinant strain))
+            determinant-change (+ q higher)
+            denominator (+ 1.0 (ak/sqrt (+ 1.0 determinant-change)))
+            s (/ determinant-change denominator)
+            q-minus-two-s (/ (- (* q s) (* 2.0 higher)) denominator)
+            linear-correction (compensated-dot (p/v mu lambda 0.0)
+                                                (p/v 0.75 rest-shift 0.0) 0.0)]
+        (ak/return (+ (* 0.375 mu q-minus-two-s)
+                      (* 0.5 mu (logarithm-remainder (* 0.25 q)))
+                      (* 0.5 lambda s s)
+                      (* linear-correction s)))))
+    (- (+ (* 0.5 mu (- invariant 3.0))
+          (* 0.5 lambda (- (* volume-shift volume-shift) (* rest-shift rest-shift))))
+       (* 0.5 mu (ak/log (/ (+ invariant 1.0) 4.0))))))
+
+(az/defn strain-energy-density
+  :- :f64
+  [[deformation Matrix] [parameters Material] [invariant :f64] [jacobian :f64]]
+  (strain-energy-from-metric (metric-strain deformation) parameters invariant jacobian))
+
 (az/defn evaluate
   :- Response
   [[deformation Matrix] [parameters Material]]
@@ -89,16 +176,48 @@
         jacobian (determinant deformation)
         mu (az/field parameters mu)
         lambda (az/field parameters lambda)
-        rest-shift (- 1.0 (az/field parameters alpha))
         volume-shift (- jacobian (az/field parameters alpha))
         shear (* mu (- 1.0 (/ 1.0 (+ invariant 1.0))))
         pressure (* lambda volume-shift)]
-    (Response {:energy-density
-               (- (+ (* 0.5 mu (- invariant 3.0))
-                     (* 0.5 lambda (- (* volume-shift volume-shift) (* rest-shift rest-shift))))
-                  (* 0.5 mu (ak/log (/ (+ invariant 1.0) 4.0))))
+    (Response {:energy-density (strain-energy-density deformation parameters invariant jacobian)
                :jacobian jacobian
                :pk1 (add (scale deformation shear) (scale (cofactor deformation) pressure))})))
+
+(az/defn evaluate-gradient
+  "Evaluate F=I+H without discarding small H in energy/stress near identity.
+  Algebraically identical to evaluate; large gradients use the general path."
+  :- Response [[h Matrix] [parameters Material]]
+  (let [f (add (identity) h)]
+    (when (>= (inner h h) 0.0625) (ak/return (evaluate f parameters)))
+    (let [a (az/field h c0)
+          b (az/field h c1)
+          c (az/field h c2)
+          transpose (Matrix {:c0 (p/v (az/field a x) (az/field b x) (az/field c x))
+                             :c1 (p/v (az/field a y) (az/field b y) (az/field c y))
+                             :c2 (p/v (az/field a z) (az/field b z) (az/field c z))})
+          metric (add (add h transpose)
+                      (Matrix {:c0 (p/v (p/dot a a) (p/dot a b) (p/dot a c))
+                               :c1 (p/v (p/dot b a) (p/dot b b) (p/dot b c))
+                               :c2 (p/v (p/dot c a) (p/dot c b) (p/dot c c))}))
+          trace (+ (az/field a x) (az/field b y) (az/field c z))
+          cof (cofactor h)
+          determinant-change (+ trace (az/field (az/field cof c0) x)
+                                (az/field (az/field cof c1) y) (az/field (az/field cof c2) z)
+                                (determinant h))
+          invariant-change (+ (* 2.0 trace) (inner h h))
+          cofactor-change (add (add (scale (identity) trace) (scale transpose -1.0)) cof)
+          mu (az/field parameters mu)
+          lambda (az/field parameters lambda)
+          rest-shift (- 1.0 (az/field parameters alpha))
+          rest-stress (compensated-dot (p/v mu lambda 0.0) (p/v 0.75 rest-shift 0.0) 0.0)
+          shear-change (/ (* mu invariant-change) (* 4.0 (+ 4.0 invariant-change)))
+          shear (+ (* 0.75 mu) shear-change)
+          pressure (* lambda (+ rest-shift determinant-change))]
+      (Response
+        {:jacobian (+ 1.0 determinant-change)
+         :energy-density (strain-energy-from-metric metric parameters (+ 3.0 invariant-change) (+ 1.0 determinant-change))
+         :pk1 (add (scale (identity) (+ rest-stress shear-change (* lambda determinant-change)))
+                   (add (scale h shear) (scale cofactor-change pressure)))}))))
 
 (az/defn cofactor-differential
   :- Matrix

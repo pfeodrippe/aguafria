@@ -88,6 +88,37 @@
         (remove-ns caller-symbol)
         (remove-ns provider-symbol)))))
 
+(deftest fully-qualified-macro-import-is-one-zig-identifier
+  (let [provider-symbol 'aguafria.emitter-macro-provider
+        caller-symbol 'aguafria.emitter-macro-caller
+        provider-ns (create-ns provider-symbol)
+        caller-ns (create-ns caller-symbol)]
+    (try
+      (project/register-catalog!
+       {:schema-version 1 :modules {(str provider-symbol) {}}})
+      (intern provider-ns
+              (with-meta 'tick-auto
+                {:aguafria/zig-reference
+                 {:kind :declaration :module (str provider-symbol)
+                  :zig-name "tick_auto" :symbol (symbol (str provider-symbol) "tick-auto")}})
+              nil)
+      (intern provider-ns (with-meta 'invoke-native {:macro true})
+              (fn [_form _env] (list (symbol (str provider-symbol) "tick-auto"))))
+      (binding [*ns* caller-ns]
+        (alias 'provider provider-symbol)
+        (let [declaration
+              (emit/prepare-declaration caller-ns
+                {:kind :fn :name 'run :args [] :return :u32
+                 :body '((provider/invoke-native)) :public? true :implicit-return? true})
+              alias "@\"aguafria.emitter_macro_provider\""
+              source (emit/emit-module (str caller-symbol) [declaration])]
+          (is (str/includes? source (str "const " alias " = @import(")))
+          (is (str/includes? source (str "return " alias ".tick_auto();")))
+          (is (= [alias] (vec (keys (emit/declaration-imports [declaration])))))))
+      (finally
+        (remove-ns caller-symbol)
+        (remove-ns provider-symbol)))))
+
 (deftest clojure-macros-expand-in-declaration-test
   (let [context-ns (the-ns 'aguafria.zig.emitter-test)]
     (is (= '[(transform value 1)]

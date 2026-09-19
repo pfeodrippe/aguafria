@@ -5,8 +5,22 @@ Flecs owns the procedural scene and authoritative body state. Vulkan renders
 the actual deformable triangle surfaces, or analytical rigid spheres, with
 material seams, studio lighting, and ground shadows. Dear ImGui provides the inspector, graph, and timeline.
 
-Two UI presets are available: **Single ball** and **Three balls**. Scripted solid
-scenes can also be baked and displayed from the development REPL (see below). The three-ball preset
+Two inspector presets are available: **Single ball** and **Three balls**.
+**Authored jobs** opens the offline Clojure-scene controls for one ball, three
+balls, and a box/tetrahedron collision. New authored jobs default to **Implicit
+FEM / continuous contact** (convergent IPC); the explicit/discrete path is retained
+as a comparison option. With the authored controller attached, the main **BAKE / Apply & bake** controls
+also route through that worker, preserving the inspector's mass, radius, launch,
+spin, material, body count and duration. Busy requests cannot silently fall back
+to the old coarse solver. This changes future bakes, not an already displayed cache.
+The explorer and numerical-contract panel identify the **cached** method from
+Flecs provenance. Changing the next-job selection cannot relabel an existing
+cache. Old caches without method metadata show "Cached solver not recorded".
+Set **Duration** there and choose
+**43 / 205 / 1209** FEM nodes per ball (80 / 640 / 5120 tetrahedra). These change
+the volume simulation mesh, not just display tessellation. The box/tetrahedron
+retains the mesh authored in its script. The same scenes can be driven from the
+development REPL (see below). The three-ball preset
 launches two spheres toward a third. **Continuum FEM is the default** for new development sessions. It uses a
 finite-deformation Stable Neo-Hookean solid with adaptive substeps and ground/
 convex-body contact. The solver selector also retains XPBD and rigid modes.
@@ -17,6 +31,35 @@ for one ball and 3,627 nodes / 15,360 tets total for three interacting balls.
 Contact convergence, continuous collision handling and calibrated materials
 remain active work. **Clothing, paper, rain and circuit/audio simulation are not
 implemented or rendered yet.** They follow the solid-contact and rendering milestone.
+
+Use **Frame (F)** in the header (or press **F** outside a text field) to fit the
+simulated bodies in the viewport. Framing uses their current FEM vertices and
+center height, so small authored solids no longer disappear in a distant view.
+The current finer authored three-ball example completes all 145 frames of a
+0.6-second collision with 3,627 nodes / 15,360 tets. The recorded minimum element
+Jacobian is 0.3635; independent export checks verify 525,915 particle rows and
+vertical momentum balance within 2.45e-11 N s. These are homogeneous soft-solid
+examples, not calibrated sports balls. `build/three-ball-refined-contact.png`
+shows the actual cache. Refining from 205 to 1,209 nodes per body changes center
+trajectories by up to 7.79 mm: spatial qualification is still incomplete.
+
+## Offline verification tools
+
+Run `python3 tools/verify.py --help` from this directory. One command covers
+`material`, `mesh`, `abi`, `tetra`, `mixed`, `rod`, `lighting`, and `visibility`;
+use `python3 tools/verify.py COMMAND --help` for options. Material precision,
+mesh-export and native ABI checks use Python's standard library. The mechanics
+and rendering reference modules load NumPy/SciPy only when selected; reading a
+rendered capture additionally uses Pillow. None is a Pitoco runtime dependency.
+
+The independent material check uses 80-digit Decimal arithmetic, the element
+check integrates rational polynomials, and the dynamics references use SciPy.
+They check outputs produced by the native AguaFria Zig code. Keeping independent
+arithmetic helps detect errors that native self-comparisons could miss.
+
+The former eight `verify_*.py` scripts are consolidated into `verify.py`,
+`mechanics.py`, and `rendering.py`. Commands below use the new entry point;
+archived reports retain their original filenames and source hashes.
 
 ## Development with AguaFria hot reload
 
@@ -33,17 +76,160 @@ compatible changes. `(az/await! 'field-lab.surface)` waits for that namespace's 
 GLFW on macOS's first OS thread, using the same arrangement as `simple-game`.
 There is no Pitoco-specific hot-reload engine or separate window process.
 
+GLSL edits also need shader compilation and Vulkan pipeline replacement. In the
+existing development REPL, call `(field-lab.build/prepare-shaders!)`, then
+`(field-lab.app/request-shader-reload!)`. Replacement runs on the render thread
+after submitted GPU work finishes; it preserves the displayed simulation cache.
+
 Use this path for development. `:build` below remains the standalone release path,
 which deliberately uses source-only loading and disables development dispatch.
 A separate `:nrepl` does not control an already-running standalone executable.
+
+For solver declaration or native-library layout changes in an attached idle
+development session, use `(field-lab.live/reload-solvers!)`. It reserves the
+authored-job mailbox while AguaFria recompiles, keeping the existing cache
+playable. It refuses to start during a bake or while a direct REPL
+`coupled-job/with-system!` scope owns native solver storage. A failed reload keeps new bakes
+disabled; fix the source and call it again. This coordinates storage ownership
+around AguaFria's existing hot reload, rather than introducing a second compiler.
 
 ### Bake performance
 
 The desktop host explicitly uses `ReleaseSafe` with `:reloadable? true`; hot reload
 does not force Debug compilation. Standalone builds also use `ReleaseSafe`.
 Development dispatch can still cost indirect calls and prevent some inlining;
-the development-versus-standalone runtime difference has not been benchmarked.
+each authored implicit bake now compiles a frozen native solver snapshot. The
+window retains development hot reload; a running bake rejects changed solver
+declarations. Native allocation ownership and cancellation checks remain intact.
 Vulkan currently renders cached geometry; it does not accelerate FEM assembly.
+
+The implicit snapshot reproduces a complete 0.6 s coarse three-ball run to
+6.50e-14 m in final nodal positions and 1.50e-12 m/s in final nodal velocities.
+Observed wall times were 154.40 s through development dispatch and 112.79 s through
+the snapshot; these are not a controlled multi-run performance benchmark.
+The three-pair explicit microbenchmark separately measured medians of 8.597 s and
+1.446 s with identical histories/reports. Faster execution does not fix model error.
+
+Run persistent implicit timestep studies without opening another window:
+
+```sh
+clojure -M:scene-study scenes/three-ball-ipc.clj \
+  '{:maximum-steps [0.001 0.0005] :execution :snapshot :output "build/my-study.edn"}'
+```
+
+The output filename must be new. Completed cases are saved atomically; cancellation
+preserves them. Scene `:bake` data can specify `:velocity-tolerance` (m/s, default
+1e-7) and `:maximum-newton-iterations` (default 100). This tolerance controls the
+nonlinear momentum solve, not timestep or mesh accuracy; they are rejected for
+a non-IPC scene. IPC scenes also accept `:integration :backward-euler` (default)
+or the experimental `:integration :newmark` (beta=1/4, gamma=1/2) and
+`:integration :bdf2` methods. BDF2 preserves accepted-step history across output
+frames, uses variable timestep coefficients with growth capped at 2×, and starts
+with backward Euler when no history exists. Rejected trials preserve history.
+Near an output boundary, the solver fits the final two steps within the step
+cap to avoid a tiny leftover solve. Already aligned schedules retain the same
+clock-roundoff rule. This scheduling safeguard does not establish contact accuracy.
+Create a new context or call `variational/reset-history!` after externally editing
+an existing context's positions or velocities. Its contact impulse is the BDF2
+integral of separately evaluated contact forces, not a momentum-derived value.
+Newmark has verified second-order
+behavior on an independent elastic-oscillation benchmark and less numerical
+damping there; sharp-contact pressure oscillations remain a separate concern.
+It is an experimental authored research option: the three-ball sharp-contact
+qualification currently fails at 1, 0.5 and 0.25 ms. Keep backward Euler for these
+presets; Newmark's oscillator result does not qualify collision accuracy.
+The CLI logs progress every 24 output ticks. Missing penetration or
+ground-impulse measurements are reported as `nil`, never invented as zero.
+
+An independent elastic-wave contact benchmark is available through the same
+impact-study command:
+
+```sh
+clojure -M:impact-study '{:benchmark :rod-impact
+                         :audit-forces? true
+                         :cases [{:divisions [1 8 1]}
+                                 {:divisions [1 16 1]}
+                                 {:divisions [1 8 1] :steps-per-contact 512}]
+                         :output "exports/rod-impact-study.edn"}'
+```
+
+This bakes a small-strain tetrahedral bar into a frictionless rigid plane using
+the implicit IPC solver. Analytical wave propagation supplies independent
+predictions for contact force, duration, impulse and center velocity. The report
+retains input geometry, solver and experiment fingerprints, complete samples,
+rebound error and numerical energy loss. Records are written atomically, preserve
+partial samples on failure and require a new output filename. The benchmark
+currently exposes substantial numerical error; completed runs are not automatically
+labelled validated. See `RESEARCH_AND_DESIGN.md` for results and assumptions.
+With `:audit-forces? true`, each output also retains accepted-step forces and
+impulses, excluding rejected trials. The `:force-audit` summary reports step-level
+L1 error and peaks alongside output-bin error, time coverage and impulse
+reconciliation. Use this audit for force qualification: output averaging can
+hide severe short-duration spikes. This observer does not change integration
+settings or the output cadence.
+
+An independent Python/SciPy **1D reference**, separate from the native solver,
+isolates contact-node inertia. Run it in an environment with NumPy and SciPy:
+
+```sh
+python3 tools/verify.py rod \
+  --output exports/independent-rod-reference.json \
+  --cells 16 32 64 \
+  --formulations lumped-barrier consistent-barrier redistributed-barrier redistributed-signorini
+```
+
+It requires a new output file, checks analytical free-bar frequencies and energy
+gradients, and compares two tight integration settings for every case. Results
+retain source/version identity, force/velocity/gap/energy histories and failed
+comparisons. This research tool does not alter production masses or qualify the
+3D ball simulation. The completed comparison and limitations are recorded under
+"Independent contact-boundary reference" in `RESEARCH_AND_DESIGN.md`.
+
+For a native check of an authored body's mass discretization, call
+`impact-study/audit-inertia!` with a normal solid description. It compares exact
+integration of the tetrahedra's current linear position/velocity fields with
+the actual nodal masses, returning mass, center, inertia tensors, kinetic energy,
+linear/angular momentum and relative differences. Density and integration
+weights refer to the rest configuration. Rod study results now include this
+`:inertia-audit` at the initial and final states. These measurements distinguish
+mass-discretization error from geometry and contact error; they do not advance
+or change the supplied simulation state.
+
+The implicit rod benchmark also accepts `:mass-model :consistent` (default
+`:lumped`). The consistent P1 tetrahedral operator couples neighboring node
+accelerations and integrates kinetic energy over the represented solid. It is
+an experimental numerical option, not a massless contact method or a claim that
+force oscillations are solved. Backward Euler, Newmark and BDF2 use the selected
+operator. Direct native callers select it when creating `variational/with-context!`
+and use `variational/body-observables!` for matching kinetic-energy telemetry;
+`Dynamics`' explicit solver continues to use nodal masses. Every body currently
+requires uniform reference density. The rod's transverse-energy diagnostic is
+still explicitly labelled as a nodal-mass measurement under this option.
+
+In the controlled 32-cell rod comparison, consistent mass lowers accepted-step
+force L1 error from 53.74% to 16.38%, but increases measured time from 29.11 s to
+87.00 s. Both retain contact-force spikes and remain unqualified. The defaults
+are unchanged. See `build/consistent-mass-comparison.png` and the matched study
+and verification described in `RESEARCH_AND_DESIGN.md`.
+
+`field-lab.mixed-tetra` contains a separate experimental element for the next
+contact formulation: enriched displacement with a linear face trace, independent
+P1 velocity, native hyperelastic energy/forces/stiffness, and a conservative
+Bernstein/interval inversion bound over the whole element and coefficient path.
+It passes 11 tests / 458 assertions and independent exact-polynomial checks.
+It is not connected to ball jobs or the viewport yet; global mixed assembly and
+contact validation remain open. The derivation and limitations are recorded in
+`RESEARCH_AND_DESIGN.md`.
+
+The explicit solver now avoids reassembling elastic forces after its velocity
+phase when every position still matches the synchronized contact geometry.
+It refreshes kinetic energy/momentum in the original summation order and falls
+back to full evaluation if a position changed. A matched 0.6-second three-ball
+bake took **93.50 s before / 59.44 s after** (36% less wall time); every sampled
+history, final particle position/velocity, and solver report matched exactly.
+This is one measured workload, not a general speedup guarantee. Evidence:
+`build/motion-refresh-three-ball.edn`. The box/tetrahedron also matches exactly:
+40.42 s before / 34.53 s after (`build/motion-refresh-box.edn`).
 
 The September 12 optimization removes explicit stability-bound and telemetry
 calculations from implicit Newton/line-search evaluations. It also computes each
@@ -163,10 +349,16 @@ retry step across batches. In the live box/tetrahedron test, cancellation during
 mutual contact acknowledged in 0.125 seconds and retained the displayed cache.
 This is a measured case, not a universal wall-time bound.
 
-The 0.6-second explicit box/tetrahedron bake still needs contact work: its repeated
-position-repair failures shrink time steps near 0.253 seconds, before ground
-contact. Batching makes this interruptible but does not fix the numerical stall.
-These controls do not establish physical convergence or complete clothing/paper.
+The 0.6-second box/tetrahedron collision now completes and renders all 145 frames.
+A coupled mass-weighted position solve resolves the mutual-contact stall that
+previously appeared near 0.253 seconds. It retains the existing penetration limit
+and checks element validity afterward. Complete runs at 100, 50 and 25 microsecond
+maximum steps had no rejected steps. An independent particle-export check passes
+the mass/velocity and vertical momentum balances.
+
+The result is still not physically qualified: the 50-to-25-microsecond change
+moved some final nodes by 3.2 cm, and mesh convergence/material calibration remain
+open. Completing this numerical fix does not complete clothing/paper.
 
 Pitoco's application code is AguaFria Zig. The former `native/panel.cpp`,
 `native/extension_host.cpp`, and `native/interval_geometry.hpp` are removed.
@@ -231,6 +423,11 @@ process and does not share that REPL's native world.
   change effective stiffness (Pa), gravity, and friction. Apply starts a new cache.
 - **Bake** computes the chosen duration without a wall-clock deadline.
 - **Space / Play cache / Pause** controls cache playback; **Step** reads the next tick.
+  Playback follows elapsed wall time at the selected rate, skipping display
+  samples when rendering falls behind. It does not run the solver. Playing uses
+  simpler lighting with hard triangle shadows; pausing restores detailed lighting.
+  The viewport labels the active lighting mode. Development scripts can call
+  `(field-lab.live/play!)` through the UI-thread mailbox.
 - **R / Bake** restores initial conditions and recomputes. Select a source or solver node, edit
   parameters, then **Apply & bake experiment** to apply them together.
 - Right-drag the viewport to orbit; use the wheel to dolly. The camera follows
@@ -423,7 +620,7 @@ edges, while preserving the exact reference domain for mesh studies.
 
 The material energy, stress, exact tangent, internal force balance, ballistic
 motion and timestep convergence have numerical tests. Three-ball headless/UI
-agreement covers 62,049 particle records within 5e-12. The UI bridge still uses
+agreement covers 62,049 particle records within 5e-12. The legacy explicit UI bridge uses
 coarse convex vertex/face pair constraints, lacks edge-edge CCD and pair friction,
 and needs impact/mesh convergence and material calibration before predictive use.
 The task ledger keeps those and realistic rendering ahead of clothing.
@@ -872,6 +1069,191 @@ material calibration remain tracked in `AGENT_TODO.md`.
 Run the independent native derivative/contact checks with:
 
 ```sh
-python3 tools/verify_variational.py \
+python3 tools/verify.py abi \
   build/Pitoco.app/Contents/Frameworks/libpitoco_variational.dylib
 ```
+
+`V` (or the **Embedded preview / Measured mesh** button) compares an experimental
+Phong-deformed detailed sphere with the measured FEM boundary on the same cache.
+The preview is available for convex spherical cages and reports its smaller rest
+radius as **Rest inset**. It does not rebake or change collisions. Ground-crossing
+Phong frames use the contained linear interpolant, identified in the UI; an
+invalid linear frame falls back to the measured surface. General render assets still
+need primitive containment and contact validation; see `RESEARCH_AND_DESIGN.md`.
+
+
+The viewport now integrates rough specular environment reflection with GGX
+visible-normal sampling. The ground/environment remains a distant lighting
+approximation, and mesh shadows still use projected silhouettes. Numerical
+lighting checks (NumPy required) are reproducible with:
+
+```sh
+python3 tools/verify.py lighting --check --output build/environment-lighting.json
+```
+
+This checks CPU integration against independent quadrature under constant
+lighting; it does not certify GPU arithmetic or scene light transport.
+
+
+Finite disk studio lights now soften the direct illumination using multiple
+importance sampling. They are preview lights; mesh visibility and matching soft
+shadows remain unfinished. The broader area-light accuracy check is available as:
+
+```sh
+python3 tools/verify.py lighting --area-lights --check --output build/area-light-check.json
+```
+
+Its strict 1% sampling target currently **fails** in grazing cases. The recorded
+failure is intentional evidence of remaining work, not a passing validation claim.
+
+
+The deformable viewport now uses triangle visibility for finite-area shadows;
+`Triangle shadows / r…` in the left panel confirms a complete display packet.
+The old 128/256 direct/floor profile caused a driver-reported GPU hang even
+with 64-pixel tiles. The viewport now uses 16 direct MIS samples per technique,
+32 ground samples per emitter and 32 environment samples. This reduces both
+work and sampling quality. Dense loop presets are not approved live settings;
+higher quality requires bounded sample accumulation in floating-point storage. The shared renderer now has bounded raster
+tiles, correct per-image presentation semaphores, compatible depth-preserving
+passes, and operation-labelled Vulkan errors. Paused inspection requests 64-pixel
+tiles; playback uses one submission with simpler lighting. This remains a preview renderer: device recovery, numerical ray-origin
+bounds and radiometric convergence are unfinished.
+
+`tools/verify.py visibility` generates a diagnostic shader and checks its
+captured GPU result grid against an independent CPU oracle. Its optional
+`--packet` input is a paused-frame native hierarchy snapshot. The existing
+`AGENT_TODO.md` and `RESEARCH_AND_DESIGN.md` contain the measured results and
+remaining qualification work.
+
+For a development validation run on this Homebrew macOS setup, use Khronos
+validation layers with synchronization validation enabled. The layer manifest
+must resolve `libVkLayer_khronos_validation.dylib` by absolute path; a relative
+Homebrew manifest was found but failed to load. Set `VK_LAYER_PATH` to the
+manifest directory, `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`, and
+`VK_VALIDATION_VALIDATE_SYNC=1` before `clojure -M:desktop`. Check the loader log
+for the inserted layer, rather than assuming the environment enabled it.
+`MVK_CONFIG_LOG_LEVEL=4 MVK_CONFIG_DEBUG=1` additionally enables MoltenVK
+shader/driver diagnostics (verbose). These settings are diagnostic, not required
+for the standalone application.
+
+`aguafria-examples-native.renderer/render-work-status` returns an atomic report
+for the last completed frame: low 32 bits are submission count; high 32 bits are
+the maximum submit-through-fence duration in microseconds. This measurement
+includes host and driver overhead; it is not a GPU timestamp query or a promise
+that future frames will fit the same duration.
+
+## Experimental mixed FEM rod study
+
+The native `field-lab.mixed-job` adapter owns tetrahedra, displacement and velocity
+coefficients, solver workspace and accepted SI observables. Failed steps preserve
+the accepted state, including the contact reaction. It currently supports a
+frictionless horizontal plane, backward Euler and experimental SDIRK2. It is not the production ball
+solver and does not yet implement body/body contact or clothing.
+
+Run an offline study against the analytical small-strain, free-end rod impact:
+
+```sh
+clojure -M:impact-study '{:benchmark :mixed-rod-impact
+  :cases [{:divisions [1 2 1] :steps-per-contact 64}
+          {:divisions [1 4 1] :steps-per-contact 64}
+          {:divisions [1 4 1] :steps-per-contact 128}]
+  :output "exports/mixed-rod-study.edn"}'
+```
+
+The CLI uses a frozen ReleaseSafe native kernel by default. This allows compiler
+optimization across the numerical functions without changing the application's
+hot-reload configuration. Set top-level `:execution :reloadable` to measure the
+direct development path. Both execute the same equations; the frozen scope
+records its artifact hash and rejects solver-definition changes during use.
+The internal boundary is valid only for the matching build, not a stable plugin
+ABI. Output includes the authored mesh, material, native
+definition fingerprints, each accepted step's force, momentum balance, energy,
+and certified lower Jacobian bound. Existing output files are never overwritten.
+Failed runs retain their accepted prefix and failure report. A completed solve
+does not imply accurate impact: assess force, rebound and energy errors across
+both timestep and mesh refinement before using this candidate for research.
+
+Set `:integration :sdirk2` in a mixed rod case to exercise the two-stage method.
+Its accepted contact impulse is the weighted sum of stage reactions; endpoint
+force is recorded separately. At four axial cells and Tc/128, it retains more
+energy than backward Euler, but contact-force error worsens from 16.85% to
+75.47%. It is **not qualified for impact** and is not enabled in the ball UI.
+
+The independent small-amplitude vibration study checks the integrator away from
+contact. It derives a mode from exact-polynomial stiffness and consistent mass,
+then compares native coefficients with its analytic trajectory. With Python
+NumPy/SciPy available, run these commands from this example directory (the native
+CSV must not already exist):
+
+```sh
+python3 tools/verify.py mixed --prepare-mode
+clojure -J--enable-native-access=ALL-UNNAMED \
+  -Sdeps '{:aliases {:evidence {:extra-paths ["test"]}}}' -M:evidence \
+  -e '(require (quote aguafria.std) (quote [aguafria.zig :as az]) (quote [field-lab.mixed-job-test :as fixture])) (az/configure! {:optimize "ReleaseSafe"}) (fixture/write-mode-evidence! "build/sdirk-mode-input.edn" "build/sdirk-mode-native.csv") (shutdown-agents)'
+python3 tools/verify.py mixed --verify-mode
+```
+
+SDIRK2's error drops from 1.336% to 0.3355% to 0.0840% for 16/32/64 steps;
+the fine/medium ratio is 0.2503. This uses a 1e-9 N force tolerance. An earlier
+1e-11 N run still stalled and remains a recorded limitation; these results do
+not claim that all precision or contact problems are fixed.
+
+To diagnose the contact error independently, export a completed mixed rod study
+to JSON and run the same Python verifier in rod mode:
+
+```sh
+clojure -Sdeps '{:deps {org.clojure/data.json {:mvn/version "2.5.2"}}}' -M \
+  -e '(require (quote [clojure.edn :as edn]) (quote [clojure.data.json :as json])) (spit "build/rod-native.json" (json/write-str (edn/read-string (slurp "exports/mixed-rod-study.edn")))) (shutdown-agents)'
+python3 tools/verify.py mixed --rod-study build/rod-native.json \
+  --output build/rod-independent.json --refinements 1 --semidiscrete
+```
+
+The output path must be new. Exact-polynomial linear stiffness, dual NNLS contact
+and optional adaptive integration are independent of the native nonlinear solve.
+The linear/native force comparison has a 0.5% gate; disagreement exits nonzero
+and remains in the output. The default-amplitude SDIRK case fails that comparison
+at 2.204%; reducing speed and gap by ten passes at 0.0605%. Adaptive integration
+uses scaled displacement/velocity/impulse tolerances and checks two tolerances.
+Force histories use the native sample windows, including when integration is
+refined inside each window. This is a diagnostic of the discretized model,
+**not a passing continuum-impact validation**.
+
+For native timestep comparisons, call
+`field-lab.impact-study/compare-mixed-time-refinement` with the coarse and fine
+case maps from the saved studies. It requires matching physics and nested accepted
+times, sums fine-step impulses into coarse windows, and reports both common-window
+and raw accepted-step force errors. This distinction matters: a wider measurement
+window can hide force ringing. The helper reports sensitivity and does not assign
+a physical-accuracy pass.
+
+The independent verifier also accepts `--restriction boundary-star` or
+`--restriction continuous-velocity` with `--rod-study`. These diagnose alternative
+linear approximation spaces; they are not native solver modes. The former keeps
+enrichment only in cells incident on the initially lowest vertices, with ordinary
+P1 tetrahedra elsewhere. The latter identifies projected-velocity coefficients
+at shared vertices. Both preserve affine mass moments, but the tested variants
+worsened impact-force accuracy and have not been promoted. Keep `--semidiscrete`
+enabled to check sensitivity to adaptive integration tolerance; failed checks
+remain in the output and exit nonzero.
+
+During frame execution, `VK_ERROR_DEVICE_LOST` now stops further rendering,
+rejects queued frame captures and pauses Pitoco, preserving its CPU cache and
+running development JVM. The window title reports that the GPU stopped;
+`renderer/device-lost?` exposes the state to native/Clojure callers. This is
+failure containment, not automatic device reconstruction. Initialization and
+other Vulkan failures still report their operation and result explicitly.
+
+The experimental mixed tetrahedral kernel now also assembles a global
+backward-Euler potential, residual and tangent with shared boundary coefficients,
+private consistent inertia and physical gravity loads. Two-cell analytic and
+independent polynomial checks pass; this remains separate from ball jobs until
+general contact, job integration and impact benchmarks are completed. See the
+current assembly section in `AGENT_TODO.md` for evidence and outstanding work.
+
+`field-lab.mixed-solver` now provides an experimental native constrained step for
+fixed supports and axis-aligned frictionless planes. Independent nonlinear solves
+agree with it, and 40 ms drop runs complete at three timesteps with certified
+positive Jacobians and checked momentum balance. The runs expose substantial
+backward-Euler damping; this is not a qualified impact solver or a new UI scene.
+Research, numerical evidence and remaining integration work are recorded in
+`RESEARCH_AND_DESIGN.md` and `AGENT_TODO.md`.

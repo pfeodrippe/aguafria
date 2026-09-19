@@ -34,7 +34,7 @@
           (str/replace "!" "_bang")
           (str/replace "/" "__")))))
 
-(declare emit-expr emit-stmt emit-statements emit-type emit-block-expr
+(declare zig-string emit-expr emit-stmt emit-statements emit-type emit-block-expr
          postfix-source multiline-string-tail? indent braced capture-source
          emit-container emit-while-loop emit-for emit-for-loop emit-let-expr)
 
@@ -252,7 +252,12 @@
                                     original-symbol
                                     {:context-ns (ns-name context-ns)
                                      :target-module target-module}))
-            zig-alias (identifier import-alias)]
+            alias-spelling (identifier import-alias)
+            ;; Syntax-quoted Clojure macros produce fully qualified namespaces.
+            ;; A dotted namespace is one import identifier, not a Zig field path.
+            zig-alias (if (re-matches #"[A-Za-z_][A-Za-z0-9_]*" alias-spelling)
+                        alias-spelling
+                        (str "@" (zig-string alias-spelling)))]
         (assoc reference
                :kind (if (= :namespace-root (:kind reference))
                        :namespace-root
@@ -3210,6 +3215,7 @@
        (when-not (contains? explicit alias)
          {:kind :import
           :name (symbol alias)
+          :zig-name alias
           :source-order (or source-order Long/MIN_VALUE)
           :public? false
           :export? false

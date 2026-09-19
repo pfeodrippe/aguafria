@@ -2,8 +2,32 @@
   (:require [pitoco.geometry :as geometry]
             [clojure.test :refer [deftest is testing]]
             [aguafria.zig :as az]
+            [aguafria.keyword :as ak]
+            [field-lab.physics :as p]
             [field-lab.contact-mesh :as contact]
+            [field-lab.geometry :as certificate]
             [field-lab.nonlinear-job :as job]))
+
+(deftest outward-rounding-covers-ieee-boundaries
+  (let [values (for [exponent (range 2048)
+                     fraction [0 1 4503599627370495]
+                     sign [0 Long/MIN_VALUE]]
+                 (Double/longBitsToDouble (bit-or sign (bit-shift-left exponent 52) fraction)))
+        failures
+        (vec (take 10
+                   (for [value values
+                         [direction native reference] [[:up certificate/up #(Math/nextUp (double %))]
+                                                       [:down certificate/down #(Math/nextDown (double %))]]
+                         :let [expected (reference value)
+                               actual (double (native value))]
+                         :when (if (Double/isNaN expected)
+                                 (not (Double/isNaN actual))
+                                 (not= (Double/doubleToRawLongBits expected) (Double/doubleToRawLongBits actual)))]
+                     {:direction direction :input value :expected expected :actual actual})))]
+    (is (empty? failures) (pr-str failures))
+    (spit "build/outward-rounding-evidence.edn"
+          (pr-str {:values (* 2048 3 2) :directions 2 :mismatches failures
+                   :reference :java-math-next-up-down}))))
 
 (defn prism
   "Counterclockwise polygon and its planar triangulation, extruded by one metre."
@@ -365,3 +389,227 @@
         result (contact/sweep! :edge-edge start end)]
     (is (:possible-contact? result))
     (is (nil? (:certificate result)))))
+
+
+(az/defn hierarchy-node
+  :- contact/TreeNode
+  [[surface [:* contact/Surface]] [index :usize]]
+  (az/index (az/field surface tree) index))
+
+(az/defn hierarchy-leaf
+  :- :usize
+  [[surface [:* contact/Surface]] [index :usize]]
+  (az/index (az/field surface leaves) index))
+
+(az/defn adjacency-offset
+  :- :usize
+  [[surface [:* contact/Surface]] [index :usize]]
+  (az/index (az/field surface offsets) index))
+
+(az/defn adjacency-face
+  :- :u32
+  [[surface [:* contact/Surface]] [index :usize]]
+  (az/index (az/field surface incidents) index))
+
+(defn native-surface! [points faces]
+  (let [surface (contact/create! (count points) (count faces))]
+    (try
+      (doseq [[index point] (map-indexed vector points)]
+        (contact/set-point! surface index (job/vector-map point)))
+      (doseq [[index face] (map-indexed vector faces)]
+        (apply contact/set-face! surface index face))
+      (assert (contact/build-hierarchy! surface))
+      surface
+      (catch Throwable error
+        (contact/destroy! surface)
+        (throw error)))))
+
+(defn hierarchy-snapshot [surface face-count]
+  (mapv #(az/value (hierarchy-node surface %)) (range (dec (* 2 face-count)))))
+
+(defn inspect-hierarchy [surface points faces]
+  (let [tree (hierarchy-snapshot surface (count faces))
+        visit (fn visit [index parent depth]
+                (let [{:keys [leaf face left right bounds] actual-parent :parent} (tree index)
+                      lower (mapv (:lower bounds) [:x :y :z])
+                      upper (mapv (:upper bounds) [:x :y :z])
+                      children (when-not leaf [(visit left index (inc depth))
+                                               (visit right index (inc depth))])
+                      indices (if leaf [face] (vec (mapcat :faces children)))
+                      expected (mapcat #(map points (faces %)) indices)]
+                  {:valid? (and (= parent actual-parent)
+                                (or leaf (and (> left index) (> right index) (not= left right)))
+                                (every? :valid? children)
+                                (every? #(every? true? (map <= lower % upper)) expected))
+                   :faces indices
+                   :depth (reduce max depth (map :depth children))}))
+        report (visit 0 0 0)
+        adjacency
+        (mapv (fn [vertex]
+                (let [start (adjacency-offset surface vertex)
+                      end (adjacency-offset surface (inc vertex))]
+                  (mapv #(adjacency-face surface %) (range start end))))
+              (range (count points)))
+        expected-adjacency
+        (mapv (fn [vertex]
+                (vec (for [[i face] (map-indexed vector faces)
+                           member face :when (= member vertex)] i)))
+              (range (count points)))]
+    (assoc report :valid? (and (:valid? report)
+                              (= (vec (range (count faces))) (vec (sort (:faces report))))
+                              (= adjacency expected-adjacency)
+                              (every? (fn [face]
+                                        (let [node (tree (hierarchy-leaf surface face))]
+                                          (and (:leaf node) (= face (:face node)))))
+                                      (range (count faces)))))))
+
+(deftest native-sah-topology-and-adjacency
+  (doseq [{:keys [points faces]} [cube concave
+                                {:points [[0.0 0.0 0.0] [1.0 0.0 0.0] [0.0 1.0 0.0]]
+                                 :faces (vec (repeat 257 [0 1 2]))}
+                                {:points [[0.0 0.0 0.0]] :faces [[0 0 0]]}]]
+    (let [surface (native-surface! points faces)]
+      (try
+        (let [report (inspect-hierarchy surface points faces)
+              before (hierarchy-snapshot surface (count faces))]
+          (is (:valid? report))
+          (is (<= (:depth report) 49))
+          (is (contact/build-hierarchy! surface))
+          (is (= before (hierarchy-snapshot surface (count faces))) "Deterministic rebuild"))
+        (finally (contact/destroy! surface))))))
+
+(deftest native-sah-matches-existing-queries-and-refit
+  (let [random (java.util.Random. 127483)
+        queries (vec (repeatedly 200 #(vec (repeatedly 3 (fn [] (- (* 4.0 (.nextDouble random)) 1.0))))))]
+    (doseq [{:keys [points faces]} [cube concave]]
+      (let [baseline (contact/build! points faces)
+            native (native-surface! points faces)]
+        (try
+          (let [differences
+                (for [point queries
+                      :let [old (query baseline point) new (query native point)]
+                      :when (or (> (abs (- (:squared-distance old) (:squared-distance new))) 1e-12)
+                                (> (abs (- (:signed-distance old) (:signed-distance new))) 1e-12))]
+                  {:query point :old old :native new})]
+            (is (empty? differences) (pr-str (take 3 differences))))
+          (let [moved [0.1 -0.2 0.05]
+                changed (assoc points 0 moved)]
+            (contact/move-point! native 0 (job/vector-map moved))
+            (is (:valid? (inspect-hierarchy native changed faces)))
+            (let [before (hierarchy-snapshot native (count faces))]
+              (contact/refit! native)
+              (is (= before (hierarchy-snapshot native (count faces)))
+                  "Incremental adjacency updates equal complete bottom-up refit")))
+          (finally
+            (contact/destroy! baseline)
+            (contact/destroy! native)))))))
+
+(deftest native-hierarchy-rejects-input-before-topology-writes
+  (let [{:keys [points faces]} cube
+        surface (native-surface! points faces)]
+    (try
+      (let [before (hierarchy-snapshot surface (count faces))]
+        (doseq [value [Double/NaN Double/POSITIVE_INFINITY 1.0e51]]
+          (contact/set-point! surface 0 (job/vector-map [value 0.0 0.0]))
+          (is (false? (contact/build-hierarchy! surface)))
+          (is (= before (hierarchy-snapshot surface (count faces)))))
+        (contact/set-point! surface 0 (job/vector-map (points 0)))
+        (contact/set-face! surface 0 (count points) 1 2)
+        (is (false? (contact/build-hierarchy! surface)))
+        (is (= before (hierarchy-snapshot surface (count faces)))))
+      (finally (contact/destroy! surface)))))
+
+(az/defn exercise-hierarchy-capacity!
+  "Coincident centroids force the bounded fallback at the maximum face capacity."
+  :- :usize
+  [[face-count :usize]]
+  (let [surface (contact/create! 3 face-count)
+        ^{:var :usize} maximum-depth 0
+        ^{:var :usize} leaves 0]
+    (defer (contact/destroy! surface))
+    (contact/set-point! surface 0 (p/v 0.0 0.0 0.0))
+    (contact/set-point! surface 1 (p/v 1.0 0.0 0.0))
+    (contact/set-point! surface 2 (p/v 0.0 1.0 0.0))
+    (dotimes [face face-count] (contact/set-face! surface face 0 1 2))
+    (when (ak/! (contact/build-hierarchy! surface)) (ak/return 0))
+    (dotimes [index (- (* 2 face-count) 1)]
+      (let [node (hierarchy-node surface index)
+            ^{:var :usize} parent index
+            ^{:var :usize} depth 0]
+        (while (ak/!= parent 0)
+          (az/set-many!
+            parent (az/field (hierarchy-node surface parent) parent)
+            depth (+ depth 1))
+          (when (> depth 49) (ak/return 0)))
+        (set! maximum-depth (ak/max maximum-depth depth))
+        (if (az/field node leaf)
+          (do
+            (when (ak/!= (hierarchy-leaf surface (az/field node face)) index) (ak/return 0))
+            (ak/+= leaves 1))
+          (when (or (<= (az/field node left) index) (<= (az/field node right) index)
+                    (ak/!= (az/field (hierarchy-node surface (az/field node left)) parent) index)
+                    (ak/!= (az/field (hierarchy-node surface (az/field node right)) parent) index))
+            (ak/return 0)))))
+    (when (or (ak/!= leaves face-count) (ak/!= (adjacency-offset surface 3) (* 3 face-count)))
+      (ak/return 0))
+    maximum-depth))
+
+(deftest native-hierarchy-capacity-is-bounded
+  (is (= 17 (exercise-hierarchy-capacity! 80000))))
+
+
+(deftest adversarial-sah-depth-fits-existing-query-stack
+  (let [points (mapv #(vector (Math/scalb 1.0 (int (- %))) 0.0 0.0) (range 1000))
+        faces (mapv #(vector % % %) (range 1000))
+        surface (native-surface! points faces)]
+    (try
+      (let [report (inspect-hierarchy surface points faces)]
+        (is (:valid? report))
+        (is (= 42 (:depth report)))
+        (is (< (:depth report) 64)))
+      (finally (contact/destroy! surface)))))
+
+(az/defn packed-fixture
+  :- [:array 1024 :u32]
+  [[surface [:* contact/Surface]] [capacity :usize]]
+  (let [^{:var [:array 1024 :u32]} words ak/undefined]
+    (dotimes [i 1024] (set! (az/index words i) 0xcafebabe))
+    (set! (az/index words 1023)
+          (ak/intCast (contact/pack-hierarchy! surface (ak/& (az/index words 0)) capacity)))
+    words))
+
+(defn word-float [word]
+  (double (Float/intBitsToFloat (unchecked-int word))))
+
+(deftest gpu-packet-bounds-layout-and-rejection
+  (let [surface (native-surface! (:points cube) (:faces cube))
+        required (contact/packed-hierarchy-words surface)]
+    (try
+      (let [packet (vec (az/value (packed-fixture surface required)))
+            [nodes points faces] packet
+            point-start (+ 4 (* 8 nodes))
+            face-start (+ point-start (* 4 points))]
+        (is (= required (packet 1023)))
+        (is (= [23 8 12] [nodes points faces]))
+        (is (every? #{0xcafebabe} (subvec packet required 1023)))
+        (is (= (:points cube)
+               (mapv (fn [i] (mapv #(word-float (packet (+ point-start (* 4 i) %))) (range 3)))
+                     (range points))))
+        (is (= (:faces cube)
+               (mapv (fn [i] (subvec packet (+ face-start (* 4 i)) (+ face-start (* 4 i) 3)))
+                     (range faces))))
+        (doseq [i (range nodes)]
+          (let [node (az/value (hierarchy-node surface i))
+                start (+ 4 (* 8 i))]
+            (doseq [[axis coordinate] (map-indexed vector [:x :y :z])]
+              (is (< (word-float (packet (+ start axis))) (get-in node [:bounds :lower coordinate])))
+              (is (> (word-float (packet (+ start 4 axis))) (get-in node [:bounds :upper coordinate])))))))
+      (doseq [capacity [0 (dec required)]]
+        (let [packet (vec (az/value (packed-fixture surface capacity)))]
+          (is (zero? (packet 1023)))
+          (is (every? #{0xcafebabe} (subvec packet 0 1023)))))
+      (contact/set-point! surface 0 (p/v Double/NaN 0.0 0.0))
+      (let [packet (vec (az/value (packed-fixture surface required)))]
+        (is (zero? (packet 1023)))
+        (is (every? #{0xcafebabe} (subvec packet 0 1023))))
+      (finally (contact/destroy! surface)))))

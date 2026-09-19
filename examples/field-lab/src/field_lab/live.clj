@@ -1,10 +1,13 @@
 (ns field-lab.live
   "Thread-safe Clojure authoring/control of the already-running native workbench."
   (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [pitoco.frame :as frame]
+            [pitoco.geometry :as geometry]
             [aguafria.zig :as az]
             [aguafria-examples-native.readback :as readback]
             [field-lab.app :as app]
+            [field-lab.build :as build]
             [field-lab.nonlinear-job :as nonlinear]
             [field-lab.coupled-job :as joint]
             [field-lab.mesh-cache :as cache]
@@ -46,6 +49,14 @@
   (when-not (app/request-view! 3 tick)
     (throw (ex-info "Native request mailbox is busy" {})))
   {:queued :seek :tick tick})
+
+(defn play! []
+  (let [{:keys [frames baking?]} (status)]
+    (when (or baking? (< frames 2))
+      (throw (ex-info "Playback needs a finished/stopped cache with at least two frames" {}))))
+  (when-not (app/request-view! 9 0)
+    (throw (ex-info "Native request mailbox is busy" {})))
+  {:queued :play})
 
 (defn export! []
   (when (:baking? (status))
@@ -123,8 +134,8 @@
                         {:status (capture-status) :path (.getPath target)}))))
     {:queued :frame :path (.getPath target)}))
 
-(defn- wait-for! [predicate description]
-  (let [deadline (+ (System/nanoTime) 10000000000)]
+(defn- wait-for! [predicate description timeout-ms]
+  (let [deadline (+ (System/nanoTime) (* 1000000 (long timeout-ms)))]
     (loop []
       (when-not (predicate)
         (when (> (System/nanoTime) deadline)
@@ -136,7 +147,11 @@
 (defn verify-captures!
   "Pause/seek and capture selected cached ticks; compare repeat-frame RGB hashes.
   The chosen ticks must fit the current completed cache. Leaves the last tick paused."
-  [{:keys [ticks directory] :or {ticks [0 100 240 100] directory "exports/vulkan-readback"}}]
+  [{:keys [ticks directory timeout-ms]
+    :or {ticks [0 100 240 100] directory "exports/vulkan-readback" timeout-ms 60000}}]
+  (when-not (and (integer? timeout-ms) (<= 1 timeout-ms 600000))
+    (throw (ex-info "Capture timeout must be between 1 and 600000 milliseconds"
+                    {:timeout-ms timeout-ms})))
   (let [revision (app/live-revision)
         {:keys [frames baking?]} (status)]
     (when-not (and (not baking?) (seq ticks)
@@ -146,7 +161,7 @@
           (mapv
             (fn [index tick]
               (seek! tick)
-              (wait-for! #(= tick (:cursor (status))) :seek)
+              (wait-for! #(= tick (:cursor (status))) :seek timeout-ms)
               ;; Let transient input/hover state settle before comparing complete UI images.
               (Thread/sleep 100)
               (acknowledge-capture!)
@@ -155,7 +170,7 @@
                     png (str stem ".png")]
                 (capture! ppm)
                 (wait-for! #(#{:saved :file-failure :unsupported-or-resource-failure}
-                               (capture-status)) :capture)
+                               (capture-status)) :capture timeout-ms)
                 (when-not (= :saved (capture-status))
                   (throw (ex-info "Native frame capture failed" {:status (capture-status)})))
                 (let [metadata (frame/png! ppm png)]
@@ -172,6 +187,34 @@
         (throw (ex-info "Repeated frame pixels changed; inspect UI/input state and geometry" result)))
       result)))
 
+(defn scene-solver-code
+  "Native display identity from baked scene data, never the next-job UI selection."
+  [scene]
+  (case (get-in scene [:bake :contact-method])
+    :discrete 1
+    :continuous 2
+    :ipc (case (get-in scene [:bake :integration] :backward-euler)
+           :backward-euler 3
+           :newmark 4
+           :bdf2 5
+           0)
+    0))
+
+(defn label-cached-scene!
+  "Read a saved source envelope and queue its solver identity for that exact cache."
+  [source-file revision]
+  (let [file (io/file source-file)
+        bytes (java.nio.file.Files/readAllBytes (.toPath file))
+        digest (.digest (java.security.MessageDigest/getInstance "SHA-256") bytes)
+        hash (apply str (map #(format "%02x" (bit-and 255 %)) digest))
+        source (edn/read-string (String. bytes java.nio.charset.StandardCharsets/UTF_8))
+        method (scene-solver-code (:scene source))]
+    (when-not (and (= (.getName file) (str hash ".edn")) (pos? method))
+      (throw (ex-info "Saved scene identity or solver metadata is invalid" {:source-file (str file)})))
+    (when-not (app/request-cached-solver! {:revision revision :method method :source_hash (conj (mapv int hash) 0)})
+      (throw (ex-info "Cached solver metadata mailbox is busy" {})))
+    {:queued :cached-solver :revision revision :method method :source-sha256 hash}))
+
 (defn bake-scene!
   "Bake an authored solid scene and publish its cache plus provenance through Flecs.
   Use a future for offline work; the currently displayed cache remains available."
@@ -182,7 +225,7 @@
         owned (:group result)
         transferred? (volatile! false)]
     (try
-      (let [source (str (pr-str (select-keys result [:scene :solver-version :maximum-step])) "\n")
+      (let [source (str (pr-str (select-keys result [:scene :solver-version :maximum-step :reports])) "\n")
             bytes (.getBytes source java.nio.charset.StandardCharsets/UTF_8)
             digest (.digest (java.security.MessageDigest/getInstance "SHA-256") bytes)
             hash (apply str (map #(format "%02x" (bit-and 255 %)) digest))
@@ -194,7 +237,7 @@
         (io/make-parents file)
         (with-open [output (io/output-stream file)] (.write output bytes))
         (when-let [before-publish (:before-publish options)] (before-publish))
-        (when-not (app/request-scene! owned revision parameters)
+        (when-not (app/request-scene-with-solver! owned revision parameters (scene-solver-code (:scene result)))
           (throw (ex-info "Completed scene could not enter the publication mailbox" {})))
         (vreset! transferred? true)
         (assoc (dissoc result :group) :queued :scripted-scene :source-revision revision
@@ -205,16 +248,82 @@
 
 (defonce authored-controller (atom nil))
 
+(defn reload-solvers!
+  "Reload native solver declarations only with an idle authored worker.
+  Reserve the mailbox first: existing caches remain playable, but no bake can
+  allocate solver storage while its native layout or linked library changes.
+  Failed reloads retain that reservation; fix the source and call again."
+  []
+  (locking #'reload-solvers!
+    (let [phase (app/job-status)]
+      (when-not (and (#{1 5 7 8 9 10} phase) (app/transition-job! phase 10))
+        (throw (ex-info "Solver reload requires an idle attached worker" {:phase phase})))
+      (joint/with-solver-update!
+        (fn []
+          (build/configure-variational!)
+          (require 'field-lab.hyperelastic :reload)
+          (az/await! 'field-lab.hyperelastic)
+          ;; Rebuild native callers as well as the material entry point. The
+          ;; compiled FEM assembly may contain an inlined material evaluation.
+          (require 'field-lab.nonlinear-fem :reload)
+          (az/await! 'field-lab.nonlinear-fem)
+          (require 'field-lab.mesh-cache :reload)
+          (az/await! 'field-lab.mesh-cache)
+          (require 'field-lab.coupled-fem :reload)
+          (az/await! 'field-lab.coupled-fem)
+          (require 'field-lab.variational :reload)
+          (az/await! 'field-lab.variational)
+          (require 'field-lab.coupled-job :reload)
+          (az/await! 'field-lab.coupled-job)))
+      (app/transition-job! 10 (if (= phase 10) 1 phase))
+      {:status :reloaded :revision (app/live-revision)})))
+
+(defn- refine-authored-ball
+  [body refinement]
+  (let [shape (get-in body [:mesh :source])
+        velocities (:initial-velocities body)]
+    (when-not (apply = velocities)
+      (throw (ex-info "This ball preset requires uniform initial velocity" {})))
+    (let [mesh (geometry/sphere {:radius (:radius-m shape)
+                                 :center (:center-m shape)
+                                 :refinement refinement})]
+      (assoc body
+             :mesh mesh
+             :initial-velocities (vec (repeat (count (:points mesh)) (first velocities)))))))
+
 (defn authored-job-source
   "UI presets are ordinary Clojure scene data layered on the same generic bake."
-  [source ticks ipc?]
-  (let [scene (load-file (if (= source 3) "scenes/solid-impact.clj" "scenes/three-ball-ipc.clj"))
-        scene (if (= source 1) (assoc scene :bodies [(second (:bodies scene))]) scene)]
-    (-> scene
-        (assoc :title ({1 "Single soft ball" 2 "Three soft balls" 3 "Box and tetrahedron impact"} source))
-        (assoc-in [:bake :seconds] (/ ticks 240.0))
+  ([source ticks ipc?] (authored-job-source source ticks ipc? 1))
+  ([source ticks ipc? refinement]
+   (when-not (#{0 1 2} refinement)
+     (throw (ex-info "Ball refinement must be 0, 1, or 2" {:refinement refinement})))
+   (let [scene (load-file (if (= source 3) "scenes/solid-impact.clj" "scenes/three-ball-ipc.clj"))
+         scene (if (= source 1) (assoc scene :bodies [(second (:bodies scene))]) scene)
+         scene (if (or (= source 3) (= refinement 1))
+                 scene
+                 (update scene :bodies #(mapv (fn [body] (refine-authored-ball body refinement)) %)))]
+     (-> scene
+         (assoc :title ({1 "Single soft ball" 2 "Three soft balls" 3 "Box and tetrahedron impact"} source))
+         (assoc-in [:bake :seconds] (/ ticks 240.0))
+         (assoc-in [:bake :contact-method] (if ipc? :ipc :discrete))
+         (assoc-in [:bake :maximum-step] (if ipc? 0.0005 0.00005))))))
+
+(defn authored-job-refinement
+  "Bits 4–5 encode refinement + 1; old commands with zero bits retain level 1."
+  [command]
+  (let [code (bit-and (unsigned-bit-shift-right command 4) 3)]
+    (if (zero? code) 1 (dec code))))
+
+(defn inspector-job-source
+  "Convert the released inspector snapshot to the same generic solid scene format."
+  [{:keys [config bodies young duration]} ipc? refinement]
+  (let [source (:scene (joint/ball-scene {:config config :bodies bodies :stiffness young
+                                          :seconds duration :refinement refinement
+                                          :maximum-step (if ipc? 0.0005 0.00005)}))]
+    (-> source
+        (assoc :title (if (= bodies 1) "Inspector ball" "Inspector three balls"))
         (assoc-in [:bake :contact-method] (if ipc? :ipc :discrete))
-        (assoc-in [:bake :maximum-step] (if ipc? 0.0005 0.00005)))))
+        (assoc-in [:bake :clearance] 0.0001))))
 
 (defn- run-authored-job!
   [command running]
@@ -231,8 +340,12 @@
                         (app/report-job-progress!
                          (min ticks (long (Math/floor (* 240.0 (:time report)))))
                          (:substeps report)))
-              result (bake-scene!
-                      (authored-job-source source ticks ipc?)
+              description (if (= source 4)
+                            (inspector-job-source (az/value (app/inspector-job-request)) ipc?
+                                                   (authored-job-refinement command))
+                            (authored-job-source source ticks ipc? (authored-job-refinement command)))
+              bake! #(bake-scene!
+                      description
                       {:cancelled? cancelled? :on-progress report!
                        :on-frame (fn [{:keys [tick report]}]
                                    (app/report-job-progress! tick (:substeps report)))
@@ -241,7 +354,8 @@
                          ;; Cancellation and publication compete for one native
                          ;; phase transition. A queued cache cannot be cancelled.
                          (when-not (app/transition-job! 3 4)
-                           (throw (ex-info "Authored bake cancelled before publication" {:cancelled? true}))))})]
+                           (throw (ex-info "Authored bake cancelled before publication" {:cancelled? true}))))})
+              result (if ipc? (joint/with-compiled-kernel! :ipc bake!) (bake!))]
           (loop []
             (when (= :pending (refined-result))
               (Thread/sleep 20)

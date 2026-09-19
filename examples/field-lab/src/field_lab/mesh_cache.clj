@@ -125,3 +125,26 @@
       (let [y (az/field (az/index (az/field owned reference) node) y)]
         (az/set-many! lower (ak/min lower y) upper (ak/max upper y))))
     (- upper lower)))
+
+
+(az/defstruct PlaybackStep {:layout :extern}
+  [[:cursor :u32] [:remainder :f64] [:ended :bool]])
+
+(az/defn playback-step
+  "Select one displayed sample from all elapsed cache time. Skipped display
+  samples need no seek/copy. Loop arithmetic is bounded even after a long stall."
+  :- PlaybackStep [[cursor :u32] [count :u32] [elapsed :f64] [dt :f64] [looping :bool]]
+  (let [^:var result (PlaybackStep {:cursor cursor :remainder 0.0 :ended false})]
+    (when (ak/== count 0)
+      (az/set-many! (az/field result cursor) 0 (az/field result ended) true)
+      (ak/return result))
+    (let [ticks (ak/floor (/ elapsed dt))
+          target (+ (ak/as :f64 (ak/floatFromInt cursor)) ticks)]
+      (set! (az/field result remainder) (mod elapsed dt))
+      (if looping
+        (set! (az/field result cursor) (ak/intFromFloat (mod target (ak/as :f64 (ak/floatFromInt count)))))
+        (if (>= target (ak/as :f64 (ak/floatFromInt (- count 1))))
+          (az/set-many! (az/field result cursor) (- count 1)
+                        (az/field result remainder) 0.0 (az/field result ended) true)
+          (set! (az/field result cursor) (ak/intFromFloat target)))))
+    result))

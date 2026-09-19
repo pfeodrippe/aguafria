@@ -2,13 +2,114 @@
   (:require [clojure.test :refer [deftest is]]
             [clojure.string :as str]
             [aguafria.zig :as az]
+            [aguafria.keyword :as ak]
             [field-lab.coupled-job :as job]
             [field-lab.mesh-cache :as cache]
             [field-lab.mesh-group :as group]
             [field-lab.mesh-cache-test :as mesh-test]
             [field-lab.scene :as scene]
             [field-lab.app :as app]
+            [field-lab.live :as live]
             [field-lab.physics :as physics]))
+
+(az/defn route-test-inspector!
+  :- :u32 [[refinement :u32]]
+  (az/set-many! app/job-contact-method 1 app/job-refinement refinement)
+  (app/consume-request!)
+  (app/route-inspector-bake!)
+  (ak/intCast (az/field app/controls action)))
+
+(deftest inspector-bake-uses-implicit-worker-with-physical-inputs
+  ;; Requires an isolated native world; never execute against the live controller.
+  (scene/initialize!)
+  (try
+    (let [config (merge (az/value (physics/defaults))
+                        {:radius 0.2 :mass 2.0 :height 0.5 :vx 0.6 :vz -0.2 :spin 1.2 :friction 0.4})
+          revision (az/value scene/revision)]
+      (doseq [bodies [1 3]]
+        (app/set-job-status! 1)
+        (is (app/request-bake! config bodies 2 17000.0 0.025))
+        (is (zero? (route-test-inspector! 1)))
+        (let [command (long (app/take-job-command!))
+              request (az/value (app/inspector-job-request))
+              source (live/inspector-job-source request (bit-test command 3)
+                                                (live/authored-job-refinement command))]
+          (is (= 4 (bit-and command 7)))
+          (is (= 6 (unsigned-bit-shift-right command 32)))
+          (is (= config (:config request)))
+          (is (= :ipc (get-in source [:bake :contact-method])))
+          (is (= bodies (count (:bodies source))))
+          (is (every? #(= 205 (count (get-in % [:mesh :points]))) (:bodies source)))
+          (is (every? #(= 17000.0 (get-in % [:material :young-Pa])) (:bodies source)))
+          (is (every? #(= 0.4 (:friction %)) (:bodies source)))
+          (is (every? #(< (abs (- 2.0 (* (:density-kg-m3 %) (get-in % [:mesh :metrics :volume])))) 1.0e-12)
+                      (:bodies source)))
+          (is (= revision (az/value scene/revision)))
+          ;; A second request while busy cannot overwrite the released snapshot
+          ;; or fall through to the old per-frame coarse integrator.
+          (doseq [busy-phase [3 10]]
+            (app/set-job-status! busy-phase)
+            (is (app/request-bake! (assoc config :mass 3.0) bodies 2 18000.0 0.05))
+            (is (zero? (route-test-inspector! 2)))
+            (is (zero? (app/take-job-command!)))
+            (is (= request (az/value (app/inspector-job-request))))))))
+    (finally
+      (app/set-job-status! 0)
+      (scene/shutdown!))))
+
+(deftest solver-reload-reserves-the-mailbox-on-failure
+  (try
+    (app/set-job-status! 5)
+    (with-redefs [field-lab.build/configure-variational!
+                  (fn [] (throw (ex-info "Deliberate link failure" {})))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Deliberate link failure"
+                           (live/reload-solvers!))))
+    (is (= 10 (app/job-status)))
+    (is (false? (app/queue-scene-job! 1 1 true)))
+    (is (zero? (app/take-job-command!)))
+    (app/set-job-status! 3)
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"idle attached worker"
+                         (live/reload-solvers!)))
+    (is (= 3 (app/job-status)))
+    (finally (app/set-job-status! 0))))
+
+(deftest authored-ball-mesh-selection
+  (doseq [[level nodes cells] [[0 43 80] [1 205 640] [2 1209 5120]]
+          [source bodies] [[1 1] [2 3]]]
+    (let [scene (live/authored-job-source source 144 false level)
+          baseline (live/authored-job-source source 144 false)]
+      (is (= bodies (count (:bodies scene))))
+      (is (= (:bake baseline) (:bake scene)))
+      (doseq [[body original] (map vector (:bodies scene) (:bodies baseline))]
+        (is (= nodes (count (get-in body [:mesh :points])) (count (:initial-velocities body))))
+        (is (= cells (count (get-in body [:mesh :cells]))))
+        (is (= (dissoc original :mesh :initial-velocities) (dissoc body :mesh :initial-velocities)))
+        (is (every? #{(first (:initial-velocities original))} (:initial-velocities body))))))
+  (is (= (live/authored-job-source 3 144 false 0) (live/authored-job-source 3 144 false 2)))
+  (is (thrown? clojure.lang.ExceptionInfo (live/authored-job-source 2 144 false 3))))
+
+(deftest authored-mesh-command-protocol
+  ;; Isolated native mailbox test. Do not execute in an attached live controller.
+  (try
+    (doseq [level [0 1 2]]
+      (app/set-job-status! 1)
+      (is (app/queue-refined-scene-job! 2 144 true level))
+      (is (= 2 (app/job-status)))
+      (is (false? (app/queue-refined-scene-job! 1 144 false 1)))
+      (let [command (long (app/take-job-command!))]
+        (is (= 144 (unsigned-bit-shift-right command 32)))
+        (is (= 2 (bit-and command 7)))
+        (is (bit-test command 3))
+        (is (= level (live/authored-job-refinement command)))))
+    (app/set-job-status! 1)
+    (is (false? (app/queue-refined-scene-job! 2 144 false 3)))
+    (is (= 1 (app/job-status)))
+    (is (app/queue-scene-job! 1 1 false))
+    (is (= 1 (live/authored-job-refinement (long (app/take-job-command!)))))
+    (is (= 1 (live/authored-job-refinement (bit-or (bit-shift-left 144 32) 2))))
+    (finally
+      (app/take-job-command!)
+      (app/set-job-status! 0))))
 
 (az/defn published-cache
   :- [:* cache/Cache]
@@ -73,6 +174,51 @@
 
 (az/defn scripted? :- :bool []
   (ak/!= (scene/scripted-scene) null))
+
+(deftest cached-solver-provenance-follows-the-published-cache
+  (let [source (live/authored-job-source 1 1 false 0)
+        result (job/bake-scene! source)
+        owned (:group result)
+        transferred? (volatile! false)
+        hash (conj (vec (repeat 64 (int \a))) 0)
+        parameters {:gravity [{:x 0.0 :y -9.81 :z 0.0} {:x 0.0 :y 0.0 :z 0.0} {:x 0.0 :y 0.0 :z 0.0}]
+                    :floor [true false false] :source_hash hash}]
+    (scene/initialize!)
+    (try
+      (let [revision (az/value scene/revision)]
+        (is (false? (app/request-scene-with-solver! owned revision parameters 99)))
+        (when-not (app/request-scene-with-solver! owned revision parameters 1)
+          (throw (ex-info "Cache publication unexpectedly busy" {})))
+        (vreset! transferred? true)
+        (app/consume-cache!)
+        (is (= :published (live/refined-result)))
+        (is (= 1 (scene/scripted-solver)))
+        (let [current (az/value scene/revision)
+              request {:revision current :method 3 :source_hash hash}]
+          (doseq [stale [(assoc request :revision (dec current))
+                        (assoc request :source_hash (conj (vec (repeat 64 (int \b))) 0))]]
+            (is (app/request-cached-solver! stale))
+            (is (false? (app/request-cached-solver! request)))
+            (app/consume-cached-solver!)
+            (is (= 1 (scene/scripted-solver))))
+          (is (app/request-cached-solver! request))
+          (app/consume-cached-solver!)
+          (is (= 3 (scene/scripted-solver)))
+          (is (= current (az/value scene/revision)))
+          (scene/set-scripted-scene! parameters)
+          (is (zero? (scene/scripted-solver)))
+          (scene/set-scripted-solver! 4)
+          (scene/set-solver! 0 10000.0)
+          (is (zero? (scene/scripted-solver)))
+          (is (not (scripted?)))))
+      (finally
+        (if @transferred? (app/consume-cache!) (group/destroy! owned))
+        (scene/shutdown!))))
+  (doseq [[method integration code] [[:discrete nil 1] [:continuous nil 2]
+                                    [:ipc :backward-euler 3] [:ipc :newmark 4] [:ipc :bdf2 5]
+                                    [:ipc :unknown 0] [:unknown nil 0]]]
+    (is (= code (live/scene-solver-code {:bake {:contact-method method :integration integration}}))))
+  (is (= 3 (live/scene-solver-code {:bake {:contact-method :ipc}}))))
 
 (az/defn cached-material
   :- physics/Vec3

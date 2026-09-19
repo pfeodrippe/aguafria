@@ -7,3 +7,5 @@ imgui.ini
 .desktop-nrepl-port
 
 plugins/rewind/generated/
+
+__pycache__/

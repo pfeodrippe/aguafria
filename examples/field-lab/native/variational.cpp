@@ -205,6 +205,18 @@ PITOCO_API uint32_t pitoco_aguafria_variational_lag_friction(void* handle, const
     catch (...) { last_error = "Unknown friction lag failure"; return 1; }
 }
 
+PITOCO_API uint32_t pitoco_aguafria_variational_friction_origin(void* handle, const double* origin) noexcept
+{
+    try {
+        auto& state = context(handle);
+        // The AguaFria integrator supplies the affine velocity-map origin.
+        // This is not a physical configuration and must not rebuild contacts.
+        state.step_start = state.mesh.vertices(state.positions(origin));
+        return 0;
+    } catch (const std::exception& error) { last_error = error.what(); return 1; }
+    catch (...) { last_error = "Unknown friction origin failure"; return 1; }
+}
+
 PITOCO_API uint32_t pitoco_aguafria_variational_matrix_begin(void* handle, const double* masses, double scale) noexcept
 {
     try {

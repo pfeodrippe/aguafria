@@ -21,6 +21,58 @@
 
 (def identity-columns [[1.0 0.0 0.0] [0.0 1.0 0.0] [0.0 0.0 1.0]])
 
+(defn decimal-energy
+  "Independent original material formula, evaluated at 80 digits from exact f64 inputs."
+  [columns coefficients]
+  (binding [*math-context* (java.math.MathContext. 80)]
+    (let [decimal #(java.math.BigDecimal. (double %))
+          f (mapv #(mapv decimal %) columns)
+          cross (fn [[ax ay az] [bx by bz]]
+                  [(- (* ay bz) (* az by)) (- (* az bx) (* ax bz)) (- (* ax by) (* ay bx))])
+          invariant (reduce + (map #(* % %) (mapcat clojure.core/identity f)))
+          jacobian (reduce + (map * (f 0) (cross (f 1) (f 2))))
+          mu (decimal (:mu coefficients))
+          lambda (decimal (:lambda coefficients))
+          alpha (decimal (:alpha coefficients))
+          ;; log(x) = 2 atanh((x-1)/(x+1)); near rest twenty terms are ample.
+          ratio (/ (- invariant 3M) (+ invariant 5M))
+          logarithm (* 2M (loop [index 0 term ratio sum 0M]
+                            (if (= index 20)
+                              sum
+                              (recur (inc index) (* term ratio ratio)
+                                     (+ sum (/ term (bigdec (inc (* 2 index)))))))))
+          rest (- 1M alpha)
+          volume (- jacobian alpha)]
+      (double (/ (- (+ (* mu (- invariant 3M))
+                        (* lambda (- (* volume volume) (* rest rest))))
+                     (* mu logarithm)) 2M)))))
+
+(deftest small-strain-energy-retains-precision-after-rotation
+  (let [rotate (fn [[x y z]]
+                 [(- (* (Math/cos 0.7) x) (* (Math/sin 0.7) y))
+                  (+ (* (Math/sin 0.7) x) (* (Math/cos 0.7) y)) z])]
+    (doseq [poisson [0.0 0.3]
+            strain [1e-4 1e-6 1e-8 1e-10 1e-12]
+            columns [(assoc-in identity-columns [0 0] (+ 1.0 strain))
+                     (assoc-in identity-columns [1 0] strain)]
+            rotated? [false true]]
+      (let [columns (if rotated? (mapv rotate columns) columns)
+            parameters (material/material 1e6 poisson)
+            expected (decimal-energy columns (az/value parameters))
+            actual (:energy-density (az/value (material/evaluate (matrix columns) parameters)))]
+        (is (<= (abs (- actual expected)) (max 1e-23 (* 1e-9 (abs expected))))
+            (pr-str {:poisson poisson :strain strain :rotated? rotated?
+                     :expected expected :actual actual}))))))
+
+(deftest compensated-energy-gradient-matches-pk1
+  (let [columns [[1.02 0.003 0.0] [0.001 0.98 0.002] [0.0 0.002 1.01]]
+        stress (entries (:pk1 (response columns)))
+        step 1e-6]
+    (doseq [column (range 3) axis (range 3)]
+      (let [plus (:energy-density (response (update-in columns [column axis] + step)))
+            minus (:energy-density (response (update-in columns [column axis] - step)))]
+        (is (< (abs (- (/ (- plus minus) (* 2 step)) (stress (+ (* 3 column) axis)))) 1e-4))))))
+
 (deftest energy-gradient-and-tangent
   (let [columns [[1.1 0.03 -0.01] [0.1 0.85 0.04] [0.02 -0.03 1.02]]
         parameters (material/material 100000.0 0.4)
@@ -146,3 +198,26 @@
     (is (< 3.5 (/ coarse fine) 4.5) (pr-str {:coarse coarse :fine fine}))
     (doseq [result results]
       (is (< (abs (/ (- (:final-energy result) (:initial-energy result)) (:initial-energy result))) 0.01)))))
+
+(deftest displacement-gradient-preserves-tiny-dilation
+  ;; Exactly representable parameters have zero rest stress. Their physical
+  ;; Lame constants are mu=3000, lambda=5500 Pa, hence W=33750*epsilon^2.
+  (let [parameters {:mu 4000.0 :lambda 8000.0 :alpha 1.375}]
+    (doseq [epsilon [1e-12 1e-10 1e-8]]
+      (let [h (matrix [[epsilon 0.0 0.0] [0.0 epsilon 0.0] [0.0 0.0 epsilon]])
+            result (az/value (material/evaluate-gradient h parameters))]
+        (is (< (abs (- (/ (:energy-density result) (* 33750.0 epsilon epsilon)) 1.0)) 1e-7))
+        (doseq [[column axis] [[:c0 :x] [:c1 :y] [:c2 :z]]]
+          (is (< (abs (- (/ (get-in result [:pk1 column axis]) (* 22500.0 epsilon)) 1.0)) 1e-7)))))))
+
+(deftest displacement-gradient-agrees-with-general-constitutive-response
+  ;; Include shear, compression, and both sides of the near-identity fallback.
+  (let [parameters (material/material 100000.0 0.4)]
+    (doseq [scale [1e-4 0.1 0.249 0.251 0.5 -0.2]]
+      (let [h [[scale 0.0 0.0] [(* 0.1 scale) 0.0 0.0] [0.0 0.0 0.0]]
+            f (mapv #(mapv + %1 %2) identity-columns h)
+            direct (az/value (material/evaluate-gradient (matrix h) parameters))
+            general (az/value (material/evaluate (matrix f) parameters))]
+        (is (< (abs (- (:energy-density direct) (:energy-density general))) 1e-9))
+        (is (< (difference (entries (:pk1 direct)) (entries (:pk1 general))) 1e-9))
+        (is (< (abs (- (:jacobian direct) (:jacobian general))) 1e-14))))))
