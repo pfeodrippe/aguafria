@@ -111,8 +111,7 @@
 (defn- migration-declaration
   []
   (capture-declaration
-   '(az/defn aguafria_migrate_log_performance_mode
-      :- :void
+   '(az/defn aguafria_migrate_log_performance_mode :void
       [old_address :- :usize new_address :- :usize]
       (ak/const old_value [:*const :bool] (ak/ptrFromInt old_address))
       (ak/const new_value [:* AguafriaLogPerformanceState]
@@ -211,10 +210,10 @@
                          "aguafria_migrate_log_performance_mode"))]
             (binding [*ns* (the-ns vopr-module)]
               (eval
-               '(az/defn aguafria_log_state_generation :- :u32 []
+               '(az/defn aguafria_log_state_generation :u32 []
                   (az/field log_performance_mode migration_generation)))
               (eval
-               '(az/defn aguafria_log_state_enabled :- :bool []
+               '(az/defn aguafria_log_state_enabled :bool []
                   (az/field log_performance_mode enabled))))
             (az/await! vopr-module)
             (let [generation

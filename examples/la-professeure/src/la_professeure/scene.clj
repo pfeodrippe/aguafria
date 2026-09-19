@@ -69,7 +69,7 @@
 (az/defvar passage-entities [:array 1024 :u64] (mem/zeroes (az/type [:array 1024 :u64])))
 (az/defvar passage-entity-count :u32 0)
 
-(az/defn ensure-world! :- :void []
+(az/defn ensure-world! :void []
   (when (ak/== world ak/null)
     (set! world (flecs/ecs_init))
     (let [entity-desc (flecs/ecs_entity_desc_t {:name "DialoguePassage"})
@@ -78,7 +78,7 @@
           desc (flecs/ecs_component_desc_t {:entity component-entity :type type-info})]
       (set! passage-component (flecs/ecs_component_init world (ak/& desc))))))
 
-(az/defn shutdown-world! :- :void []
+(az/defn shutdown-world! :void []
   (when (ak/!= world ak/null) (set! _ (flecs/ecs_fini world)) (set! world ak/null))
   (set! passage-entity-count 0)
   (set! passage-entities (mem/zeroes (az/type [:array 1024 :u64]))))
@@ -115,15 +115,14 @@
 (az/defvar voice-check-time :f64 0.0)
 (eval `(az/defconst ~'live-voices? ~(boolean (:reloadable? (az/configuration)))))
 
-(az/defn stop-voice! :- :void []
+(az/defn stop-voice! :void []
   (when voice-ready
     (audio/ma_sound_uninit (ak/& (az/index voices voice-slot)))
     (set! _ (audio/ma_decoder_uninit (ak/& (az/index voice-decoders voice-slot))))
     (set! voice-ready false)))
 
-(az/defn play-voice-file!
-  "Render-thread only. Validate a candidate before releasing the current voice."
-  :- :bool [[path [:slice-const :u8]]]
+(az/defn play-voice-file! :bool
+  "Render-thread only. Validate a candidate before releasing the current voice." [[path [:slice-const :u8]]]
   (when (or (ak/! engine-ready) (ak/== (az/field path len) 0)
             (>= (az/field path len) 4096)) (ak/return false))
   (let [^{:var [:array 4096 :u8]} filename (mem/zeroes (az/type [:array 4096 :u8]))
@@ -145,7 +144,7 @@
     (stop-voice!) (set! voice-slot next) (set! voice-ready true)
     (set! voice-revision (+ voice-revision 1)) true))
 
-(az/defn current-voice-hash :- :u64 []
+(az/defn current-voice-hash :u64 []
   (let [file (io/fopen (ak/& voice-path) "rb")]
     (when (ak/== file ak/null) (ak/return 0))
     (ak/defer (set! _ (io/fclose file)))
@@ -157,7 +156,7 @@
           (dotimes [i n] (set! hash (ak/*% (ak/bit-xor hash (az/index buffer i)) 1099511628211)))))
       hash)))
 
-(az/defn load-node-voice! :- :bool [[index :u32]]
+(az/defn load-node-voice! :bool [[index :u32]]
   (when (>= index (az/field (az/index stories active-story) count)) (ak/return false))
   (let [node (az/index (az/field (az/index stories active-story) nodes) index)
         length (az/field node id_len)]
@@ -173,7 +172,7 @@
     (set! voice-node index) (set! voice-hash (current-voice-hash))
     (play-voice-file! (az/slice voice-path 0 (+ 21 length)))))
 
-(az/defn update-voice! :- :void []
+(az/defn update-voice! :void []
   (let [data (ak/& (az/index stories active-story))
         changed (ak/!= voice-parent story-parent)]
     (when changed
@@ -192,10 +191,10 @@
       (set! voice-check-time (glfw/glfwGetTime))
       (when (ak/!= voice-hash (current-voice-hash)) (set! _ (load-node-voice! voice-node))))))
 
-(az/defn passage-count :- :i32 []
+(az/defn passage-count :i32 []
   (if (ak/== world ak/null) 0 (flecs/ecs_count_id world passage-component)))
 
-(az/defn sync-passages! :- :void []
+(az/defn sync-passages! :void []
   (ensure-world!)
   (let [data (ak/& (az/index stories active-story))
         previous-entities passage-entities
@@ -219,9 +218,8 @@
           (when (ak/== entity (az/index passage-entities j)) (set! retained true)))
         (when (ak/! retained) (flecs/ecs_delete world entity))))))
 
-(az/defn reload-story!
-  "Validate a complete compiled Markdown asset before changing the visible dialogue."
-  :- :bool []
+(az/defn reload-story! :bool
+  "Validate a complete compiled Markdown asset before changing the visible dialogue." []
   (let [file (io/fopen "resources/demo/story.lpdialogue" "rb")]
     (when (ak/== file ak/null) (ak/return false))
     (ak/defer (set! _ (io/fclose file)))
@@ -250,14 +248,14 @@
       (set! voice-parent story/no-parent)
       (set! story-ready true) (sync-passages!) true)))
 
-(az/defn story-text :- [:slice-const :u8] [[index :u32]]
+(az/defn story-text [:slice-const :u8] [[index :u32]]
   (let [data (ak/& (az/index stories active-story))]
     (when (>= index (az/field data count)) (ak/return ""))
     (let [node (az/index (az/field data nodes) index)]
       (az/slice (az/field data text) (az/field node offset)
                 (+ (az/field node offset) (az/field node length))))))
 
-(az/defn story-choice-parent :- :u32 []
+(az/defn story-choice-parent :u32 []
   ;; Keep the leaf's response visible while returning to its enclosing choices.
   ;; Climb only authored parents; never cross into another scene.
   (let [data (ak/& (az/index stories active-story)) ^{:var :u32} parent story-parent]
@@ -271,12 +269,12 @@
       (set! parent (az/field (az/index (az/field data nodes) parent) parent)))
     story/no-parent))
 
-(az/defn story-choice-visited? :- :bool [[index :u32]]
+(az/defn story-choice-visited? :bool [[index :u32]]
   (when (or (ak/== world ak/null) (>= index passage-entity-count)) (ak/return false))
   (let [state (flecs/ecs_get_id world (az/index passage-entities index) passage-component)]
     (and (ak/!= state ak/null) (az/field (az/cast state [:*const PassageState]) visited))))
 
-(az/defn story-choice :- :u32 [[ordinal :u32]]
+(az/defn story-choice :u32 [[ordinal :u32]]
   (let [data (ak/& (az/index stories active-story)) parent (story-choice-parent) ^{:var :u32} found 0]
     (when (ak/== parent story/no-parent) (ak/return story/no-parent))
     (dotimes [i (az/field data count)]
@@ -286,7 +284,7 @@
           (when (ak/== found ordinal) (ak/return (ak/intCast i))))))
     story/no-parent))
 
-(az/defn choose-story! :- :bool [[ordinal :u32]]
+(az/defn choose-story! :bool [[ordinal :u32]]
   (let [next (story-choice ordinal)]
     (when (ak/== next story/no-parent) (ak/return false))
     (let [state (az/cast (flecs/ecs_get_mut_id world (az/index passage-entities next) passage-component) [:* PassageState])]
@@ -294,7 +292,7 @@
     (set! story-parent next) (set! story-page 0) (set! choice-offset 0)
     (set! reveal-parent story/no-parent) (set! voice-parent story/no-parent) true))
 
-(az/defn page-choices! :- :bool [[forward :bool]]
+(az/defn page-choices! :bool [[forward :bool]]
   (if forward
     (do (when (ak/== (story-choice (+ choice-offset 4)) story/no-parent) (ak/return false))
         (set! choice-offset (+ choice-offset 3)))
@@ -302,7 +300,7 @@
         (set! choice-offset (- choice-offset 3))))
   true)
 
-(az/defn next-scene! :- :void []
+(az/defn next-scene! :void []
   (let [data (ak/& (az/index stories active-story))
         current (az/field (az/index (az/field data nodes) story-parent) scene)]
     (dotimes [step (az/field data count)]
@@ -310,20 +308,19 @@
         (when (ak/== (az/field (az/index (az/field data nodes) index) kind) 0)
           (set! story-parent index) (set! story-page 0) (set! choice-offset 0) (ak/return))))))
 
-(az/defn animation-frame :- :u32 [[seconds :f32] [fps :f32]]
+(az/defn animation-frame :u32 [[seconds :f32] [fps :f32]]
   (ak/intFromFloat (mod (ak/floor (* (ak/max seconds 0.0) (ak/max fps 0.0))) 8.0)))
 
-(az/defn bob-height
-  "Edit this declaration while the native window runs."
-  :- :f32 []
+(az/defn bob-height :f32
+  "Edit this declaration while the native window runs." []
   (* 8.0 (math/sin (* elapsed 2.0))))
 
-(az/defn snapshot :- Snapshot []
+(az/defn snapshot Snapshot []
   (Snapshot {:time elapsed :frame (animation-frame elapsed animation-fps)
              :playing playing :audio_ready audio-ready :audio_revision audio-revision
              :reload_failures reload-failures :rendered_frames rendered-frames}))
 
-(az/defn file-hash :- :u64 []
+(az/defn file-hash :u64 []
   (let [file (io/fopen "resources/demo/lesson.wav" "rb")]
     (when (ak/== file ak/null) (ak/return 0))
     (ak/defer (set! _ (io/fclose file)))
@@ -336,7 +333,7 @@
             (set! hash (ak/*% (ak/bit-xor hash (az/index buffer i)) 1099511628211)))))
       hash)))
 
-(az/defn stop-background! :- :void []
+(az/defn stop-background! :void []
   (when audio-ready
     (audio/ma_sound_uninit (ak/& (az/index tracks active-track)))
     (set! _ (audio/ma_decoder_uninit (ak/& (az/index decoders active-track))))
@@ -344,9 +341,8 @@
 
 (az/defconst background-music-enabled false)
 
-(az/defn reload-track!
-  "Render-thread only: initialize in a stable alternate slot before releasing old audio."
-  :- :bool []
+(az/defn reload-track! :bool
+  "Render-thread only: initialize in a stable alternate slot before releasing old audio." []
   (when (ak/! background-music-enabled) (stop-background!) (ak/return false))
   (when (ak/! engine-ready) (ak/return false))
   (let [next (mod (+ active-track 1) 2)
@@ -380,7 +376,7 @@
               (set! reload-failures (+ reload-failures 1)) false)))
       (do (set! reload-failures (+ reload-failures 1)) false))))
 
-(az/defn key-pressed? :- :bool [[key :i32] [slot :usize]]
+(az/defn key-pressed? :bool [[key :i32] [slot :usize]]
   (let [down (ak/== (glfw/glfwGetKey window key) glfw/GLFW_PRESS)
         previous (if (< slot 4) (az/index key-state slot) (az/index ui-key-state (- slot 4)))
         pressed (and down (ak/! previous))]
@@ -388,9 +384,8 @@
       (set! (az/index ui-key-state (- slot 4)) down))
     pressed))
 
-(az/defn reload-visuals!
-  "Frame-boundary asset publication, after the worker has packed a complete atlas."
-  :- :void []
+(az/defn reload-visuals! :void
+  "Frame-boundary asset publication, after the worker has packed a complete atlas." []
   (gpu/renderer-wait-idle!)
   (gpu/load-atlas!)
   (when (ak/!= development-assets ak/null) ((az/unwrap development-assets)))
@@ -405,13 +400,12 @@
     (when (ak/!= (io/fread (ak/& ui-glyph-advances) 4 256 file) 256)
       (debug/panic "Invalid UI glyph metrics" []))))
 
-(az/defn retain-key-presses!
-  "Keep a short press until the game polls it; never change Studio's input mode."
-  :- :void []
+(az/defn retain-key-presses! :void
+  "Keep a short press until the game polls it; never change Studio's input mode." []
   (when (ak/!= window ak/null)
     (glfw/glfwSetInputMode window glfw/GLFW_STICKY_KEYS glfw/GLFW_TRUE)))
 
-(az/defn initialize! :- :bool []
+(az/defn initialize! :bool []
   ;; Use the linked loader, including in a JVM without a dylib search-path override.
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
   (when (ak/!= (glfw/glfwInit) glfw/GLFW_TRUE) (ak/return false))
@@ -428,7 +422,7 @@
   (set! previous-time (glfw/glfwGetTime))
   true)
 
-(az/defn shutdown! :- :void []
+(az/defn shutdown! :void []
   (when (ak/!= development-shutdown ak/null) ((az/unwrap development-shutdown)))
   (shutdown-world!)
   (stop-voice!)
@@ -441,7 +435,7 @@
   (when (ak/!= window ak/null) (glfw/glfwDestroyWindow window) (set! window ak/null))
   (glfw/glfwTerminate))
 
-(az/defn update! :- :void []
+(az/defn update! :void []
   (glfw/glfwPollEvents)
   (let [back (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_BACKSPACE) glfw/GLFW_PRESS)]
     (when (and back (ak/! back-was-down))
@@ -503,7 +497,7 @@
 (az/defvar canvas-width :f32 1100.0)
 (az/defvar canvas-height :f32 760.0)
 
-(az/defn vertex! :- :void
+(az/defn vertex! :void
   [[x :f32] [y :f32] [u :f32] [v :f32] [rgb :u32] [textured :f32] [lit :f32]]
   (when (>= vertex-count gpu/frame-capacity) (debug/panic "La Professeure frame capacity exceeded" []))
   (set! (az/index vertices vertex-count)
@@ -515,7 +509,7 @@
                          :roughness textured :vx 0.0 :vy 0.0 :vz 0.0}))
   (set! vertex-count (+ vertex-count 1)))
 
-(az/defn quad! :- :void
+(az/defn quad! :void
   [[x :f32] [y :f32] [w :f32] [h :f32] [u :f32] [v :f32] [uw :f32] [vh :f32]
    [rgb :u32] [textured :f32] [lit :f32]]
   (vertex! x y u v rgb textured lit)
@@ -525,12 +519,11 @@
   (vertex! (+ x w) y (+ u uw) v rgb textured lit)
   (vertex! (+ x w) (+ y h) (+ u uw) (+ v vh) rgb textured lit))
 
-(az/defn rect! :- :void [[x :f32] [y :f32] [w :f32] [h :f32] [rgb :u32] [lit :f32]]
+(az/defn rect! :void [[x :f32] [y :f32] [w :f32] [h :f32] [rgb :u32] [lit :f32]]
   (quad! x y w h 0.0 0.0 0.0 0.0 rgb 0.0 lit))
 
-(az/defn glyph-code!
-  "Decode one UTF-8 code point into the font atlas, including French typography."
-  :- :u32 [[text [:slice-const :u8]] [index [:* :usize]]]
+(az/defn glyph-code! :u32
+  "Decode one UTF-8 code point into the font atlas, including French typography." [[text [:slice-const :u8]] [index [:* :usize]]]
   (let [first (az/index text (az/deref index)) ^{:var :u32} code first ^{:var :usize} extra 0]
     (set! (az/deref index) (+ (az/deref index) 1))
     (cond
@@ -552,9 +545,8 @@
           (ak/== code 8230) 136 (ak/== code 8239) 137
           :else 63)))
 
-(az/defn text!
-  "UTF-8 Latin-1 plus French typography, using the loaded serif font atlas."
-  :- :void [[text [:slice-const :u8]] [x :f32] [y :f32] [scale :f32] [rgb :u32]]
+(az/defn text! :void
+  "UTF-8 Latin-1 plus French typography, using the loaded serif font atlas." [[text [:slice-const :u8]] [x :f32] [y :f32] [scale :f32] [rgb :u32]]
   (let [^{:var :usize} index 0 ^{:var :f32} cursor x]
     (ak/while (< index (az/field text len))
       (let [code (glyph-code! text (ak/& index))]
@@ -564,22 +556,21 @@
           62.0 78.0 rgb 1.0 0.0)
         (set! cursor (+ cursor (* (az/index glyph-advances code) scale)))))))
 
-(az/defn text-width :- :f32 [[text [:slice-const :u8]] [scale :f32]]
+(az/defn text-width :f32 [[text [:slice-const :u8]] [scale :f32]]
   (let [^{:var :usize} index 0 ^{:var :f32} width 0.0]
     (ak/while (< index (az/field text len))
       (let [code (glyph-code! text (ak/& index))]
         (set! width (+ width (* (az/index glyph-advances code) scale))))) width))
 
-(az/defn revealed-prefix! :- :usize [[text [:slice-const :u8]]]
+(az/defn revealed-prefix! :usize [[text [:slice-const :u8]]]
   (let [^{:var :usize} visible 0]
     (ak/while (and (< visible (az/field text len)) (> reveal-remaining 0))
       (set! _ (glyph-code! text (ak/& visible)))
       (set! reveal-remaining (- reveal-remaining 1)))
     visible))
 
-(az/defn wrapped-text!
-  "Word-wrap using actual font advances; render only the current body page."
-  :- :f32 [[text [:slice-const :u8]] [x :f32] [y :f32] [width :f32] [scale :f32] [rgb :u32]]
+(az/defn wrapped-text! :f32
+  "Word-wrap using actual font advances; render only the current body page." [[text [:slice-const :u8]] [x :f32] [y :f32] [width :f32] [scale :f32] [rgb :u32]]
   (let [^{:var :usize} start 0 ^{:var :f32} cursor x ^{:var :f32} row y]
     (ak/while (< start (az/field text len))
       (let [^{:var :usize} end start]
@@ -595,7 +586,7 @@
         (set! start (+ end 1))))
     (+ row 32.0)))
 
-(az/defn build-frame {:zig/qualifiers "callconv(.c)"} :- :u32
+(az/defn build-frame :u32 {:zig/qualifiers "callconv(.c)"}
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (set! _ width) (set! _ height)
   (set! vertices output) (set! vertex-count 0)
@@ -641,7 +632,7 @@
   (text! "1 - 3 Choisir     F1 Studio" 180.0 716.0 0.28 0x89918d)
   vertex-count)
 
-(az/defn tick! :- :bool []
+(az/defn tick! :bool []
   (when (ak/!= (glfw/glfwWindowShouldClose window) 0) (ak/return false))
   (update!)
   (ensure-world!)
@@ -652,7 +643,7 @@
   (when (ak/!= development-tick ak/null) ((az/unwrap development-tick)))
   true)
 
-(az/defn main :- :void []
+(az/defn main :void []
   (let [ready (initialize!)]
     (ak/defer (shutdown!))
     (when ready

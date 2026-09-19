@@ -6,6 +6,45 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest keyword-field-names-are-quoted-native-identifiers
+  (doseq [field [:enum :fn :struct :union :error :type :test]]
+    (let [expected (if (= field :type) "type" (str "@\"" (name field) "\""))]
+      (is (= (str "information." expected)
+             (emit/emit-expr (list 'field 'information field))))))
+  (is (= "information.fields" (emit/emit-expr '(field information :fields))))
+  (is (= "tuple.@\"3\"" (emit/emit-expr '(field tuple :3)))))
+
+(deftest clojure-local-names-can-use-zig-reserved-words
+  (is (= "anytype" (emit/emit-type :anytype)))
+  (is (= "anyframe" (emit/emit-type :anyframe)))
+  (is (= "@\"error\"" (emit/identifier 'error)))
+  (is (= "const @\"error\" = failure;" (emit/emit-stmt '(const error failure))))
+  (is (= "consume(@\"error\");" (emit/emit-stmt '(consume error))))
+  (is (= "error" (emit/identifier "error")) "Exact Zig strings are not rewritten."))
+
+(deftest unreachable-forms-are-valid-expressions
+  (is (= "unreachable" (emit/emit-expr '(unreachable))))
+  (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr '(unreachable 1))))
+  (is (str/includes? (emit/emit-expr '(switch value (case-else (comptime (unreachable)))))
+                     "else => comptime unreachable")))
+
+(deftest reader-dereference-is-native-pointer-access
+  (let [form (read-string "@pointer")]
+    (is (= '(clojure.core/deref pointer) form))
+    (is (= '(deref pointer) (emit/qualify-form *ns* form)))
+    (is (= "pointer.*" (emit/emit-expr form)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                         #"Unresolved Zig reference"
+                         (emit/qualify-form *ns* '(nonexistent/deref pointer))))))
+
+(deftest direct-comptime-let-is-a-block-not-an-expression-statement
+  (let [source (emit/emit-stmt '(comptime-stmt
+                               (let [^{:var :i32} value 1]
+                                 (set! value 2))) 0)]
+    (is (str/includes? source "comptime {"))
+    (is (str/includes? source "var value: i32 = 1;"))
+    (is (not (str/includes? source "};")))))
+
 (deftest type-emission-test
   (is (= "i32" (emit/emit-type :i32)))
   (is (= "Point" (emit/emit-type 'Point)))
@@ -195,6 +234,8 @@
   (is (= "(if ((x < 0)) (-x) else x)"
          (emit/emit-expr '(if (< x 0) (- x) x))))
   (is (= "point.x" (emit/emit-expr '(field point x))))
+  (is (= "tuple.@\"3\"" (emit/emit-expr '(field tuple :3))))
+  (is (= "tuple.@\"3\"[0]" (emit/emit-expr '(index (field tuple :3) 0))))
   (is (= "items[start..end]" (emit/emit-expr '(slice items start end))))
   (is (= "0 .. 10" (emit/emit-expr '(op ".." 0 10))))
   (is (= "?*u8" (emit/emit-expr '(type [:optional [:* :u8]]))))
@@ -338,7 +379,7 @@
                 "} else unreachable;")
            (emit/emit-stmt
             '(inline-for [[item items]] (use item)
-               (else-expression unreachable))))))
+                                (else-expression (unreachable)))))))
   (testing "while-else expressions terminate only when Zig requires it"
     (is (= (str "while ((head < max)) {\n"
                 "    advance();\n"
@@ -805,6 +846,67 @@
          (emit/emit-function-body
           '((let [x (+ a 1) y (* x 2)] (+ x y)))
           :i32)))
+  (is (= (str "while (ready) {\n"
+              "    continue;\n"
+              "}")
+         (emit/emit-function-body '((while ready (continue))) :i32))))
+
+(deftest saturating-left-shift-assignment-test
+  (is (= "value <<|= shift;" (emit/emit-stmt '(<<|= value shift))))
+  (is (= "value <<|= shift;"
+         (emit/emit-function-body '((<<|= value shift)) :u32)))
+  (is (= "value <<|= shift;\nreturn value;"
+         (emit/emit-function-body '((<<|= value shift) value) :u32))))
+
+(deftest incomplete-non-void-functions-remain-native-diagnostics
+  (testing "empty and statement-only bodies never synthesize a return value"
+    (is (= "" (emit/emit-function-body [] :u32)))
+    (is (= "" (emit/emit-function-body '((do)) :u32)))
+    (is (= "value = 1;"
+           (emit/emit-function-body '((set! value 1)) :u32)))
+    (is (re-matches #"\{\s+const memory = allocate\(\);\s+_ = memory;\s+\}"
+                    (emit/emit-function-body
+                     '((let [memory (allocate)] (set! _ memory)))
+                     [:optional [:* :u8]])))
+    (is (re-matches #"\{\s+const value = 1;\s+\}"
+                    (emit/emit-function-body '((let [value 1])) :u32))))
+  (testing "incomplete branches stay statements, while value branches return"
+    (is (= "if (ready) {\n    value = 1;\n}"
+           (emit/emit-function-body '((if ready (set! value 1))) :u32)))
+    (is (= (str "if (ready) {\n    return 42;\n} else {\n"
+                "    value = 1;\n}")
+           (emit/emit-function-body '((if ready 42 (set! value 1))) :u32))))
+  (testing "a let used as an expression still needs a value"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"A let used as a value requires a result expression"
+                          (emit/emit-expr '(let [value 1]))))))
+
+(deftest unreachable-tails-need-no-return-attribute
+  (is (= "unreachable;"
+         (emit/emit-function-body '((unreachable)) :usize)))
+  (is (= (str "if (available) {\n"
+              "    return 42;\n"
+              "} else {\n"
+              "    unreachable;\n"
+              "}")
+         (emit/emit-function-body '((if available 42 (unreachable))) :usize)))
+  (is (re-matches
+        #"\{\s+const result = compute\(\);\s+if \(result\) \{\s+return 42;\s+\}\s+unreachable;\s+\}"
+        (emit/emit-function-body
+          '((let [result (compute)]
+              (when result (return 42))
+              (unreachable)))
+          :usize)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"must produce a value"
-                        (emit/emit-function-body '((while ready (continue))) :i32))))
+                       #"unreachable takes no arguments"
+                       (emit/emit-function-body '((unreachable 1)) :usize))))
+
+(deftest void-error-unions-and-noreturn-need-no-return-attribute
+  (doseq [return-type [:void [:error-union :void]
+                      [:error-union :anyerror :void]]]
+    (is (= "_ = result;"
+           (emit/emit-function-body '((set! _ result)) return-type))))
+  (is (= "while (true) {}"
+         (emit/emit-function-body '((while-loop {} true)) :noreturn)))
+  (is (= "abort();"
+         (emit/emit-function-body '((abort)) :noreturn))))

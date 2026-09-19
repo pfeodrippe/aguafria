@@ -26,10 +26,10 @@
 ;; The bounded timeline fits two u32 frame positions in one u64; zero disables.
 (az/defvar loop-region :u64 0)
 (az/defstruct Loop {:layout :extern} [[from :u64] [to :u64] [enabled :bool]])
-(az/defn loop-state :- Loop []
+(az/defn loop-state Loop []
   (let [region (ak/atomicLoad :u64 (ak/& loop-region) :.acquire)]
     (ak/as Loop {:from (mod region 4294967296) :to (/ region 4294967296) :enabled (ak/!= region 0)})))
-(az/defn set-loop! :- :bool [[from :u64] [to :u64] [enabled :bool]]
+(az/defn set-loop! :bool [[from :u64] [to :u64] [enabled :bool]]
   (when (and enabled (or (>= from to) (> to duration) (> to 4294967295))) (ak/return false))
   (ak/atomicStore :u64 (ak/& loop-region) (if enabled (+ (* to 4294967296) from) 0) :.release)
   true)
@@ -37,11 +37,11 @@
 (az/defvar clipped :u8 0)
 (az/defvar path-buffer [:array 4096 :u8] ak/undefined)
 
-(az/defn close! :- :void []
+(az/defn close! :void []
   (when opened ((az/field recorder/api ma_device_uninit) (ak/& device)) (set! opened false))
   (ak/atomicStore :u8 (ak/& playing) 0 :.release))
 
-(az/defn handle-stopped-output! :- :bool []
+(az/defn handle-stopped-output! :bool []
   (when (and opened
              (ak/== ((az/field recorder/api ma_device_get_state) (ak/& device))
                     (az/field recorder/api ma_device_state_stopped)))
@@ -51,7 +51,7 @@
     (ak/return true))
   false)
 
-(az/defn reset! :- :void []
+(az/defn reset! :void []
   (close!) (set! used 0) (set! clip-count 0) (set! duration 0)
   (ak/atomicStore :u64 (ak/& cursor) 0 :.release)
   (ak/atomicStore :u64 (ak/& seek-request) 18446744073709551615 :.release)
@@ -59,7 +59,7 @@
   (ak/atomicStore :u32 (ak/& peak) 0 :.release)
   (ak/atomicStore :u8 (ak/& clipped) 0 :.release))
 
-(az/defn configure-clip! :- :bool
+(az/defn configure-clip! :bool
   [[index :usize] [start :u64] [gain :f32] [pan :f32] [fade :u64] [mute :bool] [solo :bool]]
   (when (or opened (>= index clip-count) (> start 28800000)
             (ak/! (and (>= gain 0.0) (<= gain 2.0) (>= pan -1.0) (<= pan 1.0)))) (ak/return false))
@@ -74,7 +74,7 @@
   (set! _ (set-loop! 0 0 false))
   true)
 
-(az/defn add-file! :- :bool [[path [:slice-const :u8]]]
+(az/defn add-file! :bool [[path [:slice-const :u8]]]
   (when (or opened (>= clip-count max-clips) (>= (az/field path len) 4096)) (ak/return false))
   (dotimes [i (az/field path len)] (when (ak/== (az/index path i) 0) (ak/return false)))
   (ak/memcpy (az/slice path-buffer 0 (az/field path len)) path)
@@ -96,9 +96,8 @@
     (set! used (+ used (ak/as :usize (ak/intCast frames)))) (set! clip-count (+ clip-count 1))
     (set! duration (ak/max duration frames)) true))
 
-(az/defn process!
-  "The sole audio path, also called by offline tests. No allocation, locks or I/O."
-  :- :void [[output [:c-pointer :f32]] [frames :u32]]
+(az/defn process! :void
+  "The sole audio path, also called by offline tests. No allocation, locks or I/O." [[output [:c-pointer :f32]] [frames :u32]]
   (when (ak/== output ak/null) (ak/return))
   (let [active (ak/!= (ak/atomicLoad :u8 (ak/& playing) :.acquire) 0)
         loop (loop-state)
@@ -135,14 +134,14 @@
     (ak/atomicStore :u64 (ak/& cursor) frame-position :.release)
     (ak/atomicStore :u32 (ak/& peak) (ak/intFromFloat (* 1000.0 (ak/min 1.0 block-peak))) :.release)))
 
-(az/defn callback {:zig/qualifiers "callconv(.c)"} :- :void
+(az/defn callback :void {:zig/qualifiers "callconv(.c)"}
   [[device-pointer [:c-pointer recorder/Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (set! _ device-pointer) (set! _ input)
   (process! (ak/ptrCast (ak/alignCast output)) frames))
 
 (az/defvar output-index :u32 4294967295)
-(az/defn open! :- :bool []
+(az/defn open! :bool []
   (when opened (ak/return true))
   (when (or (ak/== clip-count 0) (ak/! recorder/initialized) (>= output-index recorder/playback-count)) (ak/return false))
   (let [^:var config ((az/field recorder/api ma_device_config_init) (az/field recorder/api ma_device_type_playback))]
@@ -156,10 +155,10 @@
       ((az/field recorder/api ma_device_uninit) (ak/& device)) (ak/return false))
     (set! opened true) true))
 
-(az/defn play! :- :void [] (ak/atomicStore :u8 (ak/& playing) 1 :.release))
-(az/defn pause! :- :void [] (ak/atomicStore :u8 (ak/& playing) 0 :.release))
-(az/defn seek! :- :void [[frame :u64]] (ak/atomicStore :u64 (ak/& seek-request) (ak/min frame duration) :.release))
-(az/defn cursor-frame :- :u64 [] (ak/atomicLoad :u64 (ak/& cursor) :.acquire))
-(az/defn playing? :- :bool []
+(az/defn play! :void [] (ak/atomicStore :u8 (ak/& playing) 1 :.release))
+(az/defn pause! :void [] (ak/atomicStore :u8 (ak/& playing) 0 :.release))
+(az/defn seek! :void [[frame :u64]] (ak/atomicStore :u64 (ak/& seek-request) (ak/min frame duration) :.release))
+(az/defn cursor-frame :u64 [] (ak/atomicLoad :u64 (ak/& cursor) :.acquire))
+(az/defn playing? :bool []
   (and (ak/!= (ak/atomicLoad :u8 (ak/& playing) :.acquire) 0)
        (or (< (cursor-frame) duration) (az/field (loop-state) enabled))))

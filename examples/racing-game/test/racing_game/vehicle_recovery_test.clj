@@ -13,8 +13,7 @@
             [aguafria-examples-native.bindings.box3d :as b3]
             [clojure.test :refer [deftest is]]))
 
-(az/defn eligibility-probe
-  :- recovery/Output
+(az/defn eligibility-probe recovery/Output
   [[rear-gap :f32] [rear-closing :f32] [lane-target :f32] [enabled :bool]]
   (let [^:var state (mem/zeroes (az/type recovery/State))
         ^:var body (mem/zeroes (az/type physics/BodyState))
@@ -41,8 +40,7 @@
         (is (= 0 (get-in result [:state :phase])) (pr-str result))
         (is (= 1 (:gear result)) (pr-str result))))))
 
-(az/defn transition-probe
-  :- recovery/Output
+(az/defn transition-probe recovery/Output
   [[phase :u8] [distance :f32] [speed :f32] [rear-gap :f32]
    [rear-closing :f32] [enabled :bool]]
   (let [state (recovery/State {:phase phase :waiting_ticks 0 :start_x 0.0 :start_y 0.0})
@@ -69,10 +67,9 @@
       (is (zero? (get-in result [:control :throttle])) (pr-str result))
       (is (= 1.0 (get-in result [:control :brake])) (pr-str result)))))
 
-(az/defn circuit-clearance-probe
+(az/defn circuit-clearance-probe [:array 12 :f32]
   "Reproduce the live blocked-car geometry in a separate physical world.
-  The test supplies a fixed right-lane intent, not a claimed model decision."
-  :- [:array 12 :f32] []
+  The test supplies a fixed right-lane intent, not a claimed model decision." []
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
         start (circuit/at-distance (* 0.6657818 4309.0) -3.66)

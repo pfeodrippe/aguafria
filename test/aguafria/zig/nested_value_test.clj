@@ -14,11 +14,11 @@
       (binding [*ns* owner-ns]
         (eval '(az/defstruct Inner {:layout :extern} [[:phase :u8] [:distance :f32]]))
         (eval '(az/defstruct Outer {:layout :extern} [[:state Inner] [:gear :i8]]))
-        (eval '(az/defn make-output :- Outer []
+        (eval '(az/defn make-output Outer []
                  (Outer {:state (Inner {:phase 2 :distance 4.5}) :gear -1}))))
       (binding [*ns* consumer-ns]
         (alias 'owner owner)
-        (eval '(az/defn inspect-output :- owner/Outer [] (owner/make-output))))
+        (eval '(az/defn inspect-output owner/Outer [] (owner/make-output))))
       ;; Do not pre-call/construct Inner: the first Outer result must discover
       ;; its nested accessors, not rely on incidental earlier REPL operations.
       (is (= {:state {:phase 2 :distance 4.5} :gear -1}

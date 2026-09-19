@@ -10,7 +10,13 @@ not a rewritten introduction or a selection of easy examples.
 
 The goal remains unfinished until the complete inventory has an explicit,
 reviewed disposition and all applicable translations pass their intended tests.
-Intermediate previews must identify pending examples honestly.
+Intermediate previews must identify pending examples honestly within their
+Aguafria panels; progress notes belong in project reports, not in the reference.
+
+Preservation is strict: do not rewrite any original prose, example, Shell label,
+command, or output. Add only Aguafria alternatives, their recorded REPL output
+and switching controls. Removing those additions must recover the complete
+published HTML byte-for-byte, checked by an automated regression.
 
 ## Pinned sources
 
@@ -72,10 +78,11 @@ Preserve the Zig MIT notice alongside copied documentation and examples.
 ## `ZIG_ONLY` policy
 
 Keep genuinely Zig-source-specific content, such as Zig comment spelling, Zig
-lexical grammar and Zig compiler CLI demonstrations, in place with a visible
-`ZIG_ONLY` marker and a short explanation. C/assembly/tooling context also stays
-present. Where the concept applies to Aguafria (including a snippet containing
-comments), translate the meaningful code and explain syntax differences.
+lexical grammar and Zig compiler CLI demonstrations, unchanged. Put `ZIG_ONLY`
+and its explanation in an Aguafria alternative where one is offered, otherwise
+in inventory metadata only. Do not annotate original Shell or C/JavaScript/PEG
+blocks. Where the concept applies to Aguafria (including a snippet containing
+comments), translate the meaningful code in its alternative panel.
 Distinguish `pending`, `compiler-gap`, `translated`, and reviewed `zig-only`;
 absence of compiler support is never an exclusion reason.
 

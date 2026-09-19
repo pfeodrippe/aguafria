@@ -41,21 +41,17 @@
 
 (az/defvar host-service-state :u8 0)
 
-(az/defn request-host-stop!
-  "Retire an extension host on its owning thread before changing its native generation."
-  :- :void []
+(az/defn request-host-stop! :void
+  "Retire an extension host on its owning thread before changing its native generation." []
   (ak/atomicStore :u8 (ak/& host-service-state) 1 :.release))
 
-(az/defn host-stopped?
-  :- :bool []
+(az/defn host-stopped? :bool []
   (ak/== (ak/atomicLoad :u8 (ak/& host-service-state) :.acquire) 2))
 
-(az/defn resume-host!
-  :- :void []
+(az/defn resume-host! :void []
   (ak/atomicStore :u8 (ak/& host-service-state) 0 :.release))
 
-(az/defn service-host!
-  :- :void [[state-panel [:* panel/LabPanel]]]
+(az/defn service-host! :void [[state-panel [:* panel/LabPanel]]]
   (let [state (ak/atomicLoad :u8 (ak/& host-service-state) :.acquire)]
     (when (ak/== state 1)
       (pitoco_aguafria_shutdown_v1)
@@ -124,38 +120,30 @@
 
 (az/defvar job-panel-request :u8 0)
 
-(az/defn request-job-panel!
-  "Ask the UI thread to show or hide the authored job controls."
-  :- :void [[visible :bool]]
+(az/defn request-job-panel! :void
+  "Ask the UI thread to show or hide the authored job controls." [[visible :bool]]
   (ak/atomicStore :u8 (ak/& job-panel-request) (if visible 1 2) :.release))
 
-(az/defn job-status
-  :- :u8 []
+(az/defn job-status :u8 []
   (ak/atomicLoad :u8 (ak/& job-phase) :.acquire))
 
-(az/defn set-job-status!
-  :- :void [[phase :u8]]
+(az/defn set-job-status! :void [[phase :u8]]
   (ak/atomicStore :u8 (ak/& job-phase) phase :.release))
 
-(az/defn transition-job!
-  :- :bool [[before :u8] [after :u8]]
+(az/defn transition-job! :bool [[before :u8] [after :u8]]
   (ak/== (ak/cmpxchgStrong :u8 (ak/& job-phase) before after :.acq_rel :.acquire) null))
 
-(az/defn take-job-command!
-  :- :u64 []
+(az/defn take-job-command! :u64 []
   (ak/atomicRmw :u64 (ak/& job-command) :.Xchg 0 :.acq_rel))
 
-(az/defn report-job-progress!
-  :- :void [[tick :u32] [substeps :u32]]
+(az/defn report-job-progress! :void [[tick :u32] [substeps :u32]]
   (ak/atomicStore :u64 (ak/& job-progress-word)
                   (ak/| (ak/<< (ak/as :u64 tick) 32) (ak/as :u64 substeps)) :.release))
 
-(az/defn job-progress
-  :- :u64 []
+(az/defn job-progress :u64 []
   (ak/atomicLoad :u64 (ak/& job-progress-word) :.acquire))
 
-(az/defn queue-configured-scene-job!
-  :- :bool
+(az/defn queue-configured-scene-job! :bool
   [[source :u32] [ticks :u32] [ipc :bool] [refinement :u32]
    [inspector [:optional [:* BakeRequest]]]]
   (let [phase (job-status)]
@@ -174,32 +162,26 @@
                           (if ipc (ak/as :u64 8) (ak/as :u64 0))) :.release)
     true))
 
-(az/defn queue-refined-scene-job!
-  :- :bool [[source :u32] [ticks :u32] [ipc :bool] [refinement :u32]]
+(az/defn queue-refined-scene-job! :bool [[source :u32] [ticks :u32] [ipc :bool] [refinement :u32]]
   (queue-configured-scene-job! source ticks ipc refinement null))
 
-(az/defn inspector-job-request
-  "Worker reads this snapshot only after consuming the released source-4 command."
-  :- BakeRequest []
+(az/defn inspector-job-request BakeRequest
+  "Worker reads this snapshot only after consuming the released source-4 command." []
   job-inspector-request)
 
-(az/defn queue-scene-job!
-  "Preserve the original command entry point's 205-node ball preset."
-  :- :bool [[source :u32] [ticks :u32] [ipc :bool]]
+(az/defn queue-scene-job! :bool
+  "Preserve the original command entry point's 205-node ball preset." [[source :u32] [ticks :u32] [ipc :bool]]
   (queue-refined-scene-job! source ticks ipc 1))
 
-(az/defn cancel-scene-job!
-  :- :void []
+(az/defn cancel-scene-job! :void []
   (when (ak/! (transition-job! 2 6))
     (set! _ (transition-job! 3 6))))
 
-(az/defn job-text!
-  :- :void [[text [:slice-const :u8]]]
+(az/defn job-text! :void [[text [:slice-const :u8]]]
   (ui/aguafria_ui_wrapped_text (az/field text ptr) (az/field text len) 0.8 0.86 0.9))
 
-(az/defn draw-job-panel!
-  {:attrs #{:export}}
-  :- :void []
+(az/defn draw-job-panel! :void
+  {:attrs #{:export}} []
   (let [phase (job-status)
         panel-request (ak/atomicRmw :u8 (ak/& job-panel-request) :.Xchg 0 :.acq_rel)]
     (when (ak/!= panel-request 0)
@@ -289,9 +271,8 @@
 
 (az/defvar pending-cached-solver CachedSolverRequest (mem/zeroes (az/type CachedSolverRequest)))
 
-(az/defn request-cached-solver!
-  "Supplement historical provenance only when both revision and source hash match."
-  :- :bool [[request CachedSolverRequest]]
+(az/defn request-cached-solver! :bool
+  "Supplement historical provenance only when both revision and source hash match." [[request CachedSolverRequest]]
   (when (> (az/field request method) 5) (ak/return false))
   (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& cached-solver-request-state) 0 1 :.acq_rel :.acquire) null)
     (ak/return false))
@@ -299,8 +280,7 @@
   (ak/atomicStore :u8 (ak/& cached-solver-request-state) 2 :.release)
   true)
 
-(az/defn consume-cached-solver!
-  :- :void []
+(az/defn consume-cached-solver! :void []
   (when (ak/!= (ak/atomicLoad :u8 (ak/& cached-solver-request-state) :.acquire) 2) (ak/return))
   (defer (ak/atomicStore :u8 (ak/& cached-solver-request-state) 0 :.release))
   (let [source (scene/scripted-scene)]
@@ -312,9 +292,8 @@
         (ak/return)))
     (scene/set-scripted-solver! (az/field pending-cached-solver method))))
 
-(az/defn request-scripting!
+(az/defn request-scripting! :u64
   "Enable the optional external controller on the native owning thread."
-  :- :u64
   [[directory [:pointer {:size :c :const? true} :u8]]]
   (let [command (panel/PitocoCommandV1
                  {:abi_version 1 :struct_size (ak/sizeOf panel/PitocoCommandV1)
@@ -322,14 +301,12 @@
         ^{:var :u64} ticket 0]
     (if (ak/== (pitoco_aguafria_submit_v1 (ak/& command) (ak/& ticket)) 1) ticket 0)))
 
-(az/defn live-revision
-  :- :u32
+(az/defn live-revision :u32
   []
   (ak/atomicLoad :u32 (ak/& revision-word) :.acquire))
 
-(az/defn request-cache!
+(az/defn request-cache! :bool
   "A true return transfers ownership, including destruction if the job is stale."
-  :- :bool
   [[owned [:* cache/Cache]] [revision :u32]]
   (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& cache-request-state) 0 1 :.acq_rel :.acquire) null)
     (ak/return false))
@@ -342,9 +319,8 @@
   (ak/atomicStore :u8 (ak/& cache-request-state) 2 :.release)
   true)
 
-(az/defn request-group!
+(az/defn request-group! :bool
   "Use the same ownership mailbox and revision check as single-body caches."
-  :- :bool
   [[owned [:* group/Group]] [revision :u32]]
   (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& cache-request-state) 0 1 :.acq_rel :.acquire) null)
     (ak/return false))
@@ -357,9 +333,8 @@
   (ak/atomicStore :u8 (ak/& cache-request-state) 2 :.release)
   true)
 
-(az/defn request-scene-with-solver!
+(az/defn request-scene-with-solver! :bool
   "Copy scene provenance into the ownership mailbox; the UI publishes both together."
-  :- :bool
   [[owned [:* group/Group]] [revision :u32] [parameters scene/ScriptedScene] [method :u32]]
   (when (> method 5) (ak/return false))
   (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& cache-request-state) 0 1 :.acq_rel :.acquire) null)
@@ -371,19 +346,16 @@
   (ak/atomicStore :u8 (ak/& cache-request-state) 2 :.release)
   true)
 
-(az/defn request-scene!
+(az/defn request-scene! :bool
   "Compatibility entry: an unrecorded method must never be guessed from UI settings."
-  :- :bool
   [[owned [:* group/Group]] [revision :u32] [parameters scene/ScriptedScene]]
   (request-scene-with-solver! owned revision parameters 0))
 
-(az/defn cache-result
-  :- :u8
+(az/defn cache-result :u8
   []
   (ak/atomicLoad :u8 (ak/& cache-request-result) :.acquire))
 
-(az/defn consume-cache!
-  :- :void
+(az/defn consume-cache! :void
   []
   (when (ak/== (ak/atomicLoad :u8 (ak/& cache-request-state) :.acquire) 2)
     (let [owned (if (ak/!= pending-group null) (group/item (az/unwrap pending-group) 0)
@@ -424,9 +396,8 @@
       pending-group null)
     (ak/atomicStore :u8 (ak/& cache-request-state) 0 :.release)))
 
-(az/defn request-bake!
+(az/defn request-bake! :bool
   "Queue a REPL-authored bake for the UI thread. Models: rigid=0, XPBD=1, FEM=2."
-  :- :bool
   [[config physics/Config] [bodies :u32] [model :u32] [young :f64] [seconds :f64]]
   (when (or (and (ak/!= bodies 1) (ak/!= bodies 3)) (> model 2)
             (ak/! (and (> (az/field config radius) 0.0) (> (az/field config mass) 0.0)
@@ -439,9 +410,8 @@
   (ak/atomicStore :u8 (ak/& request-state) 2 :.release)
   true)
 
-(az/defn request-view!
+(az/defn request-view! :bool
   "Queue seek/pause (3), export (4), stop bake (8), or play cache (9) on the UI thread."
-  :- :bool
   [[action :u32] [cursor :u32]]
   (when (ak/! (or (ak/== action 3) (ak/== action 4) (ak/== action 8) (ak/== action 9)))
     (ak/return false))
@@ -453,14 +423,12 @@
   (ak/atomicStore :u8 (ak/& request-state) 2 :.release)
   true)
 
-(az/defn live-status
+(az/defn live-status :u64
   "Atomic packed telemetry: count bits 0–15, cursor 16–31, baking/FEM/failure 32–34."
-  :- :u64
   []
   (ak/atomicLoad :u64 (ak/& status-word) :.acquire))
 
-(az/defn consume-request!
-  :- :void
+(az/defn consume-request! :void
   []
   (when (ak/== (ak/atomicLoad :u8 (ak/& request-state) :.acquire) 2)
     (when (ak/== (az/field pending-request action) 1)
@@ -490,8 +458,7 @@
       (set! (az/field controls paused) 0))
     (ak/atomicStore :u8 (ak/& request-state) 0 :.release)))
 
-(az/defn edited-config
-  :- physics/Config
+(az/defn edited-config physics/Config
   []
   (physics/Config {:radius (az/field controls radius)
                    :mass (az/field controls mass)
@@ -504,10 +471,9 @@
                    :vz (az/field controls vz)
                    :spin (az/field controls spin)}))
 
-(az/defn route-inspector-bake!
+(az/defn route-inspector-bake! :void
   "Route ordinary FEM controls to the attached offline worker before the legacy loop.
-  A busy worker must never cause an unnoticed fallback to the coarse solver."
-  :- :void []
+  A busy worker must never cause an unnoticed fallback to the coarse solver." []
   (when (and (ak/== (az/field controls deform) 2) (ak/!= (job-status) 0)
              (or (ak/== (az/field controls action) 1)
                  (ak/== (az/field controls action) 5)
@@ -525,15 +491,13 @@
         (az/field controls baking) 0
         native-panel/authored-jobs-visible true))))
 
-(az/defn material-energy
-  :- :f64
+(az/defn material-energy :f64
   [[body soft/Body] [config physics/Config]]
   (if scene/continuum
     (fem/energy body config scene/stiffness)
     (soft/energy body config scene/stiffness)))
 
-(az/defn export!
-  :- :void
+(az/defn export! :void
   []
   (let [config (scene/config)
         file (native-panel/export-begin! (az/field config radius)
@@ -647,9 +611,8 @@
       (when (ak/== 0 (native-panel/export-end! file)) (set! success false))
       (set! (az/field controls exported) (if success 1 -1)))))
 
-(az/defn draw-ui!
+(az/defn draw-ui! :void
   {:attrs #{:export}}
-  :- :void
   [[command :u64]]
   (let [state (scene/state)
         config (scene/config)]
@@ -759,13 +722,11 @@
 
 (az/defvar shader-reload-request :u8 0)
 
-(az/defn request-shader-reload!
-  "After compiling shader files, queue pipeline replacement on the render thread."
-  :- :void []
+(az/defn request-shader-reload! :void
+  "After compiling shader files, queue pipeline replacement on the render thread." []
   (ak/atomicStore :u8 (ak/& shader-reload-request) 1 :.release))
 
-(az/defn service-shader-reload!
-  :- :void []
+(az/defn service-shader-reload! :void []
   (when (or (ak/!= (ak/atomicRmw :u8 (ak/& shader-reload-request) :.Xchg 0 :.acq_rel) 0)
             (ak/== renderer/scene-storage-layout null))
     (renderer/renderer-wait-idle!)
@@ -781,9 +742,8 @@
     (set! surface/framing-enabled true)
     (native-panel/request-frame!)))
 
-(az/defn build-frame!
+(az/defn build-frame! :u32
   {:attrs #{:export}}
-  :- :u32
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (debug/assert (and (> width 0) (> height 0)))
   (service-shader-reload!)
@@ -846,8 +806,7 @@
                       (surface/camera-distance (ak/as :f64 (az/field controls distance)))))
     3))
 
-(az/defn main
-  :- :void
+(az/defn main :void
   []
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
   (debug/assert (ak/== (glfw/glfwInit) glfw/GLFW_TRUE))

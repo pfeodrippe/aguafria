@@ -6,9 +6,9 @@
             [la-professeure.takes-test :as fixtures]))
 
 (az/defvar output [:array 2048 :f32] ak/undefined)
-(az/defn block! :- :void [[frames :u32]]
+(az/defn block! :void [[frames :u32]]
   (when (<= frames 1024) (mixer/process! (ak/& output) frames)))
-(az/defn sample-at :- :f32 [[index :usize]] (az/index output index))
+(az/defn sample-at :f32 [[index :usize]] (az/index output index))
 (defn left [n] (mapv #(double (sample-at (* 2 %))) (range n)))
 (defn approx [a b] (and (= (count a) (count b)) (every? #(< (abs %) 0.00001) (map - a b))))
 

@@ -7,9 +7,7 @@
             [racing-game.assets :as assets]
             [racing-game.inference :as inference]))
 
-(az/defn main
-  :-
-  :void
+(az/defn main :void
   []
   (if (assets/load-and-verify!)
     (do

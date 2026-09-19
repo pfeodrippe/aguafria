@@ -17,8 +17,7 @@
   [[:sample soft/Sample] [:completed :bool] [:substeps :u32]
    [:minimum-jacobian :f64]])
 
-(az/defn reference-element
-  :- fem/Element
+(az/defn reference-element fem/Element
   [[index :usize] [radius :f64]]
   (let [face (az/index mesh/faces index)
         b (az/index face 0)
@@ -36,8 +35,7 @@
                   :gradients [(p/scale (p/add (p/add gb gc) gd) -1.0) gb gc gd]
                   :volume volume})))
 
-(az/defn elastic-energy
-  :- :f64
+(az/defn elastic-energy :f64
   [[body soft/Body] [config p/Config] [young :f64]]
   (let [parameters (elastic/material young poisson)
         origin (az/index (az/field body positions) 0)
@@ -55,14 +53,12 @@
                          (az/field (elastic/evaluate gradient parameters) energy-density)))))
     total))
 
-(az/defn energy
-  :- :f64
+(az/defn energy :f64
   [[body soft/Body] [config p/Config] [young :f64]]
   (+ (elastic-energy body config young) (soft/kinetic body config)
      (* (az/field config mass) (az/field config gravity) (az/field (soft/center body) y))))
 
-(az/defn read-body
-  :- soft/Body
+(az/defn read-body soft/Body
   [[state [:* dynamics/Dynamics]]]
   (let [^{:var soft/Body} body ak/undefined]
     (dotimes [node soft/particle-count]
@@ -71,8 +67,7 @@
         (az/index (az/field body velocities) node) (dynamics/particle-velocity state node)))
     body))
 
-(az/defn correct-contact!
-  :- :void
+(az/defn correct-contact! :void
   [[state [:* dynamics/Dynamics]] [before soft/Body] [after soft/Body] [dt :f64]]
   (dotimes [node soft/particle-count]
     (let [old (az/index (az/field before positions) node)
@@ -81,8 +76,7 @@
           velocity (p/add (az/index (az/field before velocities) node) correction)]
       (dynamics/set-particle! state node point velocity))))
 
-(az/defn advance
-  :- Result
+(az/defn advance Result
   [[input soft/Sample] [config p/Config] [active :u32] [young :f64] [dt :f64]]
   (let [^{:var [:array 3 [:* fem/Model]]} models ak/undefined
         ^{:var [:array 3 [:* dynamics/Dynamics]]} states ak/undefined

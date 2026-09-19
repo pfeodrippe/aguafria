@@ -296,7 +296,7 @@
   ;; EDIT 1 OF 3 — SIMPLE FUNCTION BODY
   ;;
   ;; Evaluate this function and call it like an ordinary Clojure Var.
-  (az/defn live-transfer-amount :- :u128
+  (az/defn live-transfer-amount :u128
     []
     10)
 
@@ -389,9 +389,7 @@
   ;; returned struct has data plus a method. Its attrs make it a normal public
   ;; Zig declaration with an implicit return, without incorrectly C-exporting
   ;; a comptime signature. comptime-amount is an ordinary compiled caller.
-  (az/defn HotAmountType
-    :-
-    :type
+  (az/defn HotAmountType :type
     [[bonus {:zig/prefix "comptime"} :u64]]
     (az/container
      {:kind :struct}
@@ -404,7 +402,7 @@
        [[self [:*const Self]]]
        (+ (az/field self base) bonus))))
 
-  (az/defn comptime-amount :- :u64
+  (az/defn comptime-amount :u64
     [[base :u64]]
     (ak/var calculator
       (HotAmountType 5)

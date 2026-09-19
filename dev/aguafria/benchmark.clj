@@ -89,7 +89,7 @@
       (let [started (System/nanoTime)]
         (doseq [target namespaces]
           (binding [*ns* target]
-            (eval '(az/defn fixture_value :- :u64 [] 42))))
+            (eval '(az/defn fixture_value :u64 [] 42))))
         (doseq [module symbols]
           (az/await! module))
         (let [builds (mapv #(get-in (az/stats %) [:last-build]) symbols)
@@ -130,9 +130,9 @@
       (binding [*ns* module-ns]
         (refer 'clojure.core)
         (alias 'az 'aguafria.zig)
-        (eval '(az/defn step :- :u64 [x :- :u64] (+ x 1)))
+        (eval '(az/defn step :u64 [x :- :u64] (+ x 1)))
         (eval
-         '(az/defn direct_loop :- :u64 [n :- :u64]
+         '(az/defn direct_loop :u64 [n :- :u64]
             (var total :u64 0)
             (var i :u64 0)
             (while (< i n)
@@ -140,7 +140,7 @@
               (+= i 1))
             total))
         (eval
-         '(az/defn composed_loop :- :u64 [n :- :u64]
+         '(az/defn composed_loop :u64 [n :- :u64]
             (var total :u64 0)
             (var i :u64 0)
             (while (< i n)
@@ -320,13 +320,12 @@
        (let [clean-started (System/nanoTime)
              _ (binding [*ns* module-ns]
                  (eval
-                  '(az/defn hot-step
+                  '(az/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
-                     :- :u64
                      [x :- :u64]
                      (+ x 1)))
                  (eval
-                  '(az/defn direct-loop :- :u64
+                  '(az/defn direct-loop :u64
                      [n :- :u64]
                      (var total :u64 0)
                      (var i :u64 0)
@@ -335,7 +334,7 @@
                        (+= i 1))
                      total))
                  (eval
-                  '(az/defn dispatch-loop :- :u64
+                  '(az/defn dispatch-loop :u64
                      [n :- :u64]
                      (var total :u64 0)
                      (var i :u64 0)
@@ -352,18 +351,16 @@
              incremental-started (System/nanoTime)
              _ (binding [*ns* module-ns]
                  (eval
-                  '(az/defn hot-step
+                  '(az/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
-                     :- :u64
                      [x :- :u64]
                      (+ x 2))))
              incremental (compile-measurement module-symbol
                                               (elapsed-ms incremental-started))
              _ (binding [*ns* module-ns]
                  (eval
-                  '(az/defn hot-step
+                  '(az/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
-                     :- :u64
                      [x :- :u64]
                      (+ x 1))))
              direct-loop (ns-resolve module-ns 'direct-loop)

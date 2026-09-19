@@ -51,10 +51,8 @@
 
 (az/defvar emitted-count :u64 0)
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Create one Box3D world; compatible code reloads preserve its live bodies."
-  :-
-  :bool
   []
   (when (ak/! initialized)
     (let [^{:var true} definition (box3d/b3DefaultWorldDef)]
@@ -68,19 +66,15 @@
       (set! initialized true)))
   initialized)
 
-(az/defn destroy-slot!
-  :-
-  :void
+(az/defn destroy-slot! :void
   [[slot :usize]]
   (let [particle (ak/& (az/index particles slot))]
     (when (az/field (az/deref particle) active)
       (box3d/b3DestroyBody (az/field (az/deref particle) body))
       (set! (az/field (az/deref particle) active) false))))
 
-(az/defn spawn-one!
+(az/defn spawn-one! :void
   "Spawn one coconut fragment at a factory grid location."
-  :-
-  :void
   [[grid-x :i32]
    [grid-y :i32]
    [ordinal :usize]
@@ -129,10 +123,8 @@
     (set! next-slot (mod (+ next-slot 1) particle-capacity))
     (set! emitted-count (+ emitted-count 1))))
 
-(az/defn emit!
+(az/defn emit! :void
   "Emit a bounded physical burst for a real factory event."
-  :-
-  :void
   [[grid-x :i32]
    [grid-y :i32]
    [event-kind :u8]]
@@ -140,10 +132,8 @@
     (dotimes [ordinal count]
       (spawn-one! grid-x grid-y ordinal event-kind))))
 
-(az/defn step!
+(az/defn step! :void
   "Advance Box3D and retire particles after their short visual lifetime."
-  :-
-  :void
   [[delta-seconds :f32]]
   (when initialized
     (let [step (if (> delta-seconds 0.0) delta-seconds 0.008333333)]
@@ -156,10 +146,8 @@
             (when (> (az/field (az/deref particle) age) 1.6)
               (destroy-slot! slot))))))))
 
-(az/defn particle-view
+(az/defn particle-view ParticleView
   "Return one particle's current native position."
-  :-
-  ParticleView
   [[slot :usize]]
   (if (or (>= slot particle-capacity)
           (ak/! (az/field (az/index particles slot) active)))
@@ -178,10 +166,8 @@
         :age (az/field (az/deref particle) age)
         :event_kind (az/field (az/deref particle) event_kind)}))))
 
-(az/defn fill-active-views!
+(az/defn fill-active-views! :usize
   "Copy the active pool into one contiguous renderer buffer in one native call."
-  :-
-  :usize
   [[output [:c-pointer ParticleView]]]
   (let [^{:var true :zig/type :usize} count 0]
     (dotimes [slot particle-capacity]
@@ -201,9 +187,7 @@
             (set! count (+ count 1))))))
     count))
 
-(az/defn active-count
-  :-
-  :u32
+(az/defn active-count :u32
   []
   (let [^{:var true :zig/type :u32} count 0]
     (dotimes [slot particle-capacity]
@@ -211,10 +195,8 @@
         (set! count (+ count 1))))
     count))
 
-(az/defn snapshot
+(az/defn snapshot PhysicsSnapshot
   "Inspect Box3D allocation and particle occupancy from Clojure."
-  :-
-  PhysicsSnapshot
   []
   (PhysicsSnapshot
    {:initialized initialized
@@ -223,10 +205,8 @@
     :emitted emitted-count
     :box3d_bytes (box3d/b3GetByteCount)}))
 
-(az/defn shutdown!
+(az/defn shutdown! :void
   "Destroy the Box3D world and every body it owns."
-  :-
-  :void
   []
   (when initialized
     (box3d/b3DestroyWorld world)

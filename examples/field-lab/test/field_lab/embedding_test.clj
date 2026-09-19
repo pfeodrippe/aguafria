@@ -8,8 +8,7 @@
             [field-lab.embedding :as embedding]
             [field-lab.nonlinear-job :as job]))
 
-(az/defn fixture!
-  :- [:* cache/Cache]
+(az/defn fixture! [:* cache/Cache]
   [[cells :usize]]
   (let [source (cache/create! 5 cells 1 2 (p/defaults) 1000.0 0.3)
         points (az/array-init [:array 5 p/Vec3]
@@ -33,35 +32,29 @@
     (set! (az/field source count) 2)
     source))
 
-(az/defn rendered-point
-  :- p/Vec3
+(az/defn rendered-point p/Vec3
   [[render [:* embedding/Render]] [index :usize]]
   (az/index (az/field render positions) index))
 
-(az/defn rendered-normal
-  :- p/Vec3
+(az/defn rendered-normal p/Vec3
   [[render [:* embedding/Render]] [index :usize]]
   (az/index (az/field render normals) index))
 
-(az/defn vertex-gradient
-  :- matrix/Matrix
+(az/defn vertex-gradient matrix/Matrix
   [[render [:* embedding/Render]] [index :usize]]
   (az/index (az/field render gradients) index))
 
-(az/defn weights
-  :- [:array 4 :f64]
+(az/defn weights [:array 4 :f64]
   [[render [:* embedding/Render]] [index :usize]]
   (az/index (az/field render cell-weights) index))
 
-(az/defn alternate-parent!
-  :- :void
+(az/defn alternate-parent! :void
   [[render [:* embedding/Render]]]
   ;; The same shared-face material point expressed in the other tetrahedron.
   (set! (az/index (az/field render bindings) 0)
         (embedding/Binding {:cell 1 :weights (az/array-init [:array 4 :f64] [0.5 0.3 0.2 0.0]) :valid true})))
 
-(az/defn bend!
-  :- :void
+(az/defn bend! :void
   [[source [:* cache/Cache]]]
   (az/set-many!
     (az/index (az/field source positions) 8) (p/v 0.2 0.1 1.2)
@@ -140,8 +133,7 @@
    [:minimum-height :f64] [:maximum-correction :f64] [:inset :f64]
    [:minimum-outward-normal :f64]])
 
-(az/defn inspect-sphere!
-  :- SphereInspection
+(az/defn inspect-sphere! SphereInspection
   [[source [:* cache/Cache]]]
   (let [owned (embedding/inscribed-sphere! source)
         ^:var result (SphereInspection {:created (ak/!= owned null) :completed false
@@ -199,8 +191,7 @@
         (is (pos? (:minimum-outward-normal inspection))))
       (finally (cache/destroy! cache)))))
 
-(az/defn shear-above-floor!
-  :- :void
+(az/defn shear-above-floor! :void
   [[source [:* cache/Cache]]]
   (dotimes [node 5]
     (set! (az/index (az/field source positions) (+ 5 node))

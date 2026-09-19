@@ -11,8 +11,7 @@
            [javax.imageio ImageIO]))
 
 ;; These tests run in a separate test JVM, never in the live renderer's REPL.
-(az/defn write-fixture!
-  :- :bool
+(az/defn write-fixture! :bool
   [[path [:pointer {:size :c :const? true} :u8]] [bgra :bool]]
   (let [^:var pixels (az/array-init [:array 16 :u8]
                                    [0 0 255 255, 0 255 0 255,
@@ -28,7 +27,7 @@
       (set! _ (readback/acknowledge!))
       saved)))
 
-(az/defn format-checks :- :bool []
+(az/defn format-checks :bool []
   (and (ak/! (readback/supported-format? vk/VK_FORMAT_UNDEFINED))
        (readback/supported-format? vk/VK_FORMAT_B8G8R8A8_SRGB)
        (readback/supported-format? vk/VK_FORMAT_R8G8B8A8_SRGB)))

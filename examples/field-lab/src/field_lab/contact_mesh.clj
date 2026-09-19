@@ -29,10 +29,9 @@
    [separation :f64] [tolerance :f64] [maximum-time :f64]
    [maximum-iterations :u32] [result [:c-pointer CCDResult]]])
 
-(az/defn feature-sweep
+(az/defn feature-sweep CCDResult
   "Conservative linear-trajectory CCD. Kind 0 vertex/face; kind 1 edge/edge.
   A reported time is a conservative bound; a possible hit may be a false positive."
-  :- CCDResult
   [[kind :u32] [a0 p/Vec3] [b0 p/Vec3] [c0 p/Vec3] [d0 p/Vec3]
    [a1 p/Vec3] [b1 p/Vec3] [c1 p/Vec3] [d1 p/Vec3]
    [separation :f64] [tolerance :f64] [maximum-time :f64] [maximum-iterations :u32]]
@@ -105,8 +104,7 @@
   [[:point p/Vec3] [:weights p/Vec3] [:squared-distance :f64]
    [:face :u32] [:signed-distance :f64] [:normal p/Vec3]])
 
-(az/defn create!
-  :- [:* Surface]
+(az/defn create! [:* Surface]
   [[nodes :usize] [faces :usize]]
   (debug/assert (and (> nodes 0) (> faces 0) (<= nodes 20000) (<= faces 80000)))
   (let [surface (catch ((az/field heap/page_allocator create) Surface)
@@ -120,8 +118,7 @@
                     :incidents (fem/allocate :u32 (* 3 faces))}))
     surface))
 
-(az/defn destroy!
-  :- :void
+(az/defn destroy! :void
   [[surface [:* Surface]]]
   ((az/field heap/page_allocator free) (az/field surface points))
   ((az/field heap/page_allocator free) (az/field surface faces))
@@ -131,19 +128,16 @@
   ((az/field heap/page_allocator free) (az/field surface incidents))
   ((az/field heap/page_allocator destroy) surface))
 
-(az/defn set-point!
+(az/defn set-point! :void
   "Initialization/batched refit setter; call refit! before queries."
-  :- :void
   [[surface [:* Surface]] [node :usize] [point p/Vec3]]
   (set! (az/index (az/field surface points) node) point))
 
-(az/defn set-face!
-  :- :void
+(az/defn set-face! :void
   [[surface [:* Surface]] [index :usize] [a :u32] [b :u32] [c :u32]]
   (set! (az/index (az/field surface faces) index) (az/array-init [:array 3 :u32] [a b c])))
 
-(az/defn set-tree!
-  :- :void
+(az/defn set-tree! :void
   [[surface [:* Surface]] [index :usize] [parent :usize]
    [left :usize] [right :usize] [face :usize] [leaf :bool]]
   (set! (az/index (az/field surface tree) index)
@@ -151,32 +145,27 @@
                     :bounds (Box {:lower (p/v 0.0 0.0 0.0) :upper (p/v 0.0 0.0 0.0)})}))
   (when leaf (set! (az/index (az/field surface leaves) face) index)))
 
-(az/defn set-offset!
-  :- :void
+(az/defn set-offset! :void
   [[surface [:* Surface]] [index :usize] [value :usize]]
   (set! (az/index (az/field surface offsets) index) value))
 
-(az/defn set-incident!
-  :- :void
+(az/defn set-incident! :void
   [[surface [:* Surface]] [index :usize] [face :u32]]
   (set! (az/index (az/field surface incidents) index) face))
 
-(az/defn min-vector
-  :- p/Vec3
+(az/defn min-vector p/Vec3
   [[a p/Vec3] [b p/Vec3]]
   (p/v (ak/min (az/field a x) (az/field b x))
        (ak/min (az/field a y) (az/field b y))
        (ak/min (az/field a z) (az/field b z))))
 
-(az/defn max-vector
-  :- p/Vec3
+(az/defn max-vector p/Vec3
   [[a p/Vec3] [b p/Vec3]]
   (p/v (ak/max (az/field a x) (az/field b x))
        (ak/max (az/field a y) (az/field b y))
        (ak/max (az/field a z) (az/field b z))))
 
-(az/defn refit-node!
-  :- :void
+(az/defn refit-node! :void
   [[surface [:* Surface]] [index :usize]]
   (let [node (az/index (az/field surface tree) index)]
     (if (az/field node leaf)
@@ -192,8 +181,7 @@
               (Box {:lower (min-vector (az/field a lower) (az/field b lower))
                     :upper (max-vector (az/field a upper) (az/field b upper))}))))))
 
-(az/defn refit!
-  :- :void
+(az/defn refit! :void
   [[surface [:* Surface]]]
   (let [size (az/field (az/field surface tree) len)]
     (dotimes [index size]
@@ -205,14 +193,12 @@
 (az/defstruct BuildRange
   [[:node :usize] [:parent :usize] [:start :usize] [:count :usize] [:depth :usize]])
 
-(az/defn vector-coordinate
-  :- :f64
+(az/defn vector-coordinate :f64
   [[value p/Vec3] [axis :usize]]
   (if (ak/== axis 0) (az/field value x)
       (if (ak/== axis 1) (az/field value y) (az/field value z))))
 
-(az/defn face-bounds
-  :- Box
+(az/defn face-bounds Box
   [[surface [:* Surface]] [index :usize]]
   (let [face (az/index (az/field surface faces) index)
         a (az/index (az/field surface points) (az/index face 0))
@@ -221,19 +207,16 @@
     (Box {:lower (min-vector a (min-vector b c))
           :upper (max-vector a (max-vector b c))})))
 
-(az/defn box-center
-  :- p/Vec3
+(az/defn box-center p/Vec3
   [[bounds Box]]
   (p/add (p/scale (az/field bounds lower) 0.5) (p/scale (az/field bounds upper) 0.5)))
 
-(az/defn union-box
-  :- Box
+(az/defn union-box Box
   [[a Box] [b Box]]
   (Box {:lower (min-vector (az/field a lower) (az/field b lower))
         :upper (max-vector (az/field a upper) (az/field b upper))}))
 
-(az/defn box-area
-  :- :f64
+(az/defn box-area :f64
   [[bounds Box]]
   (let [extent (p/add (az/field bounds upper) (p/scale (az/field bounds lower) -1.0))
         x (az/field extent x)
@@ -241,16 +224,14 @@
         z (az/field extent z)]
     (* 2.0 (+ (* x y) (* y z) (* z x)))))
 
-(az/defn split-bucket
-  :- :usize
+(az/defn split-bucket :usize
   [[bounds Box] [axis :usize] [lower :f64] [span :f64]]
   (let [offset (/ (- (vector-coordinate (box-center bounds) axis) lower) span)]
     (ak/intFromFloat (ak/min 11.0 (ak/max 0.0 (* 12.0 offset))))))
 
-(az/defn partition-faces!
+(az/defn partition-faces! :usize
   "Twelve-bucket SAH on the longest centroid axis. Single-face leaves retain
   the existing contact hierarchy ABI; coincident centers split by index."
-  :- :usize
   [[surface [:* Surface]] [order [:slice :usize]] [start :usize] [count :usize]]
   (let [initial (box-center (face-bounds surface (az/index order start)))
         ^:var centers (Box {:lower initial :upper initial})
@@ -314,11 +295,10 @@
             (if (and (> left-count 0) (< left-count count)) left-count
                 (ak/divTrunc count 2))))))))
 
-(az/defn build-hierarchy!
+(az/defn build-hierarchy! :bool
   "Build/refit an owned Surface entirely in native code. Validates finite bounded
   points and triangle indices before writing topology; accepts open/degenerate
   triangles for unsigned queries. Does not certify an oriented solid boundary."
-  :- :bool
   [[surface [:* Surface]]]
   (let [points (az/field surface points)
         faces (az/field surface faces)
@@ -391,23 +371,20 @@
       (refit! surface)
       true)))
 
-(az/defn packed-hierarchy-words
-  :- :usize
+(az/defn packed-hierarchy-words :usize
   [[surface [:* Surface]]]
   (+ 4 (* 8 (az/field (az/field surface tree) len))
      (* 4 (az/field (az/field surface points) len))
      (* 4 (az/field (az/field surface faces) len))))
 
-(az/defn float-word
-  :- :u32
+(az/defn float-word :u32
   [[value :f32]]
   (ak/bitCast value))
 
-(az/defn pack-hierarchy!
+(az/defn pack-hierarchy! :usize
   "Bounded std430 word packet: header, 32-byte nodes, vec4 points, uvec4 faces.
   Bounds round outwards around the same float32 positions used by the viewport.
   Returns zero without writes on invalid input or insufficient caller capacity."
-  :- :usize
   [[surface [:* Surface]] [output [:c-pointer :u32]] [capacity :usize]]
   (let [points (az/field surface points)
         faces (az/field surface faces)
@@ -476,9 +453,8 @@
         (set! (az/index output (+ base (* 4 i) 3)) 0)))
     words))
 
-(az/defn move-point!
+(az/defn move-point! :void
   "Update incident leaves and ancestors after a contact correction."
-  :- :void
   [[surface [:* Surface]] [vertex :usize] [point p/Vec3]]
   (set-point! surface vertex point)
   (let [start (az/index (az/field surface offsets) vertex)
@@ -491,22 +467,19 @@
           (when (ak/== index 0) (ak/break))
           (set! index (az/field (az/index (az/field surface tree) index) parent)))))))
 
-(az/defn box-distance
-  :- :f64
+(az/defn box-distance :f64
   [[bounds Box] [point p/Vec3]]
   (let [sum (max-vector (p/v 0.0 0.0 0.0)
                         (max-vector (p/add (az/field bounds lower) (p/scale point -1.0))
                                     (p/add point (p/scale (az/field bounds upper) -1.0))))]
     (p/dot sum sum)))
 
-(az/defn bounds-contain?
+(az/defn bounds-contain? :bool
   "Broad-phase test against the root box, not a solid-interior classification."
-  :- :bool
   [[surface [:* Surface]] [point p/Vec3]]
   (<= (box-distance (az/field (az/index (az/field surface tree) 0) bounds) point) 1.0e-24))
 
-(az/defn unit-normal
-  :- p/Vec3
+(az/defn unit-normal p/Vec3
   [[surface [:* Surface]] [index :usize]]
   (let [face (az/index (az/field surface faces) index)
         a (az/index (az/field surface points) (az/index face 0))
@@ -515,9 +488,8 @@
         normal (p/cross (p/add b (p/scale a -1.0)) (p/add c (p/scale a -1.0)))]
     (p/scale normal (/ 1.0 (ak/max 1.0e-30 (p/length normal))))))
 
-(az/defn triangle-closest
+(az/defn triangle-closest Closest
   "Interior projection plus all three closed segments covers every Voronoi region."
-  :- Closest
   [[point p/Vec3] [a p/Vec3] [b p/Vec3] [c p/Vec3]]
   (let [vertices (az/array-init [:array 3 p/Vec3] [a b c])
         ^:var result (Closest {:point a :weights (p/v 1.0 0.0 0.0)
@@ -561,9 +533,8 @@
               (az/field result squared-distance) squared)))))
     result))
 
-(az/defn pseudo-normal
+(az/defn pseudo-normal p/Vec3
   "Bærentzen–Aanæs: incident-angle weights at vertices; both normals at edges."
-  :- p/Vec3
   [[surface [:* Surface]] [closest Closest]]
   (let [face (az/index (az/field surface faces) (az/field closest face))
         weights (az/field closest weights)
@@ -597,8 +568,7 @@
                   (set! result (p/add result (p/scale normal angle)))))))))
       (p/scale result (/ 1.0 (ak/max 1.0e-30 (p/length result)))))))
 
-(az/defn closest-point
-  :- Closest
+(az/defn closest-point Closest
   [[surface [:* Surface]] [point p/Vec3]]
   (let [^{:var [:array 64 :usize]} stack ak/undefined
         ^{:var :usize} size 1
@@ -650,19 +620,17 @@
 (az/defstruct SegmentClosest {:layout :extern}
   [[:a p/Vec3] [:b p/Vec3] [:s :f64] [:t :f64] [:squared-distance :f64]])
 
-(az/defn segment-pair
-  :- SegmentClosest
+(az/defn segment-pair SegmentClosest
   [[a p/Vec3] [u p/Vec3] [b p/Vec3] [v p/Vec3] [s :f64] [t :f64]]
   (let [left (p/add a (p/scale u s))
         right (p/add b (p/scale v t))
         delta (p/add left (p/scale right -1.0))]
     (SegmentClosest {:a left :b right :s s :t t :squared-distance (p/dot delta delta)})))
 
-(az/defn segment-closest
+(az/defn segment-closest SegmentClosest
   "Minimum over four endpoint projections and the interior stationary pair.
   Cross-product determinant avoids subtracting nearly equal squared dot products.
   Parallel and zero-length segments are covered by the endpoint candidates."
-  :- SegmentClosest
   [[a p/Vec3] [a-end p/Vec3] [b p/Vec3] [b-end p/Vec3]]
   (let [u (p/add a-end (p/scale a -1.0))
         v (p/add b-end (p/scale b -1.0))
@@ -702,8 +670,7 @@
    [:face-a :u32] [:face-b :u32] [:feature :u32] [:reserved :u32]
    [:time :f64] [:achieved-tolerance :f64]])
 
-(az/defn create-motion!
-  :- [:* MotionSurface]
+(az/defn create-motion! [:* MotionSurface]
   [[source [:* Surface]]]
   (let [motion (catch ((az/field heap/page_allocator create) MotionSurface)
                  (debug/panic "Unable to allocate swept contact mesh" []))
@@ -719,25 +686,22 @@
         (az/index (az/field motion end) i) (az/index (az/field source points) i)))
     motion))
 
-(az/defn destroy-motion!
-  :- :void
+(az/defn destroy-motion! :void
   [[motion [:* MotionSurface]]]
   ((az/field heap/page_allocator free) (az/field motion start))
   ((az/field heap/page_allocator free) (az/field motion end))
   ((az/field heap/page_allocator free) (az/field motion bounds))
   ((az/field heap/page_allocator destroy) motion))
 
-(az/defn set-motion-point!
-  :- :void
+(az/defn set-motion-point! :void
   [[motion [:* MotionSurface]] [node :usize] [start p/Vec3] [end p/Vec3]]
   (az/set-many!
     (az/field motion ready) false
     (az/index (az/field motion start) node) start
     (az/index (az/field motion end) node) end))
 
-(az/defn refit-motion!
+(az/defn refit-motion! :bool
   "Endpoint extrema enclose every point of a linearly deforming triangle."
-  :- :bool
   [[motion [:* MotionSurface]]]
   (let [source (az/field motion source)
         count (az/field (az/field source tree) len)]
@@ -772,9 +736,8 @@
     (set! (az/field motion ready) true)
     true))
 
-(az/defn boxes-near?
+(az/defn boxes-near? :bool
   "Outward-round the separation expansion so rounding cannot prune a true pair."
-  :- :bool
   [[a Box] [b Box] [separation :f64]]
   (dotimes [axis 3]
     (let [upper-a (math/nextAfter :f64 (+ (fem/component (az/field a upper) axis) separation) 1.0e300)
@@ -787,10 +750,9 @@
 (az/defstruct FacePairsReport {:layout :extern}
   [[:status :u32] [:count :usize] [:visits :u32]])
 
-(az/defn near-face-pairs!
+(az/defn near-face-pairs! FacePairsReport
   "Collect static BVH leaf pairs within a coordinate-wise expanded box.
   Status 1 means output/work capacity; candidates still require distance tests."
-  :- FacePairsReport
   [[a [:* Surface]] [b [:* Surface]] [separation :f64] [pairs [:slice [:array 2 :u32]]]]
   (let [^:var report (FacePairsReport {:status 0 :count 0 :visits 0})
         ^{:var [:array 128 [:array 2 :usize]]} stack ak/undefined
@@ -833,8 +795,7 @@
 (az/defstruct SweepFeature
   [[:kind :u32] [:nodes [:array 4 :u32]] [:left [:array 4 :bool]]])
 
-(az/defn triangle-feature
-  :- SweepFeature
+(az/defn triangle-feature SweepFeature
   [[a [:array 3 :u32]] [b [:array 3 :u32]] [index :usize]]
   (when (< index 3)
     (ak/return (SweepFeature {:kind 0 :nodes [(az/index a index) (az/index b 0) (az/index b 1) (az/index b 2)]
@@ -848,8 +809,7 @@
                                   (az/index b edge-b) (az/index b (mod (+ edge-b 1) 3))]
                    :left [true true false false]})))
 
-(az/defn query-triangle-pair!
-  :- :void
+(az/defn query-triangle-pair! :void
   [[a [:* MotionSurface]] [b [:* MotionSurface]] [face-a :u32] [face-b :u32]
    [separation :f64] [tolerance :f64] [maximum-work :u32] [maximum-iterations :u32]
    [report [:* MeshSweepResult]]]
@@ -885,12 +845,11 @@
             (az/field report feature) (ak/intCast index)))
         (when (ak/== (az/field report time) 0.0) (ak/return))))))
 
-(az/defn sweep-surfaces
+(az/defn sweep-surfaces MeshSweepResult
   "Paired swept BVHs, six vertex/face and nine edge/edge queries per leaf pair.
   Status 0 clear, 1 possible contact, 2 invalid/unrefitted, 3 primitive failure,
   4 work/stack budget. A clear path assumes initially disjoint triangle surfaces;
   these feature predicates do not detect arbitrary pre-existing intersections."
-  :- MeshSweepResult
   [[a [:* MotionSurface]] [b [:* MotionSurface]]
    [separation :f64] [tolerance :f64] [maximum-work :u32] [maximum-iterations :u32]]
   (let [^:var report (MeshSweepResult {:status 2 :visits 0 :queries 0 :candidates 0

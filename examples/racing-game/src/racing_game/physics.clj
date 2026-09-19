@@ -38,7 +38,7 @@
   "Owned by one physics world; never shared between races or test fixtures."
   [[:count :usize] [:tires [:array max-world-tires TireContact]]])
 
-(az/defn create-world :- b3/b3WorldId [[gravity :f32]]
+(az/defn create-world b3/b3WorldId [[gravity :f32]]
   (let [^:var definition (b3/b3DefaultWorldDef)
         state (catch ((az/field heap/page_allocator create) WorldState)
                 (debug/panic "Unable to allocate the physics world's tire registry" []))]
@@ -51,14 +51,14 @@
     (set! (az/field definition userData) state)
     (b3/b3CreateWorld (ak/& definition))))
 
-(az/defn destroy-world! :- :void [[world b3/b3WorldId]]
+(az/defn destroy-world! :void [[world b3/b3WorldId]]
   (let [state (b3/b3World_GetUserData world)]
     (b3/b3World_SetUserData world ak/null)
     (b3/b3DestroyWorld world)
     (when (ak/!= state ak/null)
       ((az/field heap/page_allocator destroy) (az/cast state [:* WorldState])))))
 
-(az/defn register-tire! :- :void
+(az/defn register-tire! :void
   [[world b3/b3WorldId] [body b3/b3BodyId] [radius :f32] [half-width :f32]]
   (let [state (az/cast (b3/b3World_GetUserData world) [:* WorldState])
         ^{:var :usize} slot (az/field state count)]
@@ -73,10 +73,9 @@
     (set! (az/index (az/field state tires) slot)
       (TireContact {:body body :radius radius :half-width half-width :enabled true :wear_loss 0.0}))))
 
-(az/defn set-tire-contact-enabled!
+(az/defn set-tire-contact-enabled! :void
   "Enable/disable the analytic road contact for one registered tire. This does
-  not change rigid collision filters. Useful for contact-model comparisons."
-  :- :void [[body b3/b3BodyId] [enabled :bool]]
+  not change rigid collision filters. Useful for contact-model comparisons." [[body b3/b3BodyId] [enabled :bool]]
   (let [raw (b3/b3World_GetUserData (b3/b3Body_GetWorld body))]
     (when (ak/!= raw ak/null)
       (let [state (az/cast raw [:* WorldState])]
@@ -109,7 +108,7 @@
 
 (az/defconst drag-coefficient :f32 0.75)
 
-(az/defn body-state :- BodyState [[body b3/b3BodyId]]
+(az/defn body-state BodyState [[body b3/b3BodyId]]
   (let [p (b3/b3Body_GetPosition body) v (b3/b3Body_GetLinearVelocity body)
         q (b3/b3Body_GetRotation body) w (b3/b3Body_GetAngularVelocity body)]
     (BodyState {:x (az/field p x) :y (az/field p y) :z (az/field p z)
@@ -118,9 +117,8 @@
                 :qz (az/field (az/field q v) z) :qw (az/field q s)
                 :wx (az/field w x) :wy (az/field w y) :wz (az/field w z)})))
 
-(az/defn create-box
+(az/defn create-box b3/b3BodyId
   "Rigid collider; mass=0 creates a static body. Also useful for barriers/tests."
-  :- b3/b3BodyId
   [[world b3/b3WorldId] [position b3/b3Pos] [half-size b3/b3Vec3]
    [heading :f32] [mass :f32]]
   (let [^:var definition (b3/b3DefaultBodyDef)
@@ -141,10 +139,9 @@
       (set! _ (b3/b3CreateHullShape body (ak/& shape) (ak/& (az/field hull base))))
       body)))
 
-(az/defn mark-tire-surface!
+(az/defn mark-tire-surface! :void
   "Mark an explicit STATIC driving surface. Barriers/props stay solid-category;
-  they retain ordinary rigid tire contacts rather than analytic road forces."
-  :- :void [[body b3/b3BodyId]]
+  they retain ordinary rigid tire contacts rather than analytic road forces." [[body b3/b3BodyId]]
   (when (ak/!= (b3/b3Body_GetType body) b3/b3_staticBody)
     (debug/panic "Analytic tire surfaces must be static bodies" []))
   (let [^:var shapes (mem/zeroes (az/type [:array 32 b3/b3ShapeId]))
@@ -157,19 +154,17 @@
         (set! (az/field filter categoryBits) tire-surface-category)
         (b3/b3Shape_SetFilter shape filter true)))))
 
-(az/defn create-ground
-  "Static box driving surface for fixtures/platforms, explicitly not a barrier."
-  :- b3/b3BodyId [[world b3/b3WorldId] [position b3/b3Pos]
+(az/defn create-ground b3/b3BodyId
+  "Static box driving surface for fixtures/platforms, explicitly not a barrier." [[world b3/b3WorldId] [position b3/b3Pos]
                   [half-size b3/b3Vec3] [heading :f32]]
   (let [body (create-box world position half-size heading 0.0)]
     (mark-tire-surface! body)
     body))
 
-(az/defn create-vehicle
+(az/defn create-vehicle Vehicle
   "Independent chassis and four rotating tire bodies with suspension/steering
   joints. Origin is chassis centre, in metres. No upright constraint or angular
-  motion locks: collisions can spin, pitch and roll the car."
-  :- Vehicle [[world b3/b3WorldId] [position b3/b3Pos] [heading :f32]]
+  motion locks: collisions can spin, pitch and roll the car." [[world b3/b3WorldId] [position b3/b3Pos] [heading :f32]]
   (let [chassis (create-box world position (b3/b3Vec3 {:x 2.5 :y 0.75 :z 0.20}) heading chassis-mass-kg)
         rotation (b3/b3Body_GetRotation chassis)
         ^:var vehicle (mem/zeroes (az/type Vehicle))]
@@ -235,11 +230,10 @@
           (register-tire! world wheel radius (* 0.5 width)))))
     vehicle))
 
-(az/defn drive-in-gear!
+(az/defn drive-in-gear! :void
   "Driver intent produces wheel torque, never an imposed chassis velocity.
   Inputs: throttle/brake 0..1, steering radians (-0.45..0.45), gear -1 reverse,
-  0 neutral or 1 forward. Braking opposes rolling in either direction."
-  :- :void [[vehicle Vehicle] [throttle :f32] [brake :f32] [steering :f32] [gear :i8]]
+  0 neutral or 1 forward. Braking opposes rolling in either direction." [[vehicle Vehicle] [throttle :f32] [brake :f32] [steering :f32] [gear :i8]]
   (let [gas (ak/max 0.0 (ak/min 1.0 throttle))
         braking (ak/max 0.0 (ak/min 1.0 brake))
         ^{:zig/type :f32} direction (cond (< gear 0) -1.0 (> gear 0) 1.0 :else 0.0)
@@ -301,30 +295,27 @@
                     :y (+ (* (- drag-coefficient) speed (az/field v y)) (az/field wing y))
                     :z (+ (* (- drag-coefficient) speed (az/field v z)) (az/field wing z))}) true))))
 
-(az/defn drive!
-  "Forward-gear pedal control. Explicit reverse/neutral use drive-in-gear!."
-  :- :void [[vehicle Vehicle] [throttle :f32] [brake :f32] [steering :f32]]
+(az/defn drive! :void
+  "Forward-gear pedal control. Explicit reverse/neutral use drive-in-gear!." [[vehicle Vehicle] [throttle :f32] [brake :f32] [steering :f32]]
   (drive-in-gear! vehicle throttle brake steering 1))
 
-(az/defn tread-wear-step
+(az/defn tread-wear-step :f64
   "Gameplay wear calibrated from contact work, not elapsed waiting or AI intent.
   Slip dissipation and load-weighted rolling travel consume tread. The 2MJ
   budget and rolling coefficient are tuning parameters, not measured F1 data.
-  Tiny solver velocities below 0.02m/s are treated as resting contact noise."
-  :- :f64 [[normal :f32] [friction :f32] [slip :f32] [travel-speed :f32] [seconds :f32]]
+  Tiny solver velocities below 0.02m/s are treated as resting contact noise." [[normal :f32] [friction :f32] [slip :f32] [travel-speed :f32] [seconds :f32]]
   (when (or (<= normal 0.0) (<= seconds 0.0)) (ak/return 0.0))
   (let [rolling (ak/max 0.0 (- travel-speed 0.02))
         sliding (ak/max 0.0 (- slip 0.02))
         watts (+ (* (ak/max 0.0 friction) sliding) (* 0.01 normal rolling))]
     (/ (* (ak/as :f64 (ak/floatCast watts)) (ak/as :f64 (ak/floatCast seconds))) 2000000.0)))
 
-(az/defn tire-plane-step!
+(az/defn tire-plane-step! :f64
   "Finite-width circular tread against a static local surface plane. Normal
   compliance and Coulomb-limited slip forces act at contact points; Box3D
   integrates wheel spin, suspension reactions and chassis movement. Near a
   side-on tire, four endcap samples support the disk instead of losing ground.
-  This is a simplified tire model, not a tire-temperature or pneumatic model."
-  :- :f64 [[tire TireContact] [surface-normal b3/b3Vec3]
+  This is a simplified tire model, not a tire-temperature or pneumatic model." [[tire TireContact] [surface-normal b3/b3Vec3]
             [surface-point b3/b3Pos] [surface-friction :f32]]
   (let [wheel (az/field tire body)
         radius (az/field tire radius)
@@ -383,16 +374,14 @@
         (ak/+= wear (tread-wear-step normal friction slip travel-speed fixed-step))))
     wear))
 
-(az/defn apply-tire-plane!
-  "Explicit contact experiment; production contacts also retain tread loss."
-  :- :void [[tire TireContact] [surface-normal b3/b3Vec3]
+(az/defn apply-tire-plane! :void
+  "Explicit contact experiment; production contacts also retain tread loss." [[tire TireContact] [surface-normal b3/b3Vec3]
             [surface-point b3/b3Pos] [surface-friction :f32]]
   (set! _ (tire-plane-step! tire surface-normal surface-point surface-friction)))
 
-(az/defn take-vehicle-tread-loss!
+(az/defn take-vehicle-tread-loss! :f32
   "Consume measured contact work once for this vehicle. A pit call does not
-  stop accumulation; an airborne wheel has no supporting contact work."
-  :- :f32 [[vehicle Vehicle]]
+  stop accumulation; an airborne wheel has no supporting contact work." [[vehicle Vehicle]]
   (let [world (b3/b3Body_GetWorld (az/field vehicle chassis))
         raw (b3/b3World_GetUserData world)
         ^{:var :f64} loss 0.0]
@@ -409,11 +398,10 @@
                   (set! (az/field tire wear_loss) 0.0))))))))
     (ak/floatCast (/ loss 4.0))))
 
-(az/defn apply-tire-contacts!
+(az/defn apply-tire-contacts! :void
   "Apply each world's tire contacts independently of driver input. Ground is
   queried from Box3D, never inferred from circuit progress. Unmarked props and
-  barriers retain rigid contacts. Destroyed body generations are not reused."
-  :- :void [[world b3/b3WorldId]]
+  barriers retain rigid contacts. Destroyed body generations are not reused." [[world b3/b3WorldId]]
   (let [raw (b3/b3World_GetUserData world)]
     ;; A pre-registry world keeps its existing rigid wheel contacts until it is
     ;; explicitly recreated. Never reinterpret an absent registry as memory.
@@ -449,7 +437,7 @@
                           (tire-plane-step! tire (az/field hit normal) (az/field hit point)
                             (az/field material friction)))))))))))))))
 
-(az/defn step! :- :void [[world b3/b3WorldId]]
+(az/defn step! :void [[world b3/b3WorldId]]
   ;; Contacts run even during settling, neutral coasting, or retirement.
   (apply-tire-contacts! world)
   (b3/b3World_Step world fixed-step 2))

@@ -391,11 +391,16 @@
 
 (clojure.core/defn- parse-defn-declaration
   [form name declaration private?]
-  (let [[docstring attributes declaration]
-        (leading-doc-and-attributes declaration)
-        [marker return bindings & body] declaration]
-    (when-not (= marker ':-)
-      (throw (ex-info "az/defn expects: name :- return-type [typed args] body..."
+  (let [[return & tail] declaration
+        [docstring attributes tail] (leading-doc-and-attributes tail)
+        [bindings & body] tail]
+    (when-not (and (symbol? name)
+                   return
+                   (not= return ':-)
+                   (not (map? return))
+                   (not (string? return))
+                   (vector? bindings))
+      (throw (ex-info "az/defn expects: name return-type [optional docstring] [optional attributes] [typed args] body..."
                       {:form form :name name :declaration declaration})))
     (let [qualified-name (symbol (str *ns*) (str name))
           args (emitter/parse-typed-bindings bindings)
@@ -494,7 +499,7 @@
 (defmacro defn
   "Define, compile, and expose a Zig function.
 
-      (az/defn add :- :i32
+      (az/defn add :i32
         [a :- :i32 b :- :i32]
         (+ a b))
 
@@ -503,14 +508,14 @@
   `{:attrs #{:export}}` only when an external C-ABI symbol is intentionally
   required. Generic/comptime functions retain Zig's native ABI and are reached
   through concrete callers. Non-void functions implicitly return their final
-  expression."
+  expression. Optional docstrings and attributes follow the return type."
   [name & declaration]
   (defn-expansion &form name declaration false))
 
 (defmacro defn-
   "Define a private, hot-reloadable Zig function.
 
-      (az/defn- add-internal :- :i32
+      (az/defn- add-internal :i32
         [[a :i32] [b :i32]]
         (+ a b))
 
@@ -641,7 +646,7 @@
   "Import a Zig module and expose its named members as real Clojure Vars.
 
       (az/defimport extra-math \"extra_math\" [quadruple])
-      (az/defn four-times :- :i32 [x :- :i32]
+      (az/defn four-times :i32 [x :- :i32]
         (extra-math/quadruple x))
 
   A member can be `[clojure-name \"zig.nested.path\"]` when its Zig path is not
@@ -870,21 +875,38 @@
          (var ~name)))))
 
 (defmacro deftest
-  "Define a Zig `test` declaration. The name may be a string, symbol, or nil.
-  A leading attr-map supports the same compact `:attrs` set as declarations."
-  [& declaration]
-  (let [[options declaration] (if (map? (first declaration))
-                                [(first declaration) (rest declaration)]
-                                [{:attrs #{}} declaration])
-        [name & body] declaration
-        internal-name (symbol (str "zig-test-" (Math/abs (hash [name &form]))))
-        declaration-options (declaration-options internal-name options)
+  "Define a named Zig test as a zero-argument callable Clojure Var.
+
+      (az/deftest pointer-arithmetic-test
+        (try (testing/expect true)))
+      (pointer-arithmetic-test)
+
+  The name must be an unqualified symbol and also supplies the Zig test label.
+  An optional docstring and attributes follow it. Calling the Var runs that
+  native test with embedded Zig, prints its output, and returns an execution
+  result or throws with compiler/test diagnostics. The body is never evaluated
+  as Clojure."
+  [name & declaration]
+  (when-not (and (symbol? name) (nil? (namespace name)))
+    (throw (ex-info "az/deftest requires an unqualified symbol name"
+                    {:name name :form &form})))
+  (let [[docstring declaration] (if (string? (first declaration))
+                                 [(first declaration) (next declaration)]
+                                 [nil declaration])
+        [options body] (if (map? (first declaration))
+                         [(first declaration) (next declaration)]
+                         [{} declaration])
+        _ (when (or (contains? options :zig/test-name)
+                    (contains? (meta name) :zig/test-name))
+            (throw (ex-info "az/deftest does not support :zig/test-name; the test label comes from its symbol"
+                            {:name name :form &form})))
+        declaration-options (declaration-options name options)
         descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :test
-                            :name internal-name
-                            :test-name name
-                            :declaration-key [:test internal-name]
+                            :name name
+                            :test-name (str name)
+                            :declaration-key [:test name]
                             :module (str *ns*)
                             :body (vec body)
                             :implicit-return? false
@@ -894,7 +916,15 @@
                                         [:source-order :leading-source
                                          :emit-source-comment? :comments])))
         descriptor-form (descriptor-expression descriptor)]
-    `(runtime/register-declaration! ~descriptor-form)))
+    `(let [descriptor# ~descriptor-form]
+       (runtime/register-declaration! descriptor#)
+       (def ~(with-meta name (assoc (meta name) :doc docstring))
+         (fn [] (runtime/run-test! ~(:module descriptor) '~name)))
+       (alter-meta! (var ~name) assoc
+                    :aguafria/declaration descriptor#
+                    :aguafria/test true
+                    :arglists '([]))
+       (var ~name))))
 
 (clojure.core/defn- unavailable-syntax-form
   [operator]

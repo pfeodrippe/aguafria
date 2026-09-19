@@ -20,10 +20,8 @@
 
 (az/defvar requests-served :u64 0)
 
-(az/defn serve-connection!
+(az/defn serve-connection! :void
   {:zig/qualifiers "!"}
-  :-
-  :void
   [[stream net/Stream]
    [io aguafria.std/Io]]
   (ak/defer (net-stream/close (ak/& stream) io))
@@ -48,30 +46,22 @@
     (set! requests-served (+ requests-served 1))))
 #_ (slurp server-url)
 
-(az/defn request-stop!
+(az/defn request-stop! :void
   "Ask the native accept loop to stop after its current connection."
-  :-
-  :void
   []
   (set! running false))
 
-(az/defn- running?
-  :-
-  :bool
+(az/defn- running? :bool
   []
   running)
 
-(az/defn- request-count
-  :-
-  :u64
+(az/defn- request-count :u64
   []
   requests-served)
 
-(az/defn main
+(az/defn main :void
   "Listen on loopback and call the current response-body for every request."
   {:zig/qualifiers "!"}
-  :-
-  :void
   [[process-init std-process/Init]]
   (let [io (az/field process-init :io)
         address (ak/try (ip-address/parseIp4 "127.0.0.1" port))

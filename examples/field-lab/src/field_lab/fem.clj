@@ -39,8 +39,7 @@
   `(catch ((az/field heap/page_allocator ~'alloc) ~type ~size)
      (debug/panic "Unable to allocate FEM job buffers" [])))
 
-(az/defn create!
-  :- [:* Model]
+(az/defn create! [:* Model]
   [[nodes :usize] [elements :usize] [young :f64] [poisson :f64]]
   (let [model (catch ((az/field heap/page_allocator create) Model)
                 (debug/panic "Unable to allocate FEM job" []))
@@ -64,8 +63,7 @@
         (az/index (az/field model load) i) 0.0))
     model))
 
-(az/defn destroy!
-  :- :void
+(az/defn destroy! :void
   [[model [:* Model]]]
   ((az/field heap/page_allocator free) (az/field model positions))
   ((az/field heap/page_allocator free) (az/field model elements))
@@ -78,13 +76,11 @@
   ((az/field heap/page_allocator free) (az/field model product))
   ((az/field heap/page_allocator destroy) model))
 
-(az/defn set-node!
-  :- :void
+(az/defn set-node! :void
   [[model [:* Model]] [node :usize] [x :f64] [y :f64] [z :f64]]
   (set! (az/index (az/field model positions) node) (p/v x y z)))
 
-(az/defn set-element!
-  :- :bool
+(az/defn set-element! :bool
   [[model [:* Model]] [index :usize] [a :usize] [b :usize] [c :usize] [d :usize]]
   (let [points (az/field model positions)
         origin (az/index points a)
@@ -105,28 +101,24 @@
                       :volume (/ (ak/abs determinant) 6.0)}))))
   true)
 
-(az/defn constrain!
-  :- :void
+(az/defn constrain! :void
   [[model [:* Model]] [dof :usize] [value :f64]]
   (az/set-many!
     (az/index (az/field model fixed) dof) true
     (az/index (az/field model displacement) dof) value))
 
-(az/defn load!
-  :- :void
+(az/defn load! :void
   [[model [:* Model]] [dof :usize] [force :f64]]
   (ak/+= (az/index (az/field model load) dof) force))
 
-(az/defn component
-  :- :f64
+(az/defn component :f64
   [[vector p/Vec3] [axis :usize]]
   (if (ak/== axis 0) (az/field vector x)
       (if (ak/== axis 1) (az/field vector y) (az/field vector z))))
 
 ;; Stress is a row-major 3×3 tensor; shear entries are tensor stresses, not
 ;; engineering strain components. The same constitutive law supplies K*u.
-(az/defn element-stress
-  :- [:array 9 :f64]
+(az/defn element-stress [:array 9 :f64]
   [[model [:* Model]] [element Element] [values [:slice-const :f64]]]
   (let [^:var gradient (mem/zeroes (az/type [:array 9 :f64]))
         ^:var tensor (mem/zeroes (az/type [:array 9 :f64]))]
@@ -147,8 +139,7 @@
                    (if (ak/== row column) (* (az/field model lambda) trace) 0.0))))))
     tensor))
 
-(az/defn multiply!
-  :- :void
+(az/defn multiply! :void
   [[model [:* Model]] [values [:slice-const :f64]] [result [:slice :f64]]]
   (dotimes [i (az/field result len)]
     (set! (az/index result i) 0.0))
@@ -165,8 +156,7 @@
                         (az/index tensor (+ (* 3 row) column))
                         (component gradient column))))))))))
 
-(az/defn assemble-diagonal!
-  :- :bool
+(az/defn assemble-diagonal! :bool
   [[model [:* Model]]]
   (let [diagonal (az/field model diagonal)]
     (dotimes [i (az/field diagonal len)]
@@ -188,8 +178,7 @@
         (ak/return false))))
   true)
 
-(az/defn update-residual!
-  :- :f64
+(az/defn update-residual! :f64
   [[model [:* Model]]]
   (multiply! model (az/field model displacement) (az/field model product))
   (let [^{:var :f64} squared 0.0]
@@ -201,8 +190,7 @@
         (ak/+= squared (* r r))))
     (ak/sqrt squared)))
 
-(az/defn solve!
-  :- Report
+(az/defn solve! Report
   [[model [:* Model]] [relative-tolerance :f64] [absolute-tolerance :f64] [limit :u32]]
   (let [dofs (az/field (az/field model displacement) len)
         initial (update-residual! model)
@@ -279,19 +267,16 @@
                 (az/index (az/field model product) i))))
     report))
 
-(az/defn displacement
-  :- :f64
+(az/defn displacement :f64
   [[model [:* Model]] [dof :usize]]
   (az/index (az/field model displacement) dof))
 
-(az/defn reaction
-  :- :f64
+(az/defn reaction :f64
   [[model [:* Model]] [dof :usize]]
   ;; Product is K*u after solve!, including constrained rows.
   (- (az/index (az/field model product) dof) (az/index (az/field model load) dof)))
 
-(az/defn stress-component
-  :- :f64
+(az/defn stress-component :f64
   [[model [:* Model]] [element :usize] [entry :usize]]
   (az/index (element-stress model (az/index (az/field model elements) element)
                             (az/field model displacement)) entry))

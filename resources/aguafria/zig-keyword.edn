@@ -1825,6 +1825,12 @@
    :param-count 2,
    :zig-tag "angle_bracket_angle_bracket_left_equal",
    :zig-token "<<="}
+  {:documentation "Saturating left-shift assignment.",
+   :kind :assignment,
+   :name "<<|=",
+   :param-count 2,
+   :zig-tag "angle_bracket_angle_bracket_left_pipe_equal",
+   :zig-token "<<|="}
   {:documentation "Right-shift assignment.",
    :kind :assignment,
    :name ">>=",

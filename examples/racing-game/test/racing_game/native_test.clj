@@ -27,9 +27,8 @@
   [expected actual tolerance]
   (<= (Math/abs (- (double expected) (double actual))) tolerance))
 
-(az/defn projection-cache-max-error
-  "Compare the compiled coarse points with the original runtime sampler."
-  :- :f32 []
+(az/defn projection-cache-max-error :f32
+  "Compare the compiled coarse points with the original runtime sampler." []
   (let [^{:var :f32} maximum 0.0]
     (dotimes [i track/projection-samples]
       (let [progress (/ (ak/as :f32 (ak/floatFromInt i))

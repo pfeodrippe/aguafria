@@ -23,9 +23,8 @@
 (az/defstruct Output {:layout :extern}
   [[:state State] [:control driver/Control] [:gear :i8]])
 
-(az/defn reverse-steering
-  "Align to the road while reversing, not to the eventual lateral destination."
-  :- :f32 [[body physics/BodyState]]
+(az/defn reverse-steering :f32
+  "Align to the road while reversing, not to the eventual lateral destination." [[body physics/BodyState]]
   (let [projection (track/project (* (az/field body x) 0.001) (* (az/field body y) 0.001))
         route (circuit/at-distance (* 4309.0 (az/field projection progress)) 0.0)
         heading (math/atan2 (* 2.0 (+ (* (az/field body qw) (az/field body qz))
@@ -35,10 +34,9 @@
         heading-error (- heading (az/field route heading))]
     (ak/max -0.45 (ak/min 0.45 (* 1.5 (math/atan2 (math/sin heading-error) (math/cos heading-error)))))))
 
-(az/defn passing-control
+(az/defn passing-control driver/Control
   "Hold the physically cleared corridor briefly before returning to AI intent.
-  Anchor is the measured pose when clearance was obtained, never a teleport."
-  :- driver/Control [[body physics/BodyState] [anchor-x :f32] [anchor-y :f32]]
+  Anchor is the measured pose when clearance was obtained, never a teleport." [[body physics/BodyState] [anchor-x :f32] [anchor-y :f32]]
   (let [anchor (track/project (* anchor-x 0.001) (* anchor-y 0.001))
         projection (track/project (* (az/field body x) 0.001) (* (az/field body y) 0.001))
         lane (ak/max (- corridor-half-width)
@@ -62,14 +60,13 @@
                      :progress (az/field projection progress)
                      :lane (* 50.0 (az/field projection lane)) :speed speed})))
 
-(az/defn step
+(az/defn step Output
   "Run once per 120Hz tick. Phases: 0 ordinary driving, 1 reverse, 2 braking,
   3 seek clearance, 4 pass the obstruction before merging back to AI intent.
   Requires three seconds stationary, an outstanding lane correction and a
   clear rear corridor. Front/rear gaps are measured metres;
   rear-closing is positive approach speed. Caller must exclude pits, retired
   cars and human control. If disabled, brake an active manoeuvre to a stop."
-  :- Output
   [[previous State] [normal driver/Control] [traffic driver/Control]
    [body physics/BodyState] [lane-target :f32] [front-gap :f32]
    [rear-gap :f32] [rear-closing :f32] [enabled :bool]]

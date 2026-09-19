@@ -26,17 +26,14 @@
 
 (az/defexternvar errno :- :c_int)
 
-(az/defn- add-components
-  :-
-  :f32
+(az/defn- add-components :f32
   [[point Point]]
   (+ (az/field point :x)
      (az/field point :y)))
 
-(az/defn inspect-point
+(az/defn inspect-point :f32
+  "Inspect a typed value."
   {:attrs #{:public}}
-  :-
-  :f32
   [[point Point]
    [opaque [:optional [:c-pointer :anyopaque]]]]
   (let [typed (az/cast opaque [:c-pointer :u8])]
@@ -52,5 +49,11 @@
    (az/field-decl object :u8
                   (az/object [[:value capacity]]))))
 
-(az/deftest "clj-kondo fixture"
+(az/deftest clj-kondo-fixture
+  "A named Zig test and an inspectable Clojure Var."
   (inspect-point (Point {:x 1.0 :y 2.0}) ak/null))
+
+(def fixture-test-var #'clj-kondo-fixture)
+
+(az/deftest another-named-test
+  capacity)

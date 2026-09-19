@@ -12,10 +12,9 @@
 
 (az/defconst segments :usize track/surface-segments)
 
-(az/defn create!
+(az/defn create! [:* b3/b3MeshData]
   "Create one welded, edge-aware asphalt/shoulder mesh on a static body.
-  Returns owned mesh data, which must outlive the world. Metres throughout."
-  :- [:* b3/b3MeshData] [[world b3/b3WorldId]]
+  Returns owned mesh data, which must outlive the world. Metres throughout." [[world b3/b3WorldId]]
   (let [^:var vertices (mem/zeroes (az/type [:array (* (+ segments 1) track/surface-columns) b3/b3Vec3]))
         ^:var indices (mem/zeroes (az/type [:array (* segments 30) :i32]))
         ^:var materials (mem/zeroes (az/type [:array (* segments 10) :u8]))
@@ -71,5 +70,5 @@
       (physics/mark-tire-surface! body)
       mesh)))
 
-(az/defn destroy! :- :void [[mesh [:* b3/b3MeshData]]]
+(az/defn destroy! :void [[mesh [:* b3/b3MeshData]]]
   (b3/b3DestroyMesh mesh))

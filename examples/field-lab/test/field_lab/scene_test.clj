@@ -6,18 +6,15 @@
             [field-lab.scene :as scene]
             [field-lab.physics :as p]))
 
-(az/defn advance-many!
-  :- :void
+(az/defn advance-many! :void
   [[steps :u32]]
   (dotimes [_ steps] (set! _ (scene/step!))))
 
-(az/defn cache-size
-  :- :u32
+(az/defn cache-size :u32
   []
   scene/count)
 
-(az/defn graph-valid?
-  :- :bool
+(az/defn graph-valid? :bool
   []
   (and (ecs/ecs_has_id scene/world
                        scene/solver

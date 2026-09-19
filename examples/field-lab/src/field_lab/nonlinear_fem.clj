@@ -33,8 +33,7 @@
   [[:completed :bool] [:substeps :u32] [:rejected :u32] [:time :f64]
    [:minimum-jacobian :f64] [:normal-impulse :f64]])
 
-(az/defn position
-  :- p/Vec3
+(az/defn position p/Vec3
   [[state [:* Dynamics]] [node :usize]]
   (let [mesh (az/field state mesh)
         displacement (az/field mesh displacement)]
@@ -43,8 +42,7 @@
                 (az/index displacement (+ (* 3 node) 1))
                 (az/index displacement (+ (* 3 node) 2))))))
 
-(az/defn create!
-  :- [:* Dynamics]
+(az/defn create! [:* Dynamics]
   [[mesh [:* fem/Model]] [density :f64] [young :f64] [poisson :f64]]
   (let [nodes (az/field (az/field mesh positions) len)
         state (catch ((az/field heap/page_allocator create) Dynamics)
@@ -69,8 +67,7 @@
           (ak/+= (az/index (az/field state masses) (az/index (az/field element nodes) local)) mass))))
     state))
 
-(az/defn destroy!
-  :- :void
+(az/defn destroy! :void
   [[state [:* Dynamics]]]
   ((az/field heap/page_allocator free) (az/field state velocities))
   ((az/field heap/page_allocator free) (az/field state masses))
@@ -80,16 +77,14 @@
   ((az/field heap/page_allocator free) (az/field state saved-velocity))
   ((az/field heap/page_allocator destroy) state))
 
-(az/defn configure!
-  :- :void
+(az/defn configure! :void
   [[state [:* Dynamics]] [gravity p/Vec3] [floor :bool] [friction :f64]]
   (az/set-many!
     (az/field state gravity) gravity
     (az/field state floor) floor
     (az/field state friction) friction))
 
-(az/defn set-particle!
-  :- :void
+(az/defn set-particle! :void
   [[state [:* Dynamics]] [node :usize] [point p/Vec3] [velocity p/Vec3]]
   (let [mesh (az/field state mesh)
         offset (p/add point (p/scale (az/index (az/field mesh positions) node) -1.0))]
@@ -97,8 +92,7 @@
       (set! (az/index (az/field mesh displacement) (+ (* 3 node) axis)) (fem/component offset axis)))
     (set! (az/index (az/field state velocities) node) velocity)))
 
-(az/defn deformation
-  :- elastic/Matrix
+(az/defn deformation elastic/Matrix
   [[state [:* Dynamics]] [element fem/Element]]
   (let [origin (position state (az/index (az/field element nodes) 0))
         ^:var gradient (elastic/zero)]
@@ -110,9 +104,8 @@
         (set! gradient (elastic/add gradient (elastic/outer (p/add point (p/scale origin -1.0)) basis)))))
     gradient))
 
-(az/defn elasticity-bound
+(az/defn elasticity-bound :f64
   "Conservative Frobenius-norm bound on dP/dF, including volumetric curvature."
-  :- :f64
   [[gradient elastic/Matrix] [parameters elastic/Material]]
   (let [invariant (elastic/inner gradient gradient)
         cofactors (elastic/cofactor gradient)
@@ -128,10 +121,9 @@
 (az/defstruct ElasticObjective {:layout :extern}
   [[:elastic-energy :f64] [:minimum-jacobian :f64]])
 
-(az/defn elastic-objective!
+(az/defn elastic-objective! ElasticObjective
   "Implicit iterations need elastic energy and optionally forces. Explicit stability
   bounds and telemetry belong to the explicit step and saved-frame paths."
-  :- ElasticObjective
   [[state [:* Dynamics]] [forces :bool]]
   (let [mesh (az/field state mesh)
         elements (az/field mesh elements)
@@ -159,8 +151,7 @@
                                     (- volume)))))))))
     result))
 
-(az/defn evaluate!
-  :- Observables
+(az/defn evaluate! Observables
   [[state [:* Dynamics]]]
   (let [mesh (az/field state mesh)
         nodes (az/field (az/field mesh positions) len)
@@ -215,8 +206,7 @@
     (set! (az/field result center) (p/scale (az/field result center) (/ 1.0 (az/field result mass))))
     result))
 
-(az/defn kick!
-  :- :void
+(az/defn kick! :void
   [[state [:* Dynamics]] [dt :f64]]
   (let [mesh (az/field state mesh)]
     (dotimes [node (az/field (az/field state masses) len)]
@@ -232,8 +222,7 @@
                     (set! (az/field velocity z) 0.0)))))
         (set! (az/index (az/field state velocities) node) velocity)))))
 
-(az/defn drift!
-  :- :void
+(az/defn drift! :void
   [[state [:* Dynamics]] [dt :f64]]
   (let [mesh (az/field state mesh)]
     (dotimes [node (az/field (az/field state masses) len)]
@@ -243,10 +232,9 @@
             (ak/+= (az/index (az/field mesh displacement) (+ (* 3 node) axis))
                    (* dt (fem/component velocity axis)))))))))
 
-(az/defn ground-contact!
+(az/defn ground-contact! :f64
   "Inelastic nodal contact with a rigid plane and Coulomb impulse friction.
   Elastic rebound comes from FEM strain energy, not a restitution coefficient."
-  :- :f64
   [[state [:* Dynamics]]]
   (when (ak/! (az/field state floor)) (ak/return 0.0))
   (let [mesh (az/field state mesh)
@@ -267,8 +255,7 @@
               impulse (+ impulse (* delta (az/index (az/field state masses) node))))))))
     impulse))
 
-(az/defn checkpoint!
-  :- :void
+(az/defn checkpoint! :void
   [[state [:* Dynamics]] [restore :bool]]
   (let [mesh (az/field state mesh)]
     (dotimes [i (az/field (az/field mesh displacement) len)]
@@ -280,10 +267,9 @@
         (set! (az/index (az/field state velocities) i) (az/index (az/field state saved-velocity) i))
         (set! (az/index (az/field state saved-velocity) i) (az/index (az/field state velocities) i))))))
 
-(az/defn advance!
+(az/defn advance! AdvanceReport
   "Velocity Verlet with a mass-scaled tangent bound and step rejection.
   No wall-clock budget. A failed step leaves the last accepted state available."
-  :- AdvanceReport
   [[state [:* Dynamics]] [duration :f64] [maximum-step :f64]]
   (let [target (+ (az/field state time) duration)
         ^:var observation (evaluate! state)
@@ -342,12 +328,10 @@
     (set! (az/field report completed) true)
     report))
 
-(az/defn particle-velocity
-  :- p/Vec3
+(az/defn particle-velocity p/Vec3
   [[state [:* Dynamics]] [node :usize]]
   (az/index (az/field state velocities) node))
 
-(az/defn particle-force
-  :- p/Vec3
+(az/defn particle-force p/Vec3
   [[state [:* Dynamics]] [node :usize]]
   (az/index (az/field state forces) node))

@@ -102,8 +102,7 @@
    [:previous-step :f64] [:history-time :f64] [:history-ready :bool]
    [:previous-contact-impulse p/Vec3]])
 
-(az/defn capture!
-  :- :void [[workspace [:* Workspace]]]
+(az/defn capture! :void [[workspace [:* Workspace]]]
   (let [bodies (az/field (az/field workspace assembly) bodies)]
     (dotimes [body (az/field bodies len)]
       (let [state (az/field (az/index bodies body) state)
@@ -113,8 +112,7 @@
             (set! (az/index (az/field workspace positions) (+ (* 3 (+ offset node)) axis))
                   (fem/component (dynamics/position state node) axis))))))))
 
-(az/defn scatter!
-  :- :void [[workspace [:* Workspace]] [values [:slice :f64]]]
+(az/defn scatter! :void [[workspace [:* Workspace]] [values [:slice :f64]]]
   (let [bodies (az/field (az/field workspace assembly) bodies)]
     (dotimes [body (az/field bodies len)]
       (let [state (az/field (az/index bodies body) state)
@@ -126,8 +124,7 @@
                   (- (az/index values (+ (* 3 (+ offset node)) axis))
                      (fem/component (az/index (az/field mesh positions) node) axis)))))))))
 
-(az/defn create!
-  :- [:* Workspace] [[assembly [:* coupled/Assembly]]]
+(az/defn create! [:* Workspace] [[assembly [:* coupled/Assembly]]]
   (let [bodies (az/field assembly bodies)
         ^{:var :usize} nodes 0
         ^{:var :usize} faces 0
@@ -203,8 +200,7 @@
                                        (ak/intCast tetrahedra) (az/field cells ptr) (az/field floor ptr)))
       workspace)))
 
-(az/defn destroy!
-  :- :void [[workspace [:* Workspace]]]
+(az/defn destroy! :void [[workspace [:* Workspace]]]
   (pitoco_aguafria_variational_destroy (az/field workspace handle))
   ((az/field heap/page_allocator free) (az/field workspace offsets))
   ((az/field heap/page_allocator free) (az/field workspace densities))
@@ -229,21 +225,18 @@
   ((az/field heap/page_allocator free) (az/field workspace previous-velocity-change))
   ((az/field heap/page_allocator destroy) workspace))
 
-(az/defn valid-workspace?
-  :- :bool [[workspace [:* Workspace]]]
+(az/defn valid-workspace? :bool [[workspace [:* Workspace]]]
   (ak/!= (az/field workspace handle) null))
 
-(az/defn error-byte
-  :- :u8 [[index :usize]]
+(az/defn error-byte :u8 [[index :usize]]
   (az/index (pitoco_aguafria_variational_error) index))
 
 (defn native-error []
   (apply str (map char (take-while pos? (map error-byte (range 4096))))))
 
-(az/defn configure-mass!
+(az/defn configure-mass! :bool
   "Select inertia before the first step. Each current Dynamics body has uniform
-  reference density; verify its nodal row sums before reconstructing that density."
-  :- :bool [[workspace [:* Workspace]] [consistent :bool]]
+  reference density; verify its nodal row sums before reconstructing that density." [[workspace [:* Workspace]] [consistent :bool]]
   (when (> (az/field workspace previous-step) 0.0) (ak/return false))
   (when consistent
     (dotimes [index (az/field (az/field workspace mass-input) len)]
@@ -278,9 +271,8 @@
   (set! (az/field workspace consistent-mass) consistent)
   true)
 
-(az/defn mass-product!
+(az/defn mass-product! :void
   "Apply the selected mass operator; input/output must be distinct buffers."
-  :- :void
   [[workspace [:* Workspace]] [input [:slice :f64]] [output [:slice :f64]]]
   (debug/assert (ak/!= (az/field input ptr) (az/field output ptr)))
   (if (ak/! (az/field workspace consistent-mass))
@@ -305,11 +297,10 @@
                       (let [index (+ (* 3 (+ offset (az/index (az/field element nodes) local))) axis)]
                         (ak/+= (az/index output index) (* weight (+ sum (az/index input index))))))))))))))))
 
-(az/defn mass-backward-error!
+(az/defn mass-backward-error! :f64
   "Check max |rhs-M*x|/(|rhs|+|M|*|x|), using the recomputed residual.
   Both supported mass operators are entrywise nonnegative, so M*|x|=|M|*|x|.
-  Diagnostic only; scratch search/product buffers are overwritten."
-  :- :f64 [[workspace [:* Workspace]] [rhs [:slice :f64]]]
+  Diagnostic only; scratch search/product buffers are overwritten." [[workspace [:* Workspace]] [rhs [:slice :f64]]]
   (let [search (az/field workspace mass-search)
         product (az/field workspace mass-product)
         safe (* 2.2250738585072014e-308 (ak/as :f64 (ak/floatFromInt (+ (az/field rhs len) 1))))
@@ -326,11 +317,10 @@
           (when (> residual 0.0) (ak/return 1e300)))))
     backward-error))
 
-(az/defn mass-relative-residual!
+(az/defn mass-relative-residual! :f64
   "Largest ||r||_(Ml^-1)/||rhs||_(Ml^-1) over independent body/axis blocks.
   Mc lies between Ml/5 and Ml, so this bounds the relative Ml-weighted
-  solution error by five times this value. Normalize before squaring."
-  :- :f64 [[workspace [:* Workspace]] [rhs [:slice :f64]]]
+  solution error by five times this value. Normalize before squaring." [[workspace [:* Workspace]] [rhs [:slice :f64]]]
   (let [bodies (az/field (az/field workspace assembly) bodies)
         residual (az/field workspace mass-residual)
         masses (az/field workspace masses)
@@ -366,11 +356,10 @@
                 (set! maximum (ak/max maximum relative))))))))
     maximum))
 
-(az/defn solve-scaled-mass!
+(az/defn solve-scaled-mass! :bool
   "Jacobi-preconditioned CG for M*a=rhs. For P1 tets, Ml/5 <= M <= Ml,
   so the preconditioned condition number is at most five. Verify the true
-  residual before success; results are private workspace scratch storage."
-  :- :bool [[workspace [:* Workspace]] [rhs [:slice :f64]]]
+  residual before success; results are private workspace scratch storage." [[workspace [:* Workspace]] [rhs [:slice :f64]]]
   (let [solution (az/field workspace mass-solution)
         residual (az/field workspace mass-residual)
         search (az/field workspace mass-search)
@@ -428,12 +417,11 @@
             (set! rho next-rho)))))
     false))
 
-(az/defn solve-mass!
+(az/defn solve-mass! :bool
   "Equilibrate each independent body/axis before CG. This prevents a large
   vertical load from hiding transverse forces near roundoff. Scalar block
   scaling commutes with these mass operators; direction-coupled operators
-  would need a different transformation. Input and solution must not alias."
-  :- :bool [[workspace [:* Workspace]] [rhs [:slice :f64]]]
+  would need a different transformation. Input and solution must not alias." [[workspace [:* Workspace]] [rhs [:slice :f64]]]
   (let [bodies (az/field (az/field workspace assembly) bodies)
         normalized (az/field workspace mass-rhs)
         scales (az/field workspace mass-scales)
@@ -472,10 +460,9 @@
             (- (az/index rhs index) (az/index (az/field workspace mass-product) index))))
     (<= (mass-relative-residual! workspace rhs) 1e-12)))
 
-(az/defn body-observables!
+(az/defn body-observables! dynamics/Observables
   "Telemetry for this context's mass model. Uniform gravity, mass, center and
-  linear momentum have identical row sums; kinetic energy needs the full operator."
-  :- dynamics/Observables [[workspace [:* Workspace]] [body :usize]]
+  linear momentum have identical row sums; kinetic energy needs the full operator." [[workspace [:* Workspace]] [body :usize]]
   (let [state (az/field (az/index (az/field (az/field workspace assembly) bodies) body) state)
         ^:var result (dynamics/evaluate! state)]
     (when (az/field workspace consistent-mass)
@@ -515,8 +502,7 @@
   [[:valid :bool] [:energy :f64] [:elastic-energy :f64] [:contact-energy :f64] [:friction-energy :f64]
    [:minimum-jacobian :f64] [:residual :f64]])
 
-(az/defn objective!
-  :- Objective
+(az/defn objective! Objective
   [[workspace [:* Workspace]] [duration :f64] [clearance :f64] [pressure :f64] [derivatives :bool]]
   (let [bodies (az/field (az/field workspace assembly) bodies)
         scale (* duration duration)
@@ -580,11 +566,10 @@
                                      (math/isFinite (az/field result residual))))
     result))
 
-(az/defn project-element!
+(az/defn project-element! :bool
   "Project a symmetric 12-DOF element Hessian onto the PSD cone. AguaFria
   owns symmetrization, eigenvalue clamping and reconstruction; Accelerate
-  supplies its native LAPACK eigensolve. Failure leaves the input unchanged."
-  :- :bool [[values [:c-pointer :f64]]]
+  supplies its native LAPACK eigensolve. Failure leaves the input unchanged." [[values [:c-pointer :f64]]]
   (when (ak/== values null) (ak/return false))
   (let [^{:var [:array 144 :f64]} vectors ak/undefined
         ^{:var [:array 12 :f64]} eigenvalues ak/undefined
@@ -625,8 +610,7 @@
       (set! (az/index values index) (az/index projected index)))
     true))
 
-(az/defn newton-direction!
-  :- :bool [[workspace [:* Workspace]] [duration :f64]]
+(az/defn newton-direction! :bool [[workspace [:* Workspace]] [duration :f64]]
   (when (ak/!= (pitoco_aguafria_variational_matrix_begin (az/field workspace handle)
                                                (az/field (az/field workspace masses) ptr)
                                                (* duration duration)) 0) (ak/return false))
@@ -687,8 +671,7 @@
 (az/defstruct AdvanceTask
   [[:duration :f64] [:target :f64] [:step-cap :f64] [:integration :u32] [:report Report]])
 
-(az/defn advance-task
-  :- AdvanceTask
+(az/defn advance-task AdvanceTask
   [[workspace [:* Workspace]] [duration :f64] [maximum-step :f64]]
   (let [time (az/field (az/field workspace assembly) time)]
     (AdvanceTask
@@ -698,41 +681,35 @@
                         :contact-energy 0.0 :friction-energy 0.0 :residual 0.0
                         :contact-impulse (p/v 0.0 0.0 0.0) :ground-impulse 0.0})})))
 
-(az/defn create-task!
-  :- [:* AdvanceTask]
+(az/defn create-task! [:* AdvanceTask]
   [[workspace [:* Workspace]] [duration :f64] [maximum-step :f64]]
   (let [task (catch ((az/field heap/page_allocator create) AdvanceTask)
                (debug/panic "Unable to allocate variational advance task" []))]
     (set! (az/deref task) (advance-task workspace duration maximum-step))
     task))
 
-(az/defn destroy-task!
-  :- :void [[task [:* AdvanceTask]]]
+(az/defn destroy-task! :void [[task [:* AdvanceTask]]]
   ((az/field heap/page_allocator destroy) task))
 
-(az/defn task-step-cap
-  :- :f64 [[task [:* AdvanceTask]]]
+(az/defn task-step-cap :f64 [[task [:* AdvanceTask]]]
   (az/field task step-cap))
 
-(az/defn set-integration!
-  :- :void [[task [:* AdvanceTask]] [integration :u32]]
+(az/defn set-integration! :void [[task [:* AdvanceTask]] [integration :u32]]
   (debug/assert (<= integration 2))
   (set! (az/field task integration) integration))
 
-(az/defn reset-history!
+(az/defn reset-history! :void
   "Call after externally editing a context's positions or velocities. A new
-  BDF2 trajectory starts with backward Euler; rejected trials do not reset it."
-  :- :void [[workspace [:* Workspace]]]
+  BDF2 trajectory starts with backward Euler; rejected trials do not reset it." [[workspace [:* Workspace]]]
   (set! (az/field workspace history-ready) false))
 
 (az/defstruct TimeCoefficients {:layout :extern}
   [[:effective-step :f64] [:history-weight :f64]])
 
-(az/defn time-coefficients
+(az/defn time-coefficients TimeCoefficients
   "Variable-step BDF2 applied to x'=v and M*v'=f. With r=h/hprev,
   effective-step=h*(1+r)/(1+2r), history-weight=r²/(1+2r).
   A zero previous step selects backward Euler startup. Integration 1 is Newmark."
-  :- TimeCoefficients
   [[h :f64] [previous-step :f64] [integration :u32]]
   (when (and (ak/== integration 2) (> previous-step 0.0))
     (let [ratio (/ h previous-step)
@@ -742,10 +719,9 @@
   (TimeCoefficients {:effective-step (if (ak/== integration 1) (* 0.5 h) h)
                      :history-weight 0.0}))
 
-(az/defn net-contact-force
+(az/defn net-contact-force p/Vec3
   "Sum forces from the contact potential, independently of momentum changes.
-  Internal pair forces cancel; the remaining resultant belongs to the fixed floor."
-  :- p/Vec3 [[workspace [:* Workspace]]]
+  Internal pair forces cancel; the remaining resultant belongs to the fixed floor." [[workspace [:* Workspace]]]
   (let [^{:var p/Vec3} force (p/v 0.0 0.0 0.0)
         gradient (az/field workspace contact-gradient)]
     (dotimes [node (ak/divTrunc (az/field gradient len) 3)]
@@ -755,12 +731,11 @@
                                      (- (az/index gradient (+ index 2))))))))
     force))
 
-(az/defn prepare-incremental-potential!
+(az/defn prepare-incremental-potential! :bool
   "BE uses xhat=x+h*v+h²*g. Newmark (beta=1/4, gamma=1/2) uses
   xhat=x+h*v+h²*g/2+h²*(internal-contact force)/(4*m).
   BDF2 uses accepted displacement/velocity increments and its effective step.
   Friction origins encode endpoint velocities, never alter collision geometry."
-  :- :bool
   [[workspace [:* Workspace]] [h :f64] [clearance :f64] [pressure :f64] [newmark :bool]
    [effective-h :f64] [history-weight :f64]
    [initial-contact-force [:* p/Vec3]]]
@@ -844,10 +819,9 @@
       (ak/return false))
     true))
 
-(az/defn output-step
+(az/defn output-step :f64
   "Fit the final two steps to an output boundary without leaving a tiny remainder.
   The positive step limit includes both the user's cap and BDF2's growth limit."
-  :- :f64
   [[remaining :f64] [limit :f64] [clock-roundoff :f64]]
   ;; Preserve an already aligned schedule under the same clock-roundoff rule
   ;; used to finish the task. Never enlarge the accepted step past its limit.
@@ -857,11 +831,10 @@
       (* 0.5 remaining)
       limit)))
 
-(az/defn advance-batch!
+(az/defn advance-batch! Report
   "Bound work by attempted steps, including rejected steps. Status 6 yields at
   an accepted state; task retains the reduced step cap and cumulative retry limit.
   Other statuses: 1 input, 2 state, 3 solve, 4 line search, 5 Newton limit."
-  :- Report
   [[workspace [:* Workspace]] [task [:* AdvanceTask]]
    [clearance :f64] [pressure :f64] [tolerance :f64] [maximum-iterations :u32]
    [maximum-attempts :u32]]
@@ -1041,18 +1014,16 @@
                   (az/field report time) (az/field assembly time))
     report))
 
-(az/defn advance-native!
+(az/defn advance-native! Report
   "Uninterrupted native entry point; hosts needing cancellation use advance-batch!."
-  :- Report
   [[workspace [:* Workspace]] [duration :f64] [maximum-step :f64]
    [clearance :f64] [pressure :f64] [tolerance :f64] [maximum-iterations :u32]]
   (let [^:var task (advance-task workspace duration maximum-step)]
     (advance-batch! workspace (ak/& task) clearance pressure tolerance maximum-iterations 4294967295)))
 
-(az/defn pitoco_implicit_snapshot_batch
+(az/defn pitoco_implicit_snapshot_batch :void
   "Private same-build boundary for a frozen native implicit solve."
   {:attrs #{:export}}
-  :- :void
   [[workspace [:* Workspace]] [task [:* AdvanceTask]]
    [clearance :f64] [pressure :f64] [tolerance :f64]
    [iterations :u32] [attempts :u32] [report [:* Report]]]

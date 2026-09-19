@@ -61,24 +61,18 @@
 
 (az/defconst house-goal :u32 5)
 
-(az/defn harvest-duration
+(az/defn harvest-duration :f32
   "Seconds required for one harvester to produce a coconut."
-  :-
-  :f32
   []
   0.65)
 
-(az/defn press-duration
+(az/defn press-duration :f32
   "Seconds required for one press to turn a coconut into a panel."
-  :-
-  :f32
   []
   0.35)
 
-(az/defn house-panel-recipe
+(az/defn house-panel-recipe :u16
   "Number of panels consumed by one coco-house construction site."
-  :-
-  :u16
   []
   panels-per-house)
 
@@ -219,17 +213,13 @@
 
 (az/defvar observed-event-count :u64 0)
 
-(az/defn cell-index
-  :-
-  :usize
+(az/defn cell-index :usize
   [[x :i32]
    [y :i32]]
   (+ (ak/as :usize (ak/intCast x))
      (* (ak/as :usize (ak/intCast y)) grid-width)))
 
-(az/defn valid-cell?
-  :-
-  :bool
+(az/defn valid-cell? :bool
   [[x :i32]
    [y :i32]]
   (and (>= x 0)
@@ -237,9 +227,7 @@
        (< x (ak/as :i32 (ak/intCast grid-width)))
        (< y (ak/as :i32 (ak/intCast grid-height)))))
 
-(az/defn register-component
-  :-
-  :u64
+(az/defn register-component :u64
   [[world [:* flecs/ecs_world_t]]
    [component-name [:pointer {:size :c :const? true} :u8]]
    [byte-size :usize]
@@ -253,10 +241,8 @@
                         {:entity component-entity :type type-info})]
     (flecs/ecs_component_init world (ak/& component-desc))))
 
-(az/defn emit-event!
+(az/defn emit-event! :void
   "Publish a synchronous custom Flecs event with a stack-safe payload."
-  :-
-  :void
   [[kind :u8]
    [building :u8]
    [x :i32]
@@ -281,26 +267,20 @@
       (set! latest-event-value payload)
       (set! event-count (+ event-count 1)))))
 
-(az/defn latest-event
+(az/defn latest-event FactoryEvent
   "Return the latest synchronous Flecs factory event as an exact native value."
-  :-
-  FactoryEvent
   []
   latest-event-value)
 
-(az/defn observe-factory-event
+(az/defn observe-factory-event :void
   "Flecs observer proving that construction events stay in the ECS event graph."
   {:attrs #{:export}}
-  :-
-  :void
   [[iterator [:c-pointer flecs/ecs_iter_t]]]
   (set! _ iterator)
   (set! observed-event-count (+ observed-event-count 1)))
 
-(az/defn install-event-observer!
+(az/defn install-event-observer! :u64
   "Install the native observer used for inspectable factory-domain events."
-  :-
-  :u64
   [[world [:* flecs/ecs_world_t]]]
   (let [^{:var true}
         descriptor
@@ -310,27 +290,21 @@
     (set! (az/index (az/field descriptor events) 0) factory-event-id)
     (flecs/ecs_observer_init world (ak/& descriptor))))
 
-(az/defn observed-events
+(az/defn observed-events :u64
   "Return the number of custom factory events consumed by the Flecs observer."
-  :-
-  :u64
   []
   observed-event-count)
 
-(az/defn stable-runtime-address
+(az/defn stable-runtime-address :usize
   "Return the native address of a cell's sparse Flecs runtime component."
-  :-
-  :usize
   [[x :i32]
    [y :i32]]
   (if (valid-cell? x y)
     (az/field (az/index cells (cell-index x y)) stable_address)
     0))
 
-(az/defn verify-stable-runtime!
+(az/defn verify-stable-runtime! :bool
   "Move an entity through an archetype and verify its sparse address is stable."
-  :-
-  :bool
   [[x :i32]
    [y :i32]]
   (if (or (ak/! (valid-cell? x y))
@@ -357,11 +331,9 @@
               (flecs/ecs_delete factory-world tag)
               (and (ak/== before during) (ak/== before after)))))))))
 
-(az/defn system-tick
+(az/defn system-tick :void
   "Flecs system updating sparse, stable-address runtime components."
   {:attrs #{:export}}
-  :-
-  :void
   [[iterator [:c-pointer flecs/ecs_iter_t]]]
   (let [buildings (-> iterator
                       (flecs/ecs_field_w_size (ak/sizeOf FactoryBuilding) 0)
@@ -383,9 +355,7 @@
         (set! (az/field (az/deref runtime) ticks)
               (+ (az/field (az/deref runtime) ticks) 1))))))
 
-(az/defn install-system!
-  :-
-  :u64
+(az/defn install-system! :u64
   [[world [:* flecs/ecs_world_t]]]
   (let [descriptor
         (flecs/ecs_system_desc_t
@@ -395,10 +365,8 @@
                   {:expr "FactoryBuilding, FactoryRuntime"})})]
     (flecs/ecs_system_init world (ak/& descriptor))))
 
-(az/defn refresh-system-callback!
+(az/defn refresh-system-callback! :void
   "Point Flecs at the latest compatible system body after a development edit."
-  :-
-  :void
   []
   (when (and (ak/!= factory-world null) (ak/!= simulation-system 0))
     (let [callback (ak/& system-tick)
@@ -409,10 +377,8 @@
                    factory-world simulation-system (ak/& descriptor)))
           (set! installed-system-callback callback-address))))))
 
-(az/defn generate-terrain!
+(az/defn generate-terrain! :void
   "Create one buildable industrial floor for the coco-house factory."
-  :-
-  :void
   []
   (dotimes [y grid-height]
     (dotimes [x grid-width]
@@ -430,10 +396,8 @@
                      :entity 0
                      :stable_address 0}))))))
 
-(az/defn place!
+(az/defn place! :bool
   "Construct one Flecs entity and attach it to the dense simulation cell."
-  :-
-  :bool
   [[x :i32]
    [y :i32]
    [kind :u8]
@@ -478,10 +442,8 @@
           (emit-event! 1 kind x y entity 0)
           true)))))
 
-(az/defn remove!
+(az/defn remove! :bool
   "Demolish one entity while retaining terrain and deterministic cell identity."
-  :-
-  :bool
   [[x :i32]
    [y :i32]]
   (if (or (ak/! (valid-cell? x y))
@@ -504,10 +466,8 @@
           (set! (az/field (az/deref cell) stable_address) 0)
           true)))))
 
-(az/defn destination
+(az/defn destination :usize
   "Return the neighboring cell index or the source index at a map edge."
-  :-
-  :usize
   [[x :i32]
    [y :i32]
    [direction :u8]]
@@ -523,10 +483,8 @@
       (cell-index next-x next-y)
       (cell-index x y))))
 
-(az/defn cell-receives-item?
+(az/defn cell-receives-item? :bool
   "Return whether one routed item can enter a target cell right now."
-  :-
-  :bool
   [[source-index :usize]
    [target-index :usize]
    [item-kind :u8]]
@@ -543,9 +501,7 @@
            (ak/!= target-kind building-coco-house)
            (ak/== (az/field target item_kind) item-none))))))
 
-(az/defn move-item!
-  :-
-  :void
+(az/defn move-item! :void
   [[source-index :usize]
    [x :i32]
    [y :i32]
@@ -639,10 +595,8 @@
                     1.0
                     0.0))))))))
 
-(az/defn simulate-step!
+(az/defn simulate-step! :void
   "One allocation-free fixed simulation step over the dense factory grid."
-  :-
-  :void
   []
   (dotimes [y grid-height]
     (dotimes [x grid-width]
@@ -690,10 +644,8 @@
                       fixed-step)))))
   (set! simulation-ticks (+ simulation-ticks 1)))
 
-(az/defn step!
+(az/defn step! :void
   "Bounded fixed-timestep factory progression for stable, repeatable behavior."
-  :-
-  :void
   [[delta-seconds :f32]]
   (when (and initialized (ak/! paused))
     (set! accumulator (+ accumulator (ak/min 0.1 (ak/max 0.0 delta-seconds))))
@@ -704,10 +656,8 @@
         (set! substeps (+ substeps 1)))
       (set! last-substeps substeps))))
 
-(az/defn screen-to-cell
+(az/defn screen-to-cell CellView
   "Inverse the shared isometric projection used by the desktop renderer."
-  :-
-  CellView
   [[pointer-x :f32]
    [pointer-y :f32]]
   (let [camera-x (/ (- pointer-x 360.0) 39.0)
@@ -737,10 +687,8 @@
                  :inventory 0
                  :entity 0}))))
 
-(az/defn handle-pointer!
+(az/defn handle-pointer! :bool
   "Select a tile and optionally construct with the active tool."
-  :-
-  :bool
   [[pointer-x :f32]
    [pointer-y :f32]
    [pressed :bool]]
@@ -751,9 +699,7 @@
          (az/field view valid)
          (place! selected-x selected-y build-kind build-direction))))
 
-(az/defn rotate-build!
-  :-
-  :u8
+(az/defn rotate-build! :u8
   [[clockwise :bool]]
   (set! build-direction
         (if clockwise
@@ -761,23 +707,17 @@
           (mod (+ build-direction 3) 4)))
   build-direction)
 
-(az/defn set-build-kind!
-  :-
-  :void
+(az/defn set-build-kind! :void
   [[kind :u8]]
   (when (<= kind building-coco-house)
     (set! build-kind kind)))
 
-(az/defn toggle-paused!
-  :-
-  :bool
+(az/defn toggle-paused! :bool
   []
   (set! paused (ak/! paused))
   paused)
 
-(az/defn cell-view
-  :-
-  CellView
+(az/defn cell-view CellView
   [[x :i32]
    [y :i32]]
   (if (valid-cell? x y)
@@ -801,10 +741,8 @@
                :inventory 0
                :entity 0})))
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Register Flecs components and seed the first coco-house production line."
-  :-
-  :bool
   [[world [:* flecs/ecs_world_t]]]
   (when (ak/! initialized)
     (set! factory-world world)
@@ -838,10 +776,8 @@
     (set! _ (place! 15 12 building-coco-house direction-east)))
   initialized)
 
-(az/defn snapshot
+(az/defn snapshot FactorySnapshot
   "Inspect factory occupancy, objective progress, and stable Flecs storage."
-  :-
-  FactorySnapshot
   []
   (let [^{:var true :zig/type :u32} buildings 0
         ^{:var true :zig/type :u32} belts 0
@@ -884,10 +820,8 @@
       :event_count event-count
       :stable_sample_address stable-sample})))
 
-(az/defn shutdown!
+(az/defn shutdown! :void
   "Forget factory state; the owning game destroys the Flecs world itself."
-  :-
-  :void
   []
   (set! cells (std-mem/zeroes (az/type [:array 768 Cell])))
   (set! factory-world null)

@@ -8,8 +8,7 @@
   (binding [*ns* (the-ns 'aguafria.zig.set-many-test)]
     (macroexpand-1 form)))
 
-(az/defn sequential-result
-  :- :usize
+(az/defn sequential-result :usize
   []
   (let [^{:var :usize} x 2
         ^{:var :usize} y 0

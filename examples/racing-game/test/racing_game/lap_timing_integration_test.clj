@@ -7,9 +7,8 @@
             [racing-game.worker :as worker]
             [clojure.test :refer [deftest is]]))
 
-(az/defn clock-wiring-probe
-  "Explicit clock/crossing fixture, not a claim that a physical lap was driven."
-  :- [:array 6 :u64] []
+(az/defn clock-wiring-probe [:array 6 :u64]
+  "Explicit clock/crossing fixture, not a claim that a physical lap was driven." []
   (sim/configure-countdown! 0)
   (sim/reset!)
   (ak/defer (sim/shutdown!))

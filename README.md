@@ -48,10 +48,8 @@ verified, extracted atomically into a cache, and reused.
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defn add
+(az/defn add :i32
   "Add two signed integers."
-  :-
-  :i32
   [[a :i32]
    [b :i32]]
   (+ a b))
@@ -74,22 +72,21 @@ Use `ak/return` only for an early or explicit Zig return.
 ## Declarations
 
 `az/defn` creates a public Zig function. `az/defn-` creates a private Zig
-function. Both are callable Clojure Vars in development.
+function. Both are callable Clojure Vars in development. The return type follows
+the name, followed by an optional docstring, optional attributes, and typed arguments.
 
 ```clojure
-(az/defn public-value :- :u32 [] 42)
+(az/defn public-value :u32 [] 42)
 
-(az/defn- implementation-detail :- :u32 [] 7)
+(az/defn- implementation-detail :u32 [] 7)
 ```
 
 Public Zig visibility is not a C ABI export. Request a stable exported symbol
 only when an external native caller needs one:
 
 ```clojure
-(az/defn exported-entry
+(az/defn exported-entry :i32
   {:attrs #{:export}}
-  :-
-  :i32
   [[value :i32]]
   value)
 ```
@@ -132,10 +129,12 @@ introduce a second runtime abstraction:
 | --- | --- |
 | `(f a b)` | function call |
 | `(let [x 1] ...)` | immutable local by default |
+| `(let [[x y] pair] ...)` | fixed array, tuple or vector destructuring |
 | `^{:var :i32} x` | typed mutable local; equivalent to `^{:var true :zig/type :i32}` |
 | `if`, `when`, `cond` | Zig control flow |
 | `while`, `doseq` | Zig loops |
 | `set!` | assignment |
+| `(set! [x y] pair)` | assign existing targets from one evaluated value |
 | `(az/set-many! target value ...)` | ordered assignments; later values may read earlier writes |
 | `(az/field p :x)` | `p.x` |
 | `(az/index values i)` | `values[i]` |
@@ -145,9 +144,7 @@ introduce a second runtime abstraction:
 For example:
 
 ```clojure
-(az/defn sum-to
-  :-
-  :u32
+(az/defn sum-to :u32
   [[limit :u32]]
   (let [^{:var true :zig/type :u32} total 0
         ^{:var true :zig/type :u32} index 0]
@@ -171,7 +168,7 @@ thousands of generated source files:
   (:require [aguafria.std.math :as std-math]
             [aguafria.zig :as az]))
 
-(az/defn maximum :- :u32
+(az/defn maximum :u32
   [[a :u32]
    [b :u32]]
   (std-math/max a b))

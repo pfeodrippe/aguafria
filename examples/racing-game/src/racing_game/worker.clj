@@ -194,17 +194,13 @@
 
 (az/defvar idle-wait-count :u64 0)
 
-(az/defn- empty-result
-  :-
-  InferenceResult
+(az/defn- empty-result InferenceResult
   []
   (std-mem/zeroes (az/type InferenceResult)))
 
-(az/defn- monotonic-seconds
+(az/defn- monotonic-seconds :f64
   "Read the operating system monotonic clock without depending on a windowing
   event loop. This is safe from desktop, headless nREPL, and worker threads."
-  :-
-  :f64
   []
   (let [^:var timestamp (std-mem/zeroes (az/type std-c/timespec))
         result (std-c/clock_gettime :.MONOTONIC (ak/& timestamp))]
@@ -214,21 +210,18 @@
             1000000000.0))
       0.0)))
 
-(az/defn- idle-wait!
+(az/defn- idle-wait! :void
   "Yield the worker core for half a millisecond without coupling it to an I/O
   runtime. Mailbox latency remains negligible beside one native LLM pass."
-  :-
-  :void
   []
   (let [^{:var true :zig/type std-c/timespec}
         duration (std-mem/zeroes (az/type std-c/timespec))]
     (set! (az/field duration nsec) 500000)
     (set! _ (std-c/nanosleep (ak/& duration) null))))
 
-(az/defn submit-language!
+(az/defn submit-language! :bool
   "Nonblocking bounded handoff. Busy actors retain their current request/result;
-  this call never invokes inference and never changes a simulation body."
-  :- :bool [[request LanguageRequest]]
+  this call never invokes inference and never changes a simulation body." [[request LanguageRequest]]
   (let [actor (ak/as :usize (az/field request actor))]
     (when (or (>= actor actor-count) (ak/! (az/field request valid))
               (ak/== (az/field request revision) 0)
@@ -249,10 +242,9 @@
       (ak/atomicStore :u8 state 1 :.release))
     true))
 
-(az/defn- process-language-request!
+(az/defn- process-language-request! :bool
   "One actor's worker exclusively owns that actor's model sequence. Readable
-  and legacy requests share the same thread, never concurrent model state."
-  :- :bool [[actor :usize]]
+  and legacy requests share the same thread, never concurrent model state." [[actor :usize]]
   (let [state (ak/& (az/index language-mailbox-states actor))]
     (when (ak/!= (ak/cmpxchgStrong :u8 state 1 2 :.acq_rel :.acquire) ak/null)
       (ak/return false))
@@ -274,10 +266,9 @@
       (ak/atomicStore :u8 state 3 :.release))
     true))
 
-(az/defn take-language-result!
+(az/defn take-language-result! LanguageResult
   "Consume one fully published result once. Returns valid=false while pending.
-  Copy reservation prevents another client submitting over an unread reply."
-  :- LanguageResult [[actor :usize]]
+  Copy reservation prevents another client submitting over an unread reply." [[actor :usize]]
   (when (>= actor actor-count)
     (ak/return (std-mem/zeroes (az/type LanguageResult))))
   (let [state (ak/& (az/index language-mailbox-states actor))]
@@ -287,25 +278,20 @@
       (ak/atomicStore :u8 state 0 :.release)
       result)))
 
-(az/defn language-mailbox-state
-  "Diagnostic state only: 0 idle, 1 queued, 2 thinking, 3 reply ready, 4 copying."
-  :- :u8 [[actor :usize]]
+(az/defn language-mailbox-state :u8
+  "Diagnostic state only: 0 idle, 1 queued, 2 thinking, 3 reply ready, 4 copying." [[actor :usize]]
   (if (< actor actor-count)
     (ak/atomicLoad :u8 (ak/& (az/index language-mailbox-states actor)) :.acquire)
     255))
 
-(az/defn- persona-text
-  :-
-  [:slice-const :u8]
+(az/defn- persona-text [:slice-const :u8]
   [[value :u8]]
   (cond
     (ak/== value 0) "cautious"
     (ak/== value 1) "balanced"
     :else "bold"))
 
-(az/defn- item-text
-  :-
-  [:slice-const :u8]
+(az/defn- item-text [:slice-const :u8]
   [[value :u8]]
   (cond
     (ak/== value 1) "bolt"
@@ -316,18 +302,14 @@
     (ak/== value 6) "surge"
     :else "none"))
 
-(az/defn- lane-text
-  :-
-  [:slice-const :u8]
+(az/defn- lane-text [:slice-const :u8]
   [[value :u8]]
   (cond
     (ak/== value 0) "left"
     (ak/== value 2) "right"
     :else "same lane"))
 
-(az/defn- status-text
-  :-
-  [:slice-const :u8]
+(az/defn- status-text [:slice-const :u8]
   [[value :u8]]
   (cond
     (ak/== value 1) "hazard nearby"
@@ -335,9 +317,7 @@
     (ak/== value 3) "shield active"
     :else "clear"))
 
-(az/defn- pit-state-text
-  :-
-  [:slice-const :u8]
+(az/defn- pit-state-text [:slice-const :u8]
   [[value :u8]]
   (cond
     (ak/== value 1) "called"
@@ -346,22 +326,16 @@
     (ak/== value 4) "retired"
     :else "out"))
 
-(az/defn- tire-state-text
-  :-
-  [:slice-const :u8]
+(az/defn- tire-state-text [:slice-const :u8]
   [[percent :u8]]
   (if (<= percent 46) "worn" "usable"))
 
-(az/defn- damage-state-text
-  :-
-  [:slice-const :u8]
+(az/defn- damage-state-text [:slice-const :u8]
   [[percent :u8]]
   (if (>= percent 60) "repair" "sound"))
 
-(az/defn observation-prompt
+(az/defn observation-prompt PromptBuffer
   "Describe one racer's bounded observation in ordinary compact English."
-  :-
-  PromptBuffer
   [[request InferenceRequest]]
   (let [^:var bytes (std-mem/zeroes (az/type [:array 160 :u8]))
         progress-percent
@@ -396,10 +370,8 @@
      {:byte_count (ak/intCast (az/field rendered len))
       :bytes bytes})))
 
-(az/defn team-prompt
+(az/defn team-prompt PromptBuffer
   "Describe both team drivers and the shared pit box in ordinary English."
-  :-
-  PromptBuffer
   [[request InferenceRequest]]
   (let [^:var bytes (std-mem/zeroes (az/type [:array 160 :u8]))
         rendered
@@ -428,40 +400,32 @@
      {:byte_count (ak/intCast (az/field rendered len))
       :bytes bytes})))
 
-(az/defn request-prompt
+(az/defn request-prompt PromptBuffer
   "Select the semantic prompt contract for this independent AI actor."
-  :-
-  PromptBuffer
   [[request InferenceRequest]]
   (if (ak/== (az/field request actor_kind) actor-kind-team)
     (team-prompt request)
     (observation-prompt request)))
 
-(az/defn action-target-speed
+(az/defn action-target-speed :f32
   "Translate one constrained action code into the racer's desired speed. This
   deliberately small hot unit is safe to tune while the native worker runs."
-  :-
-  :f32
   [[action-code :u8]]
   (+ 0.076
      (* (ak/as :f32 (ak/floatFromInt (/ action-code 3)))
         0.008)))
 
-(az/defn set-sampling-temperature!
+(az/defn set-sampling-temperature! :f32
   "Tune constrained action diversity live. Values remain inside a stable,
   finite range and affect only future requests."
-  :-
-  :f32
   [[temperature :f32]]
   (do
     (set! sampling-temperature (ak/max 0.25 (ak/min 8.0 temperature)))
     sampling-temperature))
 
-(az/defn sample-action
+(az/defn sample-action SampledAction
   "Temperature-sample only this actor's legal logits. Each actor owns one
   deterministic native RNG stream; no sampled value can name another tool."
-  :-
-  SampledAction
   [[report inference/ForwardReport]
    [racer :usize]]
   (let [old-state (az/index sampler-states racer)
@@ -506,10 +470,8 @@
     (set! (az/index sampler-states racer) next-state)
     (SampledAction {:code chosen :state next-state})))
 
-(az/defn interpret-action
+(az/defn interpret-action InferenceResult
   "Map a constrained driver or team token to its native validated action."
-  :-
-  InferenceResult
   [[request InferenceRequest]
    [report inference/ForwardReport]
    [prompt PromptBuffer]
@@ -597,10 +559,8 @@
       :output_tokens output-tokens
       :response_bytes response-bytes})))
 
-(az/defn process-request!
+(az/defn process-request! :void
   "Run one complete prompt through the native model on the worker thread."
-  :-
-  :void
   [[request InferenceRequest]]
   (let [prompt (request-prompt request)
         prompt-length (ak/as :usize (az/field prompt byte_count))
@@ -632,11 +592,9 @@
     (set! _ (ak/atomicRmw :u64 (ak/& (az/index result-counts racer))
                           :.Add 1 :.monotonic))))
 
-(az/defn- worker-loop!
+(az/defn- worker-loop! :void
   "Long-lived shell for one AI actor. Mutable model state and mailboxes are
   actor-disjoint; immutable weights remain shared across all actor threads."
-  :-
-  :void
   [[racer :usize]]
   (ak/while (ak/!= (ak/atomicLoad :u8 (ak/& worker-running) :.acquire) 0)
     (let [language-work (process-language-request! racer)
@@ -655,10 +613,8 @@
                               :.Add 1 :.monotonic))
         (idle-wait!)))))
 
-(az/defn start!
+(az/defn start! :bool
   "Allocate one sequence state per actor and one fixed native worker per actor."
-  :-
-  :bool
   []
   (if (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
     true
@@ -720,10 +676,8 @@
               (inference/free-sequences!)
               false)))))))
 
-(az/defn submit!
+(az/defn submit! :bool
   "Publish one immutable observation. A racer has only one in-flight request."
-  :-
-  :bool
   [[request InferenceRequest]]
   (let [racer (ak/as :usize (az/field request racer))
         ^:var published request
@@ -758,10 +712,8 @@
                               :.Add 1 :.monotonic))
         true))))
 
-(az/defn result-for
+(az/defn result-for InferenceResult
   "Read the newest fully published result for one racer."
-  :-
-  InferenceResult
   [[racer :usize]
    [after-revision :u64]]
   (if (>= racer actor-count)
@@ -773,9 +725,7 @@
         (az/index results racer)
         (empty-result)))))
 
-(az/defn summary
-  :-
-  WorkerSummary
+(az/defn summary WorkerSummary
   []
   (let [^{:var true :zig/type :u8} pending 0]
     (dotimes [racer actor-count]
@@ -800,10 +750,8 @@
       :results_by_actor result-counts
       :state_bytes inference/sequence-total-bytes})))
 
-(az/defn stop!
+(az/defn stop! :void
   "Join the worker before model memory or native libraries are released."
-  :-
-  :void
   []
   (when (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
     (ak/atomicStore :u8 (ak/& worker-running) 0 :.release)

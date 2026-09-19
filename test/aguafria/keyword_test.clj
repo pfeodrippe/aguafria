@@ -76,6 +76,8 @@
     (is (= "const value: u32 = 1;"
            (az/emit-stmt '(ak/const value :u32 1))))
     (is (= "total += value;" (az/emit-stmt '(ak/+= total value))))
+    (is (= "total <<|= shift;" (az/emit-stmt '(ak/<<|= total shift))))
+    (is (= :assignment (get-in (meta #'ak/<<|=) [:aguafria/token :kind])))
     (is (= "var value: u32 = 1;"
            (az/emit-stmt '(ak/var value :u32 1))))
     (is (var? (ns-resolve 'aguafria.zig 'while-loop)))

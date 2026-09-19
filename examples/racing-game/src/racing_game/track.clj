@@ -15,26 +15,24 @@
 
 (az/defconst surface-columns :usize 6)
 
-(az/defn smootherstep :- :f32 [[value :f32]]
+(az/defn smootherstep :f32 [[value :f32]]
   (let [t (ak/max 0.0 (ak/min 1.0 value))]
     (* t t t (+ (* t (- (* t 6.0) 15.0)) 10.0))))
 
-(az/defn pit-blend :- :f32 [[progress :f32]]
+(az/defn pit-blend :f32 [[progress :f32]]
   (let [wrapped (- progress (std-math/floor progress))
         q (if (< wrapped 0.5) (+ wrapped 1.0) wrapped)]
     (* (smootherstep (/ (- q 0.94) 0.025))
        (smootherstep (/ (- 1.055 q) 0.030)))))
 
-(az/defn pit-offset
+(az/defn pit-offset :f32
   "Fast lane is 17m from the circuit; work bays are another 6m outward.
-  Both taper onto the actual circuit, including its elevation, at each end."
-  :- :f32 [[progress :f32] [work-offset :f32]]
+  Both taper onto the actual circuit, including its elevation, at each end." [[progress :f32] [work-offset :f32]]
   (* (+ 17.0 work-offset) (pit-blend progress)))
 
-(az/defn surface-boundary
+(az/defn surface-boundary :f32
   "Sorted lateral metres: shoulder, main road, verge, pit apron, shoulder.
-  Inactive verge/apron strips collapse and emit no degenerate triangles."
-  :- :f32 [[progress :f32] [column :usize]]
+  Inactive verge/apron strips collapse and emit no degenerate triangles." [[progress :f32] [column :usize]]
   (let [blend (pit-blend progress)]
     (cond
       (ak/== column 0) -35.0
@@ -45,13 +43,13 @@
       (ak/== column 4) (ak/max 6.5 (ak/max (* 27.0 blend) (+ (* 23.0 blend) 2.5)))
       :else 35.0)))
 
-(az/defn surface-asphalt? :- :bool [[strip :usize]]
+(az/defn surface-asphalt? :bool [[strip :usize]]
   (or (ak/== strip 1) (ak/== strip 3)))
 
-(az/defn surface-point :- circuit/Sample [[progress :f32] [column :usize]]
+(az/defn surface-point circuit/Sample [[progress :f32] [column :usize]]
   (circuit/at-distance (* progress circuit/length-metres) (surface-boundary progress column)))
 
-(az/defn pit-point :- circuit/Sample [[progress :f32] [work-offset :f32]]
+(az/defn pit-point circuit/Sample [[progress :f32] [work-offset :f32]]
   (let [distance (* progress circuit/length-metres)
         ^:var p (circuit/at-distance distance (pit-offset progress work-offset))
         before (/ (- distance 1.0) circuit/length-metres)
@@ -76,43 +74,36 @@
    [:lane :f32]
    [:distance_squared :f32]])
 
-(az/defn wrap-progress
+(az/defn wrap-progress :f32
   "Wrap any signed progress onto the closed circuit's [0, 1) interval."
-  :-
-  :f32
   [[progress :f32]]
   (- progress (std-math/floor progress)))
 
-(az/defn pose
-  "Sample the 4309m Blender circuit. Output x/y are kilometres, lane units 50m."
-  :- Pose [[progress :f32] [lane :f32]]
+(az/defn pose Pose
+  "Sample the 4309m Blender circuit. Output x/y are kilometres, lane units 50m." [[progress :f32] [lane :f32]]
   (let [sample (circuit/at-distance (* (wrap-progress progress) 4309.0) (* lane 50.0))]
     (Pose {:x (* (az/field sample x) 0.001)
            :y (* (az/field sample y) 0.001)
            :heading (az/field sample heading)})))
 
-(az/defn elevation
-  "Blender road elevation in world kilometres."
-  :- :f32 [[progress :f32]]
+(az/defn elevation :f32
+  "Blender road elevation in world kilometres." [[progress :f32]]
   (* 0.001 (az/field (circuit/at-distance (* (wrap-progress progress) 4309.0) 0.0) z)))
 
-(az/defn progress-step
-  "Speed is km/s internally: .083333 means 300 km/h, not laps per second."
-  :- :f32 [[speed :f32] [seconds :f32]]
+(az/defn progress-step :f32
+  "Speed is km/s internally: .083333 means 300 km/h, not laps per second." [[speed :f32] [seconds :f32]]
   (/ (* speed seconds) 4.309))
 
-(az/defn corner-speed
-  "Physical curvature limit in km/s, using a 3g lateral-acceleration envelope."
-  :- :f32 [[progress :f32] [grip :f32]]
+(az/defn corner-speed :f32
+  "Physical curvature limit in km/s, using a 3g lateral-acceleration envelope." [[progress :f32] [grip :f32]]
   (let [a (pose (- progress 0.001) 0.0) b (pose (+ progress 0.001) 0.0)
         delta (- (az/field b heading) (az/field a heading))
         angle (ak/abs (std-math/atan2 (std-math/sin delta) (std-math/cos delta)))
         curvature (/ angle 8.618)]
     (ak/min 0.095 (* 0.001 (std-math/sqrt (/ (* 30.0 grip) (ak/max curvature 0.00001)))))))
 
-(az/defn speed-envelope
-  "Look 150 metres ahead and brake before a bend instead of clipping speed in it."
-  :- :f32 [[progress :f32] [grip :f32]]
+(az/defn speed-envelope :f32
+  "Look 150 metres ahead and brake before a bend instead of clipping speed in it." [[progress :f32] [grip :f32]]
   (let [^{:var :f32} limit (corner-speed progress grip)]
     (dotimes [i 6]
       (let [distance (* (ak/as :f32 (ak/floatFromInt (+ i 1))) 25.0)
@@ -121,16 +112,13 @@
         (set! limit (ak/min limit approaching))))
     limit))
 
-(az/defn pit-pose
-  "Canonical pit route shared with Box3D's paved surface; legacy lane units 50m."
-  :- Pose [[progress :f32] [lane :f32]]
+(az/defn pit-pose Pose
+  "Canonical pit route shared with Box3D's paved surface; legacy lane units 50m." [[progress :f32] [lane :f32]]
   (let [p (pit-point progress (* (- lane 0.17) 133.33333))]
     (Pose {:x (* (az/field p x) 0.001) :y (* (az/field p y) 0.001)
            :heading (az/field p heading)})))
 
-(az/defn center-distance-squared
-  :-
-  :f32
+(az/defn center-distance-squared :f32
   [[x :f32]
    [y :f32]
    [progress :f32]]
@@ -139,10 +127,9 @@
         dy (- y (az/field center y))]
     (+ (* dx dx) (* dy dy))))
 
-(az/defn projection-centers-type
+(az/defn projection-centers-type [:array projection-samples [:array 2 :f32]]
   "Build the immutable coarse search table at compile time from the authored
-  curve. Editing the curve regenerates this dependency; no runtime warm-up."
-  :- [:array projection-samples [:array 2 :f32]] []
+  curve. Editing the curve regenerates this dependency; no runtime warm-up." []
   (ak/setEvalBranchQuota 1000000)
   (let [^{:var [:array projection-samples [:array 2 :f32]]} points ak/undefined]
     (dotimes [index projection-samples]
@@ -156,12 +143,10 @@
 (az/defconst projection-centers [:array projection-samples [:array 2 :f32]]
   (projection-centers-type))
 
-(az/defn project
+(az/defn project Projection
   "Project a world point onto the nearest point of the procedural centerline.
   A bounded coarse scan plus ten local refinements is deterministic,
   allocation-free, and accurate enough for checkpoints, recovery, and tools."
-  :-
-  Projection
   [[x :f32]
    [y :f32]]
   (let [sample-count
@@ -202,11 +187,9 @@
         :lane (* 20.0 (+ (* dx normal-x) (* dy normal-y)))
         :distance_squared distance-squared}))))
 
-(az/defn distance-to-centerline-squared
+(az/defn distance-to-centerline-squared :f32
   "Return only the nearest centerline distance for collision/recovery callers
   that do not need the full projection."
-  :-
-  :f32
   [[x :f32]
    [y :f32]]
   (az/field (project x y) distance_squared))

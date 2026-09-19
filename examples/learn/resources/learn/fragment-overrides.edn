@@ -1,0 +1,21 @@
+{"snippet-424" {:source "learn/fragments/handle_all_errors.clj"}
+ "snippet-426" {:source "learn/fragments/propagate_remaining_errors.clj"}
+ "snippet-429" {:source "learn/fragments/discard_errors.clj"}
+ "snippet-431" {:source "learn/fragments/cleanup_on_error.clj"}
+ "snippet-449" {:source "learn/fragments/error_trace_storage.clj"
+                :context-only "Illustrative StackTrace layout; N is supplied only by the surrounding explanation. No upstream executable or output."}
+ "snippet-453" {:source "learn/fragments/record_error_return.clj"
+                :context-only "Compiler-internal error-return helper using the preceding StackTrace and N; the LLVM no-inline annotation is commentary. No upstream executable or output."}
+ "snippet-459" {:source "learn/fragments/unwrap_malloc_result.clj"
+                :context-only "Optional-allocation illustration leaves Foo undefined and the successful return path unfinished in the original. Preserve that incompleteness; do not invent a runnable program or output."}
+ "snippet-644" {:source "learn/fragments/specialized_two_three.clj"}
+ "snippet-645" {:source "learn/fragments/specialized_one.clj"}
+ "snippet-646" {:source "learn/fragments/specialized_identity.clj"}
+ "snippet-667" {:source "learn/fragments/specialized_writer.clj"
+                :context-only "Illustrative specialization of the preceding generic formatter; Writer and its methods belong to that surrounding discussion. No independent upstream invocation or output."}
+ "snippet-777" {:source "learn/fragments/weak_compare_exchange.clj"}
+ "snippet-1181" {:source "learn/fragments/force_file_discovery.clj"}
+ "snippet-1214" {:source "learn/fragments/conditional_c_import.clj"
+                 :context-only "Conditional C-import illustration uses an unspecified something flag and external soundio.h. No complete build environment or output is supplied by the reference."}
+ "snippet-1287" {:source "learn/fragments/naming_conventions.clj"
+                 :context-only "Naming illustrations deliberately omit imported files, otherFunction and List, omit call arguments, and leave readU32Be empty. Preserve the examples as syntax, without completing their logic or inventing output."}}

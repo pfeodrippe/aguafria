@@ -28,10 +28,9 @@
     (is (pos? (reduce + (map (fn [[a b c]] (dot (vertices a) (cross (vertices b) (vertices c)))) triangles)))
         "Closed barriers have outward winding, including their bottom faces")))
 
-(az/defn impact-probe
+(az/defn impact-probe [:array 4 :f32]
   "Controlled crash initial conditions, not driving code. Velocity is assigned
-  once at setup; all subsequent contact/rotation/deceleration is solved by Box3D."
-  :- [:array 4 :f32] [[progress :f32] [side :f32] [speed :f32]]
+  once at setup; all subsequent contact/rotation/deceleration is solved by Box3D." [[progress :f32] [side :f32] [speed :f32]]
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
         wall (barriers/create! world)

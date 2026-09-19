@@ -132,6 +132,8 @@
     :kind :assignment :param-count 2 :documentation "Bitwise OR assignment."}
    {:name "<<=" :zig-token "<<=" :zig-tag "angle_bracket_angle_bracket_left_equal"
     :kind :assignment :param-count 2 :documentation "Left-shift assignment."}
+   {:name "<<|=" :zig-token "<<|=" :zig-tag "angle_bracket_angle_bracket_left_pipe_equal"
+    :kind :assignment :param-count 2 :documentation "Saturating left-shift assignment."}
    {:name ">>=" :zig-token ">>=" :zig-tag "angle_bracket_angle_bracket_right_equal"
     :kind :assignment :param-count 2 :documentation "Right-shift assignment."}])
 

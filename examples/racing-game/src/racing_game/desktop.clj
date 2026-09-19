@@ -57,52 +57,41 @@
 
 (az/defvar previous-scroll glfw/GLFWscrollfun null)
 
-(az/defn camera-scroll!
+(az/defn camera-scroll! :void
   "GLFW wheel callback; ImGui chains this callback when installing its input."
   {:attrs #{:export}}
-  :- :void
   [[event-window [:optional [:* glfw/GLFWwindow]]] [horizontal :f64] [vertical :f64]]
   (when (ak/== (ui/aguafria_ui_captures_mouse) 0)
     (render3d/zoom-by! (ak/floatCast (ak/exp (* vertical 0.12)))))
   (when (ak/!= previous-scroll null)
     ((az/unwrap previous-scroll) event-window horizontal vertical)))
 
-(az/defn install-scroll!
-  "Install on the window thread, preserving an already installed UI callback."
-  :- :void []
+(az/defn install-scroll! :void
+  "Install on the window thread, preserving an already installed UI callback." []
   (when (ak/! scroll-installed)
     (set! previous-scroll (glfw/glfwSetScrollCallback window (ak/& camera-scroll!)))
     (set! scroll-installed true)))
 
-(az/defn request-race-reset!
-  "Queue a reset for the simulation thread; safe to call from the nREPL."
-  :- :void []
+(az/defn request-race-reset! :void
+  "Queue a reset for the simulation thread; safe to call from the nREPL." []
   (ak/atomicStore :u8 (ak/& reset-request) 1 :.release))
 
-(az/defn request-stop!
-  :-
-  :void
+(az/defn request-stop! :void
   []
   (set! running false))
 
-(az/defn set-live-simulation-slowdown!
+(az/defn set-live-simulation-slowdown! :void
   "Run live AI races between real time and 20x slow motion. Rendering remains
   unconstrained, and deterministic replay always advances at normal 120 Hz."
-  :-
-  :void
   [[factor :f64]]
   (set! live-simulation-slowdown (ak/min 20.0 (ak/max 1.0 factor))))
 
-(az/defn simulation-slowdown
+(az/defn simulation-slowdown :f64
   "Inspect the live wall-time slowdown factor."
-  :-
-  :f64
   []
   live-simulation-slowdown)
 
-(az/defn poll-control-edges!
-  :-
-  :void
+(az/defn poll-control-edges! :void
   []
   ;; GLFW retains a short press until sampled, even when both events arrive
   ;; between rendered frames. This also applies to F2 in the monitor.
@@ -229,11 +218,9 @@
     (set! previous-human-toggle human-toggle-down)
     (set! previous-item-use item-use)))
 
-(az/defn frame!
+(az/defn frame! :bool
   "Present one Vulkan frame. Live AI simulation defaults to normal speed;
   optional slow motion remains available for studying model decisions."
-  :-
-  :bool
   []
   (glfw/glfwPollEvents)
   (poll-control-edges!)
@@ -260,28 +247,22 @@
     (motion-qa/record! now)
     (renderer/render! (ak/& race-render/build-frame!))))
 
-(az/defn window-address
+(az/defn window-address :u64
   "Opaque GLFW window address for optional development-only tooling."
-  :-
-  :u64
   []
   (if (ak/== window null)
     0
     (ak/intCast (ak/intFromPtr (az/unwrap window)))))
 
-(az/defn should-run?
+(az/defn should-run? :bool
   "Whether the initialized native window should render another frame."
-  :-
-  :bool
   []
   (and running
        (ak/!= window null)
        (ak/== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE)))
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Create the window, renderer, workers, and Flecs race without entering a loop."
-  :-
-  :bool
   []
   (when running
     (ak/return true))
@@ -311,10 +292,8 @@
   (set! running true)
   true)
 
-(az/defn shutdown!
+(az/defn shutdown! :void
   "Destroy the resources owned by `initialize!`. Safe after a normal loop."
-  :-
-  :void
   []
   (when (ak/!= window null)
     (set! running false)
@@ -326,10 +305,8 @@
     (set! window null)
     (glfw/glfwTerminate)))
 
-(az/defn run!
+(az/defn run! :bool
   "Run on the JVM first OS thread while the same JVM's nREPL stays live."
-  :-
-  :bool
   []
   (when (ak/! (initialize!))
     (ak/return false))
@@ -338,9 +315,7 @@
   (shutdown!)
   true)
 
-(az/defn desktop-snapshot
-  :-
-  DesktopSnapshot
+(az/defn desktop-snapshot DesktopSnapshot
   []
   (let [race (simulation/snapshot)]
     (DesktopSnapshot {:running running

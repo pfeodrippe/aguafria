@@ -35,12 +35,11 @@
 
 (az/defvar capture-state :u8 0)
 
-(az/defn start!
-  "Request capture on the render thread; false if capturing/exporting already."
-  :- :bool []
+(az/defn start! :bool
+  "Request capture on the render thread; false if capturing/exporting already." []
   (ak/== (ak/cmpxchgStrong :u8 (ak/& capture-state) 0 1 :.acq_rel :.acquire) ak/null))
 
-(az/defn record! :- :void [[now :f64]]
+(az/defn record! :void [[now :f64]]
   (when (ak/== (ak/atomicLoad :u8 (ak/& capture-state) :.acquire) 1)
     (set! frame-count 0)
     (set! start-time now)
@@ -79,24 +78,24 @@
                 (camera/presentation-pose camera/camera-racer (ak/intCast part))))
         (set! frame-count (+ frame-count 1))))))
 
-(az/defn ready? :- :bool []
+(az/defn ready? :bool []
   (ak/== (ak/atomicLoad :u8 (ak/& capture-state) :.acquire) 0))
 
-(az/defn begin-read! :- :bool []
+(az/defn begin-read! :bool []
   (ak/== (ak/cmpxchgStrong :u8 (ak/& capture-state) 0 3 :.acq_rel :.acquire) ak/null))
 
-(az/defn end-read! :- :void []
+(az/defn end-read! :void []
   (ak/atomicStore :u8 (ak/& capture-state) 0 :.release))
 
-(az/defn count-frames :- :u32 [] frame-count)
+(az/defn count-frames :u32 [] frame-count)
 
-(az/defn frame-at :- Frame [[index :u32]]
+(az/defn frame-at Frame [[index :u32]]
   (az/index frames (ak/min index (- (ak/max frame-count 1) 1))))
 
-(az/defn context-at :- PoseContext [[index :u32]]
+(az/defn context-at PoseContext [[index :u32]]
   (az/index pose-contexts (ak/min index (- (ak/max frame-count 1) 1))))
 
-(az/defn body-at :- physics/BodyState [[index :u32] [part :u32]]
+(az/defn body-at physics/BodyState [[index :u32] [part :u32]]
   (az/index (az/index body-frames (ak/min index (- (ak/max frame-count 1) 1)))
             (ak/min part 9)))
 

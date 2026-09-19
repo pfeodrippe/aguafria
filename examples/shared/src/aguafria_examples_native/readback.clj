@@ -31,17 +31,16 @@
 
 (az/defvar height :u32 0)
 
-(az/defn status :- :u8 []
+(az/defn status :u8 []
   (ak/atomicLoad :u8 (ak/& state) :.acquire))
 
-(az/defn acknowledge! :- :bool []
+(az/defn acknowledge! :bool []
   (let [current (status)]
     (and (>= current 4)
          (ak/== (ak/cmpxchgStrong :u8 (ak/& state) current 0 :.acq_rel :.acquire) null))))
 
-(az/defn request!
+(az/defn request! :bool
   "Copy a NUL-terminated path; reject empty/oversized paths and an occupied slot."
-  :- :bool
   [[path [:pointer {:size :c :const? true} :u8]]]
   (when (ak/== path null) (ak/return false))
   (let [^{:var :usize} length 0]
@@ -55,24 +54,23 @@
     (ak/atomicStore :u8 (ak/& state) 2 :.release)
     true))
 
-(az/defn supported-format? :- :bool [[format vk/VkFormat]]
+(az/defn supported-format? :bool [[format vk/VkFormat]]
   (or (ak/== format vk/VK_FORMAT_B8G8R8A8_UNORM)
       (ak/== format vk/VK_FORMAT_B8G8R8A8_SRGB)
       (ak/== format vk/VK_FORMAT_R8G8B8A8_UNORM)
       (ak/== format vk/VK_FORMAT_R8G8B8A8_SRGB)))
 
-(az/defn reject! :- :void []
+(az/defn reject! :void []
   (ak/atomicStore :u8 (ak/& state) 5 :.release))
 
-(az/defn release! :- :void [[device vk/VkDevice]]
+(az/defn release! :void [[device vk/VkDevice]]
   (when (ak/!= mapped null) (vk/vkUnmapMemory device memory))
   (when (ak/!= buffer null) (vk/vkDestroyBuffer device buffer null))
   (when (ak/!= memory null) (vk/vkFreeMemory device memory null))
   (az/set-many! mapped null buffer null memory null))
 
-(az/defn prepare!
+(az/defn prepare! :bool
   "Render-thread only. Allocate at most 64 MiB; require coherent host memory."
-  :- :bool
   [[device vk/VkDevice] [physical vk/VkPhysicalDevice] [extent vk/VkExtent2D]]
   (az/set-many! width (az/field extent width) height (az/field extent height))
   (let [bytes (* (ak/as :u64 width) height 4)
@@ -108,9 +106,8 @@
     (ak/atomicStore :u8 (ak/& state) 3 :.release)
     true))
 
-(az/defn record!
+(az/defn record! :void
   "After the color pass: copy to staging, make host reads visible, restore presentation."
-  :- :void
   [[command vk/VkCommandBuffer] [source vk/VkImage]]
   (let [^:var barrier (vk/VkImageMemoryBarrier
                        {:sType vk/VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
@@ -148,9 +145,8 @@
                              (ak/| vk/VK_PIPELINE_STAGE_HOST_BIT vk/VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
                              0 0 null 1 (ak/& host-barrier) 1 (ak/& barrier))))
 
-(az/defn write-frame!
+(az/defn write-frame! :bool
   "After the submission fence: PPM RGB bytes, with the actual mesh frame tag in its header."
-  :- :bool
   [[format vk/VkFormat] [frame :u64] [revision :u64] [tick :u64]]
   (let [^:var header-buffer (mem/zeroes (az/type [:array 256 :u8]))
         header (catch (fmt/bufPrint (ak/& header-buffer)
@@ -179,8 +175,7 @@
           closed (stdio/fclose file)]
       (and success (ak/== closed 0)))))
 
-(az/defn complete!
-  :- :void
+(az/defn complete! :void
   [[device vk/VkDevice] [format vk/VkFormat] [frame :u64] [revision :u64] [tick :u64]]
   (let [saved (write-frame! format frame revision tick)]
     (release! device)

@@ -24,18 +24,18 @@
 (az/defvar running false)
 (az/defvar capture-enabled :u8 1)
 
-(az/defn hold-capture! :- :void []
+(az/defn hold-capture! :void []
   ;; Devices may open asynchronously while PREPARING remains cancellable.
   ;; Neither input samples nor effects sends belong to a take until committed.
   (ak/atomicStore :u8 (ak/& capture-enabled) 0 :.release))
 
-(az/defn release-capture! :- :void []
+(az/defn release-capture! :void []
   (ak/atomicStore :u8 (ak/& capture-enabled) 1 :.release))
 
-(az/defn capture-held? :- :bool []
+(az/defn capture-held? :bool []
   (ak/== (ak/atomicLoad :u8 (ak/& capture-enabled) :.acquire) 0))
 
-(az/defn- silence-preparing-output! :- :void
+(az/defn- silence-preparing-output! :void
   [[output [:c-pointer :f32]] [frames :u32]]
   (when (ak/!= output ak/null)
     (dotimes [i (* frames 16)]
@@ -84,13 +84,12 @@
 (az/defvar input-check-held :u32 0)
 (az/defvar input-check-frames :u64 0)
 
-(az/defn input-check-active? :- :bool []
+(az/defn input-check-active? :bool []
   (> (ak/atomicLoad :u32 (ak/& input-check-running) :.acquire) 0))
 
-(az/defn stopped-device-mask
+(az/defn stopped-device-mask :u32
   "Control-worker only. Owned devices that unexpectedly stopped: capture=1,
-   FX source/send=2, monitor=4, input check=8. Never probes uninitialized storage."
-  :- :u32 []
+   FX source/send=2, monitor=4, input check=8. Never probes uninitialized storage." []
   (let [stopped (az/field api ma_device_state_stopped)
         ^{:var :u32} result 0]
     (when (and running
@@ -107,7 +106,7 @@
       (set! result (| result 8)))
     result))
 
-(az/defn process-input-check! :- :void
+(az/defn process-input-check! :void
   [[input [:c-pointer :f32]] [frames :u32]]
   (let [^{:var :f32} peak 0.0]
     (when (ak/!= input ak/null)
@@ -123,20 +122,20 @@
         (ak/atomicStore :u32 (ak/& input-check-held) value :.release)))
     (set! _ (ak/atomicRmw :u64 (ak/& input-check-frames) :.Add frames :.release))))
 
-(az/defn input-check-callback {:zig/qualifiers "callconv(.c)"} :- :void
+(az/defn input-check-callback :void {:zig/qualifiers "callconv(.c)"}
   [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (set! _ pointer)
   (set! _ output)
   (process-input-check! (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
 
-(az/defn stop-input-check! :- :void []
+(az/defn stop-input-check! :void []
   ;; Lifecycle calls are serialized by the studio's control worker.
   (when (input-check-active?)
     (ak/atomicStore :u32 (ak/& input-check-running) 0 :.release)
     ((az/field api ma_device_uninit) (ak/& input-check-device))))
 
-(az/defn start-input-check! :- :bool [[index :u32] [fx-source? :bool]]
+(az/defn start-input-check! :bool [[index :u32] [fx-source? :bool]]
   (when (or (input-check-active?) running source-running monitoring
             (ak/! initialized) (>= index capture-count))
     (ak/return false))
@@ -164,7 +163,7 @@
   (ak/atomicStore :u32 (ak/& input-check-running) 1 :.release)
   true)
 
-(az/defn update-signal-level! :- :void [[input? :bool] [peak :f32]]
+(az/defn update-signal-level! :void [[input? :bool] [peak :f32]]
   (let [value (ak/as :u32 (ak/intFromFloat (* 1000000.0 (ak/min 1.0 (ak/max 0.0 peak)))))
         current (if input? (ak/& input-peak-ppm) (ak/& return-peak-ppm))
         held (if input? (ak/& input-held-ppm) (ak/& return-held-ppm))]
@@ -172,7 +171,7 @@
     (when (> value (ak/atomicLoad :u32 held :.acquire))
       (ak/atomicStore :u32 held value :.release))))
 
-(az/defn signal-peak :- :f32 [[input? :bool] [held? :bool]]
+(az/defn signal-peak :f32 [[input? :bool] [held? :bool]]
   (let [value (if input?
                 (if (input-check-active?)
                   (if held? (ak/& input-check-held) (ak/& input-check-peak))
@@ -180,10 +179,10 @@
                 (if held? (ak/& return-held-ppm) (ak/& return-peak-ppm)))]
     (* 0.000001 (ak/as :f32 (ak/floatFromInt (ak/atomicLoad :u32 value :.acquire))))))
 
-(az/defn meter-input! :- :void [[value :f32]]
+(az/defn meter-input! :void [[value :f32]]
   (when (ak/! (< (ak/abs value) 1.0)) (ak/atomicStore :u8 (ak/& clipped) 1 :.release)))
 
-(az/defn reset-meters! :- :void []
+(az/defn reset-meters! :void []
   (ak/atomicStore :u32 (ak/& input-peak-ppm) 0 :.release)
   (ak/atomicStore :u32 (ak/& return-peak-ppm) 0 :.release)
   (ak/atomicStore :u32 (ak/& input-held-ppm) 0 :.release)
@@ -192,7 +191,7 @@
   (ak/atomicStore :u32 (ak/& input-level) 0 :.release)
   (ak/atomicStore :u32 (ak/& peak-milli) 0 :.release))
 
-(az/defn process-monitor! :- :void
+(az/defn process-monitor! :void
   [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
   (when (ak/== output ak/null) (ak/return))
   (let [gain (* 0.01 (ak/as :f32 (ak/floatFromInt (ak/min 50 (ak/atomicLoad :u32 (ak/& monitor-gain) :.acquire)))))
@@ -206,23 +205,23 @@
     ;; Monitoring also drives the return meter when no take is being captured.
     (update-signal-level! false peak)))
 
-(az/defn monitor-callback {:zig/qualifiers "callconv(.c)"} :- :void
+(az/defn monitor-callback :void {:zig/qualifiers "callconv(.c)"}
   [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (set! _ pointer)
   (process-monitor! (ak/ptrCast (ak/alignCast output))
                     (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
 
-(az/defn stop-monitor! :- :void []
+(az/defn stop-monitor! :void []
   (when monitoring ((az/field api ma_device_uninit) (ak/& monitor-device)) (set! monitoring false)))
 
-(az/defn headphone-device? :- :bool [[index :u32]]
+(az/defn headphone-device? :bool [[index :u32]]
   (let [name (device-name false index)]
     (or (ak/!= (mem/indexOf (az/type :u8) name "Headphones") ak/null)
         (ak/!= (mem/indexOf (az/type :u8) name "AirPods") ak/null)
         (ak/!= (mem/indexOf (az/type :u8) name "Casque") ak/null))))
 
-(az/defn start-monitor! :- :bool [[return-index :u32] [headphone-index :u32]]
+(az/defn start-monitor! :bool [[return-index :u32] [headphone-index :u32]]
   (when (or monitoring (input-check-active?) (ak/! initialized) (>= return-index capture-count)
             (>= headphone-index playback-count) (ak/! (headphone-device? headphone-index))
             (ak/! (mem/eql (az/type :u8) (device-name true return-index) "BlackHole 16ch")))
@@ -242,9 +241,8 @@
       ((az/field api ma_device_uninit) (ak/& monitor-device)) (ak/return false))
     (set! monitoring true) true))
 
-(az/defn process-source!
-  "Live source callback: retain dry stereo, send only 1/2. Never read the return bus."
-  :- :void [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
+(az/defn process-source! :void
+  "Live source callback: retain dry stereo, send only 1/2. Never read the return bus." [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
   (when (capture-held?)
     (silence-preparing-output! output frames)
     (ak/return))
@@ -268,26 +266,25 @@
     (when (or stopping (>= (+ start count) (- max-frames live-tail)))
       (ak/atomicStore :u8 (ak/& source-ended) 1 :.release))))
 
-(az/defn source-callback {:zig/qualifiers "callconv(.c)"} :- :void
+(az/defn source-callback :void {:zig/qualifiers "callconv(.c)"}
   [[device-pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (set! _ device-pointer)
   (process-source! (ak/ptrCast (ak/alignCast output))
                    (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
 
-(az/defn finish-live! :- :void []
+(az/defn finish-live! :void []
   (ak/atomicStore :u8 (ak/& source-stop) 1 :.release))
 
-(az/defn tail-active? :- :bool []
+(az/defn tail-active? :bool []
   (and running
        (or (and (ak/== mode 3)
                 (or (ak/!= (ak/atomicLoad :u8 (ak/& source-stop) :.acquire) 0)
                     (ak/!= (ak/atomicLoad :u8 (ak/& source-ended) :.acquire) 0)))
            (and (ak/== mode 2) (>= (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire) dry-frames)))))
 
-(az/defn validate-take!
-  "Offline bounded decode. Refuse silence, clipping and non-finite samples before publication."
-  :- :bool [[path [:slice-const :u8]]]
+(az/defn validate-take! :bool
+  "Offline bounded decode. Refuse silence, clipping and non-finite samples before publication." [[path [:slice-const :u8]]]
   (when (or running (ak/! (set-path! path))) (ak/return false))
   (set! measured-frames 0) (set! measured-peak 0.0)
   (let [config ((az/field api ma_decoder_config_init) (az/field api ma_format_f32) 2 48000)
@@ -312,14 +309,14 @@
         (set! measured-frames (+ measured-frames read))))
     (> measured-peak 0.00001)))
 
-(az/defn set-path! :- :bool [[path [:slice-const :u8]]]
+(az/defn set-path! :bool [[path [:slice-const :u8]]]
   (when (or (ak/== (az/field path len) 0) (>= (az/field path len) 4096)) (ak/return false))
   (dotimes [i (az/field path len)] (when (ak/== (az/index path i) 0) (ak/return false)))
   (ak/memcpy (az/slice path-buffer 0 (az/field path len)) path)
   (set! (az/index path-buffer (az/field path len)) 0)
   true)
 
-(az/defn initialize! :- :bool []
+(az/defn initialize! :bool []
   (when initialized (ak/return true))
   (set! error-code ((az/field api ma_context_init) ak/null 0 ak/null (ak/& context)))
   (when (ak/!= error-code 0) (ak/return false))
@@ -330,7 +327,7 @@
   (set! initialized true)
   true)
 
-(az/defn device-name :- [:slice-const :u8] [[capture :bool] [index :u32]]
+(az/defn device-name [:slice-const :u8] [[capture :bool] [index :u32]]
   (when (or (ak/! initialized) (>= index (if capture capture-count playback-count))) (ak/return ""))
   (let [info (if capture (az/index capture-info index) (az/index playback-info index))
         ^{:var :usize} length 0]
@@ -341,9 +338,8 @@
           (ak/ptrCast (az/unwrap (ak/as (az/type [:c-pointer DeviceInfo]) (ak/& (az/index (if capture capture-info playback-info) index)))))]
       (az/slice (az/field entry name) 0 length))))
 
-(az/defn process-block!
-  "Mode 1 captures dry. Mode 2 sends a dry take. Modes 2/3 retain only return 3/4."
-  :- :void [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
+(az/defn process-block! :void
+  "Mode 1 captures dry. Mode 2 sends a dry take. Modes 2/3 retain only return 3/4." [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
   (when (capture-held?)
     (silence-preparing-output! output frames)
     (ak/return))
@@ -381,14 +377,14 @@
     (ak/atomicStore :u64 (ak/& recorded-frames) (ak/min (+ start frames) limit-frames) :.release)
     (when (>= (+ start frames) limit-frames) (ak/atomicStore :u8 (ak/& finished) 1 :.release))))
 
-(az/defn data-callback {:zig/qualifiers "callconv(.c)"} :- :void
+(az/defn data-callback :void {:zig/qualifiers "callconv(.c)"}
   [[device-pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (set! _ device-pointer)
   (process-block! (ak/ptrCast (ak/alignCast output))
                   (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
 
-(az/defn stop! :- :void []
+(az/defn stop! :void []
   (stop-input-check!)
   (stop-monitor!)
   (when source-running
@@ -401,9 +397,8 @@
     (when (ak/== mode 1) (set! dry-frames (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire))))
   (release-capture!))
 
-(az/defn start!
-  "Explicit device indices only. Mode 1 microphone; mode 2 sixteen-channel effects round-trip."
-  :- :bool [[capture-index :u32] [playback-index :u32] [capture-mode :u32] [tail-frames :u32]]
+(az/defn start! :bool
+  "Explicit device indices only. Mode 1 microphone; mode 2 sixteen-channel effects round-trip." [[capture-index :u32] [playback-index :u32] [capture-mode :u32] [tail-frames :u32]]
   (when (or running (input-check-active?) (ak/! initialized) (>= capture-index capture-count)
             (and (ak/!= capture-mode 1) (ak/!= capture-mode 2))
             (and (ak/== capture-mode 2)
@@ -435,9 +430,8 @@
     (when (ak/!= error-code 0) ((az/field api ma_device_uninit) (ak/& device)) (ak/return false)))
   (set! running true) true)
 
-(az/defn start-live!
-  "Capture source and effects return concurrently. BlackHole source uses 5/6 for safe virtual input."
-  :- :bool [[microphone-index :u32] [return-index :u32] [send-index :u32] [tail-frames :u32]]
+(az/defn start-live! :bool
+  "Capture source and effects return concurrently. BlackHole source uses 5/6 for safe virtual input." [[microphone-index :u32] [return-index :u32] [send-index :u32] [tail-frames :u32]]
   (when (or running source-running (input-check-active?) (ak/! initialized)
             (>= microphone-index capture-count) (>= return-index capture-count)
             (>= send-index playback-count) (> tail-frames 480000)
@@ -481,7 +475,7 @@
       ((az/field api ma_device_uninit) (ak/& source-device)) (stop!) (ak/return false)))
   (set! source-running true) true)
 
-(az/defn load-dry! :- :bool [[path [:slice-const :u8]]]
+(az/defn load-dry! :bool [[path [:slice-const :u8]]]
   (when (or running (ak/! (set-path! path))) (ak/return false))
   (set! dry-frames 0)
   (let [^:var config ((az/field api ma_decoder_config_init) (az/field api ma_format_f32) 2 48000)
@@ -495,7 +489,7 @@
     (set! error-code ((az/field api ma_decoder_read_pcm_frames) (ak/& decoder) (ak/& dry) length (ak/& dry-frames)))
     (and (ak/== error-code 0) (ak/== length dry-frames))))
 
-(az/defn write-take! :- :bool [[path [:slice-const :u8]] [processed :bool]]
+(az/defn write-take! :bool [[path [:slice-const :u8]] [processed :bool]]
   (when (or running (ak/! (set-path! path))) (ak/return false))
   (let [frames (if processed (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire) dry-frames)
         ^:var config ((az/field api ma_encoder_config_init) (az/field api ma_encoding_format_wav)
@@ -509,18 +503,17 @@
     (set! _ ((az/field api ma_encoder_uninit) (ak/& encoder)))
     (and (ak/== error-code 0) (ak/== written frames))))
 
-(az/defn frames-recorded :- :u64 [] (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire))
-(az/defn done? :- :bool [] (ak/!= (ak/atomicLoad :u8 (ak/& finished) :.acquire) 0))
-(az/defn level :- :u32 [] (ak/atomicLoad :u32 (ak/& peak-milli) :.acquire))
+(az/defn frames-recorded :u64 [] (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire))
+(az/defn done? :bool [] (ak/!= (ak/atomicLoad :u8 (ak/& finished) :.acquire) 0))
+(az/defn level :u32 [] (ak/atomicLoad :u32 (ak/& peak-milli) :.acquire))
 
-(az/defn available-frames :- :u64 [[processed :bool]]
+(az/defn available-frames :u64 [[processed :bool]]
   (if processed (frames-recorded)
     (if (ak/== mode 3) (ak/atomicLoad :u64 (ak/& source-frames) :.acquire)
       (if (ak/== mode 1) (frames-recorded) dry-frames))))
 
-(az/defn journal!
-  "Worker-only durable PCM append. Read only the release-published, immutable prefix."
-  :- :u64 [[path [:slice-const :u8]] [processed :bool] [from :u64]]
+(az/defn journal! :u64
+  "Worker-only durable PCM append. Read only the release-published, immutable prefix." [[path [:slice-const :u8]] [processed :bool] [from :u64]]
   (let [end (available-frames processed)]
     (when (or (> end max-frames) (> from end) (ak/! (set-path! path))) (ak/return 0))
     (when (ak/== from end) (ak/return end))
@@ -534,7 +527,7 @@
                   (ak/!= ((az/field file-api fsync) ((az/field file-api fileno) file)) 0)) (ak/return 0))
         end))))
 
-(az/defn wave-bin :- :f32 [[processed :bool] [bin :u32]]
+(az/defn wave-bin :f32 [[processed :bool] [bin :u32]]
   (when (>= bin 128) (ak/return 0.0))
   (let [frames (available-frames processed)
         start (/ (* frames bin) 128)
@@ -546,13 +539,12 @@
       (set! i (+ i step)))
     (ak/min peak 1.0)))
 
-(az/defn shutdown! :- :void []
+(az/defn shutdown! :void []
   (stop!)
   (when initialized (set! _ ((az/field api ma_context_uninit) (ak/& context))) (set! initialized false)))
 
-(az/defn routing-test!
-  "No device/microphone: test channel isolation, tail silence and frame bounds."
-  :- :bool []
+(az/defn routing-test! :bool
+  "No device/microphone: test channel isolation, tail silence and frame bounds." []
   (when running (ak/return false))
   (let [^{:var [:array 64 :f32]} input (mem/zeroes (az/type [:array 64 :f32]))
         ^{:var [:array 64 :f32]} output ak/undefined]
@@ -575,9 +567,8 @@
                    (ak/!= (az/index output (+ (* i 16) channel)) 0.0)) (ak/return false))))
     (set! dry-frames 0) true))
 
-(az/defn live-routing-test!
-  "Offline live callbacks: distinct buses, dry retention, stop silence, bounded return tail."
-  :- :bool []
+(az/defn live-routing-test! :bool
+  "Offline live callbacks: distinct buses, dry retention, stop silence, bounded return tail." []
   (when (or running source-running) (ak/return false))
   (let [^{:var [:array 64 :f32]} input (mem/zeroes (az/type [:array 64 :f32]))
         ^{:var [:array 64 :f32]} output ak/undefined]

@@ -16,9 +16,8 @@
 (az/defstruct SurfaceResult {:layout :extern}
   [[:min_clearance :f32] [:max_clearance :f32] [:max_speed :f32]])
 
-(az/defn settled-surface-probe
-  "Twelve actual suspended cars distributed over the authored slopes and seam."
-  :- SurfaceResult []
+(az/defn settled-surface-probe SurfaceResult
+  "Twelve actual suspended cars distributed over the authored slopes and seam." []
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
         ^:var cars (mem/zeroes (az/type [:array 12 physics/Vehicle]))]
@@ -62,7 +61,7 @@
    [:first_lap_seconds :f32] [:flying_lap_seconds :f32]
    [:first_lap_metres :f32] [:maximum_projection_step :f32]])
 
-(az/defn curvature-probe :- [:array 2 :f32] []
+(az/defn curvature-probe [:array 2 :f32] []
   (let [^{:var :f32} curvature 0.0 ^{:var :f32} location 0.0]
     (dotimes [i 4309]
       (let [d (ak/as :f32 (ak/floatFromInt i))
@@ -74,10 +73,10 @@
 
 (az/defvar lap-trace [:array 360 [:array 11 :f32]] ak/undefined)
 
-(az/defn trace-at :- [:array 11 :f32] [[index :usize]]
+(az/defn trace-at [:array 11 :f32] [[index :usize]]
   (az/index lap-trace index))
 
-(az/defn lane-plan-continuity-probe :- [:array 10 :f32] []
+(az/defn lane-plan-continuity-probe [:array 10 :f32] []
   (let [^:var plan (mem/zeroes (az/type driver/LanePlan))]
     (driver/update-lane-plan! (ak/& plan) 0.0 0.0 70.0 3.75)
     (let [middle (* (az/field plan length) 0.4)
@@ -105,7 +104,7 @@
     (is (< (abs curvature) 0.0001) (pr-str result))
     (is (< (abs (+ next-lap 3.75)) 0.0001) (pr-str result))))
 
-(az/defn rollover-pedal-probe :- driver/Control [[roll :f32] [gas :f32]]
+(az/defn rollover-pedal-probe driver/Control [[roll :f32] [gas :f32]]
   (let [^:var body (mem/zeroes (az/type physics/BodyState))
         control (driver/Control {:throttle gas :brake 0.25 :steering 0.12
                                   :progress 0.5 :lane -1.5 :speed 8.0})]
@@ -125,10 +124,9 @@
       (is (= [0.0 1.0 0.0] ((juxt :throttle :brake :steering) result)))
       (is (= [0.5 -1.5 8.0] ((juxt :progress :lane :speed) result))))))
 
-(az/defn driven-route-controller-probe
+(az/defn driven-route-controller-probe DrivenResult
   "Follow the real circuit using only wheel motors, brakes and steering.
-  No SetTransform/SetVelocity, progress stepping or lane correction is allowed."
-  :- DrivenResult [[seconds :u32] [cruise-speed :f32]
+  No SetTransform/SetVelocity, progress stepping or lane correction is allowed." [[seconds :u32] [cruise-speed :f32]
                    [lane-period :u32] [lane-amplitude :f32] [analytic? :bool] [planned? :bool]]
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
@@ -220,21 +218,18 @@
                       :first_lap_metres first-lap-metres
                       :maximum_projection_step maximum-projection-step}))))
 
-(az/defn driven-route-contact-probe
-  "Compare contacts without changing the production controller."
-  :- DrivenResult [[seconds :u32] [cruise-speed :f32]
+(az/defn driven-route-contact-probe DrivenResult
+  "Compare contacts without changing the production controller." [[seconds :u32] [cruise-speed :f32]
                    [lane-period :u32] [lane-amplitude :f32] [analytic? :bool]]
   (driven-route-controller-probe seconds cruise-speed lane-period lane-amplitude analytic? false))
 
-(az/defn driven-route-probe
-  "Production world-managed contacts and continuous lane planner, as in the game."
-  :- DrivenResult [[seconds :u32] [cruise-speed :f32]
+(az/defn driven-route-probe DrivenResult
+  "Production world-managed contacts and continuous lane planner, as in the game." [[seconds :u32] [cruise-speed :f32]
                    [lane-period :u32] [lane-amplitude :f32]]
   (driven-route-controller-probe seconds cruise-speed lane-period lane-amplitude false true))
 
-(az/defn driven-circuit-probe
-  "Clean centreline control: same physical fixture, no lane changes."
-  :- DrivenResult [[seconds :u32] [cruise-speed :f32]]
+(az/defn driven-circuit-probe DrivenResult
+  "Clean centreline control: same physical fixture, no lane changes." [[seconds :u32] [cruise-speed :f32]]
   (driven-route-probe seconds cruise-speed 0 0.0))
 
 (defn assert-lane-change-result [result]
@@ -336,10 +331,9 @@
    [:stopped_seconds :f32] [:stop_error :f32] [:final_speed :f32]
    [:service_max_speed :f32] [:service_drift :f32]])
 
-(az/defn driven-pit-contact-probe
+(az/defn driven-pit-contact-probe PitResult
   "Enter the pit, brake to rest, hold three seconds, then merge under power.
-  Measures the actual body; no parking pose or velocity is assigned."
-  :- PitResult [[analytic? :bool]]
+  Measures the actual body; no parking pose or velocity is assigned." [[analytic? :bool]]
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
         start (circuit/at-distance (* 0.92 4309.0) 0.0)
@@ -402,7 +396,7 @@
                  :stopped_seconds stopped :stop_error stop-error :final_speed speed
                  :service_max_speed service-speed :service_drift service-drift})))
 
-(az/defn driven-pit-probe :- PitResult []
+(az/defn driven-pit-probe PitResult []
   (driven-pit-contact-probe false))
 
 (defn assert-pit-result [result]

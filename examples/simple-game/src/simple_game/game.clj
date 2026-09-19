@@ -37,40 +37,30 @@
 
 (az/defconst target-fps :f32 120.0)
 
-(az/defn lock-state!
+(az/defn lock-state! :void
   "Serialize nREPL inspection with the native frame thread."
-  :-
-  :void
   []
   (ak/while
    (ak/!= (ak/atomicRmw :u8 (ak/& state-lock) :.Xchg 1 :.acquire) 0)
    (std-atomic/spinLoopHint)))
 
-(az/defn unlock-state!
-  :-
-  :void
+(az/defn unlock-state! :void
   []
   (ak/atomicStore :u8 (ak/& state-lock) 0 :.release))
 
-(az/defn set-target-fps!
+(az/defn set-target-fps! :void
   "Set Flecs frame pacing; zero lets the platform run without a cap."
-  :-
-  :void
   [[fps :f32]]
   (when (ak/!= world null)
     (flecs/ecs_set_target_fps world fps)))
 
-(az/defn configure-target-fps!
+(az/defn configure-target-fps! :void
   "Pace the live desktop world at 120 frames per second."
-  :-
-  :void
   []
   (set-target-fps! target-fps))
 
-(az/defn current-fps
+(az/defn current-fps :f32
   "Return Flecs' measured frame rate for the live factory world."
-  :-
-  :f32
   []
   (lock-state!)
   (let [result
@@ -82,17 +72,13 @@
     (unlock-state!)
     result))
 
-(az/defn last-frame-work-seconds
+(az/defn last-frame-work-seconds :f64
   "Return simulation work for the latest frame, excluding Flecs pacing."
-  :-
-  :f64
   []
   last-frame-work-seconds-value)
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Create one Flecs world and seed the coco-house line exactly once."
-  :-
-  :bool
   []
   (when (ak/== world null)
     (set! world (flecs/ecs_init))
@@ -103,10 +89,8 @@
           (az/field (factory/snapshot) event_count)))
   (ak/!= world null))
 
-(az/defn process-factory-event!
+(az/defn process-factory-event! :void
   "Drive native sound and Box3D effects from the latest Flecs event."
-  :-
-  :void
   []
   (let [state (factory/snapshot)
         current-count (az/field state event_count)]
@@ -120,10 +104,8 @@
           (physics/emit! (az/field event x) (az/field event y) kind))
         (set! handled-event-count current-count)))))
 
-(az/defn tick
+(az/defn tick RenderPacket
   "Advance one native Flecs/factory frame and consume one pointer edge."
-  :-
-  RenderPacket
   [[pointer-x :f32]
    [pointer-y :f32]
    [viewport-width :f32]
@@ -167,10 +149,8 @@
       (unlock-state!)
       result)))
 
-(az/defn tick-auto
+(az/defn tick-auto RenderPacket
   "Run one Flecs-paced frame for the native platform loop."
-  :-
-  RenderPacket
   [[pointer-x :f32]
    [pointer-y :f32]
    [viewport-width :f32]
@@ -180,25 +160,19 @@
   (tick pointer-x pointer-y viewport-width viewport-height
         0.0 pointer-down pointer-pressed))
 
-(az/defn toggle-paused!
+(az/defn toggle-paused! :bool
   "Pause or resume the actual factory simulation."
-  :-
-  :bool
   []
   (factory/toggle-paused!))
 
-(az/defn restart!
+(az/defn restart! :void
   "Recreate the native world only when the player explicitly requests reset."
-  :-
-  :void
   []
   (shutdown)
   (set! _ (initialize!)))
 
-(az/defn snapshot
+(az/defn snapshot WorldSnapshot
   "Inspect the live Flecs owner and objective without advancing either."
-  :-
-  WorldSnapshot
   []
   (lock-state!)
   (let [factory-state (factory/snapshot)
@@ -220,10 +194,8 @@
     (unlock-state!)
     result))
 
-(az/defn shutdown
+(az/defn shutdown :void
   "Destroy the native world. Ordinary source edits never call this."
-  :-
-  :void
   []
   (when (ak/!= world null)
     (physics/shutdown!)

@@ -11,45 +11,33 @@
 
 (az/defvar live-counter LiveCounter (az/object []))
 
-(az/defn display-offset
+(az/defn display-offset :u32
   "A compatible leaf intended for quick body-only REPL edits."
-  :-
-  :u32
   []
   100)
 
-(az/defn session-address
+(az/defn session-address :usize
   "Return the stable address of the live native Lightpanda counter."
-  :-
-  :usize
   []
   (ak/intFromPtr (ak/& live-counter)))
 
-(az/defn counter-value
+(az/defn counter-value :u32
   "Return the current value without changing native state."
-  :-
-  :u32
   []
   (az/field live-counter counter))
 
-(az/defn counter-next!
+(az/defn counter-next! :u32
   "Advance state through Lightpanda's generated Incrementing method."
-  :-
-  :u32
   []
   ((az/field live-counter incr)))
 
-(az/defn reset-counter!
+(az/defn reset-counter! :void
   "Reset the live counter while retaining its native allocation."
-  :-
-  :void
   []
   (set! (az/field live-counter counter) 0))
 
-(az/defn displayed-value
+(az/defn displayed-value :u32
   "Cross-function caller used to prove leaf publication reaches callers."
-  :-
-  :u32
   []
   (+ (counter-value) (display-offset)))
 

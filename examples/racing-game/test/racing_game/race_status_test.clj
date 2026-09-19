@@ -6,7 +6,7 @@
             [racing-game.race-status :as status]
             [clojure.test :refer [deftest is]]))
 
-(az/defn observe-probe :- status/Entry
+(az/defn observe-probe status/Entry
   [[up :f32] [speed :f32] [ticks :u32] [finished :bool]]
   (let [^:var entry (mem/zeroes (az/type status/Entry))]
     (dotimes [i ticks]

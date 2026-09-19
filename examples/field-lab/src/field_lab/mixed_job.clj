@@ -24,14 +24,12 @@
    [:center p/Vec3] [:momentum p/Vec3] [:angular-momentum p/Vec3]
    [:contact-force p/Vec3] [:contact-impulse p/Vec3]])
 
-(az/defn segment
-  :- [:slice p/Vec3] [[storage [:slice p/Vec3]] [count :usize] [slot :usize]]
+(az/defn segment [:slice p/Vec3] [[storage [:slice p/Vec3]] [count :usize] [slot :usize]]
   (az/slice storage (* slot count) (* (+ slot 1) count)))
 
-(az/defn create!
+(az/defn create! [:optional [:* Context]]
   "Allocate the entire ownership scope, or return null after freeing partial
-  allocations. Configuration must finish before advance! can publish a step."
-  :- [:optional [:* Context]] [[vertices :usize] [cells :usize]]
+  allocations. Configuration must finish before advance! can publish a step." [[vertices :usize] [cells :usize]]
   (when (or (ak/== vertices 0) (ak/== cells 0) (> vertices 10000000) (> cells 10000000)) (ak/return null))
   (let [count (+ vertices (* 4 cells))
         context (catch ((az/field heap/page_allocator create) Context) (ak/return null))
@@ -74,15 +72,13 @@
           (set! owned true)
           context)))))
 
-(az/defn destroy!
-  :- :void [[context [:* Context]]]
+(az/defn destroy! :void [[context [:* Context]]]
   ((az/field heap/page_allocator free) (az/field (az/field context problem) elements))
   ((az/field heap/page_allocator free) (az/field context tangent-storage))
   ((az/field heap/page_allocator free) (az/field context storage))
   ((az/field heap/page_allocator destroy) context))
 
-(az/defn set-vertex!
-  :- :bool [[context [:* Context]] [index :usize] [rest p/Vec3] [position p/Vec3] [velocity p/Vec3]]
+(az/defn set-vertex! :bool [[context [:* Context]] [index :usize] [rest p/Vec3] [position p/Vec3] [velocity p/Vec3]]
   (when (or (az/field context ready) (>= index (az/field (az/field context problem) vertex-count))) (ak/return false))
   (dotimes [cell (az/field (az/field (az/field context problem) elements) len)]
     (when (> (az/field (az/index (az/field (az/field context problem) elements) cell) volume) 0.0)
@@ -96,8 +92,7 @@
                 (az/index (az/field context velocity) index) velocity)
   true)
 
-(az/defn set-element!
-  :- :bool
+(az/defn set-element! :bool
   [[context [:* Context]] [cell :usize] [vertices [:array 4 :u32]] [young :f64] [poisson :f64] [density :f64]]
   (let [problem (ak/& (az/field context problem))]
     (when (or (az/field context ready) (>= cell (az/field (az/field problem elements) len))
@@ -134,11 +129,10 @@
                       (az/index (az/field context velocity) private) (az/index (az/field context velocity) vertex))))
     true))
 
-(az/defn set-quadratic-edges!
+(az/defn set-quadratic-edges! :bool
   "Configure shared Bernstein edge controls before configure!. Rest geometry
   stays affine: every edge control must be the exact authored midpoint. Initial
-  displacement and velocity are projected into the four private coefficients."
-  :- :bool [[context [:* Context]] [cell :usize] [edges [:array 6 :u32]]]
+  displacement and velocity are projected into the four private coefficients." [[context [:* Context]] [cell :usize] [edges [:array 6 :u32]]]
   (let [problem (ak/& (az/field context problem))]
     (when (or (az/field context ready) (>= cell (az/field (az/field problem elements) len))) (ak/return false))
     (let [element (ak/& (az/index (az/field problem elements) cell))
@@ -176,8 +170,7 @@
                         (az/index (az/field context velocity) private) velocity))))
     true))
 
-(az/defn configure!
-  :- :bool [[context [:* Context]] [gravity p/Vec3] [floor :bool] [height :f64]]
+(az/defn configure! :bool [[context [:* Context]] [gravity p/Vec3] [floor :bool] [height :f64]]
   (when (or (az/field context ready) (and floor (ak/! (math/isFinite height)))) (ak/return false))
   (let [problem (ak/& (az/field context problem))]
     (dotimes [vertex (az/field problem vertex-count)]
@@ -204,9 +197,8 @@
     (set! (az/field context ready) true)
     true))
 
-(az/defn plane-reaction
-  "Read the current successful solve's plane reaction before reusing workspace."
-  :- p/Vec3 [[context [:* Context]]]
+(az/defn plane-reaction p/Vec3
+  "Read the current successful solve's plane reaction before reusing workspace." [[context [:* Context]]]
   (let [problem (ak/& (az/field context problem))
         ^{:var :f64} force 0.0]
     (dotimes [vertex (az/field problem vertex-count)]
@@ -217,9 +209,8 @@
           (ak/+= force (az/field gradient y)))))
     (p/v 0.0 force 0.0)))
 
-(az/defn advance!
-  "Commit displacement, velocity and clock together only after solver success."
-  :- solver/Report [[context [:* Context]] [duration :f64]]
+(az/defn advance! solver/Report
+  "Commit displacement, velocity and clock together only after solver success." [[context [:* Context]] [duration :f64]]
   (let [^:var report (mem/zeroes (az/type solver/Report))
         problem (ak/& (az/field context problem))
         next-time (+ (az/field context time) duration)]
@@ -245,11 +236,10 @@
       (ak/+= (az/field context steps) 1))
     report))
 
-(az/defn advance-sdirk!
+(az/defn advance-sdirk! solver/Report
   "Alexander SDIRK2 on projected displacement/velocity. Both stages enforce
   plane constraints; nothing commits until both succeed and their connecting
-  path is certified. Status 6 denotes an uncertified inter-stage path."
-  :- solver/Report [[context [:* Context]] [duration :f64]]
+  path is certified. Status 6 denotes an uncertified inter-stage path." [[context [:* Context]] [duration :f64]]
   (let [^:var report (mem/zeroes (az/type solver/Report))
         problem (ak/& (az/field context problem))
         workspace (ak/& (az/field context workspace))
@@ -314,10 +304,9 @@
                       (az/field context steps) (+ (az/field context steps) 1))))
     report))
 
-(az/defn pitoco_mixed_snapshot_step
+(az/defn pitoco_mixed_snapshot_step :void
   "Private same-build boundary for a frozen native mixed solve."
   {:attrs #{:export}}
-  :- :void
   [[context [:* Context]] [duration :f64] [integration :u32] [report [:* solver/Report]]]
   (set! (az/deref report)
         (if (ak/== integration 1) (advance-sdirk! context duration) (advance! context duration))))
@@ -341,19 +330,16 @@
           [module (mapv #(select-keys % [:logical-id :implementation-fingerprint :schema-fingerprint])
                         (sort-by (comp pr-str :logical-id) (:definitions (az/module-info module))))])))
 
-(az/defn vertex-count
-  :- :usize [[context [:* Context]]]
+(az/defn vertex-count :usize [[context [:* Context]]]
   (az/field (az/field context problem) vertex-count))
 
-(az/defn vertex-position
-  :- p/Vec3 [[context [:* Context]] [vertex :usize]]
+(az/defn vertex-position p/Vec3 [[context [:* Context]] [vertex :usize]]
   (p/add (az/index (az/field context rest) vertex) (az/index (az/field (az/field context problem) initial) vertex)))
 
-(az/defn observables
+(az/defn observables Observables
   "Exact P1 projected-velocity inertia and momenta; quadrature elastic energy.
   Angular momentum uses integral (X+u) cross rho*v, with the moment-compatible
-  projection u -> r. Boundary coefficient velocities carry no inertia."
-  :- Observables [[context [:* Context]]]
+  projection u -> r. Boundary coefficient velocities carry no inertia." [[context [:* Context]]]
   (let [^:var result (mem/zeroes (az/type Observables))
         problem (ak/& (az/field context problem))]
     (when (ak/! (az/field context ready)) (ak/return result))

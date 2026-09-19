@@ -17,9 +17,9 @@
         #(binding [*ns* consumer]
            (eval '(az/defvar samples [:array 2 p/div_t]
                     [{:quot 17 :rem 2} {:quot 23 :rem 3}]))
-           (eval '(az/defn first-sample :- :i32 []
+           (eval '(az/defn first-sample :i32 []
                     (az/field (az/index samples 0) quot)))
-           (eval '(az/defn change-sample! :- :void []
+           (eval '(az/defn change-sample! :void []
                     (set! (az/field (az/index samples 0) quot) 41))))]
     (try
       (az/configure! {:async? async? :reloadable? true})
@@ -73,12 +73,12 @@
             (eval '(az/defconst derived :i32 (+ base 1)))
             (eval '(az/defconst deeper :i32 (+ derived 1)))
             (eval '(az/defconst deepest :i32 (+ deeper 1)))
-            (eval '(az/defn direct :- :i32 [] base))
-            (eval '(az/defn computed :- :i32 [] deepest)))
+            (eval '(az/defn direct :i32 [] base))
+            (eval '(az/defn computed :i32 [] deepest)))
           (binding [*ns* consumer]
             (alias 'p (ns-name provider))
-            (eval '(az/defn indirect :- :i32 [] (p/computed)))
-            (eval '(az/defn embedded :- :i32 [] (+ p/base 10))))
+            (eval '(az/defn indirect :i32 [] (p/computed)))
+            (eval '(az/defn embedded :i32 [] (+ p/base 10))))
           (az/await!)
           (let [direct (ns-resolve provider 'direct)
                 computed (ns-resolve provider 'computed)

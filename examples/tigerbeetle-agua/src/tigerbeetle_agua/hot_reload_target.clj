@@ -3,6 +3,6 @@
   (:require [aguafria.zig :as az]
             [tigerbeetle-agua.hot-reload-leaf :as leaf]))
 
-(az/defn leaf-caller :- :u32 [] (leaf/leaf-value))
+(az/defn leaf-caller :u32 [] (leaf/leaf-value))
 
-(az/defn comptime-caller :- :u32 [] (leaf/comptime-scale 5))
+(az/defn comptime-caller :u32 [] (leaf/comptime-scale 5))

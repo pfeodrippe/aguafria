@@ -59,18 +59,23 @@
   "Lint an `az/defn`, `az/defn-`, or `az/defextern` as a normal Clojure fn."
   [{:keys [node]}]
   (let [[operator definition-name & raw-declaration] (:children node)
-        {:keys [declaration docstring]} (declaration-prefix raw-declaration)
-        marker (marker-index declaration)
-        return-type (when marker (nth declaration (inc marker) nil))
-        bindings (when marker (nth declaration (+ marker 2) nil))
-        body (if marker (drop (+ marker 3) declaration) [])
+        operator-name (some-> operator sexpr name)
+        private? (= "defn-" operator-name)
+        extern? (= "defextern" operator-name)
+        {:keys [declaration docstring]}
+        (declaration-prefix (if extern? raw-declaration (rest raw-declaration)))
+        marker (when extern? (marker-index declaration))
+        return-type (if extern?
+                      (when marker (nth declaration (inc marker) nil))
+                      (first raw-declaration))
+        bindings (if extern?
+                   (when marker (nth declaration (+ marker 2) nil))
+                   (first declaration))
+        body (if extern? [] (rest declaration))
         {:keys [arguments types]}
         (if (= :vector (:tag bindings))
           (typed-bindings bindings)
           {:arguments [] :types []})
-        operator-name (some-> operator sexpr name)
-        private? (= "defn-" operator-name)
-        extern? (= "defextern" operator-name)
         function-body (expression-node
                        (vec (concat (when return-type [return-type])
                                     types
@@ -96,14 +101,14 @@
     {:node (call-node 'def [definition-name (token nil)])}))
 
 (defn test-declaration
-  "Analyze a Zig test body without interpreting its string/symbol test name."
+  "Register a normal test Var while analyzing the body, not its native label."
   [{:keys [node]}]
-  (let [[_ & raw-declaration] (:children node)
-        declaration (if (map? (some-> raw-declaration first sexpr))
-                      (rest raw-declaration)
-                      raw-declaration)
-        body (rest declaration)]
-    {:node (expression-node (vec body))}))
+  (let [[_ definition-name & raw-declaration] (:children node)
+        {:keys [declaration docstring]} (declaration-prefix raw-declaration)]
+    {:node (api/list-node
+            (concat [(token 'defn) definition-name]
+                    (when docstring [docstring])
+                    [(api/vector-node []) (expression-node (vec declaration))]))}))
 
 (defn cast
   "Analyze both the value and Zig output type accepted by `az/cast`."

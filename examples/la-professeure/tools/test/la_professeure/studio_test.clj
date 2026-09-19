@@ -40,7 +40,7 @@
 (configure-ime-probe!)
 (az/defconst ime-probe-api (ak/cImport (ak/cInclude "studio_ime_probe.h")))
 
-(az/defn ime-probe! :- :bool [[commit? :bool]]
+(az/defn ime-probe! :bool [[commit? :bool]]
   (when (ak/== studio/studio-window ak/null) (ak/return false))
   (let [window ((az/field studio/gestures-api :glfwGetCocoaWindow)
                 (ak/ptrCast studio/studio-window))]
@@ -48,7 +48,7 @@
       ((az/field ime-probe-api :lp_studio_ime_probe_commit) window "é")
       ((az/field ime-probe-api :lp_studio_ime_probe_mark) window "e"))))
 
-(az/defn ime-without-window-contract! :- :bool []
+(az/defn ime-without-window-contract! :bool []
   ((az/field studio/gestures-api :lp_studio_ime_cancel) ak/null)
   (and (ak/! ((az/field studio/gestures-api :lp_studio_ime_active) ak/null))
        (ak/! ((az/field studio/gestures-api :lp_studio_ime_focus) ak/null 60.0 625.0 24.0))
@@ -58,7 +58,7 @@
 (deftest ime-without-native-window-is-safe
   (is (ime-without-window-contract!)))
 
-(az/defn output-mute-cache-contract! :- :u32 []
+(az/defn output-mute-cache-contract! :u32 []
   (let [index studio/output-mute-index
         state studio/output-mute-state
         checked studio/output-mute-checked-at]
@@ -89,14 +89,13 @@
   (is (= -1 (studio/read-output-mute (apply str (repeat 256 "x")))))
   (is (zero? (output-mute-cache-contract!))))
 
-(az/defn focus-game-input-qa!
-  "Opt-in: focus the existing game window without starting audio or a recording."
-  :- :void []
+(az/defn focus-game-input-qa! :void
+  "Opt-in: focus the existing game window without starting audio or a recording." []
   (when (ak/!= scene/window ak/null)
     (glfw/glfwShowWindow scene/window)
     (glfw/glfwFocusWindow scene/window)))
 
-(az/defn game-input-state-qa :- :u32 []
+(az/defn game-input-state-qa :u32 []
   (when (ak/== scene/window ak/null)
     (ak/return 0))
   (+ (ak/as :u32 (if (ak/== (glfw/glfwGetWindowAttrib scene/window glfw/GLFW_FOCUSED)
@@ -108,10 +107,9 @@
   ;; Exercise the production macro without exposing it as another public API.
   (apply #'studio/set-state! [&form &env bindings]))
 
-(az/defn ime-keyboard-qa-contract!
+(az/defn ime-keyboard-qa-contract! :u32
   "Opt-in, render-thread only: actual GLFW marked text and character callback.
-  No OS keyboard/layout changes, audio activity or persisted take rename."
-  :- :u32 []
+  No OS keyboard/layout changes, audio activity or persisted take rename." []
   (when (or (ak/== studio/studio-window ak/null)
             (studio/busy?)
             (studio/composing-name?)
@@ -176,7 +174,7 @@
       (ak/return 21))
     0))
 
-(az/defn input-check-meter-contract :- :u32 []
+(az/defn input-check-meter-contract :u32 []
   (when (recorder/input-check-active?) (ak/return 1))
   (let [channels recorder/input-check-channels
         offset recorder/input-check-offset
@@ -215,9 +213,8 @@
 (deftest input-check-meters-without-recording
   (is (zero? (input-check-meter-contract))))
 
-(az/defn interrupt-recorder-device-qa!
-  "Opt-in fault injection: stop only Studio's owned device, not an OS device."
-  :- :bool [[preflight? :bool]]
+(az/defn interrupt-recorder-device-qa! :bool
+  "Opt-in fault injection: stop only Studio's owned device, not an OS device." [[preflight? :bool]]
   (when (if preflight?
           (ak/! (recorder/input-check-active?))
           (ak/! recorder/running))
@@ -226,9 +223,8 @@
            (if preflight? (ak/& recorder/input-check-device) (ak/& recorder/device)))
          0))
 
-(az/defn interrupt-fx-source-device-qa!
-  "Opt-in fault injection: stop this recorder's source/send, never the OS device."
-  :- :bool []
+(az/defn interrupt-fx-source-device-qa! :bool
+  "Opt-in fault injection: stop this recorder's source/send, never the OS device." []
   (and recorder/source-running
        (ak/== ((az/field recorder/api :ma_device_stop) (ak/& recorder/source-device))
               0)))
@@ -248,7 +244,7 @@
       (finally
         (studio/unregister-command! op)))))
 
-(az/defn interrupt-listening-output-qa! :- :bool [[mix? :bool]]
+(az/defn interrupt-listening-output-qa! :bool [[mix? :bool]]
   (when (if mix? (ak/! mixer/opened) (ak/! studio/playback-ready))
     (ak/return false))
   (let [device (if mix?
@@ -257,14 +253,14 @@
                    (ak/ptrCast (ak/& studio/playback-engine))))]
     (ak/== ((az/field recorder/api ma_device_stop) device) 0)))
 
-(az/defn separate-window-contract? :- :bool []
+(az/defn separate-window-contract? :bool []
   (and studio/attached (ak/!= studio/studio-window scene/window)
        gpu/initialized (az/field studio/renderer initialized)
        (ak/!= gpu/device (az/field studio/renderer device))
        (ak/!= gpu/surface (az/field studio/renderer surface))
        (ak/!= gpu/mapped-mesh-vertices (az/field studio/renderer mapped-mesh-vertices))))
 
-(az/defn resize-extent-contract :- :u32 []
+(az/defn resize-extent-contract :u32 []
   (let [^{:var glfw/VkSurfaceCapabilitiesKHR} caps (mem/zeroes (az/type glfw/VkSurfaceCapabilitiesKHR))]
     (set! (az/field caps currentExtent) (glfw/VkExtent2D {:width 0xffffffff :height 0xffffffff}))
     (set! (az/field caps minImageExtent) (glfw/VkExtent2D {:width 100 :height 80}))
@@ -293,21 +289,21 @@
 
 ;; Explicit opt-in renderer QA; not part of the hardware-free unit suite.
 ;; Run only on core/on-render! and restore both window sizes afterwards.
-(az/defn- resize-window-native! :- :void [[studio? :bool] [width :u32] [height :u32]]
+(az/defn- resize-window-native! :void [[studio? :bool] [width :u32] [height :u32]]
   (glfw/glfwSetWindowSize (if studio? studio/studio-window scene/window)
                          (ak/intCast width) (ak/intCast height)))
 
-(az/defn studio-renderer-snapshot :- gpu/RendererSnapshot []
+(az/defn studio-renderer-snapshot gpu/RendererSnapshot []
   (gpu/swap-context! (ak/& studio/renderer))
   (ak/defer (gpu/swap-context! (ak/& studio/renderer)))
   (gpu/renderer-snapshot))
 
-(az/defn studio-resize-count :- :u64 [] (az/field studio/renderer resize-count))
+(az/defn studio-resize-count :u64 [] (az/field studio/renderer resize-count))
 
-(az/defn studio-iconified? :- :bool []
+(az/defn studio-iconified? :bool []
   (ak/!= (glfw/glfwGetWindowAttrib studio/studio-window glfw/GLFW_ICONIFIED) 0))
 
-(az/defn- independent-frame-callbacks? :- :bool []
+(az/defn- independent-frame-callbacks? :bool []
   ;; Both callbacks must link together and match FrameBuilder's C ABI. Neither
   ;; needs to export the same unqualified linker symbol into this shared library.
   (let [^{:zig/type gpu/FrameBuilder} game-callback (ak/& scene/build-frame)
@@ -317,7 +313,7 @@
 (deftest independent-frame-callback-linkage
   (is (independent-frame-callbacks?)))
 
-(az/defn- capture-window-native! :- :usize
+(az/defn- capture-window-native! :usize
   [[studio? :bool]
    [output [:c-pointer :u8]]
    [capacity :usize]]
@@ -327,7 +323,7 @@
               (gpu/swap-context! (ak/& studio/renderer))))
   (gpu/capture-frame! output capacity))
 
-(az/defn- capture-format-native :- :u32 [[studio? :bool]]
+(az/defn- capture-format-native :u32 [[studio? :bool]]
   (ak/intCast (if studio?
                 (az/field studio/renderer swapchain-format)
                 gpu/swapchain-format)))
@@ -387,7 +383,7 @@
         (throw (ex-info "PNG writer unavailable" {:path path})))
       (assoc (dissoc capture :pixels) :path (str (.getAbsoluteFile (io/file path)))))))
 
-(az/defn- maximize-studio-native! :- :void [[maximize? :bool]]
+(az/defn- maximize-studio-native! :void [[maximize? :bool]]
   (if maximize?
     (glfw/glfwMaximizeWindow studio/studio-window)
     (glfw/glfwRestoreWindow studio/studio-window)))
@@ -412,7 +408,7 @@
       (is (= 2 (count @queued)))
       (is (every? fn? @queued)))))
 
-(az/defn responsive-layout-contract :- :u32 []
+(az/defn responsive-layout-contract :u32 []
   (let [old-w studio/window-width old-h studio/window-height
         old-top studio/editor-top
         old-routing studio/routing-visible
@@ -458,7 +454,7 @@
 (deftest responsive-layout-and-pointer-contract
   (is (= 0 (responsive-layout-contract)) "Fixed point-size primitives and shared layout/hit coordinates"))
 
-(az/defn routing-collapse-contract :- :u32 []
+(az/defn routing-collapse-contract :u32 []
   (let [old-w studio/window-width old-visible studio/routing-visible
         old-menu studio/route-menu old-click studio/clicked old-route-click studio/route-click
         old-drag studio/trim-drag old-start studio/timeline-start old-span studio/timeline-seconds
@@ -502,7 +498,7 @@
 (deftest routing-panel-is-layout-only
   (is (= 0 (routing-collapse-contract)) "Collapse reclaims space, dismisses old hits, preserves audio and selection"))
 
-(az/defn editor-divider-contract :- :u32 []
+(az/defn editor-divider-contract :u32 []
   (let [old-mode studio/workspace-mode old-top studio/editor-top old-height studio/window-height old-width studio/window-width
         old-offset studio/track-offset old-drag studio/divider-drag old-grab studio/divider-grab
         old-click studio/clicked old-double studio/double-clicked old-down studio/mouse-down
@@ -545,7 +541,7 @@
               (ak/!= studio/capture-phase phase)) (ak/return 10)))
   0)
 
-(az/defn clip-viewport-buffer-contract :- :u32 []
+(az/defn clip-viewport-buffer-contract :u32 []
   (let [old (az/index studio/clip-viewport 31)]
     (ak/defer (set! (az/index studio/clip-viewport 31) old))
     (studio/clip! 31 2.5 7) (studio/clip-start! 31 3.0) (studio/clip-bin! 31 127 0.75)
@@ -1015,34 +1011,34 @@
         (render #(studio/show-routing! (:visible before)))
         (studio/save-window! true)))))
 
-(az/defn game-voice-cursor :- :u64 []
+(az/defn game-voice-cursor :u64 []
   (let [^{:var :u64} cursor 0]
     (when scene/voice-ready
       (set! _ (audio/ma_sound_get_cursor_in_pcm_frames
                 (ak/& (az/index scene/voices scene/voice-slot)) (ak/& cursor))))
     cursor))
 
-(az/defn game-voice-playing? :- :bool []
+(az/defn game-voice-playing? :bool []
   (and scene/voice-ready
        (ak/!= (audio/ma_sound_is_playing
                 (ak/& (az/index scene/voices scene/voice-slot))) 0)))
 
-(az/defn place-windows! :- :void []
+(az/defn place-windows! :void []
   (glfw/glfwSetWindowPos scene/window 0 60)
   (glfw/glfwSetWindowPos studio/studio-window 610 300))
 
-(az/defn close-studio-window! :- :void []
+(az/defn close-studio-window! :void []
   (glfw/glfwSetWindowShouldClose studio/studio-window 1))
 
-(az/defn studio-visible? :- :bool []
+(az/defn studio-visible? :bool []
   (and (ak/!= studio/studio-window ak/null)
        (ak/!= (glfw/glfwGetWindowAttrib studio/studio-window glfw/GLFW_VISIBLE) 0)))
 
-(az/defn studio-focused? :- :bool []
+(az/defn studio-focused? :bool []
   (and (ak/!= studio/studio-window ak/null)
        (ak/!= (glfw/glfwGetWindowAttrib studio/studio-window glfw/GLFW_FOCUSED) 0)))
 
-(az/defn held-scroll-modifiers :- :u32 []
+(az/defn held-scroll-modifiers :u32 []
   (when (ak/== studio/studio-window ak/null) (ak/return 0))
   (| (if (or (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_LEFT_ALT) glfw/GLFW_PRESS)
              (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_ALT) glfw/GLFW_PRESS))
@@ -1051,9 +1047,9 @@
              (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_SHIFT) glfw/GLFW_PRESS))
        (ak/as :u32 1) (ak/as :u32 0))))
 
-(az/defn game-suppressed? :- :bool [] scene/studio-audio-suppressed)
-(az/defn game-muted? :- :bool [] scene/audio-muted)
-(az/defn set-game-muted! :- :void [[muted :bool]] (set! scene/audio-muted muted))
+(az/defn game-suppressed? :bool [] scene/studio-audio-suppressed)
+(az/defn game-muted? :bool [] scene/audio-muted)
+(az/defn set-game-muted! :void [[muted :bool]] (set! scene/audio-muted muted))
 (az/defconst volume-api (ak/cImport (ak/cInclude "miniaudio.h")))
 
 ;; Opt-in virtual audio source for real device/capture tests. Never uses a
@@ -1064,7 +1060,7 @@
 (az/defvar test-tone-frame :u64 0)
 (az/defvar test-tone-offset :u32 0)
 
-(az/defn test-tone-callback {:zig/qualifiers "callconv(.c)"} :- :void
+(az/defn test-tone-callback :void {:zig/qualifiers "callconv(.c)"}
   [[device [:c-pointer TestToneDevice]]
    [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]]
@@ -1084,12 +1080,12 @@
               (ak/floatCast (* 0.06 (ak/sin (* 2073.451151 time))))))
       (set! test-tone-frame (+ test-tone-frame 1)))))
 
-(az/defn stop-test-tone! :- :void []
+(az/defn stop-test-tone! :void []
   (when test-tone-running
     ((az/field volume-api ma_device_uninit) (ak/& test-tone-device))
     (set! test-tone-running false)))
 
-(az/defn start-test-tone! :- :bool [[output-index :u32] [offset :u32]]
+(az/defn start-test-tone! :bool [[output-index :u32] [offset :u32]]
   (when (or test-tone-running
             (ak/! recorder/initialized)
             (>= output-index recorder/playback-count)
@@ -1115,23 +1111,23 @@
   (set! test-tone-running true)
   true)
 
-(az/defn game-track-volume :- :f32 []
+(az/defn game-track-volume :f32 []
   (if scene/audio-ready
     ((az/field volume-api ma_sound_get_volume) (ak/ptrCast (ak/& (az/index scene/tracks scene/active-track)))) -1.0))
-(az/defn game-dialogue-volume :- :f32 []
+(az/defn game-dialogue-volume :f32 []
   (if scene/voice-ready
     ((az/field volume-api ma_sound_get_volume) (ak/ptrCast (ak/& (az/index scene/voices scene/voice-slot)))) -1.0))
-(az/defn preview-volume :- :f32 []
+(az/defn preview-volume :f32 []
   (if studio/voice-ready
     ((az/field volume-api ma_sound_get_volume) (ak/ptrCast (ak/& (az/index studio/voices studio/voice-slot)))) -1.0))
 
-(az/defn independent-playback? :- :bool []
+(az/defn independent-playback? :bool []
   (and studio/playback-ready
        (ak/!= (ak/& studio/playback-engine) (ak/& scene/engine))
        (ak/!= ((az/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& studio/playback-engine)))
               ((az/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& scene/engine))))))
 
-(az/defn actual-playback-device :- [:slice-const :u8] []
+(az/defn actual-playback-device [:slice-const :u8] []
   (when (ak/! studio/playback-ready) (ak/return ""))
   (let [^{:zig/type [:* recorder/Device]} device (ak/ptrCast ((az/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& studio/playback-engine))))
         ^{:var :usize} length 0]
@@ -1139,7 +1135,7 @@
       (set! length (+ length 1)))
     (az/slice (az/field (az/field device playback) name) 0 length)))
 
-(az/defn actual-mix-device :- [:slice-const :u8] []
+(az/defn actual-mix-device [:slice-const :u8] []
   (let [device (ak/& mixer/device) ^{:var :usize} length 0]
     (ak/while (and (< length 255) (ak/!= (az/index (az/field (az/field device playback) name) length) 0))
       (set! length (+ length 1)))
@@ -1209,7 +1205,7 @@
     (is (= "Input: idle / not checked"
            (:label (studio/routing-signal-state :input {}))))))
 
-(az/defn set-name-focus-qa! :- :void [[focused? :bool]]
+(az/defn set-name-focus-qa! :void [[focused? :bool]]
   (set! studio/name-focus focused?))
 
 (deftest take-name-focus-is-a-jvm-boolean
@@ -1248,7 +1244,7 @@
          (:message (studio/recording-health 1.0 0.1))))
   (is (.contains (:message (studio/recording-health 0.005 0.000332)) "Check mic / Bitwig gain")))
 
-(az/defn preparation-callback-gate-contract :- :u32 []
+(az/defn preparation-callback-gate-contract :u32 []
   (let [held (recorder/capture-held?)
         frames recorder/recorded-frames
         source recorder/source-frames
@@ -1401,7 +1397,7 @@
           (is (= (studio/playhead-x 1.234) (studio/playhead-x 1.234)))))
       (finally (doseq [[field value] (map vector fields before)] (az/set-value! field value))))))
 
-(az/defn take-editor-playhead-contract :- :u32 []
+(az/defn take-editor-playhead-contract :u32 []
   (let [old-vertices scene/vertices
         old-count scene/vertex-count
         old-width scene/canvas-width
@@ -1578,7 +1574,7 @@
         (is (recorder/validate-take! (str file)))
         (is (= frames (az/value recorder/measured-frames)))))))
 
-(az/defn monitor-isolation! :- :bool []
+(az/defn monitor-isolation! :bool []
   (let [^{:var [:array 16 :f32]} input (mem/zeroes (az/type [:array 16 :f32]))
         ^{:var [:array 2 :f32]} output ak/undefined]
     (set! (az/index input 0) 0.9) (set! (az/index input 1) 0.9)
@@ -1639,7 +1635,7 @@
       (is (= 0 (az/value studio/trim-in)))
       (finally (doseq [[field value] (map vector fields before)] (az/set-value! field value))))))
 
-(az/defn workspace-presentation-contract :- :u32 []
+(az/defn workspace-presentation-contract :u32 []
   (let [mode studio/workspace-mode enabled studio/record-enabled prior studio/workspace-record-prior
         trim studio/trim-drag divider studio/divider-drag
         focus studio/name-focus drag studio/name-drag menu studio/route-menu click studio/clicked
@@ -1782,12 +1778,12 @@
 (az/defstruct GridInputSnapshot {:layout :extern}
   [[focus :bool] [drag :bool] [click :bool]])
 
-(az/defn grid-input-snapshot :- GridInputSnapshot []
+(az/defn grid-input-snapshot GridInputSnapshot []
   (GridInputSnapshot {:focus studio/name-focus
                      :drag studio/name-drag
                      :click studio/clicked}))
 
-(az/defn restore-grid-input! :- :void [[input GridInputSnapshot]]
+(az/defn restore-grid-input! :void [[input GridInputSnapshot]]
   (set! studio/name-focus (az/field input focus))
   (set! studio/name-drag (az/field input drag))
   (set! studio/clicked (az/field input click)))
@@ -1842,7 +1838,7 @@
         (restore-grid-input! input-before)
         (az/close! input-before)))))
 
-(az/defn paragraph-clipping-contract :- :u32 []
+(az/defn paragraph-clipping-contract :u32 []
   (let [^{:var [:array 24 mesh/GpuVertex]} scratch ak/undefined
         old-vertices scene/vertices
         old-count scene/vertex-count
@@ -1898,7 +1894,7 @@
   (is (false? (studio/paragraph-line-visible? 516.3 33.8 204.0 550.0)))
   (is (false? (studio/paragraph-line-visible? 200.0 33.8 204.0 550.0))))
 
-(az/defn grouped-state-order-contract :- :u32 []
+(az/defn grouped-state-order-contract :u32 []
   (let [^{:var :u32} counter 0
         ^{:var :u32} observed 0]
     (set-studio-state! [counter (+ counter 1)
@@ -1909,7 +1905,7 @@
 (deftest grouped-state-preserves-native-evaluation-order
   (is (= 65 (grouped-state-order-contract))))
 
-(az/defn focused-record-request-contract :- :u32 []
+(az/defn focused-record-request-contract :u32 []
   (let [old-selected studio/selected
         old-arm studio/record-track
         old-click studio/clicked
@@ -2216,12 +2212,12 @@
           result)
         (finally (studio/unregister-command! op))))))
 
-(az/defn- publication-game-idle? :- :bool []
+(az/defn- publication-game-idle? :bool []
   ;; A missing/completed passage may remain selected without owning a sound.
   ;; Keep that node in the snapshot instead of requiring an untouched game.
   (ak/! scene/voice-ready))
 
-(az/defn- publication-game-mute! :- :bool [[muted :bool]]
+(az/defn- publication-game-mute! :bool [[muted :bool]]
   (let [before scene/audio-muted]
     (set! scene/audio-muted muted)
     before))
@@ -2770,7 +2766,7 @@
     (assert (apply <= (map :frames @evidence)) "Capture frames advance across views")
     {:captures captures :selection-stages @evidence}))
 
-(az/defn dense-frame-vertices :- :u32
+(az/defn dense-frame-vertices :u32
   [[output [:c-pointer mesh/GpuVertex]]]
   ;; Scratch geometry only: never submit this synthetic layout to Vulkan, write
   ;; a project, or touch an audio device. Caller saves/restores Studio UI fields.
@@ -2897,7 +2893,7 @@
       (is (pos? vertices) (pr-str result))
       (is (< vertices (az/value gpu/frame-capacity)) (pr-str result)))))
 
-(az/defn selected-cursor-contract :- :u32 []
+(az/defn selected-cursor-contract :u32 []
   (let [ready studio/voice-ready mix studio/mix-mode node studio/preview-node
         selected studio/selected seek studio/seek-seconds]
     (ak/defer (do (set! studio/voice-ready ready) (set! studio/mix-mode mix)
@@ -2922,7 +2918,7 @@
   (is (= 0 (selected-cursor-contract))
       "Unloaded seek, current preview, other passage and mix have explicit cursor ownership"))
 
-(az/defn reset-timing-storage-for-layout! {:attrs #{:export}} :- :void
+(az/defn reset-timing-storage-for-layout! :void {:attrs #{:export}}
   [[old-address :usize] [new-address :usize]]
   ;; Explicit opt-in migration for disposable profiling history only. Never
   ;; use this for takes, devices, audio buffers or project state.
@@ -2931,7 +2927,7 @@
         (ak/ptrFromInt new-address)]
     (set! (az/deref destination) (mem/zeroes (az/type [:array 240 studio/FrameTiming])))))
 
-(az/defn waveform-ownership-contract :- :u32 []
+(az/defn waveform-ownership-contract :u32 []
   (let [owner studio/waveform-owner
         owner-length studio/waveform-owner-length
         uploaded studio/waveform-uploaded
@@ -2972,7 +2968,7 @@
   (is (= 0 (waveform-ownership-contract))
       "Only the loaded, nonempty, idle selected take enables editing"))
 
-(az/defn comparison-readiness-contract :- :u32 []
+(az/defn comparison-readiness-contract :u32 []
   (let [owner studio/comparison-owner
         owner-length studio/comparison-owner-length
         code studio/comparison-code
@@ -3023,7 +3019,7 @@
   (is (= 0 (comparison-readiness-contract))
       "Only a ready pair belonging to the loaded, idle selected passage enables comparison"))
 
-(az/defn capture-script-ownership-contract :- :u32 []
+(az/defn capture-script-ownership-contract :u32 []
   (let [id studio/capture-id-text
         id-length studio/capture-id-length
         text studio/capture-script-text
@@ -3088,7 +3084,7 @@
       ;; native-string consumes/closes the returned slice after copying it.
       (is (= label (#'studio/native-string text))))))
 
-(az/defn passage-freshness-contract :- :u32 []
+(az/defn passage-freshness-contract :u32 []
   (let [index (ak/as :u32 1)
         saved (az/index studio/passage-freshness index)
         id (studio/node-id index)
@@ -3112,7 +3108,7 @@
 (deftest passage-freshness-rejects-stale-row-uploads
   (is (= 0 (passage-freshness-contract))))
 
-(az/defn frame-timing-ring-contract :- :u32 []
+(az/defn frame-timing-ring-contract :u32 []
   (let [saved studio/frame-timings
         count studio/frame-timing-count
         index studio/frame-timing-index
@@ -3145,7 +3141,7 @@
 (deftest frame-timing-history-is-bounded-and-resets-cadence
   (is (= 0 (frame-timing-ring-contract))))
 
-(az/defn routing-tools-presentation-contract :- :u32 []
+(az/defn routing-tools-presentation-contract :u32 []
   (let [tools studio/routing-tools-visible
         clicked studio/clicked
         busy studio/busy
@@ -3179,7 +3175,7 @@
   (is (= 0 (routing-tools-presentation-contract))
       "Disclosure only changes presentation; device controls distinguish idle/capture/check"))
 
-(az/defn monitor-level-control-contract :- :u32 []
+(az/defn monitor-level-control-contract :u32 []
   (let [gain (studio/monitor-level)
         x studio/mouse-x
         y studio/mouse-y
@@ -3241,7 +3237,7 @@
   (is (= 0 (monitor-level-control-contract))
       "Click/drag/release, off-track clamp, hidden/menu cancellation; no enable or take gain change"))
 
-(az/defn monitor-meter-contract :- :u32 []
+(az/defn monitor-meter-contract :u32 []
   (when (or recorder/running recorder/source-running recorder/monitoring) (ak/return 1))
   (let [peak recorder/return-peak-ppm held recorder/return-held-ppm gain recorder/monitor-gain
         ^{:var [:array 32 :f32]} input (mem/zeroes (az/type [:array 32 :f32]))
@@ -3347,7 +3343,7 @@
         (doseq [[field value] (map vector fields before)]
           (az/set-value! field value))))))
 
-(az/defn submit-pinch-qa! :- :bool [[studio? :bool] [amount :f64] [x :f64] [y :f64]]
+(az/defn submit-pinch-qa! :bool [[studio? :bool] [amount :f64] [x :f64] [y :f64]]
   ;; Inject into the exact queue used by AppKit, not directly into zoom-at!.
   ((az/field studio/gestures-api :lp_studio_gestures_submit)
     ((az/field studio/gestures-api :glfwGetCocoaWindow)
@@ -3410,7 +3406,7 @@
             "A modal device menu blocks track scrolling, panning and zooming underneath it"))
       (finally (doseq [[field value] (map vector fields before)] (az/set-value! field value))))))
 
-(az/defn keyboard-contract! :- :bool []
+(az/defn keyboard-contract! :bool []
   (let [focus studio/name-focus length studio/name-length old-busy studio/busy old-pending studio/pending
         visible studio/attached first-byte (az/index studio/edit-name 0)
         caret studio/name-caret anchor studio/name-anchor view studio/name-view]
@@ -3442,7 +3438,7 @@
 (deftest native-keyboard-focus-and-repeat
   (is (keyboard-contract!)))
 
-(az/defn navigation-focus-qa! :- :u32 [[mask :u32]]
+(az/defn navigation-focus-qa! :u32 [[mask :u32]]
   ;; Typed access keeps inferred native bools out of JVM schema construction.
   (let [previous (+ (ak/as :u32 (if studio/name-focus 1 0))
                     (ak/as :u32 (if studio/name-drag 2 0)))]
@@ -3451,7 +3447,7 @@
                           studio/name-drag (ak/!= (& mask 2) 0)]))
     previous))
 
-(az/defn navigation-key-qa! :- :void [[key :i32] [action :i32] [mods :i32]]
+(az/defn navigation-key-qa! :void [[key :i32] [action :i32] [mods :i32]]
   (studio/key-event! ak/null key 0 action mods))
 
 (deftest keyboard-passage-navigation-is-silent-and-keeps-selection-visible
@@ -3516,7 +3512,7 @@
         (navigation-focus-qa! focus)
         (doseq [[field value] (map vector fields saved)] (az/set-value! field value))))))
 
-(az/defn name-editing-contract! :- :bool []
+(az/defn name-editing-contract! :bool []
   (let [draft (studio/name-draft)
         history studio/name-history
         position studio/name-history-position
@@ -3568,7 +3564,7 @@
     (studio/name-paste! "abc")
     (mem/eql :u8 (studio/entered-name) "abc")))
 
-(az/defn name-edge-scroll-contract :- :u32 []
+(az/defn name-edge-scroll-contract :u32 []
   (let [draft (studio/name-draft)
         history studio/name-history
         position studio/name-history-position
@@ -3669,7 +3665,7 @@
         (is (= (mapv #(or (first (filter (fn [b] (> b %)) boundaries)) length) positions)
                (mapv #(studio/text-boundary text % false) positions)) line)))))
 
-(az/defn composed-name-input-contract :- :u32 []
+(az/defn composed-name-input-contract :u32 []
   (let [draft (studio/name-draft)
         history studio/name-history
         position studio/name-history-position
@@ -3729,7 +3725,7 @@
     (is (= 119 (studio/text-prefix text 120)))
     (is (= 122 (studio/text-prefix text 122)))))
 
-(az/defn name-undo-contract! :- :u32 []
+(az/defn name-undo-contract! :u32 []
   (let [draft (studio/name-draft) history studio/name-history
         position studio/name-history-position end studio/name-history-end
         batch studio/name-batch recorded studio/name-batch-recorded
@@ -3796,12 +3792,12 @@
         (doseq [[field value] (map vector fields before)]
           (az/set-value! field value))))))
 
-(az/defn route-key! :- :void [[key :u32] [action :u32]]
+(az/defn route-key! :void [[key :u32] [action :u32]]
   (studio/key-event! ak/null (ak/intCast key) 0 (ak/intCast action) 0))
-(az/defn route-test-flags :- :u32 []
+(az/defn route-test-flags :u32 []
   (+ (ak/as :u32 (if studio/name-focus 1 0)) (ak/as :u32 (if studio/name-drag 2 0))
      (ak/as :u32 (if studio/clicked 4 0)) (ak/as :u32 (if studio/route-click 8 0))))
-(az/defn restore-route-test-flags! :- :void [[flags :u32]]
+(az/defn restore-route-test-flags! :void [[flags :u32]]
   (set! studio/name-focus (ak/!= (& flags 1) 0))
   (set! studio/name-drag (ak/!= (& flags 2) 0))
   (set! studio/clicked (ak/!= (& flags 4) 0))

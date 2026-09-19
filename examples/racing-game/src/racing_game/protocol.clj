@@ -104,7 +104,7 @@
    [:active :bool] [:left_clear :bool] [:right_clear :bool]
    [:red_flag :bool] [:overtaking_allowed :bool] [:pit_available :bool]])
 
-(az/defn driving-plan-name :- [:slice-const :u8] [[kind :u8]]
+(az/defn driving-plan-name [:slice-const :u8] [[kind :u8]]
   (cond
     (ak/== kind plan-hold) "hold"
     (ak/== kind plan-follow) "follow"
@@ -114,7 +114,7 @@
     (ak/== kind plan-yield) "yield"
     :else "invalid"))
 
-(az/defn driving-plan-rejection :- [:slice-const :u8] [[reason :u8]]
+(az/defn driving-plan-rejection [:slice-const :u8] [[reason :u8]]
   (cond
     (ak/== reason plan-ok) "accepted"
     (ak/== reason plan-malformed) "unrecognized or ambiguous driving command"
@@ -140,11 +140,10 @@
    [:tire_percent :f32] [:damage_percent :f32]
    [:pit_available :bool] [:active :bool]])
 
-(az/defn describe-driving-observation
+(az/defn describe-driving-observation :usize
   "Plain English shared by the inference request and its readable log.
   Return zero on invalid input or insufficient space; never send a truncated
   safety observation. The caller owns the buffer, with no allocation here."
-  :- :usize
   [[observation DrivingObservation]
    [output [:c-pointer :u8]] [capacity :usize]]
   (when (or (ak/! (az/field observation valid)) (ak/== output ak/null))
@@ -166,8 +165,7 @@
           (ak/return 0))]
     (az/field text len)))
 
-(az/defn- same-plan-word?
-  :- :bool [[text [:slice-const :u8]] [expected [:slice-const :u8]]]
+(az/defn- same-plan-word? :bool [[text [:slice-const :u8]] [expected [:slice-const :u8]]]
   (when (ak/!= (az/field text len) (az/field expected len)) (ak/return false))
   (dotimes [i (az/field text len)]
     (let [byte (az/index text i)
@@ -175,13 +173,12 @@
       (when (ak/!= lower (az/index expected i)) (ak/return false))))
   true)
 
-(az/defn parse-driving-plan
+(az/defn parse-driving-plan DrivingPlan
   "Parse one ordinary plan, optionally labelled Plan: and followed by Radio:.
   A complete short command is useful without invented dialogue; an absent
   radio line is represented by zero radio_length, not a synthetic message.
   No substring guessing, negation guessing, silent truncation or encoded head.
   `complete` must reflect the generator's actual successful end-of-message."
-  :- DrivingPlan
   [[bytes [:pointer {:size :c :const? true} :u8]] [length :usize] [complete :bool]]
   (let [^:var result (DrivingPlan {:valid false :kind plan-invalid
                                   :rejection plan-malformed :radio_start 0 :radio_length 0})]
@@ -218,10 +215,9 @@
             (set! (az/field result radio_length) (ak/intCast (az/field radio len)))))))
     result))
 
-(az/defn validate-driving-plan
+(az/defn validate-driving-plan :u8
   "Return a readable-reason discriminant; never install a plan or move a body.
   A valid plan is still subject to continuously measured low-level controls."
-  :- :u8
   [[plan DrivingPlan] [epoch :u64] [revision :u64]
    [observed-tick :u64] [expires-tick :u64] [context DrivingPlanContext]]
   (cond

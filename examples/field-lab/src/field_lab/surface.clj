@@ -47,14 +47,12 @@
 
 (az/defvar visibility-ready :bool false)
 
-(az/defn request-preview!
+(az/defn request-preview! :void
   "Queue a display-only change on the render thread; never rebakes the source."
-  :- :void
   [[enabled :bool]]
   (ak/atomicStore :u8 (ak/& embedded-request) (if enabled 2 1) :.release))
 
-(az/defn clear-embeddings!
-  :- :void
+(az/defn clear-embeddings! :void
   []
   (dotimes [index 3]
     (when (ak/!= (az/index embeddings index) null)
@@ -69,8 +67,7 @@
   (az/set-many! embedded-count 0 embedded-linear 0 embedded-rejected 0 maximum-inset 0.0
                 visibility-tick 0xffffffff visibility-ready false))
 
-(az/defn prepare-embedding!
-  :- [:optional [:* embedding/Render]]
+(az/defn prepare-embedding! [:optional [:* embedding/Render]]
   [[body :usize] [owned [:optional [:* cache/Cache]]]]
   (when (or (ak/! embedded-enabled) (ak/== owned null)) (ak/return null))
   (when (ak/! (az/index embedding-attempted body))
@@ -92,16 +89,14 @@
       maximum-inset (ak/max maximum-inset (az/field render reference-inset)))
     render))
 
-(az/defn surface-face
-  :- [:array 3 :u32]
+(az/defn surface-face [:array 3 :u32]
   [[owned [:optional [:* cache/Cache]]] [render [:optional [:* embedding/Render]]] [index :usize]]
   (if (ak/!= render null)
     (az/index (az/field (az/unwrap render) faces) index)
     (if (ak/!= owned null) (az/index (az/field (az/unwrap owned) faces) index)
         (az/index mesh/faces index))))
 
-(az/defn surface-point
-  :- p/Vec3
+(az/defn surface-point p/Vec3
   [[owned [:optional [:* cache/Cache]]] [render [:optional [:* embedding/Render]]]
    [body :usize] [index :usize]]
   (if (ak/!= render null)
@@ -109,18 +104,16 @@
     (if (ak/!= owned null) (cache/position (az/unwrap owned) scene/cursor index)
         (az/index (az/field (scene/soft-state (ak/intCast body)) positions) index))))
 
-(az/defn set-visibility-target!
+(az/defn set-visibility-target! :void
   "Borrow the renderer's completed-frame storage; invalidate publication until
   the selected surface stream has passed capacity and geometry checks."
-  :- :void
   [[output [:c-pointer :u32]] [capacity :usize]]
   (when (or (ak/!= output visibility-output) (ak/!= capacity visibility-capacity))
     (set! visibility-tick 0xffffffff))
   (az/set-many! visibility-output output visibility-capacity capacity visibility-ready false)
   (when (and (ak/!= output null) (> capacity 0)) (set! (az/index output 0) 0)))
 
-(az/defn prepare-visibility!
-  :- [:optional [:* contact/Surface]]
+(az/defn prepare-visibility! [:optional [:* contact/Surface]]
   [[body :usize] [owned [:optional [:* cache/Cache]]] [render [:optional [:* embedding/Render]]]]
   (let [nodes (if (ak/!= render null) (az/field (az/field (az/unwrap render) positions) len)
                   (if (ak/!= owned null) (az/field (az/field (az/unwrap owned) reference) len)
@@ -145,8 +138,7 @@
         (contact/refit! result))
       result)))
 
-(az/defn publish-visibility!
-  :- :void
+(az/defn publish-visibility! :void
   [[active [:array 3 [:optional [:* embedding/Render]]]]]
   (when (or (ak/== visibility-output null) (< visibility-capacity 16)) (ak/return))
   (let [^{:var :u8} modes 0]
@@ -185,8 +177,7 @@
         visibility-tick scene/cursor
         visibility-ready true))))
 
-(az/defn camera-target
-  :- p/Vec3
+(az/defn camera-target p/Vec3
   []
   (let [^:var result (p/v 0.0 0.0 0.0)]
     (dotimes [i scene/body-count]
@@ -195,8 +186,7 @@
     (set! (az/field result y) (if framing-enabled (ak/max 0.05 (az/field result y)) 1.55))
     result))
 
-(az/defn camera-distance
-  :- :f64
+(az/defn camera-distance :f64
   [[minimum :f64]]
   (let [target (camera-target)
         radius (az/field (scene/config) radius)
@@ -215,9 +205,8 @@
     (ak/max minimum (+ (if framing-enabled (ak/as :f64 0.0) (ak/as :f64 1.0))
                        (* 2.6 extent)))))
 
-(az/defn emit-bounded!
+(az/defn emit-bounded! :u32
   "Preflight the complete stream before writing into caller-owned storage."
-  :- :u32
   [[output [:c-pointer gpu/GpuVertex]] [capacity :usize] [yaw :f64] [pitch :f64] [distance :f64]]
   (let [request (ak/atomicRmw :u8 (ak/& embedded-request) :.Xchg 0 :.acq_rel)]
     (when (ak/!= request 0) (set! embedded-enabled (ak/== request 2))))
@@ -314,9 +303,8 @@
                 (set! written (+ written 1))))))))
     written)))
 
-(az/defn emit!
+(az/defn emit! :u32
   "Compatibility entry for the shared renderer's fixed 524,288-vertex stream.
   Other callers must supply their actual allocation size to emit-bounded!."
-  :- :u32
   [[output [:c-pointer gpu/GpuVertex]] [yaw :f64] [pitch :f64] [distance :f64]]
   (emit-bounded! output 524288 yaw pitch distance))

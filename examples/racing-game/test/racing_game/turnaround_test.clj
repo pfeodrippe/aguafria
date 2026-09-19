@@ -24,10 +24,10 @@
 
 (az/defvar recovery-trace [:array 120 [:array 12 :f32]] ak/undefined)
 
-(az/defn recovery-trace-at :- [:array 12 :f32] [[index :usize]]
+(az/defn recovery-trace-at [:array 12 :f32] [[index :usize]]
   (az/index recovery-trace index))
 
-(az/defn create-car :- physics/Vehicle [[world b3/b3WorldId] [index :usize] [shoulder? :bool]]
+(az/defn create-car physics/Vehicle [[world b3/b3WorldId] [index :usize] [shoulder? :bool]]
   (let [poses (if shoulder? shoulder-poses captured-poses)
         p (az/index (az/index poses index) 0)
         car (physics/create-vehicle world
@@ -41,10 +41,9 @@
                        :s (az/index pose 6)}))))
     car))
 
-(az/defn turn-probe
+(az/defn turn-probe [:array 9 :f32]
   "Forward metres, max lane, min upright, final alignment, gear mask, speed,
-  maximum speed when changing direction, and whether turnaround remains active."
-  :- [:array 9 :f32] [[seconds :usize] [turn? :bool] [shoulder? :bool]]
+  maximum speed when changing direction, and whether turnaround remains active." [[seconds :usize] [turn? :bool] [shoulder? :bool]]
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
         containment (barriers/create! world)
@@ -130,7 +129,7 @@
     (is (zero? active) (pr-str result))
     (is (< (abs final-lane) 4.5) "Return from the shoulder to the racing corridor")))
 
-(az/defn disabled-probe :- turnaround/Output [[speed :f32] [active :bool]]
+(az/defn disabled-probe turnaround/Output [[speed :f32] [active :bool]]
   (let [p (circuit/at-distance 0.0 0.0)
         yaw (+ (az/field p heading) 3.14159265)
         ^:var body (mem/zeroes (az/type physics/BodyState))

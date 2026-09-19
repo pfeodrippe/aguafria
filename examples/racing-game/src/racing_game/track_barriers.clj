@@ -23,10 +23,9 @@
   (eval `(az/defconst ~'vertex-count :usize ~(count vertices)))
   (eval `(az/defconst ~'triangle-count :usize ~(count triangles))))
 
-(az/defn create!
+(az/defn create! [:* b3/b3MeshData]
   "Attach static, finite-height physical walls. No position/velocity overrides.
-  Owned mesh data must outlive the world and then be explicitly destroyed."
-  :- [:* b3/b3MeshData] [[world b3/b3WorldId]]
+  Owned mesh data must outlive the world and then be explicitly destroyed." [[world b3/b3WorldId]]
   (let [^:var points (mem/zeroes (az/type [:array vertex-count b3/b3Vec3]))
         ;; Box3D's weld/build API takes mutable indices; give it owned scratch
         ;; storage, never cast away const on the embedded Blender export.
@@ -56,5 +55,5 @@
                   (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0})))
       data)))
 
-(az/defn destroy! :- :void [[data [:* b3/b3MeshData]]]
+(az/defn destroy! :void [[data [:* b3/b3MeshData]]]
   (b3/b3DestroyMesh data))

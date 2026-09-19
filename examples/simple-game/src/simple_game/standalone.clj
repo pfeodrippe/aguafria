@@ -3,9 +3,7 @@
   (:require [aguafria.zig :as az]
             [simple-game.desktop :as desktop]))
 
-(az/defn main
+(az/defn main :void
   "Run the same Flecs/Vulkan game without the JVM or Aguafria runtime."
-  :-
-  :void
   []
   (set! _ (desktop/run!)))

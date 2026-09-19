@@ -619,7 +619,7 @@
   {"+=" '+= "-=" '-= "*=" '*= "%=" '%=
    "+%=" '+%= "-%=" '-%= "*%=" '*%=
    "+|=" '+|= "-|=" '-|= "*|=" '*|=
-   "&=" '&= "|=" '|= "<<=" '<<= ">>=" '>>=})
+   "&=" '&= "|=" '|= "<<=" '<<= "<<|=" '<<|= ">>=" '>>=})
 
 (def ^:private builtin-symbols
   (delay
@@ -871,6 +871,39 @@
     (let [value (edn/read-string source)]
       (when (string? value) value))
     (catch Throwable _ nil)))
+
+(defn test-labels
+  "Return AST test declarations in source order as {:node :kind :label} maps.
+
+  Labels are native runner suffixes, without the module prefix: test.NAME for
+  string labels, decltest.NAME for identifier doctests, and test_N for unnamed
+  tests. N counts unnamed tests only. This describes source declarations, not
+  which tests a particular runner discovers or executes."
+  [parsed]
+  (first
+   (reduce
+    (fn [[labels unnamed-index] [node-index name-token _body-node]]
+      (let [source (when name-token (token-text parsed name-token))
+            kind (cond (nil? name-token) :unnamed
+                       (= :identifier (first (token parsed name-token))) :identifier
+                       :else :named)
+            name (when source
+                   (or (parse-string source)
+                       (some-> (safe-identifier source) str)
+                       (when (str/starts-with? source "@\"")
+                         (parse-string (subs source 1)))))
+            _ (when (and source (nil? name))
+                (throw (ex-info "Cannot decode native test label"
+                                {:node node-index :source source})))
+            label (case kind
+                    :unnamed (str "test_" unnamed-index)
+                    :identifier (str "decltest." name)
+                    :named (str "test." name))]
+        [(conj labels {:node node-index :kind kind :label label})
+         (if (= :unnamed kind) (inc unnamed-index) unnamed-index)]))
+    [[] 0]
+    (sort-by (fn [[node-index]] (:main-token (node parsed node-index)))
+             (:tests parsed)))))
 
 (defn- multiline-string-lines
   [source]
@@ -1468,8 +1501,10 @@
                    [(translate-stmt context then-node)])
             else-block? (and else-node
                              (contains? (:block-index context) else-node))
-            else-body (when else-block?
-                        (vec (rest (translate-block context else-node))))
+            else-block (when else-block? (translate-block context else-node))
+            labeled-else? (= 'labeled-block (first else-block))
+            else-body (when (and else-block? (not labeled-else?))
+                        (vec (rest else-block)))
             options (cond-> {}
                       label (assoc :label label)
                       body-label (assoc :body-label body-label)
@@ -1478,7 +1513,8 @@
                       continue-node
                       (assoc :continue (translate-expr context continue-node))
                       (seq error) (assoc :error error)
-                      else-block? (assoc :else else-body)
+                      (and else-block? (not labeled-else?)) (assoc :else else-body)
+                      labeled-else? (assoc :else-expression else-block)
                       (and else-node (not else-block?))
                       (assoc :else-expression (translate-expr context else-node)))]
         (apply list 'while-loop options
@@ -1738,8 +1774,13 @@
                    [(translate-stmt context then-node)])
             else-form (when else-node
                         (if (contains? (:block-index context) else-node)
-                          (apply list 'else-clause
-                                 (rest (translate-block context else-node)))
+                          (let [block (translate-block context else-node)]
+                            ;; A labeled block is itself the else expression.
+                            ;; Flattening it turns its label into an identifier
+                            ;; statement and leaves `break :label` without a target.
+                            (if (= 'labeled-block (first block))
+                              (list 'else-expression block)
+                              (apply list 'else-clause (rest block))))
                           (list 'else-expression
                                 (translate-expr context else-node))))
             bindings (mapv (fn [capture input]
@@ -1991,7 +2032,6 @@
             metadata {:export (words-contain? prefix "export")
                       :public (or (words-contain? prefix "pub")
                                   (words-contain? prefix "export"))
-                      :implicit-return false
                       :source-comment false
                       :zig/order order
                       :zig/leading leading
@@ -2154,10 +2194,7 @@
 
 (defn- translate-test-declaration
   [context node-index order leading]
-  (let [[_ name-token body-node] (get (:test-index context) node-index)
-        test-name (when name-token
-                    (let [source (token-text context name-token)]
-                      (or (parse-string source) (safe-identifier source))))
+  (let [[_ _name-token body-node] (get (:test-index context) node-index)
         block-form (when (contains? (:block-index context) body-node)
                      (translate-block context body-node))
         body (if block-form
@@ -2165,7 +2202,7 @@
                [(record-statement-fallback! context body-node :non-block-test-body)])]
     (cond-> (apply list 'az/deftest
                    {:zig/order order :zig/leading leading :source-comment false}
-                   test-name body)
+                   (get (:test-declaration-names context) node-index) body)
       (seq (:aguafria/trailing-comments (meta block-form)))
       (vary-meta assoc :aguafria/trailing-comments
                  (:aguafria/trailing-comments (meta block-form))))))
@@ -2320,7 +2357,16 @@
   (let [operator (first form)]
     (when (contains? declaration-form-operators operator)
       (cond
-        (#{'az/deftest 'test-decl 'container 'tuple-field-decl
+        (= 'az/deftest operator)
+        (cond (map? (second form)) 1
+              (string? (nth form 2 nil)) 3
+              :else 2)
+        (and (#{'az/defn 'az/defn-} operator)
+             (not (map? (nth form 2 nil)))
+             (not (string? (nth form 2 nil)))
+             (not= ':- (nth form 2 nil)))
+        (if (string? (nth form 3 nil)) 4 3)
+        (#{'test-decl 'container 'tuple-field-decl
            'az/test-decl 'az/container 'az/tuple-field-decl} operator) 1
         (string? (nth form 2 nil)) 3
         :else 2))))
@@ -2381,6 +2427,18 @@
         [[] (readable-docstring form)]))
     [[] (readable-docstring form)]))
 
+(defn- write-declaration-header
+  "Keep declaration identity together; body forms get normal two-space indent."
+  [form header-size]
+  (pprint/pprint-logical-block :prefix "(" :suffix ")"
+    (doseq [[index item] (map-indexed vector (take header-size form))]
+      (when (pos? index) (print " "))
+      (pprint/write-out item))
+    (pprint/pprint-indent :block 1)
+    (doseq [item (drop header-size form)]
+      (pprint/pprint-newline :mandatory)
+      (pprint/write-out item))))
+
 (defn- clojure-source-dispatch
   [value]
   (cond
@@ -2404,7 +2462,10 @@
       (dotimes [_ (or blank-lines-before 0)]
         (pprint/pprint-newline :mandatory))
       (write-clojure-comments (concat leading-comments comments))
-      (pprint/code-dispatch form))
+      (case (first form)
+        (az/defn az/defn-) (write-declaration-header form 3)
+        az/deftest (write-declaration-header form 2)
+        (pprint/code-dispatch form)))
 
     :else
     (pprint/code-dispatch value)))
@@ -2544,12 +2605,25 @@
   [form]
   (let [items (mapv compact-generated-form form)
         doc? (string? (nth items 2 nil))
-        attributes-index (if doc? 3 2)]
+        attributes-index (if doc? 3 2)
+        items (if (and doc? (map? (nth items attributes-index nil)))
+                (update items attributes-index dissoc :doc)
+                items)
+        items (cond
+                (#{'az/defn 'az/defn-} (first items))
+                (let [marker-index (inc attributes-index)
+                      return-type (nth items (inc marker-index))]
+                  (vec (concat (take 2 items) [return-type]
+                               (subvec items 2 (inc attributes-index))
+                               (subvec items (+ marker-index 2)))))
+
+                (= 'az/deftest (first items))
+                (vec (concat [(first items) (nth items 2) (second items)]
+                             (drop 3 items)))
+
+                :else items)]
     (with-meta
-      (apply list
-             (if (and doc? (map? (nth items attributes-index nil)))
-               (update items attributes-index dissoc :doc)
-               items))
+      (apply list items)
       (meta form))))
 
 (defn- compact-generated-form
@@ -2796,7 +2870,28 @@
                     (= "std" (and init-node
                                    (import-initializer parsed init-node)))))
                 (:root-decls parsed)))
-         :declaration-names (declaration-name-map parsed)))
+         :declaration-names (declaration-name-map parsed)
+         :test-declaration-names
+         (first
+          (reduce
+           (fn [[names occupied] node-index]
+             (let [[_ name-token] (get (:test-index parsed) node-index)
+                   source (when name-token (token-text parsed name-token))
+                   label (when source (or (parse-string source) source))
+                   stem (some-> label
+                                (str/replace #"[^A-Za-z0-9_-]+" "-")
+                                (str/replace #"^-+|-+$" ""))
+                   base (str (if (str/blank? stem) "anonymous" stem) "-test")
+                   base (if (re-find #"^[0-9]" base) (str "test-" base) base)
+                   name (loop [index 1]
+                          (let [candidate (symbol (str base (when (> index 1) (str "-" index))))]
+                            (if (or (contains? occupied candidate)
+                                    (clojure-name-occupied? candidate))
+                              (recur (inc index))
+                              candidate)))]
+               [(assoc names node-index name) (conj occupied name)]))
+           [{} (set (vals (declaration-name-map parsed)))]
+           (sort (keys (:test-index parsed)))))))
 
 (defn- file-leading-trivia
   [context]
@@ -2926,13 +3021,7 @@
                           attributes (when attributes-index
                                        (nth translated attributes-index nil))
                           source-order (:zig/order attributes)
-                          declaration (if (map? (second presented-form))
-                                        (nnext presented-form)
-                                        (next presented-form))
-                          test-name (first declaration)
-                          internal-name
-                          (str "zig-test-"
-                               (Math/abs (hash [test-name presented-form])))]
+                          internal-name (str (second presented-form))]
                       (when (some? source-order)
                         [internal-name source-order])))))
           (map vector translated-forms forms))
@@ -2973,11 +3062,8 @@
                               :else nil))))
                   (str/join "\n"))))
          clojure-source
-         (str ";; Generated from " (or source-display-path (str path))
-              " by Aguafria.\n"
-              ";; Edit and reevaluate these ordinary declarations at the REPL.\n"
-              (when (seq leading-comments) (str "\n" leading-comments "\n"))
-              "\n"
+         (str (when-not (str/blank? (str/replace (or leading-comments "") #"[;\s]" ""))
+                (str leading-comments "\n\n"))
               (pprint-code (namespace-form namespace-symbol aliases
                                            project-aliases
                                            project-require-modes

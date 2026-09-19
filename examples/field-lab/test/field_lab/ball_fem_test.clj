@@ -13,8 +13,7 @@
    [:maximum-energy :f64] [:momentum-error :f64] [:final-vx :f64]
    [:substeps :u32]])
 
-(az/defn experiment
-  :- Report
+(az/defn experiment Report
   [[active :u32] [steps :u32]]
   (let [^:var config (p/defaults)]
     (az/set-many!

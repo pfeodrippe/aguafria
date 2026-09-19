@@ -10,9 +10,7 @@
   {:attrs #{:public}}
   std-debug/simple_panic)
 
-(az/defn project-panic-value
-  :-
-  :i32
+(az/defn project-panic-value :i32
   []
   42)
 

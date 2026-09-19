@@ -1,0 +1,374 @@
+{"a >= b"
+ {:clojure-source "(>= a b)"
+  :kind :expr
+  :note "Greater-than-or-equal comparison."}
+
+ "(2 >= 1) == true"
+ {:clojure-source "(== (>= 2 1) true)"
+  :kind :expr
+  :standalone? true
+  :note "Two is greater than or equal to one."}
+
+ "a < b"
+ {:clojure-source "(< a b)"
+  :kind :expr
+  :note "Strict less-than comparison."}
+
+ "(1 < 2) == true"
+ {:clojure-source "(== (< 1 2) true)"
+  :kind :expr
+  :standalone? true
+  :note "One is strictly less than two."}
+
+ "a <= b"
+ {:clojure-source "(<= a b)"
+  :kind :expr
+  :note "Less-than-or-equal comparison."}
+
+ "(1 <= 2) == true"
+ {:clojure-source "(== (<= 1 2) true)"
+  :kind :expr
+  :standalone? true
+  :note "One is less than or equal to two."}
+
+ "a ++ b"
+ {:clojure-source "(az/op \"++\" a b)"
+  :kind :expr
+  :note "Concatenate arrays whose lengths are known at compile time."}
+
+ "const mem = @import(\"std\").mem;\nconst array1 = [_]u32{1,2};\nconst array2 = [_]u32{3,4};\nconst together = array1 ++ array2;\nmem.eql(u32, &together, &[_]u32{1,2,3,4})"
+ {:clojure-source "(let [mem (az/field (ak/import \"std\") :mem)\n      array1 (az/array-init [:array _ :u32] [1 2])\n      array2 (az/array-init [:array _ :u32] [3 4])\n      together (az/op \"++\" array1 array2)]\n  ((az/field mem :eql) :u32\n    (ak/& together)\n    (ak/& (az/array-init [:array _ :u32] [1 2 3 4]))))"
+  :kind :expr
+  :standalone? true
+  :note "Import std.mem locally and compare the concatenated array element by element."}
+
+ "a ** b"
+ {:clojure-source "(az/op \"**\" a b)"
+  :kind :expr
+  :note "Repeat an array; its length and the repetition count must be comptime-known."}
+
+ "const mem = @import(\"std\").mem;\nconst pattern = \"ab\" ** 3;\nmem.eql(u8, pattern, \"ababab\")"
+ {:clojure-source "(let [mem (az/field (ak/import \"std\") :mem)\n      pattern (az/op \"**\" \"ab\" 3)]\n  ((az/field mem :eql) :u8 pattern \"ababab\"))"
+  :kind :expr
+  :standalone? true
+  :note "Repeat the string three times and check its bytes with std.mem.eql."}
+
+ "a.*"
+ {:clojure-source "@a"
+  :kind :expr
+  :note "Reader dereference syntax accesses the pointed-to value."}
+
+ "const x: u32 = 1234;\nconst ptr = &x;\nptr.* == 1234"
+ {:clojure-source "(let [^{:zig/type :u32} x 1234\n      ptr (ak/& x)]\n  (== @ptr 1234))"
+  :kind :expr
+  :standalone? true
+  :note "Take the address of a typed local and read it through the pointer."}
+
+ "&a"
+ {:clojure-source "(ak/& a)"
+  :kind :expr
+  :note "Obtain a single-item pointer to a."}
+
+ "a || b"
+ {:clojure-source "(az/op \"||\" a b)"
+  :kind :expr
+  :note "Merge two error set types."}
+
+ "const A = error{One};\nconst B = error{Two};\n(A || B) == error{One, Two}"
+ {:clojure-source "(let [A (az/type [:error-set [:One]])\n      B (az/type [:error-set [:Two]])]\n  (== (az/op \"||\" A B)\n      (az/type [:error-set [:One :Two]])))"
+  :kind :expr
+  :standalone? true
+  :note "Merging error sets produces the set containing both error names."}
+
+ "x() x[] x.y x.* x.?\na!b\nx{}\n!x -x -%x ~x &x ?x\n* / % ** *% *| ||\n+ - ++ +% -% +| -|\n<< >> <<|\n& ^ | orelse catch\n== != < > <= >=\nand\nor\n= *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |="
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "This precedence chart is Zig-specific. Aguafria uses prefix nesting instead of operator precedence: (+ a (* b c)) explicitly multiplies before adding."}
+
+ "[N:x]T"
+ {:clojure-source "[:array-sentinel N x T]"
+  :kind :type
+  :note "An N-element array of T with sentinel x stored at index N."}
+
+ "/"
+ {:clojure-source "/"
+  :kind :reference
+  :note "Division; vector operands are divided element by element."}
+
+ "*"
+ {:clojure-source "*\naz/pointer-capture"
+  :kind :reference
+  :alternatives? true
+  :note "The arithmetic operator is clojure.core/*. In switch captures, Zig's leading * instead corresponds to az/pointer-capture."}
+
+ ">>"
+ {:clojure-source "ak/>>"
+  :kind :reference
+  :note "Right-shift operator; vectors shift element by element."}
+
+ "<<"
+ {:clojure-source "ak/<<"
+  :kind :reference
+  :note "Left-shift operator; vectors shift element by element."}
+
+ "&"
+ {:clojure-source "ak/&"
+  :kind :reference
+  :note "Two operands mean bitwise AND; one operand takes an address."}
+
+ "|"
+ {:clojure-source "ak/|"
+  :kind :reference
+  :note "Bitwise OR; vector operands are combined element by element."}
+
+ "~"
+ {:clojure-source "ak/bit-not"
+  :kind :reference
+  :note "Reader-safe name for bitwise complement."}
+
+ "<"
+ {:clojure-source "<"
+  :kind :reference
+  :note "Less-than comparison; vector comparisons produce vectors of booleans."}
+
+ ">"
+ {:clojure-source ">"
+  :kind :reference
+  :note "Greater-than comparison; vector comparisons produce vectors of booleans."}
+
+ "=="
+ {:clojure-source "=="
+  :kind :reference
+  :note "Equality comparison, including element-wise vectors and backing integers of packed structs or unions."}
+
+ "!"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "Zig's ! has two meanings: logical negation is (ak/! x), while a function return type with an inferred error set is [:error-union T]. An explicit error set uses [:error-union ErrorSet T]."}
+
+ "*T"
+ {:clojure-source "[:* T]"
+  :kind :type
+  :note "Single-item pointer to T."}
+
+ "ptr.*"
+ {:clojure-source "@ptr"
+  :kind :expr
+  :note "Read the value addressed by a single-item pointer."}
+
+ "ptr[0..1]"
+ {:clojure-source "(az/slice ptr 0 1)"
+  :kind :expr
+  :note "Slice the one element addressed by ptr."}
+
+ "ptr - ptr"
+ {:clojure-source "(- ptr ptr)"
+  :kind :expr
+  :note "Pointer subtraction measures the distance in elements."}
+
+ "[*]T"
+ {:clojure-source "[:many T]"
+  :kind :type
+  :note "Many-item pointer; unlike a slice, it carries no length."}
+
+ "ptr[i]"
+ {:clojure-source "(az/index ptr i)"
+  :kind :expr
+  :note "Index a many-item pointer."}
+
+ "ptr[start..end]"
+ {:clojure-source "(az/slice ptr start end)"
+  :kind :expr
+  :note "Slice a pointer over a half-open index range."}
+
+ "ptr[start..]"
+ {:clojure-source "(az/slice ptr start)"
+  :kind :expr
+  :note "Advance a many-item pointer without providing an end index."}
+
+ "ptr + int"
+ {:clojure-source "(+ ptr int)"
+  :kind :expr
+  :note "Advance a many-item pointer by an integer number of elements."}
+
+ "ptr - int"
+ {:clojure-source "(- ptr int)"
+  :kind :expr
+  :note "Move a many-item pointer backward by an integer number of elements."}
+
+ "*[N]T"
+ {:clojure-source "[:* [:array N T]]"
+  :kind :type
+  :note "A single-item pointer whose target is an N-element array."}
+
+ "array_ptr[i]"
+ {:clojure-source "(az/index array_ptr i)"
+  :kind :expr
+  :note "Array pointers support direct element indexing."}
+
+ "array_ptr[start..end]"
+ {:clojure-source "(az/slice array_ptr start end)"
+  :kind :expr
+  :note "Slice the array addressed by array_ptr."}
+
+ "array_ptr.len"
+ {:clojure-source "(az/field array_ptr :len)"
+  :kind :expr
+  :note "The pointed-to array's length is part of its type."}
+
+ "array_ptr - array_ptr"
+ {:clojure-source "(- array_ptr array_ptr)"
+  :kind :expr
+  :note "Array pointers support pointer subtraction."}
+
+ "[]T"
+ {:clojure-source "[:slice T]"
+  :kind :type
+  :note "A slice pairs a many-item pointer with a runtime-known length."}
+
+ "slice[i]"
+ {:clojure-source "(az/index slice i)"
+  :kind :expr
+  :note "Index a slice with bounds checking in safety-enabled modes."}
+
+ "slice[start..end]"
+ {:clojure-source "(az/slice slice start end)"
+  :kind :expr
+  :note "Take a subslice over a half-open index range."}
+
+ "slice.len"
+ {:clojure-source "(az/field slice :len)"
+  :kind :expr
+  :note "Read the number of elements in a slice."}
+
+ "&x"
+ {:clojure-source "(ak/& x)"
+  :kind :expr
+  :note "Take the address of x."}
+
+ "1 << 29"
+ {:clojure-source "(ak/<< 1 29)"
+  :kind :expr
+  :standalone? true
+  :note "The documentation uses this power of two as the exclusive upper bound on alignment."}
+
+ "*i32"
+ {:clojure-source "[:* :i32]"
+  :kind :type
+  :note "A pointer through which an i32 may be modified."}
+
+ "*const i32"
+ {:clojure-source "[:*const :i32]"
+  :kind :type
+  :note "A pointer through which the i32 may only be read."}
+
+ "[*:x]T"
+ {:clojure-source "[:sentinel T x]"
+  :kind :type
+  :note "A many-item pointer with sentinel x; the sentinel determines the sequence's end."}
+
+ "[:x]T"
+ {:clojure-source "[:pointer {:size :slice :sentinel x} T]"
+  :kind :type
+  :note "A slice with a runtime length and a guaranteed sentinel x at that length."}
+
+ "data[start..end :x]"
+ {:clojure-source "(az/slice-sentinel data start end x)"
+  :kind :expr
+  :note "Construct a sentinel slice, asserting that data[end] equals x."}
+
+ "extern struct"
+ {:clojure-source "az/container"
+  :kind :reference
+  :note "Use container options {:kind :struct :layout :extern} for a struct with the target C ABI layout."}
+
+ "packed struct"
+ {:clojure-source "az/container"
+  :kind :reference
+  :note "Use container options {:kind :struct :layout :packed}; the fields occupy bits in the backing integer."}
+
+ "!="
+ {:clojure-source "ak/!="
+  :kind :reference
+  :note "Inequality of packed structs or unions compares their backing integers."}
+
+ "."
+ {:clojure-source "az/field"
+  :kind :reference
+  :note "Access fields with az/field and a keyword field name; numeric tuple fields are quoted automatically."}
+
+ "@\"\""
+ {:clojure-source "az/identifier-literal"
+  :kind :reference
+  :note "Explicit quoted-identifier syntax. For tuple field access, a numeric keyword passed to az/field supplies the quoting automatically."}
+
+ "[:0]const u8"
+ {:clojure-source "[:pointer {:size :slice :sentinel 0 :const? true} :u8]"
+  :kind :type
+  :note "A read-only byte slice with a zero sentinel, as returned by @tagName."}
+
+ "extern union"
+ {:clojure-source "az/container"
+  :kind :reference
+  :note "Use container options {:kind :union :layout :extern} for target C ABI union layout."}
+
+ "packed union"
+ {:clojure-source "az/container"
+  :kind :reference
+  :note "Use container options {:kind :union :layout :packed}; all fields must have equal bit size."}
+
+ "opaque {}"
+ {:clojure-source "(az/container {:kind :opaque})"
+  :kind :type
+  :note "Declare an opaque type with unknown size and alignment."}
+
+ "void{}"
+ {:clojure-source "(az/init :void {})"
+  :kind :expr
+  :standalone? true
+  :note "The sole void value is equivalent to an empty block."}
+
+ "continue :sw .next_state"
+ {:clojure-source "(ak/continue sw :.next_state)"
+  :kind :statements
+  :note "Redispatch the enclosing switch labeled sw using the next_state enum literal."}
+
+ "inline else"
+ {:clojure-source "az/inline-case-else"
+  :kind :reference
+  :note "An inline fallback switch prong specializes its body for each remaining value."}
+
+ "inline for"
+ {:clojure-source "az/inline-for"
+  :kind :reference
+  :note "An unrolled for loop makes captured values and indices comptime-known."}
+
+ "|x|"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "Use {:payload [x]} in az/while-loop options to capture the non-null optional value as x."}
+
+ "else |x|"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "Use {:error [x]} in az/while-loop options to capture the terminating error as x for the :else body."}
+
+ "std.debug.assert"
+ {:clojure-source "aguafria.std.debug/assert"
+  :kind :reference
+  :note "Require aguafria.std.debug to use its assertion function; a failed assertion reaches unreachable."}
+
+ "while (true) {}"
+ {:clojure-source "(az/while-loop {} true)"
+  :kind :statements
+  :note "An infinite loop has type noreturn; this example is intentionally not executed."}
+
+ "!u64"
+ {:clojure-source "[:error-union :u64]"
+  :kind :type
+  :note "A function return type whose error set is inferred from the function body."}
+
+ "anyerror!u64"
+ {:clojure-source "[:error-union :anyerror :u64]"
+  :kind :type
+  :note "An explicit union of the global error set and a successful u64 payload."}}

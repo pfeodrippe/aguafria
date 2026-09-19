@@ -6,15 +6,13 @@
             [field-lab.physics :as p]
             [field-lab.contacts :as contacts]))
 
-(az/defn single-ball
-  :- contacts/Sample
+(az/defn single-ball contacts/Sample
   [[config p/Config]]
   (contacts/Sample {:bodies [(p/initial config) (p/initial config) (p/initial config)]}))
 
-(az/defn three-balls
+(az/defn three-balls contacts/Sample
   "Three equal spheres approach a central sphere. Edit these ordinary Clojure
   forms to author a new initial condition; rendering consumes the same states."
-  :- contacts/Sample
   [[config p/Config]]
   (let [^:var sample (single-ball config)
         spacing (+ (* 3.0 (az/field config radius)) 0.4)

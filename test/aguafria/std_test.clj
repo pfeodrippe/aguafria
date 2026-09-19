@@ -9,7 +9,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
-(az/defn std-sqrt :- :f64
+(az/defn std-sqrt :f64
   [x :- :f64]
   (math/sqrt x))
 

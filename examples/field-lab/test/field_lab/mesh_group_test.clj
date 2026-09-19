@@ -12,8 +12,7 @@
             [field-lab.live :as live]
             [field-lab.physics :as physics]))
 
-(az/defn route-test-inspector!
-  :- :u32 [[refinement :u32]]
+(az/defn route-test-inspector! :u32 [[refinement :u32]]
   (az/set-many! app/job-contact-method 1 app/job-refinement refinement)
   (app/consume-request!)
   (app/route-inspector-bake!)
@@ -111,13 +110,11 @@
       (app/take-job-command!)
       (app/set-job-status! 0))))
 
-(az/defn published-cache
-  :- [:* cache/Cache]
+(az/defn published-cache [:* cache/Cache]
   [[body :usize]]
   (az/unwrap (scene/mesh-cache-at body)))
 
-(az/defn export-result
-  :- :i32
+(az/defn export-result :i32
   []
   (az/field app/controls exported))
 
@@ -172,7 +169,7 @@
       (is (= 1 (az/value scene/count))))
     (finally (scene/shutdown!))))
 
-(az/defn scripted? :- :bool []
+(az/defn scripted? :bool []
   (ak/!= (scene/scripted-scene) null))
 
 (deftest cached-solver-provenance-follows-the-published-cache
@@ -220,8 +217,7 @@
     (is (= code (live/scene-solver-code {:bake {:contact-method method :integration integration}}))))
   (is (= 3 (live/scene-solver-code {:bake {:contact-method :ipc}}))))
 
-(az/defn cached-material
-  :- physics/Vec3
+(az/defn cached-material physics/Vec3
   [[item [:* cache/Cache]]]
   (physics/v (az/field item young) (az/field item poisson) 0.0))
 

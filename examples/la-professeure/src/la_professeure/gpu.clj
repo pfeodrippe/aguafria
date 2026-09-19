@@ -166,21 +166,19 @@
     [mapped-mesh-vertices [:optional [:* :anyopaque]]] [mesh-vertex-count :u32]])
 
 (eval `(az/defstruct ~'RendererContext ~renderer-context-fields))
-(eval `(az/defn ~'swap-context! :- :void [[~'other [:* ~'RendererContext]]]
+(eval `(az/defn ~'swap-context! :void [[~'other [:* ~'RendererContext]]]
          ~@(for [[field _] renderer-context-fields]
              (list 'let ['saved field]
                    (list 'set! field (list 'az/field 'other field))
                    (list 'set! (list 'az/field 'other field) 'saved)))))
 
-(az/defn check
+(az/defn check :void
   "Check Vulkan results even in ReleaseFast."
-  :- :void
   [[result vk/VkResult]]
   (when (ak/!= result vk/VK_SUCCESS)
     (std-debug/panic "La Professeure Vulkan error: {d}" [result])))
 
-(az/defn initialize-instance!
-  :- :void
+(az/defn initialize-instance! :void
   []
   (let [^{:var true :zig/type :u32} extension-count 0
         glfw-extensions (vk/glfwGetRequiredInstanceExtensions (ak/& extension-count))
@@ -210,8 +208,7 @@
             :ppEnabledExtensionNames (ak/& (az/index extensions 0))})]
       (check (vk/vkCreateInstance (ak/& create-info) null (ak/& instance))))))
 
-(az/defn select-device-and-queue!
-  :- :void
+(az/defn select-device-and-queue! :void
   []
   (let [^{:var true :zig/type :u32} device-count 0
         ^:var devices (std-mem/zeroes (az/type [:array 8 vk/VkPhysicalDevice]))]
@@ -245,8 +242,7 @@
           (set! family-index (+ family-index 1)))
         (std-debug/assert (< family-index family-count))))))
 
-(az/defn create-device!
-  :- :void
+(az/defn create-device! :void
   []
   (let [^{:var true} available
         (vk/VkPhysicalDeviceVulkan12Features
@@ -283,14 +279,14 @@
     (check (vk/vkCreateDevice physical-device (ak/& create-info) null (ak/& device)))
     (vk/vkGetDeviceQueue device queue-family 0 (ak/& graphics-queue))))
 
-(az/defn framebuffer-extent :- vk/VkExtent2D []
+(az/defn framebuffer-extent vk/VkExtent2D []
   (let [^{:var :c_int} width 0 ^{:var :c_int} height 0]
     (when (ak/!= renderer-window null)
       (vk/glfwGetFramebufferSize renderer-window (ak/& width) (ak/& height)))
     (vk/VkExtent2D {:width (ak/intCast (ak/max 0 width))
                    :height (ak/intCast (ak/max 0 height))})))
 
-(az/defn choose-extent :- vk/VkExtent2D
+(az/defn choose-extent vk/VkExtent2D
   [[capabilities vk/VkSurfaceCapabilitiesKHR] [requested vk/VkExtent2D]]
   ;; Skip minimized drawables without blocking the other window's event loop.
   (when (or (ak/== (az/field requested width) 0) (ak/== (az/field requested height) 0))
@@ -305,11 +301,10 @@
                     (ak/max (az/field (az/field capabilities minImageExtent) height)
                             (az/field requested height)))}))
 
-(az/defn resize-result? :- :bool [[result vk/VkResult]]
+(az/defn resize-result? :bool [[result vk/VkResult]]
   (or (ak/== result vk/VK_ERROR_OUT_OF_DATE_KHR) (ak/== result vk/VK_SUBOPTIMAL_KHR)))
 
-(az/defn create-swapchain!
-  :- :void
+(az/defn create-swapchain! :void
   []
   (let [^:var capabilities
         (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))
@@ -358,8 +353,7 @@
       (check (vk/vkGetSwapchainImagesKHR
               device swapchain (ak/& image-count) (ak/& (az/index swapchain-images 0)))))))
 
-(az/defn create-image-views!
-  :- :void
+(az/defn create-image-views! :void
   []
   (dotimes [index image-count]
     (let [create-info
@@ -384,8 +378,7 @@
       (check (vk/vkCreateImageView
               device (ak/& create-info) null (ak/& (az/index image-views index)))))))
 
-(az/defn create-render-pass!
-  :- :void
+(az/defn create-render-pass! :void
   []
   (let [attachments
         (az/array-init
@@ -446,8 +439,7 @@
           :pDependencies (ak/& dependency)})]
     (check (vk/vkCreateRenderPass device (ak/& create-info) null (ak/& render-pass)))))
 
-(az/defn create-framebuffers!
-  :- :void
+(az/defn create-framebuffers! :void
   []
   (dotimes [index image-count]
     (let [attachments
@@ -465,8 +457,7 @@
       (check (vk/vkCreateFramebuffer
               device (ak/& create-info) null (ak/& (az/index framebuffers index)))))))
 
-(az/defn create-commands-and-sync!
-  :- :void
+(az/defn create-commands-and-sync! :void
   []
   (let [pool-info
         (vk/VkCommandPoolCreateInfo
@@ -499,7 +490,7 @@
                                    (ak/& (az/index render-finished index)))))
     (check (vk/vkCreateFence device (ak/& fence-info) null (ak/& in-flight)))))
 
-(az/defn destroy-commands-and-sync! :- :void []
+(az/defn destroy-commands-and-sync! :void []
   (vk/vkDestroyFence device in-flight null)
   (dotimes [slot 2]
     (vk/vkDestroySemaphore device (az/index image-available slot) null))
@@ -509,7 +500,7 @@
   (set! active-command-buffer null)
   (set! synchronization-slot 0))
 
-(az/defn destroy-swapchain-targets! :- :void []
+(az/defn destroy-swapchain-targets! :void []
   (dotimes [index image-count]
     (vk/vkDestroyFramebuffer device (az/index framebuffers index) null)
     (vk/vkDestroyImageView device (az/index image-views index) null))
@@ -518,10 +509,8 @@
   (vk/vkFreeMemory device depth-memory null)
   (vk/vkDestroySwapchainKHR device swapchain null))
 
-(az/defn find-memory-type
+(az/defn find-memory-type :u32
   "Select a physical-device memory type satisfying a Vulkan property mask."
-  :-
-  :u32
   [[type-bits :u32]
    [required vk/VkMemoryPropertyFlags]]
   (let [^{:var true}
@@ -540,10 +529,8 @@
           (set! selected (ak/intCast index)))))
     selected))
 
-(az/defn create-depth-resources!
+(az/defn create-depth-resources! :void
   "Create the depth attachment shared by the single in-flight frame."
-  :-
-  :void
   []
   (let [image-info
         (vk/VkImageCreateInfo
@@ -595,10 +582,8 @@
       (check (vk/vkCreateImageView device (ak/& view-info) null
                                   (ak/& depth-view))))))
 
-(az/defn create-mesh-buffer!
+(az/defn create-mesh-buffer! :void
   "Create one persistently mapped, bounded vertex stream for the 3D scene."
-  :-
-  :void
   []
   (let [buffer-size (ak/as vk/VkDeviceSize
                            (+ (* frame-capacity (ak/sizeOf mesh/GpuVertex)) atlas-bytes))
@@ -640,10 +625,8 @@
         (set! vertex-address (vk/vkGetBufferDeviceAddress device (ak/& info)))
         (std-debug/assert (> vertex-address 0))))))
 
-(az/defn load-shader-module
+(az/defn load-shader-module vk/VkShaderModule
   "Load one checked-in SPIR-V shader and create its Vulkan module."
-  :-
-  vk/VkShaderModule
   [[path [:pointer {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
         ^{:var true} module (ak/as vk/VkShaderModule null)]
@@ -662,10 +645,8 @@
           (ak/return null))))
     module))
 
-(az/defn create-triangle-pipeline!
+(az/defn create-triangle-pipeline! :bool
   "Prepare a complete replacement; publish only after both stages and pipeline succeed."
-  :-
-  :bool
   []
   (let [vertex-module (load-shader-module
                        "resources/shaders/mesh.vert.spv")
@@ -798,13 +779,12 @@
     (set! mesh-pipeline-layout candidate-layout)
     true))
 
-(az/defn create-mesh-pipeline! :- :void []
+(az/defn create-mesh-pipeline! :void []
   (when (ak/! (create-triangle-pipeline!))
     (std-debug/panic "Unable to initialize La Professeure shader pipeline" [])))
 
-(az/defn reload-shaders!
-  "Render-thread publication. Failed replacements retain the active pipeline."
-  :- :bool []
+(az/defn reload-shaders! :bool
+  "Render-thread publication. Failed replacements retain the active pipeline." []
   (when (ak/! initialized) (ak/return false))
   (check (vk/vkDeviceWaitIdle device))
   (let [old-pipeline mesh-pipeline old-layout mesh-pipeline-layout]
@@ -814,9 +794,8 @@
           (set! shader-publications (+ shader-publications 1)) true)
       false)))
 
-(az/defn load-atlas!
-  "Load packed RGBA asset bytes into our own mapped GPU heap."
-  :- :void []
+(az/defn load-atlas! :void
+  "Load packed RGBA asset bytes into our own mapped GPU heap." []
   (let [file (stdio/fopen "resources/demo/atlas.rgba" "rb")
         pixels (az/cast mapped-mesh-vertices [:c-pointer :u8])
         offset (* frame-capacity (ak/sizeOf mesh/GpuVertex))]
@@ -825,7 +804,7 @@
     (when (ak/!= (stdio/fread (ak/& (az/index pixels offset)) 1 atlas-bytes file) atlas-bytes)
       (std-debug/panic "Invalid La Professeure RGBA atlas size; run :prepare" []))))
 
-(az/defn recreate-swapchain! :- :bool []
+(az/defn recreate-swapchain! :bool []
   (let [^{:var vk/VkSurfaceCapabilitiesKHR} capabilities
         (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))]
     (check (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR physical-device surface (ak/& capabilities)))
@@ -854,9 +833,8 @@
   (set! resize-count (+ resize-count 1))
   true)
 
-(az/defn initialize-renderer!
+(az/defn initialize-renderer! :bool
   "Initialize Vulkan against an existing GLFW window."
-  :- :bool
   [[window [:optional [:* vk/GLFWwindow]]]]
   (when (ak/! initialized)
     (set! renderer-window window)
@@ -876,8 +854,7 @@
     (set! initialized true))
   initialized)
 
-(az/defn clear-value
-  :- vk/VkClearValue
+(az/defn clear-value vk/VkClearValue
   [[color Color]]
   (vk/VkClearValue
    {:color
@@ -890,9 +867,8 @@
         (az/field color b)
         (az/field color a)])})}))
 
-(az/defn- record-readback!
+(az/defn- record-readback! :void
   "Copy the actual color attachment, then restore its presentation layout."
-  :- :void
   [[command-buffer vk/VkCommandBuffer]
    [image-index :u32]]
   (when (ak/== readback-buffer null)
@@ -945,8 +921,7 @@
      command-buffer vk/VK_PIPELINE_STAGE_TRANSFER_BIT
      vk/VK_PIPELINE_STAGE_HOST_BIT 0 0 null 1 (ak/& host-barrier) 1 (ak/& barrier))))
 
-(az/defn record-frame
-  :- :void
+(az/defn record-frame :void
   [[image-index :u32]
    [build-frame FrameBuilder]]
   (let [command-buffer (az/index command-buffers image-index)
@@ -1003,9 +978,8 @@
     (record-readback! command-buffer image-index)
     (check (vk/vkEndCommandBuffer command-buffer))))
 
-(az/defn render!
+(az/defn render! :bool
   "Ask the application for a triangle frame and present it."
-  :- :bool
   [[build-frame FrameBuilder]]
   (std-debug/assert initialized)
   (let [extent (framebuffer-extent)]
@@ -1060,8 +1034,7 @@
         (set! synchronization-slot (mod (+ synchronization-slot 1) 2)))))
   true)
 
-(az/defn- reuse-frame-vertices {:zig/qualifiers "callconv(.c)"}
-  :- :u32
+(az/defn- reuse-frame-vertices :u32 {:zig/qualifiers "callconv(.c)"}
   [[output [:c-pointer mesh/GpuVertex]]
    [width :i32]
    [height :i32]]
@@ -1070,13 +1043,12 @@
   (set! _ height)
   mesh-vertex-count)
 
-(az/defn capture-frame!
+(az/defn capture-frame! :usize
   "Opt-in render-thread QA. Returns tightly packed BGRA/RGBA bytes, or zero
    when unavailable. Recreates this window's targets without clipping, renders
    the most recent normal frame's mapped vertices through its actual pipeline,
    and waits for GPU completion before copying to output. Does not invoke app
    drawing/input again. Scratch is released; audio/project state is untouched."
-  :- :usize
   [[output [:c-pointer :u8]]
    [capacity :usize]]
   (when (or (ak/! initialized)
@@ -1143,8 +1115,7 @@
                (az/slice (az/cast mapped [:c-pointer :u8]) 0 size))
     size))
 
-(az/defn renderer-snapshot
-  :- RendererSnapshot
+(az/defn renderer-snapshot RendererSnapshot
   []
   (RendererSnapshot
    {:initialized initialized
@@ -1154,15 +1125,13 @@
     :images image-count
     :queue_family queue-family}))
 
-(az/defn renderer-wait-idle!
-  :- :void
+(az/defn renderer-wait-idle! :void
   []
   (when initialized
     (check (vk/vkDeviceWaitIdle device))))
 
-(az/defn shutdown-renderer!
+(az/defn shutdown-renderer! :void
   "Destroy desktop Vulkan resources in dependency order."
-  :- :void
   []
   (when initialized
     (renderer-wait-idle!)

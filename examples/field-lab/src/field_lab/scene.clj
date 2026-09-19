@@ -73,24 +73,21 @@
 
 (az/defvar mesh-group-id :u64 0)
 
-(az/defn single-mesh-cache
-  :- [:optional [:* cache/Cache]]
+(az/defn single-mesh-cache [:optional [:* cache/Cache]]
   []
   (when (or (ak/== world null) (ak/== mesh-cache-id 0)) (ak/return null))
   (let [component (ecs/ecs_get_id world output mesh-cache-id)]
     (when (ak/== component null) (ak/return null))
     (az/field (az/deref (az/cast component [:*const MeshCacheRef])) value)))
 
-(az/defn mesh-group
-  :- [:optional [:* group/Group]]
+(az/defn mesh-group [:optional [:* group/Group]]
   []
   (when (or (ak/== world null) (ak/== mesh-group-id 0)) (ak/return null))
   (let [component (ecs/ecs_get_id world output mesh-group-id)]
     (when (ak/== component null) (ak/return null))
     (az/field (az/deref (az/cast component [:*const MeshGroupRef])) value)))
 
-(az/defn mesh-cache-at
-  :- [:optional [:* cache/Cache]]
+(az/defn mesh-cache-at [:optional [:* cache/Cache]]
   [[body :usize]]
   (let [owned (mesh-group)]
     (when (ak/!= owned null)
@@ -98,8 +95,7 @@
       (ak/return (group/item (az/unwrap owned) body))))
   (if (ak/== body 0) (single-mesh-cache) null))
 
-(az/defn mesh-cache
-  :- [:optional [:* cache/Cache]]
+(az/defn mesh-cache [:optional [:* cache/Cache]]
   []
   (mesh-cache-at 0))
 
@@ -114,21 +110,18 @@
 ;; 3 implicit IPC/backward Euler, 4 implicit IPC/Newmark, 5 implicit IPC/BDF2.
 (az/defvar scripted-solver-id :u64 0)
 
-(az/defn scripted-solver
-  :- :u32 []
+(az/defn scripted-solver :u32 []
   (when (or (ak/== world null) (ak/== scripted-solver-id 0)) (ak/return 0))
   (let [value (ecs/ecs_get_id world output scripted-solver-id)]
     (if (ak/== value null) 0 (az/deref (az/cast value [:*const :u32])))))
 
-(az/defn scripted-scene
-  :- [:optional [:*const ScriptedScene]]
+(az/defn scripted-scene [:optional [:*const ScriptedScene]]
   []
   (when (or (ak/== world null) (ak/== scripted-scene-id 0)) (ak/return null))
   (let [value (ecs/ecs_get_id world output scripted-scene-id)]
     (if (ak/== value null) null (az/cast value [:*const ScriptedScene]))))
 
-(az/defn clear-mesh-cache!
-  :- :void
+(az/defn clear-mesh-cache! :void
   []
   (when (ak/!= scripted-scene-id 0)
     (ecs/ecs_remove_id world output scripted-scene-id))
@@ -145,42 +138,35 @@
 
 (az/defconst dt :f64 0.004166666666666667)
 
-(az/defn entity!
-  :- :u64
+(az/defn entity! :u64
   [[name [:pointer {:size :c :const? true} :u8]]]
   (let [description (ecs/ecs_entity_desc_t {:name name})]
     (ecs/ecs_entity_init world (ak/& description))))
 
-(az/defn component!
-  :- :u64
+(az/defn component! :u64
   [[name [:pointer {:size :c :const? true} :u8]] [size :usize] [alignment :usize]]
   (let [info (ecs/ecs_type_info_t {:size (ak/intCast size) :alignment (ak/intCast alignment)})
         description (ecs/ecs_component_desc_t {:entity (entity! name) :type info})]
     (ecs/ecs_component_init world (ak/& description))))
 
-(az/defn config
-  :- p/Config
+(az/defn config p/Config
   []
   (az/deref (az/cast (ecs/ecs_get_id world source config-id) [:*const p/Config])))
 
-(az/defn body-state
-  :- p/State
+(az/defn body-state p/State
   [[index :u32]]
   (az/deref (az/cast (ecs/ecs_get_id world (az/index bodies index) state-id)
                      [:*const p/State])))
 
-(az/defn state
-  :- p/State
+(az/defn state p/State
   []
   (body-state 0))
 
-(az/defn sample
-  :- contacts/Sample
+(az/defn sample contacts/Sample
   []
   (contacts/Sample {:bodies [(body-state 0) (body-state 1) (body-state 2)]}))
 
-(az/defn publish!
-  :- :void
+(az/defn publish! :void
   [[batch contacts/Sample]]
   (dotimes [i 3]
     (ecs/ecs_set_id world
@@ -189,19 +175,16 @@
                     (ak/sizeOf p/State)
                     (ak/& (az/index (az/field batch bodies) i)))))
 
-(az/defn soft-state
-  :- soft/Body
+(az/defn soft-state soft/Body
   [[index :u32]]
   (az/deref (az/cast (ecs/ecs_get_id world (az/index bodies index) soft-id)
                      [:*const soft/Body])))
 
-(az/defn soft-sample
-  :- soft/Sample
+(az/defn soft-sample soft/Sample
   []
   (soft/Sample {:bodies [(soft-state 0) (soft-state 1) (soft-state 2)]}))
 
-(az/defn publish-soft!
-  :- :void
+(az/defn publish-soft! :void
   [[batch soft/Sample]]
   (dotimes [i 3]
     (ecs/ecs_set_id world
@@ -210,8 +193,7 @@
                     (ak/sizeOf soft/Body)
                     (ak/& (az/index (az/field batch bodies) i)))))
 
-(az/defn store-material!
-  :- :void
+(az/defn store-material! :void
   []
   (when (ak/== material-id 0)
     (set! material-id (component! "BallMaterial" (ak/sizeOf BallMaterial) (ak/alignOf BallMaterial))))
@@ -219,13 +201,11 @@
                                 :young stiffness :poisson (if continuum fem/poisson 0.0)})]
     (set! _ (ecs/ecs_set_id world solver material-id (ak/sizeOf BallMaterial) (ak/& material)))))
 
-(az/defn solver-settings
-  :- BallMaterial
+(az/defn solver-settings BallMaterial
   []
   (az/deref (az/cast (ecs/ecs_get_id world solver material-id) [:*const BallMaterial])))
 
-(az/defn reset!
-  :- :void
+(az/defn reset! :void
   [[settings p/Config]]
   (clear-mesh-cache!)
   (az/set-many!
@@ -255,8 +235,7 @@
     cursor 0
     revision (+ revision 1)))
 
-(az/defn initialize!
-  :- :void
+(az/defn initialize! :void
   []
   (az/set-many!
     world (ecs/ecs_init)
@@ -282,17 +261,15 @@
   (ecs/ecs_add_id world output (ak/| ecs/ECS_PAIR (ak/<< depends-on 32) solver))
   (reset! (p/defaults)))
 
-(az/defn seek!
-  :- :void
+(az/defn seek! :void
   [[tick :u32]]
   (set! cursor (ak/min tick (- count 1)))
   (publish! (az/index history cursor))
   (when (and deformable (ak/== (mesh-cache) null))
     (publish-soft! (az/index soft-history cursor))))
 
-(az/defn adopt-cache!
+(az/defn adopt-cache! :void
   "UI-thread ownership transfer. The output entity owns and releases this cache."
-  :- :void
   [[owned [:* cache/Cache]]]
   (debug/assert (and (> (az/field owned count) 0) (<= (az/field owned count) capacity)
                      (ak/== (az/field owned count) (az/field (az/field owned frames) len))))
@@ -329,9 +306,8 @@
         (ecs/ecs_add_id world (az/index bodies i) ecs/EcsDisabled)))
     (seek! 0)))
 
-(az/defn adopt-group!
+(az/defn adopt-group! :void
   "Publish a completed synchronized cache group; Flecs owns its full lifetime."
-  :- :void
   [[owned [:* group/Group]]]
   (debug/assert (group/complete? owned))
   (debug/assert (and (> (az/field owned count) 0) (<= (az/field owned count) 3)))
@@ -372,9 +348,8 @@
         (ecs/ecs_add_id world (az/index bodies body) ecs/EcsDisabled)))
     (seek! 0)))
 
-(az/defn set-scripted-scene!
+(az/defn set-scripted-scene! :void
   "Flecs owns the source identity and per-body field settings alongside the cache."
-  :- :void
   [[parameters ScriptedScene]]
   (when (ak/== scripted-scene-id 0)
     (set! scripted-scene-id (component! "ScriptedScene" (ak/sizeOf ScriptedScene) (ak/alignOf ScriptedScene))))
@@ -382,16 +357,14 @@
   (when (ak/!= scripted-solver-id 0)
     (ecs/ecs_remove_id world output scripted-solver-id)))
 
-(az/defn set-scripted-solver!
-  "Update cached provenance on the Flecs owning thread, separately from job settings."
-  :- :void [[method :u32]]
+(az/defn set-scripted-solver! :void
+  "Update cached provenance on the Flecs owning thread, separately from job settings." [[method :u32]]
   (debug/assert (<= method 5))
   (when (ak/== scripted-solver-id 0)
     (set! scripted-solver-id (component! "ScriptedSolver" (ak/sizeOf :u32) (ak/alignOf :u32))))
   (ecs/ecs_set_id world output scripted-solver-id (ak/sizeOf :u32) (ak/& method)))
 
-(az/defn step!
-  :- :bool
+(az/defn step! :bool
   []
   (when (ak/!= (mesh-cache) null) (ak/return false))
   (when (>= (+ cursor 1) capacity) (ak/return false))
@@ -434,14 +407,12 @@
     (set! _ (ecs/ecs_progress world (ak/floatCast dt))))
   true)
 
-(az/defn set-experiment!
-  :- :void
+(az/defn set-experiment! :void
   [[three-balls :bool]]
   (set! body-count (if three-balls 3 1))
   (reset! (config)))
 
-(az/defn set-material!
-  :- :void
+(az/defn set-material! :void
   [[enabled :bool] [modulus :f64]]
   (az/set-many!
     deformable enabled
@@ -449,21 +420,18 @@
     stiffness (ak/max 1000.0 (ak/min 100000.0 modulus)))
   (reset! (config)))
 
-(az/defn shutdown!
-  :- :void
+(az/defn shutdown! :void
   []
   (clear-mesh-cache!)
   (when (ak/!= world null) (set! _ (ecs/ecs_fini world)) (set! world null)))
 
-(az/defn set-solver!
-  :- :void
+(az/defn set-solver! :void
   [[model :u32] [modulus :f64]]
   (set! requested-continuum (ak/== model 2))
   (set-material! (ak/!= model 0) modulus))
 
-(az/defn bake-chunk!
+(az/defn bake-chunk! :bool
   "Append numerical ticks independently of display time. Seeking never recomputes."
-  :- :bool
   [[end-tick :u32] [budget :u32]]
   (let [last-tick (ak/min end-tick (ak/as :u32 (ak/intCast (- capacity 1))))]
     (seek! (- count 1))

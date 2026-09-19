@@ -9,9 +9,8 @@
 
 (az/defvar host [:optional [:*const sdk/PitocoHostV1]] null)
 
-(az/defn attach
+(az/defn attach :u32
   {:zig/qualifiers "callconv(.c)"}
-  :- :u32
   [[api [:pointer {:size :c :const? true} sdk/PitocoHostV1]] [state [:c-pointer [:optional [:* :anyopaque]]]]]
   (when (or (ak/== api null) (ak/!= (az/field (az/index api 0) abi_version) 1)
             (< (az/field (az/index api 0) struct_size) (ak/sizeOf sdk/PitocoHostV1)))
@@ -21,16 +20,14 @@
     (az/index state 0) null)
   0)
 
-(az/defn detach
+(az/defn detach :void
   {:zig/qualifiers "callconv(.c)"}
-  :- :void
   [[state [:optional [:* :anyopaque]]]]
   (set! _ state)
   (set! host null))
 
-(az/defn run-command
+(az/defn run-command :u32
   {:zig/qualifiers "callconv(.c)"}
-  :- :u32
   [[state [:optional [:* :anyopaque]]] [command [:pointer {:size :c :const? true} :u8]]]
   (set! _ state)
   (when (or (ak/== host null) (ak/== command null)) (ak/return 3))
@@ -48,8 +45,7 @@
                        :id "example.rewind" :on_load (ak/& attach) :on_unload (ak/& detach)
                        :on_command (ak/& run-command)}))
 
-(az/defn pitoco_plugin_v1
+(az/defn pitoco_plugin_v1 [:*const sdk/PitocoPluginV1]
   {:attrs #{:export}}
-  :- [:*const sdk/PitocoPluginV1]
   []
   (ak/& descriptor))

@@ -35,10 +35,8 @@
 
 (az/defvar last-frequency :f64 0.0)
 
-(az/defn event-frequency
+(az/defn event-frequency :f64
   "Map one factory-domain event to a recognizable native tone."
-  :-
-  :f64
   [[event-kind :u8]]
   (cond
     (ak/== event-kind 1) 540.0
@@ -47,10 +45,8 @@
     (ak/== event-kind 4) 880.0
     :else 360.0))
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Open miniaudio once; failure leaves gameplay usable without sound."
-  :-
-  :bool
   []
   (when (ak/! initialized)
     (let [engine-config (miniaudio/ma_engine_config_init)]
@@ -82,10 +78,8 @@
                 (set! initialized true))))))))
   initialized)
 
-(az/defn play-event!
+(az/defn play-event! :void
   "Play a short feedback tone for a placement, removal, delivery, or house."
-  :-
-  :void
   [[event-kind :u8]]
   (when initialized
     (let [frequency (event-frequency event-kind)
@@ -105,10 +99,8 @@
       (set! last-frequency frequency)
       (set! play-count (+ play-count 1)))))
 
-(az/defn snapshot
+(az/defn snapshot AudioSnapshot
   "Inspect native audio state from Clojure without touching the device."
-  :-
-  AudioSnapshot
   []
   (AudioSnapshot {:initialized initialized
                   :sample_rate sample-rate
@@ -116,10 +108,8 @@
                   :last_event last-event
                   :last_frequency last-frequency}))
 
-(az/defn shutdown!
+(az/defn shutdown! :void
   "Release miniaudio resources in ownership order."
-  :-
-  :void
   []
   (when initialized
     (miniaudio/ma_sound_uninit (ak/& sound))

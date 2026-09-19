@@ -7,10 +7,8 @@
             [simple-game.factory :as factory]
             [simple-game.game :as game]))
 
-(az/defn main
+(az/defn main :void
   "Exit unsuccessfully when optimized factory behavior diverges from development."
-  :-
-  :void
   []
   (set! _ (game/initialize!))
   (dotimes [_ 3600]

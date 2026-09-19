@@ -23,6 +23,10 @@
           forms
           (recur (conj forms form)))))))
 
+(deftest saturating-left-shift-has-a-readable-assignment-operator
+  (is (= "<<|=" (get @#'convert/assignment-tokens :assign_shl_sat)))
+  (is (= '<<|= (get @#'convert/simple-assignment-symbols "<<|="))))
+
 (deftest absolute-build-module-path-resolves-to-converted-plan-test
   (let [input-root (.getCanonicalFile (io/file "test/fixtures"))
         source (.getCanonicalFile (io/file input-root "container.zig"))
@@ -38,6 +42,27 @@
                  {"fixture-types" (.getAbsolutePath target)}})]
     (is (= expected actual))))
 
+(deftest labeled-loop-else-blocks-retain-their-value-test
+  (let [result (convert/verify-file
+                "test/fixtures/loop_else_labeled.zig"
+                {:namespace 'fixture.loop-else-labeled
+                 :mode :test
+                 :throw? false})]
+    (is (:success? result) (:stderr result))
+    (is (zero? (:fallback-count result)))
+    (is (not (str/includes? (:zig-source result) "done;")))
+    (is (= 2 (count (re-seq #"done: \{" (:zig-source result)))))))
+
+(deftest switch-comptime-unreachable-preserves-syntax-sensitive-semantics-test
+  (let [result (convert/verify-file
+                "test/fixtures/switch_comptime_unreachable.zig"
+                {:namespace 'fixture.switch-comptime-unreachable
+                 :mode :test
+                 :throw? false})]
+    (is (:success? result) (:stderr result))
+    (is (str/includes? (:zig-source result) "=> comptime unreachable"))
+    (is (not (str/includes? (:zig-source result) "=> (comptime unreachable)")))))
+
 (deftest converted-source-has-compact-attrs-and-spacing-test
   (let [{container-source :clojure-source}
         (convert/convert-file "test/fixtures/container.zig"
@@ -48,10 +73,48 @@
       (is (not (str/includes? container-source obsolete)) obsolete))
     (is (str/includes? container-source ":attrs #{:public}"))
     (is (str/includes? container-source ":attrs #{:enum}"))
-    (is (str/includes? container-source ":explicit-return"))
+    (is (not (str/includes? container-source ":explicit-return")))
+    (is (not (str/includes? container-source "Generated from")))
+    (is (not (str/includes? container-source "Edit and reevaluate")))
     (is (not (str/includes? container-source ":attrs #{}")))
     (is (str/includes? container-source "(az/field-decl replica Replica)"))
     (is (re-find #"\)\n\n\(az/defconst" container-source))))
+
+(deftest canonical-declaration-headers-stay-together-test
+  (let [converted (convert/convert-file "test/fixtures/loop_else_labeled.zig"
+                                        {:namespace 'fixture.canonical-format})
+        source (:clojure-source converted)]
+    (is (not (re-find #"\(az/(?:defn-?|deftest)\s*\n" source)))
+    (is (every? symbol? (map second (filter #(= 'az/deftest (first %))
+                                            (:forms converted)))))
+    (is (not (str/includes? source "zig-test-")))
+    (is (not (str/includes? source ":zig/test-name"))))
+  (let [converted (convert/convert-file "test/fixtures/name_collisions.zig"
+                                        {:namespace 'fixture.canonical-function-format})
+        source (:clojure-source converted)]
+    (is (re-find #"\(az/defn-? [^\s]+ :[a-z0-9]+\n" source))
+    (is (not (re-find #"\(az/defn-? [^\n]* :-" source)))))
+
+(deftest native-test-labels-follow-the-ast-test-declaration-order
+  (let [parsed (convert/parse-file "test/fixtures/test_labels.zig")
+        labels (convert/test-labels parsed)]
+    (is (= [{:kind :named :label "test.named example"}
+            {:kind :unnamed :label "test_0"}
+            {:kind :identifier :label "decltest.documented"}
+            {:kind :unnamed :label "test_1"}]
+           (mapv #(select-keys % [:kind :label]) labels)))
+    (is (every? integer? (map :node labels)))
+    (is (= 4 (count (set (map :node labels)))))))
+
+(deftest converted-tests-have-only-symbol-derived-names
+  (let [{:keys [forms clojure-source]}
+        (convert/convert-file "test/fixtures/test_labels.zig"
+                              {:namespace 'fixture.symbol-test-names})
+        test-forms (filter #(= 'az/deftest (first %)) forms)]
+    (is (= '[named-example-test anonymous-test documented-test anonymous-test-2]
+           (mapv second test-forms)))
+    (is (not (str/includes? clojure-source ":zig/test-name")))
+    (is (= 4 (count test-forms)))))
 
 (deftest empty-converted-module-still-loads-its-own-namespace-test
   (let [directory (.toFile
@@ -688,7 +751,7 @@
               (binding [*ns* caller-ns#]
                 (alias '~'stdx '~module)
                 (eval
-                 '~'(aguafria.zig/defn probe :- :bool
+                 '~'(aguafria.zig/defn probe :bool
                     []
                     (stdx/zeroed (& [0 0 0])))))
               (aguafria.zig.runtime/await! '~caller-module)
@@ -703,10 +766,9 @@
                                     declaration#)))))]
                 (binding [*ns* (the-ns '~module)]
                   (eval
-                   '~'(aguafria.zig/defn zeroed
+                   '~'(aguafria.zig/defn zeroed :bool
                       "Checks that a byteslice is zeroed."
                       {:attrs #{:public}}
-                      :- :bool
                       [[bytes [:slice-const :u8]]]
                       (aguafria.keyword/return
                        (== (aguafria.zig/field bytes len) 0)))))

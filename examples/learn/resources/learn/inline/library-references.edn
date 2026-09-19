@@ -1,0 +1,283 @@
+{"std.testing.allocator"
+ {:clojure-source "aguafria.std.testing/allocator"
+  :kind :reference
+  :note "The standard test allocator; allocations still need their normal cleanup."}
+
+ "@import(\"builtin\").is_test"
+ {:clojure-source "(az/field (ak/import \"builtin\") :is_test)"
+  :kind :expr
+  :note "Whether the current native compilation is a test build."}
+
+ "std.testing"
+ {:clojure-source "aguafria.std/testing"
+  :kind :reference
+  :note "The testing module. Individual declarations live in aguafria.std.testing."}
+
+ ;; The published page says dumpStackTrace; the pinned template differs here.
+ "std.debug.dumpStackTrace"
+ {:clojure-source "aguafria.std.debug/dumpStackTrace"
+  :kind :reference
+  :note "Matches the published page, not the template's dumpErrorReturnTrace spelling. This is a function reference, not a fabricated trace invocation."}
+
+ "std.builtin.Signedness"
+ {:clojure-source "aguafria.std.builtin/Signedness"
+  :kind :reference
+  :note "The signedness enum used by integer type construction."}
+
+ "std.math.Log2IntCeil(@TypeOf(x))"
+ {:clojure-source "(aguafria.std.math/Log2IntCeil (ak/TypeOf x))"
+  :kind :expr
+  :note "The shift-count type for x's integer type. The value x comes from the surrounding example."}
+
+ "@import(\"std\").builtin.AtomicOrder"
+ {:clojure-source "aguafria.std.builtin/AtomicOrder"
+  :kind :reference
+  :note "The atomic memory-order enum, not an atomic operation by itself."}
+
+ "@import(\"std\").builtin.AtomicRmwOp"
+ {:clojure-source "aguafria.std.builtin/AtomicRmwOp"
+  :kind :reference
+  :note "The operation enum for atomic read-modify-write."}
+
+ "@import(\"std\").builtin.BranchHint"
+ {:clojure-source "aguafria.std.builtin/BranchHint"
+  :kind :reference
+  :note "The branch prediction hint enum."}
+
+ "@import(\"std\").math.divExact"
+ {:clojure-source "aguafria.std.math/divExact"
+  :kind :reference
+  :note "The standard-library checked division helper, distinct from the @divExact builtin."}
+
+ "@import(\"std\").math.divFloor"
+ {:clojure-source "aguafria.std.math/divFloor"
+  :kind :reference
+  :note "The standard-library checked floor-division helper."}
+
+ "@import(\"std\").math.divTrunc"
+ {:clojure-source "aguafria.std.math/divTrunc"
+  :kind :reference
+  :note "The standard-library checked truncating-division helper."}
+
+ "@import(\"std\")"
+ {:clojure-source "(ak/import \"std\")"
+  :kind :expr
+  :note "Import the Zig standard-library module inside an Aguafria declaration."}
+
+ "@import(\"builtin\")"
+ {:clojure-source "(ak/import \"builtin\")"
+  :kind :expr
+  :note "Import this compilation's generated target and build configuration."}
+
+ "@import(\"root\")"
+ {:clojure-source "(ak/import \"root\")"
+  :kind :expr
+  :note "Import the current compilation's root module; its declarations depend on the program."}
+
+ "std.crypto.secureZero"
+ {:clojure-source "aguafria.std.crypto/secureZero"
+  :kind :reference
+  :note "The secure memory-clearing helper, rather than an ordinary removable store."}
+
+ "@import(\"std\").heap.WasmPageAllocator"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "This published reference names WasmPageAllocator, which is absent from the pinned 0.16 standard-library catalog. The current heap module exposes WasmAllocator; that is a version-specific API change, not an equivalent Var under the old name."}
+
+ "@import(\"std\").math.mod"
+ {:clojure-source "aguafria.std.math/mod"
+  :kind :reference
+  :note "The standard-library checked modulo helper."}
+
+ "std.builtin.default_panic"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "The published panic discussion uses an obsolete default_panic path. The pinned standard library has no such Var; its current panic interface uses std.debug.FullPanic and std.debug.simple_panic. These are not silently substituted for the old function."}
+
+ "@import(\"std\").debug.panic"
+ {:clojure-source "aguafria.std.debug/panic"
+  :kind :reference
+  :note "The formatted standard-library panic helper; it does not return."}
+
+ "@import(\"std\").builtin.PrefetchOptions"
+ {:clojure-source "aguafria.std.builtin/PrefetchOptions"
+  :kind :reference
+  :note "Options for the prefetch builtin."}
+
+ "@import(\"std\").math.rem"
+ {:clojure-source "aguafria.std.math/rem"
+  :kind :reference
+  :note "The standard-library checked remainder helper."}
+
+ "@import(\"std\").builtin.FloatMode"
+ {:clojure-source "aguafria.std.builtin/FloatMode"
+  :kind :reference
+  :note "The floating-point optimization mode enum."}
+
+ "@import(\"builtin\").single_threaded"
+ {:clojure-source "(az/field (ak/import \"builtin\") :single_threaded)"
+  :kind :expr
+  :note "Whether this native compilation assumes single-threaded execution."}
+
+ "std.Mutex"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "The published single-threading discussion names std.Mutex, which is absent from the pinned 0.16 library. Current mutex APIs include std.Io.Mutex and std.atomic.Mutex with different interfaces; neither is presented as an interchangeable old std.Mutex Var."}
+
+ "std.math.maxInt"
+ {:clojure-source "aguafria.std.math/maxInt"
+  :kind :reference
+  :note "Compute the maximum representable value of a supplied integer type."}
+
+ "@import(\"std\").math.add"
+ {:clojure-source "aguafria.std.math/add"
+  :kind :reference
+  :note "The standard-library checked addition helper."}
+
+ "@import(\"std\").math.sub"
+ {:clojure-source "aguafria.std.math/sub"
+  :kind :reference
+  :note "The standard-library checked subtraction helper."}
+
+ "@import(\"std\").math.mul"
+ {:clojure-source "aguafria.std.math/mul"
+  :kind :reference
+  :note "The standard-library checked multiplication helper."}
+
+ "@import(\"std\").math.shl"
+ {:clojure-source "aguafria.std.math/shl"
+  :kind :reference
+  :note "The standard-library checked left-shift helper."}
+
+ "std.heap.c_allocator"
+ {:clojure-source "aguafria.std.heap/c_allocator"
+  :kind :reference
+  :note "The allocator backed by libc; native use requires the appropriate libc linkage."}
+
+ "std.heap.DebugAllocator"
+ {:clojure-source "aguafria.std.heap/DebugAllocator"
+  :kind :reference
+  :note "The configurable debug allocator type constructor."}
+
+ "std.heap.FixedBufferAllocator"
+ {:clojure-source "aguafria.std.heap/FixedBufferAllocator"
+  :kind :reference
+  :note "An allocator using caller-provided fixed storage."}
+
+ "std.heap.ArenaAllocator"
+ {:clojure-source "aguafria.std.heap/ArenaAllocator"
+  :kind :reference
+  :note "An arena allocator groups allocations for collective cleanup."}
+
+ "std.testing.FailingAllocator"
+ {:clojure-source "aguafria.std.testing/FailingAllocator"
+  :kind :reference
+  :note "A testing allocator that can deliberately fail allocations."}
+
+ "std.heap.smp_allocator"
+ {:clojure-source "aguafria.std.heap/smp_allocator"
+  :kind :reference
+  :note "The standard library's multithreaded allocator instance."}
+
+ "std.ArrayList(T).items"
+ {:clojure-source "(az/field (aguafria.std/ArrayList T) :items)"
+  :kind :expr
+  :note "Preserves the reference's contextual field notation for ArrayList(T). T is supplied by context; ordinary program code accesses :items on an initialized list value, not as an independently executable type-field expression."}
+
+ "std.start"
+ {:clojure-source "aguafria.std/start"
+  :kind :reference
+  :note "The standard-library startup module, distinct from the source path lib/std/start.zig."}
+
+ "std.Options"
+ {:clojure-source "aguafria.std/Options"
+  :kind :reference
+  :note "Root-program options consumed by the standard library."}
+
+ "std.log"
+ {:clojure-source "aguafria.std/log"
+  :kind :reference
+  :note "The standard-library logging module."}
+
+ "std.debug.simple_panic"
+ {:clojure-source "aguafria.std.debug/simple_panic"
+  :kind :reference
+  :note "The current simple panic implementation."}
+
+ "std.debug.FullPanic"
+ {:clojure-source "aguafria.std.debug/FullPanic"
+  :kind :reference
+  :note "Construct the full panic interface from its panic callback."}
+
+ "std.fs.wasi.Preopens"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "The published prose retains the old std.fs.wasi.Preopens path, absent from the pinned 0.16 library. Its accompanying current example obtains preopens from std.process.Init; std.process.Preopens is the current type, not a Var at the historical path."}
+
+ "@call(modifier: std.builtin.CallModifier, function: anytype, args: anytype) anytype"
+ {:clojure-source "ak/call" :kind :reference
+  :note "Builtin signature reference, not a call. The catalog abbreviates std.builtin.CallModifier to CallModifier; the argument contract is unchanged."}
+
+ "@cVaArg(operand: *std.builtin.VaList, comptime T: type) T"
+ {:clojure-source "ak/cVaArg" :kind :reference
+  :note "C variadic argument builtin reference. The catalog abbreviates the same VaList type; surrounding native code supplies the variadic-list state."}
+
+ "@cVaCopy(src: *std.builtin.VaList) std.builtin.VaList"
+ {:clojure-source "ak/cVaCopy" :kind :reference
+  :note "C variadic-list copy builtin reference; the catalog omits the std.builtin qualification of VaList."}
+
+ "@cVaEnd(src: *std.builtin.VaList) void"
+ {:clojure-source "ak/cVaEnd" :kind :reference
+  :note "C variadic-list cleanup builtin reference; the catalog abbreviates VaList."}
+
+ "@cVaStart() std.builtin.VaList"
+ {:clojure-source "ak/cVaStart" :kind :reference
+  :note "Signature reference, not a zero-argument invocation. This builtin is only valid inside a native variadic function; the catalog abbreviates VaList."}
+
+ "@errorReturnTrace() ?*builtin.StackTrace"
+ {:clojure-source "ak/errorReturnTrace" :kind :reference
+  :note "Error-return trace builtin reference. The catalog uses the unqualified StackTrace name; availability still depends on error-return tracing and calling context."}
+
+ "@export(comptime ptr: *const anyopaque, comptime options: std.builtin.ExportOptions) void"
+ {:clojure-source "ak/export" :kind :reference
+  :note "Builtin export signature, not a top-level export declaration. The catalog abbreviates ExportOptions."}
+
+ "@extern(T: type, comptime options: std.builtin.ExternOptions) T"
+ {:clojure-source "ak/extern" :kind :reference
+  :note "Builtin external-symbol reference signature; the catalog abbreviates ExternOptions. This is distinct from az/defextern's declaration syntax."}
+
+ "@reduce(comptime op: std.builtin.ReduceOp, value: anytype) E"
+ {:clojure-source "ak/reduce" :kind :reference
+  :note "Vector reduction builtin reference. The catalog abbreviates ReduceOp; E denotes the vector element result type, not a newly defined local."}
+
+ "@src() std.builtin.SourceLocation"
+ {:clojure-source "ak/src" :kind :reference
+  :note "Signature reference, not a call at this documentation site. The catalog abbreviates SourceLocation; the native builtin must be used inside a function."}
+
+ "@Int(comptime signedness: std.builtin.Signedness, comptime bits: u16) type"
+ {:clojure-source "ak/Int" :kind :reference
+  :note "Integer type-construction builtin reference; the catalog abbreviates Signedness."}
+
+ "@Pointer(\n    comptime size: std.builtin.Type.Pointer.Size,\n    comptime attrs: std.builtin.Type.Pointer.Attributes,\n    comptime Element: type,\n    comptime sentinel: ?Element,\n) type"
+ {:clojure-source "ak/Pointer" :kind :reference
+  :note "Pointer type-construction signature reference. Catalog Type.Pointer names abbreviate std.builtin.Type.Pointer; no parameters are invented here."}
+
+ "@Fn(\n    comptime param_types: []const type,\n    comptime param_attrs: *const [param_types.len]std.builtin.Type.Fn.Param.Attributes,\n    comptime ReturnType: type,\n    comptime attrs: std.builtin.Type.Fn.Attributes,\n) type"
+ {:clojure-source "ak/Fn" :kind :reference
+  :note "Function type-construction signature reference. Catalog Type.Fn names abbreviate the same std.builtin.Type.Fn types."}
+
+ "@Struct(\n    comptime layout: std.builtin.Type.ContainerLayout,\n    comptime BackingInt: ?type,\n    comptime field_names: []const []const u8,\n    comptime field_types: *const [field_names.len]type,\n    comptime field_attrs: *const [field_names.len]std.builtin.Type.StructField.Attributes,\n) type"
+ {:clojure-source "ak/Struct" :kind :reference
+  :note "Struct type-construction signature reference. The catalog abbreviates std.builtin.Type qualifications, without changing the parameter contract."}
+
+ "@Union(\n    comptime layout: std.builtin.Type.ContainerLayout,\n    /// Either the integer tag type, or the integer backing type, depending on `layout`.\n    comptime ArgType: ?type,\n    comptime field_names: []const []const u8,\n    comptime field_types: *const [field_names.len]type,\n    comptime field_attrs: *const [field_names.len]std.builtin.Type.UnionField.Attributes,\n) type"
+ {:clojure-source "ak/Union" :kind :reference
+  :note "Union type-construction signature reference. The catalog has the same layout-dependent ArgType contract and abbreviated std.builtin.Type names."}
+
+ "@Enum(\n    comptime TagInt: type,\n    comptime mode: std.builtin.Type.Enum.Mode,\n    comptime field_names: []const []const u8,\n    comptime field_values: *const [field_names.len]TagInt,\n) type"
+ {:clojure-source "ak/Enum" :kind :reference
+  :note "Enum type-construction signature reference. The catalog abbreviates Type.Enum.Mode; the original signature remains visible."}
+
+ "@typeInfo(comptime T: type) std.builtin.Type"
+ {:clojure-source "ak/typeInfo" :kind :reference
+  :note "Type-reflection builtin signature reference. The catalog's Type result means std.builtin.Type; this is not an invented invocation with a free T."}}

@@ -8,7 +8,7 @@
 (az/defvar running false)
 (az/defvar frame :u64 0)
 
-(az/defn callback {:zig/qualifiers "callconv(.c)"} :- :void
+(az/defn callback :void {:zig/qualifiers "callconv(.c)"}
   [[pointer [:c-pointer recorder/Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (set! _ pointer) (set! _ input)
@@ -22,10 +22,10 @@
         (set! (az/index out (+ (* i 16) 5)) (* v 0.7)))
       (set! frame (+ frame 1)))))
 
-(az/defn stop! :- :void []
+(az/defn stop! :void []
   (when running ((az/field recorder/api ma_device_uninit) (ak/& device)) (set! running false)))
 
-(az/defn start! :- :bool [[index :u32]]
+(az/defn start! :bool [[index :u32]]
   (when (or running (ak/! recorder/initialized) (>= index recorder/playback-count)
             (ak/! (mem/eql (az/type :u8) (recorder/device-name false index) "BlackHole 16ch")))
     (ak/return false))

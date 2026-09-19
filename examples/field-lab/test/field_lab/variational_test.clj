@@ -18,8 +18,7 @@
 (az/defstruct MassProbe {:layout :extern}
   [[:solved :bool] [:maximum-relative-error :f64] [:first-product [:array 12 :f64]]])
 
-(az/defn probe-mass
-  :- MassProbe [[workspace [:* implicit/Workspace]] [scale :f64]]
+(az/defn probe-mass MassProbe [[workspace [:* implicit/Workspace]] [scale :f64]]
   (let [input (az/field workspace mass-input)
         product (az/field workspace mass-product)
         ^{:var MassProbe} result ak/undefined]
@@ -438,15 +437,13 @@
 (az/defstruct ProjectionProbe {:layout :extern}
   [[:valid :bool] [:matrix [:array 144 :f64]]])
 
-(az/defn project-block
-  :- ProjectionProbe [[input [:array 144 :f64]]]
+(az/defn project-block ProjectionProbe [[input [:array 144 :f64]]]
   (let [^:var matrix input
         valid (implicit/project-element! (ak/& (az/index matrix 0)))]
     (ProjectionProbe {:valid valid :matrix matrix})))
 
-(az/defn main
-  "Standalone projection/link smoke check; no JVM or development dispatch."
-  :- :void []
+(az/defn main :void
+  "Standalone projection/link smoke check; no JVM or development dispatch." []
   (let [^{:var [:array 144 :f64]} matrix ak/undefined]
     (dotimes [row 12]
       (dotimes [column 12]

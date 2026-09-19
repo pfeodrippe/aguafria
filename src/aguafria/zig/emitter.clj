@@ -11,6 +11,9 @@
   [message form & [data]]
   (throw (ex-info message (merge {:form form} data))))
 
+(def ^:private reserved-identifiers
+  (set (map :name (keyword/language-keywords))))
+
 (defn identifier
   "Render a Clojure name as a legal, conventional Zig identifier.
 
@@ -28,11 +31,14 @@
                             (name x))
               (keyword? x) (name x)
               :else (fail! "Expected a Zig identifier" x))]
-      (-> s
-          (str/replace "-" "_")
-          (str/replace "?" "_q")
-          (str/replace "!" "_bang")
-          (str/replace "/" "__")))))
+      (let [source (-> s
+                       (str/replace "-" "_")
+                       (str/replace "?" "_q")
+                       (str/replace "!" "_bang")
+                       (str/replace "/" "__"))]
+        (if (contains? reserved-identifiers source)
+          (str "@" (pr-str source))
+          source)))))
 
 (declare zig-string emit-expr emit-stmt emit-statements emit-type emit-block-expr
          postfix-source multiline-string-tail? indent braced capture-source
@@ -140,6 +146,10 @@
 (defn- resolved-syntax-operator
   [context-ns op]
   (or (when (structural-operator? op) op)
+      ;; The Clojure reader expands @pointer to clojure.core/deref. Resolve
+      ;; that exact Var, not arbitrary qualified functions named deref.
+      (when (= #'clojure.core/deref (resolve-context-var context-ns op))
+        'deref)
       (some-> (resolve-context-var context-ns op)
               meta :aguafria/syntax :name symbol)))
 
@@ -410,7 +420,7 @@
                              (if (and (some? value) (not (boolean? value)))
                                (assoc metadata key (qualify-form context-ns value))
                                metadata)))
-                         (meta form) [:var :zig/type :tag]))
+                         (meta form) [:var :zig/type :tag :zig/align :zig/addrspace :zig/linksection]))
                form)]
    ;; Type-bearing binding metadata is source code too. Capture its defining
    ;; namespace before declaration emission happens in a different context.
@@ -582,7 +592,12 @@
       (:zig-name reference)
       (identifier t))
 
-    (or (keyword? t) (string? t))
+    ;; Type-position keywords include grammar words such as anytype. Quoting
+    ;; them would turn a type specifier into a reference to a named declaration.
+    (keyword? t)
+    (if (contains? reserved-identifiers (name t)) (name t) (identifier t))
+
+    (string? t)
     (identifier t)
 
     (vector? t)
@@ -714,7 +729,7 @@
   {"=" "=", "+=" "+=", "-=" "-=", "*=" "*=", "/=" "/=", "%=" "%="
    "+%=" "+%=", "-%=" "-%=", "*%=" "*%="
    "+|=" "+|=", "-|=" "-|=", "*|=" "*|="
-   "&=" "&=", "|=" "|=", "^=" "^=", "<<=" "<<=", ">>=" ">>="})
+   "&=" "&=", "|=" "|=", "^=" "^=", "<<=" "<<=", "<<|=" "<<|=", ">>=" ">>="})
 
 (defn- operator-name
   [op]
@@ -743,7 +758,14 @@
               (re-matches #"@\"(?:[^\"\\\r\n]|\\.)*\"" source))
         source
         (fail! "identifier-literal expects one exact Zig identifier" form)))
-    (identifier form)))
+    (let [source (identifier form)]
+      ;; Reserved spellings are already quoted by identifier. Tuple fields
+      ;; such as :3 need quoted identifiers too.
+      (if (and (keyword? form)
+               (not (str/starts-with? source "@\""))
+               (not (re-matches #"[A-Za-z_][A-Za-z0-9_]*" source)))
+        (str "@" (zig-string source))
+        source))))
 
 (defn- emit-lexical-literal
   [operator args form]
@@ -885,6 +907,11 @@
 (defn- emit-switch-target
   [target]
   (cond
+    ;; Zig recognizes this exact prong syntax to permit errors outside the
+    ;; switched error set. Parenthesizing it changes semantic validation.
+    (contains? '#{(comptime unreachable) (comptime (unreachable))} target)
+    "comptime unreachable"
+
     (and (seq? target) (contains? #{'do 'block} (first target)))
     (braced (rest target) 0)
 
@@ -1236,6 +1263,11 @@
             (str (emit-type type) (subs (emit-vector-literal elements) 1))
             (fail! "array-init expects a type and element vector" form)))
 
+        (= op 'unreachable)
+        (if (empty? args)
+          "unreachable"
+          (fail! "unreachable expects no arguments" form))
+
         (= op 'type)
         (if (= 1 (count args))
           (emit-type (first args))
@@ -1534,21 +1566,45 @@
       (fail! "let expects an even Clojure binding vector and a body" form))
     (let [pairs (mapv vec (partition 2 bindings))]
       (doseq [[binding] pairs]
-        (when-not (symbol? binding)
-          (fail! "Aguafria let currently binds names, not destructuring forms"
+        (when-not (or (symbol? binding)
+                      (and (vector? binding) (seq binding)
+                           (every? #(and (symbol? %) (not= '& %)) binding)))
+          (fail! "Aguafria let expects a name or a fixed vector of names"
                  form {:binding binding})))
       {:pairs pairs :body body})))
 
-(defn- let-local-form
-  [[binding value]]
+(defn- local-binding
+  [binding]
   (let [{:keys [var] :as metadata} (meta binding)
-        kind (if var 'var 'const)
         type (or (:zig/type metadata)
                  (when-not (boolean? var) var)
                  (:tag metadata))]
-    (if type
-      (list kind binding type value)
-      (list kind binding value))))
+    (cond-> {:kind (if var :var :const) :name binding}
+      type (assoc :type type)
+      (:zig/prefix metadata) (assoc :prefix (:zig/prefix metadata))
+      (:zig/align metadata) (assoc :align (:zig/align metadata))
+      (:zig/addrspace metadata) (assoc :addrspace (:zig/addrspace metadata))
+      (:zig/linksection metadata) (assoc :linksection (:zig/linksection metadata)))))
+
+(defn- let-local-form
+  [[binding value]]
+  (if (vector? binding)
+    (if (= 1 (count binding))
+      ;; Zig has no single-target destructuring syntax; direct indexing still
+      ;; evaluates the initializer exactly once.
+      (if (= '_ (first binding))
+        (list 'set! '_ (list 'index value 0))
+        (let-local-form [(first binding) (list 'index value 0)]))
+      (list 'destructure {}
+            (mapv #(if (= '_ %) {:kind :discard} (local-binding %)) binding)
+            value))
+    (let [{:keys [kind type] :as declaration} (local-binding binding)
+          options (dissoc declaration :kind :name :type)]
+      (apply list (symbol (name kind)) binding
+             (cond-> []
+               (seq options) (conj options)
+               type (conj type)
+               true (conj value))))))
 
 (defn- emit-let-stmt
   [args level form]
@@ -1851,10 +1907,29 @@
                (= op 'const) (emit-local "const" args form)
                (= op 'var) (emit-local "var" args form)
                (= op 'let) (emit-let-stmt args level form)
-               (= op 'set!) (if (= 2 (count args))
-                              (str (emit-expr (first args)) " = "
-                                   (emit-expr (second args)) ";")
-                              (fail! "set! expects a target and value" form))
+               (= op 'set!)
+               (if (= 2 (count args))
+                 (let [[target value] args]
+                   (when (and (vector? target)
+                              (not (and (seq target)
+                                        (every? #(or (and (symbol? %) (not= '& %))
+                                                     (and (seq? %)
+                                                          (contains? #{'field 'index 'deref}
+                                                                     (first %))))
+                                                target))))
+                     (fail! "Vector set! expects a nonempty fixed vector of assignment targets"
+                            form {:target target}))
+                   (if (vector? target)
+                     (if (= 1 (count target))
+                       (str (emit-expr (first target)) " = "
+                            (emit-expr (list 'index value 0)) ";")
+                       (str (emit-expr
+                             (list 'destructure {}
+                                   (mapv #(if (= '_ %) {:kind :discard}
+                                              {:kind :target :target %}) target)
+                                   value)) ";"))
+                     (str (emit-expr target) " = " (emit-expr value) ";")))
+                 (fail! "set! expects a target and value" form))
                (contains? #{'switch-stmt 'labeled-switch-stmt} op)
                (emit-expr form)
                (contains? #{'switch 'labeled-switch} op)
@@ -1939,12 +2014,16 @@
                                (fail! "defer expects one statement or do block" form))
                (= op 'comptime-stmt)
                (if (= 1 (count args))
-                 (str "comptime "
-                      (if (and (seq? (first args))
-                               (contains? #{'do 'block} (ffirst args)))
-                        (braced (rest (first args)) level)
-                        (ensure-semicolon
-                         (emit-stmt (first args) level))))
+                 (let [nested (first args)]
+                   (str "comptime "
+                        (cond
+                          (and (seq? nested) (contains? #{'do 'block} (first nested)))
+                          (braced (rest nested) level)
+
+                          (and (seq? nested) (= 'let (first nested)))
+                          (emit-stmt nested level)
+
+                          :else (ensure-semicolon (emit-stmt nested level)))))
                  (fail! "comptime-stmt expects one statement" form))
                (= op 'nosuspend)
                (if (= 1 (count args))
@@ -2026,7 +2105,7 @@
     "defer" "comptime-stmt" "errdefer" "break" "break-label" "continue"
     "unreachable" "comment"
     "=" "+=" "-=" "*=" "/=" "%=" "+%=" "-%=" "*%="
-    "+|=" "-|=" "*|=" "&=" "|=" "^=" "<<=" ">>="})
+    "+|=" "-|=" "*|=" "&=" "|=" "^=" "<<=" "<<|=" ">>="})
 
 (defn- emit-returning-tail
   [form level]
@@ -2035,7 +2114,8 @@
           (str "return " (emit-expr form) ";")
           (let [[op & args] form]
             (cond
-              (= op 'return)
+              (contains? #{'return 'unreachable} op)
+              ;; Both terminate the branch without an implicit return wrapper.
               ;; emit-stmt already writes this form's source marker.
               (emit-stmt form level)
 
@@ -2044,9 +2124,6 @@
 
               (= op 'let)
               (let [{:keys [pairs body]} (let-parts args form)]
-                (when-not (seq body)
-                  (fail! "A tail let in a non-void function requires a result expression"
-                         form))
                 (str "{\n"
                      (indent (inc level)
                              (str/join
@@ -2058,34 +2135,42 @@
 
               (= op 'if)
               (let [[test then else :as all] args]
-                (when-not (= 3 (count all))
-                  (fail! "A tail if in a non-void function requires an else branch" form))
-                (str "if (" (emit-expr test) ") "
-                     (returning-braced (branch-forms then) level)
-                     " else "
-                     (returning-braced (branch-forms else) level)))
+                (if (= 2 (count all))
+                  (emit-stmt form level)
+                  (do
+                    (when-not (= 3 (count all))
+                      (fail! "A tail if expects a condition and one or two branches" form))
+                    (str "if (" (emit-expr test) ") "
+                         (returning-braced (branch-forms then) level)
+                         " else "
+                         (returning-braced (branch-forms else) level)))))
 
               (contains? non-value-statement-ops (operator-name op))
-              (fail! "The final form of a non-void Zig function must produce a value"
-                     form {:operator op})
+              ;; Keep incomplete native bodies incomplete. Zig owns return-path
+              ;; validation; a statement tail must not acquire a made-up value.
+              (emit-stmt form level)
 
               :else
               (str "return " (emit-expr form) ";"))))]
-    (if (and (seq? form) (= 'return (first form)))
+    (if (and (seq? form)
+             (or (contains? #{'return 'unreachable} (first form))
+                 (contains? non-value-statement-ops (operator-name (first form)))
+                 (and (= 'if (first form)) (= 3 (count form)))))
       rendered
       (str (form-source-comment form) rendered))))
 
 (defn- emit-returning-statements
   [forms level]
-  (when-not (seq forms)
-    (fail! "A non-void Zig function requires a result expression" forms))
-  (str/join "\n"
-            (concat (map #(emit-stmt % level) (butlast forms))
-                    [(emit-returning-tail (last forms) level)])))
+  (if (seq forms)
+    (str/join "\n"
+              (concat (map #(emit-stmt % level) (butlast forms))
+                      [(emit-returning-tail (last forms) level)]))
+    ""))
 
 (defn emit-function-body
   "Emit a function body. Non-void functions implicitly return their final
-  expression; explicit `return` remains available for early exits."
+  value expression; explicit `return` remains available for early exits.
+  Empty bodies and statement tails remain unchanged for Zig to diagnose."
   ([forms return-type]
    (emit-function-body forms return-type true))
   ([forms return-type implicit-return?]
@@ -2102,7 +2187,11 @@
          (apply str source)
          :else (fail! "invalid raw statement boundary" (first forms))))
 
-     (or (= :void return-type) (false? implicit-return?))
+     (or (contains? #{:void :noreturn} return-type)
+         (and (vector? return-type)
+              (= :error-union (first return-type))
+              (= :void (last return-type)))
+         (false? implicit-return?))
      (emit-statements forms 0)
 
      :else
@@ -3037,8 +3126,11 @@
                                        [(first declaration) (next declaration)]
                                        [{:attrs #{}} declaration])
             [test-name & body] declaration]
+        (when (contains? attributes :zig/test-name)
+          (fail! "test-decl uses its symbol name, not :zig/test-name" form))
         (merge (nested-base :test nil attributes)
-               {:test-name test-name :body (vec body)}))
+               {:test-name (if (symbol? test-name) (str test-name) test-name)
+                :body (vec body)}))
 
       (fail! "Unknown nested Zig declaration" form {:operator operator}))))
 

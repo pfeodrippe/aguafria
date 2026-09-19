@@ -30,16 +30,14 @@
 
 (az/defvar presentation-alpha :f32 1.0)
 
-(az/defn reset-presentation!
-  "Discard displayed history on the frame thread when starting a new world."
-  :- :void []
+(az/defn reset-presentation! :void
+  "Discard displayed history on the frame thread when starting a new world." []
   (set! presentation-ready false)
   (set! presentation-alpha 1.0))
 
-(az/defn interpolate-pose
+(az/defn interpolate-pose physics/BodyState
   "Presentation only: linear position and shortest-arc normalized quaternion.
-  Both snapshots are measured Box3D poses. No physical body is changed."
-  :- physics/BodyState [[previous physics/BodyState] [current physics/BodyState] [phase :f32]]
+  Both snapshots are measured Box3D poses. No physical body is changed." [[previous physics/BodyState] [current physics/BodyState] [phase :f32]]
   (let [a (ak/max 0.0 (ak/min 1.0 phase))
         b (- 1.0 a)
         dot (+ (* (az/field previous qx) (az/field current qx))
@@ -62,10 +60,9 @@
     (set! (az/field result qw) (/ qw length))
     result))
 
-(az/defn capture-presentation!
+(az/defn capture-presentation! :void
   "After each fixed physics tick, retain its pose and the preceding pose.
-  Reset/cold attachment initializes both sides, never blends an old race in."
-  :- :void []
+  Reset/cold attachment initializes both sides, never blends an old race in." []
   (let [tick (az/field (sim/snapshot) tick)
         reset (or (ak/! presentation-ready) (< tick presentation-tick))]
     (when presentation-ready (set! previous-poses current-poses))
@@ -76,18 +73,17 @@
     (set! presentation-tick tick)
     (set! presentation-ready true)))
 
-(az/defn set-presentation-phase! :- :void [[phase :f32]]
+(az/defn set-presentation-phase! :void [[phase :f32]]
   (set! presentation-alpha (ak/max 0.0 (ak/min 1.0 phase))))
 
-(az/defn presentation-pose :- physics/BodyState [[racer :usize] [part :usize]]
+(az/defn presentation-pose physics/BodyState [[racer :usize] [part :usize]]
   (if presentation-ready
     (interpolate-pose (az/index (az/index previous-poses racer) part)
                       (az/index (az/index current-poses racer) part) presentation-alpha)
     (sim/vehicle-pose racer part)))
 
-(az/defn presentation-view
-  "Measured race metadata, with only displayed position/heading interpolated."
-  :- sim/RacerView [[racer :u8]]
+(az/defn presentation-view sim/RacerView
+  "Measured race metadata, with only displayed position/heading interpolated." [[racer :u8]]
   (let [pose (presentation-pose racer 0)
         ^:var result (sim/racer-view racer)]
     (set! (az/field result x) (* 0.001 (az/field pose x)))
@@ -130,10 +126,10 @@
 
 (az/defvar camera-initialized false)
 
-(az/defn reset-camera! :- :void []
+(az/defn reset-camera! :void []
   (set! camera-initialized false))
 
-(az/defn select-camera! :- :void [[racer :u8] [follow :bool]]
+(az/defn select-camera! :void [[racer :u8] [follow :bool]]
   (when (or (ak/!= camera-racer (mod racer (ak/as :u8 (ak/intCast sim/racer-count))))
             (ak/!= camera-mode (if follow (ak/as :u8 1) (ak/as :u8 4))))
     (reset-camera!))
@@ -142,15 +138,14 @@
   (set! follow-camera follow)
   (set! camera-mode (if follow 1 4)))
 
-(az/defn follow-leaders! :- :void []
+(az/defn follow-leaders! :void []
   (when (ak/!= camera-mode 0) (reset-camera!))
   (set! camera-mode 0)
   (set! follow-front-pack true)
   (set! follow-camera true))
 
-(az/defn camera-preset!
-  "Broadcast pack, low driver chase, panning trackside, fixed pit, or overview."
-  :- :void [[mode :u8]]
+(az/defn camera-preset! :void
+  "Broadcast pack, low driver chase, panning trackside, fixed pit, or overview." [[mode :u8]]
   (reset-camera!)
   (set! camera-mode (mod mode 5))
   (set! follow-camera (< camera-mode 3))
@@ -161,15 +156,13 @@
                                (ak/== camera-mode 2) 32.0
                                :else 32.0)))
 
-(az/defn zoom-by!
+(az/defn zoom-by! :void
   "Multiply view magnification; 1x is the complete circuit, 32x the default.
-  Wheel/trackpad and +/- cover 1x to 80x without changing physical scale."
-  :- :void [[factor :f32]]
+  Wheel/trackpad and +/- cover 1x to 80x without changing physical scale." [[factor :f32]]
   (set! zoom-multiplier (ak/max 1.0 (ak/min 80.0 (* zoom-multiplier factor)))))
 
-(az/defn update-camera!
-  "Track the leader and nearby front runners, including across the lap seam."
-  :- :void []
+(az/defn update-camera! :void
+  "Track the leader and nearby front runners, including across the lap seam." []
   (let [race (sim/snapshot)
         leader (presentation-view (az/field race leader))
         target (presentation-view (if follow-front-pack (az/field race leader) camera-racer))
@@ -220,23 +213,20 @@
         (set! camera-pitch 0.38)))
     (set! camera-zoom (* 1.30 zoom-multiplier))))
 
-(az/defn damp
-  "Exponential tracking with a time-based response, independent of frame rate."
-  :- :f32 [[current :f32] [target :f32] [rate :f32] [seconds :f32]]
+(az/defn damp :f32
+  "Exponential tracking with a time-based response, independent of frame rate." [[current :f32] [target :f32] [rate :f32] [seconds :f32]]
   (+ current (* (- target current) (- 1.0 (ak/exp (- (* rate (ak/max seconds 0.0))))))))
 
-(az/defn damp-angle
-  "Follow the shortest angular arc, including the -pi/pi seam."
-  :- :f32 [[current :f32] [target :f32] [rate :f32] [seconds :f32]]
+(az/defn damp-angle :f32
+  "Follow the shortest angular arc, including the -pi/pi seam." [[current :f32] [target :f32] [rate :f32] [seconds :f32]]
   (let [delta (- target current)
         shortest (math/atan2 (math/sin delta) (math/cos delta))]
     (damp current (+ current shortest) rate seconds)))
 
-(az/defn advance-camera!
+(az/defn advance-camera! :void
   "Once per rendered frame, track the phase-interpolated simulation target. Explicit
   camera cuts/reset snap once; ongoing position, heading and zoom are damped.
-  This does not modify the authoritative vehicle pose."
-  :- :void [[seconds :f32]]
+  This does not modify the authoritative vehicle pose." [[seconds :f32]]
   (let [x camera-x y camera-y z camera-z
         yaw camera-yaw pitch camera-pitch zoom camera-zoom]
     (update-camera!)
@@ -252,7 +242,7 @@
 
 (az/defvar fit-x :f32 1.0)
 
-(az/defn camera-snapshot :- CameraSnapshot []
+(az/defn camera-snapshot CameraSnapshot []
   (CameraSnapshot {:following follow-camera :front_pack follow-front-pack
                    :racer camera-racer :zoom zoom-multiplier
                    :x camera-x :y camera-y :z camera-z}))
@@ -271,10 +261,9 @@
 
 (az/defvar projection-sin-pitch :f32 0.0)
 
-(az/defn prepare-projection!
+(az/defn prepare-projection! :void
   "Share camera trigonometry across every vertex. Lazy angle checks also keep
-  direct REPL projection calls correct after camera edits, outside a frame."
-  :- :void []
+  direct REPL projection calls correct after camera edits, outside a frame." []
   (when (ak/!= projection-yaw camera-yaw)
     (set! projection-cos-yaw (math/cos camera-yaw))
     (set! projection-sin-yaw (math/sin camera-yaw))
@@ -284,9 +273,8 @@
     (set! projection-sin-pitch (math/sin camera-pitch))
     (set! projection-pitch camera-pitch)))
 
-(az/defn project
-  "Project a real world point to Vulkan NDC, including monotonic depth."
-  :- Vec3 [[x :f32] [y :f32] [z :f32]]
+(az/defn project Vec3
+  "Project a real world point to Vulkan NDC, including monotonic depth." [[x :f32] [y :f32] [z :f32]]
   (prepare-projection!)
   (let [px (- x camera-x) py (- y camera-y) pz (- z camera-z)
         rx (- (* px projection-cos-yaw) (* py projection-sin-yaw))
@@ -298,8 +286,7 @@
            :z (+ 0.5 (* 0.22 (- (* ry projection-cos-pitch)
                                 (* pz projection-sin-pitch))))})))
 
-(az/defn material-vertex!
-  :- :void
+(az/defn material-vertex! :void
   [[out [:c-pointer mesh/GpuVertex]] [i :usize] [point Vec3] [color Vec3]
    [normal Vec3] [roughness :f32]]
   (let [p (project (az/field point x) (az/field point y) (az/field point z))]
@@ -314,15 +301,13 @@
                            :vy (- (* projection-cos-yaw projection-cos-pitch))
                            :vz projection-sin-pitch}))))
 
-(az/defn vertex!
-  :- :void
+(az/defn vertex! :void
   [[out [:c-pointer mesh/GpuVertex]] [i :usize] [point Vec3] [color Vec3]]
   (material-vertex! out i point color (Vec3 {:x 0.0 :y 0.0 :z 1.0}) -1.0))
 
-(az/defn ndc-triangle-visible?
+(az/defn ndc-triangle-visible? :bool
   "Conservative trivial rejection. Keep triangles crossing the viewport even
-  when all three vertices lie outside; reject only one shared outside plane."
-  :- :bool [[a Vec3] [b Vec3] [c Vec3]]
+  when all three vertices lie outside; reject only one shared outside plane." [[a Vec3] [b Vec3] [c Vec3]]
   (ak/! (or (< (ak/max (az/field a x) (ak/max (az/field b x) (az/field c x))) -1.0)
              (> (ak/min (az/field a x) (ak/min (az/field b x) (az/field c x))) 1.0)
              (< (ak/max (az/field a y) (ak/max (az/field b y) (az/field c y))) -1.0)
@@ -330,8 +315,7 @@
              (< (ak/max (az/field a z) (ak/max (az/field b z) (az/field c z))) 0.0)
              (> (ak/min (az/field a z) (ak/min (az/field b z) (az/field c z))) 1.0))))
 
-(az/defn oriented-triangle!
-  :- :usize
+(az/defn oriented-triangle! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [a Vec3] [b Vec3] [c Vec3] [color Vec3] [up-facing? :bool]]
   (if (or (> (+ n 3) mesh/frame-capacity)
@@ -357,48 +341,43 @@
       (material-vertex! out (+ n 2) c color normal 0.95)
       (+ n 3))))
 
-(az/defn triangle!
-  :- :usize
+(az/defn triangle! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [a Vec3] [b Vec3] [c Vec3] [color Vec3]]
   (oriented-triangle! out n a b c color true))
 
-(az/defn quad!
-  :- :usize
+(az/defn quad! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [a Vec3] [b Vec3] [c Vec3] [d Vec3] [color Vec3]]
   (triangle! out (triangle! out n a b c color) a c d color))
 
-(az/defn ground-point :- Vec3 [[progress :f32] [lane :f32] [height :f32]]
+(az/defn ground-point Vec3 [[progress :f32] [lane :f32] [height :f32]]
   (let [p (track/pose progress lane)]
     (Vec3 {:x (az/field p x) :y (az/field p y) :z (+ (track/elevation progress) height)})))
 
-(az/defn ribbon!
-  :- :usize
+(az/defn ribbon! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [pa :f32] [pb :f32] [la :f32] [lb :f32] [height :f32] [color Vec3]]
   (quad! out n (ground-point pa la height) (ground-point pb la height)
          (ground-point pb lb height) (ground-point pa lb height) color))
 
-(az/defn pit-point :- Vec3 [[progress :f32] [lane :f32] [height :f32]]
+(az/defn pit-point Vec3 [[progress :f32] [lane :f32] [height :f32]]
   (let [p (track/pit-pose progress lane)]
     (Vec3 {:x (az/field p x) :y (az/field p y) :z (+ (track/elevation progress) height)})))
 
-(az/defn pit-ribbon!
-  :- :usize
+(az/defn pit-ribbon! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [pa :f32] [pb :f32] [la :f32] [lb :f32] [height :f32] [color Vec3]]
   (quad! out n (pit-point pa la height) (pit-point pb la height)
          (pit-point pb lb height) (pit-point pa lb height) color))
 
-(az/defn surface-point :- Vec3 [[progress :f32] [column :usize]]
+(az/defn surface-point Vec3 [[progress :f32] [column :usize]]
   (let [p (track/surface-point progress column)]
     (Vec3 {:x (* (az/field p x) 0.001) :y (* (az/field p y) 0.001)
            :z (* (az/field p z) 0.001)})))
 
-(az/defn road!
-  "The exact collision cross sections, with no overlapping grass/asphalt sheets."
-  :- :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
+(az/defn road! :usize
+  "The exact collision cross sections, with no overlapping grass/asphalt sheets." [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
   (let [^{:var :usize} next n]
     (dotimes [i track/surface-segments]
       (let [pa (/ (ak/as :f32 (ak/floatFromInt i)) (ak/as :f32 (ak/floatFromInt track/surface-segments)))
@@ -437,7 +416,7 @@
                            (Vec3 {:x light :y light :z light})))))
     next))
 
-(az/defn rotate-body-vector :- Vec3 [[v Vec3] [state physics/BodyState]]
+(az/defn rotate-body-vector Vec3 [[v Vec3] [state physics/BodyState]]
   (let [qx (az/field state qx) qy (az/field state qy) qz (az/field state qz)
         qw (az/field state qw) x (az/field v x) y (az/field v y) z (az/field v z)
         tx (* 2.0 (- (* qy z) (* qz y)))
@@ -447,10 +426,9 @@
            :y (+ y (* qw ty) (- (* qz tx) (* qx tz)))
            :z (+ z (* qw tz) (- (* qx ty) (* qy tx)))})))
 
-(az/defn rigid-model!
+(az/defn rigid-model! :usize
   "Render an authored mesh from its actual body position and full quaternion.
   Origin is the Blender-authored chassis/axle pivot, in metres."
-  :- :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [vertices [:slice-const [:array 10 :f32]]]
    [state physics/BodyState] [origin Vec3] [tint Vec3]]
@@ -475,9 +453,8 @@
             normal (if (< (+ (az/index v 6) (az/index v 7) (az/index v 8)) 0.30) 0.90 0.34))))
       (+ n (az/field vertices len)))))
 
-(az/defn posed-model!
+(az/defn posed-model! :usize
   "Animate an authored part around its axle, then transform into world space."
-  :- :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [vertices [:slice-const [:array 10 :f32]]]
    [x :f32] [y :f32] [z :f32] [heading :f32] [scale :f32] [tint Vec3]
@@ -514,22 +491,19 @@
                      0.90 0.34))))
       (+ n (az/field vertices len)))))
 
-(az/defn model!
-  :- :usize
+(az/defn model! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [vertices [:slice-const [:array 10 :f32]]]
    [x :f32] [y :f32] [z :f32] [heading :f32] [scale :f32] [tint Vec3]]
   (posed-model! out n vertices x y z heading scale tint 0.0 0.0 0.0 0.0 0.0))
 
-(az/defn wheel-roll
-  "Radians from actual arc-length travel and Blender tire radius, not wall time."
-  :- :f32 [[progress :f32] [lap :u16] [radius :f32]]
+(az/defn wheel-roll :f32
+  "Radians from actual arc-length travel and Blender tire radius, not wall time." [[progress :f32] [lap :u16] [radius :f32]]
   (mod (/ (* (+ progress (ak/as :f32 (ak/floatFromInt lap))) 4309.0)
           (ak/max radius 0.01)) 6.2831855))
 
-(az/defn wheel!
+(az/defn wheel! :usize
   "Wheel spin, steering and suspension all come from the independent wheel body."
-  :- :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [vertices [:slice-const [:array 10 :f32]]]
    [axle [:array 4 :f32]] [racer sim/RacerView] [part :usize]]
@@ -537,10 +511,9 @@
     (Vec3 {:x (az/index axle 0) :y (az/index axle 1) :z (az/index axle 2)})
     (racer-tint (az/field racer id))))
 
-(az/defn shadow-model!
+(az/defn shadow-model! :usize
   "Project upward voxel faces onto the planar road along the sunlight vector.
   This is a directional planar shadow, not scene-wide shadow mapping."
-  :- :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [vertices [:slice-const [:array 10 :f32]]]
    [x :f32] [y :f32] [z :f32] [heading :f32] [scale :f32]]
@@ -565,12 +538,11 @@
           (set! next (+ next 3)))))
     next))
 
-(az/defn racer-tint :- Vec3 [[id :usize]]
+(az/defn racer-tint Vec3 [[id :usize]]
   (let [color (az/index colors (mod (ak/as :usize id) sim/racer-count))]
     (Vec3 {:x (az/index color 0) :y (az/index color 1) :z (az/index color 2)})))
 
-(az/defn line!
-  :- :usize
+(az/defn line! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [x :f32] [y :f32] [bx :f32] [by :f32] [z :f32] [width :f32] [color Vec3]]
   (let [dx (- bx x) dy (- by y)
@@ -581,8 +553,7 @@
            (Vec3 {:x (- bx nx) :y (- by ny) :z z})
            (Vec3 {:x (- x nx) :y (- y ny) :z z}) color)))
 
-(az/defn ring!
-  :- :usize
+(az/defn ring! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [x :f32] [y :f32] [z :f32] [radius :f32] [color Vec3]]
   (let [^{:var true :zig/type :usize} next n]
@@ -595,9 +566,8 @@
                          z 0.00008 color))))
     next))
 
-(az/defn diamond!
+(az/defn diamond! :usize
   "Eight solid faces, not a screen-space diamond pretending to have depth."
-  :- :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [x :f32] [y :f32] [z :f32] [radius :f32] [color Vec3]]
   (let [^{:var true :zig/type :usize} next n]
@@ -615,8 +585,7 @@
                                     :z (* (az/field color z) 0.5)})))))
     next))
 
-(az/defn effects!
-  :- :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
+(az/defn effects! :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
   (let [^{:var true :zig/type :usize} next n]
     (dotimes [i 4]
       (let [progress (* (ak/as :f32 (ak/floatFromInt i)) 0.25)
@@ -639,8 +608,7 @@
                                  (+ x 0.0008) (- y 0.0008) z 0.0001 color))))))))
     next))
 
-(az/defn intents!
-  :- :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
+(az/defn intents! :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
   (let [^{:var true :zig/type :usize} next n]
     (dotimes [i sim/racer-count]
       (let [racer (presentation-view (ak/intCast i))
@@ -652,9 +620,8 @@
                            (+ (track/elevation (az/field racer progress)) 0.001) 0.00006 (racer-tint i))))))
     next))
 
-(az/defn containment!
-  "Draw Blender's metre-space barrier triangles used by Box3D."
-  :- :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
+(az/defn containment! :usize
+  "Draw Blender's metre-space barrier triangles used by Box3D." [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
   (let [^{:var :usize} next n
         color (Vec3 {:x 0.64 :y 0.68 :z 0.69})]
     (dotimes [i barriers/triangle-count]
@@ -669,9 +636,8 @@
           color false))))
     next))
 
-(az/defn gpu-instance
-  "Compact per-part state. No vertex iteration or pose approximation."
-  :- mesh/GpuInstance [[id :usize] [part :usize] [origin Vec3]]
+(az/defn gpu-instance mesh/GpuInstance
+  "Compact per-part state. No vertex iteration or pose approximation." [[id :usize] [part :usize] [origin Vec3]]
   (let [state (presentation-pose id part)
         racer (presentation-view (ak/intCast id))
         tint (racer-tint id)]
@@ -683,8 +649,7 @@
        :shadow_z (+ (track/elevation (az/field racer progress)) 0.00008)
        :r (az/field tint x) :g (az/field tint y) :b (az/field tint z) :mode 0.0})))
 
-(az/defn draw-instanced-part!
-  :- :bool [[slot :usize] [revision :u64]
+(az/defn draw-instanced-part! :bool [[slot :usize] [revision :u64]
              [vertices [:slice-const [:array 10 :f32]]]
              [part :usize] [origin Vec3] [camera mesh/InstanceCamera]]
   (let [^{:var [:array sim/racer-count mesh/GpuInstance]} instances ak/undefined]
@@ -696,10 +661,9 @@
       (set! (az/field (az/index instances i) mode) 1.0))
     (renderer/draw-instances! slot revision vertices (ak/& instances) camera)))
 
-(az/defn draw-racers!
+(az/defn draw-racers! :bool
   "Six immutable meshes, 20 independently posed instances of each. Wheels are
-  still separate rigid bodies. Only transforms/tints/shadow planes are uploaded."
-  :- :bool []
+  still separate rigid bodies. Only transforms/tints/shadow planes are uploaded." []
   (prepare-projection!)
   (let [camera (mesh/InstanceCamera
                  {:x camera-x :y camera-y :z camera-z :zoom camera-zoom
@@ -723,10 +687,9 @@
         (Vec3 {:x (az/index geometry/wheel-rear-right-axle 0) :y (az/index geometry/wheel-rear-right-axle 1)
                :z (az/index geometry/wheel-rear-right-axle 2)}) camera))))
 
-(az/defn build-world-geometry!
+(az/defn build-world-geometry! :u32
   "Build the non-instanced world stream. Cars are separate GPU draws, so they
-  no longer consume or overflow this CPU vertex buffer."
-  :- :u32 [[out [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
+  no longer consume or overflow this CPU vertex buffer." [[out [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (let [w (ak/as :f32 (ak/floatFromInt (ak/max width 1)))
         h (ak/as :f32 (ak/floatFromInt (ak/max height 1)))]
     (set! fit-x (ak/min 1.0 (/ h w)))
@@ -749,10 +712,9 @@
           (set! next (ring! out next x y (+ z 0.0002) 0.0035 (Vec3 {:x 1.0 :y 1.0 :z 1.0}))))))
     (ak/intCast next)))
 
-(az/defn build-world!
+(az/defn build-world! :u32
   "FrameBuilder entry point: stream world geometry and issue bounded car draws
-  inside the active Vulkan render pass. Publish these two paths together."
-  :- :u32 [[out [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
+  inside the active Vulkan render pass. Publish these two paths together." [[out [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (let [count (build-world-geometry! out width height)]
     (when (ak/! (draw-racers!))
       (std-debug/panic "Unable to draw the bounded GPU car instances" []))

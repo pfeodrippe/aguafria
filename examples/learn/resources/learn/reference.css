@@ -1,0 +1,48 @@
+.learn-example { margin-block: 1em; }
+.learn-tabs { display: flex; gap: .25em; border-bottom: 1px solid #888; }
+.learn-tabs[hidden], .learn-example [hidden] { display: none; }
+.learn-tabs button { font: inherit; color: inherit; background: transparent;
+  padding: .5em .85em; border: 1px solid transparent; cursor: pointer; }
+.learn-tabs [aria-selected="true"] { border-color: #888; border-bottom: 3px solid #b67a00; }
+.learn-tabs button:focus-visible { outline: 2px solid #b67a00; outline-offset: 2px; }
+.learn-example [role="tabpanel"] pre { overflow-x: auto; }
+.learn-copy { display: block; margin-left: auto; padding: .35em .6em; font: inherit; }
+/* Scoped to Aguafria: the original reference's Zig token colors stay intact. */
+.language-clojure .token.comment { color: #526b46; font-style: italic; }
+.language-clojure .token.string, .language-clojure .token.char { color: #3a6f30; }
+.language-clojure .token.symbol { color: #8b4513; }
+.language-clojure .token.keyword { color: #653199; }
+.language-clojure .token.function { color: #175a99; }
+.language-clojure .token.number, .language-clojure .token.boolean { color: #9a3347; }
+.language-clojure .token.operator { color: #653199; }
+.language-clojure .token.punctuation { color: #555; }
+@media (prefers-color-scheme: dark) {
+  .language-clojure .token.comment { color: #a5b39a; }
+  .language-clojure .token.string, .language-clojure .token.char { color: #a8c98e; }
+  .language-clojure .token.symbol { color: #e5b578; }
+  .language-clojure .token.keyword { color: #bfa7ed; }
+  .language-clojure .token.function { color: #8db8ed; }
+  .language-clojure .token.number, .language-clojure .token.boolean { color: #e6a0a9; }
+  .language-clojure .token.operator { color: #bfa7ed; }
+  .language-clojure .token.punctuation { color: #b8bcc5; }
+}
+.learn-repl { margin-block: 1em; }
+.learn-repl-label { margin-bottom: 0; padding: .25em .5em; border: 1px solid #888; }
+.learn-repl pre { margin-top: 0; padding: .75em; border: 1px solid #888; border-top: 0; }
+.learn-inline [hidden] { display: none; }
+/* Wrapping a preformatted snippet must not remove the upstream code block's
+   local scrolling. Otherwise long builtin signatures widen the whole page. */
+pre > .learn-inline { display: block; white-space: normal; }
+pre > .learn-inline > [data-language] > code {
+  display: block; white-space: pre; overflow-x: auto;
+  padding: .5em; border: 1px solid #eee; line-height: normal;
+}
+@media (prefers-color-scheme: dark) {
+  pre > .learn-inline > [data-language] > code { border-color: #444; }
+}
+.learn-inline-toggle { font: inherit; color: inherit; background: transparent;
+  border: 1px solid transparent; padding: 0 .2em; cursor: pointer; }
+.learn-inline-toggle:hover, .learn-inline-toggle[aria-pressed="true"] {
+  border-color: #888; }
+.learn-inline-toggle:focus-visible { outline: 2px solid #b67a00; outline-offset: 2px; }
+@media print { .learn-tabs, .learn-copy, .learn-inline-toggle { display: none; } }

@@ -49,17 +49,13 @@
                   :move_y 0.0
                   :gamepad_connected false}))
 
-(az/defn pressed-edge?
+(az/defn pressed-edge? :bool
   "Pure rising-edge rule shared by keyboard and gamepad actions."
-  :-
-  :bool
   [[down :bool]
    [previous-down :bool]]
   (and down (ak/! previous-down)))
 
-(az/defn reset!
-  :-
-  :void
+(az/defn reset! :void
   []
   (set! previous-pause false)
   (set! previous-restart false)
@@ -81,10 +77,8 @@
                         :move_y 0.0
                         :gamepad_connected false})))
 
-(az/defn poll!
+(az/defn poll! InputSnapshot
   "Translate GLFW pointer, keyboard, and first-gamepad state into actions."
-  :-
-  InputSnapshot
   [[window [:* glfw/GLFWwindow]]
    [pointer-x :f32]
    [pointer-y :f32]
@@ -156,8 +150,6 @@
     (set! previous-gamepad-activate gamepad-activate)
     current))
 
-(az/defn snapshot
-  :-
-  InputSnapshot
+(az/defn snapshot InputSnapshot
   []
   current)

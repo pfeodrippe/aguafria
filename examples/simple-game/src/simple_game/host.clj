@@ -56,19 +56,15 @@
 
 (az/defvar last-frame-seconds :f64 0.0)
 
-(az/defn queue-pointer-press!
+(az/defn queue-pointer-press! :void
   "Queue one pointer press for the live frame loop. GLFW and nREPL use the
   same native edge queue so interactive tests exercise the production path."
-  :-
-  :void
   []
   (set! pending-pointer-presses (+ pending-pointer-presses 1)))
 
-(az/defn mouse-button-callback
+(az/defn mouse-button-callback :void
   "Capture GLFW click edges natively so no platform can lose a short press."
   {:attrs #{:export}}
-  :-
-  :void
   [[window [:optional [:* glfw/GLFWwindow]]]
    [button :c_int]
    [action :c_int]
@@ -80,19 +76,15 @@
       (queue-pointer-press!))
     (set! previous-pointer-down (ak/== action glfw/GLFW_PRESS))))
 
-(az/defn reset-input!
-  :-
-  :void
+(az/defn reset-input! :void
   [[window [:* glfw/GLFWwindow]]]
   (set! _ (glfw/glfwSetMouseButtonCallback window (ak/& mouse-button-callback)))
   (set! previous-pointer-down false)
   (set! pending-pointer-presses 0)
   (input/reset!))
 
-(az/defn reset-frame-timing!
+(az/defn reset-frame-timing! :void
   "Clear full-frame measurements without disturbing game state."
-  :-
-  :void
   []
   (set! frame-start-seconds 0.0)
   (set! current-simulation-seconds 0.0)
@@ -109,10 +101,8 @@
   (set! maximum-frame-seconds 0.0)
   (set! last-frame-seconds 0.0))
 
-(az/defn finish-frame!
+(az/defn finish-frame! :void
   "Record wall time and CPU work, excluding frame pacing and presentation waits."
-  :-
-  :void
   [[render-work-seconds :f64]]
   (when (> frame-start-seconds 0.0)
     (let [elapsed (ak/max 0.0 (- (glfw/glfwGetTime) frame-start-seconds))
@@ -141,10 +131,8 @@
       (set! measured-frames (+ measured-frames 1))
       (set! frame-start-seconds 0.0))))
 
-(az/defn frame-timing
+(az/defn frame-timing FrameTiming
   "Inspect exact native averages from frame start through presentation."
-  :-
-  FrameTiming
   []
   (let [count (ak/as :f64 (ak/floatFromInt timing-sample-count))
         average (if (> count 0.0) (/ total-frame-seconds count) 0.0)
@@ -160,10 +148,8 @@
       :simulation_average_ms (* simulation 1000.0)
       :presentation_average_ms (* (ak/max 0.0 (- average simulation)) 1000.0)})))
 
-(az/defn frame!
+(az/defn frame! game/RenderPacket
   "Poll GLFW and advance the single shared Flecs game by one platform-timed frame."
-  :-
-  game/RenderPacket
   [[window [:* glfw/GLFWwindow]]]
   (set! frame-start-seconds (glfw/glfwGetTime))
   (glfw/glfwPollEvents)

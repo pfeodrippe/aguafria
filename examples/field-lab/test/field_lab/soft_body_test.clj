@@ -12,8 +12,7 @@
   [[:minimum-height :f64] [:minimum-volume :f64] [:maximum-energy :f64] [:initial-energy :f64]
    [:final-height :f64] [:final-volume :f64] [:floor :f64] [:time :f64]])
 
-(az/defn drop-config
-  :- p/Config
+(az/defn drop-config p/Config
   []
   (let [^:var config (p/defaults)]
     (az/set-many!
@@ -22,8 +21,7 @@
       (az/field config spin) 0.0)
     config))
 
-(az/defn drop-report
-  :- Report
+(az/defn drop-report Report
   [[steps :u32] [active :u32] [modulus :f64]]
   (let [config (drop-config)
         rigid (experiments/three-balls config)
@@ -84,8 +82,7 @@
   [[:momentum-error :f64] [:peak-elastic :f64] [:minimum-volume :f64] [:initial-energy :f64]
    [:maximum-energy :f64]])
 
-(az/defn collision-report
-  :- CollisionReport
+(az/defn collision-report CollisionReport
   []
   (let [^:var config (drop-config)]
     (az/set-many!

@@ -1,0 +1,151 @@
+{:id "snippet-1181"
+ :root-file "subject.zig"
+ :scope :shared-module-discovery
+ :verification-status :plan-not-executed
+
+ ;; Materialize these exact files beside each original/emitted subject.zig.
+ ;; Scenario appends are applied to fresh copies on BOTH sides, never accumulated.
+ :modules
+ {"api.zig"
+  "pub export fn discovery_api_value() u32 {
+    return 17;
+}
+"
+  "windows_api.zig"
+  "comptime {
+    if (@import(\"builtin\").os.tag != .windows)
+        @compileError(\"windows API discovered on a non-Windows target\");
+}
+pub export fn discovery_windows_api_value() u32 {
+    return 23;
+}
+"
+  "tests.zig"
+  "comptime {
+    if (!@import(\"builtin\").is_test)
+        @compileError(\"test module discovered outside test compilation\");
+}
+test \"discovery imported alpha\" {
+    @import(\"std\").debug.print(\"DISCOVERY alpha api={d}\\n\", .{@import(\"api.zig\").discovery_api_value()});
+}
+test \"discovery imported beta\" {
+    @import(\"std\").debug.print(\"DISCOVERY beta\\n\", .{});
+}
+"
+  "windows_tests.zig"
+  "comptime {
+    if (!@import(\"builtin\").is_test)
+        @compileError(\"Windows test module discovered outside test compilation\");
+    if (@import(\"builtin\").os.tag != .windows)
+        @compileError(\"Windows test module discovered on a non-Windows target\");
+}
+test \"discovery windows gamma\" {
+    @import(\"std\").debug.print(\"DISCOVERY gamma api={d}\\n\", .{@import(\"windows_api.zig\").discovery_windows_api_value()});
+}
+"}
+
+ :execution-contract
+ {:compiler :embedded-pinned-zig
+  :working-directory :fresh-per-side-per-scenario
+  :command "Prepend the embedded Zig executable to :args; run beside subject.zig."
+  :module-appends "Append each scenario's extra source to the corresponding base module on both sides."
+  :timeout-seconds 60
+  :native-host :macos
+  :cross-target "x86_64-windows-gnu"
+  :cross-target-policy "Compile only with -fno-emit-bin; never execute a Windows binary on macOS."
+  :failure-policy "Every deliberate failure below is an imported top-level comptime @compileError, not a runtime panic or failed test."
+  :environment-failure-policy "Missing toolchain support, timeout, or unrelated diagnostics are inconclusive/failures, never matching discovery evidence."}
+
+ :comparison-contract
+ {:claim "Import discovery and meaningful imported tests agree under these shared modules and scenarios; whole test-runner output does not."
+  :whole-runner-identical? false
+  :original-extra-unnamed-tests 1
+  :emitted-extra-unnamed-tests 0
+  :unnamed-test "Identify the original unnamed root test from its parsed declaration; it runs even under a nonmatching --test-filter. Do not discard arbitrary runner lines."
+  :named-tests "Require exactly the listed imported test identities, in execution order, all passing. Reject unknown named tests."
+  :runner-counts "Assert each side's own expected count before excluding the known original unnamed root test from meaningful-test comparison."
+  :program-output "Compare observed stdout and stderr payloads byte-for-byte after separating only identified runner framing. No expected program-output strings are supplied here."
+  :compile-failure "Require nonzero exits on both sides and the scenario's exact compileError message; compare diagnostic messages, not file locations or command summaries."
+  :compile-only "Successful cross-compilation is semantic-analysis evidence only, not evidence that Windows tests executed."}
+
+ :scenarios
+ [{:id :macos-build
+   :args ["build-obj" "subject.zig" "-fno-emit-bin"]
+   :mode :native-compile-only
+   :expect {:exit :zero}}
+
+  {:id :macos-all-tests
+   :args ["test" "subject.zig"]
+   :mode :native-test
+   :expect {:exit :zero
+            :named-tests ["tests.test.discovery imported alpha"
+                          "tests.test.discovery imported beta"]
+            :test-counts {:original 3 :emitted 2}}}
+
+  {:id :macos-matching-filter
+   :args ["test" "subject.zig" "--test-filter" "discovery imported alpha"]
+   :mode :native-test
+   :expect {:exit :zero
+            :named-tests ["tests.test.discovery imported alpha"]
+            :test-counts {:original 2 :emitted 1}}}
+
+  {:id :macos-nonmatching-filter
+   :args ["test" "subject.zig" "--test-filter" "no-such-discovery-test"]
+   :mode :native-test
+   :expect {:exit :zero :named-tests []
+            :test-counts {:original 1 :emitted 0}}}
+
+  {:id :macos-api-discovered-during-build
+   :args ["build-obj" "subject.zig" "-fno-emit-bin"]
+   :mode :native-compile-only
+   :module-appends {"api.zig" "\ncomptime { @compileError(\"discovery fixture: api reached\"); }\n"}
+   :expect {:exit :nonzero :diagnostic "discovery fixture: api reached"}}
+
+  {:id :macos-api-discovered-without-matching-tests
+   :args ["test" "subject.zig" "--test-filter" "no-such-discovery-test"]
+   :mode :native-compile-only
+   :module-appends {"api.zig" "\ncomptime { @compileError(\"discovery fixture: api reached\"); }\n"}
+   :expect {:exit :nonzero :diagnostic "discovery fixture: api reached"}}
+
+  {:id :macos-test-module-not-discovered-during-build
+   :args ["build-obj" "subject.zig" "-fno-emit-bin"]
+   :mode :native-compile-only
+   :module-appends {"tests.zig" "\ncomptime { @compileError(\"discovery fixture: tests reached\"); }\n"}
+   :expect {:exit :zero}}
+
+  {:id :macos-test-module-discovered-without-matching-tests
+   :args ["test" "subject.zig" "--test-filter" "no-such-discovery-test"]
+   :mode :native-compile-only
+   :module-appends {"tests.zig" "\ncomptime { @compileError(\"discovery fixture: tests reached\"); }\n"}
+   :expect {:exit :nonzero :diagnostic "discovery fixture: tests reached"}}
+
+  ;; The base Windows files themselves contain non-Windows compile-error guards.
+  ;; macos-build/all-tests therefore also prove those files remain undiscovered.
+  {:id :windows-build
+   :args ["build-obj" "subject.zig" "-target" "x86_64-windows-gnu" "-fno-emit-bin"]
+   :mode :cross-compile-only
+   :expect {:exit :zero}}
+
+  {:id :windows-tests-compile
+   :args ["test" "subject.zig" "-target" "x86_64-windows-gnu" "-fno-emit-bin"]
+   :mode :cross-compile-only
+   :expect {:exit :zero}}
+
+  {:id :windows-api-discovered-during-build
+   :args ["build-obj" "subject.zig" "-target" "x86_64-windows-gnu" "-fno-emit-bin"]
+   :mode :cross-compile-only
+   :module-appends {"windows_api.zig" "\ncomptime { @compileError(\"discovery fixture: Windows API reached\"); }\n"}
+   :expect {:exit :nonzero :diagnostic "discovery fixture: Windows API reached"}}
+
+  {:id :windows-test-module-not-discovered-during-build
+   :args ["build-obj" "subject.zig" "-target" "x86_64-windows-gnu" "-fno-emit-bin"]
+   :mode :cross-compile-only
+   :module-appends {"windows_tests.zig" "\ncomptime { @compileError(\"discovery fixture: Windows tests reached\"); }\n"}
+   :expect {:exit :zero}}
+
+  {:id :windows-test-module-discovered-without-matching-tests
+   :args ["test" "subject.zig" "-target" "x86_64-windows-gnu" "-fno-emit-bin"
+          "--test-filter" "no-such-discovery-test"]
+   :mode :cross-compile-only
+   :module-appends {"windows_tests.zig" "\ncomptime { @compileError(\"discovery fixture: Windows tests reached\"); }\n"}
+   :expect {:exit :nonzero :diagnostic "discovery fixture: Windows tests reached"}}]}

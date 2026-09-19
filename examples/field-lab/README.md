@@ -465,8 +465,7 @@ functions, typed constructors, `let`, and ordered assignment. There is no separa
 text language or string-based expression evaluator. For example:
 
 ```clojure
-(az/defn single-ball
-  :- contacts/Sample
+(az/defn single-ball contacts/Sample
   [[config p/Config]]
   (contacts/Sample
     {:bodies [(p/initial config) (p/initial config) (p/initial config)]}))

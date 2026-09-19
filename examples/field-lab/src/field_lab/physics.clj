@@ -7,39 +7,33 @@
 
 (az/defstruct Vec3 {:layout :extern} [[:x :f64] [:y :f64] [:z :f64]])
 
-(az/defn v
-  :- Vec3
+(az/defn v Vec3
   [[x :f64] [y :f64] [z :f64]]
   (Vec3 {:x x :y y :z z}))
 
-(az/defn add
-  :- Vec3
+(az/defn add Vec3
   [[a Vec3] [b Vec3]]
   (v (+ (az/field a x) (az/field b x))
      (+ (az/field a y) (az/field b y))
      (+ (az/field a z) (az/field b z))))
 
-(az/defn scale
-  :- Vec3
+(az/defn scale Vec3
   [[a Vec3] [s :f64]]
   (v (* (az/field a x) s) (* (az/field a y) s) (* (az/field a z) s)))
 
-(az/defn dot
-  :- :f64
+(az/defn dot :f64
   [[a Vec3] [b Vec3]]
   (+ (* (az/field a x) (az/field b x))
      (* (az/field a y) (az/field b y))
      (* (az/field a z) (az/field b z))))
 
-(az/defn cross
-  :- Vec3
+(az/defn cross Vec3
   [[a Vec3] [b Vec3]]
   (v (- (* (az/field a y) (az/field b z)) (* (az/field a z) (az/field b y)))
      (- (* (az/field a z) (az/field b x)) (* (az/field a x) (az/field b z)))
      (- (* (az/field a x) (az/field b y)) (* (az/field a y) (az/field b x)))))
 
-(az/defn length
-  :- :f64
+(az/defn length :f64
   [[a Vec3]]
   (ak/sqrt (dot a a)))
 
@@ -55,8 +49,7 @@
   [[:position Vec3] [:velocity Vec3] [:omega Vec3] [:orientation Quaternion] [:time :f64]
    [:impulse :f64] [:impacts :u32] [:supported :bool]])
 
-(az/defn defaults
-  :- Config
+(az/defn defaults Config
   []
   (Config {:radius 0.45
            :mass 0.62
@@ -69,8 +62,7 @@
            :vz 0.25
            :spin 1.5}))
 
-(az/defn initial
-  :- State
+(az/defn initial State
   [[c Config]]
   (State {:position (v -1.5 (+ (az/field c height) (az/field c radius)) -0.3)
           :velocity (v (az/field c vx) 0.0 (az/field c vz))
@@ -81,27 +73,23 @@
           :impacts 0
           :supported false}))
 
-(az/defn inertia
-  :- :f64
+(az/defn inertia :f64
   [[c Config]]
   (* 0.4 (az/field c mass) (az/field c radius) (az/field c radius)))
 
-(az/defn kinetic
-  :- :f64
+(az/defn kinetic :f64
   [[s State] [c Config]]
   (+ (* 0.5 (az/field c mass) (dot (az/field s velocity) (az/field s velocity)))
      (* 0.5 (inertia c) (dot (az/field s omega) (az/field s omega)))))
 
-(az/defn energy
-  :- :f64
+(az/defn energy :f64
   [[s State] [c Config]]
   (+ (kinetic s c)
      (* (az/field c mass)
         (az/field c gravity)
         (- (az/field (az/field s position) y) (az/field c radius)))))
 
-(az/defn rotate!
-  :- :void
+(az/defn rotate! :void
   [[s [:* State]] [dt :f64]]
   (let [w (az/field (az/deref s) omega)
         speed (length w)]
@@ -120,8 +108,7 @@
                            :z (/ (az/field xyz z) norm)
                            :w (/ qw norm)}))))))
 
-(az/defn flight!
-  :- :void
+(az/defn flight! :void
   [[s [:* State]] [c Config] [dt :f64]]
   (let [a (v 0.0 (- (az/field c gravity)) 0.0)]
     (az/set-many!
@@ -134,8 +121,7 @@
            (scale a dt)))
     (rotate! s dt)))
 
-(az/defn friction!
-  :- :void
+(az/defn friction! :void
   [[s [:* State]] [c Config] [normal-impulse :f64]]
   (let [arm (v 0.0 (- (az/field c radius)) 0.0)
         slip0 (add (az/field (az/deref s) velocity) (cross (az/field (az/deref s) omega) arm))
@@ -155,8 +141,7 @@
                (scale (cross arm j)
                       (/ 1.0 (inertia c)))))))))
 
-(az/defn contact!
-  :- :void
+(az/defn contact! :void
   [[s [:* State]] [c Config] [dt :f64]]
   (az/set-many!
     (az/field (az/field (az/deref s) position) y) (az/field c radius)
@@ -176,9 +161,8 @@
         (add (az/field (az/deref s) position) (scale (az/field (az/deref s) velocity) dt)))
   (rotate! s dt))
 
-(az/defn advance
+(az/defn advance State
   "Event-resolved ballistic flight; finite impact loop and resting-contact branch."
-  :- State
   [[input State] [c Config] [dt :f64]]
   (let [^:var s input
         ^{:var :f64} remaining dt

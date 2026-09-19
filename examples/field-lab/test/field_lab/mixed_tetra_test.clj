@@ -104,10 +104,9 @@
 (def nonaffine-displacement
   (mapv (fn [node] (vec3 (mapv #(* 0.003 (Math/sin (+ (* 0.7 node) %))) (range 3)))) (range 8)))
 
-(az/defn benchmark-elements
+(az/defn benchmark-elements :f64
   "Repeated full nonlinear element evaluations with changing input. Return a
   checksum so the compiled benchmark cannot discard the tangent computation."
-  :- :f64
   [[rest-gradients [:array 4 p/Vec3]] [displacements [:array 8 p/Vec3]] [count :u32]]
   (let [^:var current displacements
         rule (mixed/quadrature 6)
@@ -239,8 +238,7 @@
 (az/defstruct AssemblyProbe {:layout :extern}
   [[:response mixed/StepResponse] [:cached-energy :f64] [:gradient [:array 13 p/Vec3]] [:product [:array 13 p/Vec3]]])
 
-(az/defn probe-assembly
-  :- AssemblyProbe
+(az/defn probe-assembly AssemblyProbe
   [[cells [:array 2 mixed/Element]] [values [:array 13 p/Vec3]]
    [predicted [:array 13 p/Vec3]] [loads [:array 13 p/Vec3]]
    [gravity p/Vec3] [duration :f64] [direction [:array 13 p/Vec3]]]

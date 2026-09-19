@@ -9,7 +9,6 @@
   [[:link queue/QueueLink]
    [:value :u32]])
 
-(az/defn queue-size
-  :- :usize
+(az/defn queue-size :usize
   []
   (ak/sizeOf (queue/QueueType QueueItem)))

@@ -19,8 +19,7 @@
 
 (az/defstruct Sample {:layout :extern} [[:bodies [:array 3 Body]]])
 
-(az/defn initial
-  :- Body
+(az/defn initial Body
   [[rigid p/State] [config p/Config]]
   (let [^:var body (mem/zeroes (az/type Body))]
     (dotimes [i particle-count]
@@ -34,13 +33,11 @@
                  (p/cross (az/field rigid omega) offset)))))
     body))
 
-(az/defn inverse-mass
-  :- :f64
+(az/defn inverse-mass :f64
   [[index :u32] [config p/Config]]
   (/ 1.0 (* (az/field config mass) (az/index mesh/mass-fractions index))))
 
-(az/defn center
-  :- p/Vec3
+(az/defn center p/Vec3
   [[body Body]]
   (let [^:var result (p/v 0.0 0.0 0.0)]
     (dotimes [i particle-count]
@@ -50,8 +47,7 @@
                             (az/index mesh/mass-fractions i)))))
     result))
 
-(az/defn velocity
-  :- p/Vec3
+(az/defn velocity p/Vec3
   [[body Body]]
   (let [^:var result (p/v 0.0 0.0 0.0)]
     (dotimes [i particle-count]
@@ -61,8 +57,7 @@
                             (az/index mesh/mass-fractions i)))))
     result))
 
-(az/defn kinetic
-  :- :f64
+(az/defn kinetic :f64
   [[body Body] [config p/Config]]
   (let [^{:var :f64} result 0.0]
     (dotimes [i particle-count]
@@ -72,15 +67,13 @@
                  (* 0.5 (az/field config mass) (az/index mesh/mass-fractions i) (p/dot v v))))))
     result))
 
-(az/defn signed-volume
-  :- :f64
+(az/defn signed-volume :f64
   [[a p/Vec3] [b p/Vec3] [c p/Vec3] [d p/Vec3]]
   (/ (p/dot (p/add b (p/scale a -1.0))
             (p/cross (p/add c (p/scale a -1.0)) (p/add d (p/scale a -1.0))))
      6.0))
 
-(az/defn volume
-  :- :f64
+(az/defn volume :f64
   [[body Body]]
   (let [^{:var :f64} result 0.0]
     (dotimes [i face-count]
@@ -93,14 +86,12 @@
                                 (az/index (az/field body positions) (az/index face 2)))))))
     result))
 
-(az/defn edge-stiffness
-  :- :f64
+(az/defn edge-stiffness :f64
   [[edge :usize] [config p/Config] [modulus :f64]]
   (/ (* modulus mesh/unit-volume (az/field config radius))
      (* mesh/unit-edge-length (az/index mesh/rest-lengths edge))))
 
-(az/defn solve-edge!
-  :- :void
+(az/defn solve-edge! :void
   [[body [:* Body]] [edge :usize] [config p/Config] [modulus :f64] [dt :f64] [lambda [:* :f64]]]
   (let [indices (az/index mesh/edges edge)
         a (az/index indices 0)
@@ -124,8 +115,7 @@
         (az/index (az/field (az/deref body) positions) b)
         (p/add pb (p/scale normal (* wb increment)))))))
 
-(az/defn solve-volume!
-  :- :void
+(az/defn solve-volume! :void
   [[body [:* Body]] [index :usize] [config p/Config] [modulus :f64] [dt :f64]
    [lambda [:* :f64]]]
   (let [face (az/index mesh/faces index)
@@ -163,16 +153,14 @@
                        (p/scale (az/index gradients j)
                                 (* (inverse-mass particle config) increment)))))))))
 
-(az/defn project-ground!
-  :- :void
+(az/defn project-ground! :void
   [[body [:* Body]]]
   (dotimes [i particle-count]
     (let [position (ak/& (az/index (az/field (az/deref body) positions) i))]
       (set! (az/field (az/deref position) y) (ak/max 0.0 (az/field (az/deref position) y))))))
 
-(az/defn project-vertex!
+(az/defn project-vertex! :void
   "Vertex/convex-surface contact; equal mass-weighted position reactions."
-  :- :void
   [[a [:* Body]] [b [:* Body]] [vertex :u32] [config p/Config]]
   (let [point (az/index (az/field (az/deref a) positions) vertex)
         ^{:var :f64} closest -1.0e30
@@ -233,8 +221,7 @@
                                      (az/index weights i)
                                      (inverse-mass particle config)))))))))))
 
-(az/defn bounds-overlap?
-  :- :bool
+(az/defn bounds-overlap? :bool
   [[a Body] [b Body]]
   (let [ca (center a)
         cb (center b)
@@ -248,9 +235,8 @@
                 (p/length (p/add (az/index (az/field b positions) i) (p/scale cb -1.0))))))
     (<= (p/length (p/add cb (p/scale ca -1.0))) (+ ra rb))))
 
-(az/defn advance
+(az/defn advance Sample
   "Four substeps, six XPBD iterations, persistent multipliers within each substep."
-  :- Sample
   [[input Sample] [config p/Config] [active :u32] [modulus :f64] [dt :f64]]
   (let [^:var result input
         h (/ dt 4.0)]
@@ -328,8 +314,7 @@
                         (p/add mean (p/scale (p/add v (p/scale mean -1.0)) decay))))))))))
     result))
 
-(az/defn elastic-energy
-  :- :f64
+(az/defn elastic-energy :f64
   [[body Body] [config p/Config] [modulus :f64]]
   (let [^{:var :f64} result 0.0
         radius (az/field config radius)]
@@ -350,15 +335,13 @@
         (set! result (+ result (* 10.0 modulus rest strain strain)))))
     result))
 
-(az/defn energy
-  :- :f64
+(az/defn energy :f64
   [[body Body] [config p/Config] [modulus :f64]]
   (+ (kinetic body config)
      (elastic-energy body config modulus)
      (* (az/field config mass) (az/field config gravity) (az/field (center body) y))))
 
-(az/defn height
-  :- :f64
+(az/defn height :f64
   [[body Body]]
   (let [^{:var :f64} low 1.0e30
         ^{:var :f64} high -1.0e30]
@@ -369,8 +352,7 @@
           high (ak/max high y))))
     (- high low)))
 
-(az/defn clearance
-  :- :f64
+(az/defn clearance :f64
   [[body Body]]
   (let [^{:var :f64} result 1.0e30]
     (dotimes [i particle-count]

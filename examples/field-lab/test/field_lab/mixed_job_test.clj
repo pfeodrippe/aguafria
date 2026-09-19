@@ -19,8 +19,7 @@
    :density-kg-m3 120.0 :floor? true
    :cell-materials [{} {:young-Pa 17000.0 :poisson-ratio 0.2 :density-kg-m3 60.0}]})
 
-(az/defn set-iteration-limit!
-  :- :void [[context [:* job/Context]] [limit :u32]]
+(az/defn set-iteration-limit! :void [[context [:* job/Context]] [limit :u32]]
   (set! (az/field (az/field context problem) iteration-limit) limit))
 
 (defn near-vector? [expected actual tolerance]
@@ -184,16 +183,13 @@
                                     (job/step! context 0.005 :backward-euler))))
              (is (= before (job/snapshot context)))))))))
 
-(az/defn set-force-tolerance!
-  :- :void [[context [:* job/Context]] [tolerance :f64]]
+(az/defn set-force-tolerance! :void [[context [:* job/Context]] [tolerance :f64]]
   (set! (az/field (az/field context problem) force-tolerance) tolerance))
 
-(az/defn coefficient-displacement
-  :- p/Vec3 [[context [:* job/Context]] [index :usize]]
+(az/defn coefficient-displacement p/Vec3 [[context [:* job/Context]] [index :usize]]
   (az/index (az/field (az/field context problem) initial) index))
 
-(az/defn coefficient-velocity
-  :- p/Vec3 [[context [:* job/Context]] [index :usize]]
+(az/defn coefficient-velocity p/Vec3 [[context [:* job/Context]] [index :usize]]
   (az/index (az/field context velocity) index))
 
 (defn write-mode-evidence!

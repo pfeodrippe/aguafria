@@ -6,9 +6,8 @@
 
 (az/defstruct Sample {:layout :extern} [[:bodies [:array 3 p/State]]])
 
-(az/defn resolve-pair!
+(az/defn resolve-pair! :void
   "Frictional sphere contact with angular effective mass and overlap correction."
-  :- :void
   [[a [:* p/State]] [b [:* p/State]] [config p/Config]]
   (let [delta (p/add (az/field (az/deref b) position)
                      (p/scale (az/field (az/deref a) position) -1.0))
@@ -66,10 +65,9 @@
             (az/field (az/deref a) supported) false
             (az/field (az/deref b) supported) false))))))
 
-(az/defn advance
+(az/defn advance Sample
   "Eight collision substeps at the supported interactive velocity/radius range.
   Floor collisions use the single-ball CCD solver. Pair contacts are discrete."
-  :- Sample
   [[input Sample] [config p/Config] [body-count :u32] [dt :f64]]
   (let [^:var result input
         ^{:var [:array 3 :f64]} floor-impulses [0.0 0.0 0.0]

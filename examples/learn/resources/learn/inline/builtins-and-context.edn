@@ -1,0 +1,389 @@
+{"\"OutOfMem\""
+ {:clojure-source "\"OutOfMem\"" :kind :expr :standalone? true
+  :note "The error's name as a string, not an error value."}
+
+ "\"builtin\""
+ {:clojure-source "\"builtin\"" :kind :expr :standalone? true
+  :note "The module name supplied to ak/import."}
+
+ "\"hello\""
+ {:clojure-source "\"hello\"" :kind :expr :standalone? true
+  :note "A UTF-8 string literal; its spelling is unchanged."}
+
+ "' '"
+ {:clojure-source "\\space" :kind :expr :standalone? true
+  :note "The space character."}
+
+ "'\\n'"
+ {:clojure-source "\\newline" :kind :expr :standalone? true
+  :note "The line-feed character."}
+
+ "'\\r'"
+ {:clojure-source "\\return" :kind :expr :standalone? true
+  :note "The carriage-return character."}
+
+ "'\\t'"
+ {:clojure-source "\\tab" :kind :expr :standalone? true
+  :note "The horizontal-tab character."}
+
+ "0"
+ {:clojure-source "0" :kind :expr :standalone? true
+  :note "The integer zero."}
+
+ "0x10ffff"
+ {:clojure-source "0x10ffff" :kind :expr :standalone? true
+  :note "The upper bound of the Unicode code-point range, in hexadecimal."}
+
+ "0xaa"
+ {:clojure-source "0xaa" :kind :expr :standalone? true
+  :note "A hexadecimal integer literal."}
+
+ "1000"
+ {:clojure-source "1000" :kind :expr :standalone? true
+  :note "A decimal integer literal."}
+
+ "41"
+ {:clojure-source "41" :kind :expr :standalone? true
+  :note "A decimal integer literal."}
+
+ "8"
+ {:clojure-source "8" :kind :expr :standalone? true
+  :note "Eight bits per byte."}
+
+ "-1"
+ {:clojure-source "-1" :kind :expr :standalone? true
+  :note "Negative one."}
+
+ "///"
+ {:clojure-source "" :kind :syntax-note
+  :note "Zig declaration documentation. Aguafria declaration macros accept a docstring after the name; ordinary explanatory comments use ;;."}
+
+ "////"
+ {:clojure-source "" :kind :syntax-note
+  :note "In Zig, four leading slashes are an ordinary comment, not a doc comment. Use ;; for an ordinary Clojure source comment."}
+
+ "//!"
+ {:clojure-source "" :kind :syntax-note
+  :note "Zig container documentation. Use a namespace docstring for the corresponding Aguafria module documentation."}
+
+ "\\\\"
+ {:clojure-source "" :kind :syntax-note
+  :note "Zig's multiline-string line prefix. Clojure string literals can contain actual newlines; they need no per-line prefix."}
+
+ "comptime var"
+ {:clojure-source "" :kind :syntax-note
+  :note "A mutable compile-time local is a let binding annotated ^{:var true :zig/prefix \"comptime\"}. Its loads and stores are checked at compile time."}
+
+ "*%"
+ {:clojure-source "ak/*%" :kind :reference
+  :note "Wrapping multiplication; overflow keeps the low bits of the result."}
+
+ "->"
+ {:clojure-source "az/field" :kind :reference
+  :note "C pointer-member access corresponds to az/field; Zig automatically dereferences a single-item pointer when accessing its field."}
+
+ ".Add"
+ {:clojure-source ":.Add" :kind :expr
+  :note "The Add reduction-operation enum literal, inferred from the parameter type."}
+
+ ".And"
+ {:clojure-source ":.And" :kind :expr
+  :note "The And reduction-operation enum literal."}
+
+ ".Max"
+ {:clojure-source ":.Max" :kind :expr
+  :note "The Max reduction-operation enum literal."}
+
+ ".Min"
+ {:clojure-source ":.Min" :kind :expr
+  :note "The Min reduction-operation enum literal."}
+
+ ".Mul"
+ {:clojure-source ":.Mul" :kind :expr
+  :note "The Mul reduction-operation enum literal."}
+
+ ".Or"
+ {:clojure-source ":.Or" :kind :expr
+  :note "The Or reduction-operation enum literal."}
+
+ ".Xor"
+ {:clojure-source ":.Xor" :kind :expr
+  :note "The Xor reduction-operation enum literal."}
+
+ ".strong"
+ {:clojure-source ":.strong" :kind :expr
+  :note "Strong symbol linkage in the surrounding export options."}
+
+ "?*T"
+ {:clojure-source "[:optional [:* T]]" :kind :type
+  :note "An optional single-item pointer to the surrounding type T."}
+
+ "?usize"
+ {:clojure-source "[:optional :usize]" :kind :type
+  :note "An optional pointer-sized unsigned integer."}
+
+ "[*c]T"
+ {:clojure-source "[:c-pointer T]" :kind :type
+  :note "A C-compatible pointer, for declarations imported from C."}
+
+ "anyerror!void"
+ {:clojure-source "[:error-union :anyerror :void]" :kind :type
+  :note "A function result that either succeeds without a value or returns any error."}
+
+ "opaque{}"
+ {:clojure-source "(az/container {:kind :opaque})" :kind :type
+  :note "An opaque type with unknown size and alignment."}
+
+ "@\"foo\""
+ {:clojure-source "(az/identifier-literal \"@\\\"foo\\\"\")" :kind :expr
+  :note "An explicitly quoted Zig identifier, not a string value."}
+
+ "@Int(.unsigned, 18)"
+ {:clojure-source "(ak/Int :.unsigned 18)" :kind :expr :standalone? true
+  :note "Construct the unsigned 18-bit integer type."}
+
+ "@This()"
+ {:clojure-source "(ak/This)" :kind :expr
+  :note "The type of the innermost enclosing container."}
+
+ "@TypeOf(anytype)"
+ {:clojure-source "" :kind :syntax-note
+  :note "Here anytype is prose shorthand for the operand, not a value. Use (ak/TypeOf operand) with the actual argument from the surrounding call."}
+
+ "@TypeOf(operand)"
+ {:clojure-source "(ak/TypeOf operand)" :kind :expr
+  :note "The type of the surrounding operand."}
+
+ "@as(u1, 0)"
+ {:clojure-source "(ak/as :u1 0)" :kind :expr :standalone? true
+  :note "Zero with the explicit unsigned one-bit type."}
+
+ "@as(u1, 1)"
+ {:clojure-source "(ak/as :u1 1)" :kind :expr :standalone? true
+  :note "One with the explicit unsigned one-bit type."}
+
+ "@breakpoint()"
+ {:clojure-source "(ak/breakpoint)" :kind :expr
+  :note "Insert a debugger breakpoint. Syntax checked but intentionally not executed by the reference verifier."}
+
+ "@trap()"
+ {:clojure-source "(ak/trap)" :kind :expr
+  :note "Unconditionally trap. Syntax checked but intentionally not executed by the short-expression verifier."}
+
+ "@cDefine(\"_GNU_SOURCE\", {})"
+ {:clojure-source "(ak/cDefine \"_GNU_SOURCE\" (az/block))" :kind :expr
+  :note "Inside ak/cImport, define the C preprocessor macro with no replacement text."}
+
+ "@divExact(6, 3) == 2"
+ {:clojure-source "(== (ak/divExact 6 3) 2)" :kind :expr :standalone? true
+  :note "Exact division has no remainder."}
+
+ "@divExact(a, b) * b == a"
+ {:clojure-source "(== (* (ak/divExact a b) b) a)" :kind :expr
+  :note "The exact-division identity, subject to the builtin's preconditions."}
+
+ "@divFloor(-5, 3) == -2"
+ {:clojure-source "(== (ak/divFloor -5 3) -2)" :kind :expr :standalone? true
+  :note "Floor division rounds negative quotients toward negative infinity."}
+
+ "@divTrunc(-5, 3) == -1"
+ {:clojure-source "(== (ak/divTrunc -5 3) -1)" :kind :expr :standalone? true
+  :note "Truncating division rounds toward zero."}
+
+ "@divTrunc(numerator, denominator) * denominator == numerator"
+ {:clojure-source "(== (* (ak/divTrunc numerator denominator) denominator)\n    numerator)" :kind :expr
+  :note "The surrounding exact-division precondition; numerator and denominator are local parameters."}
+
+ "@mod(-5, 3) == 1"
+ {:clojure-source "(== (ak/mod -5 3) 1)" :kind :expr :standalone? true
+  :note "Modulo pairs with floor division."}
+
+ "@rem(-5, 3) == -2"
+ {:clojure-source "(== (ak/rem -5 3) -2)" :kind :expr :standalone? true
+  :note "Remainder pairs with truncating division."}
+
+ "(@divFloor(a, b) * b) + @mod(a, b) == a"
+ {:clojure-source "(== (+ (* (ak/divFloor a b) b) (ak/mod a b)) a)" :kind :expr
+  :note "Reconstruct the dividend from floor quotient and modulo."}
+
+ "(@divTrunc(a, b) * b) + @rem(a, b) == a"
+ {:clojure-source "(== (+ (* (ak/divTrunc a b) b) (ak/rem a b)) a)" :kind :expr
+  :note "Reconstruct the dividend from truncated quotient and remainder."}
+
+ "(a * b) + c"
+ {:clojure-source "(+ (* a b) c)" :kind :expr
+  :note "Separate multiplication and addition, unlike a fused multiply-add."}
+
+ "@sizeOf(@TypeOf(value)) == @sizeOf(DestType)"
+ {:clojure-source "(== (ak/sizeOf (ak/TypeOf value)) (ak/sizeOf DestType))" :kind :expr
+  :note "A bit cast requires equal source and destination sizes."}
+
+ "@sizeOf(T)"
+ {:clojure-source "(ak/sizeOf T)" :kind :expr
+  :note "The target-dependent storage size of T, in bytes."}
+
+ "@sizeOf(u24) == 4"
+ {:clojure-source "(== (ak/sizeOf :u24) 4)" :kind :expr :standalone? true
+  :note "The reference's storage-size example; the comparison runs on both sides with the same target."}
+
+ "@typeInfo(@TypeOf(ptr)).pointer.alignment"
+ {:clojure-source "(az/field (az/field (ak/typeInfo (ak/TypeOf ptr)) :pointer)\n          :alignment)" :kind :expr
+  :note "The alignment recorded in the surrounding pointer's type information."}
+
+ ">= @sizeOf(T)."
+ {:clojure-source "" :kind :syntax-note
+  :note "The period ends the sentence, not an expression. Compare the preceding alignment with (>= alignment (ak/sizeOf T))."}
+
+ "@typeInfo(DestType) != .pointer"
+ {:clojure-source "(ak/!= (ak/typeInfo DestType) :.pointer)" :kind :expr
+  :note "Reject pointer destination types; pointer casts have dedicated builtins."}
+
+ "@typeInfo(T).int.bits"
+ {:clojure-source "(az/field (az/field (ak/typeInfo T) :int) :bits)" :kind :expr
+  :note "The integer type's bit width."}
+
+ "@workGroupSize(dimension)"
+ {:clojure-source "(ak/workGroupSize dimension)" :kind :expr
+  :note "GPU work-group size for the selected dimension; requires a GPU execution context."}
+
+ "!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1)"
+ {:clojure-source "(not (and (== (ak/typeInfo T) :.int)\n          (az/field T :is_signed)\n          (== numerator (aguafria.std.math/minInt T))\n          (== denominator -1)))" :kind :expr
+  :note "The upstream division-overflow condition, preserved as written. T.is_signed is historical prose syntax, not a valid field on current integer types; current code reads signedness through ak/typeInfo. This contextual fragment is not claimed to execute."}
+
+ "a * b"
+ {:clojure-source "(* a b)" :kind :expr
+  :note "Multiply the surrounding operands."}
+
+ "a - b"
+ {:clojure-source "(- a b)" :kind :expr
+  :note "Subtract the surrounding operands."}
+
+ "a << b"
+ {:clojure-source "(ak/<< a b)" :kind :expr
+  :note "Shift a left by b bits."}
+
+ "a[i]"
+ {:clojure-source "(az/index a i)" :kind :expr
+  :note "Index the surrounding sequence a."}
+
+ "b[i]"
+ {:clojure-source "(az/index b i)" :kind :expr
+  :note "Index the surrounding sequence b."}
+
+ "pred[i]"
+ {:clojure-source "(az/index pred i)" :kind :expr
+  :note "Read the predicate lane at index i."}
+
+ "allocator.alloc"
+ {:clojure-source "(az/field allocator :alloc)" :kind :expr
+  :note "The surrounding allocator's allocation method; not a global allocator instance."}
+
+ "allocator.create"
+ {:clojure-source "(az/field allocator :create)" :kind :expr
+  :note "The surrounding allocator's single-item allocation method."}
+
+ "arena.deinit()"
+ {:clojure-source "((az/field arena :deinit))" :kind :expr
+  :note "Release all allocations owned by the surrounding arena."}
+
+ "denominator != 0"
+ {:clojure-source "(ak/!= denominator 0)" :kind :expr
+  :note "Division requires a nonzero denominator."}
+
+ "numerator % denominator"
+ {:clojure-source "(ak/% numerator denominator)" :kind :expr
+  :note "The remainder operator; its permitted operand types follow Zig's rules."}
+
+ "numerator / denominator"
+ {:clojure-source "(/ numerator denominator)" :kind :expr
+  :note "Divide the surrounding operands; use explicit builtins when signed rounding must be selected."}
+
+ "error.OutOfMem"
+ {:clojure-source "(az/error-value :OutOfMem)" :kind :expr :standalone? true
+  :note "The named OutOfMem error value, not its string name."}
+
+ "error.OutOfMemory"
+ {:clojure-source "(az/error-value :OutOfMemory)" :kind :expr :standalone? true
+  :note "The allocation-failure error value."}
+
+ "error.SkipZigTest"
+ {:clojure-source "(az/error-value :SkipZigTest)" :kind :expr :standalone? true
+  :note "Returning this error from an az/deftest marks the native test skipped."}
+
+ "export fn"
+ {:clojure-source "az/defn" :kind :reference
+  :note "Add {:export true} after the return type to export a function through the C ABI. Public alone does not mean C-exported."}
+
+ "i8 = -74"
+ {:clojure-source "(ak/as :i8 -74)" :kind :expr
+  :note "This is a typed-value annotation in prose, not a Zig assignment: the bit pattern interpreted as signed i8."}
+
+ "i8 = 109"
+ {:clojure-source "(ak/as :i8 109)" :kind :expr
+  :note "The reversed bit pattern interpreted as signed i8."}
+
+ "u8 = 109"
+ {:clojure-source "(ak/as :u8 109)" :kind :expr
+  :note "The reversed bit pattern interpreted as unsigned u8."}
+
+ "u8 = 182"
+ {:clojure-source "(ak/as :u8 182)" :kind :expr
+  :note "The original bit pattern interpreted as unsigned u8."}
+
+ "log2(@typeInfo(@TypeOf(a)).int.bits)"
+ {:clojure-source "(log2 (az/field (az/field (ak/typeInfo (ak/TypeOf a)) :int)\n                :bits))" :kind :expr
+  :note "A mathematical bound on the shift count's bit width. log2 names the operation in prose, not a newly provided function."}
+
+ "log2(@typeInfo(T).int.bits)"
+ {:clojure-source "(log2 (az/field (az/field (ak/typeInfo T) :int) :bits))" :kind :expr
+  :note "A mathematical bound in the surrounding shift discussion; log2 is contextual notation."}
+
+ "options.linkage"
+ {:clojure-source "(az/field options :linkage)" :kind :expr
+  :note "The linkage field in the surrounding export options."}
+
+ "ptr_to_struct.*.struct_member"
+ {:clojure-source "(az/field @ptr-to-struct :struct_member)" :kind :expr
+  :note "Explicitly dereference a struct pointer, then access its member."}
+
+ "ptr_to_struct_array[index].struct_member"
+ {:clojure-source "(az/field (az/index ptr-to-struct-array index) :struct_member)" :kind :expr
+  :note "Index a pointer to structs, then read the selected struct's member."}
+
+ "shift_amt >= @typeInfo(@TypeOf(a)).int.bits"
+ {:clojure-source "(>= shift-amt\n    (az/field (az/field (ak/typeInfo (ak/TypeOf a)) :int) :bits))" :kind :expr
+  :note "Check whether the shift amount reaches the operand's bit width."}
+
+ "shift_amt >= @typeInfo(T).int.bits"
+ {:clojure-source "(>= shift-amt (az/field (az/field (ak/typeInfo T) :int) :bits))" :kind :expr
+  :note "Check whether the shift amount reaches T's bit width."}
+
+ "~@as(i32, 0)"
+ {:clojure-source "(ak/bit-not (ak/as :i32 0))" :kind :expr :standalone? true
+  :note "Complementing all bits of signed i32 zero produces negative one."}
+
+ "lib/std/start.zig"
+ {:clojure-source "" :kind :syntax-note
+  :note "ZIG_ONLY: a source path inside the embedded Zig toolchain. Its startup code also serves Aguafria-generated native programs; it is not Clojure application code."}
+
+ "std/builtin.zig"
+ {:clojure-source "" :kind :syntax-note
+  :note "ZIG_ONLY: the toolchain source file defining builtin-related types. Use the corresponding aguafria.std.builtin Vars in application declarations."}
+
+ "struct { ... }"
+ {:clojure-source "" :kind :syntax-note
+  :note "The ellipsis stands for omitted members. Aguafria uses az/container or az/defstruct with the actual fields and declarations; the ellipsis is not executable code."}
+
+ "struct { FILE_CONTENTS }"
+ {:clojure-source "" :kind :syntax-note
+  :note "FILE_CONTENTS means the imported file's declarations in this explanation, not a variable. An Aguafria namespace supplies the corresponding generated module declarations."}
+
+ "pub const _start = {};"
+ {:clojure-source "(az/defconst _start (az/block))" :kind :declarations
+  :note "A public top-level _start declaration disables Zig's default startup routine; it is not a function body."}
+
+ "const assert = @import(\"std\").debug.assert;\ncomptime {\n    assert(*u32 == *align(@alignOf(u32)) u32);\n}"
+ {:clojure-source "(az/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (== (az/type [:* :u32])\n        (az/type [:pointer {:size :one :align (ak/alignOf :u32)} :u32]))))"
+  :kind :declarations
+  :expected-compile-error "reached unreachable code"
+  :note "A module-level pointer-alignment assertion, preserved from the reference. The original and translated assertion both fail with the pinned 0.16.0 compiler on this target; it is not a successful compilation example."}}

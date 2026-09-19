@@ -23,35 +23,30 @@
    [:source-nodes :usize] [:source-cells :usize] [:ready :bool]
    [:minimum-height :f64] [:maximum-correction :f64] [:reference-inset :f64]])
 
-(az/defn transpose
-  :- matrix/Matrix
+(az/defn transpose matrix/Matrix
   [[value matrix/Matrix]]
   (matrix/Matrix
    {:c0 (p/v (az/field (az/field value c0) x) (az/field (az/field value c1) x) (az/field (az/field value c2) x))
     :c1 (p/v (az/field (az/field value c0) y) (az/field (az/field value c1) y) (az/field (az/field value c2) y))
     :c2 (p/v (az/field (az/field value c0) z) (az/field (az/field value c1) z) (az/field (az/field value c2) z))}))
 
-(az/defn inverse
-  :- matrix/Matrix
+(az/defn inverse matrix/Matrix
   [[value matrix/Matrix]]
   (matrix/scale (transpose (matrix/cofactor value)) (/ 1.0 (matrix/determinant value))))
 
-(az/defn basis
-  :- matrix/Matrix
+(az/defn basis matrix/Matrix
   [[a p/Vec3] [b p/Vec3] [c p/Vec3] [d p/Vec3]]
   (matrix/Matrix {:c0 (p/add b (p/scale a -1.0))
                   :c1 (p/add c (p/scale a -1.0))
                   :c2 (p/add d (p/scale a -1.0))}))
 
-(az/defn multiply
-  :- matrix/Matrix
+(az/defn multiply matrix/Matrix
   [[a matrix/Matrix] [b matrix/Matrix]]
   (matrix/Matrix {:c0 (matrix/apply-vector a (az/field b c0))
                   :c1 (matrix/apply-vector a (az/field b c1))
                   :c2 (matrix/apply-vector a (az/field b c2))}))
 
-(az/defn centroid-offset
-  :- p/Vec3
+(az/defn centroid-offset p/Vec3
   [[source [:* cache/Cache]] [cell [:array 4 :u32]] [local :usize]]
   (let [origin (az/index (az/field source reference) (az/index cell local))
         ^:var offset (p/v 0.0 0.0 0.0)]
@@ -60,10 +55,9 @@
                                        (p/scale origin -1.0)))))
     (p/scale offset 0.25)))
 
-(az/defn create!
+(az/defn create! [:* Render]
   "Precompute the regularized cell-to-vertex reconstruction in material space.
   The source must be a validated, nondegenerate tetrahedral cache."
-  :- [:* Render]
   [[source [:* cache/Cache]] [points :usize] [faces :usize]]
   (debug/assert (and (> points 0) (<= points 80000) (> faces 0) (<= faces 80000)))
   (let [nodes (az/field (az/field source reference) len)
@@ -133,8 +127,7 @@
                   (/ (az/index (az/index (az/field result cell-weights) index) local) sum))))))
     result))
 
-(az/defn destroy!
-  :- :void
+(az/defn destroy! :void
   [[render [:* Render]]]
   ((az/field heap/page_allocator free) (az/field render reference))
   ((az/field heap/page_allocator free) (az/field render bindings))
@@ -146,10 +139,9 @@
   ((az/field heap/page_allocator free) (az/field render gradients))
   ((az/field heap/page_allocator destroy) render))
 
-(az/defn bind!
+(az/defn bind! :bool
   "Reject points outside the reference volume; never clamp or extrapolate weights.
   Point containment alone does not certify a triangle across a nonconvex cavity."
-  :- :bool
   [[render [:* Render]] [source [:* cache/Cache]] [index :usize] [point p/Vec3]]
   (debug/assert (< index (az/field (az/field render bindings) len)))
   (az/set-many!
@@ -175,18 +167,16 @@
         (ak/return true))))
   false)
 
-(az/defn set-face!
-  :- :void
+(az/defn set-face! :void
   [[render [:* Render]] [index :usize] [a :u32] [b :u32] [c :u32]]
   (let [points (az/field (az/field render reference) len)]
     (debug/assert (and (< index (az/field (az/field render faces) len))
                        (< a points) (< b points) (< c points))))
   (set! (az/index (az/field render faces) index) (az/array-init [:array 3 :u32] [a b c])))
 
-(az/defn update!
+(az/defn update! :bool
   "Transfer positions and recompute normals from the detailed deformed triangles.
   This is rendering interpolation, not a higher-order FEM or contact solve."
-  :- :bool
   [[render [:* Render]] [source [:* cache/Cache]] [tick :u32] [phong :bool]]
   (set! (az/field render ready) false)
   (when (or (ak/!= source (az/field render source))
@@ -253,11 +243,10 @@
   (set! (az/field render ready) true)
   true)
 
-(az/defn update-for-floor!
+(az/defn update-for-floor! :u32
   "0 rejects the frame, 1 uses Phong, 2 uses the contained linear interpolant.
   No point is clamped. A convex ground half-space contains every triangle when
   all its vertices satisfy the plane; this does not certify inter-body contact."
-  :- :u32
   [[render [:* Render]] [source [:* cache/Cache]] [tick :u32] [floor :bool]]
   (when (ak/! (update! render source tick true)) (ak/return 0))
   (when (or (ak/! floor) (>= (az/field render minimum-height) -1.0e-9)) (ak/return 1))
@@ -266,11 +255,10 @@
   (set! (az/field render ready) false)
   0)
 
-(az/defn inscribed-sphere!
+(az/defn inscribed-sphere! [:optional [:* Render]]
   "Detailed preview for a validated convex spherical cage. The smaller rest
   radius is explicit: no negative embedding weights or changes to FEM nodes.
   Non-spherical/cavity boundaries are rejected; general assets use bind!."
-  :- [:optional [:* Render]]
   [[source [:* cache/Cache]]]
   (let [rest (az/field source reference)
         faces (az/field source faces)

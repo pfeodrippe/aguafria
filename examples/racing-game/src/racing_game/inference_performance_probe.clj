@@ -7,9 +7,7 @@
             [racing-game.assets :as assets]
             [racing-game.inference :as inference]))
 
-(az/defn main
-  :-
-  :void
+(az/defn main :void
   []
   (std-debug/assert (assets/load-and-verify!))
   (std-debug/assert (inference/initialize-sequences!))

@@ -9,8 +9,7 @@
             [field-lab.nonlinear-fem :as dynamics]
             [pitoco.geometry :as geometry]))
 
-(az/defn cached-reference-volume
-  :- :f64
+(az/defn cached-reference-volume :f64
   [[owned [:* cache/Cache]]]
   (let [points (az/field owned reference)
         ^{:var :f64} result 0.0]

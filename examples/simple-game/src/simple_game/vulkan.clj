@@ -97,14 +97,12 @@
 (az/defvar shader-code [:array 16384 :u32]
   (std-mem/zeroes (az/type [:array 16384 :u32])))
 
-(az/defn check
+(az/defn check :void
   "Assert a Vulkan result and keep the result visible in generated Zig."
-  :- :void
   [[result vk/VkResult]]
   (std-debug/assert (ak/== result vk/VK_SUCCESS)))
 
-(az/defn initialize-instance!
-  :- :void
+(az/defn initialize-instance! :void
   []
   (let [^{:var true :zig/type :u32} extension-count 0
         glfw-extensions (vk/glfwGetRequiredInstanceExtensions (ak/& extension-count))
@@ -134,8 +132,7 @@
             :ppEnabledExtensionNames (ak/& (az/index extensions 0))})]
       (check (vk/vkCreateInstance (ak/& create-info) null (ak/& instance))))))
 
-(az/defn select-device-and-queue!
-  :- :void
+(az/defn select-device-and-queue! :void
   []
   (let [^{:var true :zig/type :u32} device-count 0
         ^:var devices (std-mem/zeroes (az/type [:array 8 vk/VkPhysicalDevice]))]
@@ -169,8 +166,7 @@
           (set! family-index (+ family-index 1)))
         (std-debug/assert (< family-index family-count))))))
 
-(az/defn create-device!
-  :- :void
+(az/defn create-device! :void
   []
   (let [^{:zig/type :f32} priority 1.0
         queue-info
@@ -193,8 +189,7 @@
     (check (vk/vkCreateDevice physical-device (ak/& create-info) null (ak/& device)))
     (vk/vkGetDeviceQueue device queue-family 0 (ak/& graphics-queue))))
 
-(az/defn create-swapchain!
-  :- :void
+(az/defn create-swapchain! :void
   []
   (let [^:var capabilities
         (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))
@@ -237,8 +232,7 @@
       (check (vk/vkGetSwapchainImagesKHR
               device swapchain (ak/& image-count) (ak/& (az/index swapchain-images 0)))))))
 
-(az/defn create-image-views!
-  :- :void
+(az/defn create-image-views! :void
   []
   (dotimes [index image-count]
     (let [create-info
@@ -263,8 +257,7 @@
       (check (vk/vkCreateImageView
               device (ak/& create-info) null (ak/& (az/index image-views index)))))))
 
-(az/defn create-render-pass!
-  :- :void
+(az/defn create-render-pass! :void
   []
   (let [attachments
         (az/array-init
@@ -325,8 +318,7 @@
           :pDependencies (ak/& dependency)})]
     (check (vk/vkCreateRenderPass device (ak/& create-info) null (ak/& render-pass)))))
 
-(az/defn create-framebuffers!
-  :- :void
+(az/defn create-framebuffers! :void
   []
   (dotimes [index image-count]
     (let [attachments
@@ -344,8 +336,7 @@
       (check (vk/vkCreateFramebuffer
               device (ak/& create-info) null (ak/& (az/index framebuffers index)))))))
 
-(az/defn create-commands-and-sync!
-  :- :void
+(az/defn create-commands-and-sync! :void
   []
   (let [pool-info
         (vk/VkCommandPoolCreateInfo
@@ -373,10 +364,8 @@
             device (ak/& semaphore-info) null (ak/& render-finished)))
     (check (vk/vkCreateFence device (ak/& fence-info) null (ak/& in-flight)))))
 
-(az/defn find-memory-type
+(az/defn find-memory-type :u32
   "Select a physical-device memory type satisfying a Vulkan property mask."
-  :-
-  :u32
   [[type-bits :u32]
    [required vk/VkMemoryPropertyFlags]]
   (let [^{:var true}
@@ -395,10 +384,8 @@
           (set! selected (ak/intCast index)))))
     selected))
 
-(az/defn create-depth-resources!
+(az/defn create-depth-resources! :void
   "Create the depth attachment shared by the single in-flight frame."
-  :-
-  :void
   []
   (let [image-info
         (vk/VkImageCreateInfo
@@ -450,10 +437,8 @@
       (check (vk/vkCreateImageView device (ak/& view-info) null
                                   (ak/& depth-view))))))
 
-(az/defn create-mesh-buffer!
+(az/defn create-mesh-buffer! :void
   "Create one persistently mapped, bounded vertex stream for the 3D scene."
-  :-
-  :void
   []
   (let [buffer-size (ak/as vk/VkDeviceSize
                            (* mesh/frame-capacity (ak/sizeOf mesh/GpuVertex)))
@@ -486,10 +471,8 @@
       (check (vk/vkMapMemory device mesh-vertex-memory 0 buffer-size 0
                             (ak/& mapped-mesh-vertices))))))
 
-(az/defn load-shader-module
+(az/defn load-shader-module vk/VkShaderModule
   "Load one checked-in SPIR-V shader and create its Vulkan module."
-  :-
-  vk/VkShaderModule
   [[path [:pointer {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
         ^{:var true} module (ak/as vk/VkShaderModule null)]
@@ -507,10 +490,8 @@
                                         (ak/& module)))))
     module))
 
-(az/defn create-mesh-pipeline!
+(az/defn create-mesh-pipeline! :void
   "Create the Vulkan triangle pipeline used by every Kenney model."
-  :-
-  :void
   []
   (let [vertex-module (load-shader-module "resources/shaders/mesh.vert.spv")
         fragment-module (load-shader-module "resources/shaders/mesh.frag.spv")
@@ -629,9 +610,8 @@
     (vk/vkDestroyShaderModule device fragment-module null)
     (vk/vkDestroyShaderModule device vertex-module null)))
 
-(az/defn initialize-renderer!
+(az/defn initialize-renderer! :bool
   "Initialize Vulkan against an existing GLFW window."
-  :- :bool
   [[window [:optional [:* vk/GLFWwindow]]]]
   (when (ak/! initialized)
     (initialize-instance!)
@@ -649,8 +629,7 @@
     (set! initialized true))
   initialized)
 
-(az/defn clear-value
-  :- vk/VkClearValue
+(az/defn clear-value vk/VkClearValue
   [[color Color]]
   (vk/VkClearValue
    {:color
@@ -663,8 +642,7 @@
         (az/field color b)
         (az/field color a)])})}))
 
-(az/defn clear-rect
-  :- :void
+(az/defn clear-rect :void
   [[command-buffer vk/VkCommandBuffer]
    [color Color]
    [x :i32]
@@ -691,10 +669,8 @@
       (vk/vkCmdClearAttachments
        command-buffer 1 (ak/& attachment) 1 (ak/& rectangle)))))
 
-(az/defn backend-clear-rect
+(az/defn backend-clear-rect :void
   "Vulkan implementation of the shared scene's rectangle operation."
-  :-
-  :void
   [[color hud/Color]
    [x :i32]
    [y :i32]
@@ -702,8 +678,7 @@
    [height :i32]]
   (clear-rect active-command-buffer color x y width height))
 
-(az/defn record-frame
-  :- :void
+(az/defn record-frame :void
   [[image-index :u32]
    [packet game/RenderPacket]]
   (set! _ packet)
@@ -753,9 +728,8 @@
     (vk/vkCmdEndRenderPass command-buffer)
     (check (vk/vkEndCommandBuffer command-buffer))))
 
-(az/defn render!
+(az/defn render! :bool
   "Render one game packet and present it."
-  :- :bool
   [[packet game/RenderPacket]]
   (std-debug/assert initialized)
   (let [^{:var true :zig/type :u32} image-index 0]
@@ -793,8 +767,7 @@
           (host/finish-frame! render-work)))))
   true)
 
-(az/defn renderer-snapshot
-  :- RendererSnapshot
+(az/defn renderer-snapshot RendererSnapshot
   []
   (RendererSnapshot
    {:initialized initialized
@@ -804,15 +777,13 @@
     :images image-count
     :queue_family queue-family}))
 
-(az/defn renderer-wait-idle!
-  :- :void
+(az/defn renderer-wait-idle! :void
   []
   (when initialized
     (check (vk/vkDeviceWaitIdle device))))
 
-(az/defn shutdown-renderer!
+(az/defn shutdown-renderer! :void
   "Destroy desktop Vulkan resources in dependency order."
-  :- :void
   []
   (when initialized
     (renderer-wait-idle!)

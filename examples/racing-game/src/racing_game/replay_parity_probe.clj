@@ -7,9 +7,7 @@
             [racing-game.protocol :as protocol]
             [racing-game.simulation :as simulation]))
 
-(az/defn main
-  :-
-  :void
+(az/defn main :void
   []
   (let [loaded
         (simulation/load-replay-file! "resources/replay/golden-r4.bin")]

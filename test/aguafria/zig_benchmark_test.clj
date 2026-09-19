@@ -93,7 +93,7 @@
         (binding [*ns* target-ns]
           (refer 'clojure.core)
           (alias 'az 'aguafria.zig)
-          (eval '(az/defn leaf :- :i32 [] 1)))
+          (eval '(az/defn leaf :i32 [] 1)))
         (let [leaf-var (ns-resolve target-ns 'leaf)
               expected (fn [context]
                          (+ 100 (mod (:fresh-value context) 1000000)))

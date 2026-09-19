@@ -18,27 +18,25 @@
 (az/defstruct Output {:layout :extern}
   [[:state State] [:control driver/Control]])
 
-(az/defn heading :- :f32 [[body physics/BodyState]]
+(az/defn heading :f32 [[body physics/BodyState]]
   (math/atan2 (* 2.0 (+ (* (az/field body qw) (az/field body qz))
                          (* (az/field body qx) (az/field body qy))))
     (- 1.0 (* 2.0 (+ (* (az/field body qy) (az/field body qy))
                       (* (az/field body qz) (az/field body qz)))))))
 
-(az/defn angle :- :f32 [[value :f32]]
+(az/defn angle :f32 [[value :f32]]
   (math/atan2 (math/sin value) (math/cos value)))
 
-(az/defn static-overlap
+(az/defn static-overlap :bool
   "Read-only Box3D query callback. Dynamic cars are checked separately."
-  {:attrs #{:export}}
-  :- :bool [[shape b3/b3ShapeId] [context [:optional [:* :anyopaque]]]]
+  {:attrs #{:export}} [[shape b3/b3ShapeId] [context [:optional [:* :anyopaque]]]]
   (if (ak/== (b3/b3Body_GetType (b3/b3Shape_GetBody shape)) b3/b3_staticBody)
     (do (set! (az/deref (az/cast context [:* :bool])) true) false)
     true))
 
-(az/defn static-clearance
+(az/defn static-clearance :bool
   "Query the actual static collision meshes, including authored containment.
-  The cloud encloses the car footprint; this never moves a simulation body."
-  :- :bool [[world b3/b3WorldId] [x :f32] [y :f32] [z :f32] [yaw :f32]]
+  The cloud encloses the car footprint; this never moves a simulation body." [[world b3/b3WorldId] [x :f32] [y :f32] [z :f32] [yaw :f32]]
   (let [^{:var [:array 8 b3/b3Vec3]} points ak/undefined
         ^{:var :bool} blocked false]
     (dotimes [i 8]
@@ -53,12 +51,11 @@
                  (ak/& proxy) (b3/b3DefaultQueryFilter) (ak/& static-overlap) (ak/& blocked))))
     (ak/! blocked)))
 
-(az/defn footprint-separation
+(az/defn footprint-separation :f32
   "Signed separating-axis clearance between two conservative car footprints.
   Positive means separated; negative means overlap. Units are metres.
   Half-length is the 2.5m chassis plus 5cm; half-width encloses the authored
-  0.99m axle offset and 0.48m-radius/width tires at maximum 0.45rad steering."
-  :- :f32 [[x :f32] [y :f32] [yaw :f32] [other physics/BodyState]]
+  0.99m axle offset and 0.48m-radius/width tires at maximum 0.45rad steering." [[x :f32] [y :f32] [yaw :f32] [other physics/BodyState]]
   (let [other-yaw (heading other)
         dx (- (az/field other x) x)
         dy (- (az/field other y) y)
@@ -72,10 +69,9 @@
       (ak/max (- (ak/abs (+ (* dx (math/cos other-yaw)) (* dy (math/sin other-yaw)))) long-span)
               (- (ak/abs (- (* dy (math/cos other-yaw)) (* dx (math/sin other-yaw)))) short-span)))))
 
-(az/defn moving-traffic-clear?
+(az/defn moving-traffic-clear? :bool
   "Conservative swept clearance for traffic crossing the short recovery arc.
   Endpoint-only checks can miss a fast car that crosses between samples."
-  :- :bool
   [[body physics/BodyState] [other physics/BodyState]
    [x :f32] [y :f32] [seconds :f32]]
   (let [dx (- (az/field other x) (az/field body x))
@@ -89,11 +85,10 @@
         nearest-y (+ dy (* relative-y fraction))]
     (>= (+ (* nearest-x nearest-x) (* nearest-y nearest-y)) 36.0)))
 
-(az/defn motion-pose
+(az/defn motion-pose [:array 3 :f32]
   "Read-only short-arc prediction in metres/radians for the requested wheel
   steering. Signed travel reverses yaw in reverse gear; steering does not.
   The result is a query position, never an imposed rigid-body transform."
-  :- [:array 3 :f32]
   [[body physics/BodyState] [steering :f32] [distance :f32]]
   (let [yaw (heading body)
         wheelbase (- (az/index (az/index spec/wheel-geometry 0) 0)
@@ -109,50 +104,45 @@
          (- (az/field body y) (/ (- (math/cos next-yaw) (math/cos yaw)) curvature))
          next-yaw]))))
 
-(az/defn footprint-side-radius
-  "Road-normal half-span of the same oriented envelope used by the veto."
-  :- :f32 [[yaw :f32] [road-yaw :f32]]
+(az/defn footprint-side-radius :f32
+  "Road-normal half-span of the same oriented envelope used by the veto." [[yaw :f32] [road-yaw :f32]]
   (+ (* 2.55 (ak/abs (math/sin (- yaw road-yaw))))
      (* 1.47 (ak/abs (math/cos (- yaw road-yaw))))))
 
-(az/defn recovery-side-clearance
+(az/defn recovery-side-clearance :f32
   "Required lateral centre gap before committing to a parallel passing lane.
   Include BOTH measured orientations and a 30cm planning margin, instead of
-  declaring the obstacle cleared at a fixed 2.7m before tires fit beside it."
-  :- :f32 [[body physics/BodyState] [other physics/BodyState] [road-yaw :f32]]
+  declaring the obstacle cleared at a fixed 2.7m before tires fit beside it." [[body physics/BodyState] [other physics/BodyState] [road-yaw :f32]]
   (+ (footprint-side-radius (heading body) road-yaw)
      (footprint-side-radius (heading other) road-yaw) 0.3))
 
-(az/defn separation-safe?
+(az/defn separation-safe? :bool
   "Keep an existing positive clearance instead of demanding that every 5cm
   forward sample widen it by 2cm. Already-overlapping conservative envelopes
   must actually separate. One millimetre covers metre-space float roundoff;
-  it never permits a new predicted overlap from a separated starting pose."
-  :- :bool [[current :f32] [predicted :f32]]
+  it never permits a new predicted overlap from a separated starting pose." [[current :f32] [predicted :f32]]
   (cond
     (>= predicted 0.2) true
     (>= current 0.0) (and (>= predicted 0.0) (>= predicted (- current 0.001)))
     :else (> predicted (+ current 0.001))))
 
-(az/defn corridor-step-safe?
+(az/defn corridor-step-safe? :bool
   "Keep the anchored corridor fixed. If a collision has pushed a car outside
   it, permit only measured inward progress, never parallel/outward ratcheting.
-  This is a query gate, not a body transform or a waiver of collision checks."
-  :- :bool [[current-lane :f32] [predicted-lane :f32] [limit :f32]]
+  This is a query gate, not a body transform or a waiver of collision checks." [[current-lane :f32] [predicted-lane :f32] [limit :f32]]
   (and (math/isFinite current-lane) (math/isFinite predicted-lane)
        (math/isFinite limit) (>= limit 0.0)
        (if (<= (ak/abs current-lane) limit)
          (<= (ak/abs predicted-lane) limit)
          (< (ak/abs predicted-lane) (- (ak/abs current-lane) 0.001)))))
 
-(az/defn motion-clearance-reasons
+(az/defn motion-clearance-reasons :u8
   "Predict a short steering arc, including the rectangular chassis footprint.
   This is only a pedal planner: Box3D remains authoritative for actual motion.
   Includes eight measured car centres; self is excluded by index.
   Returns a bit mask: 1 ground, 2 corridor, 4 static mesh, 8 footprint,
   16 crossing traffic, 32 unspecified gear. Zero means this arc is clear.
   Takes actual steering radians, including straight-ahead motion."
-  :- :u8
   [[body physics/BodyState] [others [:array protocol/racer-count physics/BodyState]]
    [count :usize] [self :usize] [gear :i8] [steering :f32] [world b3/b3WorldId]
    [lane-limit :f32]]
@@ -204,10 +194,9 @@
                     (set! reasons (ak/| reasons 16))))))))))
     reasons))
 
-(az/defn clearance-reasons
+(az/defn clearance-reasons :u8
   "Turnaround candidates target a yaw direction, not a steering direction.
   Match its actual pedal controller: reverse gear also reverses steering."
-  :- :u8
   [[body physics/BodyState] [others [:array protocol/racer-count physics/BodyState]]
    [count :usize] [self :usize] [gear :i8] [sign :f32] [world b3/b3WorldId]
    [lane-limit :f32]]
@@ -215,11 +204,10 @@
     (motion-clearance-reasons body others count self gear
       (* sign 0.45 (ak/as :f32 (ak/floatFromInt gear))) world lane-limit)))
 
-(az/defn guard-recovery-control
+(az/defn guard-recovery-control driver/Control
   "A low-speed safety veto, not a tactical decision. Check the final requested
   steering against every measured car and static obstacle, including wrecks.
   When blocked, brake without changing the intent, gear or any body state."
-  :- driver/Control
   [[control driver/Control] [body physics/BodyState]
    [others [:array protocol/racer-count physics/BodyState]] [count :usize] [self :usize]
    [gear :i8] [world b3/b3WorldId] [lane-limit :f32]]
@@ -230,19 +218,17 @@
       (set! (az/field safe brake) 1.0))
     safe))
 
-(az/defn clearance
+(az/defn clearance :bool
   "Whether the physical and traffic constraints permit this low-speed arc."
-  :- :bool
   [[body physics/BodyState] [others [:array protocol/racer-count physics/BodyState]]
    [count :usize] [self :usize] [gear :i8] [sign :f32] [world b3/b3WorldId]
    [lane-limit :f32]]
   (ak/== (clearance-reasons body others count self gear sign world lane-limit) 0))
 
-(az/defn step
+(az/defn step Output
   "Keep turning direction unless both arcs are blocked and the car is stopped.
   Switch between forward/reverse only after braking below 0.05m/s. Disabled control
   brakes an active turnaround and returns normal control only once stationary."
-  :- Output
   [[previous State] [normal driver/Control] [body physics/BodyState]
    [others [:array protocol/racer-count physics/BodyState]] [count :usize] [self :usize] [enabled :bool]
    [world b3/b3WorldId]]

@@ -29,23 +29,20 @@
    [:gradient-fallbacks :u32] [:force-residual :f64] [:energy :f64]
    [:path-lower-bound :f64]])
 
-(az/defn with-component
-  :- p/Vec3 [[value p/Vec3] [axis :usize] [component :f64]]
+(az/defn with-component p/Vec3 [[value p/Vec3] [axis :usize] [component :f64]]
   (p/v (if (ak/== axis 0) component (az/field value x))
        (if (ak/== axis 1) component (az/field value y))
        (if (ak/== axis 2) component (az/field value z))))
 
-(az/defn inner
-  :- :f64 [[left [:slice p/Vec3]] [right [:slice p/Vec3]]]
+(az/defn inner :f64 [[left [:slice p/Vec3]] [right [:slice p/Vec3]]]
   (let [^{:var :f64} result 0.0]
     (dotimes [index (az/field left len)] (ak/+= result (p/dot (az/index left index) (az/index right index))))
     result))
 
-(az/defn path-bound
+(az/defn path-bound :f64
   "Lower det F bound over every element and straight coefficient interpolation.
   Nonpositive/nonfinite results are inconclusive. Connectivity must be validated
-  by successful assembly before calling. No general collision detection here."
-  :- :f64 [[problem [:* Problem]] [before [:slice p/Vec3]] [after [:slice p/Vec3]]]
+  by successful assembly before calling. No general collision detection here." [[problem [:* Problem]] [before [:slice p/Vec3]] [after [:slice p/Vec3]]]
   (let [^{:var :f64} lower (math/inf :f64)]
     (dotimes [cell (az/field (az/field problem elements) len)]
       (let [element (az/index (az/field problem elements) cell)
@@ -61,17 +58,15 @@
           (set! lower (ak/min lower (az/field bound lower))))))
     lower))
 
-(az/defn evaluate!
-  :- mixed/StepResponse
+(az/defn evaluate! mixed/StepResponse
   [[problem [:* Problem]] [x [:slice p/Vec3]] [gradient [:slice p/Vec3]] [tangents [:slice mixed/QuadraticResponse]]]
   (mixed/assemble-step! (az/field problem vertex-count) (az/field problem elements) x
     (az/field problem prediction) (az/field problem gravity) (az/field problem loads)
     (az/field problem duration) (az/field problem quadrature) gradient tangents))
 
-(az/defn prepare-direction!
+(az/defn prepare-direction! :f64
   "Exact projected KKT residual in N. Equality supports have zero residual;
-  a binding lower/upper bound suppresses only the correctly signed reaction."
-  :- :f64 [[problem [:* Problem]] [workspace [:* Workspace]]]
+  a binding lower/upper bound suppresses only the correctly signed reaction." [[problem [:* Problem]] [workspace [:* Workspace]]]
   (let [^{:var :f64} norm 0.0
         diagonal (az/field workspace diagonal)]
     (dotimes [index (az/field diagonal len)] (set! (az/index diagonal index) (p/v 0.0 0.0 0.0)))
@@ -107,8 +102,7 @@
       (set! (az/index (az/field workspace direction) index) (p/v 0.0 0.0 0.0)))
     norm))
 
-(az/defn gradient-direction!
-  :- :void [[workspace [:* Workspace]]]
+(az/defn gradient-direction! :void [[workspace [:* Workspace]]]
   (dotimes [index (az/field (az/field workspace x) len)]
     (dotimes [axis 3]
       (let [gradient (fem/component (az/index (az/field workspace gradient) index) axis)
@@ -117,10 +111,9 @@
         (set! (az/index (az/field workspace direction) index)
               (with-component (az/index (az/field workspace direction) index) axis (/ (* (- gradient) free) diagonal)))))))
 
-(az/defn newton-direction!
+(az/defn newton-direction! :bool
   "Jacobi-preconditioned CG on free variables. Nonpositive curvature or a
-  nonfinite recurrence rejects Newton and asks the caller for gradient descent."
-  :- :bool [[problem [:* Problem]] [workspace [:* Workspace]] [report [:* Report]]]
+  nonfinite recurrence rejects Newton and asks the caller for gradient descent." [[problem [:* Problem]] [workspace [:* Workspace]] [report [:* Report]]]
   (let [residual (az/field workspace residual)
         search (az/field workspace search)
         product (az/field workspace product)
@@ -163,8 +156,7 @@
     ;; line search. The outer KKT test alone decides nonlinear convergence.
     true))
 
-(az/defn line-search!
-  :- :bool [[problem [:* Problem]] [workspace [:* Workspace]] [report [:* Report]]]
+(az/defn line-search! :bool [[problem [:* Problem]] [workspace [:* Workspace]] [report [:* Report]]]
   (let [^{:var :f64} alpha 1.0
         x (az/field workspace x)
         trial (az/field workspace trial)]
@@ -195,13 +187,12 @@
       (ak/*= alpha 0.5))
     false))
 
-(az/defn solve!
+(az/defn solve! Report
   "Caller owns nonaliasing workspace buffers. Initial state is never mutated;
   x is publishable ONLY with status 0. Status: 0 KKT tolerance reached, 1 invalid
   input, 2 uncertified initial geometry, 3 invalid initial energy, 4 iteration
   limit, 5 line-search failure. Success is first-order stationarity, not a proof
-  of a global/local minimum, physical accuracy, or general collision safety."
-  :- Report [[problem [:* Problem]] [workspace [:* Workspace]]]
+  of a global/local minimum, physical accuracy, or general collision safety." [[problem [:* Problem]] [workspace [:* Workspace]]]
   (let [^:var report (mem/zeroes (az/type Report))
         count (az/field (az/field problem initial) len)
         cells (az/field (az/field problem elements) len)]

@@ -1,0 +1,330 @@
+;; Shared native context for both the original fragment and its emitted equivalent.
+;; Results are printed for comparison between executions, not supplied as an oracle.
+{"snippet-424"
+ {:zig-prefix
+  "// The preceding parser spells OverFlow differently from these fragments.
+// Adapt that spelling at the fixture boundary, retaining its parsing algorithm.
+fn fixture_parse_u64(bytes: []const u8, radix: u8) error{OverFlow, InvalidChar}!u64 {
+    var value: u64 = 0;
+    for (bytes) |character| {
+        const digit: u8 = switch (character) {
+            '0'...'9' => character - '0',
+            'A'...'Z' => character - 'A' + 10,
+            'a'...'z' => character - 'a' + 10,
+            else => 255,
+        };
+        if (digit >= radix) return error.InvalidChar;
+        var result = @mulWithOverflow(value, radix);
+        if (result[1] != 0) return error.OverFlow;
+        result = @addWithOverflow(result[0], digit);
+        if (result[1] != 0) return error.OverFlow;
+        value = result[0];
+    }
+    return value;
+}
+fn parseU64(bytes: []const u8, radix: u8) error{Overflow, InvalidChar}!u64 {
+    return fixture_parse_u64(bytes, radix) catch |err| switch (err) {
+        error.OverFlow => error.Overflow,
+        error.InvalidChar => error.InvalidChar,
+    };
+}
+fn parse_u64(bytes: []const u8, radix: u8) error{Overflow, InvalidChar}!u64 {
+    return parseU64(bytes, radix);
+}
+var fixture_number: ?u64 = null;
+var fixture_number_calls: usize = 0;
+fn doSomethingWithNumber(number: u64) void {
+    fixture_number = number;
+    fixture_number_calls += 1;
+}
+fn do_something_with_number(number: u64) void {
+    doSomethingWithNumber(number);
+}
+"
+  :entry "doAThing"
+  ;; InvalidChar deliberately reaches unreachable here and needs its own process.
+  :test-body
+  "const inputs = [_][]const u8{ \"\", \"0\", \"1234\", \"00042\", \"18446744073709551615\", \"18446744073709551616\", \"184467440737095516150\" };
+for (inputs) |input| {
+    var buffer: [64]u8 = undefined;
+    @memcpy(buffer[0..input.len], input);
+    fixture_number = null;
+    fixture_number_calls = 0;
+    subject(buffer[0..input.len]);
+    @import(\"std\").debug.print(\"input={s} number={any} calls={d}\\n\", .{ input, fixture_number, fixture_number_calls });
+}
+"}
+
+ "snippet-426"
+ {:zig-prefix
+  "// Normalize the preceding parser's OverFlow spelling at this fixture boundary.
+fn fixture_parse_u64(bytes: []const u8, radix: u8) error{OverFlow, InvalidChar}!u64 {
+    var value: u64 = 0;
+    for (bytes) |character| {
+        const digit: u8 = switch (character) {
+            '0'...'9' => character - '0',
+            'A'...'Z' => character - 'A' + 10,
+            'a'...'z' => character - 'a' + 10,
+            else => 255,
+        };
+        if (digit >= radix) return error.InvalidChar;
+        var result = @mulWithOverflow(value, radix);
+        if (result[1] != 0) return error.OverFlow;
+        result = @addWithOverflow(result[0], digit);
+        if (result[1] != 0) return error.OverFlow;
+        value = result[0];
+    }
+    return value;
+}
+fn parseU64(bytes: []const u8, radix: u8) error{Overflow, InvalidChar}!u64 {
+    return fixture_parse_u64(bytes, radix) catch |err| switch (err) {
+        error.OverFlow => error.Overflow,
+        error.InvalidChar => error.InvalidChar,
+    };
+}
+fn parse_u64(bytes: []const u8, radix: u8) error{Overflow, InvalidChar}!u64 {
+    return parseU64(bytes, radix);
+}
+var fixture_number: ?u64 = null;
+var fixture_number_calls: usize = 0;
+fn doSomethingWithNumber(number: u64) void {
+    fixture_number = number;
+    fixture_number_calls += 1;
+}
+fn do_something_with_number(number: u64) void {
+    doSomethingWithNumber(number);
+}
+"
+  :entry "doAnotherThing"
+  :test-body
+  "const inputs = [_][]const u8{ \"\", \"0\", \"1234\", \"00042\", \"18446744073709551615\", \"18446744073709551616\", \"184467440737095516150\", \"12x\", \"+1\", \"-1\" };
+for (inputs) |input| {
+    var buffer: [64]u8 = undefined;
+    @memcpy(buffer[0..input.len], input);
+    fixture_number = null;
+    fixture_number_calls = 0;
+    if (subject(buffer[0..input.len])) |_| {
+        @import(\"std\").debug.print(\"input={s} returned=success number={any} calls={d}\\n\", .{ input, fixture_number, fixture_number_calls });
+    } else |err| {
+        @import(\"std\").debug.print(\"input={s} returned={s} number={any} calls={d}\\n\", .{ input, @errorName(err), fixture_number, fixture_number_calls });
+    }
+}
+"}
+
+ "snippet-429"
+ {:zig-prefix
+  "// Normalize the preceding parser's OverFlow spelling at this fixture boundary.
+fn fixture_parse_u64(bytes: []const u8, radix: u8) error{OverFlow, InvalidChar}!u64 {
+    var value: u64 = 0;
+    for (bytes) |character| {
+        const digit: u8 = switch (character) {
+            '0'...'9' => character - '0',
+            'A'...'Z' => character - 'A' + 10,
+            'a'...'z' => character - 'a' + 10,
+            else => 255,
+        };
+        if (digit >= radix) return error.InvalidChar;
+        var result = @mulWithOverflow(value, radix);
+        if (result[1] != 0) return error.OverFlow;
+        result = @addWithOverflow(result[0], digit);
+        if (result[1] != 0) return error.OverFlow;
+        value = result[0];
+    }
+    return value;
+}
+fn parseU64(bytes: []const u8, radix: u8) error{Overflow, InvalidChar}!u64 {
+    return fixture_parse_u64(bytes, radix) catch |err| switch (err) {
+        error.OverFlow => error.Overflow,
+        error.InvalidChar => error.InvalidChar,
+    };
+}
+fn parse_u64(bytes: []const u8, radix: u8) error{Overflow, InvalidChar}!u64 {
+    return parseU64(bytes, radix);
+}
+var fixture_number: ?u64 = null;
+var fixture_number_calls: usize = 0;
+fn doSomethingWithNumber(number: u64) void {
+    fixture_number = number;
+    fixture_number_calls += 1;
+}
+fn do_something_with_number(number: u64) void {
+    doSomethingWithNumber(number);
+}
+"
+  :entry "doADifferentThing"
+  :test-body
+  "const inputs = [_][]const u8{ \"\", \"0\", \"1234\", \"00042\", \"18446744073709551615\", \"18446744073709551616\", \"184467440737095516150\", \"12x\", \"+1\", \"-1\" };
+for (inputs) |input| {
+    var buffer: [64]u8 = undefined;
+    @memcpy(buffer[0..input.len], input);
+    fixture_number = null;
+    fixture_number_calls = 0;
+    subject(buffer[0..input.len]);
+    @import(\"std\").debug.print(\"input={s} number={any} calls={d}\\n\", .{ input, fixture_number, fixture_number_calls });
+}
+"}
+
+ "snippet-431"
+ {:zig-prefix
+  "// Deterministic resource tokens model lifecycle calls, not a real allocator.
+const Foo = struct { id: u32 };
+const FixtureTmpBuffer = struct { id: u32 };
+var fixture_fail_foo: bool = false;
+var fixture_fail_tmp: bool = false;
+
+fn tryToAllocateFoo() error{OutOfMemory}!Foo {
+    @import(\"std\").debug.print(\"allocate-foo fail={}\\n\", .{fixture_fail_foo});
+    if (fixture_fail_foo) return error.OutOfMemory;
+    return .{ .id = 7 };
+}
+fn try_to_allocate_foo() error{OutOfMemory}!Foo {
+    return tryToAllocateFoo();
+}
+fn deallocateFoo(foo: Foo) void {
+    @import(\"std\").debug.print(\"free-foo id={d}\\n\", .{foo.id});
+}
+fn deallocate_foo(foo: Foo) void {
+    deallocateFoo(foo);
+}
+fn allocateTmpBuffer() ?FixtureTmpBuffer {
+    @import(\"std\").debug.print(\"allocate-tmp fail={}\\n\", .{fixture_fail_tmp});
+    if (fixture_fail_tmp) return null;
+    return .{ .id = 11 };
+}
+fn allocate_tmp_buffer() ?FixtureTmpBuffer {
+    return allocateTmpBuffer();
+}
+fn deallocateTmpBuffer(buffer: FixtureTmpBuffer) void {
+    @import(\"std\").debug.print(\"free-tmp id={d}\\n\", .{buffer.id});
+}
+fn deallocate_tmp_buffer(buffer: FixtureTmpBuffer) void {
+    deallocateTmpBuffer(buffer);
+}
+"
+  :entry "createFoo"
+  :test-body
+  "for ([_]bool{ false, true }) |fail_foo| {
+    for ([_]bool{ false, true }) |fail_tmp| {
+        for ([_]i32{ -1, 0, 1337, 1338, 2147483647 }) |param| {
+            fixture_fail_foo = fail_foo;
+            fixture_fail_tmp = fail_tmp;
+            @import(\"std\").debug.print(\"scenario foo-fails={} tmp-fails={} param={d}\\n\", .{ fail_foo, fail_tmp, param });
+            if (subject(param)) |foo| {
+                @import(\"std\").debug.print(\"returned-foo id={d}\\n\", .{foo.id});
+                // Success transfers ownership to this caller.
+                @import(\"std\").debug.print(\"caller-cleanup\\n\", .{});
+                deallocateFoo(foo);
+            } else |err| {
+                @import(\"std\").debug.print(\"returned-error {s}\\n\", .{@errorName(err)});
+            }
+        }
+    }
+}
+"}
+
+ "snippet-644"
+ {:zig-prefix
+  "fn two(value: i32) i32 {
+    return value + 2;
+}
+fn three(value: i32) i32 {
+    return value + 3;
+}
+"
+  :entry "performFn"
+  :test-body
+  "const inputs = [_]i32{ -2147483648, -100, -5, -1, 0, 1, 99, 2147483642 };
+for (inputs) |input| {
+    @import(\"std\").debug.print(\"input={d} result={d}\\n\", .{ input, subject(input) });
+}
+"}
+
+ "snippet-645"
+ {:zig-prefix
+  "fn one(value: i32) i32 {
+    return value + 1;
+}
+"
+  :entry "performFn"
+  :test-body
+  "const inputs = [_]i32{ -2147483648, -100, -5, -1, 0, 1, 99, 2147483642 };
+for (inputs) |input| {
+    @import(\"std\").debug.print(\"input={d} result={d}\\n\", .{ input, subject(input) });
+}
+"}
+
+ "snippet-646"
+ {:zig-prefix ""
+  :entry "performFn"
+  :test-body
+  "const inputs = [_]i32{ -2147483648, -100, -5, -1, 0, 1, 99, 2147483642, 2147483647 };
+for (inputs) |input| {
+    @import(\"std\").debug.print(\"input={d} result={d}\\n\", .{ input, subject(input) });
+}
+"}
+
+ ;; The source explicitly models behavior without atomicity. The stub makes
+ ;; its illustrative spurious-failure branch reproducible, not probabilistic.
+ "snippet-777"
+ {:zig-prefix
+  "var fixture_predicate: bool = true;
+var fixture_predicate_calls: usize = 0;
+
+fn usuallyTrueButSometimesFalse() bool {
+    fixture_predicate_calls += 1;
+    return fixture_predicate;
+}
+
+fn usually_true_but_sometimes_false() bool {
+    return usuallyTrueButSometimesFalse();
+}
+"
+  :entry "cmpxchgWeakButNotAtomic"
+  :test-body
+  "const Scenario = struct { initial: i32, expected: i32, replacement: i32 };
+const scenarios = [_]Scenario{
+    .{ .initial = 7, .expected = 7, .replacement = 9 },
+    .{ .initial = 7, .expected = 8, .replacement = 9 },
+    .{ .initial = 0, .expected = 0, .replacement = 0 },
+    .{ .initial = -3, .expected = -3, .replacement = 2 },
+    .{ .initial = -3, .expected = 2, .replacement = -8 },
+};
+for ([_]bool{ true, false }) |allow_exchange| {
+    for (scenarios) |scenario| {
+        fixture_predicate = allow_exchange;
+        fixture_predicate_calls = 0;
+        var stored = scenario.initial;
+        const previous = subject(i32, &stored, scenario.expected, scenario.replacement);
+        @import(\"std\").debug.print(
+            \"i32 allow={} initial={d} expected={d} replacement={d} previous={any} stored={d} predicate-calls={d}\\n\",
+            .{ allow_exchange, scenario.initial, scenario.expected, scenario.replacement, previous, stored, fixture_predicate_calls },
+        );
+    }
+}
+
+// Exercise another supported value type, including short-circuit mismatches.
+for ([_]bool{ true, false }) |allow_exchange| {
+    for ([_]bool{ false, true }) |initial| {
+        fixture_predicate = allow_exchange;
+        fixture_predicate_calls = 0;
+        var stored = initial;
+        const previous = subject(bool, &stored, false, true);
+        @import(\"std\").debug.print(
+            \"bool allow={} initial={} previous={any} stored={} predicate-calls={d}\\n\",
+            .{ allow_exchange, initial, previous, stored, fixture_predicate_calls },
+        );
+    }
+}
+
+// A failed attempt can be retried against the same still-current value.
+var retry_value: i32 = 41;
+fixture_predicate_calls = 0;
+for ([_]bool{ false, true }) |allow_exchange| {
+    fixture_predicate = allow_exchange;
+    const previous = subject(i32, &retry_value, 41, 42);
+    @import(\"std\").debug.print(
+        \"retry allow={} previous={any} stored={d} predicate-calls={d}\\n\",
+        .{ allow_exchange, previous, retry_value, fixture_predicate_calls },
+    );
+}
+"}}

@@ -35,9 +35,7 @@
    [230 203 215 239 237 50 107 174 173 42 60 59 41 56 20 132
     55 50 151 232 203 167 134 246 21 192 134 102 9 36 236 122]))
 
-(az/defn print-model-error
-  :-
-  :void
+(az/defn print-model-error :void
   [[error-code :u32]]
   (cond
     (ak/== error-code inference/model-file-not-found)
@@ -59,9 +57,7 @@
      "Racing model is not a compatible Granite GGUF; package the pinned asset again.\n"
      {})))
 
-(az/defn print-action-head-error
-  :-
-  :void
+(az/defn print-action-head-error :void
   [[error-code :u32]]
   (cond
     (ak/== error-code 1)
@@ -80,9 +76,7 @@
     :else
     (std-debug/print "Racing action head could not be read completely.\n" {})))
 
-(az/defn print-team-head-error
-  :-
-  :void
+(az/defn print-team-head-error :void
   [[error-code :u32]]
   (cond
     (ak/== error-code 1)
@@ -101,10 +95,8 @@
     :else
     (std-debug/print "Racing team head could not be read completely.\n" {})))
 
-(az/defn load-and-verify!
+(az/defn load-and-verify! :bool
   "Load the exact release assets, validate layouts, byte count, and SHA-256."
-  :-
-  :bool
   []
   (let [model (inference/load-model! model-path)]
     (cond

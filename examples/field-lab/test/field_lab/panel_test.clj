@@ -5,9 +5,8 @@
             [aguafria.std.debug :as debug]
             [field-lab.panel :as panel]))
 
-(az/defn main
-  {:attrs #{:public}}
-  :- :void []
+(az/defn main :void
+  {:attrs #{:public}} []
   (let [file (panel/export-begin! 0.45 0.62 3.5 9.81 0.78 0.35 0.025 1.1 0.25 1.5
                                   2 (/ 1.0 240.0) 2 10000.0)]
     (debug/assert (ak/!= file null))

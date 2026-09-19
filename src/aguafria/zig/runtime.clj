@@ -1969,7 +1969,8 @@
   "Capture the complete ordinary Zig module graph for a standalone build.
   Unlike development dependencies, these sources contain no dispatch cells or
   JVM-call wrappers, so optimizer-visible calls remain normal Zig calls."
-  [declarations]
+  ([declarations] (static-dependency-snapshot declarations identity))
+  ([declarations prepare-module-declarations]
   (let [root-module (some-> declarations first :module str)
         direct-dependencies
         (fn [module-declarations]
@@ -1987,7 +1988,8 @@
         (if (contains? seen module)
           (recur (next pending) seen snapshot)
           (let [module-state (ensure-static-module-source! module)
-                module-declarations (vec (vals (:definitions module-state)))
+                module-declarations (prepare-module-declarations
+                                      (vec (vals (:definitions module-state))))
                 dependencies (direct-dependencies module-declarations)
                 dependency-source
                 (emit/emit-static-dependency-module module module-declarations)]
@@ -2004,7 +2006,7 @@
                        (declaration-named-module-imports module-declarations)
                        :dispatch-entries []
                        :state-entries []})))))
-        snapshot))))
+        snapshot)))))
 
 (defn- project-generated-module-sources
   [modules overridden-names]
@@ -9943,6 +9945,108 @@
                      :phase :zig-program-compile
                      :diagnostic-count (count diagnostics)})
              (throw error))))))))
+
+(defn- without-native-tests
+  [declarations]
+  (filterv #(not= :test (:kind %)) declarations))
+
+(defn- native-test-declarations
+  [declarations]
+  (mapv (fn [declaration]
+          (if (and (= :fn (:kind declaration))
+                   (not (true? (get-in declaration [:attributes :export])))
+                   (not (contains? (set (get-in declaration [:attributes :attrs])) :export)))
+            ;; A test executable does not call helpers through the JVM/C ABI.
+            ;; Retain explicit user exports, but leave ordinary helpers as Zig
+            ;; functions even when their values cannot cross a C ABI boundary.
+            (assoc declaration :export? false :development-export? false
+                               :dependency-default-export? false)
+            declaration))
+        declarations))
+
+(defn- native-test-snapshot
+  [module test-name]
+  (locking compile-lock
+    (let [definitions (:definitions (get @registry module))
+          selected (get definitions [:test test-name])]
+      (when-not (= :test (:kind selected))
+        (throw (ex-info "Cannot run an unknown Aguafria test"
+                        {:aguafria/phase :zig-test-selection
+                         :module module :test test-name
+                         :known-tests (->> (vals definitions)
+                                           (filter #(= :test (:kind %)))
+                                           (mapv :name))})))
+      ;; Keep ordinary declarations, including types/generic functions whose
+      ;; arguments or error unions have no JVM ABI. Only Zig invokes them.
+      ;; Selection never changes the registered module or test descriptors.
+      (let [declarations (native-test-declarations
+                           (conj (without-native-tests (vals definitions)) selected))
+            dependencies (static-dependency-snapshot
+                           declarations (comp native-test-declarations without-native-tests))
+            compiler-options (compiler-options-for-declarations
+                               (assoc @config :transitive-dependencies? true
+                                              :dependency-snapshot dependencies)
+                               declarations)]
+        {:selected selected
+         :source (emit/emit-module module declarations)
+         :dependencies (vec (keys dependencies))
+         :compiler-options compiler-options}))))
+
+(defn run-test!
+  "Compile and run one registered named test with Aguafria's embedded Zig.
+
+  Root siblings and top-level tests in registered dependencies are excluded
+  from this invocation's immutable sources. A fully qualified native_test.test
+  filter additionally excludes normally named nested/imported tests. The
+  original label and the default Zig runner's output are preserved verbatim.
+  Returns a compact success summary (full execution details are in metadata),
+  or throws ExceptionInfo with native diagnostics."
+  [module test-name]
+  (let [module (str module)
+        {:keys [selected source dependencies compiler-options]}
+        (native-test-snapshot module test-name)
+        source-file (locking compile-lock
+                      (let [materialized (io/file (materialize-module-source! module source))
+                            file (io/file (.getParentFile materialized) "native_test.zig")]
+                        (when-not (.isFile file)
+                          (Files/writeString (.toPath file) source StandardCharsets/UTF_8
+                                             (into-array StandardOpenOption
+                                                         [StandardOpenOption/CREATE_NEW
+                                                          StandardOpenOption/WRITE])))
+                        file))
+        selector (str "native_test.test." (:test-name selected))
+        command (vec (concat [(:zig compiler-options) "test" "--test-filter" selector]
+                             (root-module-arguments source-file compiler-options)))
+        started-at (System/currentTimeMillis)
+        result (run-command command (.getAbsolutePath (.getParentFile source-file)))
+        details {:module module :test test-name :test-name (:test-name selected)
+                 :exit (:exit result) :command command
+                 :source-path (.getAbsolutePath source-file)
+                 :dependencies dependencies
+                 :stdout (:out result) :stderr (:err result)
+                 :duration-ms (- (System/currentTimeMillis) started-at)}]
+    (when (seq (:out result))
+      (print (:out result))
+      (flush))
+    (when (seq (:err result))
+      (binding [*out* *err*]
+        (print (:err result))
+        (flush)))
+    (if (zero? (:exit result))
+      (with-meta {:test (symbol module (str test-name))
+                  :status :passed :exit 0 :duration-ms (:duration-ms details)}
+        {:aguafria/test-result details})
+      (let [{:keys [message diagnostics]}
+            (pretty-zig-error module source (.getAbsolutePath source-file)
+                              command (:err result))]
+        (throw (ex-info
+                 (str "Native Zig test " module "/" test-name " failed\n\n"
+                      (if (seq diagnostics)
+                        message
+                        (str (:out result) (:err result))))
+                 (assoc details :status :failed
+                                :aguafria/phase :zig-test
+                                :diagnostics diagnostics)))))))
 
 (defn- dispatch-version-views
   [module-state]

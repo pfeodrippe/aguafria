@@ -663,19 +663,15 @@
 
 (az/defvar replay-active false)
 
-(az/defn next-decision-revision!
-  :-
-  :u64
+(az/defn next-decision-revision! :u64
   []
   (do
     (set! decision-sequence (+ decision-sequence 1))
     decision-sequence))
 
-(az/defn cadence-ticks-for-pressure
+(az/defn cadence-ticks-for-pressure :u64
   "Pure bounded policy for ordinary thoughts. Urgent requests never use this
   backoff and simulation cadence is unaffected."
-  :-
-  :u64
   [[pending :u8]
    [max-latency-us :u64]]
   (cond
@@ -684,9 +680,7 @@
     (>= pending 5) pressured-thought-ticks
     :else ordinary-thought-ticks))
 
-(az/defn update-thought-cadence!
-  :-
-  :void
+(az/defn update-thought-cadence! :void
   []
   (let [workers (worker/summary)
         ^{:var true :zig/type :u64} max-latency-us 0]
@@ -704,10 +698,8 @@
       (set! cadence-pending pending)
       (set! cadence-max-latency-us max-latency-us))))
 
-(az/defn cadence-summary
+(az/defn cadence-summary CadenceSummary
   "Inspect ordinary AI cadence and the pressure that selected it."
-  :-
-  CadenceSummary
   []
   (CadenceSummary
    {:ticks current-ordinary-thought-ticks
@@ -718,19 +710,15 @@
     (/ 120.0
        (ak/as :f32 (ak/floatFromInt current-ordinary-thought-ticks)))}))
 
-(az/defn decision-deadline-ticks
+(az/defn decision-deadline-ticks :u64
   "Return the hard simulation-time budget for one ordinary or urgent thought."
-  :-
-  :u64
   [[urgent :bool]]
   (if urgent
     urgent-decision-deadline-ticks
     ordinary-decision-deadline-ticks))
 
-(az/defn decision-expired?
+(az/defn decision-expired? :bool
   "Pure deadline predicate used by the scheduler and native regression tests."
-  :-
-  :bool
   [[enqueue-tick :u64]
    [current-tick :u64]
    [urgent :bool]]
@@ -738,10 +726,8 @@
        (>= (- current-tick enqueue-tick)
            (decision-deadline-ticks urgent))))
 
-(az/defn clear-replay!
+(az/defn clear-replay! :void
   "Clear the loaded replay without modifying the current race."
-  :-
-  :void
   []
   (set! replay-active false)
   (set! replay-count 0)
@@ -749,10 +735,8 @@
   (set! replay-intents
         (std-mem/zeroes (az/type [:array 512 ReplayIntent]))))
 
-(az/defn append-replay-intent!
+(az/defn append-replay-intent! :bool
   "Append one validated, schema-compatible intent in install-tick order."
-  :-
-  :bool
   [[intent ReplayIntent]]
   (let [ordered
         (or (ak/== replay-count 0)
@@ -780,9 +764,7 @@
       (set! replay-count (+ replay-count 1)))
     valid))
 
-(az/defn replay-summary
-  :-
-  ReplaySummary
+(az/defn replay-summary ReplaySummary
   []
   (ReplaySummary
    {:active replay-active
@@ -790,9 +772,7 @@
     :installed (ak/intCast replay-cursor)
     :remaining (ak/intCast (- replay-count replay-cursor))}))
 
-(az/defn replay-intent-before
-  :-
-  :bool
+(az/defn replay-intent-before :bool
   [[left ReplayIntent]
    [right ReplayIntent]]
   (or (< (az/field left install_tick) (az/field right install_tick))
@@ -803,11 +783,9 @@
                     (< (az/field left revision)
                        (az/field right revision)))))))
 
-(az/defn capture-retained-replay!
+(az/defn capture-retained-replay! ReplaySummary
   "Capture every retained accepted decision entirely in native memory and
   order it by install tick, racer, and revision for deterministic playback."
-  :-
-  ReplaySummary
   []
   (clear-replay!)
   (dotimes [racer-index racer-count]
@@ -854,17 +832,13 @@
       (set! index (+ index 1))))
   (replay-summary))
 
-(az/defn replay-read-u16
-  :-
-  :u16
+(az/defn replay-read-u16 :u16
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
   (+ (ak/as :u16 (az/index bytes offset))
      (ak/<< (ak/as :u16 (az/index bytes (+ offset 1))) 8)))
 
-(az/defn replay-read-u32
-  :-
-  :u32
+(az/defn replay-read-u32 :u32
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
   (+ (ak/as :u32 (az/index bytes offset))
@@ -872,26 +846,20 @@
      (ak/<< (ak/as :u32 (az/index bytes (+ offset 2))) 16)
      (ak/<< (ak/as :u32 (az/index bytes (+ offset 3))) 24)))
 
-(az/defn replay-read-u64
-  :-
-  :u64
+(az/defn replay-read-u64 :u64
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
   (+ (ak/as :u64 (replay-read-u32 bytes offset))
      (ak/<< (ak/as :u64 (replay-read-u32 bytes (+ offset 4))) 32)))
 
-(az/defn replay-read-f32
-  :-
-  :f32
+(az/defn replay-read-f32 :f32
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
   (let [^{:zig/type :u32} bits (replay-read-u32 bytes offset)
         ^{:zig/type :f32} value (ak/bitCast bits)]
     value))
 
-(az/defn replay-file-summary
-  :-
-  ReplayFileSummary
+(az/defn replay-file-summary ReplayFileSummary
   [[valid :bool]
    [error-code :u32]
    [intent-count :u16]
@@ -905,11 +873,9 @@
     :model_fingerprint model-fingerprint
     :action_head_fingerprint action-head-fingerprint}))
 
-(az/defn load-replay-file!
+(az/defn load-replay-file! ReplayFileSummary
   "Load one canonical little-endian replay artifact with strict schema,
   provenance, size, ordering, and intent validation."
-  :-
-  ReplayFileSummary
   [[path [:pointer {:size :c :const? true} :u8]]]
   (let [file (runtime/fopen path "rb")]
     (if (ak/== file null)
@@ -1041,9 +1007,7 @@
                   (runtime/free allocation)
                   result)))))))))
 
-(az/defn register-component
-  :-
-  :u64
+(az/defn register-component :u64
   [[flecs-world [:* flecs/ecs_world_t]]
    [component-name [:pointer {:size :c :const? true} :u8]]
    [byte-size :usize]
@@ -1057,27 +1021,21 @@
                         {:entity component-entity :type type-info})]
     (flecs/ecs_component_init flecs-world (ak/& component-desc))))
 
-(az/defn racer-pointer
-  :-
-  [:* Racer]
+(az/defn racer-pointer [:* Racer]
   [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index entities index)
                                racer-component (ak/sizeOf Racer))
       (az/cast [:* Racer])))
 
-(az/defn brain-pointer
-  :-
-  [:* RacerBrain]
+(az/defn brain-pointer [:* RacerBrain]
   [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index entities index)
                                brain-component (ak/sizeOf RacerBrain))
       (az/cast [:* RacerBrain])))
 
-(az/defn team-pointer
-  :-
-  [:* Team]
+(az/defn team-pointer [:* Team]
   [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index team-entities index)
@@ -1090,16 +1048,15 @@
 
 (az/defvar turnaround-component :u64 0)
 
-(az/defn turnaround-pointer :- [:* turnaround/Output] [[index :usize]]
+(az/defn turnaround-pointer [:* turnaround/Output] [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index entities index)
                                turnaround-component (ak/sizeOf turnaround/Output))
       (az/cast [:* turnaround/Output])))
 
-(az/defn ensure-turnaround!
+(az/defn ensure-turnaround! :void
   "Attach independent sparse turnaround state on the frame thread. Existing
-  chassis, wheel and driver allocations remain untouched."
-  :- :void []
+  chassis, wheel and driver allocations remain untouched." []
   (when (ak/== turnaround-component 0)
     (set! turnaround-component
           (register-component (az/unwrap world) "RacingTurnaround"
@@ -1110,24 +1067,22 @@
         (flecs/ecs_set_id world (az/index entities i) turnaround-component
                           (ak/sizeOf turnaround/Output) (ak/& value))))))
 
-(az/defn turnaround-view
-  "Inspect native body-relative recovery without changing driver intent."
-  :- turnaround/Output [[index :usize]]
+(az/defn turnaround-view turnaround/Output
+  "Inspect native body-relative recovery without changing driver intent." [[index :usize]]
   (if (and initialized (< index racer-count) (ak/!= turnaround-component 0))
     (az/deref (turnaround-pointer index))
     (std-mem/zeroes (az/type turnaround/Output))))
 
 (az/defvar lap-timing-component :u64 0)
 
-(az/defn lap-timing-pointer :- [:* lap-timing/Entry] [[index :usize]]
+(az/defn lap-timing-pointer [:* lap-timing/Entry] [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index entities index)
                                lap-timing-component (ak/sizeOf lap-timing/Entry))
       (az/cast [:* lap-timing/Entry])))
 
-(az/defn ensure-lap-timing!
-  "Attach timing on the frame thread without recreating live vehicles."
-  :- :void []
+(az/defn ensure-lap-timing! :void
+  "Attach timing on the frame thread without recreating live vehicles." []
   (when (ak/== lap-timing-component 0)
     (set! lap-timing-component
           (register-component (az/unwrap world) "RacingLapTiming"
@@ -1140,23 +1095,21 @@
         (flecs/ecs_set_id world (az/index entities i) lap-timing-component
                           (ak/sizeOf lap-timing/Entry) (ak/& value))))))
 
-(az/defn lap-timing-view
-  "Measured 120Hz ticks, with an explicit flag for a mid-lap live attachment."
-  :- lap-timing/Entry [[index :usize]]
+(az/defn lap-timing-view lap-timing/Entry
+  "Measured 120Hz ticks, with an explicit flag for a mid-lap live attachment." [[index :usize]]
   (if (and initialized (< index racer-count) (ak/!= lap-timing-component 0))
     (az/deref (lap-timing-pointer index))
     (std-mem/zeroes (az/type lap-timing/Entry))))
 
-(az/defn recovery-pointer :- [:* recovery/Output] [[index :usize]]
+(az/defn recovery-pointer [:* recovery/Output] [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index entities index)
                                recovery-component (ak/sizeOf recovery/Output))
       (az/cast [:* recovery/Output])))
 
-(az/defn ensure-recovery!
+(az/defn ensure-recovery! :void
   "Frame-thread addition of independent sparse manoeuvring state. Does not
-  recreate vehicles or move the running world's existing component storage."
-  :- :void []
+  recreate vehicles or move the running world's existing component storage." []
   (when (ak/== recovery-component 0)
     (set! recovery-component
           (register-component (az/unwrap world) "RacingRecovery"
@@ -1167,22 +1120,20 @@
         (flecs/ecs_set_id world (az/index entities i) recovery-component
                           (ak/sizeOf recovery/Output) (ak/& value))))))
 
-(az/defn recovery-view
-  "Inspect actual manoeuvring state, gear and pedals without altering the race."
-  :- recovery/Output [[index :usize]]
+(az/defn recovery-view recovery/Output
+  "Inspect actual manoeuvring state, gear and pedals without altering the race." [[index :usize]]
   (if (and initialized (< index racer-count) (ak/!= recovery-component 0))
     (az/deref (recovery-pointer index))
     (std-mem/zeroes (az/type recovery/Output))))
 
-(az/defn status-pointer :- [:* status/Entry] [[index :usize]]
+(az/defn status-pointer [:* status/Entry] [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index entities index)
                                status-component (ak/sizeOf status/Entry))
       (az/cast [:* status/Entry])))
 
-(az/defn ensure-race-status!
-  "Add a new sparse component to the existing world; ordinary reload keeps it."
-  :- :void []
+(az/defn ensure-race-status! :void
+  "Add a new sparse component to the existing world; ordinary reload keeps it." []
   (when (ak/== status-component 0)
     (set! status-component
           (register-component (az/unwrap world) "RacingClassification"
@@ -1193,39 +1144,33 @@
         (flecs/ecs_set_id world (az/index entities i) status-component
                           (ak/sizeOf status/Entry) (ak/& entry))))))
 
-(az/defn retired?
-  "DNF is not finished: no lap or finish tick is manufactured."
-  :- :bool [[index :usize]]
+(az/defn retired? :bool
+  "DNF is not finished: no lap or finish tick is manufactured." [[index :usize]]
   (and (< index racer-count) (ak/!= status-component 0)
        (az/field (az/deref (status-pointer index)) retired)))
 
-(az/defn retirement-view
-  "Inspect retirement reason, frozen classification and its actual race tick."
-  :- status/Entry [[index :usize]]
+(az/defn retirement-view status/Entry
+  "Inspect retirement reason, frozen classification and its actual race tick." [[index :usize]]
   (if (and (< index racer-count) (ak/!= status-component 0))
     (az/deref (status-pointer index))
     (std-mem/zeroes (az/type status/Entry))))
 
-(az/defn retired-count :- :u8 []
+(az/defn retired-count :u8 []
   (let [^{:var :u8} count 0]
     (dotimes [i racer-count]
       (when (retired? i) (set! count (+ count 1))))
     count))
 
-(az/defn teammate-id
+(az/defn teammate-id :u8
   "Return the other driver in one of the four fixed two-driver teams."
-  :-
-  :u8
   [[identifier :u8]]
   (if (ak/== (mod identifier 2) 0)
     (+ identifier 1)
     (- identifier 1)))
 
-(az/defn radio-message!
+(az/defn radio-message! :void
   "Publish one bounded semantic message and retain it in the team's native
   newest-first history. Source identifies driver or strategist direction."
-  :-
-  :void
   [[index :usize]
    [source :u8]
    [code :u8]]
@@ -1279,10 +1224,8 @@
                       1))))
     (set! team-radio-count (+ team-radio-count 1))))
 
-(az/defn attach-team-model-decision!
+(az/defn attach-team-model-decision! :void
   "Attach the completed strategist inference to the radio message it caused."
-  :-
-  :void
   [[team-index :usize]
    [result worker/InferenceResult]]
   (let [head (ak/as :usize
@@ -1313,19 +1256,15 @@
               (az/index (az/field result prompt_bytes) position)))
       (set! (az/index team-radio-history destination) entry))))
 
-(az/defn team-radio-history-count
+(az/defn team-radio-history-count :u8
   "Return the retained radio-message count for one team."
-  :-
-  :u8
   [[team-id :u8]]
   (if (< team-id team-count)
     (az/index team-radio-counts (ak/intCast team-id))
     0))
 
-(az/defn team-radio-entry
+(az/defn team-radio-entry TeamRadioLog
   "Inspect one newest-first semantic radio exchange for one team."
-  :-
-  TeamRadioLog
   [[team-id :u8]
    [offset :usize]]
   (if (or (>= team-id team-count)
@@ -1344,10 +1283,8 @@
       (az/index team-radio-history
                 (+ (* team-index team-radio-history-per-team) slot)))))
 
-(az/defn team-view
+(az/defn team-view TeamView
   "Inspect one of the four Flecs-owned teams."
-  :-
-  TeamView
   [[identifier :u8]]
   (if (or (ak/! initialized) (>= identifier team-count))
     (TeamView {:valid false :id identifier :driver_a 0 :driver_b 0
@@ -1375,10 +1312,8 @@
         :average_latency_us (az/field (az/deref team) average_latency_us)
         :radio_sequence (az/field (az/deref team) radio_sequence)}))))
 
-(az/defn install-replay-intents!
+(az/defn install-replay-intents! :void
   "Install every recorded intent due on this exact fixed simulation tick."
-  :-
-  :void
   []
   (ak/while
    (and replay-active
@@ -1452,29 +1387,23 @@
          :response_bytes (std-mem/zeroes (az/type [:array 96 :u8]))}))
       (set! replay-cursor (+ replay-cursor 1)))))
 
-(az/defn hazard-pointer
-  :-
-  [:* Hazard]
+(az/defn hazard-pointer [:* Hazard]
   [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index hazard-entities index)
                                hazard-component (ak/sizeOf Hazard))
       (az/cast [:* Hazard])))
 
-(az/defn wrapped-distance
-  :-
-  :f32
+(az/defn wrapped-distance :f32
   [[a :f32]
    [b :f32]]
   (let [distance (ak/abs (- a b))]
     (ak/min distance (- 1.0 distance))))
 
-(az/defn racers-overlap?
+(az/defn racers-overlap? :bool
   "Pure circle/contact predicate in track coordinates. Absolute progress keeps
   racers on adjacent laps physically close across the finish line while never
   colliding racers separated by a full lap."
-  :-
-  :bool
   [[absolute-progress-a :f32]
    [lane-a :f32]
    [absolute-progress-b :f32]
@@ -1482,9 +1411,8 @@
   (and (< (ak/abs (- absolute-progress-a absolute-progress-b)) 0.018)
        (< (ak/abs (- lane-a lane-b)) 0.058)))
 
-(az/defn contact-axis-overlap?
-  "Separating-axis test for a 5.8m long, 2.6m wide car, in km world units."
-  :- :bool [[dx :f32] [dy :f32] [axis :f32] [heading-a :f32] [heading-b :f32]]
+(az/defn contact-axis-overlap? :bool
+  "Separating-axis test for a 5.8m long, 2.6m wide car, in km world units." [[dx :f32] [dy :f32] [axis :f32] [heading-a :f32] [heading-b :f32]]
   (let [distance (ak/abs (+ (* dx (std-math/cos axis)) (* dy (std-math/sin axis))))
         a (- heading-a axis) b (- heading-b axis)
         radius-a (+ (* 0.0029 (ak/abs (std-math/cos a)))
@@ -1493,9 +1421,8 @@
                     (* 0.0013 (ak/abs (std-math/sin b))))]
     (< distance (+ radius-a radius-b 0.0001))))
 
-(az/defn racer-contours-overlap?
-  "Oriented physical car bounds, not the old screen-space circle radius."
-  :- :bool [[a [:* Racer]] [b [:* Racer]]]
+(az/defn racer-contours-overlap? :bool
+  "Oriented physical car bounds, not the old screen-space circle radius." [[a [:* Racer]] [b [:* Racer]]]
   (let [dx (- (az/field (az/deref a) x) (az/field (az/deref b) x))
         dy (- (az/field (az/deref a) y) (az/field (az/deref b) y))
         ha (az/field (az/deref a) heading) hb (az/field (az/deref b) heading)]
@@ -1504,11 +1431,9 @@
          (contact-axis-overlap? dx dy hb ha hb)
          (contact-axis-overlap? dx dy (+ hb 1.5707963) ha hb))))
 
-(az/defn hit-racer!
+(az/defn hit-racer! :bool
   "Apply visible counterplay and immediately schedule a fresh thought for the
   struck racer. Shields absorb exactly one hit."
-  :-
-  :bool
   [[target-index :usize]
    [stun-seconds :f32]]
   (let [target (racer-pointer target-index)
@@ -1527,10 +1452,8 @@
           simulation-tick)
     landed))
 
-(az/defn spawn-hazard!
+(az/defn spawn-hazard! :bool
   "Activate one preallocated Flecs combat object without allocating."
-  :-
-  :bool
   [[owner-index :usize]
    [kind :u8]
    [target :u8]]
@@ -1561,10 +1484,8 @@
             (set! spawned true)))))
     spawned))
 
-(az/defn step-hazards!
+(az/defn step-hazards! :void
   "Move pooled bolts and resolve bolt/trap contact after all racers advance."
-  :-
-  :void
   []
   (dotimes [slot hazard-capacity]
     (let [hazard (hazard-pointer slot)]
@@ -1614,9 +1535,7 @@
         (when (<= (az/field (az/deref hazard) ttl) 0.0)
           (set! (az/field (az/deref hazard) active) false))))))
 
-(az/defn update-position!
-  :-
-  :void
+(az/defn update-position! :void
   [[racer [:* Racer]]]
   (let [progress (az/field (az/deref racer) progress)
         lane (az/field (az/deref racer) lane)
@@ -1629,19 +1548,15 @@
     (set! (az/field (az/deref racer) y) (az/field sample y))
     (set! (az/field (az/deref racer) heading) (az/field sample heading))))
 
-(az/defn absolute-progress
-  :-
-  :f32
+(az/defn absolute-progress :f32
   [[racer [:* Racer]]]
   (+ (ak/as :f32 (ak/floatFromInt (az/field (az/deref racer) lap)))
      (az/field (az/deref racer) progress)))
 
-(az/defn checkpoint-for-progress
+(az/defn checkpoint-for-progress :u8
   "Return the last legal quarter-lap checkpoint crossed, from 0 through 3.
   Progress is authoritative and can only advance, so checkpoint order cannot
   be skipped by steering or by a malformed external control value."
-  :-
-  :u8
   [[progress :f32]]
   (cond
     (>= progress 0.75) 3
@@ -1649,10 +1564,8 @@
     (>= progress 0.25) 1
     :else 0))
 
-(az/defn complete-lap!
+(az/defn complete-lap! :void
   "Advance exactly one lap and permanently record this racer's finish tick."
-  :-
-  :void
   [[racer [:* Racer]]]
   (set! (az/field (az/deref racer) lap)
         (+ (az/field (az/deref racer) lap) 1))
@@ -1661,11 +1574,9 @@
     (set! (az/field (az/deref racer) finished) true)
     (set! (az/field (az/deref racer) finish_tick) simulation-tick)))
 
-(az/defn advance-racer-progress!
+(az/defn advance-racer-progress! :void
   "Advance along the legal track direction and cross the finish line at most
   once. Negative or invalid reverse movement cannot manufacture a lap."
-  :-
-  :void
   [[racer [:* Racer]]
    [distance :f32]]
   (let [advanced (+ (az/field (az/deref racer) progress)
@@ -1676,12 +1587,10 @@
         (complete-lap! racer))
       (set! (az/field (az/deref racer) progress) advanced))))
 
-(az/defn choose-target
+(az/defn choose-target :u8
   "Nearest physical car ahead, independent of lap/classification. A lapped,
   finished or retired body still occupies the track and must remain visible
   to the model. This does not schedule decisions for a retired driver."
-  :-
-  :u8
   [[self-index :usize]]
   (let [self (racer-pointer self-index)
         ^{:var true :zig/type :u8} chosen (az/field (az/deref self) id)
@@ -1697,11 +1606,9 @@
             (set! chosen (az/field (az/deref other) id))))))
     chosen))
 
-(az/defn target-distance-bin
+(az/defn target-distance-bin :u8
   "Quantize only the selected visible opponent's forward distance. Nine means
   no opponent ahead; lower values are progressively closer."
-  :-
-  :u8
   [[self-index :usize]
    [target :u8]]
   (let [self (racer-pointer self-index)]
@@ -1714,10 +1621,8 @@
         (ak/as :u8
                (ak/intFromFloat (ak/min 9.0 (* distance 100.0))))))))
 
-(az/defn target-lane-relation
+(az/defn target-lane-relation :u8
   "Describe the selected opponent as left, same-lane, or right of the racer."
-  :-
-  :u8
   [[self-index :usize]
    [target :u8]]
   (let [self (racer-pointer self-index)]
@@ -1731,10 +1636,9 @@
           (> delta 0.020) target-lane-right
           :else target-lane-same)))))
 
-(az/defn classify-tactical-status
+(az/defn classify-tactical-status :u8
   "Summarize immediate control constraints before passive protection. A shield
   does not make a blocked lane clear; a stunned driver must first recover."
-  :- :u8
   [[stunned :bool] [hazard-near :bool] [shielded :bool]]
   (cond
     stunned tactical-status-stunned
@@ -1742,11 +1646,9 @@
     shielded tactical-status-shielded
     :else tactical-status-clear))
 
-(az/defn racer-tactical-status
+(az/defn racer-tactical-status :u8
   "Expose local hazards, including stopped/wrecked cars in the driven lane.
   Physical obstacles do not disappear when their driver is classified DNF."
-  :-
-  :u8
   [[index :usize]]
   (let [racer (racer-pointer index)
         ^{:var true :zig/type :bool} hazard-near false]
@@ -1780,10 +1682,8 @@
       hazard-near
       (az/field (az/deref racer) shielded))))
 
-(az/defn build-observation
+(az/defn build-observation ObservationView
   "Build the single authoritative immutable worker observation."
-  :-
-  ObservationView
   [[index :usize]
    [urgent :bool]]
   (if (or (ak/! initialized) (>= index racer-count))
@@ -1811,21 +1711,17 @@
         :progress (az/field (az/deref racer) progress)
         :speed (az/field (az/deref racer) speed)}))))
 
-(az/defn current-observation
+(az/defn current-observation ObservationView
   "Inspect exactly what the next native decision for one racer can see."
-  :-
-  ObservationView
   [[index :usize]]
   (if (or (ak/! initialized) (>= index racer-count))
     (std-mem/zeroes (az/type ObservationView))
     (build-observation index
                        (az/field (az/deref (brain-pointer index)) urgent))))
 
-(az/defn make-decision!
+(az/defn make-decision! :void
   "Install one independent tactical intent. This transparent policy is the
   native fallback and training baseline used whenever LLM output is late."
-  :-
-  :void
   [[index :usize]
    [urgent :bool]
    [deadline-status :u8]]
@@ -1893,9 +1789,7 @@
      lane-target
      target-speed)))
 
-(az/defn record-worker-result!
-  :-
-  :void
+(az/defn record-worker-result! :void
   [[result worker/InferenceResult]
    [accepted :bool]
    [item-action :u8]
@@ -1963,12 +1857,10 @@
      (az/slice (az/field result output_tokens)
                0 (ak/min 1 (az/field result output_token_count))))))
 
-(az/defn valid-worker-action?
+(az/defn valid-worker-action? :bool
   "Validate the complete constrained action envelope before it can affect the
   live race. The target must be the exact bounded opponent selected in the
   immutable observation, not merely an in-range racer id."
-  :-
-  :bool
   [[accepted :bool]
    [action-code :u8]
    [item-action :u8]
@@ -1991,11 +1883,9 @@
        (ak/== output-token-count 1)
        (ak/== best-token (+ 32 action-code))))
 
-(az/defn install-worker-result!
+(az/defn install-worker-result! :void
   "Install only an on-time result for the current race epoch and outstanding
   revision. Late results remain observable but never replace the safe intent."
-  :-
-  :void
   [[index :usize]]
   (let [racer (racer-pointer index)
         brain (brain-pointer index)
@@ -2081,9 +1971,7 @@
                                  deadline-expired
                                  deadline-on-time))))))
 
-(az/defn submit-worker-request!
-  :-
-  :bool
+(az/defn submit-worker-request! :bool
   [[index :usize]
    [urgent :bool]]
   (let [brain (brain-pointer index)
@@ -2131,9 +2019,7 @@
         true)
       false)))
 
-(az/defn apply-item!
-  :-
-  :void
+(az/defn apply-item! :void
   [[index :usize]]
   (let [racer (racer-pointer index)
         brain (brain-pointer index)
@@ -2182,9 +2068,7 @@
           (set! (az/field (az/deref brain) item_action) action-hold)
           (set! item-use-count (+ item-use-count 1)))))))
 
-(az/defn collect-item!
-  :-
-  :void
+(az/defn collect-item! :void
   [[index :usize]]
   (let [racer (racer-pointer index)]
     (when (and items-enabled
@@ -2206,11 +2090,9 @@
         (set! (az/field (az/deref brain) next_decision_tick) simulation-tick)
         (set! (az/field (az/deref brain) urgent) true)))))
 
-(az/defn apply-human-control!
+(az/defn apply-human-control! :void
   "Translate the optional reference driver's normalized input into the same
   bounded RacerBrain intent fields consumed by the native vehicle controller."
-  :-
-  :void
   []
   (let [brain (brain-pointer 0)
         steering (ak/min 1.0 (ak/max -1.0 human-steering))
@@ -2240,11 +2122,9 @@
     (set! (az/field (az/deref brain) last_decision_tick) simulation-tick)
     (set! (az/field (az/deref brain) urgent) false)))
 
-(az/defn expire-pending-decision!
+(az/defn expire-pending-decision! :bool
   "Replace an over-budget in-flight thought with a new deterministic safe
   intent. The worker may finish later, but its older revision cannot install."
-  :-
-  :bool
   [[index :usize]]
   (let [brain (brain-pointer index)
         expired
@@ -2259,12 +2139,10 @@
       (make-decision! index true deadline-expired))
     expired))
 
-(az/defn update-tire-strategy!
+(az/defn update-tire-strategy! :void
   "Consume tire-contact work and report the first warning to the strategist.
   Waiting and unexecuted lane intentions cause no wear; a pit call does not
   suspend wear while driving to the box. Pit selection belongs to the team AI."
-  :-
-  :void
   [[index :usize]]
   (let [racer (racer-pointer index)
         brain (brain-pointer index)
@@ -2283,11 +2161,9 @@
         (set! (az/field (az/deref brain) next_decision_tick)
               simulation-tick)))))
 
-(az/defn driver-needs-pit?
+(az/defn driver-needs-pit? :bool
   "Return whether current tires or persistent collision damage justify a
   strategist pit call. Finished or already-called cars are not candidates."
-  :-
-  :bool
   [[racer [:* Racer]]]
   (and (ak/! (az/field (az/deref racer) finished))
        (ak/! (retired? (az/field (az/deref racer) id)))
@@ -2297,18 +2173,14 @@
            (>= (az/field (az/deref racer) damage)
                damage-pit-threshold))))
 
-(az/defn driver-service-urgency
-  :-
-  :f32
+(az/defn driver-service-urgency :f32
   [[racer [:* Racer]]]
   (+ (- 1.0 (az/field (az/deref racer) tire_condition))
      (* 1.35 (az/field (az/deref racer) damage))))
 
-(az/defn team-priority-driver
+(az/defn team-priority-driver :u8
   "Choose the teammate with the strongest current service need for the safety
   fallback and for the strategist's bounded observation target."
-  :-
-  :u8
   [[team-index :usize]]
   (let [team (team-pointer team-index)
         driver-a (az/field (az/deref team) driver_a)
@@ -2324,10 +2196,8 @@
          (driver-service-urgency racer-a)) driver-b
       :else driver-a)))
 
-(az/defn request-driver-pit!
+(az/defn request-driver-pit! :bool
   "Reserve one team's real pit box and publish the strategist's instruction."
-  :-
-  :bool
   [[team-index :usize]
    [driver-id :u8]
    [voluntary :bool]]
@@ -2368,18 +2238,15 @@
                           radio-box-occupied))
         false))))
 
-(az/defn call-driver-to-pit!
+(az/defn call-driver-to-pit! :bool
   "Existing automatic tire/damage policy; voluntary language calls use the
-  same physical pit workflow with an explicit optional-service request."
-  :- :bool [[team-index :usize] [driver-id :u8]]
+  same physical pit workflow with an explicit optional-service request." [[team-index :usize] [driver-id :u8]]
   (request-driver-pit! team-index driver-id false))
 
-(az/defn install-team-worker-result!
+(az/defn install-team-worker-result! :void
   "Validate and install one team strategist's independent LLM decision. The
   model chooses hold/driver A/driver B; current box ownership and damage/tire
   state remain authoritative safety constraints."
-  :-
-  :void
   [[team-index :usize]]
   (let [team (team-pointer team-index)
         actor-index (+ team-worker-offset team-index)
@@ -2448,9 +2315,7 @@
         (set! (az/field (az/deref team) next_decision_tick)
               (+ simulation-tick team-decision-cadence-ticks))))))
 
-(az/defn submit-team-worker-request!
-  :-
-  :bool
+(az/defn submit-team-worker-request! :bool
   [[team-index :usize]]
   (let [team (team-pointer team-index)
         driver-a-id (az/field (az/deref team) driver_a)
@@ -2528,10 +2393,8 @@
         true)
       false)))
 
-(az/defn step-team-strategist!
+(az/defn step-team-strategist! :void
   "Advance one independent team AI actor after both drivers have updated."
-  :-
-  :void
   [[team-index :usize]]
   (let [team (team-pointer team-index)
         driver-a (racer-pointer
@@ -2553,22 +2416,19 @@
           (set! (az/field (az/deref team) next_decision_tick)
                 (+ simulation-tick team-decision-cadence-ticks)))))))
 
-(az/defn pit-box-progress
-  :-
-  :f32
+(az/defn pit-box-progress :f32
   [[team-id :u8]]
   ;; Ten 12.9m-spaced boxes remain within the fully widened pit apron.
   (+ 0.968 (* (ak/as :f32 (ak/floatFromInt team-id)) 0.003)))
 
-(az/defn vehicle-pointer :- [:* physics/Vehicle] [[index :usize]]
+(az/defn vehicle-pointer [:* physics/Vehicle] [[index :usize]]
   (-> world
       (flecs/ecs_get_sparse_id (az/index entities index)
                                vehicle-component (ak/sizeOf physics/Vehicle))
       (az/cast [:* physics/Vehicle])))
 
-(az/defn ensure-dynamics!
-  "Frame-thread ownership. Ordinary reload preserves the world and sparse bodies."
-  :- :void []
+(az/defn ensure-dynamics! :void
+  "Frame-thread ownership. Ordinary reload preserves the world and sparse bodies." []
   (when (ak/== dynamics-surface ak/null)
     (set! lane-plans (std-mem/zeroes (az/type [:array racer-count driver/LanePlan])))
     (set! dynamics-world (physics/create-world -9.81))
@@ -2598,7 +2458,7 @@
   (when (ak/== dynamics-barriers ak/null)
     (set! dynamics-barriers (barriers/create! dynamics-world))))
 
-(az/defn destroy-dynamics! :- :void []
+(az/defn destroy-dynamics! :void []
   (when (ak/!= dynamics-surface ak/null)
     (physics/destroy-world! dynamics-world)
     (when (ak/!= dynamics-barriers ak/null)
@@ -2607,17 +2467,15 @@
     (terrain/destroy! (az/unwrap dynamics-surface))
     (set! dynamics-surface ak/null)))
 
-(az/defn vehicle-pose
-  "Actual metre-space rigid pose: part 0 chassis, parts 1..4 individual wheels."
-  :- physics/BodyState [[index :usize] [part :usize]]
+(az/defn vehicle-pose physics/BodyState
+  "Actual metre-space rigid pose: part 0 chassis, parts 1..4 individual wheels." [[index :usize] [part :usize]]
   (let [car (az/deref (vehicle-pointer index))]
     (physics/body-state (if (ak/== part 0) (az/field car chassis)
                            (az/index (az/field car wheels) (- part 1))))))
 
-(az/defn enable-language-driving!
+(az/defn enable-language-driving! :bool
   "Opt into readable plans on the simulation thread. Start held, invalidate
-  pending encoded decisions, and preserve every physical body and race result."
-  :- :bool [[index :usize] [enabled :bool]]
+  pending encoded decisions, and preserve every physical body and race result." [[index :usize] [enabled :bool]]
   (when (or (>= index racer-count) (ak/! initialized)) (ak/return false))
   (let [brain (brain-pointer index)]
     (set! (az/index language-drivers index)
@@ -2630,11 +2488,10 @@
     (set! (az/field (az/deref brain) item_action) action-hold))
   true)
 
-(az/defn language-lane-clear?
+(az/defn language-lane-clear? :bool
   "Read-only, short-horizon clearance of a proposed lateral transition.
   Positive offset is LEFT of the road heading. Sampled prediction is not a
-  collision guarantee: continuous traffic braking and Box3D remain active."
-  :- :bool [[index :usize] [lane-metres :f32]]
+  collision guarantee: continuous traffic braking and Box3D remain active." [[index :usize] [lane-metres :f32]]
   (let [body (vehicle-pose index 0)
         projected (track/project (* (az/field body x) 0.001) (* (az/field body y) 0.001))
         speed (ak/sqrt (+ (* (az/field body vx) (az/field body vx))
@@ -2662,10 +2519,9 @@
                 (ak/return false))))))))
   true)
 
-(az/defn driving-observation
+(az/defn driving-observation protocol/DrivingObservation
   "Read ONLY on the simulation owner thread. Uses current Box3D poses and
-  physical route queries, not the old coarse/head observation or cached UI."
-  :- protocol/DrivingObservation [[index :usize]]
+  physical route queries, not the old coarse/head observation or cached UI." [[index :usize]]
   (when (or (>= index racer-count) (ak/! initialized))
     (ak/return (std-mem/zeroes (az/type protocol/DrivingObservation))))
   (let [body (vehicle-pose index 0)
@@ -2693,10 +2549,9 @@
                            (ak/== (az/field team pit_occupant) no-pit-occupant))
        :active active})))
 
-(az/defn language-driving-request
+(az/defn language-driving-request worker/LanguageRequest
   "Build the exact bounded text handed to inference and retained in history.
-  Invalid or overflowing observations are rejected, never silently clipped."
-  :- worker/LanguageRequest [[index :usize] [revision :u64]]
+  Invalid or overflowing observations are rejected, never silently clipped." [[index :usize] [revision :u64]]
   (let [observation (driving-observation index)
         ^:var request (std-mem/zeroes (az/type worker/LanguageRequest))
         system "Choose: hold (stop), follow, pass left, pass right, pit, yield (slow). Avoid blocked routes. Reply with one command. Optional Radio: your message."
@@ -2716,11 +2571,10 @@
       (set! (az/index (az/field request system_bytes) i) (az/index system i)))
     request))
 
-(az/defn install-language-plan!
+(az/defn install-language-plan! :u8
   "Simulation-thread handoff, never a worker-thread body mutation. Envelope
   identity/time comes from the request, not text invented by the model.
   Every bounded reply is retained verbatim, including rejected replies."
-  :- :u8
   [[index :usize] [epoch :u64] [revision :u64] [observed :u64] [expires :u64]
    [bytes [:pointer {:size :c :const? true} :u8]] [length :usize] [complete :bool] [generated :bool]]
   (when (or (>= index racer-count) (ak/! initialized))
@@ -2774,20 +2628,18 @@
       (dotimes [i stored] (set! (az/index (az/field (az/deref event) text) i) (az/index bytes i))))
     reason))
 
-(az/defn language-event-at
-  "A bounded history lookup; valid=false means absent or already overwritten."
-  :- LanguagePlanEvent [[sequence :u64]]
+(az/defn language-event-at LanguagePlanEvent
+  "A bounded history lookup; valid=false means absent or already overwritten." [[sequence :u64]]
   (let [event (az/index language-events (mod sequence 128))]
     (if (and (> sequence 0) (ak/== (az/field event sequence) sequence)) event
       (std-mem/zeroes (az/type LanguagePlanEvent)))))
 
-(az/defn language-exchange-count :- :u64 []
+(az/defn language-exchange-count :u64 []
   (ak/atomicLoad :u64 (ak/& language-exchange-sequence) :.acquire))
 
-(az/defn language-exchange-at
+(az/defn language-exchange-at LanguageExchange
   "Nonblocking, coherent copy for nREPL/UI. valid=false on a busy/absent slot;
-  refresh to retry. No data race with the simulation's history writer."
-  :- LanguageExchange [[sequence :u64]]
+  refresh to retry. No data race with the simulation's history writer." [[sequence :u64]]
   (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& language-exchange-lock) 0 1 :.acq_rel :.acquire) ak/null)
     (ak/return (std-mem/zeroes (az/type LanguageExchange))))
   (ak/defer (ak/atomicStore :u8 (ak/& language-exchange-lock) 0 :.release))
@@ -2795,21 +2647,19 @@
     (if (and (> sequence 0) (az/field entry valid) (ak/== (az/field entry sequence) sequence)) entry
       (std-mem/zeroes (az/type LanguageExchange)))))
 
-(az/defn request-language-mode!
+(az/defn request-language-mode! :bool
   "Thread-safe nREPL/UI command. The next native tick performs the change;
-  the calling thread never reads or mutates Flecs/Box3D objects."
-  :- :bool [[index :usize] [enabled :bool]]
+  the calling thread never reads or mutates Flecs/Box3D objects." [[index :usize] [enabled :bool]]
   (when (>= index racer-count) (ak/return false))
   (ak/atomicStore :u8 (ak/& (az/index language-mode-requests index))
                   (if enabled (ak/as :u8 1) 2) :.release)
   true)
 
-(az/defn step-language-driving!
+(az/defn step-language-driving! :void
   "Simulation-owned async handoff: no model execution or waiting here.
   Wake at 16 circuit markers, on a five-second incident recheck, or intent
   expiry. Existing valid intent controls the car while the worker thinks.
-  This is driver scheduling; natural-language TEAM scheduling is still separate."
-  :- :void []
+  This is driver scheduling; natural-language TEAM scheduling is still separate." []
   (dotimes [index racer-count]
     (let [mode (ak/atomicRmw :u8 (ak/& (az/index language-mode-requests index)) :.Xchg 0 :.acq_rel)
           schedule (ak/& (az/index language-schedules index))]
@@ -2857,10 +2707,9 @@
               (set! (az/field (az/deref schedule) revision) revision)
               (set! (az/field (az/deref schedule) marker) marker))))))))
 
-(az/defn enforce-language-holds!
+(az/defn enforce-language-holds! :void
   "Final pedal gate AFTER automatic recovery. Hold/expiry brakes the physical
-  car; it never changes velocity, pose, progress, or freezes the physics world."
-  :- :void []
+  car; it never changes velocity, pose, progress, or freezes the physics world." []
   (dotimes [i racer-count]
     (let [state (az/index language-drivers i)]
       (when (and (az/field state enabled)
@@ -2871,9 +2720,8 @@
         (set! (az/field (az/index vehicle-controls i) throttle) 0.0)
         (set! (az/field (az/index vehicle-controls i) brake) 1.0)))))
 
-(az/defn physical-contacts!
-  "Damage comes from Box3D impacts, never from positional separation patches."
-  :- :void []
+(az/defn physical-contacts! :void
+  "Damage comes from Box3D impacts, never from positional separation patches." []
   (let [events (b3/b3World_GetContactEvents dynamics-world)]
     (dotimes [event-index (ak/as :usize (ak/intCast (az/field events hitCount)))]
       (let [hit (az/index (az/field events hitEvents) event-index)
@@ -2905,10 +2753,9 @@
                     (set! (az/field (az/deref brain) next_decision_tick) simulation-tick)
                     (radio-message! index radio-source-driver radio-car-damaged)))))))))))
 
-(az/defn brake-for-traffic!
+(az/defn brake-for-traffic! :void
   "Measured occupied-lane braking before the solver. Does not choose overtakes
-  for the AI, separate overlapping bodies, or override a human driver's input."
-  :- :void []
+  for the AI, separate overlapping bodies, or override a human driver's input." []
   (dotimes [i racer-count]
     (when (ak/! (and human-controlled (ak/== i 0)))
       (let [racer (racer-pointer i)]
@@ -2932,10 +2779,9 @@
                           (* 50.0 (- (az/field (az/deref front) lane)
                                       (az/field (az/deref racer) lane))))))))))))))
 
-(az/defn update-retirements!
+(az/defn update-retirements! :void
   "Race-control classification from sustained physical evidence. Never moves,
-  deletes or uprights a body, and never credits a retired car with a finish."
-  :- :void []
+  deletes or uprights a body, and never credits a retired car with a finish." []
   (when (ak/== race-state race-state-running)
     (dotimes [i racer-count]
       (let [entry (status-pointer i)
@@ -2966,19 +2812,17 @@
                             (if (ak/== (az/field next reason) status/reason-outside-world)
                               radio-outside-world radio-retired))))))))
 
-(az/defn pit-navigation-active?
+(az/defn pit-navigation-active? :bool
   "A future pit call is not yet pit-lane driving. Share this boundary with
-  manoeuvring so a called car can still clear an obstruction on the circuit."
-  :- :bool [[pit-state :u8] [progress :f32] [box-progress :f32]]
+  manoeuvring so a called car can still clear an obstruction on the circuit." [[pit-state :u8] [progress :f32] [box-progress :f32]]
   (or (ak/== pit-state pit-state-servicing)
       (ak/== pit-state pit-state-exiting)
       (and (ak/== pit-state pit-state-called) (>= progress 0.85)
            (< progress (+ box-progress 0.01)))))
 
-(az/defn update-recovery!
+(az/defn update-recovery! :void
   "Observe front and rear physical traffic before a low-speed manoeuvre.
-  The model's existing destination/steering remains authoritative."
-  :- :void [[normal-controls [:array racer-count driver/Control]]]
+  The model's existing destination/steering remains authoritative." [[normal-controls [:array racer-count driver/Control]]]
   (ensure-recovery!)
   (let [^:var bodies (std-mem/zeroes (az/type [:array racer-count physics/BodyState]))]
     (dotimes [i racer-count]
@@ -3036,10 +2880,9 @@
         (set! (az/deref entry) output)
         (set! (az/index vehicle-controls i) (az/field output control)))))))
 
-(az/defn update-turnarounds!
+(az/defn update-turnarounds! :void
   "Physical body-relative manoeuvring takes precedence only after a spin.
-  In ordinary driving the traffic/recovery controls remain unchanged."
-  :- :void [[normal-controls [:array racer-count driver/Control]]]
+  In ordinary driving the traffic/recovery controls remain unchanged." [[normal-controls [:array racer-count driver/Control]]]
   (ensure-turnaround!)
   (let [^:var bodies (std-mem/zeroes (az/type [:array racer-count physics/BodyState]))]
     (dotimes [i racer-count]
@@ -3067,9 +2910,8 @@
           (set! (az/field (az/deref (recovery-pointer i)) gear)
                 (az/field (az/field output state) gear)))))))
 
-(az/defn update-lap-timing!
-  "Observe progression, never control it. Pauses/countdown do not accrue time."
-  :- :void []
+(az/defn update-lap-timing! :void
+  "Observe progression, never control it. Pauses/countdown do not accrue time." []
   (ensure-lap-timing!)
   (dotimes [i racer-count]
     (let [entry (lap-timing-pointer i)
@@ -3080,9 +2922,8 @@
               (ak/== race-state race-state-running)
               (or (retired? i) (az/field (az/deref racer) finished)))))))
 
-(az/defn step-dynamics!
-  "Apply controls and solve contacts; derive telemetry from the resulting bodies."
-  :- :void []
+(az/defn step-dynamics! :void
+  "Apply controls and solve contacts; derive telemetry from the resulting bodies." []
   (let [normal-controls vehicle-controls]
     (brake-for-traffic!)
     (update-recovery! normal-controls)
@@ -3133,9 +2974,8 @@
                             (- 1.0 (* 2.0 (+ (* (az/field state qy) (az/field state qy))
                                               (* (az/field state qz) (az/field state qz))))))))))
 
-(az/defn step-pit!
-  "Pit strategy controls pedals; service starts only after a physical stop."
-  :- :bool [[index :usize]]
+(az/defn step-pit! :bool
+  "Pit strategy controls pedals; service starts only after a physical stop." [[index :usize]]
   (let [racer (racer-pointer index) brain (brain-pointer index)
         team (team-pointer (ak/intCast (az/field (az/deref racer) team)))
         car (az/deref (vehicle-pointer index))
@@ -3197,9 +3037,7 @@
       :else (set! owns-control false))
     owns-control))
 
-(az/defn step-racer!
-  :-
-  :void
+(az/defn step-racer! :void
   [[index :usize]]
   (let [racer (racer-pointer index)
         brain (brain-pointer index)
@@ -3273,21 +3111,18 @@
             (ak/max 0.0 (- (az/field (az/deref racer) pickup_cooldown) fixed-step)))
       (collect-item! index))))
 
-(az/defn resolve-racer-contacts!
-  "Contact resolution is exclusively performed by Box3D inside step-dynamics!."
-  :- :void []
+(az/defn resolve-racer-contacts! :void
+  "Contact resolution is exclusively performed by Box3D inside step-dynamics!." []
   (physical-contacts!))
 
-(az/defn classification-progress :- :f32 [[index :usize]]
+(az/defn classification-progress :f32 [[index :usize]]
   (if (retired? index)
     (let [entry (az/deref (status-pointer index))]
       (+ (ak/as :f32 (ak/floatFromInt (az/field entry lap)))
          (az/field entry progress)))
     (absolute-progress (racer-pointer index))))
 
-(az/defn update-ranks!
-  :-
-  :void
+(az/defn update-ranks! :void
   []
   (dotimes [index racer-count]
     (let [racer (racer-pointer index)
@@ -3320,10 +3155,8 @@
               (set! rank (+ rank 1))))))
       (set! (az/field (az/deref racer) rank) rank))))
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Create the Flecs world and exactly twenty independently scheduled AI racers."
-  :-
-  :bool
   []
   (when (ak/! initialized)
     (set! world (flecs/ecs_init))
@@ -3463,18 +3296,15 @@
   (ensure-lap-timing!)
   initialized)
 
-(az/defn coast-finished!
-  "Use the brakes after finishing; the car remains a movable physical body."
-  :- :void [[index :usize]]
+(az/defn coast-finished! :void
+  "Use the brakes after finishing; the car remains a movable physical body." [[index :usize]]
   (let [^:var control (driver/follow (az/deref (vehicle-pointer index)) 0.0 0.0)]
     (set! (az/field control throttle) 0.0)
     (set! (az/field control brake) 1.0)
     (set! (az/index vehicle-controls index) control)))
 
-(az/defn step!
+(az/defn step! :void
   "Advance one deterministic 120 Hz simulation tick."
-  :-
-  :void
   []
   (set! _ (initialize!))
   (update-thought-cadence!)
@@ -3515,18 +3345,14 @@
     (set! human-use-item false)
     (set! simulation-tick (+ simulation-tick 1))))
 
-(az/defn step-many!
+(az/defn step-many! :void
   "Headless deterministic stepping used by nREPL and standalone tests."
-  :-
-  :void
   [[ticks :u32]]
   (dotimes [_ ticks]
     (step!)))
 
-(az/defn racer-view
+(az/defn racer-view RacerView
   "Inspect one AI using its stable zero-based racer id."
-  :-
-  RacerView
   [[identifier :u8]]
   (if (or (ak/! initialized) (>= identifier racer-count))
     (RacerView {:valid false :id identifier :rank 0 :lap 0 :checkpoint 0
@@ -3613,10 +3439,8 @@
         :team_average_latency_us (az/field (az/deref team) average_latency_us)
         :finish_tick (az/field (az/deref racer) finish_tick)}))))
 
-(az/defn hazard-view
+(az/defn hazard-view HazardView
   "Inspect one stable pooled combat-object slot."
-  :-
-  HazardView
   [[slot :usize]]
   (if (or (ak/! initialized) (>= slot hazard-capacity))
     (HazardView {:valid false :active false :kind 0 :owner 0 :target 0
@@ -3637,10 +3461,8 @@
         :x (az/field sample x)
         :y (az/field sample y)}))))
 
-(az/defn snapshot
+(az/defn snapshot RaceSnapshot
   "Return real race ordering and aggregate decision/combat telemetry."
-  :-
-  RaceSnapshot
   []
   (set! _ (initialize!))
   (let [^{:var true :zig/type :u8} finished 0
@@ -3712,26 +3534,20 @@
                        0
                        (ak/intFromPtr (az/unwrap world)))})))
 
-(az/defn mix-state-word
-  :-
-  :u64
+(az/defn mix-state-word :u64
   [[fingerprint :u64]
    [word :u64]]
   (ak/*% (ak/bit-xor fingerprint word) 1099511628211))
 
-(az/defn mix-state-f32
-  :-
-  :u64
+(az/defn mix-state-f32 :u64
   [[fingerprint :u64]
    [value :f32]]
   (let [^{:zig/type :u32} bits (ak/bitCast value)]
     (mix-state-word fingerprint (ak/as :u64 bits))))
 
-(az/defn state-fingerprint
+(az/defn state-fingerprint :u64
   "Hash canonical gameplay state field-by-field without struct padding,
   addresses, worker timings, or replay-control bookkeeping."
-  :-
-  :u64
   []
   (set! _ (initialize!))
   (let [^{:var true :zig/type :u64} fingerprint 14695981039346656037]
@@ -3946,41 +3762,33 @@
                fingerprint (az/field (az/deref hazard) decision_revision)))))
     fingerprint))
 
-(az/defn toggle-paused!
-  :-
-  :bool
+(az/defn toggle-paused! :bool
   []
   (set! paused (ak/! paused))
   paused)
 
-(az/defn configure-countdown!
+(az/defn configure-countdown! :void
   "Set the deterministic start countdown in simulation ticks and apply it to
   the current race. Desktop uses 360 ticks (three seconds); headless fixtures
   can keep zero for maximum-speed deterministic evaluation."
-  :-
-  :void
   [[ticks :u16]]
   (set! configured-countdown-ticks ticks)
   (set! countdown-ticks ticks)
   (set! race-state
         (if (> ticks 0) race-state-countdown race-state-running)))
 
-(az/defn set-items-enabled!
+(az/defn set-items-enabled! :bool
   "Enable normal pickups or run a deterministic no-item race. The setting is
   explicit and survives reset so tests and nREPL experiments can own it."
-  :-
-  :bool
   [[enabled :bool]]
   (do
     (set! items-enabled enabled)
     items-enabled))
 
-(az/defn set-human-controlled!
+(az/defn set-human-controlled! :bool
   "Enable or disable optional keyboard/gamepad control for racer 0. All twenty
   racers remain AI-controlled by default. Switching invalidates any old
   in-flight racer-0 result without restarting the world or workers."
-  :-
-  :bool
   [[enabled :bool]]
   (do
     (set! human-controlled enabled)
@@ -4001,11 +3809,9 @@
         (set! (az/field (az/deref brain) next_decision_tick) simulation-tick)))
     human-controlled))
 
-(az/defn set-human-input!
+(az/defn set-human-input! :void
   "Install normalized reference-driver input. Values are clamped again inside
   the fixed-step controller, so keyboard, gamepad, and nREPL use one safe path."
-  :-
-  :void
   [[steering :f32]
    [throttle :f32]
    [brake :f32]
@@ -4015,10 +3821,8 @@
   (set! human-brake brake)
   (set! human-use-item use-item))
 
-(az/defn human-control-snapshot
+(az/defn human-control-snapshot HumanControlSnapshot
   "Inspect the exact reference-driver input currently consumed by native code."
-  :-
-  HumanControlSnapshot
   []
   (HumanControlSnapshot {:enabled human-controlled
                          :steering human-steering
@@ -4026,19 +3830,15 @@
                          :brake human-brake
                          :use_item human-use-item}))
 
-(az/defn set-race-seed!
+(az/defn set-race-seed! :void
   "Choose the deterministic starting-grid and pickup permutation used by the
   next explicit `reset!`. The running world is never mutated implicitly."
-  :-
-  :void
   [[seed :u64]]
   (set! race-seed seed))
 
-(az/defn configure-racer-state!
+(az/defn configure-racer-state! :bool
   "Safely edit one live racer's physical/item state for REPL scenarios. The
   fixed-step controller remains authoritative after this explicit mutation."
-  :-
-  :bool
   [[identifier :u8]
    [progress :f32]
    [lane :f32]
@@ -4065,11 +3865,9 @@
         (update-ranks!)
         true))))
 
-(az/defn configure-racer-tires!
+(az/defn configure-racer-tires! :bool
   "Set bounded tire condition for a live REPL/test scenario. Normal racing
   immediately resumes authoritative wear, grip, radio, and pit strategy."
-  :-
-  :bool
   [[identifier :u8]
    [condition :f32]]
   (do
@@ -4083,11 +3881,9 @@
         (set! (az/field (az/deref racer) pit_waiting) false)
         true))))
 
-(az/defn configure-racer-damage!
+(az/defn configure-racer-damage! :bool
   "Set bounded persistent car damage for a live REPL/test scenario. The team
   strategist observes it on the next fixed tick and can call the car to repair."
-  :-
-  :bool
   [[identifier :u8]
    [damage :f32]]
   (do
@@ -4101,11 +3897,9 @@
         (set! (az/field (az/deref racer) pit_waiting) false)
         true))))
 
-(az/defn configure-racer-intent!
+(az/defn configure-racer-intent! :bool
   "Install one bounded live intent for REPL scenarios. It uses the same
   RacerBrain fields as model output and remains active until the next thought."
-  :-
-  :bool
   [[identifier :u8]
    [lane-target :f32]
    [target-speed :f32]
@@ -4135,10 +3929,8 @@
               (+ simulation-tick current-ordinary-thought-ticks))
         true))))
 
-(az/defn reset!
+(az/defn reset! :void
   "Explicitly recreate the Flecs race. Ordinary hot reload never calls this."
-  :-
-  :void
   []
   (destroy-dynamics!)
   (when (ak/!= world null)
@@ -4193,10 +3985,8 @@
   (telemetry/reset!)
   (set! _ (initialize!)))
 
-(az/defn start-replay!
+(az/defn start-replay! :bool
   "Reset the race and install only the previously loaded intent stream."
-  :-
-  :bool
   []
   (let [available (> replay-count 0)]
     (when available
@@ -4205,17 +3995,13 @@
       (set! replay-active true))
     available))
 
-(az/defn stop-replay!
+(az/defn stop-replay! :void
   "Leave the current replayed world intact and resume normal cognition."
-  :-
-  :void
   []
   (set! replay-active false))
 
-(az/defn run-replay-parity!
+(az/defn run-replay-parity! ReplayParityReport
   "Run, capture, reset, and replay one deterministic native race segment."
-  :-
-  ReplayParityReport
   [[ticks :u32]]
   (clear-replay!)
   ;; The golden parity gate is seed-zero by definition and must not inherit the
@@ -4246,9 +4032,7 @@
         :original_fingerprint original
         :replay_fingerprint replayed}))))
 
-(az/defn shutdown!
-  :-
-  :void
+(az/defn shutdown! :void
   []
   (destroy-dynamics!)
   (when (ak/!= world null)

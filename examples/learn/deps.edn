@@ -1,5 +1,6 @@
 {:paths ["src" "resources"]
- :deps {aguafria/aguafria {:local/root "../.."}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        aguafria/aguafria {:local/root "../.."}}
  :aliases
  {:dev {:extra-paths ["test"]
         :jvm-opts ["--enable-native-access=ALL-UNNAMED"]}
@@ -8,7 +9,10 @@
   :build {:main-opts ["-m" "learn.reference" "build"]}
   :inventory {:main-opts ["-m" "learn.reference" "inventory"]}
   :translate {:main-opts ["-m" "learn.reference" "translate"]}
+  :blocks {:main-opts ["-m" "learn.reference" "blocks"]}
+  :inlines {:main-opts ["-m" "learn.reference" "inlines"]}
   :serve {:main-opts ["-m" "learn.reference" "serve"]}
   :verify {:main-opts ["-m" "learn.reference" "verify"]}
+  :outcomes {:main-opts ["-m" "learn.reference" "outcomes"]}
   :test {:extra-paths ["test"]
          :main-opts ["-m" "learn.reference-test"]}}}

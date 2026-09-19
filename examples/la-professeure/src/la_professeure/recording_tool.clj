@@ -32,37 +32,37 @@
 (az/defvar error-line :u32 0)
 (az/defvar error-code :u32 0)
 
-(az/defn- reject :- :bool [[line :u32] [code :u32]]
+(az/defn- reject :bool [[line :u32] [code :u32]]
   (set! error-line line) (set! error-code code) false)
 
-(az/defn text-hash :- :u64 [[text [:slice-const :u8]]]
+(az/defn text-hash :u64 [[text [:slice-const :u8]]]
   (let [^{:var :u64} h 14695981039346656037]
     (dotimes [i (az/field text len)] (set! h (ak/*% (ak/bit-xor h (az/index text i)) 1099511628211)))
     h))
 
-(az/defn node-at :- Node [[index :u32]]
+(az/defn node-at Node [[index :u32]]
   (if (< index count-nodes) (az/index nodes index) (mem/zeroes (az/type Node))))
 
-(az/defn node-text :- [:slice-const :u8] [[index :u32]]
+(az/defn node-text [:slice-const :u8] [[index :u32]]
   (when (>= index count-nodes) (ak/return ""))
   (let [n (az/index nodes index)]
     (az/slice text-arena (az/field n offset) (+ (az/field n offset) (az/field n length)))))
 
-(az/defn node-id :- [:slice-const :u8] [[index :u32]]
+(az/defn node-id [:slice-const :u8] [[index :u32]]
   (when (>= index count-nodes) (ak/return ""))
   (az/slice (az/field (az/index nodes index) id) 0 (az/field (az/index nodes index) id_len)))
 
-(az/defn- append-text! :- :bool [[value [:slice-const :u8]]]
+(az/defn- append-text! :bool [[value [:slice-const :u8]]]
   (when (> (+ text-used (az/field value len)) (az/field text-arena len))
     (ak/return (reject error-line 2)))
   (ak/memcpy (az/slice text-arena text-used (+ text-used (az/field value len))) value)
   (set! text-used (ak/intCast (+ text-used (az/field value len)))) true)
 
-(az/defn- id-character? :- :bool [[b :u8]]
+(az/defn- id-character? :bool [[b :u8]]
   (or (and (>= b 65) (<= b 90)) (and (>= b 97) (<= b 122))
       (and (>= b 48) (<= b 57)) (ak/== b 45) (ak/== b 95)))
 
-(az/defn set-recording-id! :- :bool [[index :u32] [id [:slice-const :u8]] [revision :u32]]
+(az/defn set-recording-id! :bool [[index :u32] [id [:slice-const :u8]] [revision :u32]]
   (when (or (>= index count-nodes) (ak/== (az/field id len) 0) (> (az/field id len) 63))
     (ak/return false))
   (dotimes [i (az/field id len)] (when (ak/! (id-character? (az/index id i))) (ak/return false)))
@@ -71,10 +71,9 @@
     (set! (az/field node id_len) (ak/intCast (az/field id len)))
     (set! (az/field node revision) revision)) true)
 
-(az/defn- parse-normalized!
+(az/defn- parse-normalized! :bool
   "Native Markdown parser. Errors leave diagnostics; caller publishes only after success.
-  1=syntax, 2=capacity, 3=unknown voice, 4=indentation, 5=identity conflict."
-  :- :bool [[source [:slice-const :u8]]]
+  1=syntax, 2=capacity, 3=unknown voice, 4=indentation, 5=identity conflict." [[source [:slice-const :u8]]]
   (set! count-nodes 0) (set! text-used 0) (set! error-line 0) (set! error-code 0)
   (when (> (az/field source len) 262144) (ak/return (reject 1 2)))
   (let [^{:var :usize} start 0 ^{:var :u32} line 0
@@ -191,9 +190,8 @@
             (ak/return (reject (az/field (az/index nodes i) line) 5))))))
     true))
 
-(az/defn parse!
-  "Normalize every tab to four spaces before parsing; the source is never rewritten."
-  :- :bool [[source [:slice-const :u8]]]
+(az/defn parse! :bool
+  "Normalize every tab to four spaces before parsing; the source is never rewritten." [[source [:slice-const :u8]]]
   (set! count-nodes 0) (set! text-used 0) (set! error-line 0) (set! error-code 0)
   (let [^{:var :usize} length 0 ^{:var :u32} line 1]
     (dotimes [i (az/field source len)]
@@ -205,7 +203,7 @@
         (when (ak/== b 10) (set! line (+ line 1)))))
     (parse-normalized! (az/slice normalized-buffer 0 length))))
 
-(az/defn parse-file! :- :bool [[path [:slice-const :u8]]]
+(az/defn parse-file! :bool [[path [:slice-const :u8]]]
   (when (>= (az/field path len) 4096) (ak/return (reject 0 6)))
   (let [^{:var [:array 4096 :u8]} name (mem/zeroes (az/type [:array 4096 :u8]))]
     (ak/memcpy (az/slice name 0 (az/field path len)) path)
@@ -218,9 +216,8 @@
           (ak/return (reject 0 2)))
         (parse! (az/slice source-buffer 0 n))))))
 
-(az/defn write-document!
-  "Publish a complete native dialogue asset by rename. No Bitwig project or audio is touched."
-  :- :bool [[path [:slice-const :u8]]]
+(az/defn write-document! :bool
+  "Publish a complete native dialogue asset by rename. No Bitwig project or audio is touched." [[path [:slice-const :u8]]]
   (when (> (az/field path len) 4090) (ak/return (reject 0 6)))
   (let [^{:var [:array 4096 :u8]} name (mem/zeroes (az/type [:array 4096 :u8]))
         ^{:var [:array 4096 :u8]} temporary (mem/zeroes (az/type [:array 4096 :u8]))]
@@ -238,7 +235,7 @@
         (when (or (ak/! ok) (ak/! closed)) (ak/return (reject 0 6)))
         (ak/== (rename-file (ak/& temporary) (ak/& name)) 0)))))
 
-(az/defn main {:zig/qualifiers "!"} :- :void [[init process/Init]]
+(az/defn main :void {:zig/qualifiers "!"} [[init process/Init]]
   (let [^:var iterator (ak/try (args/initAllocator (az/field (az/field init minimal) args) (az/field init gpa)))]
     (ak/defer (args/deinit (ak/& iterator)))
     (set! _ (args/next (ak/& iterator)))

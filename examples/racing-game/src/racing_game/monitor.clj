@@ -140,44 +140,34 @@
 
 (az/defvar history-raw-visible false)
 
-(az/defn progress-bin
-  :-
-  :u8
+(az/defn progress-bin :u8
   [[progress :f32]]
   (ak/as :u8
          (ak/intFromFloat
           (ak/min 9.0 (* (ak/max 0.0 progress) 10.0)))))
 
-(az/defn speed-bin
-  :-
-  :u8
+(az/defn speed-bin :u8
   [[speed :f32]]
   (ak/as :u8
          (ak/intFromFloat
           (ak/min 9.0 (* (ak/max 0.0 speed) 100.0)))))
 
-(az/defn lane-choice
-  :-
-  :u8
+(az/defn lane-choice :u8
   [[lane-target :f32]]
   (cond
     (< lane-target -0.025) 0
     (> lane-target 0.025) 2
     :else 1))
 
-(az/defn pace-choice
-  :-
-  :u8
+(az/defn pace-choice :u8
   [[target-speed :f32]]
   (cond
     (< target-speed 0.076) 0
     (< target-speed 0.084) 1
     :else 2))
 
-(az/defn refresh-racer!
+(az/defn refresh-racer! :void
   "Copy one bounded semantic decision into the current row or history ABI."
-  :-
-  :void
   [[identifier :u8]
    [offset :usize]
    [destination :usize]
@@ -290,10 +280,8 @@
       (set! (az/index (az/field snapshot history) destination) row)
       (set! (az/index (az/field snapshot racers) index) row))))
 
-(az/defn refresh-radio!
+(az/defn refresh-radio! :void
   "Copy one semantic newest-first team exchange into the stable C ABI."
-  :-
-  :void
   [[team-id :u8]
    [offset :usize]
    [destination :usize]]
@@ -329,10 +317,8 @@
             (az/index (az/field entry prompt_bytes) position)))
     (set! (az/index (az/field snapshot radio) destination) row)))
 
-(az/defn refresh!
+(az/defn refresh! :void
   "Refresh the allocation-free native snapshot consumed by Dear ImGui."
-  :-
-  :void
   []
   (let [command (imgui/aguafria_imgui_camera_command)]
     (cond
@@ -408,35 +394,27 @@
       (set! history-raw-visible include-raw))
     (imgui/aguafria_imgui_update (ak/ptrCast (ak/& snapshot)))))
 
-(az/defn monitor-snapshot
+(az/defn monitor-snapshot MonitorSnapshot
   "Inspectable native snapshot used by the ImGui layer."
-  :-
-  MonitorSnapshot
   []
   snapshot)
 
-(az/defn monitor-racer
+(az/defn monitor-racer MonitorRacer
   "Inspect one decoded monitor row without exposing nested ABI bytes."
-  :-
-  MonitorRacer
   [[identifier :u8]]
   (if (< identifier simulation/racer-count)
     (az/index (az/field snapshot racers) (ak/intCast identifier))
     (std-mem/zeroes (az/type MonitorRacer))))
 
-(az/defn monitor-history-count
+(az/defn monitor-history-count :u8
   "Number of retained native decisions exposed for one racer."
-  :-
-  :u8
   [[identifier :u8]]
   (if (< identifier simulation/racer-count)
     (az/index (az/field snapshot history_counts) (ak/intCast identifier))
     0))
 
-(az/defn monitor-history-entry
+(az/defn monitor-history-entry MonitorRacer
   "Inspect one newest-first decision from a racer's native telemetry ring."
-  :-
-  MonitorRacer
   [[identifier :u8]
    [offset :u8]]
   (if (and (< identifier simulation/racer-count)
@@ -446,19 +424,15 @@
                  (ak/as :usize (ak/intCast offset))))
     (std-mem/zeroes (az/type MonitorRacer))))
 
-(az/defn monitor-radio-count
+(az/defn monitor-radio-count :u8
   "Number of semantic exchanges visible for one team in the current UI state."
-  :-
-  :u8
   [[team-id :u8]]
   (if (< team-id simulation/team-count)
     (az/index (az/field snapshot radio_counts) (ak/intCast team-id))
     0))
 
-(az/defn monitor-radio-entry
+(az/defn monitor-radio-entry MonitorRadio
   "Inspect one newest-first team/driver exchange exactly as shown in ImGui."
-  :-
-  MonitorRadio
   [[team-id :u8]
    [offset :u8]]
   (if (and (< team-id simulation/team-count) (< offset (monitor-radio-count team-id)))
@@ -467,10 +441,8 @@
                  (ak/as :usize (ak/intCast offset))))
     (std-mem/zeroes (az/type MonitorRadio))))
 
-(az/defn abi-valid?
+(az/defn abi-valid? :bool
   "Verify the generated Zig structs exactly match their C++ ABI."
-  :-
-  :bool
   []
   (and
    (ak/== (ak/sizeOf MonitorRacer)
@@ -488,10 +460,9 @@
 
 (az/defvar language-history-every-call :u8 0)
 
-(az/defn same-language-exchange?
+(az/defn same-language-exchange? :bool
   "Group only identical adjacent content/outcomes, never timing or sequence IDs.
-  Actor, race and instructions remain boundaries even when hidden in the UI."
-  :- :bool [[a simulation/LanguageExchange] [b simulation/LanguageExchange]]
+  Actor, race and instructions remain boundaries even when hidden in the UI." [[a simulation/LanguageExchange] [b simulation/LanguageExchange]]
   (let [ar (az/field (az/field a result) request)
         br (az/field (az/field b result) request)
         ag (az/field (az/field a result) generation)
@@ -509,14 +480,12 @@
          (std-mem/eql :u8 (az/slice (az/field ag bytes) 0 (ak/min 2048 (az/field ag byte_count)))
                           (az/slice (az/field bg bytes) 0 (ak/min 2048 (az/field bg byte_count)))))))
 
-(az/defn history-text!
-  "Length-delimited UTF-8, including model output: no format evaluation or NUL requirement."
-  :- :void [[text [:slice-const :u8]] [r :f32] [g :f32] [b :f32]]
+(az/defn history-text! :void
+  "Length-delimited UTF-8, including model output: no format evaluation or NUL requirement." [[text [:slice-const :u8]] [r :f32] [g :f32] [b :f32]]
   (ui/aguafria_ui_wrapped_text (az/field text ptr) (az/field text len) r g b))
 
-(az/defn draw-language-exchange!
-  "Render one real native exchange. Validation is not a claim of tactical quality."
-  :- :void [[entry simulation/LanguageExchange]]
+(az/defn draw-language-exchange! :void
+  "Render one real native exchange. Validation is not a claim of tactical quality." [[entry simulation/LanguageExchange]]
   (let [result (az/field entry result)
         request (az/field result request)
         generation (az/field result generation)
@@ -548,8 +517,7 @@
                      (az/field tint x) (az/field tint y) (az/field tint z))
       (history-text! "(No text returned)" 0.9 0.65 0.35))))
 
-(az/defn draw-language-group!
-  :- :void [[latest simulation/LanguageExchange] [oldest :u64] [count :usize]]
+(az/defn draw-language-group! :void [[latest simulation/LanguageExchange] [oldest :u64] [count :usize]]
   (draw-language-exchange! latest)
   (when (> count 1)
     (let [^{:var [:array 192 :u8]} buffer ak/undefined
@@ -558,9 +526,8 @@
                         [count oldest (az/field latest sequence)]) (ak/return))]
       (history-text! text 1.0 0.8 0.25))))
 
-(az/defn draw-language-history!
-  "F2 opens bounded, scrollable exact driver text history in the game itself."
-  :- :void []
+(az/defn draw-language-history! :void
+  "F2 opens bounded, scrollable exact driver text history in the game itself." []
   (when (ak/! (imgui/aguafria_imgui_is_visible))
     (ak/return))
   ;; Both histories remain available, but do not open stacked translucent
@@ -642,17 +609,15 @@
 
 (az/defvar frame-report-tick :u64 0)
 
-(az/defn measured-fps
+(az/defn measured-fps :f64
   "Actual render cadence across the last 120 intervals, including presentation
-  waits. This is not the fixed physics rate or the target frame rate."
-  :- :f64 []
+  waits. This is not the fixed physics rate or the target frame rate." []
   (if (> frame-interval-sum 0.0)
     (/ (ak/as :f64 (ak/floatFromInt frame-interval-count)) frame-interval-sum)
     0.0))
 
-(az/defn draw-frame-rate!
-  "Always-visible measured FPS, in the game rather than the optional log view."
-  :- :void []
+(az/defn draw-frame-rate! :void
+  "Always-visible measured FPS, in the game rather than the optional log view." []
   (let [now (glfw/glfwGetTime)]
     (when (> frame-previous-time 0.0)
       (let [interval (- now frame-previous-time)]
@@ -686,12 +651,11 @@
     (when visible
       (imgui/aguafria_imgui_label (az/field label ptr) 1.0 1.0 1.0))))
 
-(az/defn draw-driving-telemetry!
+(az/defn draw-driving-telemetry! :void
   "Always-visible selected-driver telemetry. Reads the final pedal commands
   actually sent to physics, not an AI observation or desired speed as a proxy.
   Runs inside the existing ImGui frame through the generic drawing callback."
-  {:attrs #{:export}}
-  :- :void []
+  {:attrs #{:export}} []
   (draw-frame-rate!)
   (ak/defer (draw-language-history!))
   (let [id (if render3d/follow-front-pack
@@ -736,10 +700,8 @@
         (imgui/aguafria_imgui_meter "THROTTLE" (az/field control throttle) 0.15 0.85 0.35)
         (imgui/aguafria_imgui_meter "BRAKE" (az/field control brake) 0.95 0.22 0.18)))))
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Attach ImGui to the existing GLFW/Vulkan objects without taking ownership."
-  :-
-  :bool
   []
   (when initialized
     (ak/return true))
@@ -764,50 +726,36 @@
     (refresh!)
     true))
 
-(az/defn set-visible!
-  :-
-  :void
+(az/defn set-visible! :void
   [[visible :bool]]
   (imgui/aguafria_imgui_set_visible visible))
 
-(az/defn toggle-visible!
-  :-
-  :bool
+(az/defn toggle-visible! :bool
   []
   (imgui/aguafria_imgui_toggle_visible))
 
-(az/defn set-raw-protocol-visible!
+(az/defn set-raw-protocol-visible! :void
   "Raw prompt bytes and token IDs remain opt-in."
-  :-
-  :void
   [[visible :bool]]
   (imgui/aguafria_imgui_set_raw_protocol visible))
 
-(az/defn raw-protocol-visible?
+(az/defn raw-protocol-visible? :bool
   "Whether the user explicitly enabled the technical protocol panel."
-  :-
-  :bool
   []
   (imgui/aguafria_imgui_raw_protocol_visible))
 
-(az/defn active?
+(az/defn active? :bool
   "Whether ImGui currently borrows the live renderer."
-  :-
-  :bool
   []
   initialized)
 
-(az/defn visible?
+(az/defn visible? :bool
   "Whether the F2-toggleable ImGui window is currently visible."
-  :-
-  :bool
   []
   (imgui/aguafria_imgui_is_visible))
 
-(az/defn shutdown!
+(az/defn shutdown! :void
   "Detach the overlay before its borrowed Vulkan objects are destroyed."
-  :-
-  :void
   []
   (when initialized
     (imgui/aguafria_imgui_set_draw_callback ak/null)
@@ -816,10 +764,8 @@
     (imgui/aguafria_imgui_shutdown)
     (set! initialized false)))
 
-(az/defn run!
+(az/defn run! :bool
   "Native desktop loop with the human-readable cognition monitor."
-  :-
-  :bool
   []
   (when (ak/! (desktop/initialize!))
     (ak/return false))

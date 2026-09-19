@@ -24,9 +24,7 @@
       {:name height :type :i32}]
      :void]]))
 
-(az/defn font-color
-  :-
-  Color
+(az/defn font-color Color
   [[palette :u8]]
   (cond
     (ak/== palette 4) (Color {:r 1.0 :g 0.83 :b 0.38 :a 1.0})
@@ -37,10 +35,8 @@
     (ak/== palette 10) (Color {:r 0.48 :g 1.0 :b 0.62 :a 1.0})
     :else (Color {:r 0.86 :g 0.91 :b 0.82 :a 1.0})))
 
-(az/defn control-building-kind
+(az/defn control-building-kind :u8
   "Map one cached control-label palette to its native building kind."
-  :-
-  :u8
   [[palette :u8]]
   (cond
     (ak/== palette 11) factory/building-belt
@@ -50,9 +46,7 @@
     (ak/== palette 16) factory/building-coco-house
     :else factory/building-empty))
 
-(az/defn digit-mask
-  :-
-  :u8
+(az/defn digit-mask :u8
   [[digit :u32]]
   (cond
     (ak/== digit 0) 126
@@ -66,16 +60,12 @@
     (ak/== digit 8) 127
     :else 123))
 
-(az/defn segment-on?
-  :-
-  :bool
+(az/defn segment-on? :bool
   [[mask :u8]
    [bit :u8]]
   (ak/!= (ak/& mask bit) 0))
 
-(az/defn draw-small-digit
-  :-
-  :void
+(az/defn draw-small-digit :void
   [[draw-rect DrawRect]
    [digit :u32]
    [color Color]
@@ -103,10 +93,8 @@
       (draw-rect color x (+ y (- half-height (ak/divTrunc thickness 2)))
                  width thickness))))
 
-(az/defn draw-hud-number
+(az/defn draw-hud-number :void
   "Draw a bounded native statistic without allocating each frame."
-  :-
-  :void
   [[draw-rect DrawRect]
    [value :u32]
    [x :i32]
@@ -138,10 +126,8 @@
                       color (+ screen-x (* spacing 2)) screen-y
                       width height thickness)))
 
-(az/defn draw-overlay
+(az/defn draw-overlay :void
   "Draw the complete allocation-free coco-factory HUD over the 3D mesh pass."
-  :-
-  :void
   [[draw-rect DrawRect]
    [frame-width :i32]
    [frame-height :i32]]

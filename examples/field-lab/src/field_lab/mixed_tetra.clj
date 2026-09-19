@@ -28,9 +28,8 @@
   [[:valid :bool] [:energy :f64] [:minimum-jacobian :f64]
    [:gradient [:array 42 :f64]] [:hessian [:array 1764 :f64]]])
 
-(az/defn legendre
-  "P_n(x) and its derivative for quadrature roots strictly inside (-1,1)."
-  :- p/Vec3 [[order :u32] [x :f64]]
+(az/defn legendre p/Vec3
+  "P_n(x) and its derivative for quadrature roots strictly inside (-1,1)." [[order :u32] [x :f64]]
   (let [^{:var :f64} previous 1.0
         ^{:var :f64} current x
         ^{:var :u32} degree 2]
@@ -42,10 +41,9 @@
     (p/v current (/ (* (ak/as :f64 (ak/floatFromInt order)) (- (* x current) previous))
                      (- (* x x) 1.0)) 0.0)))
 
-(az/defn quadrature
+(az/defn quadrature Quadrature
   "Gauss-Legendre on [0,1], 2..12 points. Count zero signals invalid input or
-  root failure. Generated natively, including in standalone execution."
-  :- Quadrature [[order :u32]]
+  root failure. Generated natively, including in standalone execution." [[order :u32]]
   (let [^:var result (mem/zeroes (az/type Quadrature))]
     (when (or (< order 2) (> order 12)) (ak/return result))
     (dotimes [index (ak/divTrunc (+ order 1) 2)]
@@ -73,12 +71,11 @@
     (set! (az/field result count) order)
     result))
 
-(az/defn basis
+(az/defn basis Basis
   "For barycentric l_i, Psi_i=168*product(l)*(9*l_i-1), Phi_i=l_i-Psi_i.
   The first four coefficients describe the boundary trace; the last four are
   internal projection coefficients, not the positions of interior nodes.
-  Gradients supplied by the caller are with respect to rest-world coordinates."
-  :- Basis [[barycentric [:array 4 :f64]] [gradients [:array 4 p/Vec3]]]
+  Gradients supplied by the caller are with respect to rest-world coordinates." [[barycentric [:array 4 :f64]] [gradients [:array 4 p/Vec3]]]
   (let [^:var result (mem/zeroes (az/type Basis))
         ^{:var :f64} product 1.0
         ^:var product-gradient (p/v 0.0 0.0 0.0)]
@@ -104,10 +101,9 @@
           (az/index (az/field result gradients) (+ 4 index)) interior-gradient)))
     result))
 
-(az/defn quadratic-projection
+(az/defn quadratic-projection :f64
   "Exact L2 projection of the ten quadratic Bernstein traces onto P1.
-  Columns: l_i^2 followed by 2*l_i*l_j for edges 01,02,03,12,13,23."
-  :- :f64 [[row :u32] [column :u32]]
+  Columns: l_i^2 followed by 2*l_i*l_j for edges 01,02,03,12,13,23." [[row :u32] [column :u32]]
   (if (< column 4)
     (if (ak/== row column) (/ 3.0 5.0) (/ -1.0 15.0))
     (let [incident (or (and (ak/== column 4) (or (ak/== row 0) (ak/== row 1)))
@@ -118,12 +114,11 @@
                        (and (ak/== column 9) (or (ak/== row 2) (ak/== row 3))))]
       (if incident (/ 4.0 15.0) (/ -1.0 15.0)))))
 
-(az/defn quadratic-basis
+(az/defn quadratic-basis QuadraticBasis
   "Ten shared Bernstein trace controls and four private P1 projections.
   Phi_a=N_a-sum_i(Psi_i*C_ia). On faces Psi=0 and Phi=N>=0, so
   nonnegative position controls suffice for complete quadratic face clearance.
-  Edge coefficients are Bernstein controls, not interpolating midpoint values."
-  :- QuadraticBasis [[barycentric [:array 4 :f64]] [gradients [:array 4 p/Vec3]]]
+  Edge coefficients are Bernstein controls, not interpolating midpoint values." [[barycentric [:array 4 :f64]] [gradients [:array 4 p/Vec3]]]
   (let [^:var result (mem/zeroes (az/type QuadraticBasis))
         enriched (basis barycentric gradients)
         ^{:var :usize} edge 4]
@@ -153,9 +148,8 @@
                        (p/scale (az/index (az/field enriched gradients) (+ 4 row)) (- coefficient)))))))
     result))
 
-(az/defn displacement-gradient
-  "H=sum(u_a outer grad N_a); all coefficients are displacements in metres."
-  :- elastic/Matrix [[sample Basis] [displacements [:array 8 p/Vec3]]]
+(az/defn displacement-gradient elastic/Matrix
+  "H=sum(u_a outer grad N_a); all coefficients are displacements in metres." [[sample Basis] [displacements [:array 8 p/Vec3]]]
   (let [^:var result (elastic/zero)]
     (dotimes [index 8]
       (set! result (elastic/add result
@@ -163,20 +157,17 @@
                                    (az/index (az/field sample gradients) index)))))
     result))
 
-(az/defn deformation
-  :- elastic/Matrix [[sample Basis] [displacements [:array 8 p/Vec3]]]
+(az/defn deformation elastic/Matrix [[sample Basis] [displacements [:array 8 p/Vec3]]]
   (elastic/add (elastic/identity) (displacement-gradient sample displacements)))
 
-(az/defn mass-entry
+(az/defn mass-entry :f64
   "Scalar mixed mass matrix. The four boundary coefficients have no inertia;
-  the internal P1 velocity coefficients have the exact consistent tetra mass."
-  :- :f64 [[density :f64] [volume :f64] [row :u32] [column :u32]]
+  the internal P1 velocity coefficients have the exact consistent tetra mass." [[density :f64] [volume :f64] [row :u32] [column :u32]]
   (if (or (< row 4) (< column 4) (>= row 8) (>= column 8))
     0.0
     (* density volume 0.05 (ak/as :f64 (if (ak/== row column) 2.0 1.0)))))
 
-(az/defn kinetic-energy
-  :- :f64 [[density :f64] [volume :f64] [velocities [:array 8 p/Vec3]]]
+(az/defn kinetic-energy :f64 [[density :f64] [volume :f64] [velocities [:array 8 p/Vec3]]]
   (let [^:var sum (p/v 0.0 0.0 0.0)
         ^{:var :f64} squared 0.0]
     (dotimes [index 4]
@@ -185,11 +176,10 @@
         (ak/+= squared (p/dot velocity velocity))))
     (* 0.025 density volume (+ squared (p/dot sum sum)))))
 
-(az/defn accumulate-hessian!
+(az/defn accumulate-hessian! :void
   "Contract the exact material Hessian with basis gradients in 3x3 blocks.
   Invariant derivatives and F/cofactor products are shared across node pairs.
   The determinant term is polynomial; no inverse F or Hessian clipping is used."
-  :- :void
   [[result :anytype] [sample :anytype] [f elastic/Matrix]
    [parameters elastic/Material] [weight :f64]]
   (let [mu (az/field parameters mu)
@@ -239,10 +229,9 @@
                   (when (ak/!= left right)
                     (ak/+= (az/index (az/field result hessian) (+ (* size column) row)) value)))))))))))
 
-(az/defn integrate
+(az/defn integrate ResultType
   "Shared quadrature and constitutive evaluation for both trace spaces.
   The result type, basis function and coefficient array specialize at compile time."
-  :- ResultType
   [[ResultType {:zig/prefix "comptime"} :type] [sample-function :anytype]
    [gradients [:array 4 p/Vec3]] [volume :f64] [parameters elastic/Material]
    [displacements :anytype] [rule Quadrature] [with-hessian :bool]]
@@ -296,30 +285,27 @@
     (set! (az/field result valid) true)
     result))
 
-(az/defn evaluate
+(az/defn evaluate Response
   "Linear trace / P1 projection element. Six points per axis integrate its rest
   stiffness exactly. Sampled positive J is not a whole-element certificate."
-  :- Response
   [[gradients [:array 4 p/Vec3]] [volume :f64] [parameters elastic/Material]
    [displacements [:array 8 p/Vec3]] [rule Quadrature] [with-hessian :bool]]
   (integrate Response basis gradients volume parameters displacements rule with-hessian))
 
-(az/defn evaluate-quadratic
+(az/defn evaluate-quadratic QuadraticResponse
   "Experimental quadratic trace / P1 projection element: 10 trace controls and
   4 private coefficients. Energy, gradient and exact Hessian share the existing
   constitutive kernel. Whole-element validity is checked separately by the
   Bernstein interval path certificate."
-  :- QuadraticResponse
   [[gradients [:array 4 p/Vec3]] [volume :f64] [parameters elastic/Material]
    [displacements [:array 14 p/Vec3]] [rule Quadrature] [with-hessian :bool]]
   (integrate QuadraticResponse quadratic-basis gradients volume parameters displacements rule with-hessian))
 
-(az/defn path-jacobian-bound
+(az/defn path-jacobian-bound interval/Interval
   "Outward interval enclosure of det F over the entire tetrahedron and straight
   coefficient path. Uses the convex hull of the degree-four Bernstein controls
   of F at both endpoints. A positive lower bound certifies the path; a bound
   crossing zero is inconclusive, not proof of inversion. No sampling is used."
-  :- interval/Interval
   [[gradients [:array 4 p/Vec3]] [before [:array 8 p/Vec3]] [after [:array 8 p/Vec3]]]
   (let [unknown (interval/Interval {:lower (- (math/inf :f64)) :upper (math/inf :f64)})
         ^:var envelope (mem/zeroes (az/type [:array 9 interval/Interval]))]
@@ -399,11 +385,10 @@
                   (az/array-init [:array 3 interval/Interval] [(az/index envelope 2) (az/index envelope 5) (az/index envelope 8)]))]
       (if (and (math/isFinite (az/field bound lower)) (math/isFinite (az/field bound upper))) bound unknown))))
 
-(az/defn quadratic-path-bound
+(az/defn quadratic-path-bound interval/Interval
   "Outward enclosure of det F for quadratic traces, throughout the tetrahedron
   and the straight coefficient path. Enumerates all 35 degree-four Bernstein
   controls. Bounds crossing zero are inconclusive and must reject the step."
-  :- interval/Interval
   [[gradients [:array 4 p/Vec3]] [before [:array 14 p/Vec3]] [after [:array 14 p/Vec3]]]
   (let [unknown (interval/Interval {:lower (- (math/inf :f64)) :upper (math/inf :f64)})
         ^:var envelope (mem/zeroes (az/type [:array 9 interval/Interval]))]
@@ -508,27 +493,23 @@
   [[:valid :bool] [:energy :f64] [:elastic-energy :f64]
    [:inertial-energy :f64] [:load-potential :f64]])
 
-(az/defn trace-count
-  :- :usize [[element Element]]
+(az/defn trace-count :usize [[element Element]]
   (if (az/field element quadratic?) 10 4))
 
-(az/defn coefficient-count
-  :- :usize [[element Element]]
+(az/defn coefficient-count :usize [[element Element]]
   (+ (trace-count element) 4))
 
-(az/defn coefficient-index
-  "Shared trace controls first, then four private coefficients per cell."
-  :- :usize [[vertex-count :usize] [cell :usize] [element Element] [local :usize]]
+(az/defn coefficient-index :usize
+  "Shared trace controls first, then four private coefficients per cell." [[vertex-count :usize] [cell :usize] [element Element] [local :usize]]
   (if (< local 4)
     (az/index (az/field element vertices) local)
     (if (< local (trace-count element))
       (az/index (az/field element edges) (- local 4))
       (+ vertex-count (* 4 cell) (- local (trace-count element))))))
 
-(az/defn evaluate-element
+(az/defn evaluate-element QuadraticResponse
   "Assembly uses a 42-scalar stride for both spaces. The original eight-control
   element keeps its specialized quadrature and is expanded only after evaluation."
-  :- QuadraticResponse
   [[element Element] [local [:array 14 p/Vec3]] [rule Quadrature] [with-hessian :bool]]
   (when (az/field element quadratic?)
     (ak/return (evaluate-quadratic (az/field element gradients) (az/field element volume)
@@ -549,8 +530,7 @@
                   (az/index (az/field response hessian) (+ (* 24 row) column)))))))
     result))
 
-(az/defn element-path-bound
-  :- interval/Interval
+(az/defn element-path-bound interval/Interval
   [[element Element] [before [:array 14 p/Vec3]] [after [:array 14 p/Vec3]]]
   (when (az/field element quadratic?)
     (ak/return (quadratic-path-bound (az/field element gradients) before after)))
@@ -561,7 +541,7 @@
                     (az/index end index) (az/index after index)))
     (path-jacobian-bound (az/field element gradients) start end)))
 
-(az/defn assemble-step!
+(az/defn assemble-step! StepResponse
   "Backward-Euler incremental potential in joules, gradient in newtons, and
   cached element Hessians in N/m. Prediction is u_old + dt*v_old for the private
   coefficients; boundary prediction is ignored. Gravity is uniform acceleration;
@@ -569,7 +549,6 @@
   Output buffers must not alias inputs. On failure all scratch outputs must be
   discarded. Valid means numerical evaluation only, NOT a collision or inversion
   certificate. A nonlinear driver must separately certify its accepted path."
-  :- StepResponse
   [[vertex-count :usize] [elements [:slice Element]]
    [coefficients [:slice p/Vec3]] [prediction [:slice p/Vec3]]
    [gravity p/Vec3] [loads [:slice p/Vec3]] [duration :f64] [rule Quadrature]
@@ -659,11 +638,10 @@
     (set! (az/field result valid) true)
     result))
 
-(az/defn tangent-product!
+(az/defn tangent-product! :void
   "Apply the assembled tangent without a dense global matrix. Reuse only the
   element responses from a successful assemble-step! with unchanged topology.
   Input and output must not alias; slice sizes and connectivity are caller-owned."
-  :- :void
   [[vertex-count :usize] [elements [:slice Element]] [tangents [:slice QuadraticResponse]]
    [direction [:slice p/Vec3]] [output [:slice p/Vec3]]]
   (dotimes [index (az/field output len)] (set! (az/index output index) (p/v 0.0 0.0 0.0)))

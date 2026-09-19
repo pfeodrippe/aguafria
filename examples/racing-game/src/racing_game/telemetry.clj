@@ -29,10 +29,8 @@
 
 (az/defconst outcome-window-ticks :u64 120)
 
-(az/defn outcome-window-seconds
+(az/defn outcome-window-seconds :f32
   "Expose the causal evaluation horizon to nREPL monitors and tooling."
-  :-
-  :f32
   []
   1.0)
 
@@ -160,16 +158,12 @@
 (az/defvar total-rank-gains [:array racer-count :i64]
   (std-mem/zeroes (az/type [:array racer-count :i64])))
 
-(az/defn empty-log
-  :-
-  DecisionLog
+(az/defn empty-log DecisionLog
   []
   (std-mem/zeroes (az/type DecisionLog)))
 
-(az/defn reset!
+(az/defn reset! :void
   "Clear all actor histories without touching race or model state."
-  :-
-  :void
   []
   (set! decision-logs
         (std-mem/zeroes (az/type [:array (* racer-count entries-per-racer) DecisionLog])))
@@ -188,10 +182,8 @@
   (set! total-rank-gains
         (std-mem/zeroes (az/type [:array racer-count :i64]))))
 
-(az/defn record!
+(az/defn record! :void
   "Append one already-bounded decision event to its racer's ring."
-  :-
-  :void
   [[entry DecisionLog]]
   (when (< (az/field entry racer_id) racer-count)
     (let [racer-index (ak/as :usize (ak/intCast (az/field entry racer_id)))
@@ -213,12 +205,10 @@
               :progress_gain 0.0 :rank_gain 0}))
       (set! (az/index decision-counts racer-index) (+ sequence 1)))))
 
-(az/defn record-llm!
+(az/defn record-llm! :void
   "Attach bounded prompt, response, and token previews to an LLM decision.
   Counts retain the full lengths while truncation flags make omitted tails
   explicit. The game thread never allocates while recording."
-  :-
-  :void
   [[base DecisionLog]
    [prompt [:slice-const :u8]]
    [response [:slice-const :u8]]
@@ -254,10 +244,8 @@
             (az/index output-tokens index)))
     (record! entry)))
 
-(az/defn record-fallback!
+(az/defn record-fallback! :void
   "Record the transparent policy using the same schema as future LLM results."
-  :-
-  :void
   [[racer-id :u8]
    [rank :u8]
    [lap :u16]
@@ -304,19 +292,15 @@
      :prompt_bytes (std-mem/zeroes (az/type [:array 384 :u8]))
      :response_bytes (std-mem/zeroes (az/type [:array 96 :u8]))})))
 
-(az/defn decision-count
+(az/defn decision-count :u64
   "Return the monotonic number of logged decisions for one racer."
-  :-
-  :u64
   [[racer-id :u8]]
   (if (< racer-id racer-count)
     (az/index decision-counts (ak/intCast racer-id))
     0))
 
-(az/defn entry-at
+(az/defn entry-at DecisionLog
   "Return `offset` decisions back from a racer's newest entry."
-  :-
-  DecisionLog
   [[racer-id :u8]
    [offset :usize]]
   (if (>= racer-id racer-count)
@@ -332,17 +316,13 @@
                              (ak/intCast (mod sequence entries-per-racer))))]
           (az/index decision-logs slot))))))
 
-(az/defn latest
+(az/defn latest DecisionLog
   "Return the newest complete cognition event for one racer."
-  :-
-  DecisionLog
   [[racer-id :u8]]
   (entry-at racer-id 0))
 
-(az/defn outcome-at
+(az/defn outcome-at DecisionOutcome
   "Return the causal outcome aligned with `entry-at`."
-  :-
-  DecisionOutcome
   [[racer-id :u8]
    [offset :usize]]
   (if (>= racer-id racer-count)
@@ -358,10 +338,8 @@
                              (ak/intCast (mod sequence entries-per-racer))))]
           (az/index decision-outcomes slot))))))
 
-(az/defn mark-item-used!
+(az/defn mark-item-used! :bool
   "Attribute an item consumption to the exact decision that requested it."
-  :-
-  :bool
   [[racer-id :u8]
    [revision :u64]]
   (let [^{:var true :zig/type :bool} found false]
@@ -387,10 +365,8 @@
                 (set! found true)))))))
     found))
 
-(az/defn mark-hit!
+(az/defn mark-hit! :bool
   "Attribute one unshielded hit to the decision that launched the attack."
-  :-
-  :bool
   [[racer-id :u8]
    [revision :u64]]
   (let [^{:var true :zig/type :bool} found false]
@@ -415,10 +391,8 @@
                 (set! found true)))))))
     found))
 
-(az/defn resolve-due-outcomes!
+(az/defn resolve-due-outcomes! :void
   "Resolve every retained decision whose fixed evaluation horizon has elapsed."
-  :-
-  :void
   [[racer-id :u8]
    [simulation-tick :u64]
    [rank :u8]
@@ -471,10 +445,8 @@
                              (az/field (az/index decision-outcomes slot)
                                        rank_gain)))))))))))
 
-(az/defn racer-outcome-summary
+(az/defn racer-outcome-summary RacerOutcomeSummary
   "Return complete current-race outcome totals independent of ring eviction."
-  :-
-  RacerOutcomeSummary
   [[racer-id :u8]]
   (if (>= racer-id racer-count)
     (RacerOutcomeSummary
@@ -500,10 +472,8 @@
              (ak/as :f32 (ak/floatFromInt resolved)))
           0.0)}))))
 
-(az/defn summary
+(az/defn summary TelemetrySummary
   "Aggregate the bounded histories without allocating."
-  :-
-  TelemetrySummary
   []
   (let [^{:var true :zig/type :u64} total 0
         ^{:var true :zig/type :u64} llm 0

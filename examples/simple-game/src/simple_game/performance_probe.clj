@@ -5,9 +5,7 @@
             [simple-game.bindings.stdio :as stdio]
             [simple-game.desktop :as desktop]))
 
-(az/defn main
-  :-
-  :void
+(az/defn main :void
   []
   (let [timing (desktop/run-for-frames! 60 360)]
     (set! _

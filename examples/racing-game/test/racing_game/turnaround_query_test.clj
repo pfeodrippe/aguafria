@@ -14,7 +14,7 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
 
-(az/defn static-query-probe :- [:array 3 :bool] []
+(az/defn static-query-probe [:array 3 :bool] []
   (let [world (physics/create-world 0.0)
         box (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.0})
               (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0}) 0.0 10.0)]
@@ -30,10 +30,9 @@
 (deftest static-world-query-rejects-obstacles-test
   (is (= [false true true] (az/value (static-query-probe)))))
 
-(az/defn corridor-query-probe
+(az/defn corridor-query-probe :u8
   "Read-only motion prediction in an isolated empty world. Only tests the
-  fixed recovery corridor; it is not a full physical recovery simulation."
-  :- :u8 [[body physics/BodyState] [gear :i8] [steering :f32] [limit :f32]]
+  fixed recovery corridor; it is not a full physical recovery simulation." [[body physics/BodyState] [gear :i8] [steering :f32] [limit :f32]]
   (let [world (physics/create-world 0.0)
         others (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState]))]
     (ak/defer (physics/destroy-world! world))
@@ -105,10 +104,9 @@
                 "The same steering produces opposite yaw changes in reverse")
             (is (pos? (* steering y))))))))
 
-(az/defn captured-pedal-guard-probe
+(az/defn captured-pedal-guard-probe driver/Control
   "Pure measured-pose query in an empty Box3D world: isolate dynamic footprint
   vetoes from ground/wall queries. This does NOT simulate a cleared pile-up."
-  :- driver/Control
   [[bodies [:array protocol/racer-count physics/BodyState]] [self :usize] [control driver/Control] [gear :i8]]
   (let [world (physics/create-world 0.0)]
     (ak/defer (physics/destroy-world! world))

@@ -391,23 +391,19 @@
     (is (nil? (:certificate result)))))
 
 
-(az/defn hierarchy-node
-  :- contact/TreeNode
+(az/defn hierarchy-node contact/TreeNode
   [[surface [:* contact/Surface]] [index :usize]]
   (az/index (az/field surface tree) index))
 
-(az/defn hierarchy-leaf
-  :- :usize
+(az/defn hierarchy-leaf :usize
   [[surface [:* contact/Surface]] [index :usize]]
   (az/index (az/field surface leaves) index))
 
-(az/defn adjacency-offset
-  :- :usize
+(az/defn adjacency-offset :usize
   [[surface [:* contact/Surface]] [index :usize]]
   (az/index (az/field surface offsets) index))
 
-(az/defn adjacency-face
-  :- :u32
+(az/defn adjacency-face :u32
   [[surface [:* contact/Surface]] [index :usize]]
   (az/index (az/field surface incidents) index))
 
@@ -519,9 +515,8 @@
         (is (= before (hierarchy-snapshot surface (count faces)))))
       (finally (contact/destroy! surface)))))
 
-(az/defn exercise-hierarchy-capacity!
+(az/defn exercise-hierarchy-capacity! :usize
   "Coincident centroids force the bounded fallback at the maximum face capacity."
-  :- :usize
   [[face-count :usize]]
   (let [surface (contact/create! 3 face-count)
         ^{:var :usize} maximum-depth 0
@@ -569,8 +564,7 @@
         (is (< (:depth report) 64)))
       (finally (contact/destroy! surface)))))
 
-(az/defn packed-fixture
-  :- [:array 1024 :u32]
+(az/defn packed-fixture [:array 1024 :u32]
   [[surface [:* contact/Surface]] [capacity :usize]]
   (let [^{:var [:array 1024 :u32]} words ak/undefined]
     (dotimes [i 1024] (set! (az/index words i) 0xcafebabe))

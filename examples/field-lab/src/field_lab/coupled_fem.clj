@@ -33,8 +33,7 @@
    [:minimum-jacobian :f64] [:maximum-penetration :f64]
    [:ground-impulse :f64] [:pair-impulse :f64]])
 
-(az/defn create!
-  :- [:* Assembly]
+(az/defn create! [:* Assembly]
   [[count :usize]]
   (debug/assert (and (> count 0) (<= count 3)))
   (let [assembly (catch ((az/field heap/page_allocator create) Assembly)
@@ -43,23 +42,20 @@
           (Assembly {:bodies (fem/allocate Body count) :time 0.0}))
     assembly))
 
-(az/defn destroy!
+(az/defn destroy! :void
   "Body states and surfaces belong to the enclosing Clojure resource scope."
-  :- :void
   [[assembly [:* Assembly]]]
   ((az/field heap/page_allocator free) (az/field assembly bodies))
   ((az/field heap/page_allocator destroy) assembly))
 
-(az/defn attach!
-  :- :void
+(az/defn attach! :void
   [[assembly [:* Assembly]] [index :usize]
    [state [:* dynamics/Dynamics]] [surface [:* contact/Surface]]]
   (debug/assert (ak/== (az/field (az/field state masses) len)
                        (az/field (az/field surface points) len)))
   (set! (az/index (az/field assembly bodies) index) (Body {:state state :surface surface})))
 
-(az/defn synchronize!
-  :- :void
+(az/defn synchronize! :void
   [[body Body]]
   (let [state (az/field body state)
         surface (az/field body surface)]
@@ -67,15 +63,13 @@
       (contact/set-point! surface node (dynamics/position state node)))
     (contact/refit! surface)))
 
-(az/defn candidate?
-  :- :bool
+(az/defn candidate? :bool
   [[surface [:* contact/Surface]] [point p/Vec3]]
   (<= (contact/box-distance (az/field (az/index (az/field surface tree) 0) bounds) point)
       (* position-tolerance position-tolerance)))
 
-(az/defn x-gap
+(az/defn x-gap :f64
   "Positive separation of ordered bodies' current boundary boxes along x."
-  :- :f64
   [[assembly [:* Assembly]] [left :usize] [right :usize]]
   (let [a (az/field (az/index (az/field assembly bodies) left) surface)
         b (az/field (az/index (az/field assembly bodies) right) surface)
@@ -83,8 +77,7 @@
         bounds-b (az/field (az/index (az/field b tree) 0) bounds)]
     (- (az/field (az/field bounds-b lower) x) (az/field (az/field bounds-a upper) x))))
 
-(az/defn relative-velocity
-  :- p/Vec3
+(az/defn relative-velocity p/Vec3
   [[a Body] [b Body] [node :usize] [closest contact/Closest]]
   (let [face (az/index (az/field (az/field b surface) faces) (az/field closest face))
         ^:var velocity (dynamics/particle-velocity (az/field a state) node)]
@@ -95,8 +88,7 @@
                             (- (fem/component (az/field closest weights) local))))))
     velocity))
 
-(az/defn apply-correction!
-  :- :void
+(az/defn apply-correction! :void
   [[body Body] [node :usize] [position-change p/Vec3] [impulse p/Vec3] [move :bool]]
   (let [state (az/field body state)
         point (p/add (dynamics/position state node) position-change)
@@ -111,10 +103,9 @@
         (contact/move-point! (az/field body surface) node (dynamics/position state node)))
       (set! (az/index (az/field state velocities) node) velocity))))
 
-(az/defn project-vertex!
+(az/defn project-vertex! ContactResult
   "Mass-weighted position repair and inelastic Coulomb impulses on both bodies.
   Barycentric reaction weights preserve equal and opposite linear impulses."
-  :- ContactResult
   [[a Body] [b Body] [node :usize] [move :bool]]
   (let [surface (az/field b surface)
         point (dynamics/position (az/field a state) node)
@@ -156,8 +147,7 @@
             (az/field result tangent-impulse) tangent-impulse))))
     result))
 
-(az/defn pair-pass!
-  :- :f64
+(az/defn pair-pass! :f64
   [[assembly [:* Assembly]] [move :bool]]
   (let [bodies (az/field assembly bodies)
         ^{:var :f64} impulse 0.0]
@@ -173,8 +163,7 @@
                 (ak/+= impulse (az/field (project-vertex! source (az/index bodies b) node move) normal-impulse))))))))
     impulse))
 
-(az/defn residual
-  :- Residual
+(az/defn residual Residual
   [[assembly [:* Assembly]]]
   (let [bodies (az/field assembly bodies)
         ^:var result (Residual {:penetration 0.0 :closing-speed 0.0})]
@@ -200,8 +189,7 @@
                                                 (az/field closest normal)))))))))))))))
     result))
 
-(az/defn ground-pass!
-  :- :f64
+(az/defn ground-pass! :f64
   [[assembly [:* Assembly]] [move :bool]]
   (let [bodies (az/field assembly bodies)
         ^{:var :f64} impulse 0.0]
@@ -211,8 +199,7 @@
         (when move (synchronize! body))))
     impulse))
 
-(az/defn observe!
-  :- dynamics/Observables
+(az/defn observe! dynamics/Observables
   [[assembly [:* Assembly]]]
   (let [bodies (az/field assembly bodies)
         ^:var result (dynamics/Observables
@@ -237,11 +224,10 @@
     (set! (az/field result center) (p/scale (az/field result center) (/ 1.0 (az/field result mass))))
     result))
 
-(az/defn refresh-motion!
+(az/defn refresh-motion! dynamics/Observables
   "Refresh observables after a velocity-only contact phase. The caller supplies
   the last full observation with synchronized collision positions. Plane repair
   can still move a point: detect that and recompute forces/geometry observables."
-  :- dynamics/Observables
   [[assembly [:* Assembly]] [previous dynamics/Observables]]
   (let [bodies (az/field assembly bodies)
         ^:var result previous]
@@ -271,16 +257,14 @@
           (az/field result momentum) (p/add (az/field result momentum) momentum))))
     result))
 
-(az/defn valid?
-  :- :bool
+(az/defn valid? :bool
   [[value dynamics/Observables]]
   (and (> (az/field value minimum-jacobian) 0.05)
        (math/isFinite (az/field value elastic-energy))
        (math/isFinite (az/field value kinetic-energy))
        (math/isFinite (az/field value frequency-squared-bound))))
 
-(az/defn checkpoint!
-  :- :void
+(az/defn checkpoint! :void
   [[assembly [:* Assembly]] [restore :bool]]
   (let [bodies (az/field assembly bodies)]
     (dotimes [index (az/field bodies len)]
@@ -302,8 +286,7 @@
   [[:status :u32] [:pivots :u32] [:minimum-velocity :f64]
    [:minimum-impulse :f64] [:maximum-complementarity :f64]])
 
-(az/defn create-normal-system!
-  :- [:* NormalSystem]
+(az/defn create-normal-system! [:* NormalSystem]
   [[count :usize]]
   (debug/assert (and (> count 0) (<= count 128)))
   (let [system (catch ((az/field heap/page_allocator create) NormalSystem)
@@ -324,8 +307,7 @@
         (az/index (az/field system impulses) i) 0.0))
     system))
 
-(az/defn destroy-normal-system!
-  :- :void
+(az/defn destroy-normal-system! :void
   [[system [:* NormalSystem]]]
   ((az/field heap/page_allocator free) (az/field system matrix))
   ((az/field heap/page_allocator free) (az/field system scaled))
@@ -341,24 +323,20 @@
   ((az/field heap/page_allocator free) (az/field system active))
   ((az/field heap/page_allocator destroy) system))
 
-(az/defn set-normal-entry!
-  :- :void
+(az/defn set-normal-entry! :void
   [[system [:* NormalSystem]] [row :usize] [column :usize] [value :f64]]
   (set! (az/index (az/field system matrix) (+ (* row (az/field (az/field system rhs) len)) column)) value))
 
-(az/defn set-normal-rhs!
-  :- :void
+(az/defn set-normal-rhs! :void
   [[system [:* NormalSystem]] [row :usize] [value :f64]]
   (set! (az/index (az/field system rhs) row) value))
 
-(az/defn normal-impulse
-  :- :f64
+(az/defn normal-impulse :f64
   [[system [:* NormalSystem]] [row :usize]]
   (az/index (az/field system impulses) row))
 
-(az/defn normal-direction!
+(az/defn normal-direction! :bool
   "Solve the active principal system with partial pivoting; never regularize it."
-  :- :bool
   [[system [:* NormalSystem]] [driven :usize]]
   (let [count (az/field (az/field system rhs) len)
         ^{:var :usize} active-count 0]
@@ -419,11 +397,10 @@
             (az/index (az/field system solution) i)))
     true))
 
-(az/defn solve-normal-system!
+(az/defn solve-normal-system! NormalReport
   "Dantzig normal complementarity pivots, adapted to impulses and J*v.
   Requires a symmetric PSD Delassus matrix. Dense capacity is 128 constraints.
   Only status 0 permits applying the returned impulses. No Coulomb solve or CCD."
-  :- NormalReport
   [[system [:* NormalSystem]]]
   (let [count (az/field (az/field system rhs) len)
         ^:var report (NormalReport {:status 0 :pivots 0 :minimum-velocity 1.0e300
@@ -532,8 +509,7 @@
   [[:completed :bool] [:status :u32] [:contacts :usize] [:pivots :u32]
    [:ground-impulse :f64] [:pair-impulse :f64] [:closing-speed :f64]])
 
-(az/defn contact-row-velocity
-  :- p/Vec3
+(az/defn contact-row-velocity p/Vec3
   [[assembly [:* Assembly]] [row VelocityContact]]
   (let [^:var velocity (p/v 0.0 0.0 0.0)]
     (dotimes [i 4]
@@ -547,8 +523,7 @@
                                 (az/field entry weight)))))))
     velocity))
 
-(az/defn contact-row-inner
-  :- :f64
+(az/defn contact-row-inner :f64
   [[assembly [:* Assembly]] [left VelocityContact] [right VelocityContact]]
   (let [^{:var :f64} value 0.0]
     (dotimes [i 4]
@@ -564,8 +539,7 @@
                   (ak/+= value (/ (* (az/field a weight) (az/field b weight)) mass)))))))))
     (* value (p/dot (az/field left normal) (az/field right normal)))))
 
-(az/defn apply-row-impulse!
-  :- :void
+(az/defn apply-row-impulse! :void
   [[assembly [:* Assembly]] [row VelocityContact] [impulse p/Vec3]]
   (dotimes [i 4]
     (let [entry (az/index (az/field row entries) i)]
@@ -574,8 +548,7 @@
                            (az/field entry node) (p/v 0.0 0.0 0.0)
                            (p/scale impulse (az/field entry weight)) false)))))
 
-(az/defn rows-closing-speed
-  :- :f64
+(az/defn rows-closing-speed :f64
   [[assembly [:* Assembly]] [rows [:c-pointer VelocityContact]] [count :usize]]
   (let [^{:var :f64} speed 0.0]
     (dotimes [i count]
@@ -583,11 +556,10 @@
         (set! speed (ak/max speed (- (p/dot (az/field row normal) (contact-row-velocity assembly row)))))))
     speed))
 
-(az/defn solve-contact-rows!
+(az/defn solve-contact-rows! BlockReport
   "Coupled normal solve and bounded Coulomb increments for explicit four-node rows.
   Requires valid unit normals and free positive-mass nodes. Failure may partially
   change velocities; caller must own rollback. Capacity is 128 constraints."
-  :- BlockReport
   [[assembly [:* Assembly]] [rows [:c-pointer VelocityContact]] [count :usize]]
   (let [^:var report (BlockReport {:completed false :status 0 :contacts count :pivots 0
                                    :ground-impulse 0.0 :pair-impulse 0.0 :closing-speed 0.0})]
@@ -642,10 +614,9 @@
 (az/defstruct FeatureContact
   [[:row VelocityContact] [:distance :f64] [:valid :bool]])
 
-(az/defn feature-contact
+(az/defn feature-contact FeatureContact
   "Current-geometry contact row for a CCD-reported feature. A zero/ambiguous gap
   is an explicit invalid result; do not invent a direction at intersection."
-  :- FeatureContact
   [[assembly [:* Assembly]] [a :usize] [b :usize]
    [face-a :u32] [face-b :u32] [index :usize]]
   (let [left (az/index (az/field assembly bodies) a)
@@ -717,10 +688,9 @@
                               :weight (az/index weights i)}))))
     result))
 
-(az/defn resolve-velocity-contact!
+(az/defn resolve-velocity-contact! ContactResult
   "Inelastic normal response and a dissipative Coulomb increment on four nodes.
   The row must have a unit normal and valid positive masses. Positions stay fixed."
-  :- ContactResult
   [[assembly [:* Assembly]] [row VelocityContact]]
   (let [velocity (contact-row-velocity assembly row)
         normal (az/field row normal)
@@ -748,8 +718,7 @@
    [:safe-fraction :f64] [:ground-impulse :f64] [:pair-impulse :f64]
    [:distance :f64] [:normal-speed :f64] [:toi :f64] [:achieved-tolerance :f64]])
 
-(az/defn create-drift-workspace!
-  :- [:* DriftWorkspace]
+(az/defn create-drift-workspace! [:* DriftWorkspace]
   [[assembly [:* Assembly]]]
   (let [count (az/field (az/field assembly bodies) len)
         workspace (catch ((az/field heap/page_allocator create) DriftWorkspace)
@@ -766,8 +735,7 @@
                           :velocity (fem/allocate p/Vec3 nodes)}))))
     workspace))
 
-(az/defn destroy-drift-workspace!
-  :- :void
+(az/defn destroy-drift-workspace! :void
   [[workspace [:* DriftWorkspace]]]
   (dotimes [i (az/field (az/field workspace bodies) len)]
     (let [body (az/index (az/field workspace bodies) i)]
@@ -779,10 +747,9 @@
   ((az/field heap/page_allocator free) (az/field workspace rows))
   ((az/field heap/page_allocator destroy) workspace))
 
-(az/defn stage-drift!
+(az/defn stage-drift! :f64
   "Store the actual representable displacement endpoints without committing them.
   Plane response limits the average velocity to land on, or above, the plane."
-  :- :f64
   [[assembly [:* Assembly]] [workspace [:* DriftWorkspace]] [duration :f64]]
   (let [^{:var :f64} ground-impulse 0.0]
     (dotimes [i (az/field (az/field assembly bodies) len)]
@@ -821,11 +788,10 @@
 (az/defstruct ProximityReport {:layout :extern}
   [[:status :u32] [:contacts :u32] [:closing-speed :f64] [:pair-impulse :f64]])
 
-(az/defn proximity-pass!
+(az/defn proximity-pass! ProximityReport
   "Dissipative impulses on currently near features, before trajectory testing.
   A pass with closing-speed <= tolerance changes no velocity. Repeat otherwise,
   since later impulses can reactivate earlier constraints. No position edits."
-  :- ProximityReport
   [[assembly [:* Assembly]] [workspace [:* DriftWorkspace]] [clearance :f64]]
   (let [bodies (az/field assembly bodies)
         ^:var report (ProximityReport {:status 0 :contacts 0 :closing-speed 0.0 :pair-impulse 0.0})]
@@ -855,8 +821,7 @@
                                   (az/field (resolve-velocity-contact! assembly row) normal-impulse)))))))))))))
     report))
 
-(az/defn row-coefficient
-  :- p/Vec3
+(az/defn row-coefficient p/Vec3
   [[row VelocityContact] [body :usize] [node :usize]]
   (let [^{:var :f64} weight 0.0]
     (dotimes [i 4]
@@ -865,10 +830,9 @@
           (ak/+= weight (az/field entry weight)))))
     (p/scale (az/field row normal) weight)))
 
-(az/defn equivalent-rows?
+(az/defn equivalent-rows? :bool
   "Merge only stencils whose vector coefficients agree within 1e-12.
   All feature constraints and the full CCD path are rechecked after solving."
-  :- :bool
   [[left VelocityContact] [right VelocityContact]]
   (dotimes [side 2]
     (let [row (if (ak/== side 0) left right)]
@@ -880,9 +844,8 @@
           (when (> (p/dot difference difference) 1.0e-24) (ak/return false))))))
   true)
 
-(az/defn append-contact-row!
+(az/defn append-contact-row! :usize
   "Return the new count, or 129 on capacity exhaustion."
-  :- :usize
   [[workspace [:* DriftWorkspace]] [count :usize] [row VelocityContact]]
   (dotimes [i count]
     (when (equivalent-rows? (az/index (az/field workspace rows) i) row) (ak/return count)))
@@ -890,8 +853,7 @@
   (set! (az/index (az/field workspace rows) count) row)
   (+ count 1))
 
-(az/defn resolve-proximity-block!
-  :- BlockReport
+(az/defn resolve-proximity-block! BlockReport
   [[assembly [:* Assembly]] [workspace [:* DriftWorkspace]] [clearance :f64]]
   (let [bodies (az/field assembly bodies)
         ^{:var :usize} count 0
@@ -928,13 +890,12 @@
               (when (> count 128) (ak/return report)))))))
     (solve-contact-rows! assembly (az/field (az/field workspace rows) ptr) count)))
 
-(az/defn continuous-drift!
+(az/defn continuous-drift! DriftReport
   "Resolve CCD-reported imminent features with current-geometry impulses, and
   recheck every proposed path. Commit only a clear path; failures restore velocity
   exactly and never change positions. Requires initially disjoint free solids.
   Status 1 requests a shorter step, 2 ambiguous geometry, 3 pass limit, 4 CCD
   failure, 5 invalid input, 6 no dissipative response available at this step size."
-  :- DriftReport
   [[assembly [:* Assembly]] [workspace [:* DriftWorkspace]] [duration :f64]
    [clearance :f64] [maximum-passes :u32] [maximum-work :u32] [maximum-iterations :u32]]
   (let [bodies (az/field assembly bodies)
@@ -1047,8 +1008,7 @@
     (az/set-many! (az/field report ground-impulse) 0.0 (az/field report pair-impulse) 0.0)
     report))
 
-(az/defn contact-closing-speed
-  :- :f64
+(az/defn contact-closing-speed :f64
   [[assembly [:* Assembly]]]
   (let [^:var speed (az/field (residual assembly) closing-speed)]
     (dotimes [body (az/field (az/field assembly bodies) len)]
@@ -1059,12 +1019,11 @@
               (set! speed (ak/max speed (- (az/field (dynamics/particle-velocity state node) y)))))))))
     speed))
 
-(az/defn resolve-normal-block!
+(az/defn resolve-normal-block! BlockReport
   "Resolve difficult velocity contacts together, then spend each new normal
   impulse's Coulomb budget in dissipative tangential corrections. Geometry stays
   fixed. Caller owns rollback: failure may leave partial velocity corrections.
   Status 1 is capacity, 3 is block limit, and 10+ is a normal-system failure."
-  :- BlockReport
   [[assembly [:* Assembly]]]
   (let [^{:var [:array 128 VelocityContact]} rows ak/undefined
         ^{:var :usize} count 0
@@ -1144,10 +1103,9 @@
 (az/defstruct PositionReport {:layout :extern}
   [[:completed :bool] [:status :u32] [:passes :u32] [:contacts :u32] [:penetration :f64]])
 
-(az/defn collect-position-contacts!
+(az/defn collect-position-contacts! :usize
   "Gather signed vertex/face and plane constraints. Returning 129 signals
   capacity exhaustion; the caller must reject the whole trial."
-  :- :usize
   [[assembly [:* Assembly]] [contacts [:c-pointer PositionContact]]]
   (let [bodies (az/field assembly bodies)
         empty (ContactWeight {:body 0 :node 0 :weight 0.0})
@@ -1193,11 +1151,10 @@
                 (ak/+= count 1)))))))
     count))
 
-(az/defn resolve-position-block!
+(az/defn resolve-position-block! PositionReport
   "Sequential linearization of mass-weighted minimum-distance repair:
   minimize dx^T M dx / 2 subject to g + J dx >= 0. Positions only; velocity
   impulses are resolved separately. Caller owns all-body rollback on failure."
-  :- PositionReport
   [[assembly [:* Assembly]]]
   (let [^{:var [:array 128 PositionContact]} contacts ak/undefined
         ^:var report (PositionReport {:completed false :status 0 :passes 0 :contacts 0 :penetration 0.0})
@@ -1263,8 +1220,7 @@
   [[:status :u32] [:attempts :u64] [:next-step :f64] [:minimum-step :f64]
    [:last-rejection ExplicitRejection]])
 
-(az/defn explicit-task
-  :- ExplicitTask
+(az/defn explicit-task ExplicitTask
   [[assembly [:* Assembly]] [duration :f64] [maximum-step :f64]]
   (let [observation (observe! assembly)
         time (az/field assembly time)
@@ -1281,29 +1237,25 @@
                        :minimum-jacobian (az/field observation minimum-jacobian)
                        :maximum-penetration 0.0 :ground-impulse 0.0 :pair-impulse 0.0})})))
 
-(az/defn create-explicit-task!
-  :- [:* ExplicitTask]
+(az/defn create-explicit-task! [:* ExplicitTask]
   [[assembly [:* Assembly]] [duration :f64] [maximum-step :f64]]
   (let [task (catch ((az/field heap/page_allocator create) ExplicitTask)
                (debug/panic "Unable to allocate explicit FEM advance task" []))]
     (set! (az/deref task) (explicit-task assembly duration maximum-step))
     task))
 
-(az/defn destroy-explicit-task!
-  :- :void [[task [:* ExplicitTask]]]
+(az/defn destroy-explicit-task! :void [[task [:* ExplicitTask]]]
   ((az/field heap/page_allocator destroy) task))
 
-(az/defn explicit-progress
-  :- ExplicitProgress [[task [:* ExplicitTask]]]
+(az/defn explicit-progress ExplicitProgress [[task [:* ExplicitTask]]]
   (ExplicitProgress {:status (az/field task status) :attempts (az/field task attempts)
                      :next-step (az/field task next-step) :minimum-step (az/field task minimum-step)
                      :last-rejection (az/field task last-rejection)}))
 
-(az/defn advance-explicit-batch!
+(az/defn advance-explicit-batch! Report
   "Bound native Verlet work by attempted steps, including retries. Status 0 yields
   at the last accepted state; 1 completes; 2 input, 3 state, 4 step underflow,
   and 5 contact solve indicate failure. A task retains retries across batches."
-  :- Report
   [[task [:* ExplicitTask]] [maximum-attempts :u32]]
   (let [assembly (az/field task assembly)
         bodies (az/field assembly bodies)
@@ -1425,10 +1377,9 @@
       (az/field report time) (az/field assembly time))
     report))
 
-(az/defn advance!
+(az/defn advance! Report
   "Uninterrupted native compatibility entry point. Hosts needing cancellation
   own an ExplicitTask and use advance-explicit-batch!."
-  :- Report
   [[assembly [:* Assembly]] [duration :f64] [maximum-step :f64]]
   (let [^:var task (explicit-task assembly duration maximum-step)]
     (while (ak/== (az/field task status) 0)
@@ -1443,9 +1394,8 @@
    [:ccd-queries :u64] [:ccd-passes :u64] [:last-contact-status :u32] [:minimum-step :f64]
    [:last-distance :f64] [:last-normal-speed :f64] [:last-toi :f64] [:last-achieved-tolerance :f64]])
 
-(az/defn ground-velocity!
+(az/defn ground-velocity! :f64
   "Post-kick inelastic plane response. It never edits positions."
-  :- :f64
   [[state [:* dynamics/Dynamics]]]
   (let [^{:var :f64} impulse 0.0]
     (when (az/field state floor)
@@ -1462,12 +1412,11 @@
             (ak/+= impulse (* change (az/index (az/field state masses) node)))))))
     impulse))
 
-(az/defn advance-continuous-bounded!
+(az/defn advance-continuous-bounded! ContinuousReport
   "FEM Verlet with CCD-checked drifts and rollback. No pair position repair.
   Clearance activates imminent-contact impulses; it is a numerical parameter,
   not a calibrated material thickness. Initial disjointness is a precondition.
   Attempt-budget exhaustion returns the last accepted state for inspection/resume."
-  :- ContinuousReport
   [[assembly [:* Assembly]] [duration :f64] [maximum-step :f64] [clearance :f64] [maximum-attempts :u32]]
   (let [bodies (az/field assembly bodies)
         target (+ (az/field assembly time) duration)
@@ -1558,8 +1507,7 @@
     report))
 
 
-(az/defn advance-continuous!
+(az/defn advance-continuous! ContinuousReport
   "Unbudgeted convenience entry point. Use the bounded form for job scheduling."
-  :- ContinuousReport
   [[assembly [:* Assembly]] [duration :f64] [maximum-step :f64] [clearance :f64]]
   (advance-continuous-bounded! assembly duration maximum-step clearance 4294967295))

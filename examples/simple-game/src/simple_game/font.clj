@@ -22,10 +22,8 @@
 
 (az/defconst rectangle-capacity :usize 8192)
 
-(az/defn FontStorageType
+(az/defn FontStorageType :type
   "Native storage for one loaded TTF and its stb_truetype baked atlas."
-  :-
-  :type
   []
   (az/container
    {:kind :struct}
@@ -71,9 +69,7 @@
 (az/defvar dialogue-counts [:array 5 :usize]
   (std-mem/zeroes (az/type [:array 5 :usize])))
 
-(az/defn utf8-width-at
-  :-
-  :usize
+(az/defn utf8-width-at :usize
   [[text [:slice-const :u8]]
    [index :usize]]
   (let [first (az/index text index)]
@@ -83,10 +79,8 @@
       (< first 240) 3
       :else 4)))
 
-(az/defn utf8-codepoint-at
+(az/defn utf8-codepoint-at :u21
   "Decode one trusted UTF-8 codepoint from application text."
-  :-
-  :u21
   [[text [:slice-const :u8]]
    [index :usize]]
   (let [first (az/index text index)
@@ -113,10 +107,8 @@
          (ak/<< (ak/as :u32 (ak/& (az/index text (+ index 2)) 63)) 6)
          (ak/as :u32 (ak/& (az/index text (+ index 3)) 63))))))))
 
-(az/defn load-font!
+(az/defn load-font! :bool
   "Read one TTF through portable C stdio and bake Latin-1 glyphs with stb."
-  :-
-  :bool
   [[slot :usize]
    [path [:pointer {:size :c :const? true} :u8]]
    [pixel-height :f32]]
@@ -146,9 +138,7 @@
         (set! (az/field (az/deref font) ready) (> baked 0))
         (az/field (az/deref font) ready)))))
 
-(az/defn append-rectangle!
-  :-
-  :void
+(az/defn append-rectangle! :void
   [[x :i32]
    [y :i32]
    [width :i32]
@@ -160,18 +150,14 @@
                      :palette palette}))
     (set! rectangle-count (+ rectangle-count 1))))
 
-(az/defn atlas-pixel
-  :-
-  :u8
+(az/defn atlas-pixel :u8
   [[font [:* FontStorage]]
    [x :usize]
    [y :usize]]
   (az/index (az/field (az/deref font) atlas) (+ (* y atlas-width) x)))
 
-(az/defn layout-text!
+(az/defn layout-text! :void
   "Raster-layout UTF-8 text once and cache horizontal spans for every frame."
-  :-
-  :void
   [[font-index :usize]
    [text [:slice-const :u8]]
    [start-x :i32]
@@ -233,10 +219,8 @@
         (set! cursor (+ cursor (az/field (az/deref character) xadvance)))
         (set! index (+ index (utf8-width-at text index)))))))
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Load three real fonts and cache the coco-factory HUD and controls."
-  :-
-  :bool
   []
   (when (ak/! initialized)
     (ak/memset (std-mem/asBytes (ak/& fonts)) 0)
@@ -266,49 +250,37 @@
         (set! initialized true))))
   initialized)
 
-(az/defn reload!
+(az/defn reload! :bool
   "Rebuild cached dialogue spans after a live text/font edit."
-  :-
-  :bool
   []
   (set! initialized false)
   (initialize!))
 
-(az/defn rect-count
-  :-
-  :usize
+(az/defn rect-count :usize
   []
   (if (initialize!) rectangle-count 0))
 
-(az/defn rect-at
+(az/defn rect-at FontRect
   "Return one exact cached font span for rendering or nREPL inspection."
-  :-
-  FontRect
   [[index :usize]]
   (if (and (initialize!) (< index rectangle-count))
     (az/index rectangles index)
     (FontRect {:x 0 :y 0 :width 0 :height 0 :palette 0})))
 
-(az/defn dialogue-start
-  :-
-  :usize
+(az/defn dialogue-start :usize
   [[dialogue :u8]]
   (if (and (initialize!) (> dialogue 0) (< dialogue 5))
     (az/index dialogue-starts dialogue)
     0))
 
-(az/defn dialogue-rect-count
-  :-
-  :usize
+(az/defn dialogue-rect-count :usize
   [[dialogue :u8]]
   (if (and (initialize!) (> dialogue 0) (< dialogue 5))
     (az/index dialogue-counts dialogue)
     0))
 
-(az/defn snapshot
+(az/defn snapshot FontSnapshot
   "Inspect actual font loading and cached layout state."
-  :-
-  FontSnapshot
   []
   (let [^{:var true :zig/type :u32} loaded 0]
     (dotimes [index font-count]

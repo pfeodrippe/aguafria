@@ -1,0 +1,253 @@
+{"const number = parseU64(\"1234\", 10) catch unreachable;"
+ {:clojure-source "(let [number (ak/catch (parseU64 \"1234\" 10) (ak/unreachable))]\n  number)"
+  :kind :expr
+  :note "Bind the successfully parsed number; an unexpected error reaches unreachable. The surrounding example supplies parseU64."}
+
+ "catch unreachable"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "An error-union expression can be unwrapped with (ak/catch value (ak/unreachable)). This asserts success rather than silently ignoring an error."}
+
+ "||"
+ {:clojure-source "az/op"
+  :kind :reference
+  :note "Use az/op with the operator string \"||\" to merge two error sets."}
+
+ "C.PathNotFound"
+ {:clojure-source "(az/field C :PathNotFound)"
+  :kind :expr
+  :note "Access PathNotFound in merged error set C; duplicate error documentation comes from the left-hand set."}
+
+ "LinuxFileOpenError || WindowsFileOpenError"
+ {:clojure-source "(az/op \"||\" LinuxFileOpenError WindowsFileOpenError)"
+  :kind :expr
+  :note "Combine the errors associated with the two platform-specific file-opening implementations."}
+
+ "!T"
+ {:clojure-source "[:error-union T]"
+  :kind :type
+  :note "A function return type with successful payload T and an inferred error set."}
+
+ "hello()"
+ {:clojure-source "(hello)"
+  :kind :expr
+  :note "Call the hello function from the surrounding error-return-trace example."}
+
+ "[*]u8"
+ {:clojure-source "[:many :u8]"
+  :kind :type
+  :note "A non-optional many-item byte pointer, obtained after unwrapping the allocation result."}
+
+ "?[*]u8"
+ {:clojure-source "[:optional [:many :u8]]"
+  :kind :type
+  :note "An optional many-item byte pointer can represent a null allocation result."}
+
+ "?"
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "Zig's optional-type prefix corresponds to the composite type [:optional T] in Aguafria."}
+
+ "54.0"
+ {:clojure-source "54.0"
+  :kind :expr
+  :standalone? true
+  :note "A floating-point literal from the ambiguous numeric-coercion example."}
+
+ "@as(comptime_int, 10)"
+ {:clojure-source "(ak/as :comptime_int 10)"
+  :kind :expr
+  :standalone? true
+  :note "Make the comptime integer result explicit."}
+
+ "@as(f32, 10)"
+ {:clojure-source "(ak/as :f32 10)"
+  :kind :expr
+  :standalone? true
+  :note "Coerce the exact integer value ten to f32."}
+
+ "5"
+ {:clojure-source "5"
+  :kind :expr
+  :standalone? true
+  :note "An integer literal from the ambiguous numeric-coercion example."}
+
+ "@as(comptime_float, 10.8)"
+ {:clojure-source "(ak/as :comptime_float 10.8)"
+  :kind :expr
+  :standalone? true
+  :note "Make the comptime floating-point result explicit."}
+
+ "@as(f32, 10.8)"
+ {:clojure-source "(ak/as :f32 10.8)"
+  :kind :expr
+  :standalone? true
+  :note "Coerce the floating-point literal to f32."}
+
+ "Map(Key, Value)"
+ {:clojure-source "(Map Key Value)"
+  :kind :expr
+  :note "Instantiate a generic map type; choosing void for Value removes stored value data."}
+
+ "const x: u32 = 42;"
+ {:clojure-source "(let [^{:zig/type :u32} x 42]\n  x)"
+  :kind :expr
+  :note "The typed binding coerces 42 to u32. The scoped form returns x to show its resulting value."}
+
+ "42"
+ {:clojure-source "42"
+  :kind :expr
+  :standalone? true
+  :note "This comptime integer receives its result type from the surrounding typed binding."}
+
+ "&e"
+ {:clojure-source "(ak/& e)"
+  :kind :expr
+  :note "A pointer result type can supply an element result type to e before its address is taken."}
+
+ "*u32"
+ {:clojure-source "[:* :u32]"
+  :kind :type
+  :note "A single-item pointer to u32."}
+
+ "const val: T = x"
+ {:clojure-source "(let [^{:zig/type T} val x]\n  val)"
+  :kind :expr
+  :note "An immutable typed binding gives x result type T and the storage location of val; this scoped form returns val."}
+
+ "var val: T = x"
+ {:clojure-source "(let [^{:var T} val x]\n  val)"
+  :kind :expr
+  :note "Mutable binding metadata gives x result type T and the storage location of val; mutations belong inside this scope."}
+
+ "val = x"
+ {:clojure-source "(set! val x)"
+  :kind :statements
+  :note "Assignment supplies x with val's type and storage location."}
+
+ "@TypeOf(val)"
+ {:clojure-source "(ak/TypeOf val)"
+  :kind :expr
+  :note "Reflect the type that assignment to val requires."}
+
+ "@as(T, x)"
+ {:clojure-source "(ak/as T x)"
+  :kind :expr
+  :note "Provide result type T to x without propagating the enclosing result location."}
+
+ "f(x)"
+ {:clojure-source "(f x)"
+  :kind :expr
+  :note "The first parameter of f supplies x's result type, but not a result location."}
+
+ ".{x}"
+ {:clojure-source "[x]"
+  :kind :expr
+  :note "A positional aggregate literal propagates its first field's result type and result location to x."}
+
+ "@FieldType(T, \"0\")"
+ {:clojure-source "(ak/FieldType T \"0\")"
+  :kind :expr
+  :note "Reflect the type of the first positional field."}
+
+ ".{ .a = x }"
+ {:clojure-source "{:a x}"
+  :kind :expr
+  :note "An inferred aggregate initializer passes field a's result type and result location to x."}
+
+ "@FieldType(T, \"a\")"
+ {:clojure-source "(ak/FieldType T \"a\")"
+  :kind :expr
+  :note "Reflect the type of named field a."}
+
+ "T{x}"
+ {:clojure-source "(az/array-init T [x])"
+  :kind :expr
+  :note "A typed positional initializer supplies the field type to x but does not propagate its result location."}
+
+ "T{ .a = x }"
+ {:clojure-source "(az/init T {:a x})"
+  :kind :expr
+  :note "A typed named-field initializer supplies field a's type but does not propagate its result location to x."}
+
+ "@Int(x, y)"
+ {:clojure-source "(ak/Int x y)"
+  :kind :expr
+  :note "Construct an integer type from signedness x and u16 bit count y; neither argument receives a result location."}
+
+ "@typeInfo(x)"
+ {:clojure-source "(ak/typeInfo x)"
+  :kind :expr
+  :note "The reflected argument x must be a type and receives no result location."}
+
+ "x << y"
+ {:clojure-source "(ak/<< x y)"
+  :kind :expr
+  :note "The left operand's type determines the shift-count type; neither operand receives a result location."}
+
+ "x = e"
+ {:clojure-source "(set! x e)"
+  :kind :statements
+  :note "The destination x supplies e with both a result type and a result location."}
+
+ ".{ .a = x, .b = y }"
+ {:clojure-source "{:a x :b y}"
+  :kind :expr
+  :note "An inferred aggregate initializer writes x and y directly into the destination fields when a result location is available."}
+
+ "&ptr.a"
+ {:clojure-source "(ak/& (az/field ptr :a))"
+  :kind :expr
+  :note "The storage location of field a in the pointed-to aggregate."}
+
+ "&ptr.b"
+ {:clojure-source "(ak/& (az/field ptr :b))"
+  :kind :expr
+  :note "The storage location of field b in the pointed-to aggregate."}
+
+ "foo = .{ .a = x, .b = y }"
+ {:clojure-source "(set! foo {:a x :b y})"
+  :kind :statements
+  :note "Result locations make this aggregate assignment write the fields directly, rather than construct an independent temporary copy."}
+
+ "foo.a = x; foo.b = y;"
+ {:clojure-source "(set! (az/field foo :a) x)\n(set! (az/field foo :b) y)"
+  :kind :statements
+  :note "These are sequential field writes, not alternatives; the second expression can observe the first write."}
+
+ "&val"
+ {:clojure-source "(ak/& val)"
+  :kind :expr
+  :note "The storage location supplied by a binding or assignment to val."}
+
+ "&ptr[0]"
+ {:clojure-source "(ak/& (az/index ptr 0))"
+  :kind :expr
+  :note "The first element's storage location receives the first positional initializer's result."}
+
+ "exit()"
+ {:clojure-source "(exit)"
+  :kind :expr
+  :note "The surrounding discussion refers to an external function call, which cannot be evaluated at compile time."}
+
+ "\"List(i32)\""
+ {:clojure-source "\"List(i32)\""
+  :kind :expr
+  :standalone? true
+  :note "The inferred name of a generic type includes the type-producing function and its arguments."}
+
+ "[]const u8"
+ {:clojure-source "[:slice-const :u8]"
+  :kind :type
+  :note "A read-only byte slice; a comptime-known value of this type can serve as a format string."}
+
+ "\"memory\""
+ {:clojure-source "\"memory\""
+  :kind :expr
+  :standalone? true
+  :note "As an assembly clobber, this string declares writes to otherwise undeclared memory locations."}
+
+ "a + b"
+ {:clojure-source "(+ a b)"
+  :kind :expr
+  :note "The arithmetic result whose possible overflow is reported separately by @addWithOverflow."}}

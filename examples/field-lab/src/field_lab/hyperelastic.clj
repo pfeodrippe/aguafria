@@ -15,8 +15,7 @@
 (az/defstruct Response {:layout :extern}
   [[:energy-density :f64] [:jacobian :f64] [:pk1 Matrix]])
 
-(az/defn material
-  :- Material
+(az/defn material Material
   [[young :f64] [poisson :f64]]
   (let [shear (/ young (* 2.0 (+ 1.0 poisson)))
         lame (/ (* young poisson) (* (+ 1.0 poisson) (- 1.0 (* 2.0 poisson))))
@@ -24,67 +23,57 @@
         lambda (+ lame (* (/ 5.0 6.0) shear))]
     (Material {:mu mu :lambda lambda :alpha (+ 1.0 (/ (* 0.75 mu) lambda))})))
 
-(az/defn identity
-  :- Matrix
+(az/defn identity Matrix
   []
   (Matrix {:c0 (p/v 1.0 0.0 0.0) :c1 (p/v 0.0 1.0 0.0) :c2 (p/v 0.0 0.0 1.0)}))
 
-(az/defn zero
-  :- Matrix
+(az/defn zero Matrix
   []
   (Matrix {:c0 (p/v 0.0 0.0 0.0) :c1 (p/v 0.0 0.0 0.0) :c2 (p/v 0.0 0.0 0.0)}))
 
-(az/defn scale
-  :- Matrix
+(az/defn scale Matrix
   [[matrix Matrix] [factor :f64]]
   (Matrix {:c0 (p/scale (az/field matrix c0) factor)
            :c1 (p/scale (az/field matrix c1) factor)
            :c2 (p/scale (az/field matrix c2) factor)}))
 
-(az/defn add
-  :- Matrix
+(az/defn add Matrix
   [[a Matrix] [b Matrix]]
   (Matrix {:c0 (p/add (az/field a c0) (az/field b c0))
            :c1 (p/add (az/field a c1) (az/field b c1))
            :c2 (p/add (az/field a c2) (az/field b c2))}))
 
-(az/defn inner
-  :- :f64
+(az/defn inner :f64
   [[a Matrix] [b Matrix]]
   (+ (p/dot (az/field a c0) (az/field b c0))
      (p/dot (az/field a c1) (az/field b c1))
      (p/dot (az/field a c2) (az/field b c2))))
 
-(az/defn apply-vector
-  :- p/Vec3
+(az/defn apply-vector p/Vec3
   [[matrix Matrix] [vector p/Vec3]]
   (p/add (p/add (p/scale (az/field matrix c0) (az/field vector x))
                 (p/scale (az/field matrix c1) (az/field vector y)))
          (p/scale (az/field matrix c2) (az/field vector z))))
 
-(az/defn outer
-  :- Matrix
+(az/defn outer Matrix
   [[a p/Vec3] [b p/Vec3]]
   (Matrix {:c0 (p/scale a (az/field b x))
            :c1 (p/scale a (az/field b y))
            :c2 (p/scale a (az/field b z))}))
 
-(az/defn cofactor
-  :- Matrix
+(az/defn cofactor Matrix
   [[deformation Matrix]]
   (Matrix {:c0 (p/cross (az/field deformation c1) (az/field deformation c2))
            :c1 (p/cross (az/field deformation c2) (az/field deformation c0))
            :c2 (p/cross (az/field deformation c0) (az/field deformation c1))}))
 
-(az/defn determinant
-  :- :f64
+(az/defn determinant :f64
   [[deformation Matrix]]
   (p/dot (az/field deformation c0)
          (p/cross (az/field deformation c1) (az/field deformation c2))))
 
-(az/defn compensated-dot
+(az/defn compensated-dot :f64
   "Recover product and summation roundoff when a dot product nearly cancels offset."
-  :- :f64
   [[a p/Vec3] [b p/Vec3] [offset :f64]]
   (let [x (* (az/field a x) (az/field b x))
         y (* (az/field a y) (az/field b y))
@@ -105,9 +94,8 @@
         (set! sum next)))
     (+ sum correction)))
 
-(az/defn metric-strain
-  "FᵀF-I, with compensated dot products to retain small strains after rotation."
-  :- Matrix [[deformation Matrix]]
+(az/defn metric-strain Matrix
+  "FᵀF-I, with compensated dot products to retain small strains after rotation." [[deformation Matrix]]
   (let [a (az/field deformation c0)
         b (az/field deformation c1)
         c (az/field deformation c2)
@@ -119,9 +107,8 @@
         yz (compensated-dot b c 0.0)]
     (Matrix {:c0 (p/v xx xy xz) :c1 (p/v xy yy yz) :c2 (p/v xz yz zz)})))
 
-(az/defn logarithm-remainder
-  "z-log(1+z) without subtracting first-order terms; caller keeps |z| below 0.125."
-  :- :f64 [[z :f64]]
+(az/defn logarithm-remainder :f64
+  "z-log(1+z) without subtracting first-order terms; caller keeps |z| below 0.125." [[z :f64]]
   (let [^{:var :f64} result (/ 1.0 24.0)
         ^{:var :u32} index 23]
     (while (>= index 2)
@@ -129,10 +116,9 @@
       (ak/-= index 1))
     (* z z result)))
 
-(az/defn strain-energy-from-metric
+(az/defn strain-energy-from-metric :f64
   "Equivalent energy near any proper rotation, expressed in second-order strains.
   The original signed-J formula remains valid for large strains and inversion."
-  :- :f64
   [[strain Matrix] [parameters Material] [invariant :f64] [jacobian :f64]]
   (let [mu (az/field parameters mu)
         lambda (az/field parameters lambda)
@@ -164,13 +150,11 @@
           (* 0.5 lambda (- (* volume-shift volume-shift) (* rest-shift rest-shift))))
        (* 0.5 mu (ak/log (/ (+ invariant 1.0) 4.0))))))
 
-(az/defn strain-energy-density
-  :- :f64
+(az/defn strain-energy-density :f64
   [[deformation Matrix] [parameters Material] [invariant :f64] [jacobian :f64]]
   (strain-energy-from-metric (metric-strain deformation) parameters invariant jacobian))
 
-(az/defn evaluate
-  :- Response
+(az/defn evaluate Response
   [[deformation Matrix] [parameters Material]]
   (let [invariant (inner deformation deformation)
         jacobian (determinant deformation)
@@ -183,10 +167,9 @@
                :jacobian jacobian
                :pk1 (add (scale deformation shear) (scale (cofactor deformation) pressure))})))
 
-(az/defn evaluate-gradient
+(az/defn evaluate-gradient Response
   "Evaluate F=I+H without discarding small H in energy/stress near identity.
-  Algebraically identical to evaluate; large gradients use the general path."
-  :- Response [[h Matrix] [parameters Material]]
+  Algebraically identical to evaluate; large gradients use the general path." [[h Matrix] [parameters Material]]
   (let [f (add (identity) h)]
     (when (>= (inner h h) 0.0625) (ak/return (evaluate f parameters)))
     (let [a (az/field h c0)
@@ -219,8 +202,7 @@
          :pk1 (add (scale (identity) (+ rest-stress shear-change (* lambda determinant-change)))
                    (add (scale h shear) (scale cofactor-change pressure)))}))))
 
-(az/defn cofactor-differential
-  :- Matrix
+(az/defn cofactor-differential Matrix
   [[f Matrix] [h Matrix]]
   (Matrix {:c0 (p/add (p/cross (az/field h c1) (az/field f c2))
                       (p/cross (az/field f c1) (az/field h c2)))
@@ -229,9 +211,8 @@
            :c2 (p/add (p/cross (az/field h c0) (az/field f c1))
                       (p/cross (az/field f c0) (az/field h c1)))}))
 
-(az/defn tangent
+(az/defn tangent Matrix
   "Directional derivative dP(F)[H]; no finite differencing in the solver."
-  :- Matrix
   [[deformation Matrix] [direction Matrix] [parameters Material]]
   (let [denominator (+ 1.0 (inner deformation deformation))
         cofactors (cofactor deformation)

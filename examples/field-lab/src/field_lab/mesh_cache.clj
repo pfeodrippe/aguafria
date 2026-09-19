@@ -19,8 +19,7 @@
    [:frames [:slice Frame]] [:count :u32]
    [:config p/Config] [:young :f64] [:poisson :f64]])
 
-(az/defn create!
-  :- [:* Cache]
+(az/defn create! [:* Cache]
   [[nodes :usize] [cells :usize] [faces :usize] [frames :usize]
    [config p/Config] [young :f64] [poisson :f64]]
   ;; Limit storage before multiplying dimensions or allocating native memory.
@@ -40,8 +39,7 @@
                   :config config :young young :poisson poisson}))
     cache))
 
-(az/defn destroy!
-  :- :void
+(az/defn destroy! :void
   [[cache [:* Cache]]]
   ((az/field heap/page_allocator free) (az/field cache reference))
   ((az/field heap/page_allocator free) (az/field cache cells))
@@ -52,14 +50,12 @@
   ((az/field heap/page_allocator free) (az/field cache frames))
   ((az/field heap/page_allocator destroy) cache))
 
-(az/defn set-face!
-  :- :void
+(az/defn set-face! :void
   [[cache [:* Cache]] [index :usize] [a :u32] [b :u32] [c :u32]]
   (set! (az/index (az/field cache faces) index) (az/array-init [:array 3 :u32] [a b c])))
 
-(az/defn record!
+(az/defn record! :void
   "Copy an accepted numerical state; no playback tick aliases the live solver."
-  :- :void
   [[cache [:* Cache]] [state [:* dynamics/Dynamics]] [time :f64]]
   (let [model (az/field state mesh)
         nodes (az/field (az/field cache reference) len)
@@ -100,24 +96,20 @@
               :volume-ratio (/ volume rest-volume)})
       (az/field cache count) (+ tick 1))))
 
-(az/defn position
-  :- p/Vec3
+(az/defn position p/Vec3
   [[cache [:* Cache]] [tick :u32] [node :usize]]
   (az/index (az/field cache positions) (+ (* tick (az/field (az/field cache reference) len)) node)))
 
-(az/defn velocity
-  :- p/Vec3
+(az/defn velocity p/Vec3
   [[cache [:* Cache]] [tick :u32] [node :usize]]
   (az/index (az/field cache velocities) (+ (* tick (az/field (az/field cache reference) len)) node)))
 
-(az/defn frame-info
-  :- Frame
+(az/defn frame-info Frame
   [[cache [:* Cache]] [index :u32]]
   (az/index (az/field cache frames) index))
 
-(az/defn reference-height
+(az/defn reference-height :f64
   "Reference y extent; a height change is not a material strain tensor."
-  :- :f64
   [[owned [:* Cache]]]
   (let [^{:var :f64} lower 1.0e30
         ^{:var :f64} upper -1.0e30]
@@ -130,10 +122,9 @@
 (az/defstruct PlaybackStep {:layout :extern}
   [[:cursor :u32] [:remainder :f64] [:ended :bool]])
 
-(az/defn playback-step
+(az/defn playback-step PlaybackStep
   "Select one displayed sample from all elapsed cache time. Skipped display
-  samples need no seek/copy. Loop arithmetic is bounded even after a long stall."
-  :- PlaybackStep [[cursor :u32] [count :u32] [elapsed :f64] [dt :f64] [looping :bool]]
+  samples need no seek/copy. Loop arithmetic is bounded even after a long stall." [[cursor :u32] [count :u32] [elapsed :f64] [dt :f64] [looping :bool]]
   (let [^:var result (PlaybackStep {:cursor cursor :remainder 0.0 :ended false})]
     (when (ak/== count 0)
       (az/set-many! (az/field result cursor) 0 (az/field result ended) true)

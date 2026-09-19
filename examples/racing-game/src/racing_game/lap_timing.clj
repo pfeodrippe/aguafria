@@ -9,12 +9,11 @@
    [:start_tick :u64] [:observed_tick :u64]
    [:last_ticks :u64] [:best_ticks :u64]])
 
-(az/defn observe
+(az/defn observe Entry
   "One observation per simulation tick, after progression/classification.
   Countdown and pauses do not advance the race clock. A timer attached during
   a race discards its first partial lap; the next crossing starts a full one.
-  Pits, slow traffic and incidents remain included, not subtracted away."
-  :- Entry [[previous Entry] [tick :u64] [lap :u16]
+  Pits, slow traffic and incidents remain included, not subtracted away." [[previous Entry] [tick :u64] [lap :u16]
             [running :bool] [terminal :bool]]
   (let [^:var result previous]
     (when (and running (ak/! (az/field previous terminal)))

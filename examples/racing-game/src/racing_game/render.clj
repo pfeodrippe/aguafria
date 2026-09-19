@@ -33,34 +33,26 @@
 
 (az/defvar world-y-scale :f32 1.0)
 
-(az/defn- racer-color
+(az/defn- racer-color RacerColor
   "Use the same permanent identity color as the native 3D car and minimap."
-  :-
-  RacerColor
   [[identifier :u8]]
   (let [color (az/index render3d/colors (mod (ak/as :usize identifier) simulation/racer-count))]
     (RacerColor {:r (az/index color 0) :g (az/index color 1) :b (az/index color 2)})))
 
-(az/defn set-debug-overlay!
+(az/defn set-debug-overlay! :bool
   "Show or hide native racer intent and cognition geometry at runtime."
-  :-
-  :bool
   [[visible :bool]]
   (do
     (set! debug-overlay-visible visible)
     debug-overlay-visible))
 
-(az/defn toggle-debug-overlay!
+(az/defn toggle-debug-overlay! :bool
   "Toggle the allocation-free cognition overlay without restarting the race."
-  :-
-  :bool
   []
   (set-debug-overlay! (ak/! debug-overlay-visible)))
 
-(az/defn configure-world-scale!
+(az/defn configure-world-scale! WorldScale
   "Fit equal world units to equal framebuffer pixels for any aspect ratio."
-  :-
-  WorldScale
   [[frame-width :i32]
    [frame-height :i32]]
   (let [width (ak/as :f32 (ak/floatFromInt (ak/max frame-width 1)))
@@ -69,9 +61,7 @@
     (set! world-y-scale (if (> height width) (/ width height) 1.0))
     (WorldScale {:x world-x-scale :y world-y-scale})))
 
-(az/defn write-vertex!
-  :-
-  :void
+(az/defn write-vertex! :void
   [[output [:c-pointer mesh/GpuVertex]]
    [index :usize]
    [x :f32]
@@ -85,9 +75,7 @@
                          :nx 0.0 :ny 0.0 :nz 0.0 :wx 0.0 :wy 0.0 :wz 0.0
                          :roughness -1.0 :vx 0.0 :vy 0.0 :vz 1.0})))
 
-(az/defn append-triangle!
-  :-
-  :usize
+(az/defn append-triangle! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]
    [ax :f32] [ay :f32]
@@ -103,9 +91,7 @@
       (write-vertex! output (+ count 2) cx cy z r g b)
       (+ count 3))))
 
-(az/defn append-quad!
-  :-
-  :usize
+(az/defn append-quad! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]
    [ax :f32] [ay :f32]
@@ -117,9 +103,7 @@
   (let [after-first (append-triangle! output count ax ay bx by cx cy z r g b)]
     (append-triangle! output after-first ax ay cx cy dx dy z r g b)))
 
-(az/defn append-line!
-  :-
-  :usize
+(az/defn append-line! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]
    [ax :f32] [ay :f32]
@@ -140,11 +124,9 @@
                   (- ax nx) (- ay ny)
                   z r g b)))
 
-(az/defn append-world-line!
+(az/defn append-world-line! :usize
   "Draw a world-space line after fitting equal logical X/Y units to equal
   framebuffer pixels. UI geometry intentionally continues to use raw NDC."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]
    [ax :f32] [ay :f32]
@@ -165,10 +147,8 @@
                   (* (- ax nx) world-x-scale) (* (- ay ny) world-y-scale)
                   z r g b)))
 
-(az/defn append-circle!
+(az/defn append-circle! :usize
   "Append only a circular contour; the interior remains the black field."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]
    [center-x :f32]
@@ -194,10 +174,8 @@
                0.0035 z r g b))))
     next))
 
-(az/defn append-screen-circle!
+(az/defn append-screen-circle! :usize
   "Append a pixel-circular HUD contour around an unscaled NDC center."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]
    [center-x :f32]
@@ -223,11 +201,9 @@
                0.0035 z r g b))))
     next))
 
-(az/defn append-race-state!
+(az/defn append-race-state! :usize
   "Draw three compact start lights in screen space while the deterministic
   countdown is active. They disappear on the exact tick racing begins."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [race (simulation/snapshot)
@@ -246,9 +222,7 @@
                    0.86 0.026 0.20 brightness (* brightness 0.78) 0.0))))))
     next))
 
-(az/defn append-track!
-  :-
-  :usize
+(az/defn append-track! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
@@ -281,10 +255,8 @@
                               0.0020 0.70 0.55 0.43 0.0)))))
     next))
 
-(az/defn append-pits!
+(az/defn append-pits! :usize
   "Draw the shared pit lane and four real team boxes beside the final sector."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
@@ -351,9 +323,7 @@
                                        brightness (* brightness 0.78) 0.0))))
     next))
 
-(az/defn append-pickups!
-  :-
-  :usize
+(az/defn append-pickups! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
@@ -372,10 +342,8 @@
                                  0.003 0.50 1.0 0.78 0.0))))
     next))
 
-(az/defn append-hazards!
+(az/defn append-hazards! :usize
   "Render pooled bolts as arrow diamonds and traps as crossed contours."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
@@ -414,9 +382,7 @@
                                          0.004 0.38 1.0 0.78 0.0))))))))
     next))
 
-(az/defn append-racers!
-  :-
-  :usize
+(az/defn append-racers! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [human (simulation/human-control-snapshot)
@@ -474,10 +440,8 @@
                             (az/field color b)))))
     next))
 
-(az/defn append-ranking!
+(az/defn append-ranking! :usize
   "Show authoritative first-through-eighth classification on the right."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
@@ -501,10 +465,8 @@
                                        0.0025 0.25 1.0 0.78 0.0)))))))
     next))
 
-(az/defn append-intent-lines!
+(az/defn append-intent-lines! :usize
   "Draw each racer's chosen target and short-horizon lane goal."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
@@ -530,12 +492,10 @@
                                 0.00065 0.29 0.34 0.26 0.0))))))
     next))
 
-(az/defn append-cognition-overlay!
+(az/defn append-cognition-overlay! :usize
   "Draw eight native actor rows. The upper bar is desired speed, the lower bar
   is average inference latency (full width at 600 ms), the left ring is the
   actor, and a second ring means a request is currently in flight."
-  :-
-  :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [^{:var true :zig/type :usize} next count]
@@ -588,10 +548,9 @@
                               0.003 0.23 1.0 0.78 0.0)))))
     next))
 
-(az/defn append-minimap!
+(az/defn append-minimap! :usize
   "North-up circuit overview independent of the world camera and zoom.
   Colored markers are physical racer positions; white ring identifies the leader."
-  :- :usize
   [[output [:c-pointer mesh/GpuVertex]] [count :usize]
    [frame-width :i32] [frame-height :i32]]
   (let [w (ak/as :f32 (ak/floatFromInt (ak/max frame-width 1)))
@@ -630,11 +589,9 @@
           (set! next (append-screen-circle! output next x y 0.014 0.015 1.0 1.0 1.0)))))
     next))
 
-(az/defn build-frame!
+(az/defn build-frame! :u32
   "Build the complete track, item, racer, intent, and rank view natively."
   {:attrs #{:export}}
-  :-
-  :u32
   [[output [:c-pointer mesh/GpuVertex]]
    [frame-width :i32]
    [frame-height :i32]]

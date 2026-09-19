@@ -24,10 +24,9 @@
     (is (< (abs (- (* 120.0 (wear 2500.0 2000.0 2.0 60.0 (/ 1.0 120.0)))
                    (wear 2500.0 2000.0 2.0 60.0 1.0))) 1e-8) "Work integrates with timestep")))
 
-(az/defn tread-work-probe
+(az/defn tread-work-probe [:array 3 :f32]
   "Real Box3D contact/rolling fixture, not invented AI or inferred lane work.
-  Mode 0 waits braked, 1 drives on the ground, 2 spins airborne."
-  :- [:array 3 :f32] [[mode :u8]]
+  Mode 0 waits braked, 1 drives on the ground, 2 spins airborne." [[mode :u8]]
   (let [airborne (ak/== mode 2)
         world (physics/create-world (if airborne 0.0 -9.81))
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.78}) 0.0)]
@@ -60,7 +59,7 @@
     (is (zero? air) (pr-str airborne))
     (is (every? zero? [twice driven-twice air-twice]) "Consuming work twice must not double-charge wear")))
 
-(az/defn timestep-probe :- :f32 []
+(az/defn timestep-probe :f32 []
   (let [world (physics/create-world 0.0)
         body (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.0})
                                  (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0}) 0.0 1.0)]
@@ -73,10 +72,9 @@
   (is (< (abs (- (timestep-probe) 1.0)) 0.001)
       "Configured collision steps must advance exactly one physical second"))
 
-(az/defn airborne-propulsion-probe
+(az/defn airborne-propulsion-probe [:array 2 :f32]
   "No ground and no gravity: motors may spin wheels, not propel the assembly.
-  Track the whole assembly centre of mass, allowing chassis reaction rotation."
-  :- [:array 2 :f32] []
+  Track the whole assembly centre of mass, allowing chassis reaction rotation." []
   (let [world (physics/create-world 0.0)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 10.0}) 0.0)
         ^{:var :f32} initial 0.0
@@ -102,10 +100,9 @@
 (az/defstruct FleetTiming {:layout :extern}
   [[:milliseconds :f32] [:maximum_speed :f32] [:maximum_yaw :f32]])
 
-(az/defn fleet-benchmark
+(az/defn fleet-benchmark FleetTiming
   "One simulated second, eight independent four-wheel cars. Initialization and
-  suspension settling are outside the measured native interval."
-  :- FleetTiming []
+  suspension settling are outside the measured native interval." []
   (let [world (physics/create-world -9.81)
         ^:var cars (mem/zeroes (az/type [:array 8 physics/Vehicle]))]
     (ak/defer (physics/destroy-world! world))
@@ -129,7 +126,7 @@
             (set! yaw (ak/max yaw (ak/abs (az/field state qz))))))
         (FleetTiming {:milliseconds elapsed :maximum_speed speed :maximum_yaw yaw})))))
 
-(az/defn impact-probe :- ImpactResult [[offset :f32]]
+(az/defn impact-probe ImpactResult [[offset :f32]]
   (let [world (physics/create-world 0.0)
         size (b3/b3Vec3 {:x 2.5 :y 0.75 :z 0.20})
         a (physics/create-box world (b3/b3Pos {:x -10.0 :y 0.0 :z 0.0}) size 0.0 700.0)
@@ -165,11 +162,10 @@
   [[:speed_before_braking :f32] [:speed_after_braking :f32]
    [:distance :f32] [:height :f32] [:wheel_spin :f32] [:yaw :f32]])
 
-(az/defn tire-lifecycle-probe
+(az/defn tire-lifecycle-probe [:array 8 :f32]
   "Two independent worlds: support without controls, no cross-world stepping,
   destroyed body generations, and a detached tire resting on its endcap.
-  The single transform write establishes the endcap test's INITIAL pose."
-  :- [:array 8 :f32] []
+  The single transform write establishes the endcap test's INITIAL pose." []
   (let [a (physics/create-world -9.81)
         b (physics/create-world -9.81)
         car-a (physics/create-vehicle a (b3/b3Pos {:x 0.0 :y 0.0 :z 0.7}) 0.0)
@@ -226,11 +222,10 @@
     (is (= 7.0 count-a) (pr-str result))
     (is (= 4.0 count-b) (pr-str result))))
 
-(az/defn tire-surface-boundary-probe
+(az/defn tire-surface-boundary-probe [:array 5 :f32]
   "A detached production tire on banked or finite ground. Only initial pose
   and rolling impulses are set; all subsequent support/falling is force-driven.
-  The finite platform ends at x=3m: its contact plane must not extend to infinity."
-  :- [:array 5 :f32] [[finite? :bool] [bank :f32]]
+  The finite platform ends at x=3m: its contact plane must not extend to infinity." [[finite? :bool] [bank :f32]]
   (let [world (physics/create-world -9.81)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.7}) 0.0)
         tire (az/index (az/field car wheels) 0)
@@ -275,10 +270,9 @@
       (is (> (* x bank) 0.5) "An unpowered tire must roll downhill under gravity")
       (is (< (abs (- clearance radius)) 0.04) (pr-str result)))))
 
-(az/defn tire-barrier-probe
+(az/defn tire-barrier-probe [:array 3 :f32]
   "Accelerate into a real wall. Offset mode initially contacts only the tire;
-  full-width mode must stop forward travel. No velocity or pose corrections."
-  :- [:array 3 :f32] [[offset? :bool]]
+  full-width mode must stop forward travel. No velocity or pose corrections." [[offset? :bool]]
   (let [world (physics/create-world -9.81)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.7}) 0.0)
         wall (physics/create-box world
@@ -319,9 +313,8 @@
     (is (> head-speed 5.0) (pr-str head-on))
     (is (< distance 18.0) (pr-str head-on))))
 
-(az/defn vehicle-state-probe
-  "Inspect the full native assembly after settling and optional throttle ticks."
-  :- [:array 5 physics/BodyState] [[ticks :u32]]
+(az/defn vehicle-state-probe [:array 5 physics/BodyState]
+  "Inspect the full native assembly after settling and optional throttle ticks." [[ticks :u32]]
   (let [world (physics/create-world -9.81)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)
         ^:var result (mem/zeroes (az/type [:array 5 physics/BodyState]))]
@@ -337,11 +330,10 @@
       (set! (az/index result (+ i 1)) (physics/body-state (az/index (az/field car wheels) i))))
     result))
 
-(az/defn straight-line-drive-trace
+(az/defn straight-line-drive-trace [:array 10 [:array 8 :f32]]
   "Ten seconds of full throttle on flat ground. Rows: elapsed seconds,
   forward/world-X speed, lateral/world-Y speed, mean delivered rear motor
-  torque L/R, rear spin L/R, chassis height. No velocity/pose writes."
-  :- [:array 10 [:array 8 :f32]] []
+  torque L/R, rear spin L/R, chassis height. No velocity/pose writes." []
   (let [world (physics/create-world -9.81)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)
         ^:var result (mem/zeroes (az/type [:array 10 [:array 8 :f32]]))]
@@ -379,11 +371,10 @@
                 (mapcat #(subvec (vec %) 3 5) rows))
         "Measured average motor torque stays within the configured shaft limit")))
 
-(az/defn wheel-motor-torque-probe
+(az/defn wheel-motor-torque-probe [:array 3 :f32]
   "An airborne wheel on a static axle: angular momentum must equal torque*time.
   No tire contact, gravity, steering command, or vehicle controller can supply
-  additional energy. Compare warm starting and steerable/non-steerable joints."
-  :- [:array 3 :f32] [[warm-start :bool] [steerable :bool]]
+  additional energy. Compare warm starting and steerable/non-steerable joints." [[warm-start :bool] [steerable :bool]]
   (let [world (physics/create-world 0.0)
         ^:var fixed-def (b3/b3DefaultBodyDef)
         axle (b3/b3CreateBody world (ak/& fixed-def))
@@ -422,14 +413,13 @@
       (is (< (abs (- reported 1.0)) 0.001)
           "Torque reporting alone cannot establish physical correctness"))))
 
-(az/defn drivetrain-candidate!
+(az/defn drivetrain-candidate! :void
   "Isolated experiment, never used by the live driver. Mode 0 is production;
   1 widens its rolling-speed servo allowance to32rad/s; 2 applies an equal/opposite
   shaft torque to each rear wheel and chassis; 3 uses a high servo target.
   Modes4/5/6/7 use allowances1/2/4/12rad/s respectively.
   All modes retain the same torque/power bounds and production aero forces.
-  No body position, velocity, or rotation is assigned."
-  :- :void [[car physics/Vehicle] [mode :u8]]
+  No body position, velocity, or rotation is assigned." [[car physics/Vehicle] [mode :u8]]
   (physics/drive! car (if (ak/== mode 0) (ak/as :f32 1.0) 0.0) 0.0 0.0)
   (when (> mode 0)
     (let [chassis (az/field car chassis)
@@ -470,7 +460,7 @@
                 (if (ak/== mode 3) (ak/as :f32 260.0)
                   (ak/min 260.0 (+ (ak/max 0.0 (/ speed radius)) allowance)))))))))))
 
-(az/defn diagnostic-tire-shape!
+(az/defn diagnostic-tire-shape! :void
   "Isolate contact geometry, keeping the original wheel mass and inertia.
   Shape0 leaves production cylinders intact. Shape1 uses the upstream sample's
   smooth sphere approach (too wide for production). Shape2 is a 32-sphere
@@ -478,8 +468,7 @@
   the visual model or live vehicle. Shape3 uses a42-sided convex hull, the
   largest whole cylinder within upstream's128-edge limit. Shape4 crowns the
   tread by3cm using three24-point rings, retaining outer radius and width.
-  Diagnostic only."
-  :- :void [[car physics/Vehicle] [shape-kind :u8]]
+  Diagnostic only." [[car physics/Vehicle] [shape-kind :u8]]
   (when (> shape-kind 0)
     (dotimes [i 4]
       (let [wheel (az/index (az/field car wheels) i)
@@ -538,13 +527,12 @@
                 (set! _ (b3/b3CreateSphereShape wheel (ak/& definition) (ak/& sphere))))))
           (b3/b3Body_SetMassData wheel mass))))))
 
-(az/defn tread-plane-contact-probe!
+(az/defn tread-plane-contact-probe! :void
   "TEST ONLY: two analytic tread-edge contacts against a static surface plane.
   Normal spring/damping and Coulomb-limited slip forces act at the contact
   points; Box3D integrates translation, spin and reactions through suspension.
   No track lookup, body pose/velocity writes, or artificial upright constraint.
-  This flat-fixture experiment does not implement arbitrary terrain contacts."
-  :- :void [[wheel b3/b3BodyId] [radius :f32] [half-width :f32]
+  This flat-fixture experiment does not implement arbitrary terrain contacts." [[wheel b3/b3BodyId] [radius :f32] [half-width :f32]
             [surface-normal b3/b3Vec3] [surface-point b3/b3Pos] [surface-friction :f32]]
   (let [position (b3/b3Body_GetPosition wheel)
         axis (b3/b3RotateVector (b3/b3Body_GetRotation wheel)
@@ -587,16 +575,15 @@
             (b3/b3Sub (b3/b3MulSV normal surface-normal)
                       (b3/b3MulSV friction direction)) point true))))))
 
-(az/defn flat-tire-contact-probe! :- :void
+(az/defn flat-tire-contact-probe! :void
   [[wheel b3/b3BodyId] [radius :f32] [half-width :f32]]
   (tread-plane-contact-probe! wheel radius half-width
     (b3/b3Vec3 {:x 0.0 :y 0.0 :z 1.0})
     (b3/b3Pos {:x 0.0 :y 0.0 :z 0.0}) 0.8))
 
-(az/defn use-flat-tire-probe!
+(az/defn use-flat-tire-probe! :void
   "TEST ONLY: disable wheel colliders in a plane-only fixture, keeping chassis
-  contact, mass/inertia and all joints. Never apply this to a live race world."
-  :- :void [[car physics/Vehicle]]
+  contact, mass/inertia and all joints. Never apply this to a live race world." [[car physics/Vehicle]]
   (dotimes [i 4]
     (let [wheel (az/index (az/field car wheels) i)
           ^:var shapes (mem/zeroes (az/type [:array 1 b3/b3ShapeId]))]
@@ -607,17 +594,16 @@
           (set! (az/field filter maskBits) 0)
           (b3/b3Shape_SetFilter shape filter true))))))
 
-(az/defn apply-flat-tires-probe! :- :void [[car physics/Vehicle]]
+(az/defn apply-flat-tires-probe! :void [[car physics/Vehicle]]
   (dotimes [i 4]
     (let [dimensions (az/index spec/wheel-geometry i)]
       (flat-tire-contact-probe! (az/index (az/field car wheels) i)
         (az/index dimensions 3) (* 0.5 (az/index dimensions 4))))))
 
-(az/defn use-ray-tires-probe!
+(az/defn use-ray-tires-probe! :void
   "TEST ONLY: fixture terrain is category1, cars category2. Wheel hulls still
   collide with other cars, while tire forces handle the static road surface.
-  These fixture categories must not be applied to a live game with barriers."
-  :- :void [[car physics/Vehicle]]
+  These fixture categories must not be applied to a live game with barriers." [[car physics/Vehicle]]
   ;; Identify the explicitly marked production road BEFORE moving fixture car
   ;; shapes to category2. Otherwise the query can hit the car or miss the road
   ;; after the production category migration, silently testing faceted contacts.
@@ -648,10 +634,9 @@
           (when (< i 4) (set! (az/field filter maskBits) 2))
           (b3/b3Shape_SetFilter shape filter true))))))
 
-(az/defn apply-ray-tires-probe!
+(az/defn apply-ray-tires-probe! :void
   "TEST ONLY: sample real Box3D road triangles, normals and material friction.
-  No circuit progress/height lookup. Missing ground produces no tire force."
-  :- :void [[car physics/Vehicle]]
+  No circuit progress/height lookup. Missing ground produces no tire force." [[car physics/Vehicle]]
   (let [world (b3/b3Body_GetWorld (az/field car chassis))
         ^:var query (b3/b3DefaultQueryFilter)]
     (set! (az/field query maskBits) 1)
@@ -676,12 +661,11 @@
             (tread-plane-contact-probe! wheel radius (* 0.5 (az/index dimensions 4))
               (az/field hit normal) (az/field hit point) (az/field material friction))))))))
 
-(az/defn drivetrain-contact-trace
+(az/defn drivetrain-contact-trace [:array 10 [:array 10 :f32]]
   "Ten seconds, fixed full throttle, independent world. Rows contain elapsed
   seconds, world-X velocity, world-Y velocity, X/Y travel, chassis height,
   chassis-up Z, angular-Z velocity, and rear wheel spin L/R (SI units).
   This is a diagnostic, not permission to accept a faster but unstable car."
-  :- [:array 10 [:array 10 :f32]]
   [[mode :u8] [shape-kind :u8] [contact-hertz :f32] [contact-damping :f32]]
   (let [world (physics/create-world -9.81)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)
@@ -717,18 +701,16 @@
              (b3/b3WheelJoint_GetSpinSpeed (az/index (az/field car joints) 3))]))))
     rows))
 
-(az/defn drivetrain-comparison-trace
-  "Fixed-production contact stiffness for tire/motor diagnostic comparisons."
-  :- [:array 10 [:array 10 :f32]] [[mode :u8] [shape-kind :u8]]
+(az/defn drivetrain-comparison-trace [:array 10 [:array 10 :f32]]
+  "Fixed-production contact stiffness for tire/motor diagnostic comparisons." [[mode :u8] [shape-kind :u8]]
   (drivetrain-contact-trace mode shape-kind 120.0 10.0))
 
-(az/defn free-rolling-contact-trace
+(az/defn free-rolling-contact-trace [:array 11 [:array 8 :f32]]
   "Contact-only control experiment: no chassis, joints, engine or aero.
   Give one settled wheel matching linear/angular impulses ONCE, then coast.
   Sphere comparison retains cylinder mass/inertia; it is not production art
   or a proposed collider replacement. Rows: seconds, vx, vy, spin-Y, height,
-  lateral displacement, angular-X and angular-Z, all in SI units."
-  :- [:array 11 [:array 8 :f32]] [[shape-kind :u8] [initial-speed :f32]]
+  lateral displacement, angular-X and angular-Z, all in SI units." [[shape-kind :u8] [initial-speed :f32]]
   (let [world (physics/create-world -9.81)
         dimensions (az/index spec/wheel-geometry 2)
         radius (az/index dimensions 3)
@@ -783,12 +765,11 @@
                (az/field state wx) (az/field state wz)]))))
       rows)))
 
-(az/defn free-rolling-tire-trace
-  "Original cylinder/sphere control comparison; shape2 is the analytic probe."
-  :- [:array 11 [:array 8 :f32]] [[sphere? :bool] [initial-speed :f32]]
+(az/defn free-rolling-tire-trace [:array 11 [:array 8 :f32]]
+  "Original cylinder/sphere control comparison; shape2 is the analytic probe." [[sphere? :bool] [initial-speed :f32]]
   (free-rolling-contact-trace (if sphere? (ak/as :u8 1) 0) initial-speed))
 
-(az/defn vehicle-contact-probe :- VehicleResult [[steering :f32] [analytic? :bool]]
+(az/defn vehicle-contact-probe VehicleResult [[steering :f32] [analytic? :bool]]
   (let [world (physics/create-world -9.81)
         ground (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
                                    (b3/b3Vec3 {:x 500.0 :y 500.0 :z 0.5}) 0.0)
@@ -820,7 +801,7 @@
                         :distance (az/field before x) :height (az/field after z)
                         :wheel_spin spin :yaw (az/field before qz)})))))
 
-(az/defn vehicle-probe :- VehicleResult [[steering :f32]]
+(az/defn vehicle-probe VehicleResult [[steering :f32]]
   (vehicle-contact-probe steering false))
 
 (deftest analytic-plane-contact-prototype-test
@@ -857,10 +838,9 @@
     (is (pos? (:hits offset)))
     (is (> (:max_spin offset) 0.5) "Off-centre impacts must rotate the body")))
 
-(az/defn gear-probe
+(az/defn gear-probe [:array 4 :f32]
   "Settle, engage a physical gear for three seconds, then brake for two.
-  No body velocity or transform writes, including when testing reverse."
-  :- [:array 4 :f32] [[gear :i8] [grounded :bool]]
+  No body velocity or transform writes, including when testing reverse." [[gear :i8] [grounded :bool]]
   (let [world (physics/create-world (if grounded -9.81 0.0))
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)]
     (ak/defer (physics/destroy-world! world))

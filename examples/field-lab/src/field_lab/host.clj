@@ -97,31 +97,26 @@
 
 (az/defvar checked-environment :bool false)
 
-(az/defn lock!
-  :- :void []
+(az/defn lock! :void []
   ;; Critical sections only copy bounded data. Plugin callbacks and filesystem
   ;; operations are always outside this lock, including callback submissions.
   (while (ak/!= (ak/cmpxchgStrong :u8 (ak/& mailbox) 0 1 :.acquire :.monotonic) null)
     (set! _ (sched_yield))))
 
-(az/defn unlock!
-  :- :void []
+(az/defn unlock! :void []
   (ak/atomicStore :u8 (ak/& mailbox) 0 :.release))
 
-(az/defn bounded-length
-  :- :usize [[text [:pointer {:size :c :const? true} :u8]] [limit :usize]]
+(az/defn bounded-length :usize [[text [:pointer {:size :c :const? true} :u8]] [limit :usize]]
   (when (ak/== text null) (ak/return 0))
   (let [^{:var :usize} length 0]
     (while (and (< length limit) (ak/!= (az/index text length) 0)) (set! length (+ length 1)))
     length))
 
-(az/defn copy-string!
-  :- :void [[destination [:slice :u8]] [source [:pointer {:size :c :const? true} :u8]] [length :usize]]
+(az/defn copy-string! :void [[destination [:slice :u8]] [source [:pointer {:size :c :const? true} :u8]] [length :usize]]
   (dotimes [index length] (set! (az/index destination index) (az/index source index)))
   (set! (az/index destination length) 0))
 
-(az/defn valid-id?
-  :- :bool [[id [:pointer {:size :c :const? true} :u8]]]
+(az/defn valid-id? :bool [[id [:pointer {:size :c :const? true} :u8]]]
   (let [length (bounded-length id 65)]
     (when (or (ak/== length 0) (> length 64)) (ak/return false))
     (dotimes [index length]
@@ -130,8 +125,7 @@
                         (ak/== c 45) (ak/== c 95) (ak/== c 46))) (ak/return false))))
     true))
 
-(az/defn find-plugin
-  :- [:optional [:* Plugin]] [[id [:slice-const :u8]]]
+(az/defn find-plugin [:optional [:* Plugin]] [[id [:slice-const :u8]]]
   (dotimes [index 16]
     (let [slot (ak/& (az/index plugins index))
           length (bounded-length (ak/& (az/index (az/field slot id) 0)) 65)]
@@ -140,9 +134,8 @@
         (ak/return slot))))
   null)
 
-(az/defn pitoco_submit_v1
-  {:attrs #{:export}}
-  :- :u32 [[command [:pointer {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
+(az/defn pitoco_submit_v1 :u32
+  {:attrs #{:export}} [[command [:pointer {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
   (when (or (ak/== command null) (ak/== ticket null)) (ak/return 3))
   (set! (az/deref ticket) 0)
   (when (or (ak/!= (az/field (az/index command 0) abi_version) 1) (< (az/field (az/index command 0) struct_size) (ak/sizeOf api/PitocoCommandV1)))
@@ -163,9 +156,8 @@
                   occupied true)
     1))
 
-(az/defn pitoco_status_v1
-  {:attrs #{:export}}
-  :- :u32 [[status [:c-pointer api/PitocoStatusV1]]]
+(az/defn pitoco_status_v1 :u32
+  {:attrs #{:export}} [[status [:c-pointer api/PitocoStatusV1]]]
   (when (ak/== status null) (ak/return 3))
   (when (or (ak/!= (az/field (az/index status 0) abi_version) 1) (< (az/field (az/index status 0) struct_size) (ak/sizeOf api/PitocoStatusV1)))
     (ak/return 4))
@@ -174,9 +166,8 @@
   (set! (az/index status 0) snapshot)
   0)
 
-(az/defn pitoco_result_v1
-  {:attrs #{:export}}
-  :- :u32 [[ticket :u64]]
+(az/defn pitoco_result_v1 :u32
+  {:attrs #{:export}} [[ticket :u64]]
   (lock!)
   (defer (unlock!))
   (when (ak/== ticket 0) (ak/return 3))
@@ -188,8 +179,7 @@
   (api/PitocoHostV1 {:abi_version 1 :struct_size (ak/sizeOf api/PitocoHostV1)
                      :submit (ak/& pitoco_submit_v1) :status (ak/& pitoco_status_v1)}))
 
-(az/defn load-plugin!
-  :- :u32 [[path [:pointer {:size :c :const? true} :u8]]]
+(az/defn load-plugin! :u32 [[path [:pointer {:size :c :const? true} :u8]]]
   (when (or (ak/== path null) (ak/!= (az/index path 0) 47)) (ak/return 3))
   (let [^{:var [:optional [:* Plugin]]} available null]
     (dotimes [index 16]
@@ -226,8 +216,7 @@
                 (set! retained true)
                 0))))))))
 
-(az/defn unload-plugin!
-  :- :u32 [[id [:slice-const :u8]]]
+(az/defn unload-plugin! :u32 [[id [:slice-const :u8]]]
   (let [slot (find-plugin id)]
     (when (ak/== slot null) (ak/return 5))
     (let [plugin (az/unwrap slot)]
@@ -236,9 +225,8 @@
       (set! (az/deref plugin) (mem/zeroes (az/type Plugin))))
     0))
 
-(az/defn pitoco_bridge_open_v1
-  {:attrs #{:export}}
-  :- :u32 [[directory [:pointer {:size :c :const? true} :u8]]]
+(az/defn pitoco_bridge_open_v1 :u32
+  {:attrs #{:export}} [[directory [:pointer {:size :c :const? true} :u8]]]
   (set! checked-environment true)
   (let [length (bounded-length directory 4097)]
     (when (or (ak/== length 0) (> length 4096) (ak/!= (az/index directory 0) 47)) (ak/return 3))
@@ -257,15 +245,13 @@
       (copy-string! (ak/& bridge-directory) directory length)
       0)))
 
-(az/defn pitoco_bridge_close_v1
-  {:attrs #{:export}}
-  :- :void []
+(az/defn pitoco_bridge_close_v1 :void
+  {:attrs #{:export}} []
   (az/set-many! checked-environment true (az/index bridge-directory 0) 0 bridge-response-size 0)
   (when (>= bridge-lock 0) (set! _ (close bridge-lock)))
   (set! bridge-lock -1))
 
-(az/defn execute!
-  :- :u32 [[request [:*const Pending]] [panel [:c-pointer api/LabPanel]]]
+(az/defn execute! :u32 [[request [:*const Pending]] [panel [:c-pointer api/LabPanel]]]
   (let [operation (az/field request operation)
         text (ak/as (az/type [:pointer {:size :c :const? true} :u8]) (ak/& (az/index (az/field request text) 0)))
         length (bounded-length text 4097)]
@@ -297,8 +283,7 @@
         3)
       :else 3)))
 
-(az/defn publish!
-  :- :void [[panel [:c-pointer api/LabPanel]]]
+(az/defn publish! :void [[panel [:c-pointer api/LabPanel]]]
   (lock!)
   (defer (unlock!))
   (az/set-many! (az/field snapshot frames) (ak/intCast (az/field (az/index panel 0) count))
@@ -311,12 +296,10 @@
     (when (ak/!= (az/field (az/index plugins index) library) null)
       (set! (az/field snapshot plugins) (+ (az/field snapshot plugins) 1)))))
 
-(az/defn parse-integer
-  :- [:optional :i64] [[text [:slice-const :u8]]]
+(az/defn parse-integer [:optional :i64] [[text [:slice-const :u8]]]
   (let [value (catch (fmt/parseInt :i64 text 10) (ak/return null))] value))
 
-(az/defn response!
-  :- :void [[bytes [:slice :u8]]]
+(az/defn response! :void [[bytes [:slice :u8]]]
   (let [^:var lines (mem/zeroes (az/type [:array 4 [:slice :u8]]))
         ^{:var :usize} offset 0
         ^:var valid (< (az/field bytes len) 8193)
@@ -364,8 +347,7 @@
                    (ak/return))]
         (set! bridge-response-size (az/field text len))))))
 
-(az/defn poll-bridge!
-  :- :void []
+(az/defn poll-bridge! :void []
   (when (ak/== (az/index bridge-directory 0) 0) (ak/return))
   (let [directory (az/slice bridge-directory 0 (bounded-length (ak/& (az/index bridge-directory 0)) 4097))
         ^{:var [:array 4120 :u8]} request-buffer ak/undefined
@@ -406,9 +388,8 @@
                    (ak/== (rename (az/field temporary ptr) (az/field reply ptr)) 0))
           (set! bridge-response-size 0))))))
 
-(az/defn pitoco_tick_v1
-  {:attrs #{:export}}
-  :- :void [[panel [:c-pointer api/LabPanel]]]
+(az/defn pitoco_tick_v1 :void
+  {:attrs #{:export}} [[panel [:c-pointer api/LabPanel]]]
   (when (ak/== panel null) (ak/return))
   (when (ak/! checked-environment)
     (set! checked-environment true)
@@ -433,9 +414,8 @@
                       (az/field snapshot last_result) result))))
   (publish! panel))
 
-(az/defn pitoco_shutdown_v1
-  {:attrs #{:export}}
-  :- :void []
+(az/defn pitoco_shutdown_v1 :void
+  {:attrs #{:export}} []
   (dotimes [index 16]
     (let [plugin (ak/& (az/index plugins index))]
       (when (ak/!= (az/field plugin library) null)
@@ -448,17 +428,14 @@
 
 ;; Distinct application entries permit replacing the retired C++ host inside an
 ;; already-running process without binding its retained legacy SDK symbols.
-(az/defn pitoco_aguafria_tick_v1
-  {:attrs #{:export}}
-  :- :void [[panel [:c-pointer api/LabPanel]]]
+(az/defn pitoco_aguafria_tick_v1 :void
+  {:attrs #{:export}} [[panel [:c-pointer api/LabPanel]]]
   (pitoco_tick_v1 panel))
 
-(az/defn pitoco_aguafria_submit_v1
-  {:attrs #{:export}}
-  :- :u32 [[command [:pointer {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
+(az/defn pitoco_aguafria_submit_v1 :u32
+  {:attrs #{:export}} [[command [:pointer {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
   (pitoco_submit_v1 command ticket))
 
-(az/defn pitoco_aguafria_shutdown_v1
-  {:attrs #{:export}}
-  :- :void []
+(az/defn pitoco_aguafria_shutdown_v1 :void
+  {:attrs #{:export}} []
   (pitoco_shutdown_v1))

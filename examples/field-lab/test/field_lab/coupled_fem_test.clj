@@ -18,9 +18,8 @@
    [:normal-speed :f64] [:tangent-speed :f64]
    [:momentum-error :f64] [:kinetic-before :f64] [:kinetic-after :f64]])
 
-(az/defn impulse-probe!
+(az/defn impulse-probe! ImpulseCheck
   "Isolate one vertex/face impulse with unequal FEM lumped node masses."
-  :- ImpulseCheck
   [[assembly [:* coupled/Assembly]]]
   (let [a (az/index (az/field assembly bodies) 0)
         b (az/index (az/field assembly bodies) 1)
@@ -380,8 +379,7 @@
             (is (thrown? clojure.lang.ExceptionInfo
                          (joint/advance-continuous! assembly 0.001 0.00005 clearance)))))))))
 
-(az/defn velocity-only-displacement-probe!
-  :- :f64
+(az/defn velocity-only-displacement-probe! :f64
   [[assembly [:* coupled/Assembly]]]
   (let [body (az/index (az/field assembly bodies) 0)
         mesh (az/field (az/field body state) mesh)]
@@ -582,8 +580,7 @@
   [[:report coupled/PositionReport] [:penetration-before :f64] [:penetration-after :f64]
    [:center-error :f64] [:momentum-error :f64] [:kinetic-error :f64] [:surface-error :f64]])
 
-(az/defn position-block-probe!
-  :- PositionCheck [[assembly [:* coupled/Assembly]]]
+(az/defn position-block-probe! PositionCheck [[assembly [:* coupled/Assembly]]]
   ;; Start with disjoint solids, then construct an overlapping trial state.
   (dotimes [index 2]
     (let [body (az/index (az/field assembly bodies) index)

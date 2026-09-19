@@ -94,12 +94,12 @@
         (evaluate-and-await!
          '(az/defvar aguafria_hot_reload_probe_value :u64 0))
         (evaluate-and-await!
-         '(az/defn aguafria_hot_reload_mark :- :u8
+         '(az/defn aguafria_hot_reload_mark :u8
             [value :- :u8]
             (set! aguafria_hot_reload_probe_value 4242)
             value))
         (evaluate-and-await!
-         '(az/defn aguafria_hot_reload_probe_read :- :u64 []
+         '(az/defn aguafria_hot_reload_probe_read :u64 []
             aguafria_hot_reload_probe_value))
         (let [after-new-a (host/info handle)]
           (when-not (:active? after-new-a)

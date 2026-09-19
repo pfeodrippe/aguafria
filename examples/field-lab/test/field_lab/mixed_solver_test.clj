@@ -11,8 +11,7 @@
 (az/defstruct Probe {:layout :extern}
   [[:report solver/Report] [:x [:array 13 p/Vec3]] [:gradient [:array 13 p/Vec3]]])
 
-(az/defn probe-solve
-  :- Probe
+(az/defn probe-solve Probe
   [[cells [:array 2 mixed/Element]] [start [:array 13 p/Vec3]] [predicted [:array 13 p/Vec3]]
    [forces [:array 13 p/Vec3]] [lo [:array 13 p/Vec3]] [hi [:array 13 p/Vec3]]
    [gravity p/Vec3] [duration :f64] [tolerance :f64] [iterations :u32] [cg-iterations :u32]]

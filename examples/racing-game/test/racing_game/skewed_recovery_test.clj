@@ -31,8 +31,7 @@
     [-526.2649 114.29889 42.82655 0.024500271 0.08444735 0.029857343 0.9956792]
     [-526.1572 112.32173 42.733444 0.035371397 -0.63074493 0.008667751 0.77513534]]])
 
-(az/defn create-captured-car
-  :- physics/Vehicle [[world b3/b3WorldId] [index :usize]]
+(az/defn create-captured-car physics/Vehicle [[world b3/b3WorldId] [index :usize]]
   (let [p (az/index (az/index captured-poses index) 0)
         car (physics/create-vehicle world
               (b3/b3Pos {:x (az/index p 0) :y (az/index p 1) :z (az/index p 2)}) 0.0)]
@@ -47,12 +46,11 @@
     car))
 
 
-(az/defn skewed-probe
+(az/defn skewed-probe [:array 6 :f32]
   "Captured ten-body initial conditions, no transforms/velocity writes after
   setup. Fixed -3.75m lane intent isolates manoeuvring from model variability.
   Returns forward metres, max lane, min upright, reverse metres, phase mask,
-  and final speed. Margin parameter tests the production eligibility gate."
-  :- [:array 6 :f32] [[seconds :usize] [road-margin :f32]]
+  and final speed. Margin parameter tests the production eligibility gate." [[seconds :usize] [road-margin :f32]]
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
         other (create-captured-car world 0)

@@ -26,23 +26,19 @@
 
 (az/defvar window [:optional [:* glfw/GLFWwindow]] null)
 
-(az/defn request-stop!
+(az/defn request-stop! :void
   "Ask the main-thread GLFW loop to finish after its current frame."
-  :- :void
   []
   (set! running false))
 
-(az/defn enable-sticky-input!
+(az/defn enable-sticky-input! :void
   "Latch short mouse presses until the 120 Hz loop observes them."
-  :-
-  :void
   []
   (when (ak/!= window null)
     (host/reset-input! (az/unwrap window))))
 
-(az/defn run!
+(az/defn run! :bool
   "Run GLFW, Flecs, and Vulkan on the JVM main thread while nREPL stays live."
-  :- :bool
   []
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
   (std-debug/assert (ak/== (glfw/glfwInit) glfw/GLFW_TRUE))
@@ -66,10 +62,8 @@
   (set! running false)
   true)
 
-(az/defn run-for-frames!
+(az/defn run-for-frames! host/FrameTiming
   "Run the release renderer for a bounded warmup and measured frame count."
-  :-
-  host/FrameTiming
   [[warmup-frames :u32]
    [measured-frames :u32]]
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
@@ -101,9 +95,8 @@
     (set! running false)
     timing))
 
-(az/defn desktop-snapshot
+(az/defn desktop-snapshot DesktopSnapshot
   "Inspect the running desktop host without stopping its native loop."
-  :- DesktopSnapshot
   []
   (let [render-state (renderer/renderer-snapshot)
         factory-state (factory/snapshot)]

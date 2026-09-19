@@ -14,11 +14,10 @@
             [field-lab.fem-job :as linear]
             [pitoco.geometry :as geometry]))
 
-(az/defn pitoco_explicit_snapshot_batch
+(az/defn pitoco_explicit_snapshot_batch :void
   "Internal same-build snapshot boundary. Task and reachable layouts must match
   the recorded compiler/solver version; this is not a public plugin ABI."
   {:attrs #{:export}}
-  :- :void
   [[task [:* coupled/ExplicitTask]] [attempts :u32]
    [report [:* coupled/Report]] [progress [:* coupled/ExplicitProgress]]]
   (az/set-many!

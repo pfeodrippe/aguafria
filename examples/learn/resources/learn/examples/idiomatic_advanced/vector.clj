@@ -1,0 +1,38 @@
+(ns learn.examples.idiomatic-advanced.vector
+  (:require aguafria.std
+            [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
+            [aguafria.zig :as az]))
+
+(az/deftest basic-vector-test
+  ;; Vectors have a compile-time-known length and base type.
+  (let [a (az/array-init (ak/Vector 4 :i32) [1 2 3 4])
+        b (az/array-init (ak/Vector 4 :i32) [5 6 7 8])
+        ;; Math operations take place element-wise.
+        sum (+ a b)]
+    ;; Individual vector elements use the same indexing syntax as arrays.
+    (try (testing/expectEqual 6 (az/index sum 0)))
+    (try (testing/expectEqual 8 (az/index sum 1)))
+    (try (testing/expectEqual 10 (az/index sum 2)))
+    (try (testing/expectEqual 12 (az/index sum 3)))))
+
+(az/deftest vector-array-slice-conversion-test
+  ;; Vectors can be coerced to arrays, and vice versa.
+  (let [^{:zig/type [:array 4 :f32]}
+        original (az/array-init [:array _ :f32] [1.1 3.2 4.5 5.6])
+        ^{:zig/type (ak/Vector 4 :f32)} vector original
+        ^{:zig/type [:array 4 :f32]} roundtrip vector]
+    (try (testing/expectEqual original roundtrip))
+
+    ;; Dereference a slice with compile-time-known length to assign a vector.
+    (let [^{:zig/type (ak/Vector 2 :f32)} fixed-vector @(az/slice original 1 3)
+          ^{:zig/type [:slice-const :f32]} slice (& original)
+          ^{:var :u32} offset 1] ; mutable to make it runtime-known
+      (set! _ (& offset)) ; suppress the never-mutated error
+      ;; Starting at a runtime-known offset, first take a new slice, then an
+      ;; array of compile-time-known length.
+      (let [^{:zig/type (ak/Vector 2 :f32)}
+            offset-vector @(az/slice (az/slice slice offset) 0 2)]
+        (try (testing/expectEqual (az/index slice offset) (az/index fixed-vector 0)))
+        (try (testing/expectEqual (az/index slice (+ offset 1)) (az/index fixed-vector 1)))
+        (try (testing/expectEqual fixed-vector offset-vector))))))

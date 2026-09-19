@@ -19,8 +19,7 @@
 (az/defstruct Emission {:layout :extern}
   [[:vertices :u32] [:minimum-normal-length :f64] [:maximum-normal-length :f64]])
 
-(az/defn measure-emission!
-  :- Emission
+(az/defn measure-emission! Emission
   []
   (let [storage (fem/allocate gpu/GpuVertex 32768)]
     (defer ((az/field heap/page_allocator free) storage))
@@ -81,8 +80,7 @@
       (is (= 1 (az/value scene/count))))
     (finally (scene/shutdown!))))
 
-(az/defn rejects-short-stream!
-  :- :bool
+(az/defn rejects-short-stream! :bool
   []
   (let [^:var sentinel (gpu/GpuVertex {:x 123.0 :y 0.0 :z 0.0 :r 0.0 :g 0.0 :b 0.0
                                       :nx 0.0 :ny 0.0 :nz 0.0 :wx 0.0 :wy 0.0 :wz 0.0
@@ -90,8 +88,7 @@
         written (surface/emit-bounded! (ak/& sentinel) 1 0.55 0.3 9.0)]
     (and (ak/== written 0) surface/stream-overflow (ak/== (az/field sentinel x) 123.0))))
 
-(az/defn exercise-visibility-publication!
-  :- :u32
+(az/defn exercise-visibility-publication! :u32
   []
   (let [storage (fem/allocate :u32 90000)
         output (az/field storage ptr)
@@ -160,8 +157,7 @@
       (scene/shutdown!))))
 
 
-(az/defn tile-coordinates
-  :- [:array 4 :u32]
+(az/defn tile-coordinates [:array 4 :u32]
   [[width :u32] [height :u32] [edge :u32] [index :u32]]
   (let [rectangle (renderer/render-tile-rectangle width height edge index)
         offset (az/field rectangle offset)
@@ -203,16 +199,14 @@
 
 (az/defvar error-probe-continued :bool false)
 
-(az/defn device-loss-probe!
-  :- :bool
+(az/defn device-loss-probe! :bool
   []
   (renderer/frame-check (ak/as vk/VkResult vk/VK_ERROR_DEVICE_LOST))
   (set! error-probe-continued true)
   true)
 
-(az/defn stopped-frame-builder
+(az/defn stopped-frame-builder :u32
   {:attrs #{:export}}
-  :- :u32
   [[output [:c-pointer gpu/GpuVertex]] [width :i32] [height :i32]]
   (set! _ output)
   (set! _ width)
@@ -220,8 +214,7 @@
   (set! error-probe-continued true)
   0)
 
-(az/defn stopped-render-probe!
-  :- :bool
+(az/defn stopped-render-probe! :bool
   []
   (renderer/render! (ak/& stopped-frame-builder)))
 

@@ -105,10 +105,8 @@
 (az/defvar particle-views [:array 64 physics/ParticleView]
   (std-mem/zeroes (az/type [:array 64 physics/ParticleView])))
 
-(az/defn load-model!
+(az/defn load-model! :bool
   "Load one prepacked GLB triangle stream into bounded native storage."
-  :-
-  :bool
   [[slot :usize]
    [path [:pointer {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")]
@@ -137,10 +135,8 @@
             true)
           false)))))
 
-(az/defn initialize!
+(az/defn initialize! :bool
   "Load all selected Kenney models once; hot reload retains their native data."
-  :-
-  :bool
   []
   (when (ak/! initialized)
     (set! source-count 0)
@@ -166,18 +162,14 @@
       (set! initialized all-loaded)))
   initialized)
 
-(az/defn reload!
+(az/defn reload! :bool
   "Reload mechanically packed Kenney assets without restarting the JVM."
-  :-
-  :bool
   []
   (set! initialized false)
   (initialize!))
 
-(az/defn write-instance!
+(az/defn write-instance! :usize
   "Project one 3D Kenney mesh through a fixed orthographic isometric camera."
-  :-
-  :usize
   [[output [:c-pointer GpuVertex]]
    [output-count :usize]
    [slot :usize]
@@ -238,10 +230,8 @@
                     :b (ak/min 1.0 (* (az/field source b) light brightness))}))))
         (+ output-count count)))))
 
-(az/defn write-tinted-instance!
+(az/defn write-tinted-instance! :usize
   "Submit a Kenney mesh while tinting its baked palette for Recife façades."
-  :-
-  :usize
   [[output [:c-pointer GpuVertex]]
    [output-count :usize]
    [slot :usize]
@@ -265,10 +255,8 @@
               (ak/min 1.0 (* (az/field (az/deref vertex) b) tint-b)))))
     next-count))
 
-(az/defn write-particle!
+(az/defn write-particle! :usize
   "Project one live Box3D particle using the Kenney coconut mesh."
-  :-
-  :usize
   [[output [:c-pointer GpuVertex]]
    [output-count :usize]
    [particle physics/ParticleView]]
@@ -295,10 +283,8 @@
                          (* height 0.018))))))
     next-count))
 
-(az/defn append-physics!
+(az/defn append-physics! :usize
   "Append every active Box3D particle to the shared mapped frame batch."
-  :-
-  :usize
   [[output [:c-pointer GpuVertex]]
    [output-count :usize]]
   (let [active-count
@@ -309,10 +295,8 @@
             (write-particle! output count (az/index particle-views slot))))
     count))
 
-(az/defn build-coco-factory-frame!
+(az/defn build-coco-factory-frame! :u32
   "Render the authoritative coco-house grid from its native simulation cells."
-  :-
-  :u32
   [[output [:c-pointer GpuVertex]]]
   (if (ak/! (initialize!))
     0
@@ -404,9 +388,7 @@
       (set! latest-frame-count (ak/intCast count))
       latest-frame-count)))
 
-(az/defn snapshot
-  :-
-  MeshSnapshot
+(az/defn snapshot MeshSnapshot
   []
   (let [^{:var true :zig/type :u32} ready 0]
     (dotimes [slot model-count]

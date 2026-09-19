@@ -14,21 +14,19 @@
   [[:throttle :f32] [:brake :f32] [:steering :f32]
    [:progress :f32] [:lane :f32] [:speed :f32]])
 
-(az/defn clamp-unit :- :f32 [[value :f32]]
+(az/defn clamp-unit :f32 [[value :f32]]
   (ak/max 0.0 (ak/min 1.0 value)))
 
-(az/defn overturned?
+(az/defn overturned? :bool
   "Body orientation only, independent of race classification. Match the
-  retirement observer's support threshold, without its time/finish policy."
-  :- :bool [[body physics/BodyState]]
+  retirement observer's support threshold, without its time/finish policy." [[body physics/BodyState]]
   (< (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                        (* (az/field body qy) (az/field body qy))))) 0.2))
 
-(az/defn stop-if-overturned
+(az/defn stop-if-overturned Control
   "Final pedal safety gate, also during cooldown. Never changes body pose,
   velocity, classification or the original AI intent. An upright car keeps
-  its ordinary controls; the next tick can resume after a physical recovery."
-  :- Control [[control Control] [body physics/BodyState]]
+  its ordinary controls; the next tick can resume after a physical recovery." [[control Control] [body physics/BodyState]]
   (let [^:var result control]
     (when (overturned? body)
       (set! (az/field result throttle) 0.0)
@@ -36,11 +34,10 @@
       (set! (az/field result steering) 0.0))
     result))
 
-(az/defn braking-envelope
+(az/defn braking-envelope :f32
   "Plan using a tire-force budget, including braking distance. Sampling every
   five metres catches tight bends missed by the old 25m/3g kinematic envelope.
-  This controls pedals; exceeding the budget still causes real loss of grip."
-  :- :f32 [[distance :f32] [speed :f32]]
+  This controls pedals; exceeding the budget still causes real loss of grip." [[distance :f32] [speed :f32]]
   (let [^{:var :f32} limit 100.0
         ;; Box3D combines asphalt (1.0) and tire friction geometrically.
         ;; Reserve force for tracking, axle load transfer and combined braking.
@@ -64,11 +61,10 @@
         (set! limit (ak/min limit (ak/sqrt (+ corner-speed-squared (* 28.0 ahead)))))))
     limit))
 
-(az/defn follow-route
+(az/defn follow-route Control
   "AI supplies desired m/s and lane metres. Ground-relative position/ranking
   are measured from the body, never imposed on it. Pure pursuit produces a
-  steering angle; feedback produces throttle/brake, applied through tires."
-  :- Control [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32] [pit? :bool]]
+  steering angle; feedback produces throttle/brake, applied through tires." [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32] [pit? :bool]]
   (let [body (az/field car chassis)
         state (physics/body-state body)
         projection (track/project (* (az/field state x) 0.001) (* (az/field state y) 0.001))
@@ -96,7 +92,7 @@
                :progress (az/field projection progress)
                :lane (* (az/field projection lane) 50.0) :speed speed})))
 
-(az/defn follow :- Control [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32]]
+(az/defn follow Control [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32]]
   (follow-route car desired-speed lane-metres false))
 
 (az/defstruct LanePlan
@@ -104,10 +100,9 @@
   [[:initialized :bool] [:active :bool] [:target :f32]
    [:origin :f32] [:length :f32] [:coefficients [:array 6 :f32]]])
 
-(az/defn lane-plan-state
+(az/defn lane-plan-state [:array 3 :f32]
   "Lateral position and its first two distance derivatives. Evaluating this
-  path never modifies vehicle position or velocity."
-  :- [:array 3 :f32] [[plan [:* LanePlan]] [distance :f32]]
+  path never modifies vehicle position or velocity." [[plan [:* LanePlan]] [distance :f32]]
   (if (ak/! (az/field plan active))
     (az/array-init [:array 3 :f32] [(az/field plan target) 0.0 0.0])
     (let [delta (- distance (az/field plan origin))
@@ -127,11 +122,10 @@
       (az/array-init [:array 3 :f32]
         [position (if (< u 1.0) first 0.0) (if (< u 1.0) second 0.0)]))))
 
-(az/defn update-lane-plan!
+(az/defn update-lane-plan! :void
   "Plan a quintic lane transition. A new request preserves the previous
   path's position/slope/curvature. Once completed, it cannot repeat next lap.
-  The 3m/s² lane-change budget is driver planning, not an applied force."
-  :- :void [[plan [:* LanePlan]] [distance :f32] [measured-lane :f32]
+  The 3m/s² lane-change budget is driver planning, not an applied force." [[plan [:* LanePlan]] [distance :f32] [measured-lane :f32]
             [speed :f32] [requested-lane :f32]]
   (when (ak/! (az/field plan initialized))
     (set! (az/field plan initialized) true)
@@ -161,11 +155,10 @@
         (set! (az/field plan target) target)
         (set! (az/field plan active) true)))))
 
-(az/defn follow-lane-plan
+(az/defn follow-lane-plan Control
   "Opt-in controller candidate: follow a committed, continuous lateral path
   rather than jumping the pursuit target across the road. Not yet used by the
-  live simulation; validate with the physical lane-change/cornering fixtures."
-  :- Control [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32]
+  live simulation; validate with the physical lane-change/cornering fixtures." [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32]
                [plan [:* LanePlan]]]
   (let [^:var control (follow car desired-speed lane-metres)
         distance (* (az/field control progress) 4309.0)
@@ -185,16 +178,14 @@
       (set! (az/field control steering) (ak/max -0.45 (ak/min 0.45 steering))))
     control))
 
-(az/defn follow-pit
-  "Follow the physical pit apron using pedals and steering; cap at 80km/h."
-  :- Control [[car physics/Vehicle] [desired-speed :f32] [work-offset :f32]]
+(az/defn follow-pit Control
+  "Follow the physical pit apron using pedals and steering; cap at 80km/h." [[car physics/Vehicle] [desired-speed :f32] [work-offset :f32]]
   (follow-route car (ak/min desired-speed (/ 80.0 3.6)) work-offset true))
 
-(az/defn yield-to-traffic
+(az/defn yield-to-traffic Control
   "Reflex braking for an occupied lane. AI still chooses steering and pace;
   this only changes pedals, never body velocity or position. Gap is the
-  measured forward arc distance in metres, not a rank difference."
-  :- Control [[control Control] [gap :f32] [front-speed :f32]]
+  measured forward arc distance in metres, not a rank difference." [[control Control] [gap :f32] [front-speed :f32]]
   (let [^:var result control
         speed (az/field control speed)
         space (ak/max 0.0 (- gap 6.0 (* speed 0.3)))
@@ -209,16 +200,15 @@
                       (clamp-unit (* excess 0.18))))))
     result))
 
-(az/defn apply! :- :void [[car physics/Vehicle] [control Control]]
+(az/defn apply! :void [[car physics/Vehicle] [control Control]]
   (physics/drive! car (az/field control throttle) (az/field control brake)
                   (az/field control steering)))
 
-(az/defn yield-to-offset-obstacle
+(az/defn yield-to-offset-obstacle Control
   "Permit low-speed clearance only when the requested steering points away
   from an offset stationary obstacle. Otherwise retain ordinary traffic braking.
   This does not choose a lane: it lets the AI's existing steering take effect.
-  Contacts still constrain motion; only throttle/brake outputs are adjusted."
-  :- Control [[control Control] [gap :f32] [front-speed :f32] [side-distance :f32]]
+  Contacts still constrain motion; only throttle/brake outputs are adjusted." [[control Control] [gap :f32] [front-speed :f32] [side-distance :f32]]
   (if (and (< (az/field control speed) 2.0) (< front-speed 0.2)
            (> gap 0.0) (> (ak/abs side-distance) 2.0)
            (< (* (az/field control steering) side-distance) -0.08))

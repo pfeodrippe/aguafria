@@ -3,9 +3,7 @@
   (:require [aguafria.zig :as az]
             [simple-game.factory :as factory]))
 
-(az/defn press-duration-caller
+(az/defn press-duration-caller :f32
   "Call the live factory tuning Var from an already-compiled namespace."
-  :-
-  :f32
   []
   (factory/press-duration))

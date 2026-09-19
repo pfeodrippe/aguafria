@@ -42,20 +42,16 @@
   {:zig/prefix "pub extern"}
   :- :c_int [[path [:pointer {:size :c :const? true} :u8]]])
 
-(az/defn text!
-  :- :void [[text [:slice-const :u8]]]
+(az/defn text! :void [[text [:slice-const :u8]]]
   (ui/aguafria_ui_text (az/field text ptr) (az/field text len) 0.87 0.91 0.94))
 
-(az/defn label!
-  :- :void [[text [:slice-const :u8]]]
+(az/defn label! :void [[text [:slice-const :u8]]]
   (ui/aguafria_ui_text (az/field text ptr) (az/field text len) 0.47 0.54 0.61))
 
-(az/defn colored!
-  :- :void [[text [:slice-const :u8]] [r :f32] [g :f32] [b :f32]]
+(az/defn colored! :void [[text [:slice-const :u8]] [r :f32] [g :f32] [b :f32]]
   (ui/aguafria_ui_text (az/field text ptr) (az/field text len) r g b))
 
-(az/defn wrapped!
-  :- :void [[text [:slice-const :u8]]]
+(az/defn wrapped! :void [[text [:slice-const :u8]]]
   (ui/aguafria_ui_wrapped_text (az/field text ptr) (az/field text len) 0.87 0.91 0.94))
 
 (defmacro textf!
@@ -66,33 +62,27 @@
      (~'when (~'and (~'>= count# 0) (~'< count# 512))
        (text! (az/slice buffer# 0 (ak/as :usize (ak/intCast count#)))))))
 
-(az/defn number!
-  :- :void
+(az/defn number! :void
   [[name [:pointer {:size :c :const? true} :u8]] [value [:c-pointer :f64]]
    [low :f64] [high :f64] [format [:pointer {:size :c :const? true} :u8]]]
   (ui/aguafria_ui_item_width 142)
   (set! _ (ui/aguafria_ui_slider_double name value low high format)))
 
-(az/defn metric!
-  :- :void [[title [:slice-const :u8]] [value :f64] [unit [:pointer {:size :c :const? true} :u8]]]
+(az/defn metric! :void [[title [:slice-const :u8]] [value :f64] [unit [:pointer {:size :c :const? true} :u8]]]
   (label! title)
   (textf! "%.3f %s" value unit)
   (ui/aguafria_ui_spacing))
 
-(az/defn pressed?
-  :- :bool [[key :c_int]]
+(az/defn pressed? :bool [[key :c_int]]
   (ak/!= (ui/aguafria_ui_key key) 0))
 
-(az/defn flag
-  :- :u8 [[value :bool]]
+(az/defn flag :u8 [[value :bool]]
   (if value 1 0))
 
-(az/defn rgba
-  :- :u32 [[r :u32] [g :u32] [b :u32]]
+(az/defn rgba :u32 [[r :u32] [g :u32] [b :u32]]
   (ak/| r (ak/<< g 8) (ak/<< b 16) 4278190080))
 
-(az/defn node!
-  :- :void
+(az/defn node! :void
   [[title [:pointer {:size :c :const? true} :u8]] [subtitle [:pointer {:size :c :const? true} :u8]]
    [id :i32] [panel [:* api/LabPanel]] [x :f32] [y :f32]]
   (let [selected (ak/== (az/field panel selected) id)
@@ -110,12 +100,10 @@
 
 (az/defvar frame-request :u8 0)
 
-(az/defn request-frame!
-  :- :void []
+(az/defn request-frame! :void []
   (ak/atomicStore :u8 (ak/& frame-request) 1 :.release))
 
-(az/defn input!
-  :- :void [[panel [:* api/LabPanel]] [input ui/AguafriaUIInput]]
+(az/defn input! :void [[panel [:* api/LabPanel]] [input ui/AguafriaUIInput]]
   (set! (az/field panel action) 0)
   (when (ak/!= (ak/atomicRmw :u8 (ak/& frame-request) :.Xchg 0 :.acq_rel) 0)
     (set! (az/field panel distance) 0.25))
@@ -152,8 +140,7 @@
                     (az/field panel pitch) (ak/max 0.08 (ak/min 1.3 (+ (az/field panel pitch) (* (az/field input delta_y) 0.005))))))
     (set! (az/field panel distance) (ak/max 0.25 (ak/min 24.0 (- (az/field panel distance) (* (az/field input wheel) 0.6)))))))
 
-(az/defn style!
-  :- :void []
+(az/defn style! :void []
   (ui/aguafria_ui_disable_ini)
   (ui/aguafria_ui_style_vector 0 18 16)
   (ui/aguafria_ui_style_vector 1 10 9)
@@ -169,8 +156,7 @@
 
 (az/defvar authored-jobs-visible :bool false)
 
-(az/defn header!
-  :- :void [[panel [:* api/LabPanel]] [width :f32] [scripted :bool]]
+(az/defn header! :void [[panel [:* api/LabPanel]] [width :f32] [scripted :bool]]
   (ui/aguafria_ui_panel_begin "brand" 0 0 width 66)
   (colored! "P / T" 0.24 0.84 0.72)
   (ui/aguafria_ui_same_line)
@@ -198,8 +184,7 @@
 (az/defconst model-items [:array 26 :u8]
   (az/array-init [:array 26 :u8] [82 105 103 105 100 0 88 80 66 68 0 67 111 110 116 105 110 117 117 109 32 70 69 77 0 0]))
 
-(az/defn cached-solver-label
-  :- [:slice-const :u8] []
+(az/defn cached-solver-label [:slice-const :u8] []
   (let [method (scene/scripted-solver)]
     (cond
       (ak/== method 1) "Explicit FEM / discrete contact"
@@ -209,8 +194,7 @@
       (ak/== method 5) "Implicit IPC / BDF2 (experimental)"
       :else "Cached solver not recorded")))
 
-(az/defn explorer!
-  :- :void [[panel [:* api/LabPanel]] [height :f32] [nodes :i32] [tets :i32] [scripted :bool]]
+(az/defn explorer! :void [[panel [:* api/LabPanel]] [height :f32] [nodes :i32] [tets :i32] [scripted :bool]]
   (ui/aguafria_ui_panel_begin "scene" 0 66 225 (- height 292))
   (label! "SCENE EXPLORER")
   (ui/aguafria_ui_separator)
@@ -263,8 +247,7 @@
     (text! "1 / 3: source  D: material"))
   (ui/aguafria_ui_window_end))
 
-(az/defn parameters!
-  :- :void
+(az/defn parameters! :void
   [[panel [:* api/LabPanel]] [width :f32] [height :f32]
    [nodes :i32] [capture-status :i32] [scripted :bool]]
   (ui/aguafria_ui_panel_begin "parameters" (- width 305) 66 305 (- height 292))
@@ -351,8 +334,7 @@
       (colored! (if (ak/== capture-status 6) "Frame file could not be saved" "Frame readback unavailable") 1 0.4 0.3)))
   (ui/aguafria_ui_window_end))
 
-(az/defn graph!
-  :- :void [[panel [:* api/LabPanel]] [width :f32] [height :f32] [nodes :i32] [scripted :bool]]
+(az/defn graph! :void [[panel [:* api/LabPanel]] [width :f32] [height :f32] [nodes :i32] [scripted :bool]]
   (ui/aguafria_ui_panel_begin "graph" 0 (- height 226) width 162)
   (label! "PROCEDURAL NETWORK")
   (ui/aguafria_ui_same_line)
@@ -379,8 +361,7 @@
                 (if (ak/!= (az/field panel deform) 0) "XPBD elastic network" "Rigid contact dynamics"))))))
   (ui/aguafria_ui_window_end))
 
-(az/defn transport!
-  :- :void [[panel [:* api/LabPanel]] [width :f32] [height :f32] [nodes :i32]]
+(az/defn transport! :void [[panel [:* api/LabPanel]] [width :f32] [height :f32] [nodes :i32]]
   (ui/aguafria_ui_panel_begin "transport" 0 (- height 64) width 64)
   (ui/aguafria_ui_disabled_begin (flag (ak/!= nodes 0)))
   (when (ak/!= (ui/aguafria_ui_button (if (ak/!= (az/field panel baking) 0) "STOP BAKE" "BAKE")) 0)
@@ -413,8 +394,7 @@
   (ui/aguafria_ui_disabled_end)
   (ui/aguafria_ui_window_end))
 
-(az/defn render!
-  :- :void
+(az/defn render! :void
   [[command :u64] [panel [:* api/LabPanel]] [nodes :i32] [tets :i32]
    [capture-status :i32] [scripted :bool] [overlay [:*const [:fn {:callconv :.c} [] :void]]]]
   (ui/aguafria_ui_window_title "Pitoco - AguaFria")
@@ -459,8 +439,7 @@
    [:metadata [:optional [:* stdio/AguafriaFile]]]
    [:deform :bool]])
 
-(az/defn export-begin!
-  :- [:optional [:* :anyopaque]]
+(az/defn export-begin! [:optional [:* :anyopaque]]
   [[radius :f64] [mass :f64] [height :f64] [gravity :f64] [restitution :f64]
    [friction :f64] [rolling :f64] [vx :f64] [vz :f64] [spin :f64]
    [bodies :i32] [dt :f64] [deform :i32] [stiffness :f64]]
@@ -503,12 +482,10 @@
     (set! success true)
     (ak/ptrCast run)))
 
-(az/defn export-handle
-  :- [:* Export] [[file [:optional [:* :anyopaque]]]]
+(az/defn export-handle [:* Export] [[file [:optional [:* :anyopaque]]]]
   (ak/ptrCast (ak/alignCast (az/unwrap file))))
 
-(az/defn export-sample!
-  :- :i32
+(az/defn export-sample! :i32
   [[file [:optional [:* :anyopaque]]] [body :i32] [time :f64] [x :f64] [y :f64] [z :f64]
    [vx :f64] [vy :f64] [vz :f64] [wx :f64] [wy :f64] [wz :f64]
    [qx :f64] [qy :f64] [qz :f64] [qw :f64] [energy :f64] [impulse :f64]]
@@ -523,8 +500,7 @@
                 (if deform nan qx) (if deform nan qy) (if deform nan qz) (if deform nan qw)
                 energy (if deform nan impulse)) 0))))
 
-(az/defn export-particle!
-  :- :i32
+(az/defn export-particle! :i32
   [[file [:optional [:* :anyopaque]]] [body :i32] [particle :i32]
    [time :f64] [x :f64] [y :f64] [z :f64] [vx :f64] [vy :f64] [vz :f64]]
   (when (ak/== file null) (ak/return 0))
@@ -533,8 +509,7 @@
                (>= (fprintf (az/field run particles) "%d,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n"
                              body particle time x y z vx vy vz) 0)))))
 
-(az/defn export-reference!
-  :- :i32
+(az/defn export-reference! :i32
   [[file [:optional [:* :anyopaque]]] [body :i32] [node :i32] [x :f64] [y :f64] [z :f64]]
   (when (ak/== file null) (ak/return 0))
   (let [run (export-handle file)]
@@ -544,8 +519,7 @@
                 (< (fprintf (az/field run reference) "body,node,x_m,y_m,z_m\n") 0)) (ak/return 0)))
     (flag (>= (fprintf (az/field run reference) "%d,%d,%.17g,%.17g,%.17g\n" body node x y z) 0))))
 
-(az/defn export-cell!
-  :- :i32
+(az/defn export-cell! :i32
   [[file [:optional [:* :anyopaque]]] [body :i32] [cell :i32] [a :i32] [b :i32] [c :i32] [d :i32]]
   (when (ak/== file null) (ak/return 0))
   (let [run (export-handle file)]
@@ -555,8 +529,7 @@
                 (< (fprintf (az/field run cells) "body,cell,a,b,c,d\n") 0)) (ak/return 0)))
     (flag (>= (fprintf (az/field run cells) "%d,%d,%d,%d,%d,%d\n" body cell a b c d) 0))))
 
-(az/defn export-scene-source!
-  :- :i32
+(az/defn export-scene-source! :i32
   [[file [:optional [:* :anyopaque]]] [source [:pointer {:size :c :const? true} :u8]] [bodies :i32] [dt :f64]]
   (when (or (ak/== file null) (ak/== source null)) (ak/return 0))
   (dotimes [index 64]
@@ -572,8 +545,7 @@
                      "{\n\"format\": \"pitoco/solid-scene-v1\",\n\"scene_source\": \"scenes/%s.edn\",\n\"body_count\": %d,\n\"dt_s\": %.17g,\n\"bodies\": [\n"
                      source bodies dt) 0)))))
 
-(az/defn export-scene-body!
-  :- :i32
+(az/defn export-scene-body! :i32
   [[file [:optional [:* :anyopaque]]] [body :i32] [mass :f64] [young :f64] [poisson :f64]
    [gx :f64] [gy :f64] [gz :f64] [floor :i32] [friction :f64]]
   (when (ak/== file null) (ak/return 0))
@@ -585,8 +557,7 @@
                      body mass young poisson gx gy gz
                      (ak/as (az/type [:pointer {:size :c :const? true} :u8]) (if (ak/!= floor 0) "true" "false")) friction) 0)))))
 
-(az/defn export-end!
-  :- :i32 [[file [:optional [:* :anyopaque]]]]
+(az/defn export-end! :i32 [[file [:optional [:* :anyopaque]]]]
   (when (ak/== file null) (ak/return 0))
   (let [run (export-handle file)
         ^:var success true]

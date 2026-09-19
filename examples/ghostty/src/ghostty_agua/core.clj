@@ -186,7 +186,7 @@
 
   ;; HOT EDIT 2: new function A, then existing function B starts using it.
   ;; In ghostty_agua/live.clj, add and evaluate this new declaration A:
-  ;;   (az/defn title-offset :- :u32 [] 40)
+  ;;   (az/defn title-offset :u32 [] 40)
   ;; Then change existing title-version (B)'s final expression to:
   ;;   (+ (title-offset) 2)
   ;; Evaluate only live-title-version and publish again:

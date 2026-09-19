@@ -26,9 +26,8 @@
    [:integrated-momentum p/Vec3] [:nodal-momentum p/Vec3]
    [:integrated-angular-momentum p/Vec3] [:nodal-angular-momentum p/Vec3]])
 
-(az/defn add-inertia!
+(az/defn add-inertia! :void
   "Add weight * (|point|^2 I - point point^T); off-diagonal order is xy,xz,yz."
-  :- :void
   [[tensor [:* InertiaTensor]] [point p/Vec3] [weight :f64]]
   (let [x (az/field point x)
         y (az/field point y)
@@ -40,12 +39,11 @@
       (az/field tensor off-diagonal)
       (p/add (az/field tensor off-diagonal) (p/scale (p/v (- (* x y)) (- (* x z)) (- (* y z))) weight)))))
 
-(az/defn inertia-audit
+(az/defn inertia-audit InertiaAudit
   "Integrate the current P1 position/velocity fields over reference tetrahedra.
   Compare with the actual nodal masses without changing the state. Density is
   reference density; current volume must not create or remove material mass.
   Both tensors/angular momenta use the integrated center as their origin."
-  :- InertiaAudit
   [[state [:* dynamics/Dynamics]] [density :f64]]
   (let [mesh (az/field state mesh)
         elements (az/field mesh elements)
@@ -110,8 +108,7 @@
                    (p/scale (p/add sum-cross (p/cross sum-position sum-velocity)) (* 0.05 mass)))))))
     result))
 
-(az/defn body-height
-  :- :f64
+(az/defn body-height :f64
   [[state [:* dynamics/Dynamics]]]
   (let [mesh (az/field state mesh)
         ^{:var :f64} lower 1.0e30
@@ -129,10 +126,9 @@
    [:maximum-transverse-speed :f64]
    [:transverse-kinetic-energy :f64]])
 
-(az/defn rod-fields
+(az/defn rod-fields RodFields
   "Inspect Cartesian material sections of the benchmark's box-mesh ordering.
   A one-dimensional axial wave has zero section spread and transverse velocity."
-  :- RodFields
   [[state [:* dynamics/Dynamics]] [nx :usize] [ny :usize] [nz :usize]]
   (let [^{:var RodFields} result
         (RodFields {:maximum-section-velocity-spread 0.0

@@ -15,9 +15,7 @@
 
 (az/defvar active-depth :f32 0.019)
 
-(az/defn write-screen-vertex!
-  :-
-  :void
+(az/defn write-screen-vertex! :void
   [[output [:c-pointer mesh/GpuVertex]]
    [index :usize]
    [x :f32]
@@ -33,9 +31,7 @@
           :g (az/field color g)
           :b (az/field color b)})))
 
-(az/defn append-screen-rect!
-  :-
-  :usize
+(az/defn append-screen-rect! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [output-count :usize]
    [color hud/Color]
@@ -58,10 +54,8 @@
       (write-screen-vertex! output (+ output-count 5) left bottom depth color)
       (+ output-count 6))))
 
-(az/defn capture-rect!
+(az/defn capture-rect! :void
   "HUD callback that appends six vertices instead of recording a Vulkan call."
-  :-
-  :void
   [[color hud/Color]
    [x :i32]
    [y :i32]
@@ -73,10 +67,8 @@
                                color x y width height active-depth))
     (set! active-depth (- active-depth 0.000001))))
 
-(az/defn append-overlay!
+(az/defn append-overlay! :u32
   "Append the full HUD after the 3D mesh and return the combined vertex count."
-  :-
-  :u32
   [[output [:c-pointer mesh/GpuVertex]]
    [output-count :u32]
    [frame-width :i32]

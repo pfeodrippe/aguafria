@@ -10,13 +10,11 @@
             [field-lab.soft-body :as soft]
             [field-lab.soft-mesh :as mesh]))
 
-(az/defn cached-summary
-  :- contacts/Sample
+(az/defn cached-summary contacts/Sample
   [[tick :u32]]
   (az/index scene/history tick))
 
-(az/defn cached-particles
-  :- soft/Sample
+(az/defn cached-particles soft/Sample
   [[tick :u32]]
   (az/index scene/soft-history tick))
 

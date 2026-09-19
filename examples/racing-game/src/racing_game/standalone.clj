@@ -7,8 +7,6 @@
   "Keep the native human-readable cognition UI in this demonstrator release."
   true)
 
-(az/defn main
-  :-
-  :void
+(az/defn main :void
   []
   (set! _ (monitor/run!)))

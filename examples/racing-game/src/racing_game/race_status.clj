@@ -15,11 +15,10 @@
   [[:retired :bool] [:reason :u8] [:invalid_ticks :u32]
    [:retired_tick :u64] [:lap :u16] [:progress :f32]])
 
-(az/defn observe
+(az/defn observe Entry
   "At 120Hz, retire after five continuous seconds upside-down below 5m/s.
   A transient roll, airborne car, ordinary stop or stationary pit service does
-  not qualify. Retirement freezes classification, never the physical body."
-  :- Entry [[entry Entry] [up :f32] [speed :f32] [tick :u64]
+  not qualify. Retirement freezes classification, never the physical body." [[entry Entry] [up :f32] [speed :f32] [tick :u64]
             [lap :u16] [progress :f32] [finished :bool]]
   (let [^:var result entry]
     (when (and (ak/! (az/field entry retired)) (ak/! finished))
@@ -35,11 +34,10 @@
         (set! (az/field result progress) progress)))
     result))
 
-(az/defn observe-world-position
+(az/defn observe-world-position Entry
   "Retire a car irrecoverably below the entire supported course, not an
   ordinary airborne car or one stopped on grass. No body is moved or deleted.
-  The 50m margin is deliberately below all terrain, not a local slope test."
-  :- Entry [[entry Entry] [up :f32] [speed :f32] [z :f32] [minimum-elevation :f32]
+  The 50m margin is deliberately below all terrain, not a local slope test." [[entry Entry] [up :f32] [speed :f32] [z :f32] [minimum-elevation :f32]
             [tick :u64] [lap :u16] [progress :f32] [finished :bool]]
   (let [^:var result (observe entry up speed tick lap progress finished)]
     (when (and (ak/! finished) (ak/! (az/field result retired))

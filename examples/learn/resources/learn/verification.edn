@@ -1,0 +1,3 @@
+{"cli_allocation.zig"
+ {:normalization :allocation-address
+  :reason "Each independent process allocates its own pointer. Require the exact ptr=i32@<hex> line with a nonzero address on both sides; numeric addresses need not match. No other output is ignored."}}
