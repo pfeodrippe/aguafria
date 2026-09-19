@@ -1,6 +1,5 @@
 (ns learn.example.test-incorrect-pointer-alignment
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

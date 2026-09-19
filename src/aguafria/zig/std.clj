@@ -1,8 +1,9 @@
 (ns aguafria.zig.std
   "EDN-backed loader and inspection API for Zig std Vars.
 
-  `aguafria.std` materializes every catalog namespace and Var in memory. No
-  Clojure source is generated for the individual Zig std namespaces."
+  Each Zig std namespace has a generated classpath entry point that installs
+  its Vars from the catalog. Direct requires need no bootstrap namespace.
+  `aguafria.std` additionally supports eager installation of the whole catalog."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
@@ -155,7 +156,7 @@
 
   The namespace symbols are registered with Clojure's loader only after every
   Var has installed successfully, so subsequent ordered `:require` libspecs
-  work without generated `.clj` shim files. Safe to call repeatedly at a REPL.
+  work without reloading their entry points. Safe to call repeatedly at a REPL.
   Returns a small installation summary."
   []
   (locking installation-lock

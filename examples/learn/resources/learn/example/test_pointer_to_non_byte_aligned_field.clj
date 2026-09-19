@@ -1,6 +1,5 @@
 (ns learn.example.test-pointer-to-non-byte-aligned-field
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defstruct BitField {:layout :packed}

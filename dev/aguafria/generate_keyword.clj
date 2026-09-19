@@ -681,8 +681,8 @@
          set)))
 
 (defn- delete-generated-std-files!
-  []
-  (let [stale (sort (existing-generated-std-files))
+  [expected-paths]
+  (let [stale (sort (set/difference (existing-generated-std-files) expected-paths))
         generated-root (.normalize (.toAbsolutePath (.toPath (io/file std-source-root))))]
     (doseq [path stale]
       (let [file (io/file path)
@@ -697,20 +697,46 @@
         (Files/delete resolved)))
     stale))
 
+(defn- std-namespace-sources
+  [catalog]
+  (into (sorted-map)
+        (for [{namespace-name :name} (:namespaces catalog)
+              :when (not= 'aguafria.std namespace-name)]
+          [(str "src/" (-> (str namespace-name)
+                            (str/replace "." "/")
+                            (str/replace "-" "_")) ".clj")
+           (str generated-source-header "\n"
+                "(ns " namespace-name "\n"
+                "  (:refer-clojure :only [])\n"
+                "  (:require [aguafria.zig.std]))\n\n"
+                "(aguafria.zig.std/install! clojure.core/*ns*)\n")])))
+
 (defn- std-output-current?
-  [rendered-catalog]
+  [rendered-catalog catalog]
   (and (= rendered-catalog
           (when (.isFile (io/file std-catalog-path))
             (slurp std-catalog-path)))
-       (empty? (existing-generated-std-files))))
+       (let [sources (std-namespace-sources catalog)]
+         (and (= (set (keys sources)) (existing-generated-std-files))
+              (every? (fn [[path source]] (= source (slurp path))) sources)))))
 
 (defn- write-std-output!
-  [rendered-catalog namespace-count]
-  (let [deleted (delete-generated-std-files!)]
+  [rendered-catalog catalog]
+  (let [sources (std-namespace-sources catalog)
+        deleted (delete-generated-std-files! (set (keys sources)))]
+    (doseq [[path source] sources]
+      (let [file (io/file path)]
+        (when (or (Files/isSymbolicLink (.toPath file))
+                  (and (.exists file)
+                       (not= generated-source-header
+                             (first (str/split-lines (slurp file))))))
+          (throw (ex-info "Refusing to overwrite a non-generated std namespace" {:path path})))
+        (io/make-parents file)
+        (spit file source)))
     (io/make-parents (io/file std-catalog-path))
     (spit std-catalog-path rendered-catalog)
     {:deleted-count (count deleted)
-     :namespace-count namespace-count}))
+     :namespace-count (count (:namespaces catalog))}))
 
 (defn- render-catalog
   [catalog]
@@ -748,7 +774,7 @@
                                (= existing rendered)
                                (= (compiler-derived-shape existing-catalog)
                                   (compiler-derived-shape catalog))))
-          std-current? (when check? (std-output-current? rendered-std))]
+          std-current? (when check? (std-output-current? rendered-std std-catalog))]
       (if check?
         (if (and keyword-current? std-current?)
           (do
@@ -760,7 +786,7 @@
               (when-not keyword-current?
                 (println "Zig keyword catalog is stale:" catalog-path))
               (when-not std-current?
-                (println "Zig std catalog is stale or generated namespace shims remain:"
+                (println "Zig std catalog or namespace entry points are stale:"
                          std-catalog-path))
               (println "Run: clojure -M:generate-keyword"))
             (System/exit 1)))
@@ -768,10 +794,10 @@
           (io/make-parents output)
           (spit output rendered)
           (let [{:keys [deleted-count namespace-count]}
-                (write-std-output! rendered-std (count (:namespaces std-catalog)))]
+                (write-std-output! rendered-std std-catalog)]
             (println "Generated" catalog-path "with"
                      (count (:builtins catalog)) "Zig builtins.")
             (println "Generated" std-catalog-path "with"
                      (:member-count std-catalog) "public std declarations across"
-                     namespace-count "EDN-derived Clojure namespaces; removed"
+                     namespace-count "directly requireable Clojure namespaces; removed"
                      deleted-count "obsolete generated namespace files.")))))))

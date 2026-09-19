@@ -1,6 +1,5 @@
 (ns learn.example.destructuring-to-existing
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 

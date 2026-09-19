@@ -1,6 +1,5 @@
 (ns learn.example.float-special-values
-  (:require aguafria.std
-            [aguafria.std.math :as math]
+  (:require [aguafria.std.math :as math]
             [aguafria.zig :as az]))
 
 (az/defconst inf (math/inf :f32))

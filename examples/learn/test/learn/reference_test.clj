@@ -187,7 +187,15 @@
                                 (str/replace #"\.clj$" "")
                                 (str/replace #"[^A-Za-z0-9-]+" "-"))))
                (second form)))
-        (is (not (str/includes? code "Converted from "))))))
+        (is (not (str/includes? code "Converted from ")))
+        (is (not (str/includes? code ":zig/qualifiers \"!\"")))
+        (let [requires (mapcat rest (filter #(and (seq? %) (= :require (first %)))
+                                           (drop 2 form)))
+              libraries (mapv #(if (vector? %) (first %) %) requires)]
+          (doseq [library libraries
+                  :when (str/starts-with? (str library) "aguafria.std.")]
+            (is (some? (io/resource (str (str/replace (str library) "." "/") ".clj")))
+                "Every nested std import must have a real classpath entry point."))))))
   (is (str/starts-with?
        (nth (read-string (slurp (io/resource "learn/example/tldoc_comments.clj"))) 2)
        "This module provides functions")))
@@ -282,6 +290,39 @@
       (finally
         (remove-ns lesson)
         (dosync (alter @#'clojure.core/*loaded-libs* disj lesson))))))
+
+(deftest lessons-load-and-run-in-a-clean-jvm
+  (let [code '(do
+                (assert (nil? (find-ns 'aguafria.std)))
+                (require 'learn.example.hello)
+                (load-file "resources/learn/example/hello.clj")
+                (require '[aguafria.zig.host :as host])
+                (assert (= [:error-union :void]
+                           (get-in (meta #'learn.example.hello/main)
+                                   [:aguafria/declaration :return])))
+                (let [result (host/await! (host/start! #'learn.example.hello/main []))]
+                  (assert (= 0 (:exit-code result)) (pr-str result)))
+                (require 'learn.example.hello-again)
+                (learn.example.hello-again/main)
+                (require 'learn.example.test-integer-pointer-conversion)
+                (assert (= :passed
+                           (:status (learn.example.test-integer-pointer-conversion/integer-pointer-conversion-test))))
+                (println "fresh-lesson-repl-passed")
+                (shutdown-agents))
+        command [(str (io/file (System/getProperty "java.home") "bin" "java"))
+                 "--enable-native-access=ALL-UNNAMED"
+                 "-cp" (System/getProperty "java.class.path")
+                 "clojure.main" "-e" (pr-str code)]
+        process (.start (.redirectErrorStream (ProcessBuilder. ^java.util.List command) true))
+        output (future (slurp (.getInputStream process)))
+        finished? (.waitFor process 120 java.util.concurrent.TimeUnit/SECONDS)]
+    (when-not finished?
+      (.destroyForcibly process))
+    (is finished? "Clean lesson process must finish without reference-runner bootstrap.")
+    (let [text (deref output 5000 "Timed out collecting clean REPL output")]
+      (is (and finished? (zero? (.exitValue process))) text)
+      (is (str/includes? text "Hello, World!") text)
+      (is (str/includes? text "fresh-lesson-repl-passed") text))))
 
 (deftest conversion-drafts-do-not-change-handwritten-namespace-defaults
   (doseq [file ["comments.zig" "base64.zig"]

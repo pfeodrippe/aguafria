@@ -1,3 +1,3 @@
-- [ ] rename to same examples folder
+- [x] rename to same examples folder
 - [ ] unable to start repl in some file and evaluate the file, e.g. learn.example.hello, having error Could not locate aguafria/std/Io/File__init.class, aguafria/std/Io/File.clj or aguafria/std/Io/File.cljc on classpath.
 - [ ] no need for {:zig/qualifiers "!"}, it could be :!void instead

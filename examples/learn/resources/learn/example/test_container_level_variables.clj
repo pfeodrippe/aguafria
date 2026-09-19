@@ -1,6 +1,5 @@
 (ns learn.example.test-container-level-variables
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defvar y :i32 (add 10 x))

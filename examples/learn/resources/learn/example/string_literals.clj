@@ -1,6 +1,5 @@
 (ns learn.example.string-literals
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.std.mem :as mem] ; used to compare bytes
             [aguafria.zig :as az]))

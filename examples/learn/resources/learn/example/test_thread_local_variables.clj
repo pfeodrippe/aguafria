@@ -1,6 +1,5 @@
 (ns learn.example.test-thread-local-variables
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.Thread :as thread]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))

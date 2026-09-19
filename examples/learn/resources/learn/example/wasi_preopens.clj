@@ -1,6 +1,5 @@
 (ns learn.example.wasi-preopens
-  (:require aguafria.std
-            [aguafria.std.log :as log]
+  (:require [aguafria.std.log :as log]
             [aguafria.std.process :as process]
             [aguafria.zig :as az]))
 

@@ -23,6 +23,76 @@
                          {:failure failure})))]
     (assoc outcome :printed-out (str out) :printed-err (str err))))
 
+(deftest inferred-error-keywords-call-and-hot-reload-natively
+  (let [namespace (scratch-namespace)
+        returned (atom [])
+        call-value (fn [f argument]
+                     (let [result (f argument)]
+                       (swap! returned conj result)
+                       (az/value result)))]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defn checked :!u32 [[fail? :bool]]
+                 (when fail? (ak/return (az/error-value :NoValue)))
+                 42))
+        (eval '(az/defn checked-void :!void [[fail? :bool]]
+                 (when fail? (ak/return (az/error-value :NoValue)))))
+        (eval '(az/defn recursive :!u32 [[remaining :u32]]
+                 (if (ak/== remaining 0)
+                   7
+                   (try (recursive (- remaining 1)))))))
+      (let [checked (ns-resolve namespace 'checked)
+            checked-void (ns-resolve namespace 'checked-void)
+            recursive (ns-resolve namespace 'recursive)]
+        (is (= {:ok 42} (call-value checked false)))
+        (is (= :NoValue (get-in (call-value checked true) [:error :name])))
+        (is (= {:ok nil} (call-value checked-void false)))
+        (is (= :NoValue (get-in (call-value checked-void true) [:error :name])))
+        (is (= {:ok 7} (call-value recursive 3)))
+        (binding [*ns* namespace]
+          (eval '(az/defn checked :!u32 [[fail? :bool]]
+                   (when fail? (ak/return (az/error-value :NoValue)))
+                   99)))
+        (is (= {:ok 99} (call-value checked false)))
+        (is (= :NoValue (get-in (call-value checked true) [:error :name]))))
+      (finally
+        (doseq [result @returned]
+          (az/close! result))
+        (remove-ns (ns-name namespace))))))
+
+(deftest inferred-error-payloads-resolve-local-and-imported-type-vars
+  (let [provider (scratch-namespace)
+        consumer (scratch-namespace)
+        returned (atom [])]
+    (try
+      (binding [*ns* provider]
+        (eval '(az/defstruct Packet [[:code :u32]]))
+        (eval '(az/defn packet :!Packet [] (Packet {:code 11})))
+        (eval '(az/defconst Bytes (az/type [:slice-const :u8])))
+        (eval '(az/defn payload-bytes :!Bytes [] "payload"))
+        (eval '(az/defn composite-result [:! [:slice-const :u8]] [] "composite")))
+      (binding [*ns* consumer]
+        (alias 'provider (ns-name provider))
+        (eval '(az/defn imported-packet :!provider/Packet []
+                 (try (provider/packet))))
+        (eval '(az/defn optional-result [:! [:optional :u32]]
+                 [[present? :bool]]
+                 (if present? (ak/as :u32 42) nil))))
+      (doseq [[namespace function arguments expected]
+              [[provider 'packet [] {:ok {:code 11}}]
+               [provider 'payload-bytes [] {:ok (mapv int "payload")}]
+               [provider 'composite-result [] {:ok (mapv int "composite")}]
+               [consumer 'imported-packet [] {:ok {:code 11}}]
+               [consumer 'optional-result [true] {:ok 42}]
+               [consumer 'optional-result [false] {:ok nil}]]]
+        (let [result (apply (ns-resolve namespace function) arguments)]
+          (swap! returned conj result)
+          (is (= expected (az/value result)) (str function))))
+      (finally
+        (doseq [result @returned] (az/close! result))
+        (remove-ns (ns-name consumer))
+        (remove-ns (ns-name provider))))))
+
 (deftest deftest-var-is-a-zero-argument-native-callable
   (let [namespace (scratch-namespace)
         registered (atom [])

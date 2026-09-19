@@ -1,12 +1,10 @@
 (ns learn.example.math-add
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.std.math :as math]
             [aguafria.zig :as az]))
 
-(az/defn main :void
-  {:zig/qualifiers "!"}
+(az/defn main :!void
   []
   (let [^{:var :u8} byte 255]
     (set! byte

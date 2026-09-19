@@ -1,6 +1,5 @@
 (ns learn.example.destructuring-arrays
-  (:require aguafria.std
-            [aguafria.std.debug :as debug]
+  (:require [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn- swizzle-rgba-to-bgra [:array 4 :u8]

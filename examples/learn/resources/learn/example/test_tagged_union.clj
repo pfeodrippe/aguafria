@@ -1,6 +1,5 @@
 (ns learn.example.test-tagged-union
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.std.meta :as meta]
             [aguafria.std.testing :as testing]

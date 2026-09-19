@@ -1,6 +1,5 @@
 (ns learn.example.test-slices
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.fmt :as fmt]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

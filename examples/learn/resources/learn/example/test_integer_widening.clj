@@ -1,6 +1,5 @@
 (ns learn.example.test-integer-widening
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest integer-widening-test

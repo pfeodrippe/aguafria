@@ -1,6 +1,5 @@
 (ns learn.example.test-container-level-comptime-expressions
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

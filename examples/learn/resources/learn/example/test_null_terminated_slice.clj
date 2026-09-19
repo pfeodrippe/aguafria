@@ -1,6 +1,5 @@
 (ns learn.example.test-null-terminated-slice
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest sentinel-slice-test

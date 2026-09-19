@@ -1,6 +1,5 @@
 (ns learn.example.test-pointer-coerce-const-optional
-  (:require aguafria.std
-            [aguafria.std.mem :as mem]
+  (:require [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

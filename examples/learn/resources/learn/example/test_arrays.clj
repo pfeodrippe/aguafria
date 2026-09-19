@@ -1,6 +1,5 @@
 (ns learn.example.test-arrays
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]

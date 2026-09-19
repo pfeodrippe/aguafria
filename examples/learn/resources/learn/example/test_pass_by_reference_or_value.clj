@@ -1,6 +1,5 @@
 (ns learn.example.test-pass-by-reference-or-value
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defstruct Point [[:x :i32] [:y :i32]])

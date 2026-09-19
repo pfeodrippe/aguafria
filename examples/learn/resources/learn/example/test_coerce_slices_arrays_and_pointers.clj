@@ -1,6 +1,5 @@
 (ns learn.example.test-coerce-slices-arrays-and-pointers
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest constant-array-to-slice-test

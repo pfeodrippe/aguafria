@@ -1395,7 +1395,8 @@
        ;; an inference cycle even though the original direct recursion is
        ;; valid. Keep that declaration direct; edits still publish through the
        ;; nearest reloadable caller that depends on it.
-       (not (and (str/starts-with? (or zig-qualifiers "") "!")
+       (not (and (or (emit/inferred-error-payload return)
+                     (str/starts-with? (or zig-qualifiers "") "!"))
                  logical-id
                  (contains? (declaration-reference-logical-ids declaration)
                             logical-id)))))
@@ -5055,22 +5056,48 @@
         (nested-storage-wrapper-spec type prefix)
         nil))))
 
+(defn- bridge-storage-type
+  "Expose explicit type aliases to the JVM storage helpers. Native declarations
+  keep their named types; only bridge layout inspection expands the aliases."
+  [module type seen]
+  (cond
+    (vector? type)
+    (mapv #(bridge-storage-type module % seen) type)
+
+    (symbol? type)
+    (let [declaration (referenced-declaration module type)
+          identity [(:module declaration) (:declaration-key declaration)]
+          value (:value declaration)]
+      (if (and (= :const (:kind declaration)) (not (contains? seen identity)))
+        (cond
+          (and (seq? value) (= 'type (first value)) (= 2 (count value)))
+          (bridge-storage-type (:module declaration) (second value) (conj seen identity))
+
+          (symbol? value)
+          (bridge-storage-type (:module declaration) value (conj seen identity))
+
+          :else type)
+        type))
+
+    :else type))
+
 (defn- jvm-callable-result-type
   "Return the complete Zig result type used by a JVM call bridge.
 
-  Zig's inferred error-set spelling, `!T`, is represented by converted source
-  as a `!` function qualifier plus the payload type `T`. The native bridge must
-  nevertheless store and inspect the complete error union; exposing only `T`
-  would generate an invalid C-callable wrapper."
-  [{:keys [return zig-qualifiers]}]
-  (if (and (string? zig-qualifiers)
-           (re-find #"(?:^|\s)!\s*$" zig-qualifiers))
-    ;; An inferred error set (`!T`) is legal in a function result but not as a
-    ;; standalone storage type (`*!T`). The bridge stores it as `anyerror!T`,
-    ;; which retains the exact runtime error code/name and accepts the inferred
-    ;; function result without constraining or guessing its compile-time set.
-    [:error-union :anyerror return]
-    return))
+  Inferred error unions may use a keyword (`:!void`), a composite type, or
+  converted source's `!` qualifier. Store the complete union with an explicit
+  error set: inferred sets are only valid in function return positions."
+  [{:keys [module return zig-qualifiers]}]
+  (let [return (bridge-storage-type module return #{})]
+    (if-let [payload (or (emit/inferred-error-payload return)
+                        (when (and (string? zig-qualifiers)
+                                   (re-find #"(?:^|\s)!\s*$" zig-qualifiers))
+                          return))]
+      ;; An inferred error set (`!T`) is legal in a function result but not as a
+      ;; standalone storage type (`*!T`). The bridge stores it as `anyerror!T`,
+      ;; retaining the runtime error without guessing its compile-time set.
+      [:error-union :anyerror payload]
+      return)))
 
 (defn- jvm-callable-wrapper-specs
   [module declarations]
@@ -12054,7 +12081,10 @@
                                 :declaration (declaration-summary declaration)})))
              (when-not (and (= :fn (:kind declaration))
                             (= 1 (count (:args declaration)))
-                            (str/includes? (or (:zig-qualifiers declaration) "") "!"))
+                            (or (emit/inferred-error-payload (:return declaration))
+                                (and (vector? (:return declaration))
+                                     (= :error-union (first (:return declaration))))
+                                (str/includes? (or (:zig-qualifiers declaration) "") "!")))
                (throw
                 (ex-info
                  (str "Native process hosting requires a public error-union main "

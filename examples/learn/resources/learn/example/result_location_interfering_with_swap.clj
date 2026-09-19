@@ -1,6 +1,5 @@
 (ns learn.example.result-location-interfering-with-swap
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest array-initializer-swap-test

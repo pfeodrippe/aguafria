@@ -1,11 +1,9 @@
 (ns learn.example.test-inline-switch
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defn- field-optional? :bool
-  {:zig/qualifiers "!"}
+(az/defn- field-optional? :!bool
   [[T {:zig/prefix "comptime"} :type] [field-index :usize]]
   (let [fields (az/field (az/field (ak/typeInfo T) :struct) :fields)]
     (ak/switch field-index
@@ -29,8 +27,7 @@
                               (field-optional? Struct1 index)))))
 
 ;; Calls to field-optional? on Struct1 unroll to the equivalent of this function.
-(az/defn- field-optional-unrolled? :bool
-  {:zig/qualifiers "!"}
+(az/defn- field-optional-unrolled? :!bool
   [[field-index :usize]]
   (ak/switch field-index
     (case [0] false)

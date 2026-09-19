@@ -1,6 +1,5 @@
 (ns learn.example.test-coerce-optional-wrapped-error-union
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest optional-error-union-coercion-test

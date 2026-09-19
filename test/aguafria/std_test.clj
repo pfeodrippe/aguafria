@@ -15,7 +15,7 @@
 
 (deftest normal-require-and-docs-test
   (testing "EDN-derived std declarations are ordinary documented Vars"
-    (is (nil? (io/resource "aguafria/std/math.clj")))
+    (is (some? (io/resource "aguafria/std/math.clj")))
     (is (var? #'math/sqrt))
     (is (var? #'mem/Allocator))
     (is (var? #'allocator/alloc))
@@ -46,7 +46,15 @@
 
 (deftest every-generated-namespace-loads-test
   (doseq [namespace-name (std/namespaces)]
+    (is (some? (io/resource (str (-> (str namespace-name)
+                                     (str/replace "." "/")
+                                     (str/replace "-" "_")) ".clj"))))
     (require namespace-name)
     (is (= (count (std/entries namespace-name))
            (count (ns-publics namespace-name)))
         (str namespace-name " should expose every catalog member as a Var"))))
+
+(deftest direct-std-entry-point-can-be-reloaded
+  (let [allocate #'allocator/alloc]
+    (require 'aguafria.std.mem.Allocator :reload)
+    (is (identical? allocate (ns-resolve 'aguafria.std.mem.Allocator 'alloc)))))

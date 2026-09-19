@@ -508,7 +508,9 @@
   `{:attrs #{:export}}` only when an external C-ABI symbol is intentionally
   required. Generic/comptime functions retain Zig's native ABI and are reached
   through concrete callers. Non-void functions implicitly return their final
-  expression. Optional docstrings and attributes follow the return type."
+  expression. Use `:!void` or `:!u32` for inferred error-union returns;
+  composite payloads use `[:! payload-type]` or `[:error-union payload-type]`.
+  Optional docstrings and attributes follow the return type."
   [name & declaration]
   (defn-expansion &form name declaration false))
 

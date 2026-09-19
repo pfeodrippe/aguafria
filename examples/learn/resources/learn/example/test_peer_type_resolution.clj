@@ -1,6 +1,5 @@
 (ns learn.example.test-peer-type-resolution
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -37,8 +36,7 @@
   (try (check-array-and-const-slice true))
   (try (ak/comptime (check-array-and-const-slice true))))
 
-(az/defn- check-array-and-const-slice :void
-  {:zig/qualifiers "!"}
+(az/defn- check-array-and-const-slice :!void
   [[choose-first? :bool]]
   (let [first-value (if choose-first?
                       "aoeu"

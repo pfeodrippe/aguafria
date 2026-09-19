@@ -1,6 +1,5 @@
 (ns learn.example.testing-error-with-if
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
@@ -11,7 +10,6 @@
       (debug/print "got number: {}\n" [number])
       (debug/print "got error: {s}\n" [(ak/errorName error)]))))
 
-(az/defn- get-number-or-fail :i32
-  {:zig/qualifiers "!"}
+(az/defn- get-number-or-fail :!i32
   []
   (az/error-value :UnableToReturnNumber))

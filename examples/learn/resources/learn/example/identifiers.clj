@@ -1,6 +1,5 @@
 (ns learn.example.identifiers
-  (:require aguafria.std
-            [aguafria.std.c :as c]
+  (:require [aguafria.std.c :as c]
             [aguafria.zig :as az]))
 
 ;; Friendly Clojure names can retain exact, quoted Zig identifiers.

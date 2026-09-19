@@ -1,6 +1,5 @@
 (ns learn.example.test-namespaced-container-level-variable
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

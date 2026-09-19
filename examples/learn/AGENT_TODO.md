@@ -4,6 +4,18 @@ Goal: the whole Zig 0.16.0 reference, not a selected tutorial. Completed for the
 requested scope: original document unchanged, Aguafria alternatives and real
 REPL output added, required comparisons passing. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Make nested std namespaces directly requireable from a clean REPL,
+      without `aguafria.std` bootstrap imports or reference-runner setup.
+      Generate classpath entry points from the existing std catalog.
+      Support `:!void` / `:!T` and `[:! payload]` returns, remove redundant qualifier maps in the
+      lessons, and verify native calls, error propagation and regenerated output.
+      Verified fresh JVM imports, native calls and hot reload; 73 library tests
+      / 3,719 assertions and 41 Learn tests / 7,899 assertions pass. Rebuilt all
+      290 REPL transcripts and checked all 292 file outcomes. Browser inspection
+      confirms syntax highlighting, `:!void`, real output and independent tabs.
+      This entrypoint change is std-only: third-party packages still require
+      `aguafria.pkg` bootstrap, confirmed in a separate fresh JVM.
+
 - [x] Flatten the 290 authored files into `resources/learn/example/` with
       `learn.example.*` namespaces and put the 15 explanatory blocks under
       `resources/learn/snippet/` with `learn.snippet.*` namespaces. Match original

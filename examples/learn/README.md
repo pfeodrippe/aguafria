@@ -31,6 +31,10 @@ The example uses the library checkout so compiler fixes can be tested immediatel
 All native builds use **Aguafria’s embedded Zig**, never a `zig` found on PATH.
 No other example is a dependency. Normal builds work from the hash-locked,
 MIT-licensed snapshot and do not download the reference again.
+Each lesson can be loaded directly in a fresh REPL. Nested std namespaces have
+their own classpath entry points; no preliminary `[aguafria.std]` import is needed.
+Error-returning functions use `:!void`, `:!u32`, or `:!MyType`; composite payloads
+use `[:! payload-type]` (equivalent to `[:error-union payload-type]`).
 
 Teaching examples are hand-written under `resources/learn/example/`, with
 `learn.example.*` namespaces and Zig-derived filenames (`test_if.zig` becomes

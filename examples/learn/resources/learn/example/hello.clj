@@ -4,8 +4,7 @@
             [aguafria.std.process :as process]
             [aguafria.zig :as az]))
 
-(az/defn main :void
-  {:zig/qualifiers "!"}
+(az/defn main :!void
   [[process-init process/Init]]
   (try (std-file/writeStreamingAll
         (std-file/stdout)

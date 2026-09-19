@@ -1,6 +1,5 @@
 (ns learn.example.test-multidimensional-arrays
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defconst matrix

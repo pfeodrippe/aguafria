@@ -1,6 +1,5 @@
 (ns learn.example.test-simple-union
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defconst Payload

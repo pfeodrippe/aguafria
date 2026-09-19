@@ -1,12 +1,10 @@
 (ns learn.example.wasi-args
-  (:require aguafria.std
-            [aguafria.std.debug :as debug]
+  (:require [aguafria.std.debug :as debug]
             [aguafria.std.process :as process]
             [aguafria.zig :as az]))
 
 ;; Target: wasm32-wasi.
-(az/defn main :void
-  {:zig/qualifiers "!"}
+(az/defn main :!void
   [[init process/Init]]
   (let [args (try ((az/field (az/field (az/field init :minimal) :args) :toSlice)
                    ((az/field (az/field init :arena) :allocator))))]

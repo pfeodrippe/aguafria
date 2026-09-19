@@ -1,6 +1,5 @@
 (ns learn.example.test-misaligned-pointer
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defstruct BitField {:layout :packed}

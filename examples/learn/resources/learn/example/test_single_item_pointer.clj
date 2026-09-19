@@ -1,6 +1,5 @@
 (ns learn.example.test-single-item-pointer
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

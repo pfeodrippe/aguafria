@@ -1,6 +1,5 @@
 (ns learn.example.sentinel-terminated-pointer
-  (:require aguafria.std
-            [aguafria.std.c :as c]
+  (:require [aguafria.std.c :as c]
             [aguafria.zig :as az]))
 
 (az/defn main [:error-union :anyerror :void] []

@@ -1,14 +1,12 @@
 (ns learn.example.test-src-builtin
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 ;; ak/src describes the generated Zig location, not the Clojure source line.
 ;; Adjacent let bindings become adjacent declarations in the generated file.
-(az/defn- doTheTest :void
-  {:zig/qualifiers "!"}
+(az/defn- doTheTest :!void
   []
   (let [first-location (ak/src)
         next-location (ak/src)]

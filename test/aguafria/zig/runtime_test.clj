@@ -3,6 +3,17 @@
             [aguafria.zig.emitter :as emitter]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest inferred-error-results-use-explicit-storage-types
+  (let [bridge-type #'runtime/jvm-callable-result-type]
+    (doseq [return [:!void [:! :void] [:error-union :void]]]
+      (is (= [:error-union :anyerror :void] (bridge-type {:return return}))))
+    (is (= [:error-union :anyerror :u32] (bridge-type {:return :!u32})))
+    (is (= [:error-union :anyerror :u32]
+           (bridge-type {:return :u32 :zig-qualifiers "!"})))
+    (is (= :void (bridge-type {:return :void})))
+    (is (= [:error-union :MyError :u32]
+           (bridge-type {:return [:error-union :MyError :u32]})))))
+
 (deftest local-type-metadata-participates-in-hot-slices-test
   (doseq [key [:var :zig/type :tag]]
     (let [type-decl (runtime/declaration-info

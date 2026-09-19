@@ -1,6 +1,5 @@
 (ns learn.example.test-struct-result
-  (:require aguafria.std
-            [aguafria.std.testing :as testing]
+  (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defstruct Point [[:x :i32] [:y :i32]])

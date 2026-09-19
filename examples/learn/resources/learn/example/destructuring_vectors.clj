@@ -1,6 +1,5 @@
 (ns learn.example.destructuring-vectors
-  (:require aguafria.std
-            [aguafria.std.debug :as debug]
+  (:require [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 ;; Interleave the first two lanes from each vector (like punpckldq).

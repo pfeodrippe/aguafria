@@ -1,6 +1,5 @@
 (ns learn.example.std-options
-  (:require aguafria.std
-            [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as ak]
             [aguafria.std.log :as log]
             [aguafria.zig :as az]))
 

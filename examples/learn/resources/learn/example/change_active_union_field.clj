@@ -1,6 +1,5 @@
 (ns learn.example.change-active-union-field
-  (:require aguafria.std
-            [aguafria.std.debug :as debug]
+  (:require [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defconst Value

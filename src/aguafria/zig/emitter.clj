@@ -307,7 +307,7 @@
                 :aguafria/zig-reference
                 (#(when (:type-reference? %) %))))))
 
-(declare qualify-form)
+(declare qualify-form qualify-type)
 
 (def ^:private preserved-clojure-macro-operators
   "Clojure macros whose spelling is also a direct, zero-cost Zig operator.
@@ -367,6 +367,9 @@
         token (when-not structural? (keyword/resolve-token context-ns op))
         reference (when-not structural? (resolve-zig-reference context-ns op))
         args (cond
+               (and structural? (= 'type structural-op))
+               (mapv #(qualify-type context-ns %) raw-args)
+
                (and structural? (= 'field structural-op)
                     (= 2 (count raw-args)))
                ;; A field name is Zig syntax, not a Var reference. Qualifying
@@ -517,10 +520,10 @@
   [context-ns declaration]
   (cond-> declaration
     (contains? declaration :type)
-    (update :type #(when (some? %) (qualify-form context-ns %)))
+    (update :type #(when (some? %) (qualify-type context-ns %)))
 
     (contains? declaration :return)
-    (update :return #(qualify-form context-ns %))
+    (update :return #(qualify-type context-ns %))
 
     (contains? declaration :value)
     (update :value #(qualify-form context-ns %))
@@ -533,13 +536,13 @@
 
     (contains? declaration :args)
     (update :args #(mapv (fn [arg]
-                           (update arg :type (partial qualify-form context-ns)))
+                           (update arg :type (partial qualify-type context-ns)))
                          %))
 
     (contains? declaration :fields)
     (update :fields #(mapv (fn [field]
                              (update field :type
-                                     (partial qualify-form context-ns)))
+                                     (partial qualify-type context-ns)))
                            %))))
 
 (def ^:dynamic *source-mapping?*
@@ -578,13 +581,50 @@
          (when allowzero? "allowzero ")
          (emit-type child))))
 
+(defn inferred-error-payload
+  "Return the payload of an inferred error union, or nil for other types.
+  `:!void`, `[:! :void]` and `[:error-union :void]` describe Zig `!void`."
+  [type]
+  (cond
+    (and (keyword? type) (str/starts-with? (subs (str type) 1) "!"))
+    (let [payload (subs (str type) 2)]
+      (when (str/blank? payload)
+        (fail! "Inferred error keyword requires a payload, e.g. :!void" type))
+      (keyword payload))
+
+    (and (vector? type) (= :! (first type)))
+    (if (= 2 (count type))
+      (second type)
+      (fail! "Inferred error union expects one payload type" type))
+
+    (and (vector? type) (= :error-union (first type)) (= 2 (count type)))
+    (second type)))
+
+(defn qualify-type
+  "Resolve type references, including the payload Var in `:!MyType` or
+  `:!alias/MyType`, so imports and hot reload track the real dependency."
+  [context-ns type]
+  (cond
+    (and (keyword? type) (inferred-error-payload type))
+    (let [payload (inferred-error-payload type)
+          sym (symbol (namespace payload) (name payload))
+          payload (if (or (namespace sym) (resolve-context-var context-ns sym)) sym payload)]
+      [:error-union (qualify-form context-ns payload)])
+
+    (and (vector? type) (= :! (first type)))
+    [:error-union (qualify-type context-ns (inferred-error-payload type))]
+
+    :else
+    (qualify-form context-ns type)))
+
 (defn- emit-type*
   "Emit a Zig type from a keyword/symbol/string or a compositional vector.
 
   Supported vectors include `[:* t]`, `[:*const t]`, `[:many t]`,
   `[:many-const t]`, `[:sentinel t n]`, `[:slice t]`, `[:slice-const t]`,
   `[:array n t]`, `[:vector n t]`, `[:c-pointer t]`, `[:optional t]`, and
-  `[:error-union t]`. A generated keyword call may also produce a type."
+  `[:error-union t]` (also `[:! t]`). Keywords such as `:!void` and `:!u32` are shorthand
+  for inferred error unions. A generated keyword call may also produce a type."
   [t]
   (cond
     (symbol? t)
@@ -595,7 +635,9 @@
     ;; Type-position keywords include grammar words such as anytype. Quoting
     ;; them would turn a type specifier into a reference to a named declaration.
     (keyword? t)
-    (if (contains? reserved-identifiers (name t)) (name t) (identifier t))
+    (if-let [payload (inferred-error-payload t)]
+      (emit-type (qualify-type (or *keyword-context* *ns*) t))
+      (if (contains? reserved-identifiers (name t)) (name t) (identifier t)))
 
     (string? t)
     (identifier t)
@@ -603,6 +645,7 @@
     (vector? t)
     (let [[op & xs] t]
       (case op
+        :! (str "!" (emit-type (inferred-error-payload t)))
         :* (if (= 1 (count xs))
              (str "*" (emit-type (first xs)))
              (fail! "Pointer type expects one child type" t))
@@ -2188,6 +2231,7 @@
          :else (fail! "invalid raw statement boundary" (first forms))))
 
      (or (contains? #{:void :noreturn} return-type)
+         (= :void (inferred-error-payload return-type))
          (and (vector? return-type)
               (= :error-union (first return-type))
               (= :void (last return-type)))
@@ -2550,7 +2594,8 @@
         publication-after (str dispatch "_publication_after")
         track-active (str implementation "_track_active")
         inferred-error-return?
-        (= "!" (str/trim (or (:zig-qualifiers declaration) "")))
+        (or (inferred-error-payload (:return declaration))
+            (= "!" (str/trim (or (:zig-qualifiers declaration) ""))))
         void-return?
         (and (= :void (:return declaration))
              (not inferred-error-return?))

@@ -47,6 +47,19 @@
 
 (deftest type-emission-test
   (is (= "i32" (emit/emit-type :i32)))
+  (is (= "!void" (emit/emit-type :!void)))
+  (is (= "!u32" (emit/emit-type :!u32)))
+  (is (= "!bool" (emit/emit-type :!bool)))
+  (is (= "!Result" (emit/emit-type :!Result)))
+  (is (= "![]const u8" (emit/emit-type [:! [:slice-const :u8]])))
+  (is (= (emit/emit-type [:error-union [:optional :u32]])
+         (emit/emit-type [:! [:optional :u32]])))
+  (is (thrown? clojure.lang.ExceptionInfo (emit/emit-type [:!])))
+  (is (thrown? clojure.lang.ExceptionInfo (emit/emit-type [:! :u32 :u8])))
+  (is (thrown? clojure.lang.ExceptionInfo (emit/emit-type '[! :u32])))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                       #"requires a payload"
+                       (emit/emit-type :!)))
   (is (= "Point" (emit/emit-type 'Point)))
   (is (= "*const i32" (emit/emit-type [:*const :i32])))
   (is (= "[*:0]const u8" (emit/emit-type [:sentinel-const :u8 0])))
@@ -718,30 +731,33 @@
                             "__impl(__aguafria_discard_0)\n    }")))))
 
 (deftest reloadable-inferred-error-dispatch-preserves-exact-zig-abi-test
-  (let [declaration {:kind :fn :name 'run :return :void
-                     :zig-qualifiers "!"
-                     :declaration-key [:fn 'run]
-                     :args []
-                     :body ['(return)]}
-        source
-        (emit/emit-reloadable-module
-         "demo.inferred-error" [declaration]
-         {[:fn 'run]
-          {:implementation "__impl"
-           :dispatch-type "__fn_type"
-           :dispatch "__dispatch"
-           :getter "__implementation_address"
-           :setter "__set_dispatch"
-           :active-counter "__active_calls"
-           :active-depth "__active_depth"
-           :active-tracking "__track_active_calls"
-           :active-getter "__active_call_count"
-           :publication-epoch "__publication_epoch"
-           :publication-epoch-setter "__set_publication_epoch"}})]
-    (is (str/includes? source "const __fn_type = @TypeOf(&__impl);"))
-    (is (str/includes? source "return __dispatch_target();"))
-    (is (not (str/includes? source "dispatch_frame")))
-    (is (not (str/includes? source "anyerror!void")))))
+  (doseq [result [{:return :void :zig-qualifiers "!"}
+                  {:return :!void}
+                  {:return [:! :void]}
+                  {:return [:error-union :void]}]]
+    (let [declaration (merge result {:kind :fn :name 'run
+                                     :declaration-key [:fn 'run]
+                                     :args []
+                                     :body ['(return)]})
+          source
+          (emit/emit-reloadable-module
+           "demo.inferred-error" [declaration]
+           {[:fn 'run]
+            {:implementation "__impl"
+             :dispatch-type "__fn_type"
+             :dispatch "__dispatch"
+             :getter "__implementation_address"
+             :setter "__set_dispatch"
+             :active-counter "__active_calls"
+             :active-depth "__active_depth"
+             :active-tracking "__track_active_calls"
+             :active-getter "__active_call_count"
+             :publication-epoch "__publication_epoch"
+             :publication-epoch-setter "__set_publication_epoch"}})]
+      (is (str/includes? source "const __fn_type = @TypeOf(&__impl);"))
+      (is (str/includes? source "return __dispatch_target();"))
+      (is (not (str/includes? source "dispatch_frame")))
+      (is (not (str/includes? source "anyerror!void"))))))
 
 (deftest reloadable-const-keeps-comptime-state-reference-direct-test
   (let [state-symbol
@@ -902,10 +918,11 @@
                        (emit/emit-function-body '((unreachable 1)) :usize))))
 
 (deftest void-error-unions-and-noreturn-need-no-return-attribute
-  (doseq [return-type [:void [:error-union :void]
+  (doseq [return-type [:void :!void [:! :void] [:error-union :void]
                       [:error-union :anyerror :void]]]
     (is (= "_ = result;"
            (emit/emit-function-body '((set! _ result)) return-type))))
+  (is (= "return 42;" (emit/emit-function-body '(42) :!u32)))
   (is (= "while (true) {}"
          (emit/emit-function-body '((while-loop {} true)) :noreturn)))
   (is (= "abort();"
