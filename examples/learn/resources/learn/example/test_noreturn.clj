@@ -2,16 +2,16 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defn- use-when :void
+(az/defn- foo :void
   [[condition :bool] [input :u32]]
   (let [value (if condition
                 input
                 (ak/return))]
-    (set! _ value)
+    (ak/= :_ value)
     (ak/panic "do something with a")))
 
 (az/deftest noreturn-test
-  (use-when false 1))
+  (foo false 1))
 
 (comment
   (noreturn-test))

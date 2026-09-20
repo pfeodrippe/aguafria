@@ -4,10 +4,10 @@
             [aguafria.zig :as az]))
 
 (az/deftest static-local-state-test
-  (try (testing/expectEqual 1235 (increment-state)))
-  (try (testing/expectEqual 1236 (increment-state))))
+  (try (testing/expectEqual 1235 (foo)))
+  (try (testing/expectEqual 1236 (foo))))
 
-(az/defn- increment-state :i32
+(az/defn- foo :i32
   []
   (let [State (az/struct
                 [(az/var-decl value :i32 1234)])]

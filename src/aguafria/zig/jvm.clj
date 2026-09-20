@@ -8,7 +8,9 @@
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
             [clojure.edn :as edn]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.walk :as walk])
   (:import [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option
             MemoryLayout MemorySegment ValueLayout]
            [java.lang.invoke MethodHandle]
@@ -104,14 +106,39 @@
             :implicit-return? true}
            descriptor))))
 
+(declare coerce!)
+
+(defn- expression-result
+  [namespace expression parameters result]
+  (cond
+    (and (map? result) (= #{:aguafria.jvm/error} (set (keys result))))
+    (let [{:keys [name members]} (:aguafria.jvm/error result)]
+      (value/->ZigError name (if members [:error-set (mapv keyword members)] :anyerror)))
+
+    (and (map? result) (= #{:aguafria.jvm/type} (set (keys result))))
+    ;; A Zig type cannot depend on runtime operand values. Preserve the type
+    ;; expression with typed undefined operands, rather than degrading it to a
+    ;; string that cannot be passed back to another native call.
+    (let [type (emitter/qualify-form
+                namespace
+                (walk/postwalk-replace
+                 (into {} (map (fn [{:keys [name type]}]
+                                 [name (list 'aguafria.keyword/as
+                                             'aguafria.keyword/undefined type)]))
+                       parameters)
+                 expression))]
+      (value/zig-type {:kind :type :type type :zig-name (:aguafria.jvm/type result)}
+                      #(coerce! % type)))
+    :else result))
+
 (defn- invoke-expression! [namespace expression parameters arguments]
   (locking namespace
     (let [module (str (ns-name namespace))
-          call-name (symbol (str "__jvm_call_" (token [expression parameters])))
+          helper-source (slurp (io/resource "aguafria/jvm_result.zig"))
+          call-name (symbol (str "__jvm_call_" (token [expression parameters helper-source])))
           release-name '__jvm_release
           helper-name '__aguafria_jvm
-          helper-source (slurp (io/resource "aguafria/jvm_result.zig"))
-          adapter-key [module expression parameters helper-source]]
+          adapter-key [module call-name expression parameters helper-source]]
       (when-not (contains? @prepared-adapters adapter-key)
         (binding [runtime/*source-only-registration?* true]
           (register! namespace
@@ -135,11 +162,11 @@
                         (.getString (.reinterpret (MemorySegment/ofAddress address)
                                                   Long/MAX_VALUE) 0))]
             (swap! prepared-adapters conj adapter-key)
-            result)
+            (expression-result namespace expression parameters result))
           (finally
             (runtime/invoke! (symbol module (str release-name)) [address])))))))
 
-(defn- constructor-type
+(defn constructor-type
   "Resolve actual type constructors inside the same compositional type data
   accepted by declarations. No caller namespace is guessed from a REPL."
   [type]
@@ -159,25 +186,40 @@
 
     :else type))
 
+(defn- primitive-literal? [argument]
+  (and (symbol? argument)
+       (namespace argument)
+       (= :primitive (some-> (find-var argument) meta :aguafria/token :kind))))
+
 (defn coerce!
   "Coerce a JVM value using a cached in-process Zig adapter. Scalar results
   have their ordinary JVM representation; composites retain owned native
   storage (including slice backing). The adapter is keyed by types, not values."
   [argument type]
   (let [type (constructor-type type)
+        type (if (and (vector? type)
+                      (contains? #{:array :array-sentinel} (first type))
+                      (= :_ (second type)))
+               (assoc type 1 (count argument))
+               type)
         type (if-let [payload (emitter/inferred-error-payload type)]
                [:error-union :anyerror (constructor-type payload)]
                type)
+        argument (if (and (vector? type) (= :error-union (first type))
+                          (not (value/zig-value? argument))
+                          (not (value/zig-error? argument))
+                          (not (primitive-literal? argument))
+                          (not (and (map? argument)
+                                    (or (contains? argument :ok) (contains? argument :error)))))
+                   {:ok argument}
+                   argument)
         native? (value/zig-value? argument)
-        input-type (if native?
-                     (let [input (value/type argument)]
-                       (if (and (symbol? input) (nil? (namespace input)))
-                         (symbol (:module (value/info argument)) (name input))
-                         input))
-                     type)
+        error? (value/zig-error? argument)
+        literal? (primitive-literal? argument)
+        input-type (if native? (value/qualified-type argument) type)
         extended-float? (and (not native?) (#{:f16 :f80 :f128} type))
         input-type (if extended-float? :f64 input-type)
-        namespace-name (symbol (str "aguafria.jvm.coercion-" (token [type input-type])))
+        namespace-name (symbol (str "aguafria.jvm.coercion-" (token [type input-type (when (or error? literal?) argument)])))
         context (or (find-ns namespace-name) (create-ns namespace-name))
         qualified-name (symbol (str namespace-name) "coerce")
         expression (if extended-float?
@@ -189,6 +231,16 @@
     ;; A coercion to the same type does not copy a borrowed pointer or detach
     ;; its owner. Return the original owning value rather than a dangling view.
     (cond
+      (or error? literal?)
+      (do
+        (binding [runtime/*source-only-registration?* true]
+          (register! context
+                     {:kind :fn :name 'coerce :qualified-name qualified-name
+                      :declaration-key [:fn 'coerce] :return type :args []
+                      :body [(list 'aguafria.keyword/as
+                                   (if error? (value/error-form argument) argument) type)]}))
+        (runtime/invoke! qualified-name []))
+
       (#{:comptime_int :comptime_float} type)
       (invoke-expression! context (list 'aguafria.keyword/as argument type) [] [])
 
@@ -208,6 +260,84 @@
             (swap! prepared-coercions conj [type input-type])))
         (runtime/invoke! qualified-name [argument])))))
 
+(defn- mutable-type [argument]
+  (cond
+    (value/zig-value? argument) (value/qualified-type argument)
+    (boolean? argument) :bool
+    (instance? Integer argument) :i32
+    (integer? argument) :i64
+    (instance? Float argument) :f32
+    (float? argument) :f64
+    (string? argument) [:slice-const :u8]
+    :else (throw (ex-info "A mutable value needs an explicit Zig type" {:value argument}))))
+
+(defn mutable!
+  "Create independent native storage for assignment from ordinary JVM code.
+  An optional explicit type uses the same schemas as ak/as."
+  ([argument]
+   (mutable! argument (mutable-type argument)))
+  ([argument type]
+   (mutable! argument type {}))
+  ([argument type options]
+   (let [type (constructor-type (or type (mutable-type argument)))
+         literal? (primitive-literal? argument)
+         converted (coerce! argument (if literal? [:array 1 type] type))]
+     (if (and (value/zig-value? converted) (not literal?))
+       (value/mutable-copy converted type (:schema (value/realize! converted)) options)
+       ;; One-element arrays force owned native storage even for ABI scalars.
+       (let [storage (if literal? converted (coerce! [converted] [:array 1 type]))]
+         (value/mutable-copy storage type
+                             (:element-schema (:schema (value/realize! storage))) options))))))
+
+(defn assign!
+  "Assign through a mutable native handle, using the ordinary Zig coercion path."
+  [target new-value]
+  (cond
+    (= :_ target) nil
+    (vector? target)
+    (let [items (if (value/zig-value? new-value) @new-value new-value)]
+      (when-not (and (sequential? items) (= (count target) (count items)))
+        (throw (ex-info "Destructuring assignment requires one value per target"
+                        {:targets (count target) :value items})))
+      ;; Snapshot before writing: [x y] <- [y x] is a swap, not two dependent writes.
+      (let [items (mapv #(if (value/zig-value? %) @% %) items)]
+        (doseq [[destination item] (map vector target items)]
+          (assign! destination item))))
+    :else
+    (do
+      (when-not (and (value/zig-value? target) (= :var (:kind (value/info target))))
+        (throw (ex-info "Assignment requires a mutable native value; create it with ak/var"
+                        {:target target})))
+      (value/set-value! target (coerce! new-value (value/type target)))))
+  nil)
+
+(defn invoke-assignment!
+  "Execute a compound assignment against owned native storage in Zig."
+  [syntax target operand]
+  (when-not (and (value/zig-value? target) (= :var (:kind (value/info target))))
+    (throw (ex-info "Assignment requires a mutable native value; create it with ak/var"
+                    {:target target})))
+  (let [type (value/type target)
+        module (symbol (str "aguafria.jvm.assignment-" (token [syntax type])))
+        context (or (find-ns module) (create-ns module))
+        qualified-name (symbol (str module) "assign")
+        pointer (list 'aguafria.keyword/as
+                      (list 'aguafria.keyword/ptrFromInt 'address) [:* type])]
+    (locking context
+      (when-not (contains? @prepared-adapters qualified-name)
+        (binding [runtime/*source-only-registration?* true]
+          (register! context
+                     {:kind :fn :name 'assign :qualified-name qualified-name
+                      :declaration-key [:fn 'assign] :return :void
+                      :args [{:name 'address :type :usize}
+                             {:name 'operand :type type}]
+                      :body [(list (:symbol syntax)
+                                   (list 'aguafria.zig/deref pointer) 'operand)]}))
+        (swap! prepared-adapters conj qualified-name))
+      (runtime/invoke! qualified-name
+                       [(.address ^MemorySegment (value/segment target))
+                        (coerce! operand type)]))))
+
 (defn- call-inputs [argument-declarations arguments]
   (when-not (= (count argument-declarations) (count arguments))
     (throw (ex-info "Wrong number of arguments for Zig function"
@@ -219,14 +349,11 @@
                                      (when (#{:type 'type} (:type declaration))
                                        [(:name declaration) argument])))
                              (map vector argument-declarations arguments))]
-    (letfn [(lift [argument expected]
+    (letfn [(lift [argument expected literal?]
               (let [expected (get type-arguments expected expected)
                     inferred (cond
                                (value/zig-value? argument)
-                               (let [type (value/type argument)]
-                                 (if (and (symbol? type) (nil? (clojure.core/namespace type)))
-                                   (symbol (:module (value/info argument)) (name type))
-                                   type))
+                               (value/qualified-type argument)
                                (boolean? argument) :bool
                                (instance? Byte argument) :i8
                                (instance? Short argument) :i16
@@ -241,14 +368,24 @@
                                expected
                                inferred)]
                 (cond
+                  (value/zig-error? argument) (value/error-form argument)
+                  (primitive-literal? argument) argument
+                  ;; A JVM Character is a Zig character literal, not a Java
+                  ;; object pointer or a string. Keep its code point in source.
+                  (char? argument) argument
+                  (and literal? (or (number? argument) (boolean? argument)
+                                    (string? argument)))
+                  argument
                   zig-type
                   (let [name (symbol (str "input_" (count @parameters)))]
                     (swap! parameters conj {:name name :type zig-type})
                     (swap! values conj argument)
                     name)
-                  (vector? argument) (mapv #(lift % nil) argument)
+                  (value/zig-type? argument)
+                  (list 'type (constructor-type argument))
+                  (vector? argument) (mapv #(lift % nil literal?) argument)
                   (map? argument) (into (empty argument)
-                                        (map (fn [[key item]] [key (lift item nil)])) argument)
+                                        (map (fn [[key item]] [key (lift item nil literal?)])) argument)
                   (or (keyword? argument) (nil? argument)) argument
                   (var? argument) (with-meta (symbol (str (ns-name (:ns (meta argument))))
                                                      (str (:name (meta argument))))
@@ -258,12 +395,44 @@
       {:expression-arguments
        (mapv (fn [{:keys [properties type]} argument]
                (if (or (= "comptime" (:zig/prefix properties))
-                       (#{:type 'type} type))
-                 argument
-                 (lift argument type)))
+                       (#{:type 'type :comptime_int :comptime_float} type))
+                 (if (value/zig-type? argument)
+                   (list 'type (constructor-type argument))
+                   argument)
+                 (lift argument type (:jvm/literal? properties))))
              argument-declarations arguments)
        :parameters @parameters
        :arguments @values})))
+
+(declare signature-arguments)
+
+(defn invoke-syntax!
+  "Execute a Zig builtin or value expression through the shared native bridge.
+  Comptime parameters stay in source; runtime operands retain their Zig types."
+  [{:keys [symbol signature param-count minimum-param-count] :as syntax} arguments]
+  (when (or (and param-count (not= param-count (count arguments)))
+            (and minimum-param-count (< (count arguments) minimum-param-count)))
+    (throw (ex-info "Wrong number of arguments for Zig call"
+                    {:function symbol :actual (count arguments)
+                     :expected param-count :minimum minimum-param-count})))
+  (if (contains? #{'init 'array-init} (:name syntax))
+    (apply coerce! arguments)
+    (let [declarations
+        (if (and signature (not (re-find #"\.\.\." signature)))
+          (signature-arguments
+           (str/replace-first signature #"^@[A-Za-z0-9_]+" "fn builtin"))
+          ;; Structural forms consume source literals (e.g. tuple indices and
+          ;; field names), not an invented all-i64 function signature. Native
+          ;; handles still become typed runtime parameters in call-inputs.
+          (repeat (count arguments)
+                  {:type :anytype
+                   :properties {:jvm/literal? (= :syntax (:kind syntax))}}))
+        {:keys [expression-arguments parameters arguments]}
+        (call-inputs declarations arguments)
+        namespace-name (clojure.core/symbol (str "aguafria.jvm.expression-" (token syntax)))
+        context (or (find-ns namespace-name) (create-ns namespace-name))]
+    (invoke-expression! context (apply list symbol expression-arguments)
+                        parameters arguments))))
 
 (def ^:private signature-arguments
   (memoize

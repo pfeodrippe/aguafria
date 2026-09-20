@@ -8,4 +8,4 @@
   ;; Capture the error and explicitly propagate it to the caller.
   (let [number (az/catch-capture [error] (parsing/parseU64 text 10)
                                  (ak/return error))]
-    (set! _ number)))
+    (ak/= :_ number)))

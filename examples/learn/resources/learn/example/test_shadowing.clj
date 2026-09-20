@@ -6,7 +6,7 @@
 
 (az/deftest shadowing-test
   ;; Let's even go inside another block.
-  (let [^:var pi (ak/i32 1234)]))
+  (let [pi (ak/var 1234 :i32)]))
 
 (comment
   (shadowing-test))

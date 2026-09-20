@@ -7,4 +7,4 @@
   (let [numerator (ak/u32 10)
         denominator (ak/u32 3)
         quotient (ak/divExact numerator denominator)]
-    (set! _ quotient)))
+    (ak/= :_ quotient)))

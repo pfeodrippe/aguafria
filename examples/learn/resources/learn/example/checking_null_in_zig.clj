@@ -1,11 +1,12 @@
 (ns learn.example.checking-null-in-zig
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defstruct Foo [])
 
 (az/defn- do-something-with-foo :void
   [[foo [:* Foo]]]
-  (set! _ foo))
+  (ak/= :_ foo))
 
 (az/defn- do-a-thing :void
   [[optional-foo [:optional [:* Foo]]]]

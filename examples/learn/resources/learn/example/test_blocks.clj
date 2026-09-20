@@ -3,8 +3,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest variable-outside-block-test
-  (let [^:var x (ak/i32 1)]
-    (set! _ (& x)))
+  (let [x (ak/var 1 :i32)]
+    (ak/= :_ (& x)))
   (ak/+= x 1))
 
 (comment

@@ -119,8 +119,7 @@
   [[body [:* Body]] [index :usize] [config p/Config] [modulus :f64] [dt :f64]
    [lambda [:* :f64]]]
   (let [face (az/index mesh/faces index)
-        indices (az/array-init [:array 4 :u32]
-                               [0 (az/index face 0) (az/index face 1) (az/index face 2)])
+        indices (az/array-init [0 (az/index face 0) (az/index face 1) (az/index face 2)] [:array 4 :u32])
         a (az/index (az/field (az/deref body) positions) 0)
         b (az/index (az/field (az/deref body) positions) (az/index face 0))
         c (az/index (az/field (az/deref body) positions) (az/index face 1))
@@ -134,7 +133,7 @@
         gd (p/scale (p/cross (p/add b (p/scale a -1.0)) (p/add c (p/scale a -1.0)))
                     (/ 1.0 (* 6.0 rest)))
         ga (p/scale (p/add gb (p/add gc gd)) -1.0)
-        gradients (az/array-init [:array 4 p/Vec3] [ga gb gc gd])
+        gradients (az/array-init [ga gb gc gd] [:array 4 p/Vec3])
         constraint (- (/ (signed-volume a b c d) rest) 1.0)
         compliance (/ 1.0 (* 20.0 modulus rest dt dt))
         ^:var denominator (ak/f64 compliance)]
@@ -199,8 +198,7 @@
           weight-z (ak/max 0.0 (ak/min 1.0 (/ (- (* d00 d21) (* d01 d20)) determinant)))
           weight-x (ak/max 0.0 (- 1.0 weight-y weight-z))
           total (+ weight-x weight-y weight-z)
-          weights (az/array-init [:array 3 :f64]
-                                 [(/ weight-x total) (/ weight-y total) (/ weight-z total)])
+          weights (az/array-init [(/ weight-x total) (/ weight-y total) (/ weight-z total)] [:array 3 :f64])
           wa (inverse-mass vertex config)
           ^:var denominator (ak/f64 wa)]
       (dotimes [i 3]

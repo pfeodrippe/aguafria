@@ -1,13 +1,14 @@
 (ns learn.example.not-atomic-cmpxchgStrong
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 ;; This describes compare/exchange's result, but provides no atomicity.
-(az/defn compare-exchange-not-atomic [:optional T]
+(az/defn cmpxchgStrongButNotAtomic [:optional T]
   [[T {:zig/prefix "comptime"} :type]
    [pointer [:* T]] [expected T] [replacement T]]
   (let [previous @pointer]
     (if (== previous expected)
       (do
-        (set! @pointer replacement)
+        (ak/= @pointer replacement)
         nil)
       previous)))

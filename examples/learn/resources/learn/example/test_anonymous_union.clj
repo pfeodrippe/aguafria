@@ -2,16 +2,18 @@
   (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst NumericValue
+(ns-unmap *ns* 'Number)
+
+(az/defconst Number
   (az/union
     [[:int :i32]
      [:float :f64]]))
 
-(az/defn make-number NumericValue []
+(az/defn make-number Number []
   {:float 12.34})
 
 (az/deftest anonymous-union-literal-test
-  (let [integer (NumericValue {:int 42})
+  (let [integer (Number {:int 42})
         floating (make-number)]
     (try (testing/expectEqual 42 (az/field integer :int)))
     (try (testing/expectEqual 12.34 (az/field floating :float)))))

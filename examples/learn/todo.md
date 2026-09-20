@@ -23,12 +23,32 @@
       - let's not bother about these for now
     - [-] for the color const, the evaluation is returning a `:really red` (a keyword with whitespace)
       - for later if it's really used
-  - [ ] values.clj
-    - [ ] we should be able to call (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (ak/! true)])  from the REPL, right now we have Unhandled clojure.lang.ExceptionInfo `aguafria.keyword/!` is Zig syntax and can only be used inside an Aguafria form
-    - [ ] (debug/assert (== optional-value nil)) should be just (debug/assert (ak/== optional-value nil)), and it should also work from the REPL as everything else
-    - [ ] (debug/assert (!= optional-value nil)) should be (debug/assert (ak/!= optional-value nil)), and it should also work from the REPL as everything else
-    - [ ] we should be able to see meta information like we do for structs/enums/etc for ExampleErrorSet as well
+  - [x] values.clj
+    - [x] we should be able to call (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (ak/! true)])  from the REPL, right now we have Unhandled clojure.lang.ExceptionInfo `aguafria.keyword/!` is Zig syntax and can only be used inside an Aguafria form
+    - [x] (debug/assert (== optional-value nil)) should be just (debug/assert (ak/== optional-value nil)), and it should also work from the REPL as everything else
+    - [x] (debug/assert (!= optional-value nil)) should be (debug/assert (ak/!= optional-value nil)), and it should also work from the REPL as everything else
+    - [x] we should be able to see meta information like we do for structs/enums/etc for ExampleErrorSet as well
       - Error printing return value (ExceptionInfo) at aguafria.zig.runtime/compilation-exception (runtime.clj:1367). Zig compilation failed for learn.example.values error[aguafria::zig]: no size available for comptime-only type 'type'
+    - [x] (set! optional-value "hi") should be (ak/= optional-value "hi")
+    - [x] from the jvm, (-> (az/field ExampleErrorSet :ExampleErrorVariant) (ak/as [:error-union ExampleErrorSet :i32]) ak/var) returns error  Zig error unions require {:ok value} or {:error {:code n}} {:type [:error-union [:error-set [:ExampleErrorVariant]] :i32], :value "ExampleErrorVariant"}
+    - [x] evaluate all subforms
+  - [x] string_literals.clj
+    - [x] (ak/== \e (az/char-literal "'\\x65'")) should work from the JVM directly as well
+    - [x] (debug/print "{}\n" [(mem/eql :u8 "hello" (az/string-literal "\"h\\x65llo\""))]) should work from the JVM directly as well
+  - [x] multiline_string_literals.clj
+  - [x] constant_identifier_cannot_change.clj
+    - [x] we are able to define the (az/defn- change-constant :void ...) expression, even though it's invalid, the error only shows up when we evaluate the (az/defn main :void ...) expressions that uses the change-constant, but it shouldn't be this way, it doesn't make sense
+  - [x] mutable_var.clj
+    - [x] repl output shows the `nil` in the same line, why ? learn.example.mutable-var=> (main)\n 5679nil
+  - [x] var_must_be_initialized.clj
+  - [x] assign_undefined.clj
+  - [x] destructuring_to_existing.clj
+    - [x] (ak/var ak/undefined :u32) returns a error in the JVM, Zig integer argument requires a Clojure integer, but it should work
+    - [x] (az/array-init [:array _ :u32] [4 5 6]) in the JVM returns Unable to resolve symbol: _ in this context
+  - [x] destructuring_mixed.clj
+    - [x] y is being created out of nowhere at learn.example.destructuring-mixed, the destructuring could be closer to the clojure one here
+  - [ ] testing_introduction.clj
+    - [ ] wth do we have addOne after deftest that uses it !!! it shouldn't be allowed, why the hell isn't az/deftests erroring out in this case ???? we can't put vars and such anywhere
 
 - [ ] show tree structure of a running program
   - [ ] call tree and what's in the middle of the invocations

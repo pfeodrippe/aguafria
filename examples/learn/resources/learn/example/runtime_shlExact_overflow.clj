@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^:var alternating-bits (ak/u8 2r01010101)]
-    (set! _ (ak/& alternating-bits))
+  (let [alternating-bits (ak/var 2r01010101 :u8)]
+    (ak/= :_ (ak/& alternating-bits))
     ;; Shifting by two would need more than eight bits.
     (let [shifted-bits (ak/shlExact alternating-bits 2)]
       (debug/print "value: {}\n" [shifted-bits]))))

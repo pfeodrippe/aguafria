@@ -5,7 +5,7 @@
 
 (az/deftest comptime-pointers-test
   (az/comptime-stmt
-    (let [^:var value (ak/i32 1)
+    (let [value (ak/var 1 :i32)
           pointer (& value)]
       (ak/+= @pointer 1)
       (ak/+= value 1)

@@ -165,8 +165,7 @@
   (set! (az/field (az/deref (sim/recovery-pointer 0)) state) state)
   (set! (az/field (az/deref (sim/brain-pointer 0)) lane_target) 0.075)
   (sim/update-recovery! sim/vehicle-controls)
-  (az/array-init [:array 2 driver/Control]
-    [(az/index sim/vehicle-controls 0) (az/field (sim/recovery-view 0) control)]))
+  (az/array-init [(az/index sim/vehicle-controls 0) (az/field (sim/recovery-view 0) control)] [:array 2 driver/Control]))
 
 (deftest captured-pileup-veto-is-used-by-the-simulation-test
   (worker/stop!)
@@ -322,10 +321,9 @@
     (set! (az/field (az/deref racer) finished) true)
     (set! (az/field (az/deref racer) finish_tick) 1234)
     (sim/step-many! 360)
-    (az/array-init [:array 3 :f32]
-      [(* 1000.0 (az/field (sim/racer-view 0) speed))
+    (az/array-init [(* 1000.0 (az/field (sim/racer-view 0) speed))
        (ak/as (ak/floatFromInt (az/field (sim/racer-view 0) finish_tick)) :f32)
-       (ak/as (ak/floatFromInt (az/field (sim/snapshot) state)) :f32)])))
+       (ak/as (ak/floatFromInt (az/field (sim/snapshot) state)) :f32)] [:array 3 :f32])))
 
 (deftest finishers-clear-the-line-under-wheel-power-test
   (worker/stop!)

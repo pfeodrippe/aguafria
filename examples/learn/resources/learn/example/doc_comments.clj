@@ -15,4 +15,4 @@
       1970 Jan 1 00:00:00 UTC (this is documentation too)."
      {:attrs #{:public}}
      []
-     (az/init Timestamp {:seconds 0 :nanos 0}))])
+     (az/init {:seconds 0 :nanos 0} Timestamp))])

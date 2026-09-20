@@ -5,11 +5,11 @@
 
 (az/defn- capture-error [:error-union :void]
   [[captured [:* [:optional :anyerror]]]]
-  (errdefer [error] (set! @captured error))
+  (errdefer [error] (ak/= @captured error))
   (ak/return (az/error-value :GeneralFailure)))
 
 (az/deftest errdefer-capture-test
-  (let [^:var captured (ak/as nil [:optional :anyerror])]
+  (let [captured (ak/var nil [:optional :anyerror])]
     (az/if-capture-stmt {:error [error]} (capture-error (ak/& captured))
                         (ak/unreachable)
                         (az/block

@@ -1,12 +1,13 @@
 (ns learn.example.test-string-literal-to-const-slice
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
-(az/defn accept-string :void
+(az/defn foo :void
   [[text [:slice-const :u8]]]
-  (set! _ text))
+  (ak/= :_ text))
 
 (az/deftest string-to-const-slice-test
-  (accept-string "hello"))
+  (foo "hello"))
 
 (comment
   (string-to-const-slice-test))

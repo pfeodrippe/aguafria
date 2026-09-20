@@ -2,7 +2,7 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defn- field-optional? [:error-union :bool]
+(az/defn- isFieldOptional [:error-union :bool]
   [[T {:zig/prefix "comptime"} :type] [field-index :usize]]
   (let [fields (az/field (az/field (ak/typeInfo T) :struct) :fields)]
     (switch field-index

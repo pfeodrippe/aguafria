@@ -96,13 +96,11 @@
         curvature (/ (math/tan steering) wheelbase)
         next-yaw (+ yaw (* distance curvature))]
     (if (< (ak/abs curvature) 0.00001)
-      (az/array-init [:array 3 :f32]
-        [(+ (az/field body x) (* distance (math/cos yaw)))
-         (+ (az/field body y) (* distance (math/sin yaw))) next-yaw])
-      (az/array-init [:array 3 :f32]
-        [(+ (az/field body x) (/ (- (math/sin next-yaw) (math/sin yaw)) curvature))
+      (az/array-init [(+ (az/field body x) (* distance (math/cos yaw)))
+         (+ (az/field body y) (* distance (math/sin yaw))) next-yaw] [:array 3 :f32])
+      (az/array-init [(+ (az/field body x) (/ (- (math/sin next-yaw) (math/sin yaw)) curvature))
          (- (az/field body y) (/ (- (math/cos next-yaw) (math/cos yaw)) curvature))
-         next-yaw]))))
+         next-yaw] [:array 3 :f32]))))
 
 (az/defn footprint-side-radius :f32
   "Road-normal half-span of the same oriented envelope used by the veto." [[yaw :f32] [road-yaw :f32]]

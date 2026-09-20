@@ -1,5 +1,6 @@
 (ns learn.example.handle-error-with-catch-block
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defimport parsing "error_union_parsing_u64.zig" [parseU64])
 
@@ -8,4 +9,4 @@
                       (az/labeled-block fallback
                                         ;; Recovery work can run before yielding the fallback.
                         (break fallback 13)))]
-    (set! _ number)))
+    (ak/= :_ number)))

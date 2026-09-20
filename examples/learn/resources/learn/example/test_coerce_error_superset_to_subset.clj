@@ -9,11 +9,11 @@
 
 ;; The parameter's type admits errors absent from the return type, even though
 ;; this particular call passes the shared OutOfMemory member.
-(az/defn- narrow-error AllocationError [[error FileOpenError]]
+(az/defn- foo AllocationError [[error FileOpenError]]
   error)
 
 (az/deftest superset-to-subset-test
-  (catch (narrow-error (az/field FileOpenError :OutOfMemory)) (az/block)))
+  (catch (foo (az/field FileOpenError :OutOfMemory)) (az/block)))
 
 (comment
   (superset-to-subset-test))

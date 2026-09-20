@@ -13,30 +13,30 @@
 (az/deftest small-integer-and-float-peers-test
   ;; This only works for integer types that can coerce to the float type.
   ;; Larger integer types cause a compiler error; no float widening occurs.
-  (let [^:var integer (ak/u8 12)
-        ^:var float (ak/f32 34)]
-    (set! _ [(& integer) (& float)])
+  (let [integer (ak/var 12 :u8)
+        float (ak/var 34 :f32)]
+    (ak/= :_ [(& integer) (& float)])
     (let [sum (+ integer float)]
       (try (testing/expectEqual sum 46.0))
       (try (testing/expectEqual (ak/TypeOf sum) :f32)))))
 
 (az/deftest differently-sized-array-peers-test
-  (try (testing/expectEqualStrings "true" (bool-to-string true)))
-  (try (testing/expectEqualStrings "false" (bool-to-string false)))
-  (try (ak/comptime (testing/expectEqualStrings "true" (bool-to-string true))))
-  (try (ak/comptime (testing/expectEqualStrings "false" (bool-to-string false)))))
+  (try (testing/expectEqualStrings "true" (boolToStr true)))
+  (try (testing/expectEqualStrings "false" (boolToStr false)))
+  (try (ak/comptime (testing/expectEqualStrings "true" (boolToStr true))))
+  (try (ak/comptime (testing/expectEqualStrings "false" (boolToStr false)))))
 
-(az/defn- bool-to-string [:slice-const :u8]
+(az/defn- boolToStr [:slice-const :u8]
   [[value :bool]]
   (if value
     "true"
     "false"))
 
 (az/deftest array-and-const-slice-peers-test
-  (try (check-array-and-const-slice true))
-  (try (ak/comptime (check-array-and-const-slice true))))
+  (try (testPeerResolveArrayConstSlice true))
+  (try (ak/comptime (testPeerResolveArrayConstSlice true))))
 
-(az/defn- check-array-and-const-slice :!void
+(az/defn- testPeerResolveArrayConstSlice :!void
   [[choose-first? :bool]]
   (let [first-value (if choose-first?
                       "aoeu"
@@ -48,14 +48,14 @@
     (try (testing/expectEqualStrings "zz" second-value))))
 
 (az/deftest value-and-optional-peers-test
-  (try (testing/expectEqual 0 (az/unwrap (value-and-optional true false))))
-  (try (testing/expectEqual 3 (az/unwrap (value-and-optional false false))))
+  (try (testing/expectEqual 0 (az/unwrap (peerTypeTAndOptionalT true false))))
+  (try (testing/expectEqual 3 (az/unwrap (peerTypeTAndOptionalT false false))))
   (az/comptime-stmt
     (az/block
-      (try (testing/expectEqual 0 (az/unwrap (value-and-optional true false))))
-      (try (testing/expectEqual 3 (az/unwrap (value-and-optional false false)))))))
+      (try (testing/expectEqual 0 (az/unwrap (peerTypeTAndOptionalT true false))))
+      (try (testing/expectEqual 3 (az/unwrap (peerTypeTAndOptionalT false false)))))))
 
-(az/defn- value-and-optional [:optional :usize]
+(az/defn- peerTypeTAndOptionalT [:optional :usize]
   [[choose-optional? :bool] [choose-null? :bool]]
   (when choose-optional?
     (ak/return
@@ -65,34 +65,34 @@
   (ak/as 3 :usize))
 
 (az/deftest empty-array-and-slice-peers-test
-  (try (testing/expectEqual 0 (az/field (empty-array-or-slice true "hi") :len)))
-  (try (testing/expectEqual 1 (az/field (empty-array-or-slice false "hi") :len)))
+  (try (testing/expectEqual 0 (az/field (peerTypeEmptyArrayAndSlice true "hi") :len)))
+  (try (testing/expectEqual 1 (az/field (peerTypeEmptyArrayAndSlice false "hi") :len)))
   (az/comptime-stmt
     (az/block
-      (try (testing/expectEqual 0 (az/field (empty-array-or-slice true "hi") :len)))
-      (try (testing/expectEqual 1 (az/field (empty-array-or-slice false "hi") :len))))))
+      (try (testing/expectEqual 0 (az/field (peerTypeEmptyArrayAndSlice true "hi") :len)))
+      (try (testing/expectEqual 1 (az/field (peerTypeEmptyArrayAndSlice false "hi") :len))))))
 
-(az/defn- empty-array-or-slice [:slice-const :u8]
+(az/defn- peerTypeEmptyArrayAndSlice [:slice-const :u8]
   [[choose-empty? :bool] [slice [:slice-const :u8]]]
   (when choose-empty?
-    (ak/return (& (az/array-init [:array _ :u8] []))))
+    (ak/return (& (az/array-init [] [:array :_ :u8]))))
   (az/slice slice 0 1))
 
 (az/deftest empty-array-slice-and-error-peers-test
-  (let [^:var data @"hi"
+  (let [data (ak/var @"hi")
         slice (az/slice data 0)]
-    (try (testing/expectEqual 0 (az/field (try (empty-array-or-slice-or-error true slice)) :len)))
-    (try (testing/expectEqual 1 (az/field (try (empty-array-or-slice-or-error false slice)) :len))))
+    (try (testing/expectEqual 0 (az/field (try (peerTypeEmptyArrayAndSliceAndError true slice)) :len)))
+    (try (testing/expectEqual 1 (az/field (try (peerTypeEmptyArrayAndSliceAndError false slice)) :len))))
   (az/comptime-stmt
-    (let [^:var data @"hi"
+    (let [data (ak/var @"hi")
           slice (az/slice data 0)]
-      (try (testing/expectEqual 0 (az/field (try (empty-array-or-slice-or-error true slice)) :len)))
-      (try (testing/expectEqual 1 (az/field (try (empty-array-or-slice-or-error false slice)) :len))))))
+      (try (testing/expectEqual 0 (az/field (try (peerTypeEmptyArrayAndSliceAndError true slice)) :len)))
+      (try (testing/expectEqual 1 (az/field (try (peerTypeEmptyArrayAndSliceAndError false slice)) :len))))))
 
-(az/defn- empty-array-or-slice-or-error [:error-union :anyerror [:slice :u8]]
+(az/defn- peerTypeEmptyArrayAndSliceAndError [:error-union :anyerror [:slice :u8]]
   [[choose-empty? :bool] [slice [:slice :u8]]]
   (when choose-empty?
-    (ak/return (& (az/array-init [:array _ :u8] []))))
+    (ak/return (& (az/array-init [] [:array :_ :u8]))))
   (az/slice slice 0 1))
 
 (az/deftest const-pointer-and-optional-pointer-peers-test
@@ -105,8 +105,8 @@
   ;; The successful and error branches are peers only when the error branch
   ;; is a direct switch expression. Wrapping its switch in a labeled block
   ;; would prevent peer type resolution across those branches.
-  (let [^:var result (ak/as 0 [:error-union [:error-set [:A :B :C]] :u32])]
-    (set! _ (& result))
+  (let [result (ak/var 0 [:error-union [:error-set [:A :B :C]] :u32])]
+    (ak/= :_ (& result))
     (let [from-if (az/if-capture {:payload [value] :error [error]} result
                                  (+ value 3)
                                  (ak/switch error

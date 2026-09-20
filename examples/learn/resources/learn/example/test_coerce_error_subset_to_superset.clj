@@ -8,11 +8,11 @@
 (az/defconst AllocationError
   (az/type [:error-set [:OutOfMemory]]))
 
-(az/defn- widen-error FileOpenError [[error AllocationError]]
+(az/defn- foo FileOpenError [[error AllocationError]]
   error)
 
 (az/deftest subset-to-superset-test
-  (let [error (widen-error (az/field AllocationError :OutOfMemory))]
+  (let [error (foo (az/field AllocationError :OutOfMemory))]
     (try (testing/expectEqual (az/field FileOpenError :OutOfMemory) error))))
 
 (comment

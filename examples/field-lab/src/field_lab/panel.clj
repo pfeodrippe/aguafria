@@ -180,7 +180,7 @@
   (ui/aguafria_ui_window_end))
 
 (az/defconst model-items [:array 26 :u8]
-  (az/array-init [:array 26 :u8] [82 105 103 105 100 0 88 80 66 68 0 67 111 110 116 105 110 117 117 109 32 70 69 77 0 0]))
+  (az/array-init [82 105 103 105 100 0 88 80 66 68 0 67 111 110 116 105 110 117 117 109 32 70 69 77 0 0] [:array 26 :u8]))
 
 (az/defn cached-solver-label [:slice-const :u8] []
   (let [method (scene/scripted-solver)]
@@ -198,8 +198,7 @@
   (ui/aguafria_ui_separator)
   (ui/aguafria_ui_spacing)
   (text! (if scripted "v  scripted scene" "v  sphere-impact"))
-  (let [names (az/array-init [:array 3 [:pointer {:size :c :const? true} :u8]]
-                 [(if scripted "   mesh_sources" "   sphere_source") "   mechanical_solver" "   telemetry_output"])]
+  (let [names (az/array-init [(if scripted "   mesh_sources" "   sphere_source") "   mechanical_solver" "   telemetry_output"] [:array 3 [:pointer {:size :c :const? true} :u8]])]
     (dotimes [index 3]
       (when (ak/!= (ui/aguafria_ui_selectable (az/index names index)
                       (flag (ak/== (az/field panel selected) (ak/as (ak/intCast index) :i32)))) 0)
@@ -561,9 +560,8 @@
         ^:var success true]
     (when (ak/!= (az/field run metadata) null)
       (when (< (fprintf (az/field run metadata) "\n]}\n") 0) (set! success false)))
-    (let [files (az/array-init [:array 5 [:optional [:* stdio/AguafriaFile]]]
-                  [(az/field run trajectory) (az/field run particles) (az/field run reference)
-                   (az/field run cells) (az/field run metadata)])]
+    (let [files (az/array-init [(az/field run trajectory) (az/field run particles) (az/field run reference)
+                   (az/field run cells) (az/field run metadata)] [:array 5 [:optional [:* stdio/AguafriaFile]]])]
       (dotimes [index 5]
         (when (ak/!= (az/index files index) null)
           (when (ak/!= (stdio/fclose (az/index files index)) 0) (set! success false)))))

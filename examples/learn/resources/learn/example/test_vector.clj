@@ -5,8 +5,8 @@
 
 (az/deftest basic-vector-test
   ;; Vectors have a compile-time-known length and base type.
-  (let [a (az/array-init (ak/Vector 4 :i32) [1 2 3 4])
-        b (az/array-init (ak/Vector 4 :i32) [5 6 7 8])
+  (let [a (az/array-init [1 2 3 4] (ak/Vector 4 :i32))
+        b (az/array-init [5 6 7 8] (ak/Vector 4 :i32))
         ;; Math operations take place element-wise.
         sum (+ a b)]
     ;; Individual vector elements use the same indexing syntax as arrays.
@@ -17,7 +17,7 @@
 
 (az/deftest vector-array-slice-conversion-test
   ;; Vectors can be coerced to arrays, and vice versa.
-  (let [original (ak/as (az/array-init [:array _ :f32] [1.1 3.2 4.5 5.6]) [:array 4 :f32])
+  (let [original (ak/as (az/array-init [1.1 3.2 4.5 5.6] [:array :_ :f32]) [:array 4 :f32])
         vector (ak/as original (ak/Vector 4 :f32))
         roundtrip (ak/as vector [:array 4 :f32])]
     (try (testing/expectEqual original roundtrip))
@@ -25,8 +25,8 @@
     ;; Dereference a slice with compile-time-known length to assign a vector.
     (let [fixed-vector (ak/as @(az/slice original 1 3) (ak/Vector 2 :f32))
           slice (ak/as (& original) [:slice-const :f32])
-          ^:var offset (ak/u32 1)] ; mutable to make it runtime-known
-      (set! _ (& offset)) ; suppress the never-mutated error
+          offset (ak/var 1 :u32)] ; mutable to make it runtime-known
+      (ak/= :_ (& offset)) ; suppress the never-mutated error
       ;; Starting at a runtime-known offset, first take a new slice, then an
       ;; array of compile-time-known length.
       (let [offset-vector (ak/as @(az/slice (az/slice slice offset) 0 2) (ak/Vector 2 :f32))]

@@ -9,6 +9,7 @@
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]))
 
 ;; A previous REPL load may have interned structural placeholder Vars under
@@ -35,6 +36,90 @@
 
 (clojure.core/defn source "Return a module's current generated Zig source." [module]
   (runtime/source module))
+
+(clojure.core/defn- source-declaration [target]
+  (let [reference (cond
+                    (var? target) target
+                    (symbol? target) (ns-resolve *ns* target)
+                    (value/zig-type? target)
+                    (let [{:keys [module name]} (value/type-info target)]
+                      (when (and module name (find-ns (symbol module)))
+                        (ns-resolve (symbol module) (symbol (str name)))))
+                    (value/zig-value? target)
+                    (let [{:keys [module name kind]} (value/info target)]
+                      (when (and (#{:const :var} kind) module name
+                                 (find-ns (symbol module)))
+                        (ns-resolve (symbol module) (symbol (str name)))))
+                    :else nil)]
+    (:aguafria/declaration (meta reference))))
+
+(clojure.core/defn- source-value-form [target]
+  (cond
+    (var? target)
+    (symbol (str (:ns (meta target))) (str (:name (meta target))))
+    (value/zig-error? target) (value/error-form target)
+    (value/zig-pointer? target)
+    (list 'aguafria.keyword/as
+          (list 'aguafria.keyword/ptrFromInt (value/pointer-address target))
+          (value/pointer-type target))
+    (value/zig-value? target)
+    (let [type (value/qualified-type target)
+          decoded (value/decoded target)
+          kind (get-in (value/realize! target) [:schema :kind])
+          expression (if (= :error-union kind)
+                       (if (contains? decoded :ok)
+                         (:ok decoded)
+                         (list 'error-value (keyword (get-in decoded [:error :name]))))
+                       decoded)]
+      (list 'aguafria.keyword/as (source-value-form expression) type))
+    (value/zig-type? target)
+    (list 'type ((requiring-resolve 'aguafria.zig.jvm/constructor-type) target))
+    (map? target) (into (empty target)
+                       (map (fn [[key item]] [key (source-value-form item)])) target)
+    (vector? target) (mapv source-value-form target)
+    :else target))
+
+(clojure.core/defn zig-source!
+  "Print formatted Zig to *out* and return nil, without executing declarations.
+
+  Pass #'main or 'my.ns/main to inspect a declaration (including its docs).
+  Named type constructors and native globals also identify their declarations.
+  Anonymous native values print a typed value expression. Keywords and vectors
+  beginning with a keyword are interpreted as type schemas.
+
+  Use a Var for a literal constant: its plain JVM value cannot retain provenance.
+  Formatting uses the pinned Zig formatter; pointers retain process-local addresses."
+  [target]
+  (let [declaration (source-declaration target)
+        _ (when (and (var? target) (nil? declaration)
+                     (not (:aguafria/zig-reference (meta target)))
+                     (not (:aguafria/token (meta target))))
+            (throw (ex-info "This Var has no Aguafria Zig declaration"
+                            {:var (symbol (str (:ns (meta target)))
+                                          (str (:name (meta target))))})))
+        expression? (nil? declaration)
+        context (or (some-> (:module declaration) symbol find-ns) *ns*)
+        source (if declaration
+                 (binding [emitter/*keyword-context* context
+                           emitter/*source-mapping?* false]
+                   (emitter/emit-declaration
+                    (assoc declaration :emit-source-comment? false)))
+                 (if (or (keyword? target)
+                         (and (vector? target) (keyword? (first target))))
+                   (emitter/emit-type
+                    context ((requiring-resolve 'aguafria.zig.jvm/constructor-type) target))
+                   (emitter/emit-expr context (source-value-form target))))
+        prefix "const __aguafria_inspect = "
+        result (shell/sh (runtime/zig-executable) "fmt" "--stdin"
+                         :in (if expression? (str prefix source ";\n") source))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Unable to format Zig source"
+                      {:source source :stderr (:err result) :exit (:exit result)})))
+    (let [formatted (str/trimr (:out result))]
+      (println (if expression?
+                 (subs formatted (count prefix) (dec (count formatted)))
+                 formatted)))
+    nil))
 
 (clojure.core/defn module-info "Return inspectable loaded-module information." [module]
   (runtime/module-info module))
@@ -438,7 +523,7 @@
                     (and (not private?) (not converted?)
                          (not explicit-public?))
                     (assoc :public? true)
-                    (and (not private?) (not converted?) (not generic?)
+                    (and (not converted?) (not generic?)
                          (not explicit-export-setting?)
                          (development-c-abi-type? return)
                          (every? (comp development-c-abi-type? :type) args)
@@ -451,8 +536,7 @@
                     ;; release semantics or the user-facing `:export?` value.
                     (assoc :development-export? true)
                     private? (assoc :public? false
-                                    :export? explicit-export?
-                                    :development-export? false)
+                                    :export? explicit-export?)
                     generic? (assoc :export? false
                                     :development-export? false))]
       (emitter/prepare-declaration
@@ -983,12 +1067,13 @@
                     :arglists '([]))
        (var ~name))))
 
-(clojure.core/defn- unavailable-syntax-form
+(clojure.core/defn- jvm-syntax-form
   [operator]
   (fn [& arguments]
-    (throw (ex-info (str "`az/" operator "` is Aguafria Zig syntax and can only "
-                         "be used inside an Aguafria declaration")
-                    {:operator operator :arguments arguments}))))
+    ((requiring-resolve 'aguafria.zig.jvm/invoke-syntax!)
+     {:kind :syntax :name operator
+      :symbol (symbol "aguafria.zig" (name operator))}
+     arguments)))
 
 (clojure.core/defn- resolved-declaration
   [symbol]
@@ -1082,10 +1167,10 @@
   (let [syntax {:kind :syntax
                 :name operator
                 :symbol (symbol "aguafria.zig" (name operator))}
-        v (intern *ns* operator (unavailable-syntax-form operator))]
+        v (intern *ns* operator (jvm-syntax-form operator))]
     (alter-meta! v merge
                  {:aguafria/syntax syntax
                   :arglists '([& forms])
                   :doc (str "Aguafria structural Zig form `" operator
-                            "`. Valid only inside `az/defn`, `az/defconst`, "
-                            "or another Aguafria declaration.")})))
+                            "`. Value expressions also execute through the native JVM "
+                            "bridge; scope-dependent forms need an enclosing declaration.")})))

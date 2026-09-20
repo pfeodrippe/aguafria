@@ -11,7 +11,7 @@
     (debug/print "{d}\n" [(az/field bytes :len)]) ; 5
     (debug/print "{c}\n" [(az/index bytes 1)]) ; e
     (debug/print "{d}\n" [(az/index bytes 5)]) ; 0
-    (debug/print "{}\n" [(== \e (az/char-literal "'\\x65'"))]) ; true
+    (debug/print "{}\n" [(ak/== \e (az/char-literal "'\\x65'"))]) ; true
     (debug/print "{d}\n" [(az/char-literal "'\\u{1f4a9}'")]) ; 128169
     (debug/print "{d}\n" [(az/char-literal "'💯'")]) ; 128175
     (debug/print "{u}\n" [\⚡])

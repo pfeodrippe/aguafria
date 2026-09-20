@@ -8,7 +8,7 @@
       (az/break-label outer))))
 
 (az/deftest nested-continue-test
-  (let [^:var i (ak/usize 0)]
+  (let [i (ak/var 0 :usize)]
     (az/while-loop {:label outer
                     :continue (az/assign-expr "+=" i 1)}
       (< i 10)

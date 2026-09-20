@@ -1,5 +1,6 @@
 (ns learn.example.enum-export
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defenum Foo
   {:argument :c_int}
@@ -10,7 +11,7 @@
 (az/defn entry :void
   {:attrs #{:export}}
   [[foo Foo]]
-  (set! _ foo))
+  (ak/= :_ foo))
 
 (comment
   (entry :a))

@@ -69,7 +69,7 @@
             delta (- (az/field b heading) (az/field a heading))
             k (ak/abs (math/atan2 (math/sin delta) (math/cos delta)))]
         (when (> k curvature) (set! curvature k) (set! location d))))
-    (az/array-init [:array 2 :f32] [location curvature])))
+    (az/array-init [location curvature] [:array 2 :f32])))
 
 (az/defvar lap-trace [:array 360 [:array 11 :f32]] ak/undefined)
 
@@ -86,12 +86,11 @@
             finish (+ middle (az/field plan length))
             end (driver/lane-plan-state (ak/& plan) finish)]
         (driver/update-lane-plan! (ak/& plan) (+ finish 1.0) -3.75 70.0 -3.75)
-        (az/array-init [:array 10 :f32]
-          [(az/index before 0) (az/index after 0)
+        (az/array-init [(az/index before 0) (az/index after 0)
            (az/index before 1) (az/index after 1)
            (az/index before 2) (az/index after 2)
            (az/index end 0) (az/index end 1) (az/index end 2)
-           (az/index (driver/lane-plan-state (ak/& plan) (+ middle 4309.0)) 0)])))))
+           (az/index (driver/lane-plan-state (ak/& plan) (+ middle 4309.0)) 0)] [:array 10 :f32])))))
 
 (deftest lane-plan-continuity-test
   (let [[p0 p1 v0 v1 a0 a1 end slope curvature next-lap :as result]
@@ -180,14 +179,14 @@
                                             :else delta))))))
           (when (and (< tick 43200) (ak/== (mod tick 120) 0))
             (set! (az/index lap-trace (ak/divTrunc tick 120))
-                  (az/array-init [:array 11 :f32] [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
+                  (az/array-init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
                     progress (az/field control lane) (az/field control speed)
                     (az/field control throttle) (az/field control brake) (az/field control steering)
                     (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))
                                       (* (az/field state qy) (az/field state qy)))))
                     (b3/b3WheelJoint_GetSteeringAngle (az/index (az/field car joints) 0))
                     (b3/b3WheelJoint_GetSteeringAngle (az/index (az/field car joints) 1))
-                    (az/field state wz)])))
+                    (az/field state wz)] [:array 11 :f32])))
           (set! distance (+ distance (* 4309.0 (cond (> delta 0.5) (- delta 1.0)
                                                     (< delta -0.5) (+ delta 1.0)
                                                     :else delta))))

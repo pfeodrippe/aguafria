@@ -5,6 +5,15 @@
             [learn.inline :as inline]
             [learn.reference :as ref]))
 
+(deftest repl-result-is-separated-from-unterminated-native-output
+  (doseq [streams [{:stdout "5679"} {:stderr "5679"} {:stdout "56" :stderr "79"}]]
+    (is (= "learn.example.mutable-var=&gt; (main)\n5679\nnil\n"
+           (ref/repl-evaluation (merge {:namespace "learn.example.mutable-var"
+                                       :form "(main)" :value nil} streams)))))
+  (is (= "user=&gt; (main)\n5679\nnil\n"
+         (ref/repl-evaluation {:namespace "user" :form "(main)"
+                               :stderr "5679\n" :value nil}))))
+
 (deftest inline-references-use-real-catalog-and-emitter
   (let [catalog (inline/references)]
     (doseq [[zig aguafria] [["u8" ":u8"] ["i114" ":i114"]
@@ -145,12 +154,32 @@
           :let [code (slurp (clojure.java.io/resource source))]]
     (testing file
       (is (nil? (re-find #"zig-[a-z-]+-[0-9a-f]{12,}" code)))
-      (is (nil? (re-find #"\(ak/(?:const|var)\s" code)))
+      (is (nil? (re-find #"\(ak/const\s" code)))
+      (is (nil? (re-find #"\^:var|\^\{[^\n]*(?:var|zig/type)" code)))
+      (is (not (str/includes? code "(set! ")))
       (is (not (str/includes? code ":zig/test-name")))
       (is (not (str/includes? code ":explicit-return")))
       (is (not (str/includes? code "Generated from")))
       (is (nil? (re-find #"\(az/(?:defn-?|deftest)\s*\n" code)))
       (is (nil? (re-find #"\(az/deftest\s+\"" code))))))
+
+(deftest authored-declaration-names-correspond-to-original-zig
+  (let [normalize-name #(-> % str/lower-case (str/replace #"[-_?!]" ""))]
+    (doseq [[file {:keys [source]}] (ref/read-edn "resources/learn/overrides.edn")
+            :when source
+            :let [zig (slurp (io/file ref/upstream-dir "doc/langref" file))
+                  code (slurp (io/resource source))
+                  names (into #{} (map (comp normalize-name second))
+                              (re-seq #"\b(?:fn|const)\s+([A-Za-z_][A-Za-z0-9_]*)" zig))]
+            [_ kind identifier] (re-seq #"(?m)^\(az/(defn-?|defconst|defstruct|defunion|defenum)\s+([^\s()]+)" code)
+            :when (or (str/starts-with? kind "defn")
+                      (re-find #"^[A-Z]" identifier))]
+      (is (or (contains? names (normalize-name identifier))
+              ;; Zig's quoted export cannot itself be a Clojure symbol.
+              (and (= file "export_any_symbol_name.zig")
+                   (= identifier "sentence-function")
+                   (str/includes? code ":zig/name")))
+          (str file ": " identifier " must retain its upstream declaration name")))))
 
 (deftest named-map-initializers-use-constructors
   (doseq [file (file-seq (io/file "resources/learn"))
@@ -397,6 +426,22 @@
     ;; This check does not require generated reports to exist in a clean checkout.
     (is (every? :source-sha256 results))
     (is (empty? (ref/current-blocks changed)))))
+
+(deftest stale-authored-source-is-not-presented-as-verified
+  (let [translation {:file "hello.zig" :id "hello" :clojure-path "build/translations/hello.clj"
+                     :authored-source "learn/example/hello.clj" :status :translated}
+        outcome {:status :upstream-outcome-passed :fingerprint :current
+                 :source-sha256 :upstream :clojure-sha256 :cached :emitted-sha256 :cached
+                 :comparison {:status :output-matched}}
+        authored (io/resource (:authored-source translation))]
+    (with-redefs [ref/read-edn (fn [path]
+                               (if (= "build/translations.edn" path) [translation] outcome))
+                  ref/compiler-fingerprint (constantly :current)
+                  ref/sha256 (constantly :cached)
+                  clojure.core/slurp (fn [path] (if (= authored path) "edited source" "cached source"))]
+      (is (nil? (:verification
+                 (first (ref/verified-translations
+                         {:examples [{:file "hello.zig" :sha256 :upstream}]}))))))))
 
 (deftest output-comparison-keeps-real-program-data
   (let [html (str "<pre><code>source is not output</code></pre>"
@@ -769,7 +814,7 @@
     (doseq [snippet translated]
       (is (not (str/blank? (:note snippet))) (:id snippet)))
     (doseq [[source mapping] (inline/authored-mappings)]
-      (is (not (re-find #"\(ak/(?:const|var)\s" (:clojure-source mapping))) source)
+      (is (not (re-find #"\(ak/const\s" (:clojure-source mapping))) source)
       (when (:standalone? mapping)
         (is (= :expr (:kind mapping)) source)))))
 

@@ -28,9 +28,9 @@
 
 (az/defn main :noreturn []
   (let [message "hello world\n"]
-    (set! _ (syscall3 sys-write stdout-fileno
+    (ak/= :_ (syscall3 sys-write stdout-fileno
                       (ak/intFromPtr message) (az/field message :len)))
-    (set! _ (syscall1 sys-exit 0))
+    (ak/= :_ (syscall1 sys-exit 0))
     (ak/unreachable)))
 
 (comment

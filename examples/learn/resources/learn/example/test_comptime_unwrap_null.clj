@@ -5,4 +5,4 @@
 (az/defcomptime reject-absent-number
   (let [optional-number (ak/as nil [:optional :i32])
         number (az/unwrap optional-number)]
-    (set! _ number)))
+    (ak/= :_ number)))

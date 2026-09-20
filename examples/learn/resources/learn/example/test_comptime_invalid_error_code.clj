@@ -3,4 +3,4 @@
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-invalid-error-code
-  (set! _ (ak/errorFromInt 12345)))
+  (ak/= :_ (ak/errorFromInt 12345)))

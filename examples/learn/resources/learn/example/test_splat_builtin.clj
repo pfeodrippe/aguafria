@@ -8,7 +8,7 @@
         repeated (ak/as (ak/splat scalar) [:vector 4 :u32])]
     (try (testing/expectEqualSlices
           (az/type :u32)
-          (& (az/array-init [:array _ :u32] [5 5 5 5]))
+          (& (az/array-init [5 5 5 5] [:array :_ :u32]))
           (& (ak/as repeated (az/type [:array 4 :u32])))))))
 
 (az/deftest array-splat-test
@@ -16,7 +16,7 @@
         repeated (ak/as (ak/splat scalar) [:array 4 :u32])]
     (try (testing/expectEqualSlices
           (az/type :u32)
-          (& (az/array-init [:array _ :u32] [5 5 5 5]))
+          (& (az/array-init [5 5 5 5] [:array :_ :u32]))
           (& (ak/as repeated (az/type [:array 4 :u32])))))))
 
 (comment

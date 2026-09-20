@@ -5,7 +5,7 @@
 
 (az/defvar numbers-left :u32 ak/undefined)
 
-(az/defn- next-number [:error-union :anyerror :u32] []
+(az/defn- eventuallyErrorSequence [:error-union :anyerror :u32] []
   (if (== numbers-left 0)
     (az/error-value :ReachedZero)
     (let []
@@ -13,13 +13,13 @@
       numbers-left)))
 
 (az/deftest while-error-capture-test
-  (let [^:var sum (ak/u32 0)]
-    (set! numbers-left 3)
+  (let [sum (ak/var 0 :u32)]
+    (ak/= numbers-left 3)
     (az/while-loop {:payload [number]
                     :error [error]
                     :else [(try (testing/expectEqual
                                  (az/error-value :ReachedZero) error))]}
-      (next-number)
+      (eventuallyErrorSequence)
       (ak/+= sum number))))
 
 (comment

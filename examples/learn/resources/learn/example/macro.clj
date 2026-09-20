@@ -5,10 +5,10 @@
 (az/defn foo :c_int
   {:attrs #{:export}}
   []
-  (let [^:var a (ak/as 1 :c_int)]
-    (set! _ (& a))
-    (let [^:var b (ak/as 2 :c_int)]
-      (set! _ (& b))
+  (let [a (ak/var 1 :c_int)]
+    (ak/= :_ (& a))
+    (let [b (ak/var 2 :c_int)]
+      (ak/= :_ (& b))
       (+ a b))))
 
 (az/defconst MAKELOCAL

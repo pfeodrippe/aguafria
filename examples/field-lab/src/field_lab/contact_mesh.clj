@@ -34,8 +34,8 @@
   [[kind :u32] [a0 p/Vec3] [b0 p/Vec3] [c0 p/Vec3] [d0 p/Vec3]
    [a1 p/Vec3] [b1 p/Vec3] [c1 p/Vec3] [d1 p/Vec3]
    [separation :f64] [tolerance :f64] [maximum-time :f64] [maximum-iterations :u32]]
-  (let [before (az/array-init [:array 4 p/Vec3] [a0 b0 c0 d0])
-        after (az/array-init [:array 4 p/Vec3] [a1 b1 c1 d1])
+  (let [before (az/array-init [a0 b0 c0 d0] [:array 4 p/Vec3])
+        after (az/array-init [a1 b1 c1 d1] [:array 4 p/Vec3])
         ^:var result (CCDResult {:status 2 :reserved 0 :time 0.0 :achieved-tolerance 0.0})]
     (pitoco_aguafria_ccd_query kind (ak/& (az/index before 0)) (ak/& (az/index after 0))
                      separation tolerance maximum-time maximum-iterations (ak/& result))
@@ -134,7 +134,7 @@
 
 (az/defn set-face! :void
   [[surface [:* Surface]] [index :usize] [a :u32] [b :u32] [c :u32]]
-  (set! (az/index (az/field surface faces) index) (az/array-init [:array 3 :u32] [a b c])))
+  (set! (az/index (az/field surface faces) index) (az/array-init [a b c] [:array 3 :u32])))
 
 (az/defn set-tree! :void
   [[surface [:* Surface]] [index :usize] [parent :usize]
@@ -490,7 +490,7 @@
 (az/defn triangle-closest Closest
   "Interior projection plus all three closed segments covers every Voronoi region."
   [[point p/Vec3] [a p/Vec3] [b p/Vec3] [c p/Vec3]]
-  (let [vertices (az/array-init [:array 3 p/Vec3] [a b c])
+  (let [vertices (az/array-init [a b c] [:array 3 p/Vec3])
         ^:var result (Closest {:point a :weights (p/v 1.0 0.0 0.0)
                               :squared-distance 1.0e300 :face 0 :signed-distance 0.0
                               :normal (p/v 0.0 0.0 0.0)})]
@@ -756,7 +756,7 @@
   (let [^:var report (FacePairsReport {:status 0 :count 0 :visits 0})
         ^:var stack (ak/as ak/undefined [:array 128 [:array 2 :usize]])
         ^:var size (ak/usize 1)]
-    (set! (az/index stack 0) (az/array-init [:array 2 :usize] [0 0]))
+    (set! (az/index stack 0) (az/array-init [0 0] [:array 2 :usize]))
     (while (> size 0)
       (when (>= (az/field report visits) 100000)
         (set! (az/field report status) 1)
@@ -775,7 +775,7 @@
                 (set! (az/field report status) 1)
                 (ak/return report))
               (set! (az/index pairs (az/field report count))
-                    (az/array-init [:array 2 :u32] [(ak/intCast (az/field left face)) (ak/intCast (az/field right face))]))
+                    (az/array-init [(ak/intCast (az/field left face)) (ak/intCast (az/field right face))] [:array 2 :u32]))
               (ak/+= (az/field report count) 1))
             (let [split-a (or (az/field right leaf) (ak/! (az/field left leaf)))]
               (when (> (+ size 2) 128)
@@ -783,11 +783,11 @@
                 (ak/return report))
               (az/set-many!
                 (az/index stack size)
-                (az/array-init [:array 2 :usize] [(if split-a (az/field left right) ia)
-                                                 (if split-a ib (az/field right right))])
+                (az/array-init [(if split-a (az/field left right) ia)
+                                                 (if split-a ib (az/field right right))] [:array 2 :usize])
                 (az/index stack (+ size 1))
-                (az/array-init [:array 2 :usize] [(if split-a (az/field left left) ia)
-                                                 (if split-a ib (az/field right left))])
+                (az/array-init [(if split-a (az/field left left) ia)
+                                                 (if split-a ib (az/field right left))] [:array 2 :usize])
                 size (+ size 2)))))))
     report))
 
@@ -865,7 +865,7 @@
     (az/set-many!
       (az/field report status) 0
       (az/field report time) (math/inf :f64)
-      (az/index stack 0) (az/array-init [:array 2 :usize] [0 0]))
+      (az/index stack 0) (az/array-init [0 0] [:array 2 :usize]))
     (while (> size 0)
       (when (>= (+ (az/field report visits) (az/field report queries)) maximum-work)
         (az/set-many! (az/field report status) 4 (az/field report time) 0.0)
@@ -897,11 +897,11 @@
                 (ak/return report))
               (az/set-many!
                 (az/index stack size)
-                (az/array-init [:array 2 :usize] [(if split-a (az/field node-a right) ia)
-                                                 (if split-a ib (az/field node-b right))])
+                (az/array-init [(if split-a (az/field node-a right) ia)
+                                                 (if split-a ib (az/field node-b right))] [:array 2 :usize])
                 (az/index stack (+ size 1))
-                (az/array-init [:array 2 :usize] [(if split-a (az/field node-a left) ia)
-                                                 (if split-a ib (az/field node-b left))])
+                (az/array-init [(if split-a (az/field node-a left) ia)
+                                                 (if split-a ib (az/field node-b left))] [:array 2 :usize])
                 size (+ size 2)))))))
     report))
 

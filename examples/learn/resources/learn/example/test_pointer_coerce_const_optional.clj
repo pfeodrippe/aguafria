@@ -5,8 +5,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest optional-sentinel-pointer-coercion-test
-  (let [window-names (az/array-init [:array 1 [:sentinel-const :u8 0]]
-                                    ["window name"])
+  (let [window-names (az/array-init ["window name"] [:array 1 [:sentinel-const :u8 0]])
         optional-names (ak/as (& window-names) [:slice-const [:optional [:sentinel-const :u8 0]]])]
     (try (testing/expectEqualStrings
           "window name"

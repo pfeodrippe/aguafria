@@ -72,7 +72,7 @@
 
  "comptime var"
  {:clojure-source "" :kind :syntax-note
-  :note "A mutable compile-time local is a let binding annotated ^{:var true :zig/prefix \"comptime\"}. Its loads and stores are checked at compile time."}
+  :note "A mutable compile-time local uses ak/var with the :zig/prefix \"comptime\" option. Its loads and stores are checked at compile time."}
 
  "*%"
  {:clojure-source "ak/*%" :kind :reference

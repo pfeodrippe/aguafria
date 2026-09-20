@@ -11,7 +11,7 @@
 
 (az/defn main :void
   []
-  (let [position (az/array-init [:array _ :i32] [1 2])
+  (let [position (az/array-init [1 2] [:array :_ :i32])
         [x y] position
         orange (ak/as [255 165 0 255] [:array 4 :u8])]
     (debug/print "x = {}, y = {}\n" [x y])

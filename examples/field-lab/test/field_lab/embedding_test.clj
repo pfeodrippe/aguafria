@@ -11,9 +11,8 @@
 (az/defn fixture! [:* cache/Cache]
   [[cells :usize]]
   (let [source (cache/create! 5 cells 1 2 (p/defaults) 1000.0 0.3)
-        points (az/array-init [:array 5 p/Vec3]
-                 [(p/v 0.0 0.0 0.0) (p/v 1.0 0.0 0.0) (p/v 0.0 1.0 0.0)
-                  (p/v 0.0 0.0 1.0) (p/v 0.0 0.0 -1.0)])]
+        points (az/array-init [(p/v 0.0 0.0 0.0) (p/v 1.0 0.0 0.0) (p/v 0.0 1.0 0.0)
+                  (p/v 0.0 0.0 1.0) (p/v 0.0 0.0 -1.0)] [:array 5 p/Vec3])]
     (dotimes [node 5]
       (let [point (az/index points node)
             x (az/field point x)
@@ -26,9 +25,9 @@
           (p/v (+ 2.0 (* 0.2 x) (* -1.3 y) (* 0.4 z))
                (+ -1.0 (* 1.1 x) (* 0.3 y))
                (+ 3.0 (* 0.1 y) (* 0.7 z))))))
-    (set! (az/index (az/field source cells) 0) (az/array-init [:array 4 :u32] [0 1 2 3]))
+    (set! (az/index (az/field source cells) 0) (az/array-init [0 1 2 3] [:array 4 :u32]))
     (when (ak/== cells 2)
-      (set! (az/index (az/field source cells) 1) (az/array-init [:array 4 :u32] [0 2 1 4])))
+      (set! (az/index (az/field source cells) 1) (az/array-init [0 2 1 4] [:array 4 :u32])))
     (set! (az/field source count) 2)
     source))
 
@@ -52,7 +51,7 @@
   [[render [:* embedding/Render]]]
   ;; The same shared-face material point expressed in the other tetrahedron.
   (set! (az/index (az/field render bindings) 0)
-        (embedding/Binding {:cell 1 :weights (az/array-init [:array 4 :f64] [0.5 0.3 0.2 0.0]) :valid true})))
+        (embedding/Binding {:cell 1 :weights (az/array-init [0.5 0.3 0.2 0.0] [:array 4 :f64]) :valid true})))
 
 (az/defn bend! :void
   [[source [:* cache/Cache]]]

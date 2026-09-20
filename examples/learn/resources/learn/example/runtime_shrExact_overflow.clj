@@ -7,8 +7,8 @@
   [[native-arch "cpu.arch"] [zig-backend "zig_backend"]])
 
 (az/defn main :void []
-  (let [^:var alternating-bits (ak/u8 2r10101010)]
-    (set! _ (ak/& alternating-bits))
+  (let [alternating-bits (ak/var 2r10101010 :u8)]
+    (ak/= :_ (ak/& alternating-bits))
     (let [shifted-bits (ak/shrExact alternating-bits 2)]
       (debug/print "value: {}\n" [shifted-bits]))
     (when (and (or ((az/field target/native-arch :isPowerPC))

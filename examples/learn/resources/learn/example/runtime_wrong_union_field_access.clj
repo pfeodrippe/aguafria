@@ -8,13 +8,13 @@
     [[:float :f32]
      [:int :u32]]))
 
-(az/defn- overwrite-inactive-field :void [[value [:* Foo]]]
-  (set! (az/field value :float) 12.34)
-  (debug/print "value: {}\n" [(az/field value :float)]))
+(az/defn- bar :void [[f [:* Foo]]]
+  (ak/= (az/field f :float) 12.34)
+  (debug/print "value: {}\n" [(az/field f :float)]))
 
 (az/defn main :void []
-  (let [^:var value (az/init Foo {:int 42})]
-    (overwrite-inactive-field (ak/& value))))
+  (let [f (ak/var (Foo {:int 42}))]
+    (bar (ak/& f))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

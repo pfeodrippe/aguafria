@@ -5,12 +5,12 @@
 
 (az/defn- defer-example :!usize
   []
-  (let [^:var a (ak/usize 1)]
+  (let [a (ak/var 1 :usize)]
     (az/block
-      (ak/defer (set! a 2))
-      (set! a 1))
+      (ak/defer (ak/= a 2))
+      (ak/= a 1))
     (try (testing/expectEqual 2 a))
-    (set! a 5)
+    (ak/= a 5)
     (ak/return a)))
 
 (az/deftest defer-basics-test

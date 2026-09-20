@@ -8,9 +8,9 @@
   {:attrs #{:public}}
   aguafria.std/Options
   {:enable_segfault_handler true
-   :logFn write-log})
+   :logFn myLogFn})
 
-(az/defn- write-log :void
+(az/defn- myLogFn :void
   [[level {:zig/prefix "comptime"} log/Level]
    [scope {:zig/prefix "comptime"} (ak/EnumLiteral)]
    [format {:zig/prefix "comptime"} [:slice-const :u8]]

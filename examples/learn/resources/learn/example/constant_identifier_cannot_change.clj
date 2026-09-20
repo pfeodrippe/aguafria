@@ -4,7 +4,7 @@
 
 (az/defconst x 1234)
 
-(az/defn- change-constant :void
+(az/defn- foo :void
   []
   ;; It works at file scope as well as inside functions.
   (let [y 5678]
@@ -13,7 +13,7 @@
 
 (az/defn main :void
   []
-  (change-constant))
+  (foo))
 
 (comment
   (main))

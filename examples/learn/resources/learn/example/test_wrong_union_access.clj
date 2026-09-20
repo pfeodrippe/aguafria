@@ -1,5 +1,6 @@
 (ns learn.example.test-wrong-union-access
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defconst Payload
   (az/union
@@ -8,9 +9,9 @@
      [:boolean :bool]]))
 
 (az/deftest simple-union-test
-  (let [^:var payload (az/init Payload {:int 1234})]
+  (let [payload (ak/var (az/init {:int 1234} Payload))]
     ;; Intentional error: changing a field does not change the active member.
-    (set! (az/field payload :float) 12.34)))
+    (ak/= (az/field payload :float) 12.34)))
 
 (comment
   ;; This deliberately panics and can terminate this JVM.

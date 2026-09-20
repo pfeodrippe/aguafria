@@ -16,30 +16,30 @@
     ;; Coercion may weaken an alignment guarantee without changing the data.
     (try (testing/expectEqual 100 (az/index ordinary-slice 0)))))
 
-(az/defn aligned-answer :i32
+(az/defn derp :i32
   {:zig/qualifiers "align(@sizeOf(usize) * 2)"} []
   1234)
 
-(az/defn noop-one :void {:zig/qualifiers "align(1)"} [])
-(az/defn noop-four :void {:zig/qualifiers "align(4)"} [])
+(az/defn noop1 :void {:zig/qualifiers "align(1)"} [])
+(az/defn noop4 :void {:zig/qualifiers "align(4)"} [])
 
 (az/deftest function-alignment-test
-  (try (testing/expectEqual 1234 (aligned-answer)))
-  (try (testing/expectEqual (az/type [:fn {} [] :i32]) (ak/TypeOf aligned-answer)))
+  (try (testing/expectEqual 1234 (derp)))
+  (try (testing/expectEqual (az/type [:fn {} [] :i32]) (ak/TypeOf derp)))
   (try (testing/expectEqual
         (az/type [:pointer {:size :one :const? true :align (* (ak/sizeOf (az/type :usize)) 2)}
                   [:fn {} [] :i32]])
-        (ak/TypeOf (& aligned-answer))))
-  (noop-one)
-  (try (testing/expectEqual (az/type [:fn {} [] :void]) (ak/TypeOf noop-one)))
+        (ak/TypeOf (& derp))))
+  (noop1)
+  (try (testing/expectEqual (az/type [:fn {} [] :void]) (ak/TypeOf noop1)))
   (try (testing/expectEqual
         (az/type [:pointer {:size :one :const? true :align 1} [:fn {} [] :void]])
-        (ak/TypeOf (& noop-one))))
-  (noop-four)
-  (try (testing/expectEqual (az/type [:fn {} [] :void]) (ak/TypeOf noop-four)))
+        (ak/TypeOf (& noop1))))
+  (noop4)
+  (try (testing/expectEqual (az/type [:fn {} [] :void]) (ak/TypeOf noop4)))
   (try (testing/expectEqual
         (az/type [:pointer {:size :one :const? true :align 4} [:fn {} [] :void]])
-        (ak/TypeOf (& noop-four)))))
+        (ak/TypeOf (& noop4)))))
 
 (comment
   (global-variable-alignment-test)

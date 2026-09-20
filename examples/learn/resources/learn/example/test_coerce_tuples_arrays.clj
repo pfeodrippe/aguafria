@@ -10,7 +10,7 @@
 (az/deftest homogeneous-tuple-to-array-test
   (let [tuple (ak/as [5 6] Tuple)
         array (ak/as tuple [:array 2 :u8])]
-    (set! _ array)))
+    (ak/= :_ array)))
 
 (comment
   (homogeneous-tuple-to-array-test))

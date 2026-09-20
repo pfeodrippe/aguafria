@@ -7,4 +7,4 @@
 (az/defn- do-a-thing [:optional [:* Foo]] []
   (let [memory (orelse (malloc 1234) (ak/return nil))]
     ;; The successful allocation path is intentionally left unfinished.
-    (set! _ memory)))
+    (ak/= :_ memory)))

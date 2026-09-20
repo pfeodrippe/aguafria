@@ -35,9 +35,28 @@ const __aguafria_jvm = struct {
                     try writer.writeAll("}}");
                 }
             },
-            .error_set => try write(writer, @errorName(value)),
+            .error_set => |errors| {
+                try writer.writeAll("{:aguafria.jvm/error {:name ");
+                try write(writer, @as([]const u8, @errorName(value)));
+                try writer.writeAll(" :members ");
+                if (errors) |members| {
+                    try writer.writeByte('[');
+                    inline for (members) |member| {
+                        try write(writer, @as([]const u8, member.name));
+                        try writer.writeByte(' ');
+                    }
+                    try writer.writeByte(']');
+                } else {
+                    try writer.writeAll("nil");
+                }
+                try writer.writeAll("}}");
+            },
             .@"enum" => try write(writer, @tagName(value)),
-            .type => try write(writer, @typeName(value)),
+            .type => {
+                try writer.writeAll("{:aguafria.jvm/type ");
+                try write(writer, @as([]const u8, @typeName(value)));
+                try writer.writeByte('}');
+            },
             .pointer => |pointer| {
                 if (pointer.size == .slice) {
                     if (pointer.child == u8) {
@@ -52,7 +71,11 @@ const __aguafria_jvm = struct {
                         try writer.writeByte(']');
                     }
                 } else if (pointer.size == .one) {
-                    try write(writer, value.*);
+                    if (@typeInfo(pointer.child) == .array and @typeInfo(pointer.child).array.child == u8) {
+                        try write(writer, @as([]const u8, value));
+                    } else {
+                        try write(writer, value.*);
+                    }
                 } else {
                     @compileError("A JVM result with an unbounded pointer needs an explicit slice or native-value wrapper");
                 }

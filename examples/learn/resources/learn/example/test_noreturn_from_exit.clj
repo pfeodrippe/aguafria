@@ -15,12 +15,12 @@
   {:zig/prefix "extern \"kernel32\"" :zig/qualifiers "callconv(WINAPI)"}
   [[exit-code :c_uint]])
 
-(az/defn- successful-number [:error-union :anyerror :u32] []
+(az/defn- bar [:error-union :anyerror :u32] []
   1234)
 
 (az/deftest noreturn-fallback-test
   ;; A noreturn handler coerces to any payload type because it never returns.
-  (let [number (catch (successful-number) (ExitProcess 1))]
+  (let [number (catch (bar) (ExitProcess 1))]
     (try (testing/expectEqual 1234 number))))
 
 (comment

@@ -3,11 +3,11 @@
             [aguafria.zig :as az]))
 
 (az/deftest lossy-integer-to-float-test
-  (let [^:var integer (ak/u25 123)]
-    (set! _ (& integer))
+  (let [integer (ak/var 123 :u25)]
+    (ak/= :_ (& integer))
     ;; Intentionally invalid: f32 cannot exactly represent every runtime u25.
     (let [floating (ak/f32 integer)]
-      (set! _ floating))))
+      (ak/= :_ floating))))
 
 (comment
   (lossy-integer-to-float-test))

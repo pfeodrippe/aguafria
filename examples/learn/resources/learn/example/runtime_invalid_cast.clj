@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^:var signed-value (ak/i32 -1)]
-    (set! _ (ak/& signed-value))
+  (let [signed-value (ak/var -1 :i32)]
+    (ak/= :_ (ak/& signed-value))
     (let [unsigned-value (ak/u32 (ak/intCast signed-value))]
       (debug/print "value: {}\n" [unsigned-value]))))
 

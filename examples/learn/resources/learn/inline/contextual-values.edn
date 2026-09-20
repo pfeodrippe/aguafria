@@ -90,7 +90,7 @@
   :note "Instantiate a generic map type; choosing void for Value removes stored value data."}
 
  "const x: u32 = 42;"
- {:clojure-source "(let [^{:zig/type :u32} x 42]\n  x)"
+ {:clojure-source "(let [x (ak/as 42 :u32)]\n  x)"
   :kind :expr
   :note "The typed binding coerces 42 to u32. The scoped form returns x to show its resulting value."}
 
@@ -111,17 +111,17 @@
   :note "A single-item pointer to u32."}
 
  "const val: T = x"
- {:clojure-source "(let [^{:zig/type T} val x]\n  val)"
+ {:clojure-source "(let [val (ak/as x T)]\n  val)"
   :kind :expr
   :note "An immutable typed binding gives x result type T and the storage location of val; this scoped form returns val."}
 
  "var val: T = x"
- {:clojure-source "(let [^{:var T} val x]\n  val)"
+ {:clojure-source "(let [val (ak/var x T)]\n  val)"
   :kind :expr
-  :note "Mutable binding metadata gives x result type T and the storage location of val; mutations belong inside this scope."}
+  :note "The mutable constructor gives x result type T and the storage location of val; mutations belong inside this scope."}
 
  "val = x"
- {:clojure-source "(set! val x)"
+ {:clojure-source "(ak/= val x)"
   :kind :statements
   :note "Assignment supplies x with val's type and storage location."}
 
@@ -161,12 +161,12 @@
   :note "Reflect the type of named field a."}
 
  "T{x}"
- {:clojure-source "(az/array-init T [x])"
+ {:clojure-source "(az/array-init [x] T)"
   :kind :expr
   :note "A typed positional initializer supplies the field type to x but does not propagate its result location."}
 
  "T{ .a = x }"
- {:clojure-source "(az/init T {:a x})"
+ {:clojure-source "(az/init {:a x} T)"
   :kind :expr
   :note "A typed named-field initializer supplies field a's type but does not propagate its result location to x."}
 
@@ -186,7 +186,7 @@
   :note "The left operand's type determines the shift-count type; neither operand receives a result location."}
 
  "x = e"
- {:clojure-source "(set! x e)"
+ {:clojure-source "(ak/= x e)"
   :kind :statements
   :note "The destination x supplies e with both a result type and a result location."}
 
@@ -206,12 +206,12 @@
   :note "The storage location of field b in the pointed-to aggregate."}
 
  "foo = .{ .a = x, .b = y }"
- {:clojure-source "(set! foo {:a x :b y})"
+ {:clojure-source "(ak/= foo {:a x :b y})"
   :kind :statements
   :note "Result locations make this aggregate assignment write the fields directly, rather than construct an independent temporary copy."}
 
  "foo.a = x; foo.b = y;"
- {:clojure-source "(set! (az/field foo :a) x)\n(set! (az/field foo :b) y)"
+ {:clojure-source "(ak/= (az/field foo :a) x)\n(ak/= (az/field foo :b) y)"
   :kind :statements
   :note "These are sequential field writes, not alternatives; the second expression can observe the first write."}
 

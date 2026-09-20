@@ -24,23 +24,24 @@
   (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (ak/! true)])
 
   ;; Optional.
-  (let [^:var optional-value (ak/as nil [:optional [:slice-const :u8]])]
-    (debug/assert (== optional-value nil))
+  (let [optional-value (ak/var (ak/as nil [:optional [:slice-const :u8]]))]
+    (debug/assert (ak/== optional-value nil))
     (debug/print "\noptional 1\ntype: {}\nvalue: {?s}\n"
                  [(ak/TypeOf optional-value) optional-value])
 
-    (set! optional-value "hi")
-    (debug/assert (!= optional-value nil))
+    (ak/= optional-value "hi")
+    (debug/assert (ak/!= optional-value nil))
     (debug/print "\noptional 2\ntype: {}\nvalue: {?s}\n"
                  [(ak/TypeOf optional-value) optional-value]))
 
   ;; Error union.
-  (let [^:var number-or-error (-> (az/field ExampleErrorSet :ExampleErrorVariant)
-                                  (ak/as [:error-union ExampleErrorSet :i32]))]
+  (let [number-or-error (-> (az/field ExampleErrorSet :ExampleErrorVariant)
+                            (ak/as [:error-union ExampleErrorSet :i32])
+                            ak/var)]
     (debug/print "\nerror union 1\ntype: {}\nvalue: {!}\n"
                  [(ak/TypeOf number-or-error) number-or-error])
 
-    (set! number-or-error 1234)
+    (ak/= number-or-error 1234)
     (debug/print "\nerror union 2\ntype: {}\nvalue: {!}\n"
                  [(ak/TypeOf number-or-error) number-or-error])))
 

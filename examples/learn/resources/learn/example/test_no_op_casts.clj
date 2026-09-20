@@ -3,11 +3,11 @@
             [aguafria.zig :as az]))
 
 (az/deftest const-qualification-test
-  (let [^:var value (ak/i32 1)
+  (let [value (ak/var 1 :i32)
         pointer (ak/as (& value) [:* :i32])]
-    (accept-const-pointer pointer)))
+    (foo pointer)))
 
-(az/defn- accept-const-pointer :void
+(az/defn- foo :void
   [[_ [:*const :i32]]])
 
 (comment

@@ -2,7 +2,9 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defconst AdditionError (az/type [:error-set [:Overflow]]))
+(ns-unmap *ns* 'Error)
+
+(az/defconst Error (az/type [:error-set [:Overflow]]))
 
 (az/defn add-inferred [:error-union T]
   [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
@@ -11,7 +13,7 @@
       (ak/return (az/error-value :Overflow)))
     (az/index sum 0)))
 
-(az/defn add-explicit [:error-union AdditionError T]
+(az/defn add-explicit [:error-union Error T]
   [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
   (let [sum (ak/addWithOverflow left right)]
     (when (ak/!= (az/index sum 1) 0)

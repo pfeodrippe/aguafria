@@ -101,6 +101,8 @@
     :kind :assignment
     :param-count 2
     :documentation "Division assignment. This Var exists because `/=` is not a valid Clojure token."}
+   {:name "=" :zig-token "=" :zig-tag "equal"
+    :kind :assignment :param-count 2 :documentation "Assignment to mutable native storage."}
    {:name "+=" :zig-token "+=" :zig-tag "plus_equal"
     :kind :assignment :param-count 2 :documentation "Addition assignment."}
    {:name "-=" :zig-token "-=" :zig-tag "minus_equal"

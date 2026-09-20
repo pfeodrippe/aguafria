@@ -542,7 +542,7 @@
       (dotimes [tensor-index tensor-count]
         (let [name (read-string-view! (ak/& reader))
               dimensions (read-u32! (ak/& reader))
-              ^:var shape (ak/as (az/array-init [:array 4 :u64] [0 0 0 0]) [:array 4 :u64])]
+              ^:var shape (ak/as (az/array-init [0 0 0 0] [:array 4 :u64]) [:array 4 :u64])]
           (if (> dimensions 4)
             (set! (az/field reader error_code) parser-limit)
             (dotimes [dimension dimensions]
@@ -888,7 +888,7 @@
   (if (< index tensor-catalog-count)
     (az/index tensor-catalog index)
     (TensorInfo {:name_start 0 :name_length 0 :dimension_count 0
-                 :dimensions (az/array-init [:array 4 :u64] [0 0 0 0])
+                 :dimensions (az/array-init [0 0 0 0] [:array 4 :u64])
                  :ggml_type 0 :relative_offset 0 :data_address 0})))
 
 (az/defn metadata-info MetadataInfo
@@ -2806,7 +2806,7 @@
         ^:var scores (ak/as (std-mem/zeroes (az/type [:array sequence-capacity :f32])) [:array sequence-capacity :f32])
         ^:var attention-output (ak/as (std-mem/zeroes (az/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
         candidate-tokens
-        (az/array-init [:array 8 :u32] [32 33 34 35 36 37 38 39])
+        (az/array-init [32 33 34 35 36 37 38 39] [:array 8 :u32])
         ^:var candidate-logits (ak/as (std-mem/zeroes (az/type [:array 8 :f32])) [:array 8 :f32])
         position (ak/usize (if (< racer sequence-racer-count)
                    (ak/as (az/index sequence-positions racer) :usize)
@@ -3350,18 +3350,16 @@
 (az/defn kernel-self-test KernelReport
   "Execute deterministic native fixtures without allocating or invoking a server."
   []
-  (let [block (az/array-init [:array 18 :u8]
-                             [0 60 153 153 153 153 153 153 153 153
-                              153 153 153 153 153 153 153 153])
-        input (az/array-init [:array 32 :f32]
-                             [1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+  (let [block (az/array-init [0 60 153 153 153 153 153 153 153 153
+                              153 153 153 153 153 153 153 153] [:array 18 :u8])
+        input (az/array-init [1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
                               1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
                               1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
-                              1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0])
-        norm-input (az/array-init [:array 4 :f32] [1.0 2.0 3.0 4.0])
-        weights (az/array-init [:array 4 :f32] [1.0 1.0 1.0 1.0])
-        ^:var norm-output (ak/as (az/array-init [:array 4 :f32] [0.0 0.0 0.0 0.0]) [:array 4 :f32])
-        ^:var probabilities (ak/as (az/array-init [:array 4 :f32] [1.0 2.0 3.0 4.0]) [:array 4 :f32])]
+                              1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0] [:array 32 :f32])
+        norm-input (az/array-init [1.0 2.0 3.0 4.0] [:array 4 :f32])
+        weights (az/array-init [1.0 1.0 1.0 1.0] [:array 4 :f32])
+        ^:var norm-output (ak/as (az/array-init [0.0 0.0 0.0 0.0] [:array 4 :f32]) [:array 4 :f32])
+        ^:var probabilities (ak/as (az/array-init [1.0 2.0 3.0 4.0] [:array 4 :f32]) [:array 4 :f32])]
     (rms-norm! (ak/& (az/index norm-output 0)) (ak/& (az/index norm-input 0))
                (ak/& (az/index weights 0)) 4 0.00001)
     (softmax! (ak/& (az/index probabilities 0)) 4)

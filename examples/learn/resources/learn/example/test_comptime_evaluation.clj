@@ -3,15 +3,14 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defstruct Command
+(az/defstruct CmdFn
   [[:name [:slice-const :u8]]
    [:func [:fn {} [{:type :i32}] :i32]]])
 
-(az/defconst commands
-  (az/array-init [:array _ Command]
-                 [(Command {:name "one" :func one})
-                  (Command {:name "two" :func two})
-                  (Command {:name "three" :func three})]))
+(az/defconst cmd-fns
+  (az/array-init [(CmdFn {:name "one" :func one})
+                  (CmdFn {:name "two" :func two})
+                  (CmdFn {:name "three" :func three})] [:array :_ CmdFn]))
 
 (az/defn- one :i32
   [[value :i32]]
@@ -27,14 +26,14 @@
 
 (az/defn- perform-fn :i32
   [[prefix-char {:zig/prefix "comptime"} :u8] [start-value :i32]]
-  (let [^:var result (ak/i32 start-value)
-        ^{:var true :zig/prefix "comptime"} index 0]
+  (let [result (ak/var start-value :i32)
+        i (ak/var 0 nil {:zig/prefix "comptime"})]
     (az/while-loop {:inline? true
-                    :continue (az/assign-expr "+=" index 1)}
-      (< index (az/field commands :len))
-      (let [command (az/index commands index)]
+                    :continue (az/assign-expr "+=" i 1)}
+      (< i (az/field cmd-fns :len))
+      (let [command (az/index cmd-fns i)]
         (when (== (az/index (az/field command :name) 0) prefix-char)
-          (set! result ((az/field command :func) result)))))
+          (ak/= result ((az/field command :func) result)))))
     result))
 
 (az/deftest perform-functions-test

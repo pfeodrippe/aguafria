@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^:var spartan-count (ak/u16 300)]
-    (set! _ (ak/& spartan-count))
+  (let [spartan-count (ak/var 300 :u16)]
+    (ak/= :_ (ak/& spartan-count))
     (let [byte (ak/u8 (ak/intCast spartan-count))]
       (debug/print "value: {}\n" [byte]))))
 

@@ -2,7 +2,9 @@
   (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defenum NumberTag
+(ns-unmap *ns* 'Number)
+
+(az/defenum Number
   {:argument :u8}
   [:one
    :two
@@ -10,7 +12,7 @@
    :_])
 
 (az/deftest non-exhaustive-enum-test
-  (let [number (az/field NumberTag :one)
+  (let [number (az/field Number :one)
         result (switch number
                  (case [:.one] true)
                  (case [:.two :.three] false)

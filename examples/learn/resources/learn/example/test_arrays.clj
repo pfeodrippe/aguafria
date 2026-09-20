@@ -7,7 +7,7 @@
 
 ;; Array literal.
 (az/defconst message
-  (az/array-init [:array _ :u8] [\h \e \l \l \o]))
+  (az/array-init [\h \e \l \l \o] [:array :_ :u8]))
 
 ;; Alternative initialization using result location.
 (az/defconst alt-message [:array 5 :u8] [\h \e \l \l \o])
@@ -26,7 +26,7 @@
   (debug/assert (mem/eql :u8 (& message) same-message)))
 
 (az/deftest array-iteration-test
-  (let [^:var sum (ak/usize 0)]
+  (let [sum (ak/var 0 :usize)]
     (for [byte message]
       (ak/+= sum byte))
     (try (testing/expectEqual (+ \h \e (* \l 2) \o) sum))))
@@ -37,19 +37,19 @@
 (az/deftest array-mutation-test
   (for [[(az/pointer-capture item) (& some-integers)]
         [index (az/op ".." 0)]]
-    (set! @item (ak/intCast index)))
+    (ak/= @item (ak/intCast index)))
   (try (testing/expectEqual 10 (az/index some-integers 10)))
   (try (testing/expectEqual 99 (az/index some-integers 99))))
 
 ;; Array concatenation works if the values are known at compile time.
-(az/defconst part-one (az/array-init [:array _ :i32] [1 2 3 4]))
-(az/defconst part-two (az/array-init [:array _ :i32] [5 6 7 8]))
+(az/defconst part-one (az/array-init [1 2 3 4] [:array :_ :i32]))
+(az/defconst part-two (az/array-init [5 6 7 8] [:array :_ :i32]))
 (az/defconst all-of-it (az/op "++" part-one part-two))
 
 (az/defcomptime concatenated-array
   (debug/assert
    (mem/eql :i32 (& all-of-it)
-            (& (az/array-init [:array _ :i32] [1 2 3 4 5 6 7 8])))))
+            (& (az/array-init [1 2 3 4 5 6 7 8] [:array :_ :i32])))))
 
 ;; Remember that string literals are arrays.
 (az/defconst hello "hello")
@@ -66,7 +66,7 @@
   (debug/assert (mem/eql :u8 pattern "ababab")))
 
 ;; Initialize an array to zero.
-(az/defconst all-zero (az/op "**" (az/array-init [:array _ :u16] [0]) 10))
+(az/defconst all-zero (az/op "**" (az/array-init [0] [:array :_ :u16]) 10))
 
 (az/defcomptime zero-initialization
   (debug/assert (== (az/field all-zero :len) 10))
@@ -79,10 +79,10 @@
 ;; Use compile-time code to initialize an array.
 (az/defvar fancy-array
   (az/labeled-block init
-    (let [^:var initial-value (ak/as ak/undefined [:array 10 Point])]
+    (let [initial-value (ak/var ak/undefined [:array 10 Point])]
       (for [[(az/pointer-capture point) (& initial-value)]
             [index (az/op ".." 0)]]
-        (set! @point (Point {:x (ak/intCast index)
+        (ak/= @point (Point {:x (ak/intCast index)
                              :y (ak/intCast (* index 2))})))
       (ak/break init initial-value))))
 
@@ -92,7 +92,7 @@
 
 ;; Call a function to initialize an array.
 (az/defvar more-points
-  (az/op "**" (az/array-init [:array _ Point] [(make-point 3)]) 10))
+  (az/op "**" (az/array-init [(make-point 3)] [:array :_ Point]) 10))
 
 (az/defn- make-point Point
   [[x :i32]]

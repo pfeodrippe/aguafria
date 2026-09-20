@@ -57,10 +57,9 @@
         (set! maximum-lane (ak/max maximum-lane (* 50.0 (ak/abs (az/field projection lane)))))
         (set! minimum-z (ak/min minimum-z (az/field state z)))))
     (let [state (physics/body-state body)]
-      (az/array-init [:array 4 :f32]
-        [(ak/floatFromInt hits) maximum-lane minimum-z
+      (az/array-init [(ak/floatFromInt hits) maximum-lane minimum-z
          (ak/sqrt (+ (* (az/field state vx) (az/field state vx))
-                      (* (az/field state vy) (az/field state vy))))]))))
+                      (* (az/field state vy) (az/field state vy))))] [:array 4 :f32]))))
 
 (deftest rigid-body-cannot-pass-through-authored-containment-test
   (doseq [progress [0.0 0.25 0.5 0.82] side [-1.0 1.0]]

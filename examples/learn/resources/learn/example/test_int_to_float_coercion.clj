@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest integer-to-float-test
-  (let [^:var integer (ak/u8 123)]
-    (set! _ (& integer))
+  (let [integer (ak/var 123 :u8)]
+    (ak/= :_ (& integer))
     ;; Every u8 value is exactly representable by f32.
     (let [floating (ak/f32 integer)
           restored (ak/u8 (ak/intFromFloat floating))]

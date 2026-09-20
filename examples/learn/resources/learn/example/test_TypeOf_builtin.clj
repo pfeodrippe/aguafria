@@ -4,12 +4,12 @@
             [aguafria.zig :as az]))
 
 (az/deftest no-runtime-side-effects-test
-  (let [^:var data (ak/i32 0)
-        T (ak/TypeOf (increment-pointed-value :i32 (& data)))]
+  (let [data (ak/var 0 :i32)
+        T (ak/TypeOf (foo :i32 (& data)))]
     (try (ak/comptime (testing/expectEqual :i32 T)))
     (try (testing/expectEqual 0 data))))
 
-(az/defn- increment-pointed-value T
+(az/defn- foo T
   [[T {:zig/prefix "comptime"} :type] [pointer [:* T]]]
   (ak/+= @pointer 1)
   @pointer)

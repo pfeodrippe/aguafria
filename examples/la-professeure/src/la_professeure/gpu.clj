@@ -262,9 +262,7 @@
           :queueCount 1
           :pQueuePriorities (ak/& priority)})
         extensions
-        (az/array-init
-         [:array 2 [:pointer {:size :c :const? true} :u8]]
-         [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"])
+        (az/array-init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:pointer {:size :c :const? true} :u8]])
         features (vk/VkPhysicalDeviceVulkan12Features
                    {:sType vk/VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
                     :bufferDeviceAddress vk/VK_TRUE :scalarBlockLayout vk/VK_TRUE})
@@ -381,9 +379,7 @@
 (az/defn create-render-pass! :void
   []
   (let [attachments
-        (az/array-init
-         [:array 2 vk/VkAttachmentDescription]
-         [(vk/VkAttachmentDescription
+        (az/array-init [(vk/VkAttachmentDescription
            {:format swapchain-format
             :samples vk/VK_SAMPLE_COUNT_1_BIT
             :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
@@ -400,7 +396,7 @@
             :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
             :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
             :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
-            :finalLayout vk/VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL})])
+            :finalLayout vk/VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL})] [:array 2 vk/VkAttachmentDescription])
         color-reference
         (vk/VkAttachmentReference
          {:attachment 0
@@ -443,8 +439,7 @@
   []
   (dotimes [index image-count]
     (let [attachments
-          (az/array-init [:array 2 vk/VkImageView]
-                         [(az/index image-views index) depth-view])
+          (az/array-init [(az/index image-views index) depth-view] [:array 2 vk/VkImageView])
           create-info
           (vk/VkFramebufferCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
@@ -652,9 +647,7 @@
                        "resources/shaders/mesh.vert.spv")
         fragment-module (load-shader-module "resources/shaders/mesh.frag.spv")
         stages
-        (az/array-init
-         [:array 2 vk/VkPipelineShaderStageCreateInfo]
-         [(vk/VkPipelineShaderStageCreateInfo
+        (az/array-init [(vk/VkPipelineShaderStageCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             :stage vk/VK_SHADER_STAGE_VERTEX_BIT
             :module vertex-module
@@ -663,7 +656,7 @@
            {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             :stage vk/VK_SHADER_STAGE_FRAGMENT_BIT
             :module fragment-module
-            :pName "main"})])
+            :pName "main"})] [:array 2 vk/VkPipelineShaderStageCreateInfo])
         vertex-input
         (vk/VkPipelineVertexInputStateCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO})
@@ -686,8 +679,7 @@
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
           :viewportCount 1 :pViewports (ak/& viewport)
           :scissorCount 1 :pScissors (ak/& scissor)})
-        dynamic-states (az/array-init [:array 2 vk/VkDynamicState]
-                         [vk/VK_DYNAMIC_STATE_VIEWPORT vk/VK_DYNAMIC_STATE_SCISSOR])
+        dynamic-states (az/array-init [vk/VK_DYNAMIC_STATE_VIEWPORT vk/VK_DYNAMIC_STATE_SCISSOR] [:array 2 vk/VkDynamicState])
         dynamic-state
         (vk/VkPipelineDynamicStateCreateInfo
           {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
@@ -860,12 +852,10 @@
    {:color
     (vk/VkClearColorValue
      {:float32
-      (az/array-init
-       [:array 4 :f32]
-       [(az/field color r)
+      (az/array-init [(az/field color r)
         (az/field color g)
         (az/field color b)
-        (az/field color a)])})}))
+        (az/field color a)] [:array 4 :f32])})}))
 
 (az/defn- record-readback! :void
   "Copy the actual color attachment, then restore its presentation layout."
@@ -934,7 +924,7 @@
         (vk/VkClearValue
          {:depthStencil (vk/VkClearDepthStencilValue {:depth 1.0 :stencil 0})})
         clear-values
-        (az/array-init [:array 2 vk/VkClearValue] [background depth-clear])
+        (az/array-init [background depth-clear] [:array 2 vk/VkClearValue])
         render-area
         (vk/VkRect2D
          {:offset (vk/VkOffset2D {:x 0 :y 0})

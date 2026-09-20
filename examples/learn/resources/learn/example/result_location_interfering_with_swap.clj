@@ -4,11 +4,11 @@
             [aguafria.zig :as az]))
 
 (az/deftest array-initializer-swap-test
-  (let [^:var array (ak/as [1 2] [:array 2 :u32])]
-    (set! array [(az/index array 1) (az/index array 0)])
+  (let [array (ak/var [1 2] [:array 2 :u32])]
+    (ak/= array [(az/index array 1) (az/index array 0)])
     ;; The initializer writes directly into its result location, as if:
-    ;;   (set! (az/index array 0) (az/index array 1))
-    ;;   (set! (az/index array 1) (az/index array 0))
+    ;;   (ak/= (az/index array 0) (az/index array 1))
+    ;;   (ak/= (az/index array 1) (az/index array 0))
     ;; So this fails!
     (try (testing/expectEqual 2 (az/index array 0))) ; succeeds
     (try (testing/expectEqual 1 (az/index array 1))))) ; fails

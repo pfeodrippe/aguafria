@@ -768,16 +768,13 @@
             q (az/field state orientation)]
         (az/set-many!
           (az/index (az/field frame spheres) i)
-          (az/array-init [:array 4 :f32]
-                         [(ak/floatCast (az/field center x))
+          (az/array-init [(ak/floatCast (az/field center x))
                           (ak/floatCast (az/field center y))
                           (ak/floatCast (az/field center z))
-                          (ak/floatCast (az/field config radius))])
+                          (ak/floatCast (az/field config radius))] [:array 4 :f32])
           (az/index (az/field frame rotations) i)
-          (az/array-init
-           [:array 4 :f32]
-           [(ak/floatCast (az/field q x)) (ak/floatCast (az/field q y))
-            (ak/floatCast (az/field q z)) (ak/floatCast (az/field q w))]))))
+          (az/array-init [(ak/floatCast (az/field q x)) (ak/floatCast (az/field q y))
+            (ak/floatCast (az/field q z)) (ak/floatCast (az/field q w))] [:array 4 :f32]))))
     (renderer/push-frame-data! (ak/ptrCast (ak/& frame)) (ak/sizeOf FrameData)))
   (dotimes [i 3]
     (set! (az/index output i)

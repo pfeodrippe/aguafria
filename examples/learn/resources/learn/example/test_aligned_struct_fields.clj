@@ -7,7 +7,7 @@
   (let [AlignedFields (az/struct
                         [[:a {:zig/align 2} :u32]
                          [:b {:zig/align 64} :u32]])
-        ^:var fields (az/init AlignedFields {:a 1 :b 2})]
+        fields (ak/var (az/init {:a 1 :b 2} AlignedFields))]
     ;; The strongest field alignment determines the containing struct's alignment.
     (try (testing/expectEqual 64 (ak/alignOf AlignedFields)))
     (try (testing/expectEqual (az/type [:pointer {:size :one :align 2} :u32])

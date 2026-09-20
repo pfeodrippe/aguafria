@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest sentinel-array-test
-  (let [bytes (az/array-init [:array-sentinel _ 0 :u8] [1 2 3 4])]
+  (let [bytes (az/array-init [1 2 3 4] [:array-sentinel :_ 0 :u8])]
     (try (testing/expectEqual (az/type [:array-sentinel 4 0 :u8])
                               (ak/TypeOf bytes)))
     (try (testing/expectEqual 4 (az/field bytes :len)))
@@ -12,7 +12,7 @@
 
 (az/deftest embedded-zeroes-test
   ;; Embedded sentinel values do not change the array's compile-time length.
-  (let [bytes (az/array-init [:array-sentinel _ 0 :u8] [1 0 0 4])]
+  (let [bytes (az/array-init [1 0 0 4] [:array-sentinel :_ 0 :u8])]
     (try (testing/expectEqual (az/type [:array-sentinel 4 0 :u8])
                               (ak/TypeOf bytes)))
     (try (testing/expectEqual 4 (az/field bytes :len)))

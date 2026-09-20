@@ -294,11 +294,11 @@
   (is (= "0 .. 10" (emit/emit-expr '(op ".." 0 10))))
   (is (= "?*u8" (emit/emit-expr '(type [:optional [:* :u8]]))))
   (is (= "(Foo{.x = 1}).stat()"
-         (emit/emit-expr '((field (init Foo {:x 1}) stat)))))
+         (emit/emit-expr '((field (init {:x 1} Foo) stat)))))
   (is (= ".{.z = 3, .a = 1, .m = 2}"
          (emit/emit-expr '(object [[:z 3] [:a 1] [:m 2]]))))
   (is (= "Foo{.z = 3, .a = 1}"
-         (emit/emit-expr '(init Foo (object [[:z 3] [:a 1]])))))
+         (emit/emit-expr '(init (object [[:z 3] [:a 1]]) Foo))))
   (let [foo (with-meta 'Foo
               {:aguafria/zig-reference
                {:kind :declaration

@@ -1120,6 +1120,8 @@
   (str (escape-html (str namespace "=> " form "\n"))
        (escape-html stdout)
        (escape-html stderr)
+       (when-let [output (not-empty (str stdout stderr))]
+         (when-not (str/ends-with? output "\n") "\n"))
        (escape-html (if exception
                       (str (:class exception) ": " (:message exception) "\n")
                       (str (or printed-value (pr-str value)) "\n")))))
@@ -1197,11 +1199,17 @@
         fingerprint (compiler-fingerprint)
         inputs (into {} (map (juxt :file :sha256)) (:examples catalog))]
     (mapv
-     (fn [{:keys [file id clojure-path] :as translation}]
+     (fn [{:keys [file id clojure-path authored-source] :as translation}]
        (let [path (str "build/outcomes/" id ".edn")
              outcome (when (.isFile (io/file path)) (read-edn path))
              comparison (get-in outcome [:comparison :status])
-             current? (and (= fingerprint (:fingerprint outcome))
+             current? (and (or (nil? authored-source)
+                               (and clojure-path
+                                    (.isFile (io/file clojure-path))
+                                    (io/resource authored-source)
+                                    (= (slurp (io/resource authored-source))
+                                       (slurp clojure-path))))
+                           (= fingerprint (:fingerprint outcome))
                            (= (inputs file) (:source-sha256 outcome)))
              verified? (and current?
                             (= :upstream-outcome-passed (:status outcome))

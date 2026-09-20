@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest for-basics-test
-  (let [items (az/array-init [:array _ :i32] [4 5 3 4 0])
-        ^:var sum (ak/i32 0)]
+  (let [items (az/array-init [4 5 3 4 0] [:array :_ :i32])
+        sum (ak/var 0 :i32)]
     ;; For loops iterate over slices and arrays.
     (for [value items]
       ;; Break and continue are supported.
@@ -21,7 +21,7 @@
 
     ;; To access the index of iteration, specify a second condition as well
     ;; as a second capture value.
-    (let [^:var index-sum (ak/i32 0)]
+    (let [index-sum (ak/var 0 :i32)]
       (for [[_ items] [index (az/op ".." 0)]]
         (try (testing/expectEqual :usize (ak/TypeOf index)))
         (ak/+= index-sum (ak/as (ak/intCast index) :i32)))
@@ -29,15 +29,15 @@
 
     ;; To iterate over consecutive integers, use the range syntax.
     ;; Unbounded range is always a compile error.
-    (let [^:var range-sum (ak/usize 0)]
+    (let [range-sum (ak/var 0 :usize)]
       (for [index (az/op ".." 0 5)]
         (ak/+= range-sum index))
       (try (testing/expectEqual 10 range-sum)))))
 
 (az/deftest multi-object-for-test
-  (let [items (az/array-init [:array _ :usize] [1 2 3])
-        other-items (az/array-init [:array _ :usize] [4 5 6])
-        ^:var count (ak/usize 0)]
+  (let [items (az/array-init [1 2 3] [:array :_ :usize])
+        other-items (az/array-init [4 5 6] [:array :_ :usize])
+        count (ak/var 0 :usize)]
     ;; Iterate over multiple objects.
     ;; All lengths must be equal at the start of the loop, otherwise detectable
     ;; illegal behavior occurs.
@@ -46,7 +46,7 @@
     (try (testing/expectEqual 21 count))))
 
 (az/deftest for-reference-test
-  (let [^:var items (az/array-init [:array _ :i32] [3 4 2])]
+  (let [items (ak/var (az/array-init [3 4 2] [:array :_ :i32]))]
     ;; Iterate over the slice by reference by
     ;; specifying that the capture value is a pointer.
     (for [(az/pointer-capture value) (& items)]
@@ -57,8 +57,8 @@
 
 (az/deftest for-else-test
   ;; For allows an else attached to it, the same as a while loop.
-  (let [items (az/array-init [:array _ [:optional :i32]] [3 4 nil 5])
-        ^:var sum (ak/i32 0)]
+  (let [items (az/array-init [3 4 nil 5] [:array :_ [:optional :i32]])
+        sum (ak/var 0 :i32)]
     ;; For loops can also be used as expressions.
     ;; Similar to while loops, when you break from a for loop,
     ;; the else branch is not evaluated.

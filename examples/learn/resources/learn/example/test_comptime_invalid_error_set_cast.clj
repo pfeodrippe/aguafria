@@ -6,4 +6,4 @@
 (az/defconst Set2 (az/type [:error-set [:A :C]]))
 
 (az/defcomptime reject-incompatible-error
-  (set! _ (ak/as (ak/errorCast (az/field Set1 :B)) Set2)))
+  (ak/= :_ (ak/as (ak/errorCast (az/field Set1 :B)) Set2)))

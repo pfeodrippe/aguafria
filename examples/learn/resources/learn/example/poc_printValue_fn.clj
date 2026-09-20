@@ -18,15 +18,15 @@
 
    (az/fn-decl write [:error-union :void]
      [[self [:* Writer]] [value [:slice-const :u8]]]
-     (set! _ self)
-     (set! _ value))
+     (ak/= :_ self)
+     (ak/= :_ value))
 
    (az/fn-decl write-int [:error-union :void]
      [[self [:* Writer]] [value :anytype]]
-     (set! _ self)
-     (set! _ value))
+     (ak/= :_ self)
+     (ak/= :_ value))
 
    (az/fn-decl write-float [:error-union :void]
      [[self [:* Writer]] [value :anytype]]
-     (set! _ self)
-     (set! _ value))])
+     (ak/= :_ self)
+     (ak/= :_ value))])

@@ -6,4 +6,4 @@
   (let [numerator (ak/i32 10)
         denominator (ak/i32 0)
         remainder (ak/% numerator denominator)]
-    (set! _ remainder)))
+    (ak/= :_ remainder)))

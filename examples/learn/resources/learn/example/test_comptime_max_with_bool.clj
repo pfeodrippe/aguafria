@@ -2,14 +2,14 @@
   (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defn- maximum T
+(az/defn- max T
   [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
   (if (== T :bool)
     (or left right)
     (if (> left right) left right)))
 
 (az/deftest boolean-maximum-test
-  (try (testing/expectEqual true (maximum :bool false true))))
+  (try (testing/expectEqual true (max :bool false true))))
 
 (comment
   (boolean-maximum-test))

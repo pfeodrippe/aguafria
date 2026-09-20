@@ -5,15 +5,15 @@
 
 (az/defn main :void
   []
-  (let [digits (az/array-init [:array _ :i8] [3 8 9 0 7 4 1])
+  (let [digits (az/array-init [3 8 9 0 7 4 1] [:array :_ :i8])
         [minimum maximum]
-        (let [^:var smallest (ak/i8 127)
-              ^:var largest (ak/i8 -128)]
+        (let [smallest (ak/var 127 :i8)
+              largest (ak/var -128 :i8)]
           (for [digit digits]
             (when (< digit smallest)
-              (set! smallest digit))
+              (ak/= smallest digit))
             (when (> digit largest)
-              (set! largest digit)))
+              (ak/= largest digit)))
           [smallest largest])]
     (debug/print "min = {}\n" [minimum])
     (debug/print "max = {}\n" [maximum])))

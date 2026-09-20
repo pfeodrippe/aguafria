@@ -6,8 +6,8 @@
 
 (az/defn main :!void
   []
-  (let [^:var byte (ak/u8 255)]
-    (set! byte
+  (let [byte (ak/var 255 :u8)]
+    (ak/= byte
           (az/if-capture {:payload [result] :error [error]} (math/add :u8 byte 1)
                          result
                          (az/block

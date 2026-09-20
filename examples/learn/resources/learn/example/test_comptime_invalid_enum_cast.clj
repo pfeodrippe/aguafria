@@ -10,4 +10,4 @@
 (az/defcomptime reject-invalid-tag
   (let [tag-value (ak/u2 3)
         value (ak/as (ak/enumFromInt tag-value) Foo)]
-    (set! _ value)))
+    (ak/= :_ value)))

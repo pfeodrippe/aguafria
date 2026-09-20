@@ -1,16 +1,16 @@
 (ns learn.example.compile-time-duck-typing
   (:require [aguafria.zig :as az]))
 
-(az/defn- maximum T
-  [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
-  (if (> left right) left right))
+(az/defn- max T
+  [[T {:zig/prefix "comptime"} :type] [a T] [b T]]
+  (if (> a b) a b))
 
-(az/defn- bigger-float :f32 [[left :f32] [right :f32]]
-  (maximum :f32 left right))
+(az/defn- gimmeTheBiggerFloat :f32 [[a :f32] [b :f32]]
+  (max :f32 a b))
 
-(az/defn- bigger-integer :u64 [[left :u64] [right :u64]]
-  (maximum :u64 left right))
+(az/defn- gimmeTheBiggerInteger :u64 [[a :u64] [b :u64]]
+  (max :u64 a b))
 
 (comment
-  (bigger-float 1.5 2.5)
-  (bigger-integer 12 34))
+  (gimmeTheBiggerFloat 1.5 2.5)
+  (gimmeTheBiggerInteger 12 34))

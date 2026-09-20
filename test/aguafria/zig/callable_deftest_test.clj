@@ -19,7 +19,7 @@
         err (StringWriter.)
         outcome (binding [*out* out *err* err]
                   (try {:result (invoke)}
-                       (catch clojure.lang.ExceptionInfo failure
+                       (catch Exception failure
                          {:failure failure})))]
     (assoc outcome :printed-out (str out) :printed-err (str err))))
 
@@ -164,7 +164,7 @@
         (eval '(az/deftest foo-extra
                  (ak/compileError "Sibling foo-extra must not be compiled or run")))
         (eval '(az/deftest foo
-                 (let [values (az/array-init (pair-type (az/type :i32)) [20 22])]
+                 (let [values (az/array-init [20 22] (pair-type (az/type :i32)))]
                    (try (testing/expectEqual 2 (try (dependency/checked-length (& values)))))
                    (try (testing/expectEqual 42 (+ (az/index values 0) (az/index values 1))))))))
       (let [test-var (ns-resolve root 'foo)
@@ -209,7 +209,7 @@
         (binding [*ns* namespace runtime/*source-only-registration?* true]
           (eval '(az/deftest failure-test (try (testing/expect false)))))
         (let [{:keys [failure printed-out printed-err]} (capture-execution retained-callable)
-              details (ex-data failure)]
+              details (runtime/error-data failure)]
           (is (some? failure))
           (is (= :zig-test (:aguafria/phase details)))
           (is (= :failed (:status details)))
@@ -221,8 +221,9 @@
           (eval '(az/deftest failure-test
                    (ak/compileError "callable-test-compile-diagnostic"))))
         (let [{:keys [failure]} (capture-execution test-var)
-              details (ex-data failure)]
+              details (runtime/error-data failure)]
           (is (some? failure))
+          (is (instance? clojure.lang.Compiler$CompilerException failure))
           (is (= :zig-test (:aguafria/phase details)))
           (is (seq (:diagnostics details)))
           (is (str/includes? (:stderr details) "callable-test-compile-diagnostic"))

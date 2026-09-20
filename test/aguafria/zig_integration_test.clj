@@ -189,8 +189,8 @@
                  (az/union {:enum? true} [[:value :u32] [:empty :void]])))
         (eval '(az/defconst Handle (az/opaque [])))
         (eval '(az/defn inspect-types :u32 []
-                 (let [list-value (az/init (ShortList :u32 3) {:items [20 2 3]})
-                       payload (az/init Payload {:value 15})]
+                 (let [list-value (az/init {:items [20 2 3]} (ShortList :u32 3))
+                       payload (az/init {:value 15} Payload)]
                    (set! _ (az/type [:* Handle]))
                    (+ ((az/field list-value :first-item))
                       (az/field payload :value)

@@ -3,7 +3,7 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defn check-fields [:error-union :void]
+(az/defn check [:error-union :void]
   [[value :anytype]]
   (try (testing/expectEqual 1234 (az/field value :int)))
   (try (testing/expectEqual 12.34 (az/field value :float)))
@@ -12,7 +12,7 @@
   (try (testing/expectEqual \i (az/index (az/field value :s) 1))))
 
 (az/deftest fully-anonymous-struct-test
-  (try (check-fields {:int (ak/as 1234 (az/type :u32))
+  (try (check {:int (ak/as 1234 (az/type :u32))
                       :float (ak/as 12.34 (az/type :f64))
                       :b true
                       :s "hi"})))

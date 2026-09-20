@@ -1,5 +1,6 @@
 (ns learn.example.test-comptime-wrong-union-field-access
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defconst Foo
   (az/union
@@ -7,5 +8,5 @@
      [:int :u32]]))
 
 (az/defcomptime reject-inactive-field
-  (let [^:var value (az/init Foo {:int 42})]
-    (set! (az/field value :float) 12.34)))
+  (let [value (ak/var (az/init {:int 42} Foo))]
+    (ak/= (az/field value :float) 12.34)))

@@ -3,7 +3,7 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defn- field-optional? :!bool
+(az/defn- isFieldOptional :!bool
   [[T {:zig/prefix "comptime"} :type] [field-index :usize]]
   (let [fields (az/field (az/field (ak/typeInfo T) :struct) :fields)]
     (ak/switch field-index
@@ -18,16 +18,16 @@
    [:b [:optional :u32]]])
 
 (az/deftest runtime-index-type-info-test
-  (let [^:var index (ak/usize 0)]
-    (try (testing/expect (ak/! (try (field-optional? Struct1 index)))))
+  (let [index (ak/var 0 :usize)]
+    (try (testing/expect (ak/! (try (isFieldOptional Struct1 index)))))
     (ak/+= index 1)
-    (try (testing/expect (try (field-optional? Struct1 index))))
+    (try (testing/expect (try (isFieldOptional Struct1 index))))
     (ak/+= index 1)
     (try (testing/expectError (az/error-value :IndexOutOfBounds)
-                              (field-optional? Struct1 index)))))
+                              (isFieldOptional Struct1 index)))))
 
 ;; Calls to field-optional? on Struct1 unroll to the equivalent of this function.
-(az/defn- field-optional-unrolled? :!bool
+(az/defn- isFieldOptionalUnrolled :!bool
   [[field-index :usize]]
   (ak/switch field-index
     (case [0] false)

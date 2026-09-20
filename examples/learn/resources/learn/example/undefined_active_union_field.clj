@@ -3,20 +3,20 @@
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defconst Value
+(az/defconst Foo
   (az/union
     [[:float :f32]
      [:int :u32]]))
 
-(az/defn initialize-float :void [[value [:* Value]]]
-  (set! (az/field value :float) 12.34))
+(az/defn- bar :void [[f [:* Foo]]]
+  (ak/= (az/field f :float) 12.34))
 
 (az/defn main :void []
-  (let [^:var value (az/init Value {:int 42})]
+  (let [f (ak/var (Foo {:int 42}))]
     ;; Select the float field first; its payload can be initialized separately.
-    (set! value (az/init Value {:float ak/undefined}))
-    (initialize-float (& value))
-    (debug/print "value: {}\n" [(az/field value :float)])))
+    (ak/= f (Foo {:float ak/undefined}))
+    (bar (ak/& f))
+    (debug/print "value: {}\n" [(az/field f :float)])))
 
 (comment
   (main))

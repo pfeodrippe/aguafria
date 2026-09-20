@@ -6,14 +6,14 @@
 
 (az/defn main :void []
   (ak/setRuntimeSafety true)
-  (let [^:var value (ak/u8 255)]
+  (let [value (ak/var 255 :u8)]
     (ak/+= value 1)))
 
-(az/defconst panic {:attrs #{:public}} (debug/FullPanic report-panic))
+(az/defconst panic {:attrs #{:public}} (debug/FullPanic myPanic))
 
-(az/defn- report-panic :noreturn
+(az/defn- myPanic :noreturn
   [[message [:slice-const :u8]] [first-trace-address [:optional :usize]]]
-  (set! _ first-trace-address)
+  (ak/= :_ first-trace-address)
   (debug/print "Panic! {s}\n" [message])
   (process/exit 1))
 

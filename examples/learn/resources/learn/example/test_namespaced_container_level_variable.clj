@@ -4,16 +4,16 @@
             [aguafria.zig :as az]))
 
 (az/deftest namespaced-state-test
-  (try (testing/expectEqual 1235 (increment-state)))
-  (try (testing/expectEqual 1236 (increment-state))))
+  (try (testing/expectEqual 1235 (foo)))
+  (try (testing/expectEqual 1236 (foo))))
 
-(az/defstruct State
+(az/defstruct S
   [(az/var-decl value :i32 1234)])
 
-(az/defn- increment-state :i32
+(az/defn- foo :i32
   []
-  (ak/+= (az/field State :value) 1)
-  (az/field State :value))
+  (ak/+= (az/field S :value) 1)
+  (az/field S :value))
 
 (comment
   (namespaced-state-test))

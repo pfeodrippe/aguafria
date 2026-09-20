@@ -3,22 +3,22 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defenum ResultTag
+(az/defenum ComplexTypeTag
   [:ok
    :not_ok])
 
-(az/defconst Result
-  (az/union {:argument ResultTag}
+(az/defconst ComplexType
+  (az/union {:argument ComplexTypeTag}
     [[:ok :u8]
      [:not_ok :void]]))
 
 (az/deftest mutate-tagged-payload-test
-  (let [^:var result (az/init Result {:ok 42})]
+  (let [result (ak/var (az/init {:ok 42} ComplexType))]
     (az/switch-stmt result
-      (case [(az/field ResultTag :ok)] [(az/pointer-capture value)]
+      (case [(az/field ComplexTypeTag :ok)] [(az/pointer-capture value)]
         (az/block
           (ak/+= @value 1)))
-      (case [(az/field ResultTag :not_ok)] (ak/unreachable)))
+      (case [(az/field ComplexTypeTag :not_ok)] (ak/unreachable)))
     (try (testing/expectEqual 43 (az/field result :ok)))))
 
 (comment

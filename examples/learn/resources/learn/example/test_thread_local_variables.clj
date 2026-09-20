@@ -9,13 +9,13 @@
   :i32 1234)
 
 (az/deftest thread-local-storage-test
-  (let [first-thread (try (thread/spawn {} check-thread-local []))
-        second-thread (try (thread/spawn {} check-thread-local []))]
-    (check-thread-local)
+  (let [first-thread (try (thread/spawn {} testTls []))
+        second-thread (try (thread/spawn {} testTls []))]
+    (testTls)
     ((az/field first-thread :join))
     ((az/field second-thread :join))))
 
-(az/defn- check-thread-local :void
+(az/defn- testTls :void
   []
   (debug/assert (== value 1234))
   (ak/+= value 1)

@@ -5,9 +5,9 @@
 
 (az/deftest optional-type-test
   ;; Declare an optional and coerce from null.
-  (let [^:var optional-number (ak/as nil [:optional :i32])]
+  (let [optional-number (ak/var nil [:optional :i32])]
     ;; Coerce from the optional's child type.
-    (set! optional-number 1234)
+    (ak/= optional-number 1234)
 
     ;; Use compile-time reflection to access the child type of the optional.
     (try (ak/comptime

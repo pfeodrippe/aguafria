@@ -106,7 +106,7 @@
                     "Returns the epoch."
                     {:attrs #{:public}}
                     []
-                    (az/init Timestamp {:seconds 0 :nanos 0}))]))
+                    (az/init {:seconds 0 :nanos 0} Timestamp))]))
         (eval '(az/defextern sample :void "Extern docs." {:zig/prefix "extern \"c\""} []))
         (doseq [form '[(az/defextern old :- :void [])
                        (az/defextern old {:zig/prefix "extern"} :- :void [])

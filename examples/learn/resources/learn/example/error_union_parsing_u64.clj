@@ -13,7 +13,7 @@
 
 (az/defn parseU64 [:error-union :u64]
   [[text [:slice-const :u8]] [radix :u8]]
-  (let [^:var accumulated (ak/u64 0)]
+  (let [accumulated (ak/var 0 :u64)]
     (for [character text]
       (let [digit (char-to-digit character)]
         (when (>= digit radix)
@@ -24,7 +24,7 @@
           (let [sum (ak/addWithOverflow (az/index product 0) digit)]
             (when (ak/!= (az/index sum 1) 0)
               (ak/return (az/error-value :OverFlow)))
-            (set! accumulated (az/index sum 0))))))
+            (ak/= accumulated (az/index sum 0))))))
     accumulated))
 
 (az/deftest parse-u64-test

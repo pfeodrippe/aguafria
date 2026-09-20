@@ -3,12 +3,12 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst NumericValue
+(az/defconst U
   (az/union {:attrs #{:enum}}
     [[:a :u32]
      [:b :f32]]))
 
-(az/defn- as-integer :u32 [[value NumericValue]]
+(az/defn- getNum :u32 [[value U]]
   (switch value
     (az/inline-case-else [number tag]
       (if (== tag :.b)
@@ -16,8 +16,8 @@
         number))))
 
 (az/deftest inline-union-tag-test
-  (let [value (az/init NumericValue {:b 42})]
-    (try (testing/expectEqual 42 (as-integer value)))))
+  (let [value (az/init {:b 42} U)]
+    (try (testing/expectEqual 42 (getNum value)))))
 
 (comment
   (inline-union-tag-test))

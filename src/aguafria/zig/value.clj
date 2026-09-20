@@ -8,7 +8,7 @@
            [java.lang.foreign Arena MemorySegment]
            [java.nio.charset StandardCharsets]))
 
-(declare decoded info realize! type type-info
+(declare decoded info realize! type type-info qualified-type
          decode-packed-backing decode-struct decode-value-segment
          encode-packed-backing
          write-struct! write-value-segment!)
@@ -84,6 +84,21 @@
   "Create a callable Zig type constructor."
   [descriptor construct]
   (ZigType. descriptor construct))
+
+(defrecord ZigError [name type]
+  Object
+  (toString [_] (str "error." name)))
+
+(defn zig-error? [value]
+  (instance? ZigError value))
+
+(defn error-form
+  "Recreate an error by name in the receiving module, never by a library-local code."
+  [error]
+  (list 'aguafria.keyword/as
+        (list 'aguafria.zig/field (list 'aguafria.zig/type (:type error))
+              (keyword (:name error)))
+        (:type error)))
 
 (deftype ZigValue [descriptor state materialize]
   clojure.lang.IDeref
@@ -894,10 +909,17 @@
       (when-not (= :native representation)
         (throw (ex-info "Mutable Zig state has no native storage"
                         (info zig-value))))
-      (binding [*allocation-arena* (:allocation-arena schema)]
-        (write-value-segment! segment (:type descriptor) schema new-value
-                              {:module (:module descriptor)
-                               :name (:name descriptor)}))
+      (if (zig-value? new-value)
+        (do
+          (when-not (= (qualified-type zig-value) (qualified-type new-value))
+            (throw (ex-info "Native assignment requires the target's Zig type"
+                            {:expected (type zig-value) :actual (type new-value)})))
+          (.copyFrom ^MemorySegment segment (aguafria.zig.value/segment new-value))
+          (swap! (.-state zig-value) update :owners (fnil conj []) new-value))
+        (binding [*allocation-arena* (:allocation-arena schema)]
+          (write-value-segment! segment (:type descriptor) schema new-value
+                                {:module (:module descriptor)
+                                 :name (:name descriptor)})))
       (when (and (= :union (:kind schema))
                  (not (:tagged? schema))
                  (map? new-value)
@@ -911,11 +933,49 @@
   [^ZigValue zig-value]
   (:type (.-descriptor zig-value)))
 
+(defn qualified-type
+  "Return a native value's type with named references anchored to its module.
+  Moving a handle between JVM namespaces must not change its type identity."
+  [zig-value]
+  (let [module (:module (info zig-value))]
+    (letfn [(qualify [form]
+              (cond
+                (and module (symbol? form) (nil? (namespace form)))
+                (symbol module (name form))
+
+                (vector? form) (mapv qualify form)
+                :else form))]
+      (qualify (type zig-value)))))
+
 (defn native-value
   "Create a lazy Zig value. Public for tooling; normal users receive these
   from `az/defconst` and function results."
   [descriptor materialize]
   (ZigValue. descriptor (atom {:status :pending}) materialize))
+
+(defn mutable-copy
+  "Copy owned native storage into an independently mutable JVM handle.
+  Slice/pointer owners remain reachable; new pointees live in the copy's arena."
+  ([source zig-type schema] (mutable-copy source zig-type schema {}))
+  ([source zig-type schema options]
+  (let [{:keys [segment size alignment]} (realize! source)
+        alignment (max alignment (long (get options :zig/align 1)))
+        arena (Arena/ofShared)]
+    (try
+      (let [storage (.allocate arena (long size) (long alignment))]
+        (.copyFrom storage segment)
+        (let [result (native-value
+                      {:kind :var :type zig-type}
+                      (constantly {:representation :native
+                                   :segment storage :size size :alignment alignment
+                                   :owners [source]
+                                   :schema (assoc schema :allocation-arena arena)
+                                   :close! #(.close arena)}))]
+          (realize! result)
+          result))
+      (catch Throwable failure
+        (.close arena)
+        (throw failure))))))
 
 (defmethod print-method ZigValue
   [value ^java.io.Writer writer]

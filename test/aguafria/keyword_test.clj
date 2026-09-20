@@ -88,7 +88,7 @@
                           #"@intCast expects 1 argument"
                           (az/emit-expr '(ak/intCast one two)))))
 
-  (testing "token Vars cannot accidentally execute as Clojure"
+  (testing "scope-dependent syntax still needs an enclosing declaration"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"only be used inside an Aguafria form"
-                          (ak/intCast 1)))))
+                          (ak/return 1)))))

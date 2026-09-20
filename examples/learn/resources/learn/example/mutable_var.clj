@@ -5,7 +5,7 @@
 
 (az/defn main :void
   []
-  (let [^:var value (ak/i32 5678)]
+  (let [value (ak/var 5678 :i32)]
     (ak/+= value 1)
     (debug/print "{d}" [value])))
 

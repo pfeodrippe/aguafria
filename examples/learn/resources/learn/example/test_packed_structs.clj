@@ -16,7 +16,7 @@
 (az/defstruct Divided {:layout :packed}
   [[:half1 :u8] [:quarter3 :u4] [:quarter4 :u4]])
 
-(az/defn check-packed-bits [:error-union :void] []
+(az/defn doTheTest [:error-union :void] []
   (try (testing/expectEqual 2 (ak/sizeOf Full)))
   (try (testing/expectEqual 2 (ak/sizeOf Divided)))
   (let [full (Full {:number 0x1234})
@@ -37,8 +37,8 @@
           (try (testing/expectEqual 0x12 (az/index ordered 1))))))))
 
 (az/deftest bit-cast-between-packed-structs-test
-  (try (check-packed-bits))
-  (try (ak/comptime (check-packed-bits))))
+  (try (doTheTest))
+  (try (ak/comptime (doTheTest))))
 
 (comment
   (bit-cast-between-packed-structs-test))

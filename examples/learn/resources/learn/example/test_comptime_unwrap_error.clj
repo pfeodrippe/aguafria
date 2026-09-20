@@ -2,9 +2,9 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defn- number-or-error [:error-union :i32] []
+(az/defn- getNumberOrFail [:error-union :i32] []
   (ak/return (az/error-value :UnableToReturnNumber)))
 
 (az/defcomptime reject-unexpected-error
-  (let [number (catch (number-or-error) (ak/unreachable))]
-    (set! _ number)))
+  (let [number (catch (getNumberOrFail) (ak/unreachable))]
+    (ak/= :_ number)))

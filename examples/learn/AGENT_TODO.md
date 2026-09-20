@@ -11,6 +11,19 @@ served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
       linked calls and explain unresolved/platform-specific naming examples
       in `identifiers` without calling unsafe demonstration prototypes.
 
+- [x] Use the shared native expression bridge for generated builtins, value
+      operators and structural value forms, not per-operator JVM implementations.
+      Preserve comptime signature arguments, runtime operand types, native output
+      and type-valued results that can be passed back into Zig. Scope-dependent
+      syntax still requires an enclosing declaration. Tested values.clj's exact
+      boolean print, optional/null comparisons and assertions; unrelated builtins,
+      field/index expressions, type round trips and Java callers also covered.
+      Qualify the example's equality operators; full values/main ran successfully.
+- [x] values.clj: expose ExampleErrorSet as an inspectable type with documented
+      error members, without trying to allocate comptime-only `type` storage.
+      Explicit az/type aliases use type descriptors rather than lazy value handles.
+      JVM, keyword, API and diagnostic checks: 27 tests / 858 assertions passed.
+
 - [ ] Verify the corrected error header and source highlight in the user's
       restarted CIDER session. Do not install editor-specific modes/adapters.
 - [x] Fix compilation-error wrapping: throw a standard CompilerException as the
@@ -491,3 +504,55 @@ expanded acceptance for this reference. Stop here as requested.
 All 15 larger blocks are handwritten; eight have native output
 comparisons and one has explicit test-discovery verification. File-example success
 does not establish coverage of all Zig.
+# JVM expression interoperability follow-up
+
+- [x] Add `az/zig-source!`: print formatted declaration/type/value Zig to `*out*`
+      using the pinned formatter, without invoking inspected functions. Verify
+      Vars, native globals, documented structs, tests, imported references,
+      primitive/compound type schemas and typed native arrays.
+
+- [x] Express mixed destructuring with ordinary `let`: destructure first, then
+      rebind selected locals with `ak/var`. Preserve Clojure's shadowing semantics
+      through hygienic native local names. Support `:_` assignment discards.
+      Direct JVM and compiled tests cover scalars, a native struct, a typed error,
+      and a native slice; mutable copies retain the defining module's type identity.
+      Zig 0.16.0 ReleaseFast/LLVM comparison of `destructuring_mixed` produced
+      identical optimized main instructions (only anonymous labels differ).
+      Keep declarations lexical: assignment must not introduce invisible locals.
+
+- [x] Support typed `ak/undefined` mutable storage and destructuring assignment
+      from ordinary JVM code; never require reading undefined values first.
+- [x] Use `:_` for inferred array lengths. Make `az/init` and `az/array-init`
+      value-first, migrate callers/converter/tests, and verify both JVM and Zig.
+
+- [x] Preserve original Zig identifiers rather than renaming types/functions for
+      exposition; audit union examples and other authored lessons for gratuitous
+      helper functions and renames. `change_active_union_field`: `Foo`, `bar`, `f`.
+
+- [x] Replace Learn mutable/type binding metadata with executable constructors;
+      migrate all assignment forms to `ak/=` and verify native semantics.
+- [x] Keep a visible boundary between captured native output without a trailing
+      newline and the printed REPL result (notably `mutable_var.clj`: `5679`, `nil`).
+
+- [x] Reject invalid concrete private function bodies when their own definition
+      is evaluated, not only when a later caller forces Zig's lazy analysis.
+      Preserve private visibility, source-only tooling and generic specialization.
+- [x] Preserve typed error-set values through field access, coercion, mutable
+      initialization and reassignment from ordinary JVM code.
+
+- [x] Preserve characters and string-literal results across direct JVM calls;
+      verify nested `mem/eql` and `debug/print` using actual native execution.
+- [x] Provide explicit mutable native values for ordinary Clojure `let` and
+      assignment; test optional/slice ownership, scalar mutation, and equivalent
+      compiled Aguafria syntax. Binding metadata alone cannot change Clojure locals.
+- [x] Prevent Zig assertion/safety panics at the JVM call boundary from aborting
+      the JVM. Test failures in a disposable JVM before the live development REPL;
+      document the limits for arbitrary memory corruption, exit and custom panic.
+- [x] Refresh authored lesson copies (including current user edits), regenerate
+      complete HTML and actual REPL evidence, compare original Zig outcomes, and
+      check the served page rather than only the generated files.
+      Final clean run: 289 upstream outcomes + 3 reviewed special cases passed;
+      acceptance gate passed with 202 in-process REPL transcripts. Learn tests:
+      55 tests / 10,212 assertions. Browser checks: 10/10, plus live served-page
+      verification of mixed destructuring, `5679`/`nil` separation and viewport fit.
+      `hello.clj` was restored by its owner; no user edits were moved or replaced.

@@ -6,4 +6,4 @@
   (let [numerator (ak/i32 1)
         denominator (ak/i32 0)
         quotient (/ numerator denominator)]
-    (set! _ quotient)))
+    (ak/= :_ quotient)))

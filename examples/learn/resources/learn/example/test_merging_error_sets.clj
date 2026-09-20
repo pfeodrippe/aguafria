@@ -2,23 +2,23 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defconst DirectoryError
+(az/defconst A
   (az/type [:error-set [:NotDir
                        ;; A doc comment: this set describes missing paths.
                         :PathNotFound]]))
 
-(az/defconst AllocationError
+(az/defconst B
   (az/type [:error-set [:OutOfMemory
                        ;; B doc comment: the shared member merges by name.
                         :PathNotFound]]))
 
-(az/defconst CombinedError (az/op "||" DirectoryError AllocationError))
+(az/defconst C (az/op "||" A B))
 
-(az/defn- fail-not-directory [:error-union CombinedError :void] []
+(az/defn- foo [:error-union C :void] []
   (ak/return (az/error-value :NotDir)))
 
 (az/deftest merge-error-sets-test
-  (az/if-capture-stmt {:error [error]} (fail-not-directory)
+  (az/if-capture-stmt {:error [error]} (foo)
                       (ak/panic "unexpected")
                       (az/switch-stmt error
                         (case [(az/error-value :OutOfMemory)] (ak/panic "unexpected"))

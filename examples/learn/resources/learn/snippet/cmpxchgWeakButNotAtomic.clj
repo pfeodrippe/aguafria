@@ -7,6 +7,6 @@
    [pointer [:* T]] [expected T] [replacement T]]
   (let [previous @pointer]
     (when (and (== previous expected) (usually-true-but-sometimes-false))
-      (set! @pointer replacement)
+      (ak/= @pointer replacement)
       (ak/return nil))
     previous))

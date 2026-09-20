@@ -6,7 +6,7 @@
 
 (az/deftest pointer-casting-test
   (let [^{:zig/align (ak/alignOf (az/type :u32))}
-        bytes (az/array-init [:array _ :u8] [0x12 0x12 0x12 0x12])
+        bytes (az/array-init [0x12 0x12 0x12 0x12] [:array :_ :u8])
         pointer (ak/as (ak/ptrCast (& bytes)) [:*const :u32])]
     (try (testing/expectEqual 0x12121212 @pointer))
     ;; A slice conversion exposes its element count as well as its pointer.

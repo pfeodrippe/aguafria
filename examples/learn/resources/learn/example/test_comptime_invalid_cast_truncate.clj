@@ -6,4 +6,4 @@
 (az/defcomptime reject-too-large-byte
   (let [spartan-count (ak/u16 300)
         byte (ak/u8 (ak/intCast spartan-count))]
-    (set! _ byte)))
+    (ak/= :_ byte)))

@@ -12,7 +12,7 @@
                 [:c Point]
                 [:d :void]
                 [:e :u32]])
-        ^:var item (az/init Item {:c (az/init Point {:x 1 :y 2})})
+        item (ak/var (az/init {:c (az/init {:x 1 :y 2} Point)} Item))
         result (ak/switch item
                  ;; Matching fields with the same payload type can share a prong.
                  (case [(az/field Item :a) (az/field Item :e)] [value] value)

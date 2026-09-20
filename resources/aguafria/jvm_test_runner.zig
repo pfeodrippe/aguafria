@@ -3,10 +3,18 @@ const builtin = @import("builtin");
 
 // Zig discovers and type-checks actual test declarations in test mode. The
 // resulting code is linked into a library and invoked by the JVM, not executed
-// by a child test runner. A native panic still has native process semantics.
+// by a child test runner. The native boundary contains Zig assertion panics.
 pub fn main() void {}
 
 export fn aguafria_run_test() callconv(.c) u32 {
+    return __aguafria_jvm_guard.call(runTest, .{}) orelse 3;
+}
+
+export fn aguafria_test_panic_message() callconv(.c) ?[*:0]const u8 {
+    return __aguafria_jvm_guard.aguafria_guard_message();
+}
+
+fn runTest() u32 {
     if (builtin.test_functions.len != 1) {
         std.debug.print("Expected one selected test, found {d}\n", .{builtin.test_functions.len});
         return 1;

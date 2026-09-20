@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest labeled-break-test
-  (let [^:var y (ak/i32 123)
+  (let [y (ak/var 123 :i32)
         x (az/labeled-block blk
             (ak/+= y 1)
             (ak/break blk y))]

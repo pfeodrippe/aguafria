@@ -4,9 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/deftest pointer-slicing-test
-  (let [^:var numbers (az/array-init [:array _ :u8] [1 2 3 4 5 6 7 8 9 10])
-        ^:var start (ak/usize 2)]
-    (set! _ (& start))
+  (let [numbers (ak/var (az/array-init [1 2 3 4 5 6 7 8 9 10] [:array :_ :u8]))
+        start (ak/var 2 :usize)]
+    (ak/= :_ (& start))
     (let [slice (az/slice numbers start 4)]
       (try (testing/expectEqual 2 (az/field slice :len)))
       (try (testing/expectEqual 4 (az/index numbers 3)))

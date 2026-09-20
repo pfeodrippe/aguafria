@@ -5,18 +5,13 @@
 
 (az/defn main :void
   []
-  (let [^:var x (ak/u32 ak/undefined)
-        tuple [1 2 3]]
-    ;; This Zig-specific form mixes assignment with two new declarations in
-    ;; one operation. Use let for ordinary binding-only destructuring.
-    (az/destructure {}
-                    [{:kind :target :target x}
-                     {:kind :var :name :y :type :u32}
-                     {:kind :const :name :z}]
-                    tuple)
+  (let [tuple [1 2 3]
+        [x y z] tuple
+        x (ak/var x :u32)
+        y (ak/var y :u32)]
     (debug/print "x = {}, y = {}, z = {}\n" [x y z])
-    (set! y 100)
-    (set! [_ x _] tuple)
+    (ak/= y 100)
+    (ak/= [:_ x :_] tuple)
     (debug/print "x = {}" [x])))
 
 (comment

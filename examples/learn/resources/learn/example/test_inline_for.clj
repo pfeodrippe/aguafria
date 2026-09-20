@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest inline-for-test
-  (let [numbers (az/array-init [:array _ :i32] [2 4 6])
-        ^:var sum (ak/usize 0)]
+  (let [numbers (az/array-init [2 4 6] [:array :_ :i32])
+        sum (ak/var 0 :usize)]
     (az/inline-for [number numbers]
       (let [T (ak/switch number
                 (case [2] :f32)

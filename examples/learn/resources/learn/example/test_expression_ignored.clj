@@ -2,9 +2,9 @@
   (:require [aguafria.zig :as az]))
 
 (az/deftest ignored-value-test
-  (returns-integer))
+  (foo))
 
-(az/defn- returns-integer :i32
+(az/defn- foo :i32
   []
   1234)
 

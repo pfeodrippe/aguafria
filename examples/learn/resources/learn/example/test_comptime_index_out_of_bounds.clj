@@ -5,4 +5,4 @@
 (az/defcomptime reject-sixth-byte
   (let [bytes (ak/as (deref "hello") [:array 5 :u8])
         invalid-byte (az/index bytes 5)]
-    (set! _ invalid-byte)))
+    (ak/= :_ invalid-byte)))

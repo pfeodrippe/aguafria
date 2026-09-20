@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest comptime-variables-test
-  (let [^:var x (ak/i32 1)
-        ^{:zig/prefix "comptime", :var true} y (ak/i32 1)]
+  (let [x (ak/var 1 :i32)
+        y (ak/var 1 :i32 {:zig/prefix "comptime"})]
     (ak/+= x 1)
     (ak/+= y 1)
     (try (testing/expectEqual 2 x))

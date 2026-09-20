@@ -4,9 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/defconst number
-  (let [^:var value (ak/i32 99)]
+  (let [value (ak/var 99 :i32)]
     (ak/compileLog "comptime val1 = " value)
-    (set! value (+ value 1))
+    (ak/= value (+ value 1))
     value))
 
 (az/deftest compile-log-test

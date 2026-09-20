@@ -54,7 +54,7 @@
 
 (az/defn set-face! :void
   [[cache [:* Cache]] [index :usize] [a :u32] [b :u32] [c :u32]]
-  (set! (az/index (az/field cache faces) index) (az/array-init [:array 3 :u32] [a b c])))
+  (set! (az/index (az/field cache faces) index) (az/array-init [a b c] [:array 3 :u32])))
 
 (az/defn record! :void
   "Copy an accepted numerical state; no playback tick aliases the live solver."

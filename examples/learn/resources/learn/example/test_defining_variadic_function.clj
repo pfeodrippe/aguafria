@@ -8,10 +8,10 @@
 (az/defn- add :c_int
   {:zig/qualifiers "callconv(.c)"}
   [[count :c_int] [... {:zig/variadic true} _]]
-  (let [^:var arguments (ak/cVaStart)]
+  (let [arguments (ak/var (ak/cVaStart))]
     (ak/defer (ak/cVaEnd (& arguments)))
-    (let [^:var index (ak/usize 0)
-          ^:var sum (ak/as 0 :c_int)]
+    (let [index (ak/var 0 :usize)
+          sum (ak/var 0 :c_int)]
       (az/while-loop {:continue (az/assign-expr "+=" index 1)}
         (< index count)
         (ak/+= sum (ak/cVaArg (& arguments) :c_int)))

@@ -85,6 +85,7 @@
 (def ^:dynamic *local-type-bindings*
   "Lexically scoped local names and whether their initializers produce types."
   {})
+(def ^:dynamic *local-name-bindings* {})
 (def ^:dynamic *named-module-imports?* false)
 (def ^:dynamic *logical-type-names?* false)
 
@@ -374,18 +375,44 @@
   [context-ns [_ bindings & body :as form]]
   (loop [pairs (partition 2 bindings)
          qualified []
-         local-types *local-type-bindings*]
+         local-types *local-type-bindings*
+         local-names *local-name-bindings*
+         ordinal 0]
     (if-let [[binding-name value] (first pairs)]
-      (let [value (binding [*local-type-bindings* local-types]
+      (let [value (binding [*local-type-bindings* local-types
+                           *local-name-bindings* local-names]
                     (qualify-form context-ns value))
-            qualified-binding (qualify-form context-ns binding-name)
             names (if (vector? binding-name) binding-name [binding-name])
+            later-names (set (mapcat (fn [[binding]]
+                                      (if (vector? binding) binding [binding]))
+                                    (next pairs)))
+            replacements (into {}
+                               (map (fn [name]
+                                      [name (if (and (not= '_ name)
+                                                     (or (contains? local-types name)
+                                                         (contains? later-names name)))
+                                              (with-meta
+                                                (symbol (str "__aguafria_local_" (identifier name)
+                                                             "_" (Integer/toUnsignedString (hash form) 16)
+                                                             "_" ordinal))
+                                                (dissoc (meta name) :zig/name))
+                                              name)]))
+                               names)
+            qualified-binding (if (vector? binding-name)
+                                (with-meta (mapv replacements binding-name) (meta binding-name))
+                                (replacements binding-name))
             local-types (reduce #(assoc %1 %2
                                         (and (symbol? binding-name)
                                              (boolean (local-type-expression? value))))
-                                local-types names)]
-        (recur (next pairs) (conj qualified qualified-binding value) local-types))
-      (binding [*local-type-bindings* local-types]
+                                local-types names)
+            local-names (merge local-names replacements)
+            qualified-binding (binding [*local-type-bindings* local-types
+                                        *local-name-bindings* {}]
+                                (qualify-form context-ns qualified-binding))]
+        (recur (next pairs) (conj qualified qualified-binding value)
+               local-types local-names (inc ordinal)))
+      (binding [*local-type-bindings* local-types
+                *local-name-bindings* local-names]
         (with-meta
           (apply list 'let (with-meta qualified (meta bindings))
                  (map #(qualify-form context-ns %) body))
@@ -496,7 +523,7 @@
     (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
                            (meta form))
     (and (symbol? form) (contains? *local-type-bindings* form))
-    (with-meta form (assoc (meta form)
+    (with-meta (get *local-name-bindings* form form) (assoc (meta form)
                           :aguafria/local? true
                           :aguafria/local-type? (get *local-type-bindings* form)))
 
@@ -1349,7 +1376,7 @@
           (emit-block-expr label forms))
 
         (= op 'init)
-        (let [[type fields] args]
+        (let [[fields type] args]
           (if (and (= 2 (count args))
                    (or (map? fields)
                        (and (seq? fields)
@@ -1357,13 +1384,13 @@
                                (resolved-syntax-operator
                                 (or *keyword-context* *ns*) (first fields))))))
             (str (emit-type type) (subs (emit-expr fields) 1))
-            (fail! "init expects a type and an object/map literal" form)))
+            (fail! "init expects an object/map literal followed by its type" form)))
 
         (= op 'array-init)
-        (let [[type elements] args]
+        (let [[elements type] args]
           (if (and (= 2 (count args)) (vector? elements))
             (str (emit-type type) (subs (emit-vector-literal elements) 1))
-            (fail! "array-init expects a type and element vector" form)))
+            (fail! "array-init expects an element vector followed by its type" form)))
 
         (= op 'unreachable)
         (if (empty? args)
@@ -1690,7 +1717,18 @@
 
 (defn- let-local-form
   [[binding value]]
-  (if (vector? binding)
+  (cond
+    (and (seq? value) (contains? #{'-> '->>} (first value)))
+    (let-local-form [binding (expand-thread (= '->> (first value)) (rest value) value)])
+
+    (and (seq? value) (= 'var (first value)) (#{2 3 4} (count value)))
+    (let [[_ initializer type options] value]
+      (let-local-form [(vary-meta binding merge options {:var true})
+                       (if type
+                         (list 'aguafria.keyword/as initializer type)
+                         initializer)]))
+
+    (vector? binding)
     (if (= 1 (count binding))
       ;; Zig has no single-target destructuring syntax; direct indexing still
       ;; evaluates the initializer exactly once.
@@ -1700,6 +1738,7 @@
       (list 'destructure {}
             (mapv #(if (= '_ %) {:kind :discard} (local-binding %)) binding)
             value))
+    :else
     (let [{:keys [kind type] :as declaration} (local-binding binding)
           options (dissoc declaration :kind :name :type)]
       (apply list (symbol (name kind)) binding
@@ -1983,8 +2022,10 @@
                (do
                  (keyword/validate-call! token args form)
                  (let [[target value] args]
-                   (str (emit-expr target) " " (:zig-token token) " "
-                        (emit-expr value) ";")))
+                   (if (= "=" (:zig-token token))
+                     (emit-stmt (list 'set! target value) level)
+                     (str (emit-expr target) " " (:zig-token token) " "
+                          (emit-expr value) ";"))))
 
                (= op 'do) (emit-statements args level)
                (= op 'raw) (emit-expr form)
@@ -2014,7 +2055,7 @@
                  (let [[target value] args]
                    (when (and (vector? target)
                               (not (and (seq target)
-                                        (every? #(or (and (symbol? %) (not= '& %))
+                                        (every? #(or (= :_ %) (and (symbol? %) (not= '& %))
                                                      (and (seq? %)
                                                           (contains? #{'field 'index 'deref}
                                                                      (first %))))
@@ -2027,7 +2068,7 @@
                             (emit-expr (list 'index value 0)) ";")
                        (str (emit-expr
                              (list 'destructure {}
-                                   (mapv #(if (= '_ %) {:kind :discard}
+                                   (mapv #(if (contains? #{'_ :_} %) {:kind :discard}
                                               {:kind :target :target %}) target)
                                    value)) ";"))
                      (str (emit-expr target) " = " (emit-expr value) ";")))
@@ -2684,8 +2725,8 @@
         (fn [form]
           (let [operator (when (seq? form) (first form))]
             (and (symbol? operator)
-                 (= "set!" (name operator))
-                 (= '_ (second form))
+                 (contains? #{"set!" "="} (name operator))
+                 (contains? #{'_ :_} (second form))
                  (contains? argument-names (nth form 2 nil)))))
         branch-hint-form?
         (fn [form]

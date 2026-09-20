@@ -43,10 +43,9 @@
   (if (ak/== axis 0) (az/field vector x) (if (ak/== axis 1) (az/field vector y) (az/field vector z))))
 
 (az/defn difference [:array 3 Interval] [[a p/Vec3] [b p/Vec3]]
-  (az/array-init [:array 3 Interval]
-    [(subtract (point (az/field a x)) (point (az/field b x)))
+  (az/array-init [(subtract (point (az/field a x)) (point (az/field b x)))
      (subtract (point (az/field a y)) (point (az/field b y)))
-     (subtract (point (az/field a z)) (point (az/field b z)))]))
+     (subtract (point (az/field a z)) (point (az/field b z)))] [:array 3 Interval]))
 
 (az/defn determinant Interval [[u [:array 3 Interval]] [v [:array 3 Interval]] [w [:array 3 Interval]]]
   (let [^:var result (point 0.0)]
@@ -76,8 +75,8 @@
         b (average (az/index coefficients 1) (az/index coefficients 2))
         c (average (az/index coefficients 2) (az/index coefficients 3))
         d (average a b) e (average b c) midpoint (average d e)]
-    (and (cubic-excludes-zero? (az/array-init [:array 4 Interval] [(az/index coefficients 0) a d midpoint]) (- depth 1))
-         (cubic-excludes-zero? (az/array-init [:array 4 Interval] [midpoint e c (az/index coefficients 3)]) (- depth 1)))))
+    (and (cubic-excludes-zero? (az/array-init [(az/index coefficients 0) a d midpoint] [:array 4 Interval]) (- depth 1))
+         (cubic-excludes-zero? (az/array-init [midpoint e c (az/index coefficients 3)] [:array 4 Interval]) (- depth 1)))))
 
 (az/defn non-coplanar? :bool [[before [:pointer {:size :c :const? true} p/Vec3]] [after [:pointer {:size :c :const? true} p/Vec3]]]
   (let [edge-u-before (difference (az/index before 1) (az/index before 0))
@@ -86,11 +85,10 @@
         edge-u-after (difference (az/index after 1) (az/index after 0))
         edge-v-after (difference (az/index after 2) (az/index after 0))
         edge-w-after (difference (az/index after 3) (az/index after 0))
-        coefficients (az/array-init [:array 4 Interval]
-                       [(multiply (determinant edge-u-before edge-v-before edge-w-before) (point 3.0))
+        coefficients (az/array-init [(multiply (determinant edge-u-before edge-v-before edge-w-before) (point 3.0))
                         (add (add (determinant edge-u-after edge-v-before edge-w-before) (determinant edge-u-before edge-v-after edge-w-before)) (determinant edge-u-before edge-v-before edge-w-after))
                         (add (add (determinant edge-u-after edge-v-after edge-w-before) (determinant edge-u-after edge-v-before edge-w-after)) (determinant edge-u-before edge-v-after edge-w-after))
-                        (multiply (determinant edge-u-after edge-v-after edge-w-after) (point 3.0))])]
+                        (multiply (determinant edge-u-after edge-v-after edge-w-after) (point 3.0))] [:array 4 Interval])]
     ;; Three times the Bernstein coefficients avoids an inexact division by 3.
     (cubic-excludes-zero? coefficients 12)))
 
@@ -161,7 +159,7 @@
              (ak/! (math/isFinite maximum-time)) (<= maximum-time 0) (> maximum-time 1)
              (ak/== maximum-iterations 0) (> maximum-iterations 1000000) (ak/!= (fegetround) 0))
     (ak/return 3))
-  (let [^:var extent (az/array-init [:array 3 :f64] [1.0 1.0 1.0])]
+  (let [^:var extent (az/array-init [1.0 1.0 1.0] [:array 3 :f64])]
     (dotimes [index 4]
       (dotimes [axis 3]
         (let [a (component (az/index before index) axis) b (component (az/index after index) axis)]

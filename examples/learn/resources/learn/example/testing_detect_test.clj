@@ -6,9 +6,9 @@
 (az/defconst builtin (ak/import "builtin"))
 
 (az/deftest detect-test-build-test
-  (try (testing/expect (test-build?))))
+  (try (testing/expect (isATest))))
 
-(az/defn- test-build? :bool
+(az/defn- isATest :bool
   []
   (az/field builtin :is_test))
 

@@ -5,18 +5,18 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defenum ResultTag
+(az/defenum ComplexTypeTag
   [:ok
    :not_ok])
 
-(az/defconst Result
-  (az/union {:argument ResultTag}
+(az/defconst ComplexType
+  (az/union {:argument ComplexTypeTag}
     [[:ok :u8]
      [:not_ok :void]]))
 
 (az/deftest tagged-union-switch-test
-  (let [result (az/init Result {:ok 42})]
-    (try (testing/expectEqual (az/field ResultTag :ok) (ak/as result ResultTag)))
+  (let [result (az/init {:ok 42} ComplexType)]
+    (try (testing/expectEqual (az/field ComplexTypeTag :ok) (ak/as result ComplexTypeTag)))
     (az/switch-stmt result
       (case [:.ok] [value] (try (testing/expectEqual 42 value)))
       (case [:.not_ok] (ak/unreachable)))
@@ -27,7 +27,7 @@
       (case [:.not_ok] (ak/unreachable)))))
 
 (az/deftest tag-type-test
-  (try (testing/expectEqual ResultTag (meta/Tag Result))))
+  (try (testing/expectEqual ComplexTypeTag (meta/Tag ComplexType))))
 
 (comment
   (tagged-union-switch-test)

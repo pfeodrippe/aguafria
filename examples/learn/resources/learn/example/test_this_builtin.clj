@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest this-type-test
-  (let [^:var items (az/array-init [:array _ :i32] [1 2 3 4])
-        list (az/init (List :i32) {:items (az/slice items 0)})]
+  (let [items (ak/var (az/array-init [1 2 3 4] [:array :_ :i32]))
+        list (az/init {:items (az/slice items 0)} (List :i32))]
     (try (testing/expectEqual 4 ((az/field list :length))))))
 
 (az/defn- List :type

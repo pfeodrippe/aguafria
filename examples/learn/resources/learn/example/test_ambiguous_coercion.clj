@@ -5,7 +5,7 @@
 (az/deftest ambiguous-comptime-coercion-test
   ;; Intentionally invalid: peer coercion selects comptime_int for the division.
   (let [quotient (ak/f32 (/ 54.0 5))]
-    (set! _ quotient)))
+    (ak/= :_ quotient)))
 
 (comment
   (ambiguous-comptime-coercion-test))

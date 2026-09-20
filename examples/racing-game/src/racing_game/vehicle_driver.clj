@@ -104,7 +104,7 @@
   "Lateral position and its first two distance derivatives. Evaluating this
   path never modifies vehicle position or velocity." [[plan [:* LanePlan]] [distance :f32]]
   (if (ak/! (az/field plan active))
-    (az/array-init [:array 3 :f32] [(az/field plan target) 0.0 0.0])
+    (az/array-init [(az/field plan target) 0.0 0.0] [:array 3 :f32])
     (let [delta (- distance (az/field plan origin))
           travelled (cond (< delta -2154.5) (+ delta 4309.0)
                           (> delta 2154.5) (- delta 4309.0) :else delta)
@@ -119,8 +119,7 @@
           second (/ (+ (* 2.0 (az/index c 2)) (* u (+ (* 6.0 (az/index c 3))
                        (* u (+ (* 12.0 (az/index c 4)) (* u 20.0 (az/index c 5)))))))
                     (* length length))]
-      (az/array-init [:array 3 :f32]
-        [position (if (< u 1.0) first 0.0) (if (< u 1.0) second 0.0)]))))
+      (az/array-init [position (if (< u 1.0) first 0.0) (if (< u 1.0) second 0.0)] [:array 3 :f32]))))
 
 (az/defn update-lane-plan! :void
   "Plan a quintic lane transition. A new request preserves the previous
@@ -145,11 +144,10 @@
             slope (* (az/index previous 1) length)
             curvature (* 0.5 (az/index previous 2) length length)]
         (set! (az/field plan coefficients)
-          (az/array-init [:array 6 :f32]
-            [(az/index previous 0) slope curvature
+          (az/array-init [(az/index previous 0) slope curvature
              (- (* 10.0 displacement) (* 6.0 slope) (* 3.0 curvature))
              (+ (* -15.0 displacement) (* 8.0 slope) (* 3.0 curvature))
-             (- (* 6.0 displacement) (* 3.0 slope) curvature)]))
+             (- (* 6.0 displacement) (* 3.0 slope) curvature)] [:array 6 :f32]))
         (set! (az/field plan origin) distance)
         (set! (az/field plan length) length)
         (set! (az/field plan target) target)

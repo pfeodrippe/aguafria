@@ -214,7 +214,7 @@
     (clear-embeddings!)
     (set! embedding-revision scene/revision))
   (az/set-many! embedded-count 0 embedded-linear 0 embedded-rejected 0 maximum-inset 0.0 stream-overflow false)
-  (let [^:var active (az/array-init [:array 3 [:optional [:* embedding/Render]]] [null null null])
+  (let [^:var active (az/array-init [null null null] [:array 3 [:optional [:* embedding/Render]]])
         ^:var required (ak/usize 0)]
     (dotimes [body scene/body-count]
       (let [owned (scene/mesh-cache-at body)

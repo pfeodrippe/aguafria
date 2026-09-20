@@ -5,4 +5,4 @@
 (az/defcomptime reject-out-of-range-float
   (let [float-value (ak/f32 4294967296)
         integer-value (ak/i32 (ak/intFromFloat float-value))]
-    (set! _ integer-value)))
+    (ak/= :_ integer-value)))

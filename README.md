@@ -148,16 +148,18 @@ introduce a second runtime abstraction:
 | `(f a b)` | function call |
 | `(let [x 1] ...)` | immutable local by default |
 | `(let [[x y] pair] ...)` | fixed array, tuple or vector destructuring |
-| `^{:var :i32} x` | typed mutable local; equivalent to `^{:var true :zig/type :i32}` |
+| `(let [x (ak/var 1 :i32)] ...)` | typed mutable local; also owned mutable storage on the JVM |
 | `if`, `when`, `cond` | Zig control flow |
 | `while`, `doseq` | Zig loops |
-| `set!` | assignment |
-| `(set! [x y] pair)` | assign existing targets from one evaluated value |
+| `(ak/= x value)` | assignment |
+| `(ak/= [x y] pair)` | assign existing targets from one evaluated value in compiled code |
 | `(az/set-many! target value ...)` | ordered assignments; later values may read earlier writes |
 | `(az/field p :x)` | `p.x` |
 | `(az/index values i)` | `values[i]` |
 | `(Point {:x 1.0 :y 2.0})` | typed struct literal |
-| `ak/...` | Zig-only operators, keywords, and `@builtins` |
+| `(az/init {:x 1.0 :y 2.0} Point)` | explicit value-first struct initializer |
+| `(az/array-init [4 5 6] [:array :_ :u32])` | typed array initializer with inferred length |
+| `ak/...` | Zig operators, keywords, and `@builtins`; value calls also use the native JVM bridge |
 
 For example:
 
@@ -259,9 +261,43 @@ code. `ak/as` takes the value first and accepts the same type data as signatures
 
 Inside Zig these emit checked `@as(type, value)` coercions. JVM calls use cached
 in-process native adapters; composites own native storage and should be closed
-with `with-open`. Use `^:var` for a mutable local initialized by a constructor.
+with `with-open`. `^:var` marks mutable locals inside compiled Aguafria code;
+it does not change Clojure's immutable `let` bindings. For either environment,
+use an explicit mutable initializer and assignment:
+
+```clojure
+(let [value (ak/var (ak/as nil [:optional [:slice-const :u8]]))]
+  (ak/= value "hi")
+  (debug/print "{?s}\n" [value]))
+```
+
+On the JVM, `ak/var` owns native storage; use `with-open` to close it explicitly.
+Inside an Aguafria `let`, the initializer emits a normal Zig `var`.
+For mixed mutable and immutable destructuring, bind the elements first and
+then rebind the mutable ones. The same source has ordinary lexical scope on
+the JVM and emits native Zig locals, not runtime wrapper allocations:
+
+```clojure
+(let [[x y z] [1 2 3]
+      x (ak/var x :u32)
+      y (ak/var y :u32)]
+  (ak/= y 100)
+  (ak/= [:_ x :_] [4 5 6])
+  (debug/print "{} {} {}\n" [x y z]))
+```
+
+Tuple elements can also be typed native values, such as structs, errors and
+slices. Destructuring does not erase their types. Optimized Zig can eliminate
+the intermediate bindings; Debug builds may retain them for debugging.
+
 Coercing an existing native value can produce a view; keep its source open
 while using that view. The result retains its source against garbage collection.
+
+JVM call boundaries turn standard Zig assertion/safety panics into exceptions.
+This is not a memory sandbox: native `defer` cleanup is skipped, so affected
+native state may need reinitialization. Explicit process exits, traps, custom
+abort handlers, background-thread panics and memory corruption can still
+terminate the process. Standalone executables retain Zig's normal behavior.
 
 Directly representable results return as ordinary Clojure values. Zig values
 with native-only representation use typed Aguafria values backed by FFM
@@ -274,6 +310,23 @@ error unions use `{:ok value}` or `{:error ...}`. Typed pointer values remain
 borrowed native pointers with explicit lifetime rules.
 
 ## Zig source and packages
+
+Print a declaration or value as Zig with the pinned Zig formatter:
+
+```clojure
+(az/zig-source! #'main)                     ;; function declaration, without calling it
+(az/zig-source! #'limit)                    ;; constant declaration, including its name
+(az/zig-source! Point)                      ;; named type and its members/documentation
+(az/zig-source! [:optional [:slice-const :u8]]) ;; ?[]const u8
+(az/zig-source! #'debug/print)               ;; @import("std").debug.print
+(with-open [items (ak/as [1 2 3] [:array 3 :u32])]
+  (az/zig-source! items))                   ;; typed value expression
+```
+
+`zig-source!` writes to Clojure's `*out*` and returns `nil`; use `with-out-str`
+to capture it. Pass a Var (`#'name`) or a quoted symbol for a declaration.
+A plain JVM literal cannot identify the constant it originally came from.
+This prints source; it does not execute the inspected declaration.
 
 The converter translates a Zig file or tree into formatted Clojure namespaces
 made from Aguafria declarations. It does not rely on `az/defraw`. The resulting

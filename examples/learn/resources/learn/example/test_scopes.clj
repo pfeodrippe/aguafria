@@ -4,9 +4,9 @@
 
 (az/deftest separate-scopes-test
   (let [pi 3.14]
-    (set! _ pi))
-  (let [^:var pi (ak/bool true)]
-    (set! _ (& pi))))
+    (ak/= :_ pi))
+  (let [pi (ak/var true :bool)]
+    (ak/= :_ (& pi))))
 
 (comment
   (separate-scopes-test))

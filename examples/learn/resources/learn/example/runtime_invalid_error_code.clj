@@ -5,8 +5,8 @@
 
 (az/defn main :void []
   (let [error (az/error-value :AnError)
-        ^:var error-code (+ (ak/intFromError error) 500)]
-    (set! _ (ak/& error-code))
+        error-code (ak/var (+ (ak/intFromError error) 500))]
+    (ak/= :_ (ak/& error-code))
     (let [invalid-error (ak/errorFromInt error-code)]
       (debug/print "value: {}\n" [invalid-error]))))
 

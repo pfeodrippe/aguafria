@@ -1747,6 +1747,12 @@
    :param-count 2,
    :zig-tag "slash_equal",
    :zig-token "/="}
+  {:documentation "Assignment to mutable native storage.",
+   :kind :assignment,
+   :name "=",
+   :param-count 2,
+   :zig-tag "equal",
+   :zig-token "="}
   {:documentation "Addition assignment.",
    :kind :assignment,
    :name "+=",

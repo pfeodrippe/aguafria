@@ -6,4 +6,4 @@
   (let [byte-aligned (ak/as (ak/ptrFromInt 0x1) [:pointer {:align 1, :size :one} :i32])
         ;; Intentionally invalid: address 1 does not satisfy four-byte alignment.
         word-aligned (ak/as (ak/alignCast byte-aligned) [:pointer {:align 4, :size :one} :i32])]
-    (set! _ word-aligned)))
+    (ak/= :_ word-aligned)))

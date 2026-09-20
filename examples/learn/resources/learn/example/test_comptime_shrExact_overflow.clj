@@ -5,4 +5,4 @@
 (az/defcomptime reject-lost-low-bits
   (let [alternating-bits (ak/u8 2r10101010)
         shifted-bits (ak/shrExact alternating-bits 2)]
-    (set! _ shifted-bits)))
+    (ak/= :_ shifted-bits)))

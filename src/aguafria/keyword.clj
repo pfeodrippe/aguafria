@@ -106,7 +106,9 @@
        (get-in generated-catalog [:sources :builtin-table :path]) "`"
        (when (= :zls-langref documentation-source)
          " and enriched with ZLS's Zig language-reference data")
-       ". Compiler metadata is available through the Var's `:zig/*` keys."))
+       ". JVM calls use the shared in-process Zig bridge; the compiler still "
+       "checks types and required context. Compiler metadata is available "
+       "through the Var's `:zig/*` keys."))
 
 (defn- reader-token-doc
   [{:keys [documentation name zig-token]}]
@@ -124,7 +126,7 @@
            "` is Zig syntax and can only be used inside an Aguafria form")
       {:arguments arguments
        :token token
-       :example (str "(az/defn example :- :i32 [x :- :i64] (ak/"
+       :example (str "(az/defn example :i32 [[x :i64]] (ak/"
                      (:name token) " x))")}))))
 
 (defn- call-token
@@ -165,6 +167,18 @@
 (defn- token-root
   [token]
   (cond
+    (= "var" (:zig-token token))
+    (fn [& arguments]
+      (apply (requiring-resolve 'aguafria.zig.jvm/mutable!) arguments))
+
+    (= "=" (:zig-token token))
+    (fn [target new-value]
+      ((requiring-resolve 'aguafria.zig.jvm/assign!) target new-value))
+
+    (= :assignment (:kind token))
+    (fn [target operand]
+      ((requiring-resolve 'aguafria.zig.jvm/invoke-assignment!) token target operand))
+
     (= "@as" (:zig-name token))
     (fn [value type]
       ((requiring-resolve 'aguafria.zig.jvm/coerce!) value type))
@@ -175,6 +189,13 @@
      (fn [value]
        ((requiring-resolve 'aguafria.zig.jvm/coerce!)
         value (keyword (:zig-token token)))))
+
+    (= :primitive (:kind token))
+    (:symbol token)
+
+    (contains? #{:call :operator} (:kind token))
+    (fn [& arguments]
+      ((requiring-resolve 'aguafria.zig.jvm/invoke-syntax!) token arguments))
 
     :else
     (unusable-outside-declaration token)))
@@ -293,10 +314,13 @@
        token
        {:aguafria/token token
         :arglists '([& forms])
-        :doc (str "Zig `" (:zig-token token) "` keyword, mechanically discovered "
+        :doc (str (when (= "var" (:zig-token token))
+                    "JVM: (ak/var value) or (ak/var value type) creates owned mutable native storage. Assign with (ak/= handle value). In an Aguafria let initializer, declares a Zig var.\n\n")
+                  "Zig `" (:zig-token token) "` keyword, mechanically discovered "
                   "from Zig " (:zig-version generated-catalog) " `"
                   (get-in generated-catalog [:sources :tokenizer :path]) "`. "
-                  "This Var is syntax and is only valid inside an Aguafria declaration.")
+                  (when-not (= "var" (:zig-token token))
+                    "This Var is syntax and is only valid inside an Aguafria declaration."))
         :zig/name (:zig-token token)
         :zig/source (get-in generated-catalog [:sources :tokenizer :path])
         :zig/version (:zig-version generated-catalog)}))))

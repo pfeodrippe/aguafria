@@ -287,7 +287,7 @@
   :note "Evaluate b only when optional a is null."}
 
  "const value: ?u32 = null;\nconst unwrapped = value orelse 1234;\nunwrapped == 1234"
- {:clojure-source "(let [^{:zig/type [:optional :u32]} value nil\n      unwrapped (ak/orelse value 1234)]\n  (== unwrapped 1234))"
+ {:clojure-source "(let [value (ak/as nil [:optional :u32])\n      unwrapped (ak/orelse value 1234)]\n  (== unwrapped 1234))"
   :kind :expr
   :standalone? true
   :note "A typed optional binding selects the fallback when null."}
@@ -303,7 +303,7 @@
   :note "Explicitly assert that the optional is not null."}
 
  "const value: ?u32 = 5678;\nvalue.? == 5678"
- {:clojure-source "(let [^{:zig/type [:optional :u32]} value 5678]\n  (== (az/unwrap value) 5678))"
+ {:clojure-source "(let [value (ak/as 5678 [:optional :u32])]\n  (== (az/unwrap value) 5678))"
   :kind :expr
   :standalone? true
   :note "Unwrap the non-null u32 payload."}
@@ -315,7 +315,7 @@
   :note "Alternative error handlers; the second makes err available to b."}
 
  "const value: anyerror!u32 = error.Broken;\nconst unwrapped = value catch 1234;\nunwrapped == 1234"
- {:clojure-source "(let [^{:zig/type [:error-union :anyerror :u32]} value (az/error-value :Broken)\n      unwrapped (ak/catch value 1234)]\n  (== unwrapped 1234))"
+ {:clojure-source "(let [value (ak/as (az/error-value :Broken) [:error-union :anyerror :u32])\n      unwrapped (ak/catch value 1234)]\n  (== unwrapped 1234))"
   :kind :expr
   :standalone? true
   :note "Catch replaces the error with a successful fallback value."}
@@ -370,7 +370,7 @@
   :note "Compare an optional with null, written nil in Aguafria."}
 
  "const value: ?u32 = null;\n(value == null) == true"
- {:clojure-source "(let [^{:zig/type [:optional :u32]} value nil]\n  (== (== value nil) true))"
+ {:clojure-source "(let [value (ak/as nil [:optional :u32])]\n  (== (== value nil) true))"
   :kind :expr
   :standalone? true
   :note "A null optional compares equal to nil."}
@@ -392,7 +392,7 @@
   :note "Check whether an optional has a non-null payload."}
 
  "const value: ?u32 = null;\n(value != null) == false"
- {:clojure-source "(let [^{:zig/type [:optional :u32]} value nil]\n  (== (ak/!= value nil) false))"
+ {:clojure-source "(let [value (ak/as nil [:optional :u32])]\n  (== (ak/!= value nil) false))"
   :kind :expr
   :standalone? true
   :note "A null optional fails the non-null check."}

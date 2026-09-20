@@ -30,12 +30,12 @@
     (az/if-capture-stmt {:payload [value] :error [error]} success
                         (try (testing/expectEqual value 0))
                         (az/block
-                          (set! _ error)
+                          (ak/= :_ error)
                           (ak/unreachable)))
 
     (az/if-capture-stmt {:payload [value] :error [error]} failure
                         (az/block
-                          (set! _ value)
+                          (ak/= :_ value)
                           (ak/unreachable))
                         (try (testing/expectEqual error (az/error-value :BadValue))))
 
@@ -50,9 +50,9 @@
                         (try (testing/expectEqual error (az/error-value :BadValue)))))
 
   ;; Access the value by reference using a pointer capture.
-  (let [^:var result (ak/as 3 [:error-union :anyerror :u32])]
+  (let [result (ak/var 3 [:error-union :anyerror :u32])]
     (az/if-capture-stmt {:payload [(az/pointer-capture value)] :error [_]} result
-                        (set! @value 9)
+                        (ak/= @value 9)
                         (ak/unreachable))
 
     (az/if-capture-stmt {:payload [value] :error [_]} result

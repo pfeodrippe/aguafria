@@ -4,14 +4,14 @@
             [aguafria.zig :as az]))
 
 (az/deftest continue-expression-test
-  (let [^:var i (ak/usize 0)]
+  (let [i (ak/var 0 :usize)]
     (az/while-loop {:continue (az/assign-expr "+=" i 1)}
       (< i 10))
     (try (testing/expectEqual 10 i))))
 
 (az/deftest compound-continue-expression-test
-  (let [^:var i (ak/usize 1)
-        ^:var j (ak/usize 1)]
+  (let [i (ak/var 1 :usize)
+        j (ak/var 1 :usize)]
     (az/while-loop {:continue (az/block
                                 (ak/*= i 2)
                                 (ak/*= j 3))}

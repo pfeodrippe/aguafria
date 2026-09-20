@@ -3,20 +3,16 @@
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defconst Division
-  (az/struct
-    [(az/tuple-field-decl :u32)
-     (az/tuple-field-decl :u32)]))
-
-(az/defn- divmod Division
+(az/defn- divmod (az/struct [(az/tuple-field-decl :u32)
+                            (az/tuple-field-decl :u32)])
   [[numerator :u32] [denominator :u32]]
   [(/ numerator denominator) (ak/% numerator denominator)])
 
 (az/defn main :void
   []
-  (let [[quotient remainder] (divmod 10 3)]
-    (debug/print "10 / 3 = {}\n" [quotient])
-    (debug/print "10 % 3 = {}\n" [remainder])))
+  (let [[div mod] (divmod 10 3)]
+    (debug/print "10 / 3 = {}\n" [div])
+    (debug/print "10 % 3 = {}\n" [mod])))
 
 (comment
   (main))

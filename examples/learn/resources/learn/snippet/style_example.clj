@@ -12,9 +12,9 @@
 (az/defconst StructAlias StructName)
 
 (az/defn- function-name :void [[parameter-name TypeName]]
-  (let [^:var function-pointer function-name]
+  (let [function-pointer (ak/var function-name)]
     (function-pointer)
-    (set! function-pointer other-function)
+    (ak/= function-pointer other-function)
     (function-pointer)))
 
 (az/defconst function-alias function-name)

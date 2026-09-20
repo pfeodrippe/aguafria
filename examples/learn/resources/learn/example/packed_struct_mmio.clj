@@ -15,4 +15,4 @@
 
 ;; Write the entire packed register, not an individual bit field.
 (az/defn write-to-gpio :void [[new-states GpioRegister]]
-  (set! @gpio new-states))
+  (ak/= @gpio new-states))

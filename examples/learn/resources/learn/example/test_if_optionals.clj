@@ -24,9 +24,9 @@
       (try (testing/expect true))))
 
   ;; Access the value by reference using a pointer capture.
-  (let [^:var optional-value (ak/as 3 [:optional :u32])]
+  (let [optional-value (ak/var 3 [:optional :u32])]
     (az/if-capture-stmt {:payload [(az/pointer-capture value)]} optional-value
-                        (set! @value 2))
+                        (ak/= @value 2))
 
     (az/if-capture-stmt {:payload [value]} optional-value
                         (try (testing/expectEqual 2 value))
@@ -41,7 +41,7 @@
     (az/if-capture-stmt {:payload [optional-value] :error [error]} present
                         (try (testing/expectEqual 0 (az/unwrap optional-value)))
                         (az/block
-                          (set! _ error)
+                          (ak/= :_ error)
                           (ak/unreachable)))
 
     (az/if-capture-stmt {:payload [optional-value] :error [_]} absent
@@ -50,16 +50,16 @@
 
     (az/if-capture-stmt {:payload [optional-value] :error [error]} failure
                         (az/block
-                          (set! _ optional-value)
+                          (ak/= :_ optional-value)
                           (ak/unreachable))
                         (try (testing/expectEqual (az/error-value :BadValue) error))))
 
   ;; Access the value by reference by using a pointer capture each time.
-  (let [^:var result (ak/as 3 [:error-union :anyerror [:optional :u32]])]
+  (let [result (ak/var 3 [:error-union :anyerror [:optional :u32]])]
     (az/if-capture-stmt {:payload [(az/pointer-capture optional-value)] :error [_]}
                         result
                         (az/if-capture-stmt {:payload [(az/pointer-capture value)]} @optional-value
-                                            (set! @value 9))
+                                            (ak/= @value 9))
                         (ak/unreachable))
 
     (az/if-capture-stmt {:payload [optional-value] :error [_]} result

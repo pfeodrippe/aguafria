@@ -9,7 +9,7 @@
 
 (az/defn- range-has-number :bool
   [[begin :usize] [end :usize] [number :usize]]
-  (let [^:var i begin]
+  (let [i (ak/var begin)]
     (ak/return
      (az/while-loop {:continue (az/assign-expr "+=" i 1)
                      :else-expression false}

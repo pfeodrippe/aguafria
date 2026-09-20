@@ -37,7 +37,7 @@
   :note "Concatenate arrays whose lengths are known at compile time."}
 
  "const mem = @import(\"std\").mem;\nconst array1 = [_]u32{1,2};\nconst array2 = [_]u32{3,4};\nconst together = array1 ++ array2;\nmem.eql(u32, &together, &[_]u32{1,2,3,4})"
- {:clojure-source "(let [mem (az/field (ak/import \"std\") :mem)\n      array1 (az/array-init [:array _ :u32] [1 2])\n      array2 (az/array-init [:array _ :u32] [3 4])\n      together (az/op \"++\" array1 array2)]\n  ((az/field mem :eql) :u32\n    (ak/& together)\n    (ak/& (az/array-init [:array _ :u32] [1 2 3 4]))))"
+ {:clojure-source "(let [mem (az/field (ak/import \"std\") :mem)\n      array1 (az/array-init [1 2] [:array :_ :u32])\n      array2 (az/array-init [3 4] [:array :_ :u32])\n      together (az/op \"++\" array1 array2)]\n  ((az/field mem :eql) :u32\n    (ak/& together)\n    (ak/& (az/array-init [1 2 3 4] [:array :_ :u32]))))"
   :kind :expr
   :standalone? true
   :note "Import std.mem locally and compare the concatenated array element by element."}
@@ -59,7 +59,7 @@
   :note "Reader dereference syntax accesses the pointed-to value."}
 
  "const x: u32 = 1234;\nconst ptr = &x;\nptr.* == 1234"
- {:clojure-source "(let [^{:zig/type :u32} x 1234\n      ptr (ak/& x)]\n  (== @ptr 1234))"
+ {:clojure-source "(let [x (ak/as 1234 :u32)\n      ptr (ak/& x)]\n  (== @ptr 1234))"
   :kind :expr
   :standalone? true
   :note "Take the address of a typed local and read it through the pointer."}
@@ -323,7 +323,7 @@
   :note "Declare an opaque type with unknown size and alignment."}
 
  "void{}"
- {:clojure-source "(az/init :void {})"
+ {:clojure-source "(az/init {} :void)"
   :kind :expr
   :standalone? true
   :note "The sole void value is equivalent to an empty block."}

@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^:var byte (ak/u8 255)]
+  (let [byte (ak/var 255 :u8)]
     ;; Runtime safety traps instead of silently wrapping to zero.
     (ak/+= byte 1)
     (debug/print "value: {}\n" [byte])))

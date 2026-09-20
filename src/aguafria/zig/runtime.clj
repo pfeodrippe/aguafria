@@ -260,6 +260,12 @@
        (or (some-> module symbol find-ns) *ns*)
        form))))
 
+(defn- explicit-declaration-type
+  [{:keys [kind value]}]
+  (when (and (= :const kind) (seq? value) (= 2 (count value))
+             (symbol? (first value)) (= "type" (name (first value))))
+    (second value)))
+
 (defn declaration-root-value
   "Return the public Clojure root for a Zig constant. Literal values retain
   their exact JVM representation. Other declarations receive a typed, lazy
@@ -281,7 +287,8 @@
             ;; them a concrete storage type, matching a Clojure keyword.
             (and (keyword? declaration-value) (nil? declaration-type)))]
     (cond
-      (or (container-type-description declaration)
+      (or (explicit-declaration-type declaration)
+          (container-type-description declaration)
           (and (= :const (:kind declaration))
                (:schema-fingerprint declaration)))
       (declaration-type-value declaration)
@@ -296,7 +303,12 @@
 
 (defn- container-type-info
   [declaration]
-  (when-let [{:keys [options members]} (container-type-description declaration)]
+  (if-let [type (explicit-declaration-type declaration)]
+    (cond-> {:kind :type :type type :doc (:doc declaration)}
+      (and (vector? type) (= :error-set (first type)))
+      (assoc :kind :error-set
+             :members (mapv (fn [member] {:kind :error :name member}) (second type))))
+    (when-let [{:keys [options members]} (container-type-description declaration)]
     {:kind (:kind options)
      :doc (:doc declaration)
      :members
@@ -308,7 +320,7 @@
                (assoc :public? (:public? member)
                       :args (mapv #(select-keys % [:name :type :properties]) (:args member)))
                (:has-value? member) (assoc :value (:value member))))
-           members)}))
+           members)})))
 
 (defn- container-documentation
   [declaration]
@@ -342,7 +354,9 @@
                          [:module :name :kind :layout :logical-id :doc
                           :schema-fingerprint])
             (container-type-info declaration))
-     #(materialize-type! declaration %))))
+     (if-let [type (explicit-declaration-type declaration)]
+       #((requiring-resolve 'aguafria.zig.jvm/coerce!) % type)
+       #(materialize-type! declaration %)))))
 
 (defn declaration-state-value
   "Return a live, inspectable Clojure view of an `az/defvar`. Dereferencing or
@@ -1758,18 +1772,20 @@
 
 (def ^:private development-panic-support-source
   (str "const std = @import(\"std\");\n\n"
+       "extern fn aguafria_guard_panic([*]const u8, usize, usize) void;\n"
        "export fn aguafria_development_panic(\n"
        "    message: [*]const u8,\n"
        "    message_length: usize,\n"
        "    return_address: usize,\n"
        ") callconv(.c) noreturn {\n"
+       "    aguafria_guard_panic(message, message_length, return_address);\n"
        "    std.debug.defaultPanic(\n"
        "        message[0..message_length],\n"
        "        if (return_address == 0) null else return_address,\n"
        "    );\n"
        "}\n"))
 
-(def ^:private development-panic-support-version 2)
+(def ^:private development-panic-support-version 3)
 
 (def ^:private development-panic-forwarder-source
   (str "const __aguafria_panic_std = @import(\"std\");\n\n"
@@ -1779,28 +1795,30 @@
        "    return_address: usize,\n"
        ") callconv(.c) noreturn;\n\n"
        "fn __aguafria_forward_panic(\n"
-       "    message: []const u8,\n"
-       "    return_address: ?usize,\n"
+       "    __aguafria_panic_message: []const u8,\n"
+       "    __aguafria_panic_return_address: ?usize,\n"
        ") noreturn {\n"
        "    aguafria_development_panic(\n"
-       "        message.ptr,\n"
-       "        message.len,\n"
-       "        return_address orelse 0,\n"
+       "        __aguafria_panic_message.ptr,\n"
+       "        __aguafria_panic_message.len,\n"
+       "        __aguafria_panic_return_address orelse 0,\n"
        "    );\n"
        "}\n\n"
        "pub const panic = "
        "__aguafria_panic_std.debug.FullPanic(__aguafria_forward_panic);\n\n"))
 (defn- development-panic-support!
   [{:keys [cache-dir optimize target cpu zig]} compiler-version]
-  (let [support-hash
+  (let [guard-source (slurp (io/resource "aguafria/jvm_guard.c"))
+        support-hash
         (subs (sha256 [development-panic-support-version
-                       development-panic-support-source compiler-version
+                       development-panic-support-source guard-source compiler-version
                        optimize target cpu
                        (System/getProperty "os.name")
                        (System/getProperty "os.arch")])
               0 24)
         support-dir (io/file cache-dir "development-support" support-hash)
         source-file (io/file support-dir "panic.zig")
+        guard-file (io/file support-dir "jvm_guard.c")
         library-file
         (io/file support-dir
                  (System/mapLibraryName
@@ -1821,8 +1839,10 @@
           install-name-arguments
           (when target ["-target" (str target)])
           (when cpu ["-mcpu" (str cpu)])
-          [(str "-Mroot=" (.getAbsolutePath source-file))]))]
+          ["-lc" (.getAbsolutePath guard-file)
+           (str "-Mroot=" (.getAbsolutePath source-file))]))]
     (.mkdirs ^File support-dir)
+    (spit guard-file guard-source)
     (when-not (= development-panic-support-source
                  (when (.isFile source-file) (slurp source-file)))
       (spit source-file development-panic-support-source))
@@ -3394,7 +3414,8 @@
         (not (str/includes?
               (str/lower-case (System/getProperty "os.name")) "windows"))
         shared-panic?
-        (and (= :shared (:development-panic compiler-options))
+        (and (or (= :shared (:development-panic compiler-options))
+                 (str/includes? source "const __aguafria_jvm_guard ="))
              shared-panic-platform?
              (not project-panic?))
         effective-development-panic
@@ -3473,7 +3494,7 @@
                "comptime { _ = aguafria_module; }\n"
                root-getter-linkage-source
                linkage-source)
-          source)
+          (str (when shared-panic? development-panic-forwarder-source) source))
         asset-module (or profile-module (str module-name))
         compiler-source (project/localize-module-assets asset-module
                                                          compiler-source)
@@ -3657,9 +3678,14 @@
    {:keys [declaration symbol mode argument-modes return-mode
            native-argument-specs result-size-getter
            result-align-getter] :as spec}]
+  (let [panic-handle
+        (.downcallHandle linker
+                         (.orElseThrow (.find lookup (str symbol "_panic_message")))
+                         (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
+                         (make-array Linker$Option 0))]
   (if (= :direct mode)
     (assoc (bind-function linker lookup declaration symbol)
-           :bridge-spec spec)
+           :bridge-spec spec :panic-handle panic-handle)
     (let [find-required
           (fn [symbol-name]
             (-> (.find lookup symbol-name)
@@ -3793,6 +3819,7 @@
       (cond-> {:declaration declaration
                :descriptor descriptor
                :handle handle
+               :panic-handle panic-handle
                :bridge-spec spec
                :native-argument-bindings
                (mapv (fn [argument-spec]
@@ -3834,7 +3861,7 @@
            :nested-storage-spec (:result-nested-storage-spec spec)})
          {:result-size-getter-handle (bind-long-getter result-size-getter)
           :result-align-getter-handle
-          (bind-long-getter result-align-getter)})))))
+          (bind-long-getter result-align-getter)}))))))
 
 (defn- bind-dispatch
   [^Linker linker ^SymbolLookup lookup declaration spec required?]
@@ -4688,7 +4715,7 @@
     (alter-meta! v
                  (fn [metadata]
                    (cond-> (assoc metadata :aguafria/declaration declaration)
-                     (container-type-description declaration)
+                     (container-type-info declaration)
                      (assoc :doc (container-documentation declaration))
                      (contains? #{:fn :fn-proto :const :var :extern-var
                                   :struct :import :raw :field}
@@ -5807,9 +5834,14 @@
                   (str "(@as(*const " (emit/emit-type (:type argument))
                        ", @ptrFromInt(" argument-name "_address))).*")))
               argument-names (:args declaration) argument-modes)
-        call (str (emit/identifier (or (:zig-name declaration)
-                                       (:name declaration)))
-                  "(" (str/join ", " call-arguments) ")")]
+        target (emit/identifier (or (:zig-name declaration) (:name declaration)))
+        call (str "(__aguafria_jvm_guard.call(" target ", .{"
+                  (str/join ", " call-arguments) "}) orelse return"
+                  (when (= :scalar return-mode)
+                    (str " @import(\"std\").mem.zeroes(" (emit/emit-type (:return declaration)) ")"))
+                  ")")]
+    (str "export fn " symbol "_panic_message() callconv(.c) ?[*:0]const u8 {\n"
+         "    return __aguafria_jvm_guard.aguafria_guard_message();\n}\n"
     (if (= :direct mode)
       (str "export fn " symbol "(" (str/join ", " bridge-arguments)
            ") callconv(.c) " (emit/emit-type (:return declaration)) " {\n"
@@ -5900,12 +5932,13 @@
                                error-payload-type argument-spec))
                             (emit-jvm-nested-storage-wrappers
                              nested-storage-spec)))))
-                   native-argument-specs))))))
+                   native-argument-specs)))))))
 
 (defn- emit-jvm-callable-wrappers
   [specs]
   (when (seq specs)
     (str "\n// Development-only JVM invocation trampolines.\n"
+         (slurp (io/resource "aguafria/jvm_guard.zig")) "\n"
          (->> specs
               (sort-by (comp str key))
               (map emit-jvm-callable-wrapper)
@@ -6187,7 +6220,8 @@
                                  :callable-dependency-fingerprints
                                  :clojure-form
                                  :logical-key)))))]
-    [:module-sources-v1
+    [:module-sources-v2
+     (slurp (io/resource "aguafria/jvm_guard.zig"))
      (str module)
      (boolean (:reloadable? @config))
      declaration-fingerprints
@@ -10297,12 +10331,15 @@
   [module test-name]
   (let [{:keys [selected source dependencies compiler-options]}
         (native-test-snapshot module test-name)
-        runner (slurp (io/resource "aguafria/jvm_test_runner.zig"))
+        runner (str development-panic-forwarder-source
+                    (slurp (io/resource "aguafria/jvm_guard.zig")) "\n"
+                    (slurp (io/resource "aguafria/jvm_test_runner.zig")))
+        panic-support (development-panic-support! compiler-options (zig-version))
         materialized (io/file (materialize-module-source! module source))
         directory (.getParentFile materialized)
         basename (str/replace (last (str/split module #"\.")) "-" "_")
         source-file (io/file directory (str basename ".zig"))
-        token (subs (sha256 [source runner compiler-options]) 0 24)
+        token (subs (sha256 [source runner compiler-options (:hash panic-support)]) 0 24)
         runner-file (io/file directory (str "jvm_test_runner_" token ".zig"))
         bitcode-file (io/file directory (str "test_" token ".bc"))
         library-file (io/file directory (System/mapLibraryName (str "test_" token)))
@@ -10317,6 +10354,7 @@
                      (root-module-arguments source-file compiler-options)))
         link-command
         (vec (concat [(:zig compiler-options) "build-lib" (.getAbsolutePath bitcode-file)
+                      (:path panic-support)
                       "-dynamic" "-lc"
                       (str "-femit-bin=" (.getAbsolutePath library-file))]
                      (when-let [target (:target compiler-options)] ["-target" (str target)])
@@ -10349,13 +10387,16 @@
                   location nil))))))))
     details))
 
+(declare check-native-panic!)
+
 (defn run-test!
   "Call one registered Zig test inside this JVM through Panama.
 
   The embedded compiler builds a test-mode shared library; no test executable
   or child runner is launched. Sibling tests are excluded. Returns a passed or
   skipped summary, or throws for compiler/test failures and allocator leaks.
-  Deliberate panics and process.exit retain native process semantics."
+  Zig panics become JVM exceptions. Native defers are not unwound; process.exit,
+  custom abort handlers and arbitrary memory corruption are not contained."
   [module test-name]
   (let [module (str module)
         started-at (System/currentTimeMillis)
@@ -10373,7 +10414,16 @@
                                                (FunctionDescriptor/of ValueLayout/JAVA_INT
                                                                       (make-array MemoryLayout 0))
                                                (make-array Linker$Option 0))]
-                 (.invokeWithArguments function (ArrayList.)))))))
+                 (let [result (.invokeWithArguments function (ArrayList.))]
+                   (when (= 3 result)
+                     (let [panic-handle (.downcallHandle
+                                         (Linker/nativeLinker)
+                                         (.orElseThrow (.find lookup "aguafria_test_panic_message"))
+                                         (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
+                                         (make-array Linker$Option 0))]
+                       (check-native-panic! {:panic-handle panic-handle
+                                            :declaration {:qualified-name (symbol module (str test-name))}})))
+                   result))))))
         details (assoc artifact :exit (if (= 1 status) 1 0)
                        :stdout (str stdout) :stderr (str stderr)
                        :duration-ms (- (System/currentTimeMillis) started-at))]
@@ -10966,26 +11016,27 @@
 
 (defn- coerce-argument
   [type value]
-  (case (scalar-key type)
-    :bool
-    (if (instance? Boolean value)
-      (byte (if value 1 0))
-      (throw (ex-info "Zig bool argument requires true or false"
-                      {:zig-type type :value value
-                       :clojure-type (clojure.core/type value)})))
-    :i8 (unchecked-byte (coerce-integer-argument type value true 8))
-    :u8 (unchecked-byte (coerce-integer-argument type value false 8))
-    :i16 (unchecked-short (coerce-integer-argument type value true 16))
-    :u16 (unchecked-short (coerce-integer-argument type value false 16))
-    :i32 (unchecked-int (coerce-integer-argument type value true 32))
-    :u32 (unchecked-int (coerce-integer-argument type value false 32))
-    :i64 (unchecked-long (coerce-integer-argument type value true 64))
-    :u64 (unchecked-long (coerce-integer-argument type value false 64))
-    :isize (unchecked-long (coerce-integer-argument type value true 64))
-    :usize (unchecked-long (coerce-integer-argument type value false 64))
-    :f32 (float value)
-    :f64 (double value)
-    value))
+  (let [value (if (zig-value/zig-value? value) (zig-value/decoded value) value)]
+    (case (scalar-key type)
+      :bool
+      (if (instance? Boolean value)
+        (byte (if value 1 0))
+        (throw (ex-info "Zig bool argument requires true or false"
+                        {:zig-type type :value value
+                         :clojure-type (clojure.core/type value)})))
+      :i8 (unchecked-byte (coerce-integer-argument type value true 8))
+      :u8 (unchecked-byte (coerce-integer-argument type value false 8))
+      :i16 (unchecked-short (coerce-integer-argument type value true 16))
+      :u16 (unchecked-short (coerce-integer-argument type value false 16))
+      :i32 (unchecked-int (coerce-integer-argument type value true 32))
+      :u32 (unchecked-int (coerce-integer-argument type value false 32))
+      :i64 (unchecked-long (coerce-integer-argument type value true 64))
+      :u64 (unchecked-long (coerce-integer-argument type value false 64))
+      :isize (unchecked-long (coerce-integer-argument type value true 64))
+      :usize (unchecked-long (coerce-integer-argument type value false 64))
+      :f32 (float value)
+      :f64 (double value)
+      value)))
 
 (defn- coerce-result
   [type value]
@@ -11146,6 +11197,18 @@
                        :argument argument
                        :argument-type (type argument)})))))
 
+(defn- check-native-panic! [function-binding]
+  (when-let [handle (:panic-handle function-binding)]
+    (let [address (.invokeWithArguments ^MethodHandle handle (ArrayList.))]
+      (when-not (= MemorySegment/NULL address)
+        (let [message (.getString (.reinterpret ^MemorySegment address 4096) 0)]
+          (throw (ex-info (str "Native Zig panic: " message)
+                          {:aguafria/phase :native-panic
+                           :function (get-in function-binding [:declaration :qualified-name])
+                           :panic-message message
+                           :native-state :potentially-inconsistent
+                           :hint "The JVM is alive, but native defers were not unwound. Reinitialize affected native state before reusing it."})))))))
+
 (defn- invoke-indirect-binding!
   [module function-binding arguments]
   (let [declaration (:declaration function-binding)
@@ -11183,7 +11246,8 @@
                       native-result? (conj (long (.address result-segment))))
             result (.invokeWithArguments
                     ^MethodHandle (:handle function-binding)
-                    (ArrayList. ^java.util.Collection coerced))]
+                    (ArrayList. ^java.util.Collection coerced))
+            _ (check-native-panic! function-binding)]
         (case return-mode
           :void nil
           :scalar (coerce-result (:return declaration) result)
@@ -11257,7 +11321,8 @@
                             (:args declaration) arguments)
               values (ArrayList. ^java.util.Collection coerced)
               result (.invokeWithArguments ^MethodHandle
-                                           (:handle function-binding) values)]
+                                           (:handle function-binding) values)
+              _ (check-native-panic! function-binding)]
           (coerce-result (:return declaration) result)))
       (finally
         (.decrementAndGet ^AtomicLong (:jvm-active-calls function-binding))
@@ -11282,7 +11347,7 @@
   (locking compile-lock
     (let [binding (get-in @registry [(namespace qualified-name)
                                      :functions qualified-name])]
-      (boolean (and binding (not (:unsupported? binding)))))))
+      (boolean (and binding (:panic-handle binding) (not (:unsupported? binding)))))))
 
 (defn- materialize-declaration-generation!
   "Publish one exact declaration slice for a Clojure-demanded Var.
@@ -12193,6 +12258,7 @@
        "// Host module: " host-module "\n"
        "const std = @import(\"std\");\n"
        "const builtin = @import(\"builtin\");\n"
+       (slurp (io/resource "aguafria/jvm_guard.zig")) "\n"
        "const application = @import(" (emit/emit-expr target-module) ")."
        (emit/named-module-container target-module) ";\n\n"
        "comptime {\n"
@@ -12203,6 +12269,12 @@
        "export fn " process-main-host-symbol
        "(argc: usize, argv_pointer: [*]const [*:0]const u8, "
        "envc: usize, env_pointer: [*]const ?[*:0]const u8) callconv(.c) u8 {\n"
+       "    return __aguafria_jvm_guard.call(__aguafria_process_body, .{argc, argv_pointer, envc, env_pointer}) orelse 255;\n"
+       "}\n"
+       "export fn aguafria_host_panic_message() callconv(.c) ?[*:0]const u8 {\n"
+       "    return __aguafria_jvm_guard.aguafria_guard_message();\n}\n"
+       "fn __aguafria_process_body(argc: usize, argv_pointer: [*]const [*:0]const u8, "
+       "envc: usize, env_pointer: [*]const ?[*:0]const u8) u8 {\n"
        "    const args: std.process.Args.Vector = argv_pointer[0..argc];\n"
        "    const environ: std.process.Environ.Block = .{\n"
        "        .slice = env_pointer[0..envc :null],\n"
@@ -12531,6 +12603,11 @@
                                           {:function qualified-name
                                            :library-path (:library-path compiled)})
                     descriptor (into-array Linker$Option []))
+                   panic-handle
+                   (.downcallHandle linker
+                                    (.orElseThrow (.find lookup "aguafria_host_panic_message"))
+                                    (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
+                                    (make-array Linker$Option 0))
                    argument-arena (Arena/ofShared)
                    argv-pointer (allocate-host-string-vector
                                  argument-arena argv false)
@@ -12557,7 +12634,7 @@
                            :argv-pointer argv-pointer
                            :environment-count (count environment)
                            :environment-pointer environment-pointer
-                           :run-handle run-handle}]
+                           :run-handle run-handle :panic-handle panic-handle}]
                ;; The process entry receives `std.process.Init` by value and
                ;; establishes process-scoped dependency state. Keep that one
                ;; already-entered root in the host image so it observes the
@@ -12599,6 +12676,8 @@
                                          (:environment-pointer prepared)])
                      result (.invokeWithArguments
                              ^MethodHandle (:run-handle prepared) values)
+                     _ (check-native-panic! {:panic-handle (:panic-handle prepared)
+                                            :declaration {:qualified-name qualified-name}})
                      exit-code (bit-and 0xff (long result))
                      finished-at (System/currentTimeMillis)]
                  (reset! outcome

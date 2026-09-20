@@ -6,4 +6,4 @@
   (let [optional-pointer (ak/as nil [:optional [:* :i32]])
         ;; Intentionally invalid: a nonoptional pointer cannot hold null.
         pointer (ak/as (ak/ptrCast optional-pointer) [:* :i32])]
-    (set! _ pointer)))
+    (ak/= :_ pointer)))

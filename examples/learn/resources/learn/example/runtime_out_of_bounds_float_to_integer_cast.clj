@@ -3,10 +3,10 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^:var float-value (ak/f32 4294967296)]
-    (set! _ (ak/& float-value))
+  (let [float-value (ak/var 4294967296 :f32)]
+    (ak/= :_ (ak/& float-value))
     (let [integer-value (ak/i32 (ak/intFromFloat float-value))]
-      (set! _ integer-value))))
+      (ak/= :_ integer-value))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

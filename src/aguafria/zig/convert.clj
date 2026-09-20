@@ -925,7 +925,7 @@
   (let [[_ type-node element-nodes] (get (:array-init-index context) node-index)
         elements (mapv #(translate-expr context %) element-nodes)]
     (if type-node
-      (list 'array-init (translate-type context type-node) elements)
+      (list 'array-init elements (translate-type context type-node))
       elements)))
 
 (defn- field-name-before
@@ -961,7 +961,7 @@
         object (when fields (list 'object fields))]
     (if fields
       (if type-node
-        (list 'init (translate-type context type-node) object)
+        (list 'init object (translate-type context type-node))
         object)
       (record-fallback! context node-index :expression :tuple-or-quoted-struct-init))))
 
@@ -1378,10 +1378,12 @@
       (let [[_ count-node sentinel-node child-node]
             (get (:array-type-index context) node-index)]
         (if sentinel-node
-          [:array-sentinel (translate-expr context count-node)
+          [:array-sentinel (let [length (translate-expr context count-node)]
+                             (if (= '_ length) :_ length))
            (translate-expr context sentinel-node)
            (translate-type context child-node)]
-          [:array (translate-expr context count-node)
+          [:array (let [length (translate-expr context count-node)]
+                    (if (= '_ length) :_ length))
            (translate-type context child-node)]))
 
       (contains? (:function-prototype-index context) node-index)
@@ -4703,7 +4705,7 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
-(def ^:private rendered-conversion-cache-version 11)
+(def ^:private rendered-conversion-cache-version 12)
 
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]

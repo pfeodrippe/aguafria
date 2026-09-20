@@ -5,7 +5,7 @@
 
 (az/deftest empty-block-test
   (let [a (az/block)
-        b (az/init :void (az/object []))]
+        b (az/init (az/object []) :void)]
     (try (testing/expectEqual :void (ak/TypeOf a)))
     (try (testing/expectEqual :void (ak/TypeOf b)))
     (try (testing/expectEqual a b))))

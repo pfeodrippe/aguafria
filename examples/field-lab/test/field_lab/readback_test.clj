@@ -13,9 +13,8 @@
 ;; These tests run in a separate test JVM, never in the live renderer's REPL.
 (az/defn write-fixture! :bool
   [[path [:pointer {:size :c :const? true} :u8]] [bgra :bool]]
-  (let [^:var pixels (az/array-init [:array 16 :u8]
-                                   [0 0 255 255, 0 255 0 255,
-                                    255 0 0 255, 255 255 255 255])]
+  (let [^:var pixels (az/array-init [0 0 255 255, 0 255 0 255,
+                                    255 0 0 255, 255 255 255 255] [:array 16 :u8])]
     (when (ak/! (readback/request! path)) (ak/return false))
     (az/set-many! readback/width 2 readback/height 2
                   readback/mapped (ak/& (az/index pixels 0)))

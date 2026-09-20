@@ -3,12 +3,12 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defstruct PackedWords {:layout :packed}
+(az/defstruct S {:layout :packed}
   [[:a :u32] [:b :u32]])
 
 (az/deftest overaligned-pointer-to-packed-struct-test
-  (let [^{:var true :zig/align 4} words (PackedWords {:a 1 :b 2})
-        pointer (ak/as (& words) [:pointer {:align 4, :size :one} PackedWords])
+  (let [words (ak/var (S {:a 1 :b 2}) nil {:zig/align 4})
+        pointer (ak/as (& words) [:pointer {:align 4, :size :one} S])
         second-word (& (az/field pointer :b))]
     (try (testing/expectEqual 2 @second-word))))
 

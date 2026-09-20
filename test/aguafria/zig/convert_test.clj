@@ -407,6 +407,9 @@
                    "build_options")]
           (is (= 42 value))
           (is (= 7 (generated-answer)))
+          (is (some #(str/starts-with? % "-Mgenerated_code=")
+                    (:command (runtime/module-info (:namespace root-report))))
+              "the generated-answer slice includes its generated module")
           (is (= (count
                   (.getCanonicalPath
                    (io/file output
@@ -427,8 +430,6 @@
           (is (= :finished (get-in info [:last-build :status])))
           (is (some? (:published-generation info)))
           (is (some #(str/starts-with? % "-Mbuild_options=")
-                    (:command module-info)))
-          (is (some #(str/starts-with? % "-Mgenerated_code=")
                     (:command module-info)))
           (is (= 1 (count (filter #{"build_options"}
                                   (:command module-info))))
