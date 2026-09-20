@@ -48,11 +48,72 @@ document.querySelectorAll(".learn-inline").forEach(example => {
   });
 });
 
-// Original Zig remains visible without JavaScript. Interactive examples default
-// to Aguafria; explicit language links are applied after initialization.
+// Code and output each have their own paired height, regardless of the selected
+// tab. Hidden panels are measured invisibly; all layout reads precede writes.
+function matchExampleHeights() {
+  const groups = Array.from(document.querySelectorAll(".learn-example"))
+    .flatMap(example => [
+      ["--learn-code-height", '[role="tabpanel"] > figure:first-child pre > code'],
+      ["--learn-output-height", '[role="tabpanel"] > figure:not(:first-child), .learn-repl']
+    ].map(([property, selector]) => ({example, property,
+      blocks: Array.from(example.querySelectorAll(selector))})))
+    .filter(({blocks}) => blocks.length === 2);
+  const examples = new Set(groups.map(({example}) => example));
+  examples.forEach(example => example.classList.add("learn-measuring"));
+  const heights = groups.map(({blocks}) => Math.ceil(Math.max(
+    ...blocks.map(block => block.getBoundingClientRect().height))));
+  groups.forEach(({example, property}, index) => {
+    example.style.setProperty(property, `${heights[index]}px`);
+  });
+  examples.forEach(example => example.classList.remove("learn-measuring"));
+}
+
+let comparisonLayout = null;
+
+function positionComparison(example) {
+  if (!comparisonLayout) return;
+  const panels = example.querySelector(".learn-panels");
+  const gap = parseFloat(getComputedStyle(panels).columnGap);
+  panels.scrollLeft = Math.max(0, example.clientWidth + gap - comparisonLayout.start);
+}
+
+function refreshExampleLayout() {
+  const contents = document.getElementById("contents");
+  if (contents) {
+    const viewport = document.documentElement.clientWidth;
+    comparisonLayout = {start: viewport / 2};
+    contents.style.setProperty("--learn-viewport-width", `${viewport}px`);
+    contents.style.setProperty("--learn-comparison-start", `${comparisonLayout.start}px`);
+    // Examples can be nested in lists. Preserve their individual width while
+    // positioning each comparison against the window, not its list indent.
+    const measurements = Array.from(document.querySelectorAll(".learn-example"), example => ({
+      example, width: example.clientWidth,
+      left: example.getBoundingClientRect().left + window.scrollX
+    }));
+    measurements.forEach(({example, width, left}) => {
+      example.style.setProperty("--learn-column-width", `${width}px`);
+      example.style.setProperty("--learn-content-left", `${left}px`);
+    });
+    document.querySelectorAll(".learn-side-by-side").forEach(positionComparison);
+  }
+  matchExampleHeights();
+}
+
+function requestedView() {
+  const view = new URLSearchParams(location.search).get("view");
+  const index = ["zig", "clj", "side-by-side"].indexOf(view);
+  return index < 0 ? 2 : index;
+}
+
+// Original Zig remains visible without JavaScript. Query parameters choose the
+// page-wide initial view; each example can still be switched independently.
 document.querySelectorAll(".learn-example").forEach(example => {
   const tablist = example.querySelector('[role="tablist"]');
   const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+  const panels = document.createElement("div");
+  panels.className = "learn-panels";
+  example.querySelectorAll('[role="tabpanel"]').forEach(panel => panels.appendChild(panel));
+  example.appendChild(panels);
   tablist.hidden = false;
   function select(tab, focus = false) {
     const visiblePanels = tab.getAttribute("aria-controls").split(" ");
@@ -66,6 +127,7 @@ document.querySelectorAll(".learn-example").forEach(example => {
       panel.hidden = !visiblePanels.includes(panel.id);
     });
     if (focus) tab.focus();
+    if (visiblePanels.length === 2) positionComparison(example);
   }
   tabs.forEach((tab, index) => {
     tab.addEventListener("click", () => select(tab));
@@ -81,7 +143,7 @@ document.querySelectorAll(".learn-example").forEach(example => {
       }
     });
   });
-  select(tabs[1]);
+  select(tabs[requestedView()]);
   example.querySelectorAll('[role="tabpanel"] pre code').forEach(code => {
     const button = document.createElement("button");
     button.className = "learn-copy";
@@ -102,6 +164,83 @@ document.querySelectorAll(".learn-example").forEach(example => {
     code.parentElement.before(button);
   });
 });
+
+function setupContents() {
+  const navigation = document.getElementById("navigation");
+  if (!navigation) return;
+  navigation.classList.add("learn-navigation");
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "learn-toc-toggle";
+  toggle.textContent = "☰ Contents";
+  toggle.setAttribute("aria-controls", "navigation");
+  document.body.appendChild(toggle);
+  function setOpen(open, restoreFocus = false) {
+    navigation.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      const entry = navigation.querySelector('[aria-current="location"]') || navigation.querySelector('a');
+      entry?.focus({preventScroll: true});
+    }
+    if (restoreFocus) toggle.focus();
+  }
+  setOpen(false);
+  toggle.addEventListener("click", () => setOpen(navigation.hidden));
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !navigation.hidden) {
+      event.preventDefault();
+      setOpen(false, true);
+    }
+  });
+  document.addEventListener("pointerdown", event => {
+    if (!navigation.hidden && !navigation.contains(event.target) && !toggle.contains(event.target)) {
+      setOpen(false);
+    }
+  });
+
+  const branches = new Map();
+  navigation.querySelectorAll('nav[aria-labelledby="table-of-contents"] li').forEach((item, index) => {
+    const children = item.querySelector(":scope > ul");
+    const link = item.querySelector(":scope > a");
+    if (!children || !link) return;
+    children.id = `learn-toc-children-${index}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "learn-toc-branch";
+    button.setAttribute("aria-label", `Toggle ${link.textContent} sections`);
+    button.setAttribute("aria-controls", children.id);
+    function expand(open) {
+      children.hidden = !open;
+      button.setAttribute("aria-expanded", String(open));
+      button.textContent = open ? "▾" : "▸";
+    }
+    branches.set(children, expand);
+    expand(false);
+    button.addEventListener("click", () => expand(children.hidden));
+    link.before(button);
+  });
+  function revealCurrentSection() {
+    navigation.querySelectorAll('a[aria-current]').forEach(link => link.removeAttribute("aria-current"));
+    const link = Array.from(navigation.querySelectorAll('a[href^="#"]'))
+      .find(link => link.hash === location.hash);
+    if (!link) return;
+    link.setAttribute("aria-current", "location");
+    for (let parent = link.parentElement; parent !== navigation; parent = parent.parentElement) {
+      branches.get(parent)?.(true);
+    }
+  }
+  navigation.addEventListener("click", event => {
+    const link = event.target.closest('a[href^="#"]');
+    if (link) setOpen(false);
+  });
+  window.addEventListener("hashchange", revealCurrentSection);
+  revealCurrentSection();
+}
+
+setupContents();
+refreshExampleLayout();
+window.addEventListener("resize", refreshExampleLayout);
+if (document.fonts) document.fonts.ready.then(refreshExampleLayout);
 
 // Explicit links select their language, overriding the Aguafria default only for
 // that example. Ordinary upstream heading anchors remain untouched.

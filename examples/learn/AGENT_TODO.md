@@ -5,15 +5,32 @@ document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
 served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Keep language tabs in their original prose-aligned position while panels
+      scroll independently. Place Clojure at the window midpoint. Default to
+      side-by-side, support `?view=zig|clj|side-by-side`, and add a collapsible
+      contents sidebar with expandable sections. Verify links, keyboard use,
+      all paired heights, narrow windows and resizing in the browser.
+
+- [x] Match each Zig/Clojure source block to the taller code block, and likewise
+      match Shell/REPL output heights independently (blank space is intentional), including
+      individual tabs. In Side by side keep both columns at individual width,
+      with Clojure starting at the window midpoint and Zig on its left.
+      Keep navigation independently expandable; preserve horizontal access on narrow
+      windows (each comparison scrolls independently). Rebuild and check geometry,
+      resizing and multiple open pairs.
+      Browser regressions cover all 307 pairs and live resizing from 640 to
+      2600 pixels; code and output text areas align, tabs stay fixed, and the
+      contents toggle/section disclosure work. Checked the rebuilt page visually.
+
 Current verification (2026-09-19): all 292 file outcomes pass (161 output,
 78 diagnostic, 50 compile-only comparisons and 3 reviewed special cases).
 The page records 264 actual comment evaluations across 202 in-process lessons.
 49 context-only, 32 deliberately fatal and 7 target-specific cases do not receive
 fabricated REPL output. These direct-call recordings replace the older file-runner
 transcripts mentioned in the implementation history below.
-All 50 Learn tests / 8,763 assertions and six JavaScript tests pass. The served
+All 50 Learn tests / 8,763 assertions and ten JavaScript tests pass. The served
 HTML matches the built file and recovers the upstream HTML byte-for-byte.
-Browser interaction and screenshot checks confirm default Aguafria selection,
+Browser interaction and screenshot checks confirm default side-by-side selection,
 307 Side by side controls, paired Shell/REPL panels, highlighting, direct `(main)`
 and named-test calls, and the repaired compiler diagnostic. All outcome
 fingerprints match the final compiler and verifier.

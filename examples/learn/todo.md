@@ -4,5 +4,8 @@
 - [x] (main) should call the function and we should see the log
 - [x] why when I evaluate (debug/print "Hello, {s}!\n" ["World"]), I don't have the result/log from it ? I just see (aguafria.std.debug/print "Hello, {s}!\n" ["World"]) being returned
 - [x] fix (maximum :bool false true)
-- [ ] we should have a option in the tab to see both zig and aguafria zig side by side (with their shell and repl outputs)
-- [ ] all examples should also have a `comment` form with the call (e.g. calling main directly or the deftest or whatever) in the end so people can reproduce the exact output from the repl
+- [x] we should have a option in the tab to see both zig and aguafria zig side by side (with their shell and repl outputs)
+- [x] all examples should also have a `comment` form with the call (e.g. calling main directly or the deftest or whatever) in the end so people can reproduce the exact output from the repl
+- [ ] use -> for hello.clj (?)
+- [ ]
+- [ ] attach small model for showing errors during development

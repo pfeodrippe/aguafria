@@ -1,4 +1,4 @@
-.learn-example { margin-block: 1em; }
+.learn-example { margin-block: 1em; position: relative; }
 .learn-aguafria .clojure-cap { background: #fcdba5; }
 .learn-tabs { display: flex; gap: .25em; border-bottom: 1px solid #888; }
 .learn-tabs[hidden], .learn-example [hidden] { display: none; }
@@ -7,13 +7,57 @@
 .learn-tabs [aria-selected="true"] { border-color: #888; border-bottom: 3px solid #b67a00; }
 .learn-tabs button:focus-visible { outline: 2px solid #b67a00; outline-offset: 2px; }
 .learn-example [role="tabpanel"] pre { overflow-x: auto; }
-.learn-side-by-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1em; }
-.learn-side-by-side .learn-tabs { grid-column: 1 / -1; }
-.learn-side-by-side [role="tabpanel"] { min-width: 0; }
-.learn-side-by-side [role="tabpanel"] > figure:first-child { margin-top: 0; }
-@media (max-width: 760px) {
-  .learn-side-by-side { grid-template-columns: minmax(0, 1fr); }
+/* Only the panels move; tabs retain their normal prose-aligned position. */
+.learn-side-by-side .learn-panels {
+  display: grid;
+  box-sizing: border-box;
+  width: var(--learn-viewport-width);
+  margin-left: calc(-1 * var(--learn-content-left));
+  padding-left: max(0px, calc(var(--learn-comparison-start) - var(--learn-column-width) - 1em));
+  grid-template-columns: repeat(2, var(--learn-column-width));
+  column-gap: 1em;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
+.learn-side-by-side [role="tabpanel"] { min-width: 0; }
+.learn-side-by-side [role="tabpanel"][id$="-z"] { grid-column: 1; grid-row: 1; }
+.learn-side-by-side [role="tabpanel"][id$="-a"] { grid-column: 2; grid-row: 1; }
+.learn-side-by-side [role="tabpanel"] > figure:first-child { margin-top: 0; }
+.learn-example [role="tabpanel"] > figure:first-child pre > code {
+  box-sizing: border-box;
+  min-height: var(--learn-code-height, 0px);
+}
+/* Measure the inactive tab without displaying it or altering document flow. */
+.learn-measuring [role="tabpanel"][hidden] {
+  display: block;
+  position: absolute;
+  visibility: hidden;
+  width: 100%;
+  top: 0;
+  left: 0;
+}
+.learn-measuring [role="tabpanel"] > figure:first-child pre > code {
+  min-height: 0;
+}
+.learn-example [role="tabpanel"] > figure:not(:first-child),
+.learn-example .learn-repl {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: var(--learn-output-height, 0px);
+  margin: 1em 0 0;
+}
+.learn-example [role="tabpanel"] > figure:not(:first-child) > pre,
+.learn-example .learn-repl > pre {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  margin-bottom: 0;
+}
+.learn-example [role="tabpanel"] > figure:not(:first-child) > pre > samp,
+.learn-example .learn-repl > pre > samp { flex: 1; }
+.learn-measuring [role="tabpanel"] > figure:not(:first-child),
+.learn-measuring .learn-repl { min-height: 0; }
 .learn-copy { display: block; margin-left: auto; padding: .35em .6em; font: inherit; }
 /* Scoped to Aguafria: the original reference's Zig token colors stay intact. */
 .language-clojure .token.comment { color: #526b46; font-style: italic; }
@@ -36,8 +80,18 @@
   .language-clojure .token.punctuation { color: #b8bcc5; }
 }
 .learn-repl { margin-block: 1em; }
-.learn-repl-label { margin-bottom: 0; padding: .25em .5em; border: 1px solid #888; }
-.learn-repl pre { margin-top: 0; padding: .75em; border: 1px solid #888; border-top: 0; }
+.learn-repl-label {
+  margin: 0;
+  padding-left: .5em;
+  font-size: small;
+  border-radius: 5px 5px 0 0;
+  background: #ccc;
+  color: #000;
+}
+.learn-repl pre { margin-top: 0; }
+@media (prefers-color-scheme: dark) {
+  .learn-repl-label { background: #2a2a2a; color: #fff; }
+}
 .learn-inline [hidden] { display: none; }
 /* Wrapping a preformatted snippet must not remove the upstream code block's
    local scrolling. Otherwise long builtin signatures widen the whole page. */
@@ -54,4 +108,39 @@ pre > .learn-inline > [data-language] > code {
 .learn-inline-toggle:hover, .learn-inline-toggle[aria-pressed="true"] {
   border-color: #888; }
 .learn-inline-toggle:focus-visible { outline: 2px solid #b67a00; outline-offset: 2px; }
-@media print { .learn-tabs, .learn-copy, .learn-inline-toggle { display: none; } }
+.learn-toc-toggle {
+  position: fixed; top: .6em; left: 1em; z-index: 31;
+  padding: .5em .75em; border: 1px solid #888; border-radius: 4px;
+  font: inherit; cursor: pointer; background: #fff; color: #222;
+}
+#navigation.learn-navigation {
+  position: fixed; top: 3.5em; bottom: 1em; left: 1em; z-index: 30;
+  width: min(26em, calc(100vw - 2em)); height: auto;
+  box-sizing: border-box; margin: 0; padding: 1em 1.5em;
+  overflow: auto; overscroll-behavior: contain;
+  background: #fff; color: #222; border: 1px solid #888; border-radius: 4px;
+  box-shadow: 0 6px 24px #0003;
+}
+#navigation.learn-navigation[hidden] { display: none; }
+#navigation.learn-navigation h2 { margin-top: .5em; }
+#navigation.learn-navigation ul { list-style: none; padding-left: 1.25em; }
+.learn-navigation li { position: relative; }
+.learn-toc-branch {
+  position: absolute; left: -1.4em; top: 0;
+  border: 0; padding: 0 .2em; font: inherit; cursor: pointer;
+  color: inherit; background: transparent;
+}
+.learn-navigation [aria-current="location"] { font-weight: bold; }
+.learn-toc-toggle:focus-visible, .learn-toc-branch:focus-visible {
+  outline: 2px solid #b67a00; outline-offset: 2px;
+}
+@media (prefers-color-scheme: dark) {
+  .learn-toc-toggle, #navigation.learn-navigation { background: #222; color: #ccc; }
+}
+@media screen and (max-width: 1024px) {
+  body:has(.learn-toc-toggle) header { padding-top: 3em; }
+}
+@media print {
+  .learn-tabs, .learn-copy, .learn-inline-toggle, .learn-toc-toggle,
+  #navigation.learn-navigation { display: none; }
+}

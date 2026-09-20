@@ -27,6 +27,7 @@ function highlight(source) {
     vm.runInContext(fs.readFileSync(path.join(resources, "vendor/prism", file), "utf8"), context);
   }
   context.document = {
+    getElementById: () => null,
     querySelectorAll: selector => selector.startsWith("code.language-clojure") ? [code] : [],
     createTextNode: text => new Node(text),
     createElement: tag => new Node("", tag),
@@ -122,7 +123,7 @@ test("deep links reveal only their own language panel", () => {
   assert.equal(scrolls, 2);
 });
 
-test("Aguafria is the default; explicit Zig links and per-example controls still work", () => {
+test("side-by-side is the default; explicit Zig links and per-example controls still work", () => {
   function page(hash) {
     const elements = new Map();
     function example(id) {
@@ -158,6 +159,7 @@ test("Aguafria is the default; explicit Zig links and per-example controls still
       const classes = new Set();
       elements.set(id, classes);
       return {
+        appendChild() {},
         classList: {toggle(name, active) { active ? classes.add(name) : classes.delete(name); }},
         querySelector: () => ({querySelectorAll: () => tabs}),
         querySelectorAll: selector => selector === '[role="tabpanel"]' ? panels : []
@@ -165,8 +167,10 @@ test("Aguafria is the default; explicit Zig links and per-example controls still
     }
     const examples = [example("first"), example("second")];
     const context = vm.createContext({
+      URLSearchParams,
       location: {hash},
       document: {
+        createElement: tag => new Node("", tag),
         querySelectorAll: selector => selector === ".learn-example" ? examples : [],
         getElementById: id => elements.get(id)
       },
@@ -183,10 +187,12 @@ test("Aguafria is the default; explicit Zig links and per-example controls still
     const get = page(hash);
     for (const id of ["first", "second"]) {
       assert.equal(get(`${id}-a`).hidden, false);
-      assert.equal(get(`${id}-z`).hidden, true);
-      assert.equal(get(`${id}-at`).getAttribute("aria-selected"), "true");
+      assert.equal(get(`${id}-z`).hidden, false);
+      assert.equal(get(`${id}-bt`).getAttribute("aria-selected"), "true");
+      assert.equal(get(`${id}-at`).getAttribute("aria-selected"), "false");
       assert.equal(get(`${id}-zt`).getAttribute("aria-selected"), "false");
-      assert.equal(get(`${id}-at`).tabIndex, 0);
+      assert.equal(get(`${id}-bt`).tabIndex, 0);
+      assert.equal(get(`${id}-at`).tabIndex, -1);
       assert.equal(get(`${id}-zt`).tabIndex, -1);
       assert.equal(get(`${id}-at`).focused, undefined);
     }

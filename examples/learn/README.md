@@ -12,8 +12,18 @@ output stay verbatim. Only Aguafria alternatives, their recorded REPL output and
 language-switching controls are added. Removing these additions must recover the
 complete original HTML byte-for-byte; a regression test enforces this.
 
-Choose **Side by side** on any example to see Zig with its Shell output beside
-Aguafria with its REPL output. Each authored file ends in a `comment` containing
+**Side by side** is the default: Zig/Shell appears left of Aguafria/REPL, whose
+column starts at the window midpoint. Both columns retain their individual
+width. Tabs stay aligned with the prose while the panels scroll horizontally
+on smaller windows. Code and output areas independently match the taller
+height, including individual tabs.
+
+Use `?view=zig`, `?view=clj`, or `?view=side-by-side` to choose the initial view
+for all examples. Individual tabs remain independent; a direct panel anchor
+selects that panel. **Contents** opens a collapsible sidebar with expandable
+sections, without moving the page. Escape closes it and returns keyboard focus.
+
+Each authored file ends in a `comment` containing
 its reproducible calls. Load the namespace, then evaluate the forms inside that
 comment individually (evaluating the whole `comment` intentionally does nothing).
 Examples call their own `main`, named test, or helper Vars directly in the JVM.
@@ -41,6 +51,7 @@ clojure -M:build           # offline build/site/index.html, inventory and covera
 clojure -M:serve           # http://127.0.0.1:8096/
 clojure -M:test            # snapshot/build/evaluation regressions
 node --test test/highlight_test.cjs # exact-text Clojure highlighting regressions
+node --test test/layout_test.cjs    # browser layout regressions (Playwright + Chrome)
 clojure -M:verify          # fail for missing, stale or mismatching evidence
 clojure -M:dev:nrepl       # dedicated local development REPL
 ```
