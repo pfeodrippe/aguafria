@@ -5,6 +5,14 @@ document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
 served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Teach clj-kondo native `try` semantics inside Aguafria declarations and
+      zero-argument JVM calls to process-aware `main`; retain ordinary Clojure
+      warnings and normal arity checking. Consolidate OS-specific copies into
+      one shared `clj-kondo.exports/io.github.pfeodrippe/aguafria` export.
+      Verified hello.clj's two reported findings are gone; five regression
+      tests / 35 assertions pass, including importing the shared config and
+      hooks from both macOS- and Linux-named JARs. No extra build logic needed.
+
 - [x] Cap side-by-side Zig + Aguafria panels to the viewport width. Keep code
       unwrapped with local horizontal scrolling, fixed tabs and paired heights;
       rebuild and verify responsive layouts and the served page.

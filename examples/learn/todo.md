@@ -10,9 +10,17 @@
   - [ ] hello.clj
     - [x] call from repl
     - [x] use ->
-    - [ ] remove this try clj kondo warning when inside a az/...
-    - [ ] how can we fix fix (main) kondo error regarding using no arguments for a function that expects one?
-  - [ ] hello_again.clj
+    - [x] remove this try clj kondo warning when inside a az/...
+    - [x] how can we fix fix (main) kondo error regarding using no arguments for a function that expects one?
+    - [ ] removing the try in hello.clj (just for an error), how can we show it better from the IDE ? what clojure uses to show error inline in calva, cider, intellij etc ?
+  - [x] hello_again.clj
+  - [x] comments.clj
+  - [x] doc_comments.clj
+  - [x] tldoc_comments.clj
+  - [ ]
 
-- [ ] attach small model for showing errors during development
 - [ ] show tree structure of a running program
+  - [ ] call tree and what's in the middle of the invocations
+  - [ ] mode (debug, fast etc)
+- [ ] fix other examples
+- [ ] attach small model for showing errors during development
