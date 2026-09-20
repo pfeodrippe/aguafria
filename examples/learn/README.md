@@ -86,6 +86,24 @@ closing the native value handle alone only releases its container storage.
 Fields have corresponding getters: `(array-list/-items list)` and
 `(array-list/-capacity list)`. These read the current receiver from the JVM and
 compile to direct field access in native code, with field docs and `[self]` metadata.
+Nested aliases expose their fields too:
+
+```clojure
+(require '[aguafria.std.ArrayList :as al]
+         '[aguafria.std.ArrayList.Slice :as al-slice])
+(-> list al/-items al-slice/-len)
+```
+
+This still emits `list.items.len`. Type docs list the available getters and
+field signatures qualify known types, such as `aguafria.std.ArrayList/Slice`.
+`ArrayList.Slice` names ArrayList's own slice alias, not a separate interface.
+Its getters accept compatible slice receivers, but use the alias belonging to
+your API rather than importing ArrayList solely to access an unrelated slice.
+The same catalog enrichment applies to registered packages during preparation.
+Unknown/comptime-dependent type expressions do not acquire guessed fields;
+conditional types expose only members established in every branch.
+Pointer getters return borrowed typed addresses: keep the backing storage alive,
+and do not use a pointer after its storage is resized or freed.
 Prepared, ignored namespace files expose declarations and documentation for
 static editor tooling; the live Vars also expose normal `:arglists` and `:doc`.
 `testing/allocator` is backed by a persistent native test context when used from

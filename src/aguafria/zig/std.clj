@@ -78,13 +78,13 @@
       (edn/read {:eof nil} reader))
     (throw (ex-info "Aguafria's generated Zig std catalog is missing"
                     {:resource catalog-resource
-                     :regenerate-with "clojure -M:generate-keyword"}))))
+                     :regenerate-with "clojure -X:prepare"}))))
 
 (def ^:private generated-catalog
-  (load-catalog))
+  (delay (load-catalog)))
 
 (def ^:private namespaces-by-name
-  (into {} (map (juxt :name identity)) (:namespaces generated-catalog)))
+  (delay (into {} (map (juxt :name identity)) (:namespaces @generated-catalog))))
 
 (defonce ^:private installation-lock
   (Object.))
@@ -92,23 +92,23 @@
 (defn catalog-info
   "Return generation, Zig version, source hashes, and catalog counts."
   []
-  (dissoc generated-catalog :namespaces))
+  (dissoc @generated-catalog :namespaces))
 
 (defn namespaces
   "Return every EDN-derived Clojure std namespace as a symbol."
   []
-  (mapv :name (:namespaces generated-catalog)))
+  (mapv :name (:namespaces @generated-catalog)))
 
 (defn entries
   "Return std declaration metadata globally or for one generated namespace."
   ([]
-   (into [] (mapcat :members) (:namespaces generated-catalog)))
+   (into [] (mapcat :members) (:namespaces @generated-catalog)))
   ([namespace-name]
-   (if-let [namespace (get namespaces-by-name (symbol (str namespace-name)))]
+   (if-let [namespace (get @namespaces-by-name (symbol (str namespace-name)))]
      (:members namespace)
      (throw (ex-info "Unknown EDN-derived Zig std namespace"
                      {:namespace namespace-name
-                      :known-count (count namespaces-by-name)})))))
+                      :known-count (count @namespaces-by-name)})))))
 
 (defn- reference-form-builder
   [reference]
@@ -133,8 +133,8 @@
     (assoc :field-accessor? true :member-name (:field-name member))))
 
 (defn- member-doc
-  [{:keys [category documentation signature source zig-name zig-version]}]
-  (str (when (seq signature) (str signature "\n\n"))
+  [{:keys [category documentation signature display-signature source zig-name zig-version]}]
+  (str (when (seq (or display-signature signature)) (str (or display-signature signature) "\n\n"))
        (when (seq documentation) (str documentation "\n\n"))
        "This Var represents Zig `" zig-name "` (" (name category) ") from `"
        source "`, generated against Zig " zig-version ". Inside an `az/defn` "
@@ -191,11 +191,11 @@
                     target-ns
                     (the-ns target-ns))
         namespace-name (ns-name target-ns)
-        namespace (get namespaces-by-name namespace-name)]
+        namespace (get @namespaces-by-name namespace-name)]
     (when-not namespace
       (throw (ex-info "No Zig std catalog entry exists for this namespace"
                       {:namespace namespace-name
-                       :known-count (count namespaces-by-name)})))
+                       :known-count (count @namespaces-by-name)})))
     (let [expected (set (map (comp symbol :clojure-name) (:members namespace)))]
       (doseq [[sym v] (ns-interns target-ns)
               :when (and (:aguafria/std (meta v)) (not (contains? expected sym)))]

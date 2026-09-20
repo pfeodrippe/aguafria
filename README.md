@@ -390,9 +390,12 @@ clojure -M:check-keyword
 clojure -M:test
 ```
 
-`:prepare` creates std namespace entry points under ignored `generated/` from
-the checked-in catalog. Nested namespaces such as `aguafria.std.Io.File` then
-work with ordinary `require`. Packaged JARs include these entry points. Local
+`:prepare` generates the std metadata catalog and namespace entry points under
+ignored `generated/`. Neither is committed. First preparation uses Node.js
+(`node`, or `AGUAFRIA_NODE`) and the pinned Zig toolchain; later preparations
+reuse the catalog unless generator/toolchain inputs change or it is damaged.
+Nested namespaces such as `aguafria.std.Io.File` then work with ordinary
+`require`. Packaged JARs include the catalog and entry points. Local
 and Git consumers can run `clojure -X:deps prep` before starting their REPL;
 the Learn example exposes that standard dependency prep as `clojure -X:prepare`.
 

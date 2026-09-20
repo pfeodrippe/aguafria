@@ -1,15 +1,18 @@
 (ns learn.example.test-inline-switch
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.Struct :as struct-info]
+            [aguafria.std.builtin.Type.StructField :as field-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defn- isFieldOptional :!bool
   [[T {:zig/prefix "comptime"} :type] [field-index :usize]]
-  (let [fields (az/field (az/field (ak/typeInfo T) :struct) :fields)]
+  (let [fields (-> (ak/typeInfo T) type-info/-struct struct-info/-fields)]
     (ak/switch field-index
       ;; This prong is analyzed twice, with a compile-time-known index each time.
       (az/inline-case [0 1] [index]
-        (ak/== (ak/typeInfo (az/field (az/index fields index) :type)) :.optional))
+        (ak/== (ak/typeInfo (field-info/-type (az/index fields index))) :.optional))
       (az/case-else
         (ak/return (az/error-value :IndexOutOfBounds))))))
 

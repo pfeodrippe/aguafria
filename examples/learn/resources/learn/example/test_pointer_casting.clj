@@ -1,5 +1,7 @@
 (ns learn.example.test-pointer-casting
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.Pointer :as pointer-info]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
@@ -19,8 +21,8 @@
   (try (testing/expectEqual
         (az/type :u32)
         (-> (ak/typeInfo (az/type [:* :u32]))
-            (az/field :pointer)
-            (az/field :child)))))
+            type-info/-pointer
+            pointer-info/-child))))
 
 (comment
   (pointer-casting-test)

@@ -1,10 +1,11 @@
 (ns learn.example.test-functions
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as ak]
+            [aguafria.std.Target.Cpu :as cpu]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst native-arch (az/field builtin/cpu :arch))
+(az/defconst native-arch (cpu/-arch builtin/cpu))
 
 ;; Functions are declared like this.
 (az/defn- add :i8

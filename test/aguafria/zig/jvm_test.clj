@@ -2,6 +2,7 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std :as std]
             [aguafria.std.ArrayList :as array-list]
+            [aguafria.std.ArrayList.Slice :as array-list-slice]
             [aguafria.std.SemanticVersion :as semantic-version]
             [aguafria.std.testing :as zig-testing]
             [aguafria.std.debug :as debug]
@@ -218,6 +219,16 @@
 (deftest field-accessor-vars-work-in-jvm-and-native-code
   (is (= '([self]) (:arglists (meta #'array-list/-items))))
   (is (str/includes? (:doc (meta #'array-list/-items)) "Contents of the list"))
+  (is (str/includes? (:doc (meta #'array-list/-items)) "items: aguafria.std.ArrayList/Slice"))
+  (is (str/includes? (:doc (meta #'array-list/Slice)) "pub const Slice = if (alignment)"))
+  (is (str/includes? (:doc (meta #'std/ArrayList)) "Fields:"))
+  (is (str/includes? (:doc (meta #'std/ArrayList)) "aguafria.std.ArrayList/-items"))
+  (is (= '([self]) (:arglists (meta #'array-list-slice/-len))))
+  (is (= "list.items.len"
+         (az/emit-expr '(aguafria.std.ArrayList.Slice/-len (aguafria.std.ArrayList/-items list)))))
+  (with-open [slice (ak/as [1 2] [:slice :u21])]
+    (is (= 2 (array-list-slice/-len slice)))
+    (is (value/zig-pointer? (array-list-slice/-ptr slice))))
   (is (:field-accessor? (:aguafria/zig-reference (meta #'array-list/-items))))
   (is (= "list.items" (az/emit-expr '(aguafria.std.ArrayList/-items list))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exactly one receiver"
@@ -232,6 +243,7 @@
       (is (= 0 (array-list/-capacity list)))
       (array-list/append list zig-testing/allocator \☔)
       (is (= [9748] (array-list/-items list)))
+      (is (= 1 (-> list array-list/-items array-list-slice/-len)))
       (is (= (az/field list :capacity) (array-list/-capacity list)))
       (finally (array-list/deinit list zig-testing/allocator))))
   (let [namespace (fixture)]
@@ -239,12 +251,13 @@
       (binding [*ns* namespace]
         (require '[aguafria.std :as std]
                  '[aguafria.std.ArrayList :as array-list]
+                 '[aguafria.std.ArrayList.Slice :as array-list-slice]
                  '[aguafria.std.testing :as testing])
         (eval '(az/deftest field-vars-work-in-native-code
                  (let [list (ak/var :.empty (std/ArrayList :u21))]
                    (ak/defer (array-list/deinit list testing/allocator))
                    (try (array-list/append list testing/allocator \☔))
-                   (try (testing/expectEqual 1 (az/field (array-list/-items list) :len)))
+                   (try (testing/expectEqual 1 (-> list array-list/-items array-list-slice/-len)))
                    (try (testing/expect (> (array-list/-capacity list) 0)))))))
       (is (= :passed (:status ((ns-resolve namespace 'field-vars-work-in-native-code)))))
       (finally (remove-ns (ns-name namespace))))))

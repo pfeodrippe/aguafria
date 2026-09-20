@@ -1,6 +1,6 @@
 {:paths ["src" "resources" "generated"]
 
- :deps/prep-lib {:alias :prepare :fn std! :ensure "generated/aguafria/std"}
+ :deps/prep-lib {:alias :prepare :fn std! :ensure "generated/.aguafria-std-catalog.edn"}
 
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.apache.commons/commons-compress {:mvn/version "1.28.0"}
@@ -8,15 +8,20 @@
 
  :aliases
 
- {:prepare {:replace-paths ["src" "resources"]
+ {:prepare {:replace-paths ["src" "resources" "dev" "generated"]
+            :extra-deps {org.clojure/clojure {:mvn/version "1.12.0"}
+                         org.clojure/data.json {:mvn/version "2.5.2"}
+                         org.apache.commons/commons-compress {:mvn/version "1.28.0"}
+                         org.tukaani/xz {:mvn/version "1.12"}}
             :ns-default aguafria.zig.prepare
             :exec-fn aguafria.zig.prepare/std!}
 
-  :build {:extra-paths ["src" "resources"]
+  :build {:extra-paths ["src" "resources" "dev"]
           :deps {org.clojure/clojure {:mvn/version "1.12.5"}
                   io.github.clojure/tools.build {:mvn/version "0.10.14"}
                   org.apache.commons/commons-compress {:mvn/version "1.28.0"}
-                  org.tukaani/xz {:mvn/version "1.12"}}
+                  org.tukaani/xz {:mvn/version "1.12"}
+                  org.clojure/data.json {:mvn/version "2.5.2"}}
           :ns-default build}
 
   :test {:extra-paths ["test"]

@@ -6,6 +6,24 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest lexical-bindings-shadow-namespace-aliases
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (doseq [body ['(ak/var az :u32)
+                  '(let [az 42] az)]]
+      (let [declaration (emit/prepare-declaration
+                         context
+                         {:kind :fn :name 'read-value :return :u32
+                          :args [{:name 'az :type :u32}]
+                          :body [body]})]
+        (is (empty? (emit/declaration-imports [declaration])))))
+    (let [declaration (emit/prepare-declaration
+                       context
+                       {:kind :fn :name 'read-value :return :u32
+                        :args [{:name 'az :type :u32}]
+                        :body ['(az/field az :value)]})]
+      (is (= '[(field az :value)] (:body declaration)))
+      (is (empty? (emit/declaration-imports [declaration]))))))
+
 (deftest anonymous-containers-use-one-member-vector
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[form expected]
@@ -154,7 +172,7 @@
     (is (str/includes? source
                        "Aguafria declaration: demo.dependency/initialize!"))))
 
-(deftest unevaluated-cross-namespace-name-is-normalized-test
+(deftest unevaluated-cross-namespace-name-is-rejected-test
   (let [provider-symbol 'aguafria.emitter-forward-provider
         caller-symbol 'aguafria.emitter-forward-caller
         provider-ns (create-ns provider-symbol)
@@ -165,7 +183,8 @@
         :modules {(str provider-symbol) {}}})
       (binding [*ns* caller-ns]
         (alias 'provider provider-symbol)
-        (let [declaration
+        (is (thrown-with-msg?
+              clojure.lang.ExceptionInfo #"Unresolved Zig reference.*tick-auto"
               (emit/prepare-declaration
                caller-ns
                {:kind :fn
@@ -174,9 +193,7 @@
                 :return :u32
                 :body '((provider/tick-auto))
                 :public? true
-                :implicit-return? true})]
-          (is (str/includes? (emit/emit-declaration declaration)
-                             "return provider.tick_auto();"))))
+                :implicit-return? true}))))
       (finally
         (remove-ns caller-symbol)
         (remove-ns provider-symbol)))))
@@ -220,7 +237,8 @@
              context-ns
              {:kind :fn
               :name 'threaded
-              :args []
+              :args [{:name 'value :type :i32}
+                     {:name 'transform :type [:*const [:fn [:i32 :i32] :i32]]}]
               :return :i32
               :body '((-> value (transform 1)))})))))
   (let [context-ns (the-ns 'aguafria.zig.emitter-test)
@@ -229,7 +247,8 @@
          context-ns
          {:kind :fn
           :name 'cast-pointer
-          :args []
+          :args [{:name 'pointer :type [:optional [:* :anyopaque]]}
+                 {:name 'Widget :type :type}]
           :return :void
           :body '((-> pointer (az/cast [:* Widget])))})]
     (is (= "@as(*Widget, @ptrCast(@alignCast(pointer.?)))"
@@ -240,14 +259,14 @@
          context-ns
          {:kind :fn
           :name 'choose
-          :args []
+          :args [{:name 'value :type :i32}]
           :return :i32
-          :body '((cond (= value 0) 10
-                        (= value 1) 20
+          :body '((cond (ak/== value 0) 10
+                        (ak/== value 1) 20
                         :else 30))})]
-    (is (= '(if (= value 0)
+    (is (= '(if (aguafria.keyword/== value 0)
               10
-              (if (= value 1) 20 30))
+              (if (aguafria.keyword/== value 1) 20 30))
            (first (:body declaration))))))
 
 (deftest local-callable-shadows-clojure-core-macro-test
@@ -257,7 +276,7 @@
          context-ns
          {:kind :fn
           :name 'check
-          :args []
+          :args [{:name 'checker :type [:*const [:fn [:bool [:slice-const :u8]] :void]]}]
           :return :void
           :body '((ak/const assert checker)
                   (assert true "from Zig"))})]
@@ -272,11 +291,10 @@
           :name 'factory
           :args []
           :return :type
-          :body '((az/container
-                    {:kind :struct :layout :normal}
-                    [(az/fn-decl sync :void  [])])
-                  (sync self frame))})]
-    (is (= '(sync self frame) (second (:body declaration))))))
+          :body '((az/struct
+                    [(az/fn-decl sync :void [])
+                     (az/fn-decl call-sync :void [] (sync))]))})]
+    (is (some #{'(sync)} (tree-seq coll? seq (:body declaration))))))
 
 (deftest expression-emission-test
   (is (= "(a + (b * 2))" (emit/emit-expr '(+ a (* b 2)))))
@@ -376,7 +394,7 @@
                 {:kind :fn :name 'use-points :args [] :return :void
                  :body [(list 'let [(with-meta 'points metadata)
                                     'aguafria.keyword/undefined]
-                              '(set! _ points))]})
+                              '(aguafria.keyword/= :_ points))]})
               ;; Emission occurs outside the original caller namespace.
               source (emit/emit-declaration declaration)]
           (is (str/includes? source "var points: [8]provider.Point = undefined;")

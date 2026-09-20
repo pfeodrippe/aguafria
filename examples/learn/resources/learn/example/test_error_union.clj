@@ -1,5 +1,7 @@
 (ns learn.example.test-error-union
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.ErrorUnion :as error-union-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -10,12 +12,14 @@
     (ak/= result (az/error-value :SomeError))
     (try (ak/comptime
           (testing/expectEqual :i32
-                               (az/field (az/field (ak/typeInfo (ak/TypeOf result)) :error_union)
-                                         :payload))))
+                               (-> (ak/typeInfo (ak/TypeOf result))
+                                   type-info/-error_union
+                                   error-union-info/-payload))))
     (try (ak/comptime
           (testing/expectEqual :anyerror
-                               (az/field (az/field (ak/typeInfo (ak/TypeOf result)) :error_union)
-                                         :error_set))))))
+                               (-> (ak/typeInfo (ak/TypeOf result))
+                                   type-info/-error_union
+                                   error-union-info/-error_set))))))
 
 (comment
   (error-union-test))

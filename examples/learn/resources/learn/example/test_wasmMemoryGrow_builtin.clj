@@ -1,13 +1,15 @@
 (ns learn.example.test-wasmMemoryGrow-builtin
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as ak]
+            [aguafria.std.Target :as target]
+            [aguafria.std.Target.Cpu :as cpu]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defconst native-architecture
   (-> builtin/target
-      (az/field :cpu)
-      (az/field :arch)))
+      target/-cpu
+      cpu/-arch))
 
 (az/deftest wasm-memory-growth-test
   (when (ak/!= native-architecture :.wasm32)

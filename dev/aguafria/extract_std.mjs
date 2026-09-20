@@ -222,6 +222,16 @@ function walkNamespace(original, resolved, category, path, zigPath, ancestors) {
                 new RegExp(`\\bcomptime\\s+${match[2]}\\s*:`).test(signature))};
           }) : [],
     };
+    if (!container && memberResolved.category !== 3 && memberResolved.category !== 10) {
+      const definition = htmlText(unwrapString(wasm.decl_source_html(memberResolved.declaration)));
+      // Retain the actual inferred declaration: decl_type_html only renders an
+      // explicitly annotated type, so inferred aliases otherwise have no signature.
+      if (!signature) entry.signature = definition;
+      entry.definition = definition;
+    }
+    if (!container && /\)\s+type$/.test(signature)) {
+      entry.definition = htmlText(unwrapString(wasm.decl_source_html(memberResolved.declaration)));
+    }
     const firstParameter = entry.parameters[0];
     if (!entry.parameters.length) delete entry.parameters;
     if ((category === 10 || (category === 3 && /\)\s+type$/.test(declarationSignature(resolved, category))))

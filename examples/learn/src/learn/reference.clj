@@ -189,6 +189,8 @@
                    (filter #(.isFile %))
                    (sort-by str))]
     {:library (text-sha256 (pr-str (mapv #(vector (str %) (sha256 %)) files)))
+     :std-catalog (with-open [input (io/input-stream (io/resource "aguafria/zig-std.edn"))]
+                    (sha256-bytes (.readAllBytes input)))
      :zig (sha256 (az/zig-executable))
      :upstream (sha256 "resources/upstream/lock.edn")
      :harness (sha256 "resources/upstream/tools/doctest.zig")

@@ -796,7 +796,7 @@
 (defn- std-reference
   [context segments]
   (when (and (= "std" (first segments)) (< 1 (count segments)))
-    (when-let [member (get @std-members
+    (when-let [member (get (or (:std-members context) @std-members)
                           (str "@import(\"std\")." (str/join "." (rest segments))))]
       (let [canonical (:symbol member)
             namespace-symbol (symbol (namespace canonical))]
@@ -2927,6 +2927,7 @@
   (assoc parsed
          :fallbacks (atom [])
          :std-aliases (atom {})
+         :std-members (:std-members options)
          :project-aliases (atom {})
          :project-require-modes (or (:project-require-modes options) {})
          :import-bindings (or (:import-bindings options) {})

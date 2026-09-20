@@ -1,6 +1,8 @@
 (ns learn.example.test-switch
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as ak]
+            [aguafria.std.Target :as target]
+            [aguafria.std.Target.Os :as os]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -25,8 +27,8 @@
 
 (az/defconst target-os
   (-> builtin/target
-      (az/field :os)
-      (az/field :tag)))
+      target/-os
+      os/-tag))
 
 (az/defconst os-message
   (ak/switch target-os

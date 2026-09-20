@@ -417,7 +417,8 @@
 
 (defn- declaration-parts
   [form]
-  (when (and (seq? form) (symbol? (first form)) (symbol? (second form)))
+  (when (and (seq? form) (symbol? (first form))
+             (or (symbol? (second form)) (keyword? (second form))))
     (let [[operator declaration-name & tail] form
           ;; Function declarations put their return type before docs/attributes.
           ;; Do not mistake that type (which may be a vector) for parameters.
@@ -432,6 +433,7 @@
                                  [{} tail])]
       {:operator operator
        :name declaration-name
+       :form form
        :documentation (or documentation (:doc attributes))
        :attributes attributes
        :payload payload})))
@@ -448,7 +450,7 @@
   [{:keys [name attributes]}]
   (or (:zig/name attributes)
       (:zig/name (meta name))
-      (str name)))
+      (clojure.core/name name)))
 
 (defn- declaration-category
   [{:keys [operator name attributes payload]}]
@@ -524,29 +526,43 @@
 (defn- member-entry
   [package-name zig-alias access-path source signatures declaration]
   (let [zig-name (declaration-zig-name declaration)
-        category (declaration-category declaration)]
+        category (declaration-category declaration)
+        field? (= :field category)
+        clojure-name (str (when field? "-") (clojure.core/name (:name declaration)))
+        expression (last (:payload declaration))
+        signature (or (get signatures zig-name)
+                      (when field?
+                        (str zig-name ": " (emitter/emit-type expression)))
+                      (when (#{:type :constant} category)
+                        (str "pub const " zig-name " = " (emitter/emit-expr expression) ";")))]
     (cond->
      (sorted-map
       :category category
-      :clojure-name (str (:name declaration))
+      :clojure-name clojure-name
       :documentation (or (:documentation declaration) "")
       :package package-name
       :source source
       :zig-alias zig-alias
       :zig-name (str/join "." (conj (vec access-path) zig-name)))
-      (get signatures zig-name) (assoc :signature (get signatures zig-name))
+      signature (assoc :signature signature)
+      (#{:type :constant} category) (assoc :type-expression expression)
+      field? (assoc :field-name zig-name :param-count 1
+                    :parameters [{:name "self" :type "Self"}])
       (some? (function-param-count declaration))
       (assoc :param-count (function-param-count declaration))
       (= :type category) (assoc :type-reference? true))))
 
 (defn- container-form
-  [{:keys [payload]}]
-  (some (fn [value]
-          (when (and (seq? value)
-                     (symbol? (first value))
-                     (= "container" (clojure.core/name (first value))))
-            value))
-        payload))
+  [{:keys [operator attributes payload]}]
+  (if (#{"defstruct" "struct-decl"} (name operator))
+    (list 'az/container (assoc attributes :kind :struct) (first payload))
+    (letfn [(find-container [value]
+              (when (seq? value)
+                (case (some-> value first name)
+                  "container" value
+                  "return" (find-container (second value))
+                  nil)))]
+      (some find-container payload))))
 
 (declare container-catalogs)
 
@@ -554,9 +570,15 @@
   [package-name prefix zig-alias source access-path clojure-path declaration]
   (when-let [container (container-form declaration)]
     (let [options (second container)
-          enum? (contains? (set (:attrs options)) :enum)
-          declarations (keep declaration-parts (drop 2 container))
+          enum? (or (= :enum (:kind options)) (contains? (set (:attrs options)) :enum))
+          forms (if (vector? (nth container 2 nil)) (nth container 2) (drop 2 container))
+          declarations (keep (fn [form]
+                               (declaration-parts
+                                (if (vector? form)
+                                  (list* 'az/field-decl form)
+                                  form))) forms)
           visible (filter #(or (public-declaration? %)
+                               (= :field (get declaration-categories (name (:operator %))))
                                (and enum?
                                     (= :enum-field
                                        (get declaration-categories
@@ -566,10 +588,10 @@
           container-access (conj (vec access-path) zig-container)
           container-clojure (conj (vec clojure-path) (str (:name declaration)))
           namespace-name (namespace-symbol prefix container-clojure)
-          members (mapv #(assoc (member-entry package-name zig-alias
-                                               container-access source {} %)
-                                :symbol
-                                (symbol (str namespace-name) (str (:name %))))
+          members (mapv #(let [member (member-entry package-name zig-alias
+                                                    container-access source {} %)]
+                           (assoc member :symbol
+                                  (symbol (str namespace-name) (:clojure-name member))))
                         visible)
           nested (mapcat #(container-catalogs package-name prefix zig-alias source
                                               container-access container-clojure %)
@@ -720,6 +742,7 @@
   (let [root (io/file (:root-path resolved))
         namespaces (merge-catalog-namespaces
                     (catalog-file package-name spec resolved root [] [] #{}))
+        namespaces (prepare/enrich-namespaces namespaces)
         namespaces (add-flat-root-members (:namespace-prefix spec) namespaces)]
     {:namespaces namespaces
      :package package-name}))
@@ -843,14 +866,14 @@
 (defn- reference-form-builder
   [reference]
   (fn [& arguments]
-    (if (= :function (:category reference))
+    (if (#{:function :field} (:category reference))
       ((requiring-resolve 'aguafria.zig.jvm/invoke-reference!) reference arguments)
       (with-meta (apply list (:symbol reference) arguments)
         {:aguafria/zig-reference reference}))))
 
 (defn- catalog-reference
   [member]
-  {:category (:category member)
+  (cond-> {:category (:category member)
    :signature (:signature member)
    :import (:package member)
    :kind :import-member
@@ -858,11 +881,13 @@
    :module (:zig-alias member)
    :symbol (:symbol member)
    :type-reference? (:type-reference? member)
-   :zig-name (str (:zig-alias member) "." (:zig-name member))})
+   :zig-name (str (:zig-alias member) "." (:zig-name member))}
+    (= :field (:category member))
+    (assoc :field-accessor? true :member-name (:field-name member))))
 
 (defn- member-doc
-  [{:keys [category documentation package signature source zig-name]}]
-  (str (when (seq signature) (str signature "\n\n"))
+  [{:keys [category documentation package signature display-signature source zig-name]}]
+  (str (when (seq (or display-signature signature)) (str (or display-signature signature) "\n\n"))
        (when (seq documentation) (str documentation "\n\n"))
        "This Var represents Zig `" package "." zig-name "` ("
        (name category) ") from `" source "`. Inside an `az/defn` it emits "
@@ -893,7 +918,7 @@
        var merge
        {:aguafria/package true
         :aguafria/zig-reference reference
-        :arglists '([& arguments])
+        :arglists (if (= :field (:category member)) '([self]) '([& arguments]))
         :doc (member-doc member)
         :zig/category (:category member)
         :zig/documentation-source :zig-package

@@ -1,5 +1,8 @@
 (ns learn.example.test-enums
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.Enum :as enum-info]
+            [aguafria.std.builtin.Type.EnumField :as field-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -79,14 +82,14 @@
    :four])
 
 (az/deftest enum-tag-type-test
-  (let [information (az/field (ak/typeInfo Small) :enum)]
-    (try (testing/expectEqual (az/type :u2) (az/field information :tag_type)))))
+  (let [information (type-info/-enum (ak/typeInfo Small))]
+    (try (testing/expectEqual (az/type :u2) (enum-info/-tag_type information)))))
 
 (az/deftest enum-type-information-test
-  (let [information (az/field (ak/typeInfo Small) :enum)
-        fields (az/field information :fields)]
+  (let [information (type-info/-enum (ak/typeInfo Small))
+        fields (enum-info/-fields information)]
     (try (testing/expectEqual 4 (az/field fields :len)))
-    (try (testing/expectEqualStrings (az/field (az/index fields 1) :name) "two"))))
+    (try (testing/expectEqualStrings (field-info/-name (az/index fields 1)) "two"))))
 
 (az/deftest enum-tag-name-test
   (try (testing/expectEqualStrings (ak/tagName (az/field Small :three)) "three")))

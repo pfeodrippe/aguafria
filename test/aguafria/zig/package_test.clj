@@ -1,6 +1,12 @@
 (ns aguafria.zig.package-test
   (:require [aguafria.zig.emitter :as emitter]
             [aguafria.zig.package :as package]
+            [aguafria.zig.prepare :as prepare]
+            [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.value :as value]
+            [aguafria.zig :as az]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (def ^:private fixture-namespace
@@ -65,3 +71,44 @@
              (emitter/emit-expr (the-ns fixture-namespace) form))))
     (finally
       (forget-fixture!))))
+
+(deftest prepared-library-alias-fields-work-from-jvm-and-native-code
+  (let [prefix 'aguafria.pkg.type-fields-fixture
+        root (.getCanonicalPath (io/file "test/fixtures/type_catalog.zig"))
+        catalog (#'package/package-catalog
+                 "type_fixture" {:namespace-prefix prefix :zig-alias "type_fixture"}
+                 {:root-path root :package-root (.getCanonicalPath (io/file "test/fixtures"))})
+        original-config (runtime/configuration)
+        generated (.getCanonicalPath
+                   (.toFile (java.nio.file.Files/createTempDirectory
+                             "aguafria-type-fields-" (make-array java.nio.file.attribute.FileAttribute 0))))
+        call (fn [suffix member & args]
+               (apply (ns-resolve (symbol (str prefix suffix)) member) args))]
+    (try
+      (runtime/configure! {:async? false :modules {"type_fixture" root}})
+      (package/install-catalog! (assoc catalog :schema-version 1 :packages {}))
+      (prepare/write-entrypoints! {:kind :packages :namespaces (:namespaces catalog)
+                                   :generated-dir generated})
+      (doseq [suffix [".Bytes" ".BytesAlias" ".Buffer.Slice" ".RowAlias.Slice"]]
+        (is (= 3 (call suffix '-len "abc")))
+        (is (value/zig-pointer? (call suffix '-ptr "abc")))
+        (is (= '([self]) (:arglists (meta (ns-resolve (symbol (str prefix suffix)) '-len))))))
+      (is (= 42 (call ".RowAlias" '-value (call "" 'row))))
+      (is (= "abc" (call ".Buffer" '-items (call "" 'buffer))))
+      (is (str/includes? (:doc (meta (ns-resolve prefix 'Buffer))) "Fields:"))
+      (is (str/includes? (:doc (meta (ns-resolve (symbol (str prefix ".Buffer")) '-items)))
+                         "items: aguafria.pkg.type-fields-fixture.Buffer/Slice"))
+      (is (str/includes? (slurp (io/file generated "aguafria/pkg/type_fields_fixture/Buffer.clj"))
+                         "items: aguafria.pkg.type-fields-fixture.Buffer/Slice"))
+      (binding [*ns* (the-ns prefix)]
+        (alias 'az 'aguafria.zig)
+        (alias 'slice (symbol (str prefix ".BytesAlias")))
+        (eval '(az/defn native-length :usize [[input [:slice-const :u8]]]
+                 (slice/-len input)))
+        (is (= 3 ((ns-resolve prefix 'native-length) "abc")))
+        (is (= "input.len" (emitter/emit-expr *ns* '(slice/-len input)))))
+      (finally
+        (runtime/configure! original-config)
+        (doseq [{:keys [name]} (:namespaces catalog)]
+          (remove-ns name)
+          (dosync (alter @#'clojure.core/*loaded-libs* disj name)))))))

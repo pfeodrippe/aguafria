@@ -1,13 +1,15 @@
 (ns learn.example.test-variable-func-alignment
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.Pointer :as pointer-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defvar aligned-byte {:zig/qualifiers "align(4)"} :u8 100)
 
 (az/deftest global-variable-alignment-test
-  (let [information (az/field (ak/typeInfo (ak/TypeOf (& aligned-byte))) :pointer)]
-    (try (testing/expectEqual 4 (az/field information :alignment))))
+  (let [information (type-info/-pointer (ak/typeInfo (ak/TypeOf (& aligned-byte))))]
+    (try (testing/expectEqual 4 (pointer-info/-alignment information))))
   (try (testing/expectEqual (az/type [:pointer {:size :one :align 4} :u8])
                             (ak/TypeOf (& aligned-byte))))
   (let [array-pointer (ak/as (& aligned-byte) [:pointer {:align 4, :size :one} [:array 1 :u8]])

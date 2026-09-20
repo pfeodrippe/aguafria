@@ -1,13 +1,15 @@
 (ns learn.example.test-packed-structs
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as ak]
+            [aguafria.std.Target :as target]
+            [aguafria.std.Target.Cpu :as cpu]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defconst native-endian
   (let [architecture (-> builtin/target
-                         (az/field :cpu)
-                         (az/field :arch))]
+                         target/-cpu
+                         cpu/-arch)]
     ((az/field architecture :endian))))
 
 (az/defstruct Full {:layout :packed}

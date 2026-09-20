@@ -190,7 +190,9 @@
 
 (defn- namespace-root-reference
   [context-ns sym]
-  (when (and (symbol? sym) (nil? (namespace sym)))
+  (when (and (symbol? sym)
+             (nil? (namespace sym))
+             (not (contains? *lexical-bindings* sym)))
     (when-let [target-ns (get (ns-aliases context-ns) sym)]
       (let [module (str (ns-name target-ns))]
         (when-not (str/starts-with? module "aguafria.zig.import.")

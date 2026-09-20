@@ -506,6 +506,32 @@ comparisons and one has explicit test-discovery verification. File-example succe
 does not establish coverage of all Zig.
 # JVM expression interoperability follow-up
 
+- [x] Remove the committed std metadata EDN. Generate it and namespace stubs
+      under ignored `generated/` through `:prepare`; verify clean-cache and
+      cached preparation, direct imports, docs, and the rebuilt Learn reference.
+- [x] Retain inferred alias definitions in generated docs; qualify field types
+      such as `items: aguafria.std.ArrayList/Slice`; show a type's available
+      fields in the constructor/type documentation.
+- [x] Share alias and built-in field discovery between std and package prep,
+      including nested generic slice types, aliases of containers, and cyclic
+      alias rejection. Test actual JVM/native access and prepared editor metadata.
+- [x] Audit all Learn field accesses and migrate known named types to their
+      namespace getters. Retain `az/field` for local/anonymous types, dynamic
+      member names and bound methods. Rebuild and compare the full reference.
+
+Verified 2026-09-20: migrated 26 examples without changing native field access.
+The JVM/native suites pass 47 tests / 6,217 assertions; emitter tests pass
+42 / 243 and Learn tests pass 58 / 11,342. Rebuilt all 292 file examples:
+288 upstream outcomes match and four reviewed special cases pass, including
+200 in-process comment-form REPL transcripts. Fixed lexical arguments shadowing
+namespace aliases rather than adding a spurious generated module dependency.
+Clean std catalog generation and repeated `clojure -X:prepare` work from both
+the repository and Learn; cache reuse and regeneration after corruption were
+checked. Metadata now lives at ignored `generated/aguafria/zig-std.edn`;
+the former tracked catalog was removed and is reproducible from pinned Zig.
+All 10 browser/layout/highlighting tests pass (640–2600 px); the served page
+also passed the named-getter, real REPL output, and mapped leak-location checks.
+
 - [x] Audit declaration order in every Learn example and snippet. Move helpers
       and constants before their consumers without renaming them; add an audit
       regression and rebuild/verify the page (`test_container_level_variables`

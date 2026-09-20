@@ -232,6 +232,18 @@ const __aguafria_jvm = struct {
         return @intFromPtr(encoded.ptr);
     }
 
+    fn fieldResult(value: anytype) usize {
+        // A field may itself be an unbounded pointer. Return a typed borrowed
+        // address, as inspection does; never read an unknown number of elements.
+        if (@typeInfo(@TypeOf(value)) == .pointer) {
+            const size = @typeInfo(@TypeOf(value)).pointer.size;
+            if (size == .many or size == .c) {
+                return inspectResult(value);
+            }
+        }
+        return result(value);
+    }
+
     fn release(address: usize) void {
         const text = std.mem.span(@as([*:0]const u8, @ptrFromInt(address)));
         allocator.free(text[0 .. text.len + 1]);

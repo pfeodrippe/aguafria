@@ -1,5 +1,8 @@
 (ns learn.example.build-c
   (:require [aguafria.std :as std]
+            [aguafria.std.Build :as build]
+            [aguafria.std.Build.Step.Compile :as compile-step]
+            [aguafria.std.Build.Step.Run :as run-step]
             [aguafria.zig :as az]))
 
 (az/defn build :void
@@ -14,13 +17,13 @@
                     {:name "test"
                      :root_module ((az/field builder :createModule)
                                    {:link_libc true})})]
-    ((az/field (az/field executable :root_module) :addCSourceFile)
+    ((az/field (compile-step/-root_module executable) :addCSourceFile)
      {:file ((az/field builder :path) "test.c")
       :flags (& ["-std=c99"])})
-    ((az/field (az/field executable :root_module) :linkLibrary) library)
-    ((az/field (az/field builder :default_step) :dependOn)
-     (& (az/field executable :step)))
+    ((az/field (compile-step/-root_module executable) :linkLibrary) library)
+    ((az/field (build/-default_step builder) :dependOn)
+     (& (compile-step/-step executable)))
 
     (let [run-command ((az/field executable :run))
           test-step ((az/field builder :step) "test" "Test the program")]
-      ((az/field test-step :dependOn) (& (az/field run-command :step))))))
+      ((az/field test-step :dependOn) (& (run-step/-step run-command))))))

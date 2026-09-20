@@ -1,6 +1,8 @@
 (ns learn.example.test-defining-variadic-function
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as ak]
+            [aguafria.std.Target.Cpu :as cpu]
+            [aguafria.std.Target.Os :as os]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -17,8 +19,8 @@
       sum)))
 
 (az/deftest defining-variadic-function-test
-  (let [architecture (az/field builtin/cpu :arch)
-        operating-system (az/field builtin/os :tag)]
+  (let [architecture (cpu/-arch builtin/cpu)
+        operating-system (os/-tag builtin/os)]
     (when (and (ak/== architecture :.aarch64) (ak/!= operating-system :.macos))
       ;; https://github.com/ziglang/zig/issues/14096
       (ak/return (az/error-value :SkipZigTest)))

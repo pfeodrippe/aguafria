@@ -114,6 +114,10 @@
 (defn- expression-result
   [namespace expression parameters result]
   (cond
+    (and (map? result) (= #{:aguafria.jvm/pointer} (set (keys result))))
+    (let [{:keys [address type]} (:aguafria.jvm/pointer result)]
+      (value/->ZigPointer address type))
+
     (and (map? result) (= #{:aguafria.jvm/error} (set (keys result))))
     (let [{:keys [name members]} (:aguafria.jvm/error result)]
       (value/->ZigError name (if members [:error-set (mapv keyword members)] :anyerror)))
@@ -563,7 +567,8 @@
                        (list '(field __aguafria_jvm :lookupField)
                              (first expression-arguments) (name member))
                        (apply list symbol expression-arguments))
-          result (invoke-expression! context expression parameters arguments)]
+          result (invoke-expression! context expression parameters arguments
+                                     (if (= 'field (:name syntax)) 'fieldResult 'result))]
       (if (and native-field? (= {"__aguafria_bound_method" true} result))
         (bound-method receiver member)
         result))))

@@ -1,5 +1,9 @@
 (ns learn.example.test-inline-else
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.Union :as union-info]
+            [aguafria.std.builtin.Type.Enum :as enum-info]
+            [aguafria.std.builtin.Type.EnumField :as field-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -22,12 +26,12 @@
 
 (az/defn- with-for :usize
   [[any-slice AnySlice]]
-  (let [Tag (az/unwrap (az/field (az/field (ak/typeInfo AnySlice) :union) :tag_type))]
-    (az/inline-for [field (az/field (az/field (ak/typeInfo Tag) :enum) :fields)]
+  (let [Tag (az/unwrap (-> (ak/typeInfo AnySlice) type-info/-union union-info/-tag_type))]
+    (az/inline-for [field (-> (ak/typeInfo Tag) type-info/-enum enum-info/-fields)]
       ;; Inline for generates a series of if statements, relying on the
       ;; optimizer to convert them into a switch.
-      (when (ak/== (az/field field :value) (ak/intFromEnum any-slice))
-        (ak/return (az/field (ak/field any-slice (az/field field :name)) :len)))))
+      (when (ak/== (field-info/-value field) (ak/intFromEnum any-slice))
+        (ak/return (az/field (ak/field any-slice (field-info/-name field)) :len)))))
   ;; With inline for, the compiler does not know that every possible case
   ;; has been handled, so an explicit unreachable is required.
   (ak/unreachable))

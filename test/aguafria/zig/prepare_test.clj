@@ -11,6 +11,27 @@
     (.toFile (Files/createTempDirectory (.toPath parent) "case-"
                                         (make-array java.nio.file.attribute.FileAttribute 0)))))
 
+(deftest structural-type-fields-do-not-guess
+  (is (= ["len" "ptr"]
+         (mapv :field-name (prepare/type-fields '(type [:slice-const :u8])))))
+  (is (= ["len"] (mapv :field-name (prepare/type-fields [:array 3 :u8]))))
+  (is (= ["len" "ptr"]
+         (mapv :field-name
+               (prepare/type-fields
+                '(az/if-capture {:payload [a]} alignment
+                               (type [:pointer {:size :slice :align a} T])
+                               (type [:slice T]))))))
+  (is (empty? (prepare/type-fields '(if condition (type [:slice :u8]) :u32))))
+  (is (empty? (prepare/type-fields '(unknown-type-constructor :u8)))))
+
+(deftest cyclic-type-aliases-never-invent-getters
+  (let [source [{:name 'aguafria.pkg.cyclic
+                 :members [{:symbol 'aguafria.pkg.cyclic/A :clojure-name "A"
+                            :type-expression 'B :zig-name "A"}
+                           {:symbol 'aguafria.pkg.cyclic/B :clojure-name "B"
+                            :type-expression 'A :zig-name "B"}]}]]
+    (is (= ['aguafria.pkg.cyclic] (mapv :name (prepare/enrich-namespaces source))))))
+
 (defn- prepare! [root & names]
   (prepare/write-entrypoints!
    {:generated-dir (str root)

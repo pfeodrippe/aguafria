@@ -1,18 +1,21 @@
 (ns learn.example.test-fn-reflection
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.Fn :as fn-info]
+            [aguafria.std.builtin.Type.Fn.Param :as param-info]
             [aguafria.std.math :as math]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest function-reflection-test
-  (let [expect-signature (az/field (ak/typeInfo (ak/TypeOf testing/expect)) :fn)
-        first-parameter (az/index (az/field expect-signature :params) 0)
-        tmp-dir-signature (az/field (ak/typeInfo (ak/TypeOf testing/tmpDir)) :fn)
-        log2-signature (az/field (ak/typeInfo (ak/TypeOf math/Log2Int)) :fn)]
-    (try (testing/expectEqual :bool (az/unwrap (az/field first-parameter :type))))
+  (let [expect-signature (type-info/-fn (ak/typeInfo (ak/TypeOf testing/expect)))
+        first-parameter (az/index (fn-info/-params expect-signature) 0)
+        tmp-dir-signature (type-info/-fn (ak/typeInfo (ak/TypeOf testing/tmpDir)))
+        log2-signature (type-info/-fn (ak/typeInfo (ak/TypeOf math/Log2Int)))]
+    (try (testing/expectEqual :bool (az/unwrap (param-info/-type first-parameter))))
     (try (testing/expectEqual testing/TmpDir
-                              (az/unwrap (az/field tmp-dir-signature :return_type))))
-    (try (testing/expect (az/field log2-signature :is_generic)))))
+                              (az/unwrap (fn-info/-return_type tmp-dir-signature))))
+    (try (testing/expect (fn-info/-is_generic log2-signature)))))
 
 (comment
   (function-reflection-test))

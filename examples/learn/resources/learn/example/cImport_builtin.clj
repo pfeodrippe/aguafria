@@ -1,6 +1,7 @@
 (ns learn.example.cImport-builtin
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as ak]
+            [aguafria.std.Target.Os :as os]
             [aguafria.zig :as az]))
 
 (az/defconst c
@@ -12,7 +13,7 @@
 
 (az/defn main :void
   []
-  (when (ak/== (az/field builtin/os :tag) :.netbsd)
+  (when (ak/== (os/-tag builtin/os) :.netbsd)
     ;; https://github.com/Vexu/arocc/issues/960
     (ak/return))
   (ak/= :_ ((az/field c :printf) "hello\n")))

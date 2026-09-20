@@ -1,5 +1,7 @@
 (ns learn.example.test-optional-type
   (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin.Type :as type-info]
+            [aguafria.std.builtin.Type.Optional :as optional-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -13,8 +15,9 @@
     (try (ak/comptime
           (testing/expectEqual
            :i32
-           (az/field (az/field (ak/typeInfo (ak/TypeOf optional-number)) :optional)
-                     :child))))))
+           (-> (ak/typeInfo (ak/TypeOf optional-number))
+               type-info/-optional
+               optional-info/-child))))))
 
 (comment
   (optional-type-test))

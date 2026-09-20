@@ -24,7 +24,7 @@
   "resources/aguafria/zig-keyword.edn")
 
 (def ^:private std-catalog-path
-  "resources/aguafria/zig-std.edn")
+  "generated/aguafria/zig-std.edn")
 
 (def ^:private std-extractor-path
   "dev/aguafria/extract_std.mjs")
@@ -624,6 +624,22 @@
                         {:file (str file) :docs-dir (str docs-dir)}))))
     docs-dir))
 
+(defn- inferred-type-expression
+  [std-members member]
+  (let [definition (:definition member)]
+    (when (and (seq definition)
+               (or (re-find #"(?s)^(?:\s*///[^\n]*\n)*\s*(?:pub\s+)?const\s+[^=]+\s*=\s*(?:\[|if\b)" definition)
+                   (#{:type-function :function} (:category member))))
+      (let [parse (requiring-resolve 'aguafria.zig.convert/parse-source)
+            convert (requiring-resolve 'aguafria.zig.convert/convert-file)
+            form (first (:forms (convert "catalog-type.zig"
+                                        {:std-members std-members
+                                         :aguafria.zig.convert/parsed
+                                         (parse (str definition
+                                                     (when-not (or (str/ends-with? (str/trim definition) ";")
+                                                                   (#{:type-function :function} (:category member))) "\n;")))})))]
+        (when (#{"defconst" "defn" "defn-"} (some-> form first name)) (last form))))))
+
 (defn generate-std-catalog
   "Return the complete public Zig std namespace/declaration graph. Zig's own
   documentation semantic walker is the authority, including resolved aliases,
@@ -649,8 +665,19 @@
                           (.getAbsolutePath (io/file docs-dir "sources.tar"))])
                         (json/read-str :key-fn keyword))
           replacements (namespace-path-replacements (:namespaces extracted))
-          namespaces (mapv (partial normalize-std-namespace version replacements)
+          normalized (mapv (partial normalize-std-namespace version replacements)
                            (:namespaces extracted))
+          std-members (into {} (map (juxt :zig-name identity))
+                            (mapcat :members normalized))
+          expressions (memoize (partial inferred-type-expression std-members))
+          namespaces (->> normalized
+                          (mapv (fn [namespace]
+                                  (update namespace :members
+                                          #(mapv (fn [member]
+                                                   (let [expression (expressions (select-keys member [:definition :category]))]
+                                                     (cond-> (dissoc member :definition)
+                                                       expression (assoc :type-expression expression)))) %))))
+                          prepare/enrich-namespaces)
           member-count (reduce + (map (comp count :members) namespaces))
           tree-hash (sha256-tree std-dir ".zig")]
       (when (or (< (count namespaces) 100)
@@ -691,6 +718,44 @@
   (binding [*print-length* nil
             *print-level* nil]
     (with-out-str (pprint/pprint catalog))))
+
+(defn- std-preparation-inputs
+  []
+  (into (sorted-map)
+        (map (fn [path] [path (sha256-file (io/file path))]))
+        ["dev/aguafria/generate_keyword.clj"
+         std-extractor-path
+         "src/aguafria/zig/prepare.clj"
+         "src/aguafria/zig/convert.clj"
+         "src/aguafria/zig/emitter.clj"
+         "resources/aguafria/zig-keyword.edn"
+         "resources/aguafria/zig-ast.zig"
+         "resources/aguafria/toolchain/releases.edn"]))
+
+(defn prepare-std!
+  "Prepare ignored metadata and loader files, rebuilding on generator/toolchain
+  changes. The manifest includes the catalog digest, so damaged caches rebuild."
+  [options]
+  (let [inputs (std-preparation-inputs)
+        root (io/file (or (:generated-dir options) "generated"))
+        output (io/file root "aguafria/zig-std.edn")
+        manifest-file (io/file root ".aguafria-std-catalog.edn")
+        previous (when (.isFile manifest-file)
+                   (edn/read-string (slurp manifest-file)))
+        cached? (and (= inputs (:inputs previous))
+                     (.isFile output)
+                     (= (:sha256 previous) (sha256-file output)))
+        catalog (if cached?
+                  (with-open [reader (java.io.PushbackReader. (io/reader output))]
+                    (edn/read reader))
+                  (generate-std-catalog options))]
+    (when-not cached?
+      (io/make-parents output)
+      (spit output (render-catalog catalog)))
+    (let [result (prepare/write-entrypoints!
+                   (assoc options :kind :std :namespaces (:namespaces catalog)))]
+      (spit manifest-file (str (pr-str {:inputs inputs :sha256 (sha256-file output)}) "\n"))
+      (assoc result :catalog-path (str output) :catalog-reused? (boolean cached?)))))
 
 (defn- compiler-derived-shape
   "Remove optional ZLS enrichment so `--check` also works without ZLS."
