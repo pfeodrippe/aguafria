@@ -5,6 +5,19 @@ document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
 served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Replace redundant named-type map binding annotations with ordinary
+      constructor calls throughout the repository, preserving mutability,
+      alignment and required coercion annotations. Support locally bound types,
+      verify native defaults and Clojure constructor defaults, add regressions,
+      rerun upstream comparisons, and rebuild the served Learn reference.
+      Audited source, tests, development tooling, resources and all examples:
+      migrated all 15 matching bindings in 11 Learn files; no matches remain.
+      Verified: 257 library tests / 5,591 assertions; 52 Learn tests / 9,324
+      assertions; all 292 upstream comparisons; 10 browser/highlighting tests.
+      Native and JVM constructors preserve Zig field defaults, including nested
+      and packed structs, and local type aliases respect lexical shadowing.
+      Rebuilt and visually checked the served example and its real REPL output.
+
 - [x] Use one explicit member vector for named and anonymous container types.
       Add `az/struct`, `az/enum`, `az/union`, and `az/opaque`; allow enum keywords
       and detailed tag vectors together. Keep methods inside the member vector.

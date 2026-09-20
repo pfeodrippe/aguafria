@@ -6,8 +6,8 @@
   (let [Nibble (az/union {:layout :packed}
                  [[:a :u4]
                   [:b :i4]])
-        ^{:zig/type Nibble} unsigned {:a 3}
-        ^{:zig/type Nibble} signed {:b 3}]
+        unsigned (Nibble {:a 3})
+        signed (Nibble {:b 3})]
     (try (testing/expectEqual unsigned signed))))
 
 (comment

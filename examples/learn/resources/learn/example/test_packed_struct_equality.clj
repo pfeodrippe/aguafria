@@ -6,8 +6,8 @@
   (let [Nibbles (az/struct {:layout :packed}
                   [[:a :u4]
                    [:b :u4]])
-        ^{:zig/type Nibbles} forward {:a 1 :b 2}
-        ^{:zig/type Nibbles} reversed {:b 2 :a 1}]
+        forward (Nibbles {:a 1 :b 2})
+        reversed (Nibbles {:b 2 :a 1})]
     ;; Literal field order does not affect the packed representation.
     (try (testing/expectEqual forward reversed))))
 

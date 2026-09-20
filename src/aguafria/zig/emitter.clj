@@ -81,6 +81,10 @@
 (def ^:dynamic *reloadable-state-references?* false)
 (def ^:dynamic *reloadable-state-accessors* nil)
 (def ^:dynamic *lexical-bindings* #{})
+
+(def ^:dynamic *local-type-bindings*
+  "Lexically scoped local names and whether their initializers produce types."
+  {})
 (def ^:dynamic *named-module-imports?* false)
 (def ^:dynamic *logical-type-names?* false)
 
@@ -296,16 +300,18 @@
 
 (defn- known-type-reference
   [sym]
-  (or (some-> (current-zig-reference sym)
-              (#(when (:type-reference? %) %)))
-      ;; Ordinary same-namespace type calls remain unqualified in stored
-      ;; forms. Resolve only Vars explicitly marked as Zig type declarations;
-      ;; arbitrary functions that receive maps must remain function calls.
-      (when (and (symbol? sym) (nil? (namespace sym)))
-        (some-> (resolve-context-var (or *keyword-context* *ns*) sym)
-                meta
-                :aguafria/zig-reference
-                (#(when (:type-reference? %) %))))))
+  (if (:aguafria/local? (meta sym))
+    (:aguafria/local-type? (meta sym))
+    (or (some-> (current-zig-reference sym)
+                (#(when (:type-reference? %) %)))
+        ;; Ordinary same-namespace type calls remain unqualified in stored
+        ;; forms. Resolve only Vars explicitly marked as Zig type declarations;
+        ;; arbitrary functions that receive maps must remain function calls.
+        (when (and (symbol? sym) (nil? (namespace sym)))
+          (some-> (resolve-context-var (or *keyword-context* *ns*) sym)
+                  meta
+                  :aguafria/zig-reference
+                  (#(when (:type-reference? %) %)))))))
 
 (declare qualify-form qualify-type)
 
@@ -359,13 +365,40 @@
   '#{fn-decl fn-proto-decl const-decl var-decl extern-var-decl struct-decl import-decl
      field-decl enum-field-decl comptime-decl test-decl})
 
+(defn- local-type-expression?
+  [value]
+  (or (and (symbol? value) (known-type-reference value))
+      (and (seq? value) (contains? #{'container 'type} (first value)))))
+
+(defn- qualify-let
+  [context-ns [_ bindings & body :as form]]
+  (loop [pairs (partition 2 bindings)
+         qualified []
+         local-types *local-type-bindings*]
+    (if-let [[binding-name value] (first pairs)]
+      (let [value (binding [*local-type-bindings* local-types]
+                    (qualify-form context-ns value))
+            qualified-binding (qualify-form context-ns binding-name)
+            names (if (vector? binding-name) binding-name [binding-name])
+            local-types (reduce #(assoc %1 %2
+                                        (and (symbol? binding-name)
+                                             (boolean (local-type-expression? value))))
+                                local-types names)]
+        (recur (next pairs) (conj qualified qualified-binding value) local-types))
+      (binding [*local-type-bindings* local-types]
+        (with-meta
+          (apply list 'let (with-meta qualified (meta bindings))
+                 (map #(qualify-form context-ns %) body))
+          (meta form))))))
+
 (defn- qualify-seq
   [context-ns form]
   (let [[op & raw-args] form
         structural-op (resolved-syntax-operator context-ns op)
         structural? (some? structural-op)
         token (when-not structural? (keyword/resolve-token context-ns op))
-        reference (when-not structural? (resolve-zig-reference context-ns op))
+        reference (when-not (or structural? (contains? *local-type-bindings* op))
+                    (resolve-zig-reference context-ns op))
         args (cond
                (and structural? (= 'type structural-op))
                (mapv #(qualify-type context-ns %) raw-args)
@@ -429,6 +462,12 @@
    ;; namespace before declaration emission happens in a different context.
    ;; Other metadata (docs, source spans, arbitrary user values) stays intact.
    (cond
+    (and (seq? form)
+         (= 'let (resolved-syntax-operator context-ns (first form)))
+         (vector? (second form))
+         (even? (count (second form))))
+    (qualify-let context-ns form)
+
     (seq? form) (if-let [expansion (expand-clojure-macro-once context-ns form)]
                   (let [expanded (:expanded expansion)]
                     ;; `cond` expands its conventional `:else` clause to
@@ -452,6 +491,11 @@
                   (meta form))
     (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
                            (meta form))
+    (and (symbol? form) (contains? *local-type-bindings* form))
+    (with-meta form (assoc (meta form)
+                          :aguafria/local? true
+                          :aguafria/local-type? (get *local-type-bindings* form)))
+
     (and (symbol? form) (keyword/resolve-token context-ns form))
     (:symbol (keyword/resolve-token context-ns form))
 

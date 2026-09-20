@@ -33,7 +33,7 @@
 (az/deftest namespaced-constant-test
   (try (testing/expectEqual 3.14 (az/field Empty :PI)))
   (try (testing/expectEqual 0 (ak/sizeOf Empty)))
-  (let [^{:zig/type Empty} empty {}]
+  (let [empty (Empty {})]
     (set! _ empty)))
 
 (az/defn set-y-from-x :void

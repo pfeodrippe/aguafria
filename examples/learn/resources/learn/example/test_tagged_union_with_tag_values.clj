@@ -9,8 +9,8 @@
      [:boolean {:default 67} :bool]]))
 
 (az/deftest explicit-tag-values-test
-  (let [^{:zig/type Tagged} integer {:int -40}
-        ^{:zig/type Tagged} boolean {:boolean false}]
+  (let [integer (Tagged {:int -40})
+        boolean (Tagged {:boolean false})]
     ;; The tag's integer value is independent of the payload's value.
     (try (testing/expectEqual 123 (ak/intFromEnum integer)))
     (try (testing/expectEqual 67 (ak/intFromEnum boolean)))))

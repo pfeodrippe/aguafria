@@ -16,8 +16,8 @@
           (case [(az/field Variant :none)] false))))]))
 
 (az/deftest union-method-test
-  (let [^{:var Variant} integer {:int 1}
-        ^{:var Variant} boolean {:boolean false}
+  (let [^:var integer (Variant {:int 1})
+        ^:var boolean (Variant {:boolean false})
         ^{:var Variant} empty :.none]
     (try (testing/expect ((az/field integer :truthy))))
     (try (testing/expect (ak/! ((az/field boolean :truthy)))))

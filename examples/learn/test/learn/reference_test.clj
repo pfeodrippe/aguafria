@@ -152,6 +152,23 @@
       (is (nil? (re-find #"\(az/(?:defn-?|deftest)\s*\n" code)))
       (is (nil? (re-find #"\(az/deftest\s+\"" code))))))
 
+(deftest named-map-initializers-use-constructors
+  (doseq [file (file-seq (io/file "resources/learn"))
+          :when (and (.isFile file) (str/ends-with? (str file) ".clj"))]
+    (with-open [reader (java.io.PushbackReader. (io/reader file))]
+      (binding [*read-eval* false]
+        (loop []
+          (let [form (read {:eof ::eof} reader)]
+            (when-not (= ::eof form)
+              (doseq [node (tree-seq coll? seq form)
+                      :when (and (seq? node) (= 'let (first node)))
+                      [binding value] (partition 2 (second node))
+                      :let [type (or (:zig/type (meta binding))
+                                     (:var (meta binding)))]]
+                (is (not (and (symbol? type) (map? value)))
+                    (str file ": use (" type " ...) for " binding)))
+              (recur))))))))
+
 (deftest authored-examples-and-snippets-use-standard-clojure-namespaces
   (let [files (for [[file {:keys [source]}] (ref/read-edn "resources/learn/overrides.edn")
                     :when source]

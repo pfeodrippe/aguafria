@@ -251,7 +251,9 @@
                        [(field-key field-name)
                         field-name
                         (clojure.core/name field-name)])]
-    (when-not (identical? missing result)
+    (if (identical? missing result)
+      (when-let [default-segment (:default-segment field)]
+        (decode-value-segment default-segment (:type field) (:schema field)))
       result)))
 
 (defn- field-present?
@@ -838,13 +840,14 @@
 
 (defn write-struct!
   "Encode a Clojure field map into a normal or extern struct using offsets and
-  storage sizes reported by Zig itself. Missing fields are zero-initialized."
+  storage sizes reported by Zig itself. Omitted fields use Zig's defaults;
+  fields without a default retain the JVM constructor's zero initialization."
   [^MemorySegment native-segment {:keys [fields] :as schema} field-values]
   (validate-field-map! "Zig struct values" schema field-values)
   (.fill native-segment (byte 0))
   (doseq [{:keys [byte-offset byte-size type] :as field} fields
           :let [value (field-value field-values field)]
-          :when (field-present? field-values field)]
+          :when (or (field-present? field-values field) (:default-segment field))]
     (write-native-field! (.asSlice native-segment byte-offset byte-size)
                          field value))
   native-segment)

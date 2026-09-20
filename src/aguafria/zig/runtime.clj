@@ -4126,7 +4126,7 @@
            :size-getter-handle (bind-long size-getter)
            :align-getter-handle (bind-long align-getter)
            :field-bindings
-           (mapv (fn [{:keys [offset-getter size-getter union?
+           (mapv (fn [{:keys [offset-getter size-getter default-getter union?
                               union-init union-active
                               union-payload-address optional?
                               optional-set optional-present
@@ -4143,6 +4143,8 @@
                           (assoc field-spec
                                  :offset-getter-handle (bind-long offset-getter)
                                  :size-getter-handle (bind-long size-getter))
+                     (not union?)
+                     (assoc :default-getter-handle (bind-long default-getter))
                      union?
                      (assoc :union-init-handle (bind-union-init union-init))
                      (and union? (:tagged-union? spec))
@@ -5477,6 +5479,8 @@
                               (str prefix "_field_" index "_offset")
                               :size-getter
                               (str prefix "_field_" index "_size")
+                              :default-getter
+                              (str prefix "_field_" index "_default")
                               :union-init
                               (str prefix "_field_" index "_init")
                               :union-active
@@ -5861,7 +5865,7 @@
          "}\n"
          (apply str
                 (map
-                 (fn [{:keys [field offset-getter size-getter union?
+                 (fn [{:keys [field index offset-getter size-getter default-getter union?
                               union-init union-active
                               union-payload-address optional?
                               optional-child-type optional-set
@@ -5871,6 +5875,9 @@
                               error-payload-type nested-storage-spec]
                        :as field-spec}]
                    (let [field-name (emit/identifier (:name field))
+                         field-name-literal (if (str/starts-with? field-name "@\"")
+                                              (subs field-name 1)
+                                              (emit/emit-expr field-name))
                          field-type (emit/emit-type (:type field))
                          optional-child-type
                          (when optional? (emit/emit-type optional-child-type))
@@ -5880,15 +5887,20 @@
                           "    return "
                           (if union?
                             "0"
-                            (str "@offsetOf(" type-name ", \""
-                                 field-name "\")"))
+                            (str "@offsetOf(" type-name ", "
+                                 field-name-literal ")"))
                           ";\n"
                           "}\n"
                           "export fn " size-getter
                           "() callconv(.c) usize {\n"
-                          "    return @sizeOf(@FieldType(" type-name ", \""
-                          field-name "\"));\n"
+                          "    return @sizeOf(@FieldType(" type-name ", "
+                          field-name-literal "));\n"
                           "}\n"
+                          (when-not union?
+                            (str "export fn " default-getter "() callconv(.c) usize {\n"
+                                 "    const field = @typeInfo(" type-name ").@\"struct\".fields[" index "];\n"
+                                 "    return if (field.default_value_ptr) |value| @intFromPtr(value) else 0;\n"
+                                 "}\n"))
                           (when union?
                             (str
                              "export fn " union-init
@@ -11547,6 +11559,19 @@
                                      field-size)))))))))
         fields field-bindings)})))
 
+(defn- native-field-default
+  [field field-binding]
+  (if-let [getter (:default-getter-handle field-binding)]
+    (let [address (long (.invokeWithArguments ^MethodHandle getter (ArrayList.)))]
+      (if (zero? address)
+        field
+        (let [size (long (.invokeWithArguments
+                          ^MethodHandle (:size-getter-handle field-binding)
+                          (ArrayList.)))]
+          (assoc field :default-segment
+                 (.reinterpret (MemorySegment/ofAddress address) size)))))
+    field))
+
 (defn- native-type-schema
   ([module type] (native-type-schema module type #{}))
   ([module type seen]
@@ -11613,6 +11638,13 @@
                           (->> (:members container-description)
                                (filter #(= :field (:kind %)))
                                vec)
+                          fields)
+                 qualified-name (symbol (:module declaration) (str (:name declaration)))
+                 field-bindings (get-in @registry [(:module declaration) :types
+                                                  qualified-name :field-bindings])
+                 fields (if (= :struct effective-kind)
+                          (mapv native-field-default fields
+                                (or (seq field-bindings) (repeat nil)))
                           fields)]
              (cond
                (= :enum effective-kind)

@@ -21,7 +21,7 @@
         (if (> value (az/field threshold :maximum)) :.high :.medium))))])
 
 (az/defn main [:error-union :void] []
-  (let [^{:var Threshold} threshold {:maximum 0.20}
+  (let [^:var threshold (Threshold {:maximum 0.20})
         category ((az/field threshold :categorize) 0.90)]
     (log/info "category: {t}" [category])))
 
