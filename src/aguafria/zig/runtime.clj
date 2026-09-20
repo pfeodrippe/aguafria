@@ -294,14 +294,54 @@
        (select-keys declaration [:module :name :kind :type :logical-id])
        #(materialize-constant! declaration)))))
 
+(defn- container-type-info
+  [declaration]
+  (when-let [{:keys [options members]} (container-type-description declaration)]
+    {:kind (:kind options)
+     :doc (:doc declaration)
+     :members
+     (mapv (fn [member]
+             (cond-> (into {}
+                           (remove (comp nil? val))
+                           (select-keys member [:kind :name :type :return :doc :zig-name]))
+               (contains? #{:fn :fn-proto} (:kind member))
+               (assoc :public? (:public? member)
+                      :args (mapv #(select-keys % [:name :type :properties]) (:args member)))
+               (:has-value? member) (assoc :value (:value member))))
+           members)}))
+
+(defn- container-documentation
+  [declaration]
+  (when-let [{:keys [kind doc members]} (container-type-info declaration)]
+    (str (when (seq doc) (str doc "\n\n"))
+         "Zig " (name kind) " " (:name declaration)
+         (when (seq members) "\n\nMembers:")
+         (apply str
+                (for [{:keys [kind name type return args doc public? zig-name] :as member} members]
+                  (str "\n  "
+                       (if (contains? #{:fn :fn-proto} kind)
+                         (str "(" name
+                              (apply str (for [{:keys [name type]} args]
+                                           (str " [" name " " (pr-str type) "]")))
+                              ") -> " (pr-str return)
+                              (when-not public? " (private)"))
+                         (str (pr-str name)
+                              (when type (str " " (pr-str type)))
+                              (when (contains? member :value)
+                                (str " = " (pr-str (:value member))))))
+                       (when zig-name (str " [Zig: " zig-name "]"))
+                       (when (seq doc)
+                         (str "\n    " (str/replace doc "\n" "\n    ")))))))))
+
 (defn declaration-type-value
   "Return the ordinary callable Clojure value for a Zig type declaration."
   [declaration]
   (let [declaration (declaration-info declaration)]
     (zig-value/zig-type
-     (select-keys declaration
-                  [:module :name :kind :layout :logical-id
-                   :schema-fingerprint])
+     (merge (select-keys declaration
+                         [:module :name :kind :layout :logical-id :doc
+                          :schema-fingerprint])
+            (container-type-info declaration))
      #(materialize-type! declaration %))))
 
 (defn declaration-state-value
@@ -673,10 +713,20 @@
                                   :publication-duration-ms
                                   :propagation-duration-ms]))))))
 
+(defn error-data
+  "Read diagnostic data through standard Clojure compiler exception causes.
+  The outer exception's source location takes precedence over its causes."
+  [error]
+  (loop [cause error
+         data {}]
+    (if cause
+      (recur (ex-cause cause) (merge (ex-data cause) data))
+      data)))
+
 (defn- mark-build-failed!
   [module generation error]
   (let [finished-at (System/currentTimeMillis)
-        phase (:aguafria/phase (ex-data error))
+        phase (:aguafria/phase (error-data error))
         status (if (= :zig-state-migration-required phase)
                  :migration-required
                  :failed)]
@@ -687,9 +737,10 @@
                      :finished-at-ms finished-at
                      :duration-ms (when-let [started-at (:started-at-ms build)]
                                     (- finished-at started-at))
-                     :error (ex-message error)
+                     :error (or (:aguafria/report (error-data error))
+                                (ex-message error))
                      :phase phase
-                     :diagnostic-count (count (:diagnostics (ex-data error)))})))))
+                     :diagnostic-count (count (:diagnostics (error-data error)))})))))
 
 (defn- sha256
   [s]
@@ -1279,7 +1330,15 @@
         generated-source (diagnostic-source root-source root-source-path
                                             generated-file)
         location (when generated-source
-                   (source-location-at generated-source generated-line))]
+                   (source-location-at generated-source generated-line))
+        source-file (some-> location :file io/file)
+        resource (when (and source-file (not (.isFile source-file)))
+                   (io/resource (:file location)))
+        source-file (if (= "file" (some-> resource .getProtocol))
+                      (io/file resource) source-file)
+        location (cond-> location
+                   (and source-file (.isFile source-file))
+                   (assoc :file (.getCanonicalPath source-file)))]
     (cond-> (assoc diagnostic :generated-source generated-source)
       location (assoc :aguafria/source location))))
 
@@ -1305,15 +1364,38 @@
          (code-frame generated-line generated-column generated-source-line
                      "Zig reported the error here"))))
 
+(defn- compilation-exception
+  "Expose a standard compiler exception, with the complete report in its cause.
+  CompilerException must be outermost: Compiler/load otherwise wraps a runtime
+  ExceptionInfo as :execution and loses the mapped source location in triage."
+  [message details {:keys [file line column declaration]} cause]
+  (let [report (or (:aguafria/report details) message)
+        location (cond-> {:clojure.error/phase :compile-syntax-check}
+                   file (assoc :clojure.error/source file)
+                   line (assoc :clojure.error/line line)
+                   column (assoc :clojure.error/column column)
+                   declaration (assoc :clojure.error/symbol (symbol declaration)))
+        diagnostic (ex-info report
+                            (merge details location {:aguafria/summary message})
+                            cause)]
+    (clojure.lang.Compiler$CompilerException.
+     (or file "NO_SOURCE_FILE")
+     (int (or line 1)) (int (or column 1))
+     (:clojure.error/symbol location)
+     :compile-syntax-check diagnostic)))
+
 (defn- pretty-zig-error
   [module source source-path command stderr]
   (let [diagnostics (mapv #(enrich-zig-diagnostic source source-path %)
                           (parse-zig-diagnostics stderr))
+        primary (first (filter #(= :error (:severity %)) diagnostics))
         rendered (if (seq diagnostics)
                    (str/join "\n" (map format-zig-diagnostic diagnostics))
                    (str "error[aguafria::zig]: Zig compilation failed without a location\n"))]
     {:diagnostics diagnostics
-     :message
+     :message (or (:message primary) (str "Zig compilation failed for " module))
+     :location (:aguafria/source primary)
+     :report
      (str "Zig compilation failed for " module "\n\n"
           rendered
           "\n  = generated module: " source-path
@@ -1360,13 +1442,18 @@
                             [declaration cause])))
                       declarations)
                 [(last declarations) error])
-            message (pretty-emission-error declaration cause)]
-        (throw (ex-info message
-                        (merge (ex-data cause)
-                               {:aguafria/phase :emit
-                                :module module
-                                :declaration declaration})
-                        cause))))))
+            report (pretty-emission-error declaration cause)]
+        (throw
+         (compilation-exception
+          (ex-message cause)
+          (merge (ex-data cause)
+                 {:aguafria/phase :emit
+                  :aguafria/report report
+                  :module module
+                  :declaration declaration})
+          (merge (:source declaration)
+                 (select-keys (meta (:form (ex-data cause))) [:line :column]))
+          cause))))))
 
 (declare scalar-key declaration-reference-logical-ids)
 
@@ -1552,12 +1639,17 @@
                                       %)
                                     declarations)
                               (last declarations))]
-          (throw (ex-info (pretty-emission-error declaration error)
-                          (merge (ex-data error)
-                                 {:aguafria/phase :emit
-                                  :module module
-                                  :declaration declaration})
-                          error)))))
+          (throw
+           (compilation-exception
+            (ex-message error)
+            (merge (ex-data error)
+                   {:aguafria/phase :emit
+                    :aguafria/report (pretty-emission-error declaration error)
+                    :module module
+                    :declaration declaration})
+            (merge (:source declaration)
+                   (select-keys (meta (:form (ex-data error))) [:line :column]))
+            error)))))
     (emit-source! module declarations))))
 
 (defn- emit-dependency-reload-source!
@@ -3432,20 +3524,24 @@
                     (finally
                       (Files/deleteIfExists (.toPath temporary-file))))))]
           (when (and result (not (zero? (:exit result))))
-            (let [{:keys [message diagnostics]}
+            (let [{:keys [message diagnostics report location]}
                   (pretty-zig-error module-name source
                                     (.getAbsolutePath source-file)
                                     command (:err result))]
-              (throw (ex-info message
-                              {:aguafria/phase :zig-compile
-                               :module module-name
-                               :source-path (.getAbsolutePath source-file)
-                               :library-path (.getAbsolutePath library-file)
-                               :command command
-                               :exit (:exit result)
-                               :stdout (:out result)
-                               :stderr (:err result)
-                               :diagnostics diagnostics}))))
+              (throw
+               (compilation-exception
+                message
+                {:aguafria/phase :zig-compile
+                 :aguafria/report report
+                 :module module-name
+                 :source-path (.getAbsolutePath source-file)
+                 :library-path (.getAbsolutePath library-file)
+                 :command command
+                 :exit (:exit result)
+                 :stdout (:out result)
+                 :stderr (:err result)
+                 :diagnostics diagnostics}
+                location nil))))
            {:hash source-hash
             :cached? cached?
             :zig-version compiler-version
@@ -4592,6 +4688,8 @@
     (alter-meta! v
                  (fn [metadata]
                    (cond-> (assoc metadata :aguafria/declaration declaration)
+                     (container-type-description declaration)
+                     (assoc :doc (container-documentation declaration))
                      (contains? #{:fn :fn-proto :const :var :extern-var
                                   :struct :import :raw :field}
                                 (:kind declaration))
@@ -7497,7 +7595,7 @@
             (catch Throwable fallback-error
               (throw
                (ex-info (ex-message fallback-error)
-                        (assoc (ex-data fallback-error)
+                        (assoc (error-data fallback-error)
                                :aguafria/full-module-error (ex-message full-error)
                                :aguafria/partial-publication-attempted? true)
                         fallback-error)))))))))
@@ -7721,9 +7819,9 @@
           (do
             (swap! registry update module assoc
                    :last-dependent-publication-failure
-                   {:phase (:aguafria/phase (ex-data propagation-error))
+                   {:phase (:aguafria/phase (error-data propagation-error))
                     :generation generation
-                    :logical-id (:logical-id (ex-data propagation-error))
+                    :logical-id (:logical-id (error-data propagation-error))
                     :failed-at-ms (System/currentTimeMillis)
                     :error (ex-message propagation-error)}
                    :last-dependent-publication-error propagation-error)
@@ -7835,9 +7933,9 @@
         (do
           (swap! registry update module assoc
                  :last-dependent-publication-failure
-                 {:phase (:aguafria/phase (ex-data propagation-error))
+                 {:phase (:aguafria/phase (error-data propagation-error))
                   :generation generation
-                  :logical-id (:logical-id (ex-data propagation-error))
+                  :logical-id (:logical-id (error-data propagation-error))
                   :failed-at-ms (System/currentTimeMillis)
                   :error (ex-message propagation-error)}
                  :last-dependent-publication-error propagation-error)
@@ -8363,7 +8461,7 @@
             (try (.close ^Arena (:arena @prepared)) (catch Throwable _)))
           (when (and (not @published?)
                      (= :zig-state-migration-required
-                        (:aguafria/phase (ex-data error))))
+                        (:aguafria/phase (error-data error))))
             ;; Keep the requested source/descriptor inspectable after a sync
             ;; migration stop, while the prior native generation remains the
             ;; published callable program.
@@ -8384,9 +8482,9 @@
             ;; the root module back to its previous source/type identity.
             (swap! registry update module assoc
                    :last-dependent-publication-failure
-                   {:phase (:aguafria/phase (ex-data error))
+                   {:phase (:aguafria/phase (error-data error))
                     :generation generation
-                    :logical-id (:logical-id (ex-data error))
+                    :logical-id (:logical-id (error-data error))
                     :failed-at-ms (System/currentTimeMillis)
                     :error (ex-message error)}
                    :last-dependent-publication-error error))
@@ -10122,21 +10220,24 @@
                      :source-path (:source-path artifact)
                      :output-path (:output-path artifact)})
              artifact)
-           (let [{:keys [message diagnostics]}
+           (let [{:keys [message diagnostics report location]}
                  (pretty-zig-error module (:source module-state)
                                    (.getAbsolutePath source-file)
                                    command (:err result))
-                 error (ex-info message
-                                {:aguafria/phase :zig-program-compile
-                                 :module module
-                                 :kind kind
-                                 :source-path (.getAbsolutePath source-file)
-                                 :output-path (.getAbsolutePath output-file)
-                                 :command command
-                                 :exit (:exit result)
-                                 :stdout (:out result)
-                                 :stderr (:err result)
-                                 :diagnostics diagnostics})]
+                 error (compilation-exception
+                        message
+                        {:aguafria/phase :zig-program-compile
+                         :aguafria/report report
+                         :module module
+                         :kind kind
+                         :source-path (.getAbsolutePath source-file)
+                         :output-path (.getAbsolutePath output-file)
+                         :command command
+                         :exit (:exit result)
+                         :stdout (:out result)
+                         :stderr (:err result)
+                         :diagnostics diagnostics}
+                        location nil)]
              (swap! build-registry update build-key merge
                     {:status :failed
                      :finished-at-ms finished-at
@@ -10234,14 +10335,18 @@
         (doseq [command [compile-command link-command]]
           (let [result (run-command command (.getAbsolutePath directory))]
             (when-not (zero? (:exit result))
-              (let [{:keys [message diagnostics]}
+              (let [{:keys [message diagnostics report location]}
                     (pretty-zig-error module source (.getAbsolutePath source-file)
                                       command (:err result))]
-                (throw (ex-info message
-                                (assoc details :aguafria/phase :zig-test
-                                       :status :failed :command command
-                                       :exit (:exit result) :stdout (:out result)
-                                       :stderr (:err result) :diagnostics diagnostics)))))))))
+                (throw
+                 (compilation-exception
+                  message
+                  (assoc details :aguafria/phase :zig-test
+                         :aguafria/report report
+                         :status :failed :command command
+                         :exit (:exit result) :stdout (:out result)
+                         :stderr (:err result) :diagnostics diagnostics)
+                  location nil))))))))
     details))
 
 (defn run-test!

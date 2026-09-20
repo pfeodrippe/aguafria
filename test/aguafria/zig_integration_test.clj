@@ -3651,16 +3651,18 @@
                                :line (:line (meta #'rust-style-compiler-diagnostic-test))
                                :column 1}})
                     nil
-                    (catch clojure.lang.ExceptionInfo error error))]
+                    (catch clojure.lang.Compiler$CompilerException error error))]
         (is (some? error))
-        (is (= :zig-compile (:aguafria/phase (ex-data error))))
-        (is (seq (:diagnostics (ex-data error))))
-        (is (str/includes? (ex-message error) "error[aguafria::zig]"))
-        (is (str/includes? (ex-message error) "test/aguafria/zig_integration_test.clj"))
-        (is (str/includes? (ex-message error)
+        (is (= :zig-compile (:aguafria/phase (runtime/error-data error))))
+        (is (seq (:diagnostics (runtime/error-data error))))
+        (is (str/includes? (clojure.main/err->msg error) "error[aguafria::zig]"))
+        (is (= :compile-syntax-check (:clojure.error/phase (runtime/error-data error))))
+        (is (str/includes? (:aguafria/report (runtime/error-data error)) "error[aguafria::zig]"))
+        (is (str/includes? (:aguafria/report (runtime/error-data error)) "test/aguafria/zig_integration_test.clj"))
+        (is (str/includes? (:aguafria/report (runtime/error-data error))
                            "Aguafria declaration: aguafria.error-fixture/broken-constant"))
-        (is (str/includes? (ex-message error) "this Aguafria form generated the failing Zig"))
-        (is (str/includes? (ex-message error) "Zig reported the error here"))
-        (is (str/includes? (ex-message error) "compiler command")))
+        (is (str/includes? (:aguafria/report (runtime/error-data error)) "this Aguafria form generated the failing Zig"))
+        (is (str/includes? (:aguafria/report (runtime/error-data error)) "Zig reported the error here"))
+        (is (str/includes? (:aguafria/report (runtime/error-data error)) "compiler command")))
       (finally
         (az/configure! old-config)))))

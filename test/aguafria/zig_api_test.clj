@@ -38,8 +38,8 @@
         (is (= 42 (var-get (ns-resolve scratch 'clean-constant))))
         (is (= "Inspectable function."
                (:doc (meta (ns-resolve scratch 'clean-function)))))
-        (is (= "Inspectable struct."
-               (:doc (meta (ns-resolve scratch 'CleanPoint))))))
+        (is (str/starts-with? (:doc (meta (ns-resolve scratch 'CleanPoint)))
+                             "Inspectable struct.")))
       (finally
         (remove-ns namespace-symbol)))))
 
@@ -122,5 +122,43 @@
                           "/// Nanoseconds." "/// Returns the epoch."
                           "pub fn unix_epoch() Timestamp" "extern \"c\" fn sample() void;"]]
           (is (str/includes? source expected) expected))
-        (is (= "A documented enum." (:doc (meta (ns-resolve scratch 'Color))))))
+        (is (str/starts-with? (:doc (meta (ns-resolve scratch 'Color))) "A documented enum."))
+        (let [timestamp (ns-resolve scratch 'Timestamp)
+              color (ns-resolve scratch 'Color)
+              docs (:doc (meta timestamp))]
+          (doseq [text [":seconds :i64 = 0" "Seconds since the epoch."
+                        ":nanos :u32" "(unix-epoch)" "Returns the epoch."]]
+            (is (str/includes? docs text) text))
+          (is (str/includes? (pr-str @timestamp) ":members"))
+          (is (str/includes? (pr-str @timestamp) "unix-epoch"))
+          (is (not (str/includes? (pr-str @timestamp) ":schema-fingerprint")))
+          (is (str/includes? (pr-str @color) ":kind :enum"))
+          (is (str/includes? (:doc (meta color)) "Quoted tag."))
+          (runtime/refresh-declaration-var! (:aguafria/declaration (meta timestamp)))
+          (is (= docs (:doc (meta timestamp))) "Refreshing metadata must not duplicate member docs.")))
+      (finally (remove-ns namespace-symbol)))))
+
+(deftest extern-vars-call-the-native-library-from-the-jvm
+  (let [namespace-symbol (gensym "aguafria.zig-api-test.extern-")
+        scratch (create-ns namespace-symbol)]
+    (try
+      (binding [*ns* scratch runtime/*source-only-registration?* true]
+        (refer 'clojure.core)
+        (require '[aguafria.zig :as az])
+        (eval '(az/defextern absolute :c_int
+                 {:zig/name "abs" :zig/prefix "pub extern \"c\""}
+                 [[n :c_int]]))
+        (eval '(az/defextern missing :void
+                 {:zig/name "aguafria_missing_extern_test_symbol"
+                  :zig/prefix "pub extern \"c\""} [])))
+      (let [absolute (ns-resolve scratch 'absolute)]
+        (is (= 42 (absolute -42)))
+        (is (= 7 (absolute 7)))
+        (is (= '([n]) (:arglists (meta absolute))))
+        (is (thrown? clojure.lang.ExceptionInfo (absolute))))
+      (let [error (try ((ns-resolve scratch 'missing))
+                       nil
+                       (catch clojure.lang.Compiler$CompilerException error error))]
+        (is (some? error))
+        (is (str/includes? (clojure.main/err->msg error) "aguafria_missing_extern_test_symbol")))
       (finally (remove-ns namespace-symbol)))))

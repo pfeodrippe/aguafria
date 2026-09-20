@@ -722,7 +722,7 @@
 
 (defn- diagnostic
   [error context]
-  (let [data (ex-data error)
+  (let [data (runtime/error-data error)
         first-error (first (:errors data))
         parsed-diagnostics (:diagnostics data)
         parsed-diagnostic (first parsed-diagnostics)
@@ -747,7 +747,7 @@
                  :end {:line 0 :character 1}})
      :severity :error
      :code (str (or (:aguafria/phase data) :zig-editor-error))
-     :message (.getMessage ^Throwable error)
+     :message (or (:aguafria/report data) (.getMessage ^Throwable error))
      :module (:module context)
      :active-generation retained-generation
      :old-behavior-retained? (some? retained-generation)

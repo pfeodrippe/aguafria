@@ -2,6 +2,7 @@
   "nREPL middleware for pure Zig editor evaluation."
   (:require [aguafria.zig.editor :as editor]
             [aguafria.zig.value :as zig-value]
+            [aguafria.zig.runtime :as runtime]
             [clojure.string :as str]
             [nrepl.middleware :refer [set-descriptor!]]
             [nrepl.misc :as misc]
@@ -125,7 +126,7 @@
     :aguafria/error
     (wire-value {:message (.getMessage ^Throwable error)
                  :class (.getName (class error))
-                 :data (ex-data error)})
+                 :data (runtime/error-data error)})
     :status #{:error :done})))
 
 (defn- evaluation-message

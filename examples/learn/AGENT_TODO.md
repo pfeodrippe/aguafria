@@ -5,6 +5,27 @@ document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
 served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
 
+- [ ] Show container fields/tags, methods and their documentation when evaluating
+      JVM type values and using normal Clojure Var documentation (`doc-comments`).
+- [ ] Make `defextern` Vars use the existing native JVM call bridge; verify real
+      linked calls and explain unresolved/platform-specific naming examples
+      in `identifiers` without calling unsafe demonstration prototypes.
+
+- [ ] Verify the corrected error header and source highlight in the user's
+      restarted CIDER session. Do not install editor-specific modes/adapters.
+- [x] Fix compilation-error wrapping: throw a standard CompilerException as the
+      outer exception, not ExceptionInfo, so Compiler/load cannot reclassify it
+      as an execution error at runtime.clj. Preserve the complete native report
+      and diagnostic data in the cause; runtime/error-data reads the full chain.
+      Regression checks include direct evaluation, load-string, actual native
+      compilation failure and successful recovery. CIDER's result popup stays
+      at the evaluated expression by editor policy; do not confuse that popup
+      with its compiler-source highlight/navigation.
+      Verified with a dedicated CIDER 0.50.2 / nREPL 1.3.0 server: a missing-try
+      native failure through load-string retains the original .clj:8:3 header
+      and full report. The installed Emacs CIDER source parser resolves exactly
+      (may-fail) at 8:3. Runtime, diagnostics and API: 37 tests / 242 assertions.
+
 - [x] Teach clj-kondo native `try` semantics inside Aguafria declarations and
       zero-argument JVM calls to process-aware `main`; retain ordinary Clojure
       warnings and normal arity checking. Consolidate OS-specific copies into

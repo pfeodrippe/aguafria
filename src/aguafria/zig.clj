@@ -851,8 +851,9 @@
       (az/defextern GetCommandLineW windows/LPWSTR [])
 
   Prefix/library/calling-convention spelling is retained in the optional
-  attr-map. The Var is usable from Zig declarations but is not a JVM FFM
-  export of the generated module."
+  attr-map. Calls from Clojure/Java use the same native bridge as az/defn.
+  The external library must supply the symbol with the declared ABI on the
+  current platform; declaring a prototype does not implement the function."
   [name & declaration]
   (let [[return & declaration] declaration
         [docstring attributes declaration]
@@ -882,10 +883,10 @@
        (runtime/register-declaration! descriptor#)
        (clojure.core/defn ~(with-meta name (meta name))
          [& arguments#]
-         (throw (ex-info "A Zig extern declaration cannot be called directly from Clojure"
-                         {:function '~qualified-name :arguments arguments#})))
+         (runtime/invoke! '~qualified-name arguments#))
        (alter-meta! (var ~name) merge
                     {:doc ~docstring
+                     :arglists '~(list (mapv :name (:args descriptor)))
                      :aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
        (runtime/refresh-declaration-var! descriptor#)

@@ -7,17 +7,28 @@
 - [x] we should have a option in the tab to see both zig and aguafria zig side by side (with their shell and repl outputs)
 - [x] all examples should also have a `comment` form with the call (e.g. calling main directly or the deftest or whatever) in the end so people can reproduce the exact output from the repl
 - [ ] UX improvements
-  - [ ] hello.clj
+  - [x] hello.clj
     - [x] call from repl
     - [x] use ->
     - [x] remove this try clj kondo warning when inside a az/...
     - [x] how can we fix fix (main) kondo error regarding using no arguments for a function that expects one?
-    - [ ] removing the try in hello.clj (just for an error), how can we show it better from the IDE ? what clojure uses to show error inline in calva, cider, intellij etc ?
+    - [x] removing the try in hello.clj (just for an error), how can we show it better from the IDE ? what clojure uses to show error inline in calva, cider, intellij etc ?
   - [x] hello_again.clj
   - [x] comments.clj
   - [x] doc_comments.clj
+    - [x] for a struct like Timestamp (enums and stuff), when we evaluate from the jvm, it should show the available fields, functions etc, and its documentation should also contain it
   - [x] tldoc_comments.clj
-  - [ ]
+  - [x] identifiers.clj
+    - [-] why aren't we able to call the defexterns here ?
+      - let's not bother about these for now
+    - [-] for the color const, the evaluation is returning a `:really red` (a keyword with whitespace)
+      - for later if it's really used
+  - [ ] values.clj
+    - [ ] we should be able to call (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (ak/! true)])  from the REPL, right now we have Unhandled clojure.lang.ExceptionInfo `aguafria.keyword/!` is Zig syntax and can only be used inside an Aguafria form
+    - [ ] (debug/assert (== optional-value nil)) should be just (debug/assert (ak/== optional-value nil)), and it should also work from the REPL as everything else
+    - [ ] (debug/assert (!= optional-value nil)) should be (debug/assert (ak/!= optional-value nil)), and it should also work from the REPL as everything else
+    - [ ] we should be able to see meta information like we do for structs/enums/etc for ExampleErrorSet as well
+      - Error printing return value (ExceptionInfo) at aguafria.zig.runtime/compilation-exception (runtime.clj:1367). Zig compilation failed for learn.example.values error[aguafria::zig]: no size available for comptime-only type 'type'
 
 - [ ] show tree structure of a running program
   - [ ] call tree and what's in the middle of the invocations

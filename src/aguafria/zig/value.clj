@@ -934,11 +934,11 @@
 (defmethod print-method ZigType
   [zig-type ^java.io.Writer writer]
   (.write writer "#aguafria/zig-type ")
-  (print-method (type-info zig-type) writer))
+  (print-method (dissoc (type-info zig-type) :logical-id :schema-fingerprint) writer))
 
 (defmethod pprint/simple-dispatch ZigType
   [zig-type]
-  (pprint/write-out (type-info zig-type)))
+  (pprint/write-out (dissoc (type-info zig-type) :logical-id :schema-fingerprint)))
 
 (defmethod print-method ZigPointer
   [pointer ^java.io.Writer writer]
