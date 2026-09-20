@@ -9,7 +9,7 @@
   (ak/return (az/error-value :GeneralFailure)))
 
 (az/deftest errdefer-capture-test
-  (let [^{:var [:optional :anyerror]} captured nil]
+  (let [^:var captured (ak/as nil [:optional :anyerror])]
     (az/if-capture-stmt {:error [error]} (capture-error (ak/& captured))
                         (ak/unreachable)
                         (az/block

@@ -38,17 +38,17 @@
   "Plan using a tire-force budget, including braking distance. Sampling every
   five metres catches tight bends missed by the old 25m/3g kinematic envelope.
   This controls pedals; exceeding the budget still causes real loss of grip." [[distance :f32] [speed :f32]]
-  (let [^{:var :f32} limit 100.0
+  (let [^:var limit (ak/f32 100.0)
         ;; Box3D combines asphalt (1.0) and tire friction geometrically.
         ;; Reserve force for tracking, axle load transfer and combined braking.
         grip (* 0.60 (ak/sqrt physics/tire-friction))
         mass (+ physics/chassis-mass-kg (* 4.0 physics/wheel-mass-kg))
         ;; Horizon covers stopping distance at the 14m/s² planning budget,
         ;; plus 25m. The actual brakes remain torque/contact limited.
-        samples (ak/as :usize (ak/intFromFloat
-                  (ak/min 181.0 (ak/max 41.0 (+ 5.0 (/ (* speed speed) 140.0))))))]
+        samples (ak/as (ak/intFromFloat
+                  (ak/min 181.0 (ak/max 41.0 (+ 5.0 (/ (* speed speed) 140.0))))) :usize)]
     (dotimes [i samples]
-      (let [ahead (* (ak/as :f32 (ak/floatFromInt i)) 5.0)
+      (let [ahead (* (ak/as (ak/floatFromInt i) :f32) 5.0)
             a (circuit/at-distance (- (+ distance ahead) 6.0) 0.0)
             b (circuit/at-distance (+ distance ahead 6.0) 0.0)
             delta (- (az/field b heading) (az/field a heading))
@@ -196,7 +196,7 @@
       (set! (az/field result brake)
             (ak/max (az/field result brake)
                     (if (and (< gap 6.0) (< front-speed 0.2))
-                      (ak/as :f32 1.0)
+                      (ak/as 1.0 :f32)
                       (clamp-unit (* excess 0.18))))))
     result))
 

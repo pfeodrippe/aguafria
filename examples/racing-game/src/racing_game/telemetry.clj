@@ -186,11 +186,11 @@
   "Append one already-bounded decision event to its racer's ring."
   [[entry DecisionLog]]
   (when (< (az/field entry racer_id) racer-count)
-    (let [racer-index (ak/as :usize (ak/intCast (az/field entry racer_id)))
+    (let [racer-index (ak/as (ak/intCast (az/field entry racer_id)) :usize)
           sequence (az/index decision-counts racer-index)
           slot (+ (* racer-index entries-per-racer)
-                  (ak/as :usize
-                         (ak/intCast (mod sequence entries-per-racer))))]
+                  (ak/as (ak/intCast (mod sequence entries-per-racer))
+                         :usize))]
       (set! (az/index decision-logs slot) entry)
       (set! (az/index decision-outcomes slot)
             (DecisionOutcome
@@ -200,7 +200,7 @@
               :hits_dealt 0 :revision (az/field entry revision)
               :start_tick (az/field entry install_tick) :resolved_tick 0
               :start_absolute_progress
-              (+ (ak/as :f32 (ak/floatFromInt (az/field entry lap)))
+              (+ (ak/as (ak/floatFromInt (az/field entry lap)) :f32)
                  (az/field entry progress))
               :progress_gain 0.0 :rank_gain 0}))
       (set! (az/index decision-counts racer-index) (+ sequence 1)))))
@@ -305,15 +305,15 @@
    [offset :usize]]
   (if (>= racer-id racer-count)
     (empty-log)
-    (let [racer-index (ak/as :usize (ak/intCast racer-id))
+    (let [racer-index (ak/as (ak/intCast racer-id) :usize)
           count (az/index decision-counts racer-index)
           available (ak/min count entries-per-racer)]
       (if (>= offset available)
         (empty-log)
         (let [sequence (- count 1 offset)
               slot (+ (* racer-index entries-per-racer)
-                      (ak/as :usize
-                             (ak/intCast (mod sequence entries-per-racer))))]
+                      (ak/as (ak/intCast (mod sequence entries-per-racer))
+                             :usize))]
           (az/index decision-logs slot))))))
 
 (az/defn latest DecisionLog
@@ -327,34 +327,34 @@
    [offset :usize]]
   (if (>= racer-id racer-count)
     (std-mem/zeroes (az/type DecisionOutcome))
-    (let [racer-index (ak/as :usize (ak/intCast racer-id))
+    (let [racer-index (ak/as (ak/intCast racer-id) :usize)
           count (az/index decision-counts racer-index)
           available (ak/min count entries-per-racer)]
       (if (>= offset available)
         (std-mem/zeroes (az/type DecisionOutcome))
         (let [sequence (- count 1 offset)
               slot (+ (* racer-index entries-per-racer)
-                      (ak/as :usize
-                             (ak/intCast (mod sequence entries-per-racer))))]
+                      (ak/as (ak/intCast (mod sequence entries-per-racer))
+                             :usize))]
           (az/index decision-outcomes slot))))))
 
 (az/defn mark-item-used! :bool
   "Attribute an item consumption to the exact decision that requested it."
   [[racer-id :u8]
    [revision :u64]]
-  (let [^{:var true :zig/type :bool} found false]
+  (let [^:var found (ak/bool false)]
     (when (< racer-id racer-count)
-      (let [racer-index (ak/as :usize (ak/intCast racer-id))
-            available (ak/as :usize
-                             (ak/intCast
+      (let [racer-index (ak/as (ak/intCast racer-id) :usize)
+            available (ak/as (ak/intCast
                               (ak/min (az/index decision-counts racer-index)
-                                      entries-per-racer)))]
+                                      entries-per-racer))
+                             :usize)]
         (dotimes [offset available]
           (when (ak/! found)
             (let [sequence (- (az/index decision-counts racer-index) 1 offset)
                   slot (+ (* racer-index entries-per-racer)
-                          (ak/as :usize
-                                 (ak/intCast (mod sequence entries-per-racer))))]
+                          (ak/as (ak/intCast (mod sequence entries-per-racer))
+                                 :usize))]
               (when (ak/== (az/field (az/index decision-outcomes slot) revision)
                            revision)
                 (when (ak/! (az/field (az/index decision-outcomes slot)
@@ -369,19 +369,19 @@
   "Attribute one unshielded hit to the decision that launched the attack."
   [[racer-id :u8]
    [revision :u64]]
-  (let [^{:var true :zig/type :bool} found false]
+  (let [^:var found (ak/bool false)]
     (when (< racer-id racer-count)
-      (let [racer-index (ak/as :usize (ak/intCast racer-id))
-            available (ak/as :usize
-                             (ak/intCast
+      (let [racer-index (ak/as (ak/intCast racer-id) :usize)
+            available (ak/as (ak/intCast
                               (ak/min (az/index decision-counts racer-index)
-                                      entries-per-racer)))]
+                                      entries-per-racer))
+                             :usize)]
         (dotimes [offset available]
           (when (ak/! found)
             (let [sequence (- (az/index decision-counts racer-index) 1 offset)
                   slot (+ (* racer-index entries-per-racer)
-                          (ak/as :usize
-                                 (ak/intCast (mod sequence entries-per-racer))))]
+                          (ak/as (ak/intCast (mod sequence entries-per-racer))
+                                 :usize))]
               (when (ak/== (az/field (az/index decision-outcomes slot) revision)
                            revision)
                 (set! (az/field (az/index decision-outcomes slot) hits_dealt)
@@ -400,17 +400,17 @@
    [progress :f32]
    [finished :bool]]
   (when (< racer-id racer-count)
-    (let [racer-index (ak/as :usize (ak/intCast racer-id))
+    (let [racer-index (ak/as (ak/intCast racer-id) :usize)
           count (az/index decision-counts racer-index)
-          available (ak/as :usize
-                           (ak/intCast (ak/min count entries-per-racer)))
+          available (ak/as (ak/intCast (ak/min count entries-per-racer))
+                           :usize)
           absolute-progress
-          (+ (ak/as :f32 (ak/floatFromInt lap)) progress)]
+          (+ (ak/as (ak/floatFromInt lap) :f32) progress)]
       (dotimes [offset available]
         (let [sequence (- count 1 offset)
               slot (+ (* racer-index entries-per-racer)
-                      (ak/as :usize
-                             (ak/intCast (mod sequence entries-per-racer))))]
+                      (ak/as (ak/intCast (mod sequence entries-per-racer))
+                             :usize))]
           (when (and (az/field (az/index decision-outcomes slot) valid)
                      (ak/! (az/field (az/index decision-outcomes slot) resolved))
                      (or finished
@@ -427,11 +427,11 @@
                      (az/field (az/index decision-outcomes slot)
                                start_absolute_progress)))
             (set! (az/field (az/index decision-outcomes slot) rank_gain)
-                  (- (ak/as :i8
-                            (ak/intCast
+                  (- (ak/as (ak/intCast
                              (az/field (az/index decision-outcomes slot)
-                                       start_rank)))
-                     (ak/as :i8 (ak/intCast rank))))
+                                       start_rank))
+                            :i8)
+                     (ak/as (ak/intCast rank) :i8)))
             (set! (az/index resolved-outcome-counts racer-index)
                   (+ (az/index resolved-outcome-counts racer-index) 1))
             (set! (az/index total-progress-gains racer-index)
@@ -440,10 +440,10 @@
                                progress_gain)))
             (set! (az/index total-rank-gains racer-index)
                   (+ (az/index total-rank-gains racer-index)
-                     (ak/as :i64
-                            (ak/intCast
+                     (ak/as (ak/intCast
                              (az/field (az/index decision-outcomes slot)
-                                       rank_gain)))))))))))
+                                       rank_gain))
+                            :i64)))))))))
 
 (az/defn racer-outcome-summary RacerOutcomeSummary
   "Return complete current-race outcome totals independent of ring eviction."
@@ -453,7 +453,7 @@
      {:valid false :racer_id racer-id :resolved_decisions 0 :item_uses 0
       :hits 0 :total_progress_gain 0.0 :total_rank_gain 0
       :average_progress_gain 0.0 :average_rank_gain 0.0})
-    (let [index (ak/as :usize (ak/intCast racer-id))
+    (let [index (ak/as (ak/intCast racer-id) :usize)
           resolved (az/index resolved-outcome-counts index)
           progress-gain (az/index total-progress-gains index)
           rank-gain (az/index total-rank-gains index)]
@@ -464,37 +464,37 @@
         :total_progress_gain progress-gain :total_rank_gain rank-gain
         :average_progress_gain
         (if (> resolved 0)
-          (/ progress-gain (ak/as :f32 (ak/floatFromInt resolved)))
+          (/ progress-gain (ak/as (ak/floatFromInt resolved) :f32))
           0.0)
         :average_rank_gain
         (if (> resolved 0)
-          (/ (ak/as :f32 (ak/floatFromInt rank-gain))
-             (ak/as :f32 (ak/floatFromInt resolved)))
+          (/ (ak/as (ak/floatFromInt rank-gain) :f32)
+             (ak/as (ak/floatFromInt resolved) :f32))
           0.0)}))))
 
 (az/defn summary TelemetrySummary
   "Aggregate the bounded histories without allocating."
   []
-  (let [^{:var true :zig/type :u64} total 0
-        ^{:var true :zig/type :u64} llm 0
-        ^{:var true :zig/type :u64} fallback 0
-        ^{:var true :zig/type :u64} replay 0
-        ^{:var true :zig/type :u64} accepted 0
-        ^{:var true :zig/type :u64} rejected 0
-        ^{:var true :zig/type :u64} urgent 0
-        ^{:var true :zig/type :u64} deadline-misses 0
-        ^{:var true :zig/type :u64} resolved 0
-        ^{:var true :zig/type :u64} item-uses 0
-        ^{:var true :zig/type :u64} hits 0
-        ^{:var true :zig/type :u64} total-us 0
-        ^{:var true :zig/type :f32} total-tps 0.0
-        ^{:var true :zig/type :f32} total-progress-gain 0.0
-        ^{:var true :zig/type :f32} total-rank-gain 0.0]
+  (let [^:var total (ak/u64 0)
+        ^:var llm (ak/u64 0)
+        ^:var fallback (ak/u64 0)
+        ^:var replay (ak/u64 0)
+        ^:var accepted (ak/u64 0)
+        ^:var rejected (ak/u64 0)
+        ^:var urgent (ak/u64 0)
+        ^:var deadline-misses (ak/u64 0)
+        ^:var resolved (ak/u64 0)
+        ^:var item-uses (ak/u64 0)
+        ^:var hits (ak/u64 0)
+        ^:var total-us (ak/u64 0)
+        ^:var total-tps (ak/f32 0.0)
+        ^:var total-progress-gain (ak/f32 0.0)
+        ^:var total-rank-gain (ak/f32 0.0)]
     (dotimes [racer-index racer-count]
-      (let [count (ak/as :usize
-                         (ak/intCast
+      (let [count (ak/as (ak/intCast
                           (ak/min (az/index decision-counts racer-index)
-                                  entries-per-racer)))]
+                                  entries-per-racer))
+                         :usize)]
         (dotimes [offset count]
           (let [entry (entry-at (ak/intCast racer-index) offset)
                 outcome (outcome-at (ak/intCast racer-index) offset)]
@@ -528,9 +528,9 @@
                       (+ total-progress-gain (az/field outcome progress_gain)))
                 (set! total-rank-gain
                       (+ total-rank-gain
-                         (ak/as :f32
-                                (ak/floatFromInt
-                                 (az/field outcome rank_gain)))))))))))
+                         (ak/as (ak/floatFromInt
+                                 (az/field outcome rank_gain))
+                                :f32)))))))))
     (TelemetrySummary
      {:total_entries total :llm_entries llm :fallback_entries fallback
       :replay_entries replay
@@ -543,13 +543,13 @@
       :average_total_us (if (> total 0) (/ total-us total) 0)
       :average_tokens_per_second
       (if (> total 0)
-        (/ total-tps (ak/as :f32 (ak/floatFromInt total)))
+        (/ total-tps (ak/as (ak/floatFromInt total) :f32))
         0.0)
       :average_progress_gain
       (if (> resolved 0)
-        (/ total-progress-gain (ak/as :f32 (ak/floatFromInt resolved)))
+        (/ total-progress-gain (ak/as (ak/floatFromInt resolved) :f32))
         0.0)
       :average_rank_gain
       (if (> resolved 0)
-        (/ total-rank-gain (ak/as :f32 (ak/floatFromInt resolved)))
+        (/ total-rank-gain (ak/as (ak/floatFromInt resolved) :f32))
         0.0)})))

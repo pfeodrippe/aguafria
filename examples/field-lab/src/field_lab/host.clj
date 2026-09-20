@@ -108,7 +108,7 @@
 
 (az/defn bounded-length :usize [[text [:pointer {:size :c :const? true} :u8]] [limit :usize]]
   (when (ak/== text null) (ak/return 0))
-  (let [^{:var :usize} length 0]
+  (let [^:var length (ak/usize 0)]
     (while (and (< length limit) (ak/!= (az/index text length) 0)) (set! length (+ length 1)))
     length))
 
@@ -181,7 +181,7 @@
 
 (az/defn load-plugin! :u32 [[path [:pointer {:size :c :const? true} :u8]]]
   (when (or (ak/== path null) (ak/!= (az/index path 0) 47)) (ak/return 3))
-  (let [^{:var [:optional [:* Plugin]]} available null]
+  (let [^:var available (ak/as null [:optional [:* Plugin]])]
     (dotimes [index 16]
       (when (ak/== (az/field (az/index plugins index) library) null)
         (set! available (ak/& (az/index plugins index)))
@@ -194,7 +194,7 @@
       (defer (when (ak/! retained) (set! _ (dlclose library))))
       (let [symbol (dlsym library "pitoco_plugin_v1")]
         (when (ak/== symbol null) (ak/return 4))
-        (let [entry (ak/as api/PitocoPluginEntryV1 (ak/ptrCast (ak/alignCast (az/unwrap symbol))))
+        (let [entry (ak/as (ak/ptrCast (ak/alignCast (az/unwrap symbol))) api/PitocoPluginEntryV1)
               plugin ((az/unwrap entry))]
           (when (or (ak/== plugin null) (ak/!= (az/field (az/index plugin 0) abi_version) 1)
                      (< (az/field (az/index plugin 0) struct_size) (ak/sizeOf api/PitocoPluginV1))) (ak/return 4))
@@ -203,7 +203,7 @@
                      (ak/== (az/field (az/index plugin 0) on_command) null)) (ak/return 3))
           (let [length (bounded-length (az/field (az/index plugin 0) id) 65)]
             (when (ak/!= (find-plugin (az/slice (az/field (az/index plugin 0) id) 0 length)) null) (ak/return 2))
-            (let [^{:var [:optional [:* :anyopaque]]} state null
+            (let [^:var state (ak/as null [:optional [:* :anyopaque]])
                   result ((az/unwrap (az/field (az/index plugin 0) on_load)) (ak/& host-api) (ak/& state))]
               (when (ak/!= result 0)
                 ((az/unwrap (az/field (az/index plugin 0) on_unload)) state)
@@ -233,9 +233,9 @@
     (let [dir (opendir directory)]
       (when (ak/== dir null) (ak/return 7))
       (set! _ (closedir dir)))
-    (let [^{:var [:array 4120 :u8]} buffer ak/undefined
+    (let [^:var buffer (ak/as ak/undefined [:array 4120 :u8])
           path (catch (fmt/bufPrintZ (ak/& buffer) "{s}/.host.lock" [(az/slice directory 0 length)]) (ak/return 7))
-          descriptor (open (az/field path ptr) 514 (ak/as :c_uint 384))]
+          descriptor (open (az/field path ptr) 514 (ak/as 384 :c_uint))]
       (when (< descriptor 0) (ak/return 7))
       (when (ak/!= (flock descriptor 6) 0)
         (set! _ (close descriptor))
@@ -253,7 +253,7 @@
 
 (az/defn execute! :u32 [[request [:*const Pending]] [panel [:c-pointer api/LabPanel]]]
   (let [operation (az/field request operation)
-        text (ak/as (az/type [:pointer {:size :c :const? true} :u8]) (ak/& (az/index (az/field request text) 0)))
+        text (ak/as (ak/& (az/index (az/field request text) 0)) (az/type [:pointer {:size :c :const? true} :u8]))
         length (bounded-length text 4097)]
     (cond
       (ak/== operation 1)
@@ -301,10 +301,10 @@
 
 (az/defn response! :void [[bytes [:slice :u8]]]
   (let [^:var lines (mem/zeroes (az/type [:array 4 [:slice :u8]]))
-        ^{:var :usize} offset 0
+        ^:var offset (ak/usize 0)
         ^:var valid (< (az/field bytes len) 8193)
-        ^{:var :u32} result 3
-        ^{:var :u64} ticket 0]
+        ^:var result (ak/u32 3)
+        ^:var ticket (ak/u64 0)]
     (dotimes [line 4]
       (let [^:var end offset]
         (while (and (< end (az/field bytes len)) (ak/!= (az/index bytes end) 10))
@@ -350,17 +350,17 @@
 (az/defn poll-bridge! :void []
   (when (ak/== (az/index bridge-directory 0) 0) (ak/return))
   (let [directory (az/slice bridge-directory 0 (bounded-length (ak/& (az/index bridge-directory 0)) 4097))
-        ^{:var [:array 4120 :u8]} request-buffer ak/undefined
-        ^{:var [:array 4120 :u8]} reply-buffer ak/undefined
-        ^{:var [:array 4120 :u8]} temporary-buffer ak/undefined
+        ^:var request-buffer (ak/as ak/undefined [:array 4120 :u8])
+        ^:var reply-buffer (ak/as ak/undefined [:array 4120 :u8])
+        ^:var temporary-buffer (ak/as ak/undefined [:array 4120 :u8])
         request (catch (fmt/bufPrintZ (ak/& request-buffer) "{s}/request" [directory]) (ak/return))
         reply (catch (fmt/bufPrintZ (ak/& reply-buffer) "{s}/reply" [directory]) (ak/return))
         temporary (catch (fmt/bufPrintZ (ak/& temporary-buffer) "{s}/reply.tmp" [directory]) (ak/return))]
     (when (ak/== (access (az/field reply ptr) 0) 0) (ak/return))
     (when (ak/== bridge-response-size 0)
       (let [descriptor (open (az/field request ptr) 0)
-            ^{:var [:array 8193 :u8]} bytes ak/undefined
-            ^{:var :usize} count 0]
+            ^:var bytes (ak/as ak/undefined [:array 8193 :u8])
+            ^:var count (ak/usize 0)]
         (when (< descriptor 0) (ak/return))
         (defer (set! _ (close descriptor)))
         (while (< count 8193)
@@ -368,11 +368,11 @@
             (when (< received 0)
               (if (ak/== (az/deref (__error)) 4) (ak/continue) (ak/return)))
             (when (ak/== received 0) (ak/break))
-            (set! count (+ count (ak/as :usize (ak/intCast received))))))
+            (set! count (+ count (ak/as (ak/intCast received) :usize)))))
         (response! (az/slice bytes 0 count))))
     (when (ak/== bridge-response-size 0) (ak/return))
-    (let [descriptor (open (az/field temporary ptr) 1537 (ak/as :c_uint 384))
-          ^{:var :usize} count 0
+    (let [descriptor (open (az/field temporary ptr) 1537 (ak/as 384 :c_uint))
+          ^:var count (ak/usize 0)
           ^:var written true]
       (when (< descriptor 0) (ak/return))
       (while (< count bridge-response-size)
@@ -381,7 +381,7 @@
             (when (and (< sent 0) (ak/== (az/deref (__error)) 4)) (ak/continue))
             (set! written false)
             (ak/break))
-          (set! count (+ count (ak/as :usize (ak/intCast sent))))))
+          (set! count (+ count (ak/as (ak/intCast sent) :usize)))))
       (let [closed (close descriptor)]
         (when (and written (ak/== closed 0)
                    (or (ak/== (unlink (az/field request ptr)) 0) (ak/== (az/deref (__error)) 2))

@@ -63,7 +63,7 @@
   :note "Wrapping addition expression and assignment alternatives."}
 
  "@as(u32, 0xffffffff) +% 1 == 0"
- {:clojure-source "(== (ak/+% (ak/as :u32 0xffffffff) 1) 0)"
+ {:clojure-source "(== (ak/+% (ak/as 0xffffffff :u32) 1) 0)"
   :kind :expr
   :standalone? true
   :note "Adding one wraps the largest u32 to zero."}
@@ -75,7 +75,7 @@
   :note "Saturating addition expression and assignment alternatives."}
 
  "@as(u8, 255) +| 1 == @as(u8, 255)"
- {:clojure-source "(== (ak/+| (ak/as :u8 255) 1) (ak/as :u8 255))"
+ {:clojure-source "(== (ak/+| (ak/as 255 :u8) 1) (ak/as 255 :u8))"
   :kind :expr
   :standalone? true
   :note "Saturating addition clamps at the largest u8."}
@@ -99,7 +99,7 @@
   :note "Wrapping subtraction expression and assignment alternatives."}
 
  "@as(u8, 0) -% 1 == 255"
- {:clojure-source "(== (ak/-% (ak/as :u8 0) 1) 255)"
+ {:clojure-source "(== (ak/-% (ak/as 0 :u8) 1) 255)"
   :kind :expr
   :standalone? true
   :note "Subtracting one wraps zero to the largest u8."}
@@ -111,7 +111,7 @@
   :note "Saturating subtraction expression and assignment alternatives."}
 
  "@as(u32, 0) -| 1 == 0"
- {:clojure-source "(== (ak/-| (ak/as :u32 0) 1) 0)"
+ {:clojure-source "(== (ak/-| (ak/as 0 :u32) 1) 0)"
   :kind :expr
   :standalone? true
   :note "Unsigned saturating subtraction stops at zero."}
@@ -133,7 +133,7 @@
   :note "Unary wrapping negation uses the operator form."}
 
  "-%@as(i8, -128) == -128"
- {:clojure-source "(== (az/op \"-%\" (ak/as :i8 -128)) -128)"
+ {:clojure-source "(== (az/op \"-%\" (ak/as -128 :i8)) -128)"
   :kind :expr
   :standalone? true
   :note "Wrapping negation leaves the minimum i8 unchanged."}
@@ -157,7 +157,7 @@
   :note "Wrapping multiplication expression and assignment alternatives."}
 
  "@as(u8, 200) *% 2 == 144"
- {:clojure-source "(== (ak/*% (ak/as :u8 200) 2) 144)"
+ {:clojure-source "(== (ak/*% (ak/as 200 :u8) 2) 144)"
   :kind :expr
   :standalone? true
   :note "The product wraps modulo 256 for u8."}
@@ -169,7 +169,7 @@
   :note "Saturating multiplication expression and assignment alternatives."}
 
  "@as(u8, 200) *| 2 == 255"
- {:clojure-source "(== (ak/*| (ak/as :u8 200) 2) 255)"
+ {:clojure-source "(== (ak/*| (ak/as 200 :u8) 2) 255)"
   :kind :expr
   :standalone? true
   :note "The product saturates at the largest u8."}
@@ -217,7 +217,7 @@
   :note "Saturating left-shift expression and assignment alternatives."}
 
  "@as(u8, 1) <<| 8 == 255"
- {:clojure-source "(== (az/op \"<<|\" (ak/as :u8 1) 8) 255)"
+ {:clojure-source "(== (az/op \"<<|\" (ak/as 1 :u8) 8) 255)"
   :kind :expr
   :standalone? true
   :note "A saturating left shift clamps the u8 result to 255."}
@@ -276,7 +276,7 @@
   :note "Bitwise complement requires an integer with a known bit width."}
 
  "~@as(u8, 0b10101111) == 0b01010000"
- {:clojure-source "(== (ak/bit-not (ak/as :u8 2r10101111)) 2r01010000)"
+ {:clojure-source "(== (ak/bit-not (ak/as 2r10101111 :u8)) 2r01010000)"
   :kind :expr
   :standalone? true
   :note "Complement all eight bits of the u8 value."}

@@ -9,7 +9,7 @@
    :on])
 
 (az/deftest enum-literals-test
-  (let [^{:zig/type Color} inferred :.auto
+  (let [inferred (ak/as :.auto Color)
         explicit (az/field Color :auto)]
     (try (testing/expectEqual inferred explicit))))
 

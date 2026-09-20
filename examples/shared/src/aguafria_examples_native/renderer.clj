@@ -250,7 +250,7 @@
 
 (az/defn initialize-instance! :void
   []
-  (let [^{:var true :zig/type :u32} extension-count 0
+  (let [^:var extension-count (ak/u32 0)
         glfw-extensions (vk/glfwGetRequiredInstanceExtensions (ak/& extension-count))
         ^:var extensions
         (std-mem/zeroes
@@ -281,14 +281,14 @@
 
 (az/defn select-device-and-queue! :void
   []
-  (let [^{:var true :zig/type :u32} device-count 0
+  (let [^:var device-count (ak/u32 0)
         ^:var devices (std-mem/zeroes (az/type [:array 8 vk/VkPhysicalDevice]))]
     (check (vk/vkEnumeratePhysicalDevices instance (ak/& device-count) null))
     (std-debug/assert (and (> device-count 0) (<= device-count 8)))
     (check (vk/vkEnumeratePhysicalDevices
             instance (ak/& device-count) (ak/& (az/index devices 0))))
     (set! physical-device (az/index devices 0))
-    (let [^{:var true :zig/type :u32} family-count 0
+    (let [^:var family-count (ak/u32 0)
           ^:var families
           (std-mem/zeroes (az/type [:array 32 vk/VkQueueFamilyProperties]))]
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
@@ -296,7 +296,7 @@
       (std-debug/assert (and (> family-count 0) (<= family-count 32)))
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
        physical-device (ak/& family-count) (ak/& (az/index families 0)))
-      (let [^{:var true :zig/type :u32} family-index 0
+      (let [^:var family-index (ak/u32 0)
             ^:var present-supported vk/VK_FALSE]
         (ak/while (< family-index family-count)
           (set! present-supported vk/VK_FALSE)
@@ -315,7 +315,7 @@
 
 (az/defn create-device! :void
   []
-  (let [^{:zig/type :f32} priority 1.0
+  (let [priority (ak/f32 1.0)
         queue-info
         (vk/VkDeviceQueueCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
@@ -340,7 +340,7 @@
   []
   (let [^:var capabilities
         (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))
-        ^{:var true :zig/type :u32} format-count 0
+        ^:var format-count (ak/u32 0)
         ^:var formats
         (std-mem/zeroes (az/type [:array 128 vk/VkSurfaceFormatKHR]))]
     (check (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR
@@ -476,7 +476,7 @@
           :pSubpasses (ak/& subpass)
           :dependencyCount 1
           :pDependencies (ak/& dependency)})]
-    (let [^{:var vk/VkRenderPass} result null]
+    (let [^:var result (ak/as null vk/VkRenderPass)]
       (check (vk/vkCreateRenderPass device (ak/& create-info) null (ak/& result)))
       result)))
 
@@ -551,11 +551,11 @@
   (let [^{:var true}
         properties
         (std-mem/zeroes (az/type vk/VkPhysicalDeviceMemoryProperties))
-        ^{:var true :zig/type :u32} selected 0xffffffff]
+        ^:var selected (ak/u32 0xffffffff)]
     (vk/vkGetPhysicalDeviceMemoryProperties physical-device (ak/& properties))
     (dotimes [index (az/field properties memoryTypeCount)]
-      (let [bit (ak/<< (ak/as :u32 1)
-                       (ak/as :u5 (ak/intCast index)))
+      (let [bit (ak/<< (ak/as 1 :u32)
+                       (ak/as (ak/intCast index) :u5))
             flags (az/field (az/index (az/field properties memoryTypes) index)
                             propertyFlags)]
         (when (and (ak/== selected 0xffffffff)
@@ -620,8 +620,8 @@
 (az/defn create-mesh-buffer! :void
   "Create one persistently mapped, bounded vertex stream for the 3D scene."
   []
-  (let [buffer-size (ak/as vk/VkDeviceSize
-                           (* mesh/frame-capacity (ak/sizeOf mesh/GpuVertex)))
+  (let [buffer-size (ak/as (* mesh/frame-capacity (ak/sizeOf mesh/GpuVertex))
+                           vk/VkDeviceSize)
         buffer-info
         (vk/VkBufferCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
@@ -655,11 +655,11 @@
   "Load one checked-in SPIR-V shader and create its Vulkan module."
   [[path [:pointer {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
-        ^{:var true} module (ak/as vk/VkShaderModule null)]
+        ^{:var true} module (ak/as null vk/VkShaderModule)]
     (std-debug/assert (ak/!= file null))
     (let [bytes (stdio/fread (ak/& (az/index shader-module-words 0))
                               1 (* 65536 (ak/sizeOf :u32)) file)]
-      (let [^{:var :u8} trailing 0
+      (let [^:var trailing (ak/u8 0)
             extra (stdio/fread (ak/& trailing) 1 1 file)]
         (std-debug/assert (ak/== extra 0)))
       (set! _ (stdio/fclose file))
@@ -743,8 +743,8 @@
         viewport
         (vk/VkViewport
          {:x 0.0 :y 0.0
-          :width (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent width)))
-          :height (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent height)))
+          :width (ak/as (ak/floatFromInt (az/field swapchain-extent width)) :f32)
+          :height (ak/as (ak/floatFromInt (az/field swapchain-extent height)) :f32)
           :minDepth 0.0 :maxDepth 1.0})
         scissor
         (vk/VkRect2D {:offset (vk/VkOffset2D {:x 0 :y 0})
@@ -754,7 +754,7 @@
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
           :viewportCount 1 :pViewports (ak/& viewport)
           :scissorCount 1 :pScissors (ak/& scissor)})
-        dynamic-scissor (ak/as vk/VkDynamicState vk/VK_DYNAMIC_STATE_SCISSOR)
+        dynamic-scissor (ak/as vk/VK_DYNAMIC_STATE_SCISSOR vk/VkDynamicState)
         dynamic-state (vk/VkPipelineDynamicStateCreateInfo
                         {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
                          :dynamicStateCount 1 :pDynamicStates (ak/& dynamic-scissor)})
@@ -848,8 +848,8 @@
   (std-debug/assert (and (> byte-count 0) (<= byte-count 128)
                          (ak/== (mod byte-count 4) 0)))
   (std-debug/assert (ak/!= active-command-buffer null))
-  (let [^{:zig/type [:pointer {:size :c :const? true} :u8]} source (ak/ptrCast data)
-        ^{:zig/type [:c-pointer :u8]} target (ak/ptrCast (ak/& (az/index saved-frame-data 0)))]
+  (let [source (ak/as (ak/ptrCast data) [:pointer {:size :c, :const? true} :u8])
+        target (ak/as (ak/ptrCast (ak/& (az/index saved-frame-data 0))) [:c-pointer :u8])]
     (dotimes [i byte-count] (set! (az/index target i) (az/index source i))))
   (set! saved-frame-data-bytes byte-count)
   (vk/vkCmdPushConstants active-command-buffer mesh-pipeline-layout
@@ -982,7 +982,7 @@
         (std-mem/sliceAsBytes vertices))
       (set! (az/field entry revision) revision)
       (set! (az/field entry vertices) (ak/intCast (az/field vertices len)))
-      (set! instance-upload-bytes (+ instance-upload-bytes (ak/as :u64 (ak/intCast bytes)))))
+      (set! instance-upload-bytes (+ instance-upload-bytes (ak/as (ak/intCast bytes) :u64))))
     (let [output (az/cast (az/field instance-stream mapped) [:c-pointer mesh/GpuInstance])
           buffers (az/array-init [:array 2 vk/VkBuffer]
                     [(az/field (az/field entry storage) buffer) (az/field instance-stream buffer)])
@@ -1094,8 +1094,8 @@
              {:offset (vk/VkOffset2D {:x x :y y})
               :extent
               (vk/VkExtent2D
-               {:width (ak/as :u32 (ak/intCast width))
-                :height (ak/as :u32 (ak/intCast height))})})
+               {:width (ak/as (ak/intCast width) :u32)
+                :height (ak/as (ak/intCast height) :u32)})})
             :baseArrayLayer 0
             :layerCount 1})]
       (vk/vkCmdClearAttachments
@@ -1185,7 +1185,7 @@
                                0 saved-frame-data-bytes (ak/& (az/index saved-frame-data 0)))))
     (when (device-lost?) (ak/return false))
     (when (> mesh-vertex-count 0)
-      (let [offset (ak/as vk/VkDeviceSize 0)]
+      (let [offset (ak/as 0 vk/VkDeviceSize)]
         (vk/vkCmdBindPipeline command-buffer vk/VK_PIPELINE_BIND_POINT_GRAPHICS mesh-pipeline)
         (vk/vkCmdSetScissor command-buffer 0 1 (ak/& rectangle))
         (vk/vkCmdBindVertexBuffers command-buffer 0 1 (ak/& mesh-vertex-buffer) (ak/& offset))
@@ -1213,7 +1213,7 @@
   []
   (when swapchain-readable (ak/return true))
   (let [^:var capabilities (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))
-        ^{:var :u32} format-count 128
+        ^:var format-count (ak/u32 128)
         ^:var formats (std-mem/zeroes (az/type [:array 128 vk/VkSurfaceFormatKHR]))]
     (when (or (ak/!= (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR
                        physical-device surface (ak/& capabilities)) vk/VK_SUCCESS)
@@ -1259,7 +1259,7 @@
       (readback/reject!))
     (ak/return false))
   (std-debug/assert initialized)
-  (let [^{:var :u32} image-index 0
+  (let [^:var image-index (ak/u32 0)
         image-ready (az/index image-available synchronization-slot)]
     (frame-check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
     (prepare-render-tiles!)
@@ -1274,13 +1274,13 @@
           height (az/field swapchain-extent height)
           edge render-tile-edge
           tiles (render-tile-count width height edge)
-          ^{:var :f64} peak-seconds 0.0
-          ^{:var :u32} tile 0]
+          ^:var peak-seconds (ak/f64 0.0)
+          ^:var tile (ak/u32 0)]
       (while (< tile tiles)
         (set! active-render-tile tile)
         (let [first (ak/== tile 0)
               last (ak/== (+ tile 1) tiles)
-              wait-stage (ak/as :u32 vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+              wait-stage (ak/as vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT :u32)
               command-buffer (az/index command-buffers image-index)]
           ;; Reusing this command buffer and the shared depth image is legal only
           ;; after its previous submission completes. Host frame data stays frozen.
@@ -1302,10 +1302,10 @@
               (set! peak-seconds (ak/max peak-seconds (- (vk/glfwGetTime) started))))))
         (ak/+= tile 1))
       (set! last-frame-submissions tiles)
-      (let [microseconds (ak/as :u64 (ak/intFromFloat
-                                      (ak/min 4294967295.0 (ak/ceil (* peak-seconds 1000000.0)))))]
+      (let [microseconds (ak/as (ak/intFromFloat
+                                      (ak/min 4294967295.0 (ak/ceil (* peak-seconds 1000000.0)))) :u64)]
         (ak/atomicStore :u64 (ak/& render-work-summary)
-                        (ak/| (ak/<< microseconds 32) (ak/as :u64 tiles)) :.release))
+                        (ak/| (ak/<< microseconds 32) (ak/as tiles :u64)) :.release))
       (when (ak/== (readback/status) 3)
         (frame-check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
         (readback/complete! device swapchain-format frame-count frame-revision frame-tick))

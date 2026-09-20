@@ -77,7 +77,7 @@
                  (try (provider/packet))))
         (eval '(az/defn optional-result [:! [:optional :u32]]
                  [[present? :bool]]
-                 (if present? (ak/as :u32 42) nil))))
+                 (if present? (ak/as 42 :u32) nil))))
       (doseq [[namespace function arguments expected]
               [[provider 'packet [] {:ok {:code 11}}]
                [provider 'payload-bytes [] {:ok (mapv int "payload")}]
@@ -239,7 +239,7 @@
         (eval '(az/defextern getpid :c_int {:zig/prefix "extern"}  []))
         (eval (list 'az/deftest 'same-process-test
                     (list 'try (list 'testing/expectEqual
-                                     (list 'ak/as :c_int pid) '(getpid))))))
+                                     (list 'ak/as pid :c_int) '(getpid))))))
       (let [{:keys [result failure]} (capture-execution (ns-resolve namespace 'same-process-test))]
         (is (nil? failure) (some-> failure ex-message))
         (is (= :passed (:status result)))

@@ -28,7 +28,7 @@
 (az/defstruct Loop {:layout :extern} [[from :u64] [to :u64] [enabled :bool]])
 (az/defn loop-state Loop []
   (let [region (ak/atomicLoad :u64 (ak/& loop-region) :.acquire)]
-    (ak/as Loop {:from (mod region 4294967296) :to (/ region 4294967296) :enabled (ak/!= region 0)})))
+    (ak/as {:from (mod region 4294967296) :to (/ region 4294967296) :enabled (ak/!= region 0)} Loop)))
 (az/defn set-loop! :bool [[from :u64] [to :u64] [enabled :bool]]
   (when (and enabled (or (>= from to) (> to duration) (> to 4294967295))) (ak/return false))
   (ak/atomicStore :u64 (ak/& loop-region) (if enabled (+ (* to 4294967296) from) 0) :.release)
@@ -80,8 +80,8 @@
   (ak/memcpy (az/slice path-buffer 0 (az/field path len)) path)
   (set! (az/index path-buffer (az/field path len)) 0)
   (let [^:var config ((az/field recorder/api ma_decoder_config_init) (az/field recorder/api ma_format_f32) 2 48000)
-        ^{:var Decoder} decoder ak/undefined
-        ^{:var :u64} frames 0 ^{:var :u64} read 0]
+        ^:var decoder (ak/as ak/undefined Decoder)
+        ^:var frames (ak/u64 0) ^:var read (ak/u64 0)]
     (when (ak/!= ((az/field recorder/api ma_decoder_init_file) (ak/& path-buffer) (ak/& config) (ak/& decoder)) 0)
       (ak/return false))
     (ak/defer (set! _ ((az/field recorder/api ma_decoder_uninit) (ak/& decoder))))
@@ -92,8 +92,8 @@
     ;; Reject non-finite PCM before publishing a clip to the callback.
     (dotimes [i (* frames 2)]
       (when (ak/! (< (ak/abs (az/index samples (+ (* used 2) i))) 1000000.0)) (ak/return false)))
-    (set! (az/index clips clip-count) (ak/as Clip {:base used :frames frames :start 0 :gain 1.0 :pan 0.0 :fade 240 :mute false :solo false}))
-    (set! used (+ used (ak/as :usize (ak/intCast frames)))) (set! clip-count (+ clip-count 1))
+    (set! (az/index clips clip-count) (ak/as {:base used :frames frames :start 0 :gain 1.0 :pan 0.0 :fade 240 :mute false :solo false} Clip))
+    (set! used (+ used (ak/as (ak/intCast frames) :usize))) (set! clip-count (+ clip-count 1))
     (set! duration (ak/max duration frames)) true))
 
 (az/defn process! :void
@@ -102,12 +102,12 @@
   (let [active (ak/!= (ak/atomicLoad :u8 (ak/& playing) :.acquire) 0)
         loop (loop-state)
         requested (ak/atomicRmw :u64 (ak/& seek-request) :.Xchg 18446744073709551615 :.acq_rel)
-        ^{:var :u64} frame-position (ak/atomicLoad :u64 (ak/& cursor) :.acquire)
-        ^{:var :bool} any-solo false ^{:var :f32} block-peak 0.0]
+        ^:var frame-position (ak/u64 (ak/atomicLoad :u64 (ak/& cursor) :.acquire))
+        ^:var any-solo (ak/bool false) ^:var block-peak (ak/f32 0.0)]
     (when (ak/!= requested 18446744073709551615) (set! frame-position (ak/min requested duration)))
     (dotimes [j clip-count] (when (az/field (az/index clips j) solo) (set! any-solo true)))
     (dotimes [i frames]
-      (let [^{:var :f32} left 0.0 ^{:var :f32} right 0.0]
+      (let [^:var left (ak/f32 0.0) ^:var right (ak/f32 0.0)]
         (when (and active (az/field loop enabled)
                    (or (< frame-position (az/field loop from)) (>= frame-position (az/field loop to))))
           (set! frame-position (az/field loop from)))
@@ -117,9 +117,9 @@
               (when (and (ak/! (az/field clip mute)) (or (ak/! any-solo) (az/field clip solo))
                          (>= frame-position (az/field clip start)) (< (- frame-position (az/field clip start)) (az/field clip frames)))
                 (let [offset (- frame-position (az/field clip start))
-                      fade (ak/as :f32 (ak/floatFromInt (ak/max (ak/as :u64 1) (az/field clip fade))))
+                      fade (ak/as (ak/floatFromInt (ak/max (ak/as 1 :u64) (az/field clip fade))) :f32)
                       envelope (if (ak/== (az/field clip fade) 0) 1.0
-                                 (ak/min 1.0 (/ (ak/as :f32 (ak/floatFromInt (ak/min offset (- (az/field clip frames) 1 offset)))) fade)))
+                                 (ak/min 1.0 (/ (ak/as (ak/floatFromInt (ak/min offset (- (az/field clip frames) 1 offset))) :f32) fade)))
                       gain (* envelope (az/field clip gain))
                       sample (* (+ (az/field clip base) offset) 2)]
                   (set! left (+ left (* (az/index samples sample) gain (- 1.0 (ak/max 0.0 (az/field clip pan))))))

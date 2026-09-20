@@ -5,7 +5,8 @@
   documented Var, generated from the installed Zig compiler and matching ZLS
   language-reference data. Ordinary readable Zig forms such as `if`, `while`,
   and `try` stay unqualified."
-  (:require [clojure.edn :as edn]
+  (:require [aguafria.zig.value :as value]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
 (def ^:private catalog-resource
@@ -66,6 +67,14 @@
   exposed as qualified atom Vars such as `ak/undefined`."
   []
   (:primitives generated-catalog))
+
+(defn- constructible-primitive?
+  [type-name]
+  (or (boolean (re-matches #"[iu][0-9]+" type-name))
+      (contains? #{"bool" "void" "isize" "usize" "f16" "f32" "f64" "f80" "f128"
+                   "comptime_int" "comptime_float" "c_short" "c_ushort"
+                   "c_int" "c_uint" "c_long" "c_ulong" "c_longlong" "c_ulonglong"}
+                 type-name)))
 
 (defn reader-tokens
   "Return the Zig tokens that need reader-safe Aguafria names."
@@ -146,10 +155,29 @@
 
 (defn- primitive-token
   [entry]
-  {:kind :primitive
-   :name (:name entry)
-   :symbol (symbol "aguafria.keyword" (:name entry))
-   :zig-token (:zig-token entry)})
+  (cond-> {:kind :primitive
+           :name (:name entry)
+           :symbol (symbol "aguafria.keyword" (:name entry))
+           :zig-token (:zig-token entry)}
+    (constructible-primitive? (:name entry))
+    (assoc :constructor? true :param-count 1)))
+
+(defn- token-root
+  [token]
+  (cond
+    (= "@as" (:zig-name token))
+    (fn [value type]
+      ((requiring-resolve 'aguafria.zig.jvm/coerce!) value type))
+
+    (:constructor? token)
+    (value/zig-type
+     {:kind :primitive :type (keyword (:zig-token token))}
+     (fn [value]
+       ((requiring-resolve 'aguafria.zig.jvm/coerce!)
+        value (keyword (:zig-token token)))))
+
+    :else
+    (unusable-outside-declaration token)))
 
 (defn- intern-token!
   [token metadata]
@@ -163,7 +191,7 @@
     ;; `min`, and `abs`, which Clojure happens to refer from clojure.core.
     (when (contains? (ns-map *ns*) sym)
       (ns-unmap *ns* sym))
-    (let [v (intern *ns* sym (unusable-outside-declaration token))]
+    (let [v (intern *ns* sym (token-root token))]
       (alter-meta! v merge metadata)
       v)))
 
@@ -237,8 +265,16 @@
     (intern-token!
      token
      {:aguafria/token token
-      :arglists (parameter-arglists builtin)
-      :doc (compiler-doc builtin)
+      :arglists (if (= "@as" (:zig-name builtin))
+                  '([value type])
+                  (parameter-arglists builtin))
+      :doc (if (= "@as" (:zig-name builtin))
+             (str "Coerce value to a Zig type: (ak/as value type).\n\n"
+                  "Accepts the same type keywords and vectors as signatures. "
+                  "Inside Aguafria emits @as(type, value); from the JVM returns "
+                  "a checked scalar or an owning native value. Supports ->.\n\n"
+                  (:documentation builtin))
+             (compiler-doc builtin))
       :zig/allows-lvalue? (:allows-lvalue? builtin)
       :zig/documentation-format (:documentation-format builtin)
       :zig/documentation-source (:documentation-source builtin)
@@ -280,17 +316,28 @@
 ;; Primitive values such as `undefined` are identifiers to Zig's tokenizer,
 ;; then resolved by semantic analysis. Intern these last so a primitive that
 ;; also appears in the keyword table (currently `anyframe`) has atom semantics.
-(doseq [entry (:primitives generated-catalog)]
+(doseq [entry (concat (:primitives generated-catalog)
+                     ;; Zig recognizes iN/uN algorithmically, outside its static
+                     ;; primitive table. Expose widths through 128 as Vars;
+                     ;; larger widths use the same API via (ak/as value :u256).
+                     (clojure.core/for [prefix ["i" "u"] bits (range 129)
+                           :let [name (str prefix bits)]]
+                       {:name name :zig-token name}))]
   (let [token (primitive-token entry)]
     (intern-token!
      token
      {:aguafria/token token
+      :arglists (when (:constructor? token) '([value]))
       :doc (str "Zig primitive `" (:zig-token token)
                 "`, mechanically discovered from Zig "
                 (:zig-version generated-catalog) " `"
                 (get-in generated-catalog [:sources :primitives :path])
                 "`. Use `ak/" (:name token)
-                "` as an atom inside an Aguafria declaration.")
+                "` as an atom inside an Aguafria declaration."
+                (when (:constructor? token)
+                  (str " Call (ak/" (:name token) " value) to coerce a value. "
+                       "Equivalent to (ak/as value :" (:name token) "). "
+                       "Also callable from Clojure/Java through native Zig.")))
       :zig/name (:zig-token token)
       :zig/source (get-in generated-catalog [:sources :primitives :path])
       :zig/version (:zig-version generated-catalog)})))

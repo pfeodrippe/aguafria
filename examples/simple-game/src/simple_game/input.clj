@@ -97,16 +97,15 @@
         secondary-down
         (ak/== (glfw/glfwGetMouseButton window glfw/GLFW_MOUSE_BUTTON_RIGHT)
                glfw/GLFW_PRESS)
-        ^{:zig/type :u8}
         build-selection
-        (cond
+        (ak/u8 (cond
           (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_1) glfw/GLFW_PRESS) 1
           (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_2) glfw/GLFW_PRESS) 2
           (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_3) glfw/GLFW_PRESS) 3
           (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_4) glfw/GLFW_PRESS) 4
           (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_5) glfw/GLFW_PRESS) 5
           (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_6) glfw/GLFW_PRESS) 6
-          :else 0)
+          :else 0))
         ^{:var true}
         gamepad (std-mem/zeroes (az/type glfw/GLFWgamepadstate))
         gamepad-connected

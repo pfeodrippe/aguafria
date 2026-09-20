@@ -61,7 +61,7 @@
 (az/defn register-tire! :void
   [[world b3/b3WorldId] [body b3/b3BodyId] [radius :f32] [half-width :f32]]
   (let [state (az/cast (b3/b3World_GetUserData world) [:* WorldState])
-        ^{:var :usize} slot (az/field state count)]
+        ^:var slot (ak/usize (az/field state count))]
     (dotimes [i (az/field state count)]
       (when (ak/! (b3/b3Body_IsValid (az/field (az/index (az/field state tires) i) body)))
         (set! slot i)
@@ -89,7 +89,7 @@
 
 (az/defconst step-rate :usize 3840)
 
-(az/defconst fixed-step :f32 (/ 1.0 (ak/as :f32 (ak/floatFromInt step-rate))))
+(az/defconst fixed-step :f32 (/ 1.0 (ak/as (ak/floatFromInt step-rate) :f32)))
 
 (az/defconst chassis-mass-kg :f32 700.0)
 
@@ -236,7 +236,7 @@
   0 neutral or 1 forward. Braking opposes rolling in either direction." [[vehicle Vehicle] [throttle :f32] [brake :f32] [steering :f32] [gear :i8]]
   (let [gas (ak/max 0.0 (ak/min 1.0 throttle))
         braking (ak/max 0.0 (ak/min 1.0 brake))
-        ^{:zig/type :f32} direction (cond (< gear 0) -1.0 (> gear 0) 1.0 :else 0.0)
+        direction (ak/f32 (cond (< gear 0) -1.0 (> gear 0) 1.0 :else 0.0))
         body (az/field vehicle chassis)
         velocity (b3/b3Body_GetLinearVelocity body)
         forward (b3/b3RotateVector (b3/b3Body_GetRotation body)
@@ -263,19 +263,19 @@
             ;; Limit wheel slip, not chassis velocity; the actual radius matters.
             ;; Each driven wheel uses its own contact travel speed (differential).
             spin-target (* direction
-                          (ak/min (if (< gear 0) (ak/as :f32 16.0) 260.0)
+                          (ak/min (if (< gear 0) (ak/as 16.0 :f32) 260.0)
                             (+ (ak/max 0.0 (* direction (/ wheel-speed radius))) (* gas 8.0))))
             ;; Basic ABS: do not ask all four wheels to lock instantly at speed.
             ;; Braking torque still acts through tire contacts; preserve rolling
             ;; while shedding speed so the front wheels can continue steering.
-            brake-target (* (if (< wheel-speed 0.0) (ak/as :f32 -1.0) 1.0)
+            brake-target (* (if (< wheel-speed 0.0) (ak/as -1.0 :f32) 1.0)
                             (ak/max 0.0 (- (ak/abs (/ wheel-speed radius)) (* braking 8.0))))
             ;; Rear-wheel propulsion has both a torque and shaft-power bound.
             engine-torque (ak/min rear-wheel-torque-nm (/ engine-power-watts
                               (* 2.0 (ak/max 10.0 (ak/abs (b3/b3WheelJoint_GetSpinSpeed joint))))))
             ;; Front-biased braking accounts for longitudinal load transfer.
-            torque (if (> braking 0.0) (* (if (< i 2) (ak/as :f32 3200.0) 1600.0) braking)
-                       (if (and (>= i 2) (ak/!= gear 0)) (* engine-torque gas) (ak/as :f32 0.0)))]
+            torque (if (> braking 0.0) (* (if (< i 2) (ak/as 3200.0 :f32) 1600.0) braking)
+                       (if (and (>= i 2) (ak/!= gear 0)) (* engine-torque gas) (ak/as 0.0 :f32)))]
         (b3/b3WheelJoint_SetTargetSteeringAngle joint (if (< i 2) (ak/max -0.45 (ak/min 0.45 wheel-angle)) 0.0))
         (b3/b3WheelJoint_SetMaxSpinTorque joint torque)
         (b3/b3WheelJoint_SetSpinMotorSpeed joint (if (> braking 0.0) brake-target spin-target))))
@@ -308,7 +308,7 @@
   (let [rolling (ak/max 0.0 (- travel-speed 0.02))
         sliding (ak/max 0.0 (- slip 0.02))
         watts (+ (* (ak/max 0.0 friction) sliding) (* 0.01 normal rolling))]
-    (/ (* (ak/as :f64 (ak/floatCast watts)) (ak/as :f64 (ak/floatCast seconds))) 2000000.0)))
+    (/ (* (ak/as (ak/floatCast watts) :f64) (ak/as (ak/floatCast seconds) :f64)) 2000000.0)))
 
 (az/defn tire-plane-step! :f64
   "Finite-width circular tread against a static local surface plane. Normal
@@ -326,24 +326,24 @@
         vertical (b3/b3Dot axis surface-normal)
         radial-length (ak/sqrt (ak/max 0.0 (- 1.0 (* vertical vertical))))
         tread? (> radial-length 0.05)
-        count (if tread? (ak/as :usize 2) 4)
-        shares (ak/as :f32 (ak/floatFromInt count))
+        count (if tread? (ak/as 2 :usize) 4)
+        shares (ak/as (ak/floatFromInt count) :f32)
         mass (b3/b3Body_GetMassData wheel)
         inverse-inertia (b3/b3Body_GetWorldInverseRotationalInertia wheel)
         centre-velocity (b3/b3Body_GetLinearVelocity wheel)
         travel (b3/b3Sub centre-velocity
                  (b3/b3MulSV (b3/b3Dot centre-velocity surface-normal) surface-normal))
         travel-speed (ak/sqrt (b3/b3Dot travel travel))
-        ^{:var :f64} wear 0.0]
+        ^:var wear (ak/f64 0.0)]
     (dotimes [edge count]
-      (let [side (* half-width (if (ak/== edge 0) (ak/as :f32 -1.0) 1.0))
+      (let [side (* half-width (if (ak/== edge 0) (ak/as -1.0 :f32) 1.0))
             r (if tread?
                 (b3/b3Add
                   (b3/b3MulSV (/ radius radial-length)
                     (b3/b3Sub (b3/b3MulSV vertical axis) surface-normal))
                   (b3/b3MulSV side axis))
-                (let [angle (* (ak/as :f32 (ak/floatFromInt edge)) 1.57079632679)
-                      cap (* half-width (if (> vertical 0.0) (ak/as :f32 -1.0) 1.0))]
+                (let [angle (* (ak/as (ak/floatFromInt edge) :f32) 1.57079632679)
+                      cap (* half-width (if (> vertical 0.0) (ak/as -1.0 :f32) 1.0))]
                   (b3/b3RotateVector rotation
                     (b3/b3Vec3 {:x (* radius (ak/cos angle)) :y cap :z (* radius (ak/sin angle))}))))
             point (b3/b3Pos {:x (+ (az/field position x) (az/field r x))
@@ -360,7 +360,7 @@
             normal (if (> penetration 0.0)
                      (ak/max 0.0 (- (* edge-mass frequency frequency penetration)
                                      (* 2.0 edge-mass frequency normal-speed)))
-                     (ak/as :f32 0.0))
+                     (ak/as 0.0 :f32))
             slip (ak/sqrt (b3/b3Dot tangent tangent))
             direction (b3/b3MulSV (/ 1.0 (ak/max slip 0.000001)) tangent)
             arm (b3/b3Cross r direction)
@@ -384,7 +384,7 @@
   stop accumulation; an airborne wheel has no supporting contact work." [[vehicle Vehicle]]
   (let [world (b3/b3Body_GetWorld (az/field vehicle chassis))
         raw (b3/b3World_GetUserData world)
-        ^{:var :f64} loss 0.0]
+        ^:var loss (ak/f64 0.0)]
     (when (ak/!= raw ak/null)
       (let [state (az/cast raw [:* WorldState])]
         (dotimes [i (az/field state count)]
@@ -432,7 +432,7 @@
                                 indices (b3/b3GetMeshMaterialIndices (az/field mesh data))]
                             (when (ak/!= indices ak/null)
                               (set! material (b3/b3Shape_GetMeshSurfaceMaterial shape
-                                (az/index indices (ak/as :usize (ak/intCast (az/field hit triangleIndex)))))))))
+                                (az/index indices (ak/as (ak/intCast (az/field hit triangleIndex)) :usize)))))))
                         (ak/+= (az/field (az/index (az/field state tires) i) wear_loss)
                           (tire-plane-step! tire (az/field hit normal) (az/field hit point)
                             (az/field material friction)))))))))))))))

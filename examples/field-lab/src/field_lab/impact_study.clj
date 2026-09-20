@@ -48,8 +48,8 @@
   (let [mesh (az/field state mesh)
         elements (az/field mesh elements)
         origin (dynamics/position state 0)
-        ^{:var p/Vec3} first-moment (p/v 0.0 0.0 0.0)
-        ^{:var InertiaAudit} result (mem/zeroes (az/type InertiaAudit))]
+        ^:var first-moment (ak/as (p/v 0.0 0.0 0.0) p/Vec3)
+        ^:var result (ak/as (mem/zeroes (az/type InertiaAudit)) InertiaAudit)]
     ;; Accumulate relative to a local origin to avoid subtracting two large
     ;; world-coordinate second moments when the body is far from the origin.
     (dotimes [index (az/field elements len)]
@@ -82,10 +82,10 @@
       (dotimes [index (az/field elements len)]
         (let [element (az/index elements index)
               mass (* density (az/field element volume))
-              ^{:var p/Vec3} sum-position (p/v 0.0 0.0 0.0)
-              ^{:var p/Vec3} sum-velocity (p/v 0.0 0.0 0.0)
-              ^{:var :f64} sum-speed-squared 0.0
-              ^{:var p/Vec3} sum-cross (p/v 0.0 0.0 0.0)]
+              ^:var sum-position (ak/as (p/v 0.0 0.0 0.0) p/Vec3)
+              ^:var sum-velocity (ak/as (p/v 0.0 0.0 0.0) p/Vec3)
+              ^:var sum-speed-squared (ak/f64 0.0)
+              ^:var sum-cross (ak/as (p/v 0.0 0.0 0.0) p/Vec3)]
           (dotimes [local 4]
             (let [node (az/index (az/field element nodes) local)
                   relative (p/add (p/add (dynamics/position state node) (p/scale origin -1.0))
@@ -111,8 +111,8 @@
 (az/defn body-height :f64
   [[state [:* dynamics/Dynamics]]]
   (let [mesh (az/field state mesh)
-        ^{:var :f64} lower 1.0e30
-        ^{:var :f64} upper -1.0e30]
+        ^:var lower (ak/f64 1.0e30)
+        ^:var upper (ak/f64 -1.0e30)]
     (dotimes [node (az/field (az/field mesh positions) len)]
       (let [height (az/field (dynamics/position state node) y)]
         (az/set-many!
@@ -130,16 +130,16 @@
   "Inspect Cartesian material sections of the benchmark's box-mesh ordering.
   A one-dimensional axial wave has zero section spread and transverse velocity."
   [[state [:* dynamics/Dynamics]] [nx :usize] [ny :usize] [nz :usize]]
-  (let [^{:var RodFields} result
-        (RodFields {:maximum-section-velocity-spread 0.0
+  (let [^:var result
+        (ak/as (RodFields {:maximum-section-velocity-spread 0.0
                     :maximum-section-height-spread 0.0
                     :maximum-transverse-speed 0.0
-                    :transverse-kinetic-energy 0.0})]
+                    :transverse-kinetic-energy 0.0}) RodFields)]
     (dotimes [j (+ ny 1)]
-      (let [^{:var :f64} minimum-velocity 1.0e30
-            ^{:var :f64} maximum-velocity -1.0e30
-            ^{:var :f64} minimum-height 1.0e30
-            ^{:var :f64} maximum-height -1.0e30]
+      (let [^:var minimum-velocity (ak/f64 1.0e30)
+            ^:var maximum-velocity (ak/f64 -1.0e30)
+            ^:var minimum-height (ak/f64 1.0e30)
+            ^:var maximum-height (ak/f64 -1.0e30)]
         (dotimes [k (+ nz 1)]
           (dotimes [i (+ nx 1)]
             (let [node (+ i (* (+ nx 1) (+ j (* (+ ny 1) k))))

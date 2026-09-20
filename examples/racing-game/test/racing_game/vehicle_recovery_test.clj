@@ -106,7 +106,7 @@
             route (circuit/at-distance (* 4309.0 (az/field normal progress)) 0.0)
             close? (< (ak/abs side) (turnaround/recovery-side-clearance body other-body
                                      (az/field route heading)))
-            obstacle-gap (if close? gap (ak/as :f32 1000.0))
+            obstacle-gap (if close? gap (ak/as 1000.0 :f32))
             traffic (if close?
                       (driver/yield-to-offset-obstacle normal gap (az/field blocked speed) side) normal)
             output (recovery/step state normal traffic body 3.75 obstacle-gap 1000.0 0.0 true)
@@ -114,7 +114,7 @@
         (set! (az/index bodies 0) body)
         (set! (az/index bodies 1) other-body)
         (set! state (az/field output state))
-        (set! phases (ak/| phases (ak/<< (ak/as :u8 1) (ak/intCast (az/field state phase)))))
+        (set! phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (az/field state phase)))))
         (set! lane (ak/max lane (ak/abs (az/field normal lane))))
         (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                                             (* (az/field body qy) (az/field body qy)))))))
@@ -144,9 +144,9 @@
           (physics/step! world)))))
     (az/array-init [:array 12 :f32]
       [(* 4309.0 (- (az/field (driver/follow car 8.0 3.75) progress) 0.6657818))
-       lane up reverse-travel (ak/as :f32 (ak/floatFromInt phases))
+       lane up reverse-travel (ak/as (ak/floatFromInt phases) :f32)
        veto-count seek-veto pass-veto pass-separation last-reason
-       (ak/as :f32 (ak/floatFromInt (az/field state phase)))
+       (ak/as (ak/floatFromInt (az/field state phase)) :f32)
        (az/field (driver/follow car 8.0 3.75) speed)])))
 
 (deftest car-physically-backs-up-and-clears-obstruction-test

@@ -13,7 +13,7 @@
       numbers-left)))
 
 (az/deftest while-error-capture-test
-  (let [^{:var :u32} sum 0]
+  (let [^:var sum (ak/u32 0)]
     (set! numbers-left 3)
     (az/while-loop {:payload [number]
                     :error [error]

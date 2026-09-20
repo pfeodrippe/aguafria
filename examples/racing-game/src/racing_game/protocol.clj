@@ -192,10 +192,10 @@
         (when (and (ak/== end (az/field text len)) (ak/== (az/index text i) 10))
           (set! end i)))
       (let [labelled (and (>= end 5) (same-plan-word? (az/slice text 0 5) "plan:"))
-            word (mem/trim (az/type :u8) (az/slice text (if labelled (ak/as :usize 5) 0) end) " \t\r.")
-            ^{:var :u8} kind plan-invalid]
+            word (mem/trim (az/type :u8) (az/slice text (if labelled (ak/as 5 :usize) 0) end) " \t\r.")
+            ^:var kind (ak/u8 plan-invalid)]
         (dotimes [candidate 6]
-          (let [code (ak/as :u8 (ak/intCast (+ candidate 1)))]
+          (let [code (ak/as (ak/intCast (+ candidate 1)) :u8)]
             (when (same-plan-word? word (driving-plan-name code)) (set! kind code))))
         (when (ak/== kind plan-invalid) (ak/return result))
         (when (ak/== end (az/field text len))

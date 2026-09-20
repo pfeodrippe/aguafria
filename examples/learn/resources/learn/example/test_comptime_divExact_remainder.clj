@@ -4,7 +4,7 @@
 
 ;; Exact division promises a zero remainder; ten divided by three violates it.
 (az/defcomptime reject-inexact-division
-  (let [^{:zig/type :u32} numerator 10
-        ^{:zig/type :u32} denominator 3
+  (let [numerator (ak/u32 10)
+        denominator (ak/u32 3)
         quotient (ak/divExact numerator denominator)]
     (set! _ quotient)))

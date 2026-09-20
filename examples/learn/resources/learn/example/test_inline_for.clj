@@ -5,7 +5,7 @@
 
 (az/deftest inline-for-test
   (let [numbers (az/array-init [:array _ :i32] [2 4 6])
-        ^{:var :usize} sum 0]
+        ^:var sum (ak/usize 0)]
     (az/inline-for [number numbers]
       (let [T (ak/switch number
                 (case [2] :f32)

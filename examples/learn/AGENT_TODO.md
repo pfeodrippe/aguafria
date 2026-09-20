@@ -5,6 +5,19 @@ document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
 served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Make primitive type Vars callable, and make `(ak/as value type)` the
+      canonical, thread-first-friendly coercion API for primitive and complex
+      signature type forms. Return real JVM/native values, preserve Zig checks
+      and native ownership, migrate existing calls and binding annotations,
+      update converter/tooling, regenerate outputs, rebuild and verify Learn.
+      Migrated 822 coercion calls and 1,006 typed example bindings; regenerated
+      the 245-file TigerBeetle corpus with the updated converter cache version.
+      Verified: 262 library tests / 5,644 assertions; 52 Learn tests / 9,324
+      assertions; all 292 upstream comparisons; 10 browser/highlighting tests.
+      Dedicated nREPL acceptance covers real JVM scalars, native composites,
+      generic-function type preservation, checked ranges and view ownership.
+      Rebuilt and visually checked the served code and real `(main)` output.
+
 - [x] Replace redundant named-type map binding annotations with ordinary
       constructor calls throughout the repository, preserving mutability,
       alignment and required coercion annotations. Support locally bound types,

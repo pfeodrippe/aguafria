@@ -18,25 +18,25 @@
   (let [^:var vertices (mem/zeroes (az/type [:array (* (+ segments 1) track/surface-columns) b3/b3Vec3]))
         ^:var indices (mem/zeroes (az/type [:array (* segments 30) :i32]))
         ^:var materials (mem/zeroes (az/type [:array (* segments 10) :u8]))
-        ^{:var :usize} triangles 0
+        ^:var triangles (ak/usize 0)
         ^:var definition (mem/zeroes (az/type b3/b3MeshDef))
         ^:var body-definition (b3/b3DefaultBodyDef)
         ^:var shape (b3/b3DefaultShapeDef)
         ^:var surface-materials (mem/zeroes (az/type [:array 2 b3/b3SurfaceMaterial]))]
     (dotimes [i (+ segments 1)]
-      (let [progress (/ (ak/as :f32 (ak/floatFromInt i))
-                        (ak/as :f32 (ak/floatFromInt segments)))]
+      (let [progress (/ (ak/as (ak/floatFromInt i) :f32)
+                        (ak/as (ak/floatFromInt segments) :f32))]
         (dotimes [lane track/surface-columns]
           (let [p (track/surface-point progress lane)]
             (set! (az/index vertices (+ (* i track/surface-columns) lane))
                   (b3/b3Vec3 {:x (az/field p x) :y (az/field p y) :z (az/field p z)}))))))
     (dotimes [i segments]
       (dotimes [lane (- track/surface-columns 1)]
-        (let [a (ak/as :i32 (ak/intCast (+ (* i track/surface-columns) lane)))
-              stride (ak/as :i32 (ak/intCast track/surface-columns))
-              pa (/ (ak/as :f32 (ak/floatFromInt i)) (ak/as :f32 (ak/floatFromInt segments)))
-              pb (/ (ak/as :f32 (ak/floatFromInt (+ i 1))) (ak/as :f32 (ak/floatFromInt segments)))
-              material (if (track/surface-asphalt? lane) (ak/as :u8 1) (ak/as :u8 0))]
+        (let [a (ak/as (ak/intCast (+ (* i track/surface-columns) lane)) :i32)
+              stride (ak/as (ak/intCast track/surface-columns) :i32)
+              pa (/ (ak/as (ak/floatFromInt i) :f32) (ak/as (ak/floatFromInt segments) :f32))
+              pb (/ (ak/as (ak/floatFromInt (+ i 1)) :f32) (ak/as (ak/floatFromInt segments) :f32))
+              material (if (track/surface-asphalt? lane) (ak/as 1 :u8) (ak/as 0 :u8))]
           ;; At a taper, one half of a quad can legitimately collapse. Do not
           ;; feed zero-area triangles to Box3D or overlay pit/road meshes.
           (when (> (- (track/surface-boundary pb (+ lane 1)) (track/surface-boundary pb lane)) 0.001)

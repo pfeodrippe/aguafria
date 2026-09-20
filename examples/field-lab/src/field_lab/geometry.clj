@@ -116,7 +116,7 @@
              (and (ak/== (az/field axis x) 0) (ak/== (az/field axis y) 0) (ak/== (az/field axis z) 0)))
     (ak/return false))
   (let [^:var positive true ^:var negative true
-        count (if (ak/== kind 0) (ak/as :usize 1) 2)]
+        count (if (ak/== kind 0) (ak/as 1 :usize) 2)]
     (dotimes [time 2]
       (let [points (if (ak/== time 0) before after)]
         (dotimes [a count]
@@ -173,8 +173,8 @@
       (when (separated? kind before after) (ak/return 1))
       (when (non-coplanar? before after) (ak/return 2)))
     (let [factor (if (> separation 0.0)
-                   (if (ak/== kind 0) (ak/as :f64 7.549516567451064e-15) 7.105427357601002e-15)
-                   (if (ak/== kind 0) (ak/as :f64 6.661338147750939e-15) 6.217248937900877e-15))]
+                   (if (ak/== kind 0) (ak/as 7.549516567451064e-15 :f64) 7.105427357601002e-15)
+                   (if (ak/== kind 0) (ak/as 6.661338147750939e-15 :f64) 6.217248937900877e-15))]
       (dotimes [axis 3]
         (let [^:var bound factor]
           (dotimes [_ 3] (set! bound (up (* bound (az/index extent axis)))))
@@ -191,8 +191,8 @@
    [start [:pointer {:size :c :const? true} :f64]] [end [:pointer {:size :c :const? true} :f64]]]
   (when (or (ak/== start null) (ak/== end null) (and (> tet-count 0) (ak/== cells null))) (ak/return 0))
   (dotimes [tet tet-count]
-    (let [^{:var [:array 4 p/Vec3]} before ak/undefined
-          ^{:var [:array 4 p/Vec3]} after ak/undefined]
+    (let [^:var before (ak/as ak/undefined [:array 4 p/Vec3])
+          ^:var after (ak/as ak/undefined [:array 4 p/Vec3])]
       (dotimes [j 4]
         (let [node (az/index cells (+ (* tet 4) j))]
           (when (>= node nodes) (ak/return 0))
@@ -259,10 +259,10 @@
             b (az/index faces (+ (* face 3) (ak/mod (+ local 1) 3)))]
         (when (or (>= a nodes) (>= b nodes) (ak/== a b)) (ak/return 0))
         (set! (az/index keys (+ (* face 3) local))
-              (ak/| (ak/<< (ak/as :u64 (ak/min a b)) 32) (ak/max a b))))))
-  (mem/sortUnstable :u64 (az/slice keys 0 (* (ak/as :usize face-count) 3)) (ak/as :u8 0) edge-less?)
-  (let [^{:var :u32} count 0]
-    (dotimes [index (* (ak/as :usize face-count) 3)]
+              (ak/| (ak/<< (ak/as (ak/min a b) :u64) 32) (ak/max a b))))))
+  (mem/sortUnstable :u64 (az/slice keys 0 (* (ak/as face-count :usize) 3)) (ak/as 0 :u8) edge-less?)
+  (let [^:var count (ak/u32 0)]
+    (dotimes [index (* (ak/as face-count :usize) 3)]
       (when (or (ak/== count 0) (ak/!= (az/index keys index) (az/index keys (- count 1))))
         (set! (az/index keys count) (az/index keys index))
         (set! count (+ count 1))))

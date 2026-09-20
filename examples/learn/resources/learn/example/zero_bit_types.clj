@@ -1,9 +1,10 @@
 (ns learn.example.zero-bit-types
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defn entry :void {:attrs #{:export}} []
-  (let [^{:var :void} first-value (az/block)
-        ^{:var :void} second-value (az/block)]
+  (let [^:var first-value (ak/as (az/block) :void)
+        ^:var second-value (ak/as (az/block) :void)]
     (set! first-value second-value)
     (set! second-value first-value)))
 

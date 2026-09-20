@@ -1,5 +1,6 @@
 (ns learn.example.test-multidimensional-arrays
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defconst matrix
@@ -18,8 +19,7 @@
     (for [[cell row] [column-index (az/op ".." 0)]]
       (when (== row-index column-index)
         (try (testing/expectEqual 1.0 cell)))))
-  (let [^{:zig/type [:array 4 [:array 5 :f32]]}
-        zeroes (az/op "**" [(az/op "**" [0] 5)] 4)]
+  (let [zeroes (ak/as (az/op "**" [(az/op "**" [0] 5)] 4) [:array 4 [:array 5 :f32]])]
     (try (testing/expectEqual 0 (az/index (az/index zeroes 0) 0)))))
 
 (comment

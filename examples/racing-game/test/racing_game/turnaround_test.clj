@@ -67,25 +67,25 @@
         (set! (az/index bodies 1) (physics/body-state (az/field other chassis)))
         (let [output (turnaround/step state normal body bodies 2 0 turn? world)
               gear (if (az/field (az/field output state) active)
-                     (az/field (az/field output state) gear) (ak/as :i8 1))]
+                     (az/field (az/field output state) gear) (ak/as 1 :i8))]
           (set! state (az/field output state))
           (when (and (< tick 14400) (ak/== (mod tick 120) 0))
             (let [sign (az/field state turn_sign)
                   limit (az/field state lane_limit)]
               (set! (az/index recovery-trace (ak/divTrunc tick 120))
                 (az/array-init [:array 12 :f32]
-                  [(/ (ak/as :f32 (ak/floatFromInt tick)) 120.0)
+                  [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
                    (az/field body x) (az/field body y) (turnaround/heading body)
-                   (az/field normal lane) (ak/as :f32 (ak/floatFromInt (az/field state gear)))
+                   (az/field normal lane) (ak/as (ak/floatFromInt (az/field state gear)) :f32)
                    sign limit
-                   (ak/as :f32 (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 1 sign world limit)))
-                   (ak/as :f32 (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 -1 sign world limit)))
-                   (ak/as :f32 (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 1 (- sign) world limit)))
-                   (ak/as :f32 (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 -1 (- sign) world limit)))]))))
+                   (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 1 sign world limit)) :f32)
+                   (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 -1 sign world limit)) :f32)
+                   (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 1 (- sign) world limit)) :f32)
+                   (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 -1 (- sign) world limit)) :f32)]))))
           (when (and (ak/!= previous-gear 0) (ak/!= gear 0) (ak/!= gear previous-gear))
             (set! gear-change-speed (ak/max gear-change-speed (az/field normal speed))))
           (set! previous-gear gear)
-          (set! gears (ak/| gears (ak/<< (ak/as :u8 1) (ak/intCast (+ gear 1)))))
+          (set! gears (ak/| gears (ak/<< (ak/as 1 :u8) (ak/intCast (+ gear 1)))))
           (set! lane (ak/max lane (ak/abs (az/field normal lane))))
           (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                                               (* (az/field body qy) (az/field body qy)))))))
@@ -100,8 +100,8 @@
       (az/array-init [:array 9 :f32]
         [(* 4309.0 (- (az/field final progress) start)) lane up
          (math/cos (- (turnaround/heading body) (az/field road heading)))
-         (ak/as :f32 (ak/floatFromInt gears)) (az/field final speed)
-         gear-change-speed (if (az/field state active) (ak/as :f32 1.0) 0.0)
+         (ak/as (ak/floatFromInt gears) :f32) (az/field final speed)
+         gear-change-speed (if (az/field state active) (ak/as 1.0 :f32) 0.0)
          (az/field final lane)]))))
 
 (deftest captured-wrong-way-wreck-turnaround-test

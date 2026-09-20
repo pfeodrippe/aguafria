@@ -419,25 +419,25 @@
 
 (az/defn read-u32! :u32
   [[reader [:* Reader]]]
-  (let [b0 (ak/as :u32 (read-u8! reader))
-        b1 (ak/as :u32 (read-u8! reader))
-        b2 (ak/as :u32 (read-u8! reader))
-        b3 (ak/as :u32 (read-u8! reader))]
+  (let [b0 (ak/as (read-u8! reader) :u32)
+        b1 (ak/as (read-u8! reader) :u32)
+        b2 (ak/as (read-u8! reader) :u32)
+        b3 (ak/as (read-u8! reader) :u32)]
     (+ b0 (* b1 256) (* b2 65536) (* b3 16777216))))
 
 (az/defn read-u64! :u64
   [[reader [:* Reader]]]
-  (let [low (ak/as :u64 (read-u32! reader))
-        high (ak/as :u64 (read-u32! reader))]
+  (let [low (ak/as (read-u32! reader) :u64)
+        high (ak/as (read-u32! reader) :u64)]
     (+ low (* high 4294967296))))
 
 (az/defn skip-bytes! :void
   [[reader [:* Reader]]
    [count :u64]]
-  (if (and (<= count (ak/as :u64 (az/field (az/deref reader) length)))
+  (if (and (<= count (ak/as (az/field (az/deref reader) length) :u64))
            (can-read reader (ak/intCast count)))
     (set! (az/field (az/deref reader) cursor)
-          (+ (az/field (az/deref reader) cursor) (ak/as :usize (ak/intCast count))))
+          (+ (az/field (az/deref reader) cursor) (ak/as (ak/intCast count) :usize)))
     (set! (az/field (az/deref reader) error_code) parser-truncated)))
 
 (az/defn read-string-view! StringView
@@ -487,15 +487,14 @@
 (az/defn parse-gguf GgufSummary
   [[bytes [:c-pointer :u8]]
    [length :usize]]
-  (let [^{:var true :zig/type Reader}
-        reader (Reader {:bytes bytes :length length :cursor 0 :error_code parser-ok})
+  (let [^:var reader (ak/as (Reader {:bytes bytes :length length :cursor 0 :error_code parser-ok}) Reader)
         magic (read-u32! (ak/& reader))
         version (read-u32! (ak/& reader))
         tensor-count (read-u64! (ak/& reader))
         metadata-count (read-u64! (ak/& reader))
-        ^{:var true :zig/type :u32} f32-count 0
-        ^{:var true :zig/type :u32} q4-count 0
-        ^{:var true :zig/type :u32} q6-count 0]
+        ^:var f32-count (ak/u32 0)
+        ^:var q4-count (ak/u32 0)
+        ^:var q6-count (ak/u32 0)]
     (set! tensor-catalog-count 0)
     (set! metadata-catalog-count 0)
     (when (ak/!= magic gguf-magic)
@@ -543,8 +542,7 @@
       (dotimes [tensor-index tensor-count]
         (let [name (read-string-view! (ak/& reader))
               dimensions (read-u32! (ak/& reader))
-              ^{:var true :zig/type [:array 4 :u64]}
-              shape (az/array-init [:array 4 :u64] [0 0 0 0])]
+              ^:var shape (ak/as (az/array-init [:array 4 :u64] [0 0 0 0]) [:array 4 :u64])]
           (if (> dimensions 4)
             (set! (az/field reader error_code) parser-limit)
             (dotimes [dimension dimensions]
@@ -578,10 +576,10 @@
           (set! (az/field (az/index tensor-catalog tensor-index) data_address)
                 (+ (ak/intFromPtr bytes)
                    data-offset
-                   (ak/as :usize
-                          (ak/intCast
+                   (ak/as (ak/intCast
                            (az/field (az/index tensor-catalog tensor-index)
-                                     relative_offset)))))))
+                                     relative_offset))
+                          :usize)))))
       (GgufSummary {:loaded true :valid valid
                     :error_code (az/field reader error_code)
                     :version version :tensor_count tensor-count
@@ -594,10 +592,10 @@
 (az/defn action-head-header-u32 :u32
   [[header [:pointer {:size :c :const? true} :u8]]
    [offset :usize]]
-  (+ (ak/as :u32 (az/index header offset))
-     (* (ak/as :u32 (az/index header (+ offset 1))) 256)
-     (* (ak/as :u32 (az/index header (+ offset 2))) 65536)
-     (* (ak/as :u32 (az/index header (+ offset 3))) 16777216)))
+  (+ (ak/as (az/index header offset) :u32)
+     (* (ak/as (az/index header (+ offset 1)) :u32) 256)
+     (* (ak/as (az/index header (+ offset 2)) :u32) 65536)
+     (* (ak/as (az/index header (+ offset 3)) :u32) 16777216)))
 
 (az/defn unload-action-head! :void
   "Disable the racing-specific head without touching the shared base model."
@@ -641,7 +639,7 @@
                       :input_count 0 :output_count 0
                       :observation_schema 0 :action_schema 0
                       :weight_count 0 :file_size 0}))
-              (let [size (ak/as :usize (ak/intCast signed-size))
+              (let [size (ak/as (ak/intCast signed-size) :usize)
                     ^:var header
                     (std-mem/zeroes (az/type [:array 32 :u8]))
                     header-read
@@ -731,7 +729,7 @@
                       :input_count 0 :output_count 0
                       :observation_schema 0 :action_schema 0
                       :weight_count 0 :file_size 0}))
-              (let [size (ak/as :usize (ak/intCast signed-size))
+              (let [size (ak/as (ak/intCast signed-size) :usize)
                     ^:var header
                     (std-mem/zeroes (az/type [:array 32 :u8]))
                     header-read
@@ -837,8 +835,7 @@
 (az/defn loaded-model-sha256 [:array 32 :u8]
   "Compute the exact SHA-256 digest of the currently owned model bytes."
   []
-  (let [^{:var true :zig/type [:array 32 :u8]}
-        digest (std-mem/zeroes (az/type [:array 32 :u8]))]
+  (let [^:var digest (ak/as (std-mem/zeroes (az/type [:array 32 :u8])) [:array 32 :u8])]
     (when (ak/!= model-bytes null)
       ((az/field std-sha2/Sha256 hash)
        (az/slice (az/unwrap model-bytes) 0 model-byte-count)
@@ -850,7 +847,7 @@
   "Compare one digest value with an expected 32-byte digest."
   [[actual [:array 32 :u8]]
    [expected [:pointer {:size :one :const? true} [:array 32 :u8]]]]
-  (let [^{:var true :zig/type :bool} equal true]
+  (let [^:var equal (ak/bool true)]
     (dotimes [index 32]
       (when (ak/!= (az/index actual index)
                    (az/index (az/deref expected) index))
@@ -864,18 +861,17 @@
   (let [file (runtime/fopen path "rb")]
     (if (ak/== file null)
       false
-      (let [^{:var true :zig/type :bool} valid false]
+      (let [^:var valid (ak/bool false)]
         (set! _ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
           (set! _ (runtime/fseek file 0 0))
           (when (> signed-size 0)
-            (let [size (ak/as :usize (ak/intCast signed-size))
+            (let [size (ak/as (ak/intCast signed-size) :usize)
                   allocation (runtime/malloc size)]
               (when (ak/!= allocation null)
                 (let [bytes (az/cast allocation [:c-pointer :u8])
                       count (runtime/fread bytes 1 size file)
-                      ^{:var true :zig/type [:array 32 :u8]}
-                      actual (std-mem/zeroes (az/type [:array 32 :u8]))]
+                      ^:var actual (ak/as (std-mem/zeroes (az/type [:array 32 :u8])) [:array 32 :u8])]
                   (when (ak/== count size)
                     ((az/field std-sha2/Sha256 hash)
                      (az/slice bytes 0 size)
@@ -923,7 +919,7 @@
           (>= metadata-index metadata-catalog-count))
     false
     (let [length (az/field (az/index metadata-catalog metadata-index) key_length)
-          ^{:var true :zig/type :bool} equal true]
+          ^:var equal (ak/bool true)]
       (dotimes [byte-index length]
         (when (ak/!= (metadata-name-byte metadata-index byte-index)
                      (az/index expected byte-index))
@@ -933,7 +929,7 @@
 (az/defn find-metadata :usize
   "Resolve a GGUF metadata entry by its exact zero-terminated key."
   [[expected [:pointer {:size :c :const? true} :u8]]]
-  (let [^{:var true :zig/type :usize} found metadata-not-found]
+  (let [^:var found (ak/usize metadata-not-found)]
     (dotimes [metadata-index metadata-catalog-count]
       (when (and (ak/== found metadata-not-found)
                  (metadata-name-equals metadata-index expected))
@@ -944,17 +940,17 @@
   [[offset :usize]]
   (if (or (ak/== model-bytes null) (> (+ offset 4) model-byte-count))
     0
-    (+ (ak/as :u32 (az/index (az/unwrap model-bytes) offset))
-       (* (ak/as :u32 (az/index (az/unwrap model-bytes) (+ offset 1))) 256)
-       (* (ak/as :u32 (az/index (az/unwrap model-bytes) (+ offset 2))) 65536)
-       (* (ak/as :u32 (az/index (az/unwrap model-bytes) (+ offset 3))) 16777216))))
+    (+ (ak/as (az/index (az/unwrap model-bytes) offset) :u32)
+       (* (ak/as (az/index (az/unwrap model-bytes) (+ offset 1)) :u32) 256)
+       (* (ak/as (az/index (az/unwrap model-bytes) (+ offset 2)) :u32) 65536)
+       (* (ak/as (az/index (az/unwrap model-bytes) (+ offset 3)) :u32) 16777216))))
 
 (az/defn model-u64-at :u64
   [[offset :usize]]
   (if (or (ak/== model-bytes null) (> (+ offset 8) model-byte-count))
     0
-    (+ (ak/as :u64 (model-u32-at offset))
-       (ak/<< (ak/as :u64 (model-u32-at (+ offset 4))) 32))))
+    (+ (ak/as (model-u32-at offset) :u64)
+       (ak/<< (ak/as (model-u32-at (+ offset 4)) :u64) 32))))
 
 (az/defn metadata-u32 :u32
   "Read a scalar u32 metadata value, returning `fallback` on type mismatch."
@@ -972,24 +968,24 @@
    [fallback :f32]]
   (if (and (< metadata-index metadata-catalog-count)
            (ak/== (az/field (az/index metadata-catalog metadata-index) value_type) 6))
-    (ak/as :f32
-           (ak/bitCast
+    (ak/as (ak/bitCast
             (model-u32-at
-             (az/field (az/index metadata-catalog metadata-index) value_start))))
+             (az/field (az/index metadata-catalog metadata-index) value_start)))
+           :f32)
     fallback))
 
 (az/defn tokenizer-hash-range :u64
   [[start :usize]
    [length :usize]]
-  (let [^{:var true :zig/type :u64} hash 1469598103934665603]
+  (let [^:var hash (ak/u64 1469598103934665603)]
     (when (ak/!= model-bytes null)
       (dotimes [index length]
         (set! hash
               (ak/*% (ak/bit-xor
                       hash
-                      (ak/as :u64
-                             (az/index (az/unwrap model-bytes)
-                                       (+ start index))))
+                      (ak/as (az/index (az/unwrap model-bytes)
+                                       (+ start index))
+                             :u64))
                      1099511628211))))
     hash))
 
@@ -998,23 +994,23 @@
    [left-length :usize]
    [right-start :usize]
    [right-length :usize]]
-  (let [^{:var true :zig/type :u64} hash 1469598103934665603]
+  (let [^:var hash (ak/u64 1469598103934665603)]
     (when (ak/!= model-bytes null)
       (dotimes [index left-length]
         (set! hash
               (ak/*% (ak/bit-xor
                       hash
-                      (ak/as :u64
-                             (az/index (az/unwrap model-bytes)
-                                       (+ left-start index))))
+                      (ak/as (az/index (az/unwrap model-bytes)
+                                       (+ left-start index))
+                             :u64))
                      1099511628211)))
       (dotimes [index right-length]
         (set! hash
               (ak/*% (ak/bit-xor
                       hash
-                      (ak/as :u64
-                             (az/index (az/unwrap model-bytes)
-                                       (+ right-start index))))
+                      (ak/as (az/index (az/unwrap model-bytes)
+                                       (+ right-start index))
+                             :u64))
                      1099511628211))))
     hash))
 
@@ -1023,11 +1019,11 @@
    [start :usize]
    [length :usize]]
   (if (or (>= token tokenizer-token-count)
-          (ak/!= (ak/as :usize (az/index tokenizer-token-lengths token))
+          (ak/!= (ak/as (az/index tokenizer-token-lengths token) :usize)
                  length))
     false
-    (let [token-start (ak/as :usize (az/index tokenizer-token-starts token))
-          ^{:var true :zig/type :bool} equal true]
+    (let [token-start (ak/as (az/index tokenizer-token-starts token) :usize)
+          ^:var equal (ak/bool true)]
       (dotimes [index length]
         (when (ak/!= (az/index (az/unwrap model-bytes) (+ token-start index))
                      (az/index (az/unwrap model-bytes) (+ start index)))
@@ -1041,11 +1037,11 @@
    [right-start :usize]
    [right-length :usize]]
   (if (or (>= token tokenizer-token-count)
-          (ak/!= (ak/as :usize (az/index tokenizer-token-lengths token))
+          (ak/!= (ak/as (az/index tokenizer-token-lengths token) :usize)
                  (+ left-length right-length)))
     false
-    (let [token-start (ak/as :usize (az/index tokenizer-token-starts token))
-          ^{:var true :zig/type :bool} equal true]
+    (let [token-start (ak/as (az/index tokenizer-token-starts token) :usize)
+          ^:var equal (ak/bool true)]
       (dotimes [index left-length]
         (when (ak/!= (az/index (az/unwrap model-bytes) (+ token-start index))
                      (az/index (az/unwrap model-bytes) (+ left-start index)))
@@ -1060,13 +1056,13 @@
 
 (az/defn tokenizer-insert-vocabulary! :bool
   [[token :u32]]
-  (let [start (ak/as :usize (az/index tokenizer-token-starts token))
-        length (ak/as :usize (az/index tokenizer-token-lengths token))
-        base (ak/as :usize
-                    (ak/intCast
+  (let [start (ak/as (az/index tokenizer-token-starts token) :usize)
+        length (ak/as (az/index tokenizer-token-lengths token) :usize)
+        base (ak/as (ak/intCast
                      (mod (tokenizer-hash-range start length)
-                          tokenizer-hash-capacity)))
-        ^{:var true :zig/type :bool} inserted false]
+                          tokenizer-hash-capacity))
+                    :usize)
+        ^:var inserted (ak/bool false)]
     (dotimes [probe tokenizer-hash-capacity]
       (when (ak/! inserted)
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)]
@@ -1080,12 +1076,12 @@
 (az/defn tokenizer-find-range :u32
   [[start :usize]
    [length :usize]]
-  (let [base (ak/as :usize
-                    (ak/intCast
+  (let [base (ak/as (ak/intCast
                      (mod (tokenizer-hash-range start length)
-                          tokenizer-hash-capacity)))
-        ^{:var true :zig/type :u32} result tokenizer-empty-id
-        ^{:var true :zig/type :bool} searching true]
+                          tokenizer-hash-capacity))
+                    :usize)
+        ^:var result (ak/u32 tokenizer-empty-id)
+        ^:var searching (ak/bool true)]
     (dotimes [probe tokenizer-hash-capacity]
       (when searching
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)
@@ -1103,13 +1099,13 @@
    [right-start :usize]
    [right-length :usize]]
   (let [base
-        (ak/as :usize
-               (ak/intCast
+        (ak/as (ak/intCast
                 (mod (tokenizer-hash-concat
                       left-start left-length right-start right-length)
-                     tokenizer-hash-capacity)))
-        ^{:var true :zig/type :u32} result tokenizer-empty-id
-        ^{:var true :zig/type :bool} searching true]
+                     tokenizer-hash-capacity))
+               :usize)
+        ^:var result (ak/u32 tokenizer-empty-id)
+        ^:var searching (ak/bool true)]
     (dotimes [probe tokenizer-hash-capacity]
       (when searching
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)
@@ -1125,16 +1121,16 @@
 (az/defn tokenizer-pair-key :u64
   [[left :u32]
    [right :u32]]
-  (+ (ak/<< (ak/as :u64 left) 32) (ak/as :u64 right)))
+  (+ (ak/<< (ak/as left :u64) 32) (ak/as right :u64)))
 
 (az/defn tokenizer-pair-slot :usize
   [[pair :u64]
    [probe :usize]]
-  (ak/as :usize
-         (ak/intCast
+  (ak/as (ak/intCast
           (mod (+ (ak/*% pair 11400714819323198485)
-                  (ak/as :u64 probe))
-               tokenizer-hash-capacity))))
+                  (ak/as probe :u64))
+               tokenizer-hash-capacity))
+         :usize))
 
 (az/defn tokenizer-insert-merge! :bool
   [[left :u32]
@@ -1142,7 +1138,7 @@
    [rank :u32]
    [token :u32]]
   (let [pair (tokenizer-pair-key left right)
-        ^{:var true :zig/type :bool} inserted false]
+        ^:var inserted (ak/bool false)]
     (dotimes [probe tokenizer-hash-capacity]
       (when (ak/! inserted)
         (let [slot (tokenizer-pair-slot pair probe)]
@@ -1159,10 +1155,10 @@
   [[left :u32]
    [right :u32]]
   (let [pair (tokenizer-pair-key left right)
-        ^{:var true :zig/type :bool} found false
-        ^{:var true :zig/type :bool} searching true
-        ^{:var true :zig/type :u32} rank 0xffffffff
-        ^{:var true :zig/type :u32} token 0]
+        ^:var found (ak/bool false)
+        ^:var searching (ak/bool true)
+        ^:var rank (ak/u32 0xffffffff)
+        ^:var token (ak/u32 0)]
     (dotimes [probe tokenizer-hash-capacity]
       (when searching
         (let [slot (tokenizer-pair-slot pair probe)
@@ -1190,8 +1186,7 @@
         merges-info
         (az/index metadata-catalog
                   (if (< merges-index metadata-catalog-count) merges-index 0))
-        ^{:var true :zig/type :bool}
-        valid (and (< tokens-index metadata-catalog-count)
+        ^:var valid (ak/bool (and (< tokens-index metadata-catalog-count)
                    (< merges-index metadata-catalog-count)
                    (ak/== (az/field tokens-info value_type) 9)
                    (ak/== (az/field tokens-info element_type) 8)
@@ -1200,9 +1195,8 @@
                    (ak/== (az/field merges-info value_type) 9)
                    (ak/== (az/field merges-info element_type) 8)
                    (<= (az/field merges-info element_count)
-                       tokenizer-vocabulary-capacity))
-        ^{:var true :zig/type :usize}
-        cursor (if valid (az/field tokens-info value_start) 0)]
+                       tokenizer-vocabulary-capacity)))
+        ^:var cursor (ak/usize (if valid (az/field tokens-info value_start) 0))]
     (set! tokenizer-valid false)
     (set! tokenizer-token-count 0)
     (set! tokenizer-merge-count 0)
@@ -1215,7 +1209,7 @@
           (let [length64 (model-u64-at cursor)
                 start (+ cursor 8)]
             (if (or (> length64 65535)
-                    (> (+ start (ak/as :usize (ak/intCast length64)))
+                    (> (+ start (ak/as (ak/intCast length64) :usize))
                        model-byte-count))
               (set! valid false)
               (do
@@ -1224,7 +1218,7 @@
                 (set! (az/index tokenizer-token-lengths token)
                       (ak/intCast length64))
                 (set! tokenizer-token-count (ak/intCast (+ token 1)))
-                (set! cursor (+ start (ak/as :usize (ak/intCast length64)))))))))
+                (set! cursor (+ start (ak/as (ak/intCast length64) :usize))))))))
       (dotimes [token tokenizer-vocabulary-capacity]
         (when valid
           (set! valid (tokenizer-insert-vocabulary! (ak/intCast token)))))
@@ -1232,9 +1226,9 @@
       (dotimes [merge-index (az/field merges-info element_count)]
         (when valid
           (let [length64 (model-u64-at cursor)
-                length (ak/as :usize (ak/intCast length64))
+                length (ak/as (ak/intCast length64) :usize)
                 start (+ cursor 8)
-                ^{:var true :zig/type :usize} separator length]
+                ^:var separator (ak/usize length)]
             (when (> (+ start length) model-byte-count)
               (set! valid false))
             (when valid
@@ -1307,10 +1301,10 @@
                  (ak/== (az/index (az/field (az/index tensor-catalog kv-index) dimensions) 0) hidden)
                  (ak/== (mod (az/index (az/field (az/index tensor-catalog kv-index) dimensions) 1)
                              (/ hidden attention-heads)) 0))
-          (ak/as :u32 (ak/intCast
+          (ak/as (ak/intCast
             (/ (az/index (az/field (az/index tensor-catalog kv-index) dimensions) 1)
-               (/ hidden attention-heads))))
-          (ak/as :u32 0))
+               (/ hidden attention-heads))) :u32)
+          (ak/as 0 :u32))
         profile
         (cond
           (and (ak/== hidden 768) (ak/== ffn 2048) (ak/== layers 32)
@@ -1332,8 +1326,7 @@
           model-profile-granite-h-micro
 
           :else model-profile-none)
-        ^{:var true :zig/type :bool}
-        valid (ak/!= profile model-profile-none)]
+        ^:var valid (ak/bool (ak/!= profile model-profile-none))]
     (set! model-profile-id profile)
     (when valid
       (set! model-hidden-size (ak/intCast hidden))
@@ -1342,11 +1335,11 @@
       (set! model-mamba-layer-count (- model-layer-count 4))
       (set! model-mamba-inner-size (ak/intCast inner))
       (set! model-mamba-conv-size
-            (+ model-mamba-inner-size (* 2 (ak/as :usize state))))
+            (+ model-mamba-inner-size (* 2 (ak/as state :usize))))
       (set! model-mamba-projection-size
             (+ (* 2 model-mamba-inner-size)
-               (* 2 (ak/as :usize state))
-               (ak/as :usize heads)))
+               (* 2 (ak/as state :usize))
+               (ak/as heads :usize)))
       (set! model-mamba-head-count (ak/intCast heads))
       (set! model-mamba-head-size
             (/ model-mamba-inner-size model-mamba-head-count))
@@ -1423,7 +1416,7 @@
   "Map one ASCII byte to the model's exact GPT-2 base-byte token id."
   [[byte :u8]]
   (cond
-    (and (>= byte 33) (<= byte 126)) (- (ak/as :u32 byte) 33)
+    (and (>= byte 33) (<= byte 126)) (- (ak/as byte :u32) 33)
     (ak/== byte 32) 220
     (ak/== byte 10) 198
     (ak/== byte 9) 197
@@ -1437,11 +1430,10 @@
   [[bytes [:pointer {:size :c :const? true} :u8]]
    [length :usize]]
   (let [count (ak/min length tokenizer-capacity)
-        ^{:var true :zig/type :usize} token-count count
-        ^{:var true :zig/type :bool} valid true
-        ^{:var true :zig/type :u16} unsupported (ak/intCast length)
-        ^{:var true :zig/type [:array 160 :u32]}
-        tokens (std-mem/zeroes (az/type [:array 160 :u32]))]
+        ^:var token-count (ak/usize count)
+        ^:var valid (ak/bool true)
+        ^:var unsupported (ak/u16 (ak/intCast length))
+        ^:var tokens (ak/as (std-mem/zeroes (az/type [:array 160 :u32])) [:array 160 :u32])]
     (dotimes [index count]
       (let [byte (az/index bytes index)
             token (ascii-byte-token byte)]
@@ -1451,11 +1443,11 @@
           (set! unsupported (ak/intCast index)))))
     (dotimes [_ count]
       (when (and valid tokenizer-valid (> token-count 1))
-        (let [^{:var true :zig/type :bool} found false
-              ^{:var true :zig/type :u32} best-rank 0xffffffff
-              ^{:var true :zig/type :u32} best-left 0
-              ^{:var true :zig/type :u32} best-right 0
-              ^{:var true :zig/type :u32} best-token 0]
+        (let [^:var found (ak/bool false)
+              ^:var best-rank (ak/u32 0xffffffff)
+              ^:var best-left (ak/u32 0)
+              ^:var best-right (ak/u32 0)
+              ^:var best-token (ak/u32 0)]
           (dotimes [index (- token-count 1)]
             (let [left (az/index tokens index)
                   right (az/index tokens (+ index 1))
@@ -1468,8 +1460,8 @@
                 (set! best-right right)
                 (set! best-token (az/field merge token)))))
           (when found
-            (let [^{:var true :zig/type :usize} input-index 0
-                  ^{:var true :zig/type :usize} output-index 0]
+            (let [^:var input-index (ak/usize 0)
+                  ^:var output-index (ak/usize 0)]
               (ak/while (< input-index token-count)
                 (if (and (< (+ input-index 1) token-count)
                          (ak/== (az/index tokens input-index) best-left)
@@ -1512,7 +1504,7 @@
           (>= tensor-index tensor-catalog-count))
     false
     (let [length (az/field (az/index tensor-catalog tensor-index) name_length)
-          ^{:var true :zig/type :bool} equal true]
+          ^:var equal (ak/bool true)]
       (dotimes [byte-index length]
         (when (ak/!= (tensor-name-byte tensor-index byte-index)
                      (az/index expected byte-index))
@@ -1522,7 +1514,7 @@
 (az/defn find-tensor :usize
   "Resolve a GGUF tensor by its exact zero-terminated name."
   [[expected [:pointer {:size :c :const? true} :u8]]]
-  (let [^{:var true :zig/type :usize} found tensor-not-found]
+  (let [^:var found (ak/usize tensor-not-found)]
     (dotimes [tensor-index tensor-catalog-count]
       (when (and (ak/== found tensor-not-found)
                  (tensor-name-equals tensor-index expected))
@@ -1554,7 +1546,7 @@
                     :version 0 :tensor_count 0 :metadata_count 0
                     :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
                     :descriptor_end 0 :data_offset 0 :file_size 0}))
-            (let [size (ak/as :usize (ak/intCast signed-size))
+            (let [size (ak/as (ak/intCast signed-size) :usize)
                   mapping
                   (catch
                    (std-posix/mmap
@@ -1566,9 +1558,9 @@
                    null)]
               (if (ak/!= mapping null)
                 (let [bytes
-                      (ak/as (az/type [:c-pointer :u8])
-                             (ak/ptrCast
-                              (az/field (az/unwrap mapping) ptr)))]
+                      (ak/as (ak/ptrCast
+                              (az/field (az/unwrap mapping) ptr))
+                             (az/type [:c-pointer :u8]))]
                   (set! model-bytes bytes)
                   (set! model-byte-count size)
                   (set! model-storage model-storage-mapped)
@@ -1617,53 +1609,44 @@
   allowing Zig to use the host's native vector instructions."
   [[block [:pointer {:size :c :const? true} :u8]]
    [input [:pointer {:size :c :const? true} :f32]]]
-  (let [scale-bits (+ (ak/as :u16 (az/index block 0))
-                      (* (ak/as :u16 (az/index block 1)) 256))
-        scale (ak/as :f32 (ak/floatCast (ak/as :f16 (ak/bitCast scale-bits))))
-        ^{:zig/type [:vector 16 :u8]}
-        packed-bytes (ak/bitCast
+  (let [scale-bits (+ (ak/as (az/index block 0) :u16)
+                      (* (ak/as (az/index block 1) :u16) 256))
+        scale (ak/as (ak/floatCast (ak/as (ak/bitCast scale-bits) :f16)) :f32)
+        packed-bytes (ak/as (ak/bitCast
                       (az/deref
                        (az/cast (+ block 2)
                                 [:pointer {:size :one :const? true}
-                                 [:array 16 :u8]])))
-        ^{:zig/type [:vector 16 :u8]}
+                                 [:array 16 :u8]]))) [:vector 16 :u8])
         low-unsigned
-        (ak/& packed-bytes
-              (ak/as (az/type [:vector 16 :u8]) (ak/splat 15)))
-        ^{:zig/type [:vector 16 :u8]}
+        (ak/as (ak/& packed-bytes
+              (ak/as (ak/splat 15) (az/type [:vector 16 :u8]))) [:vector 16 :u8])
         high-unsigned
-        (ak/>> packed-bytes
-               (ak/as (az/type [:vector 16 :u8]) (ak/splat 4)))
-        ^{:zig/type [:vector 16 :i16]}
+        (ak/as (ak/>> packed-bytes
+               (ak/as (ak/splat 4) (az/type [:vector 16 :u8]))) [:vector 16 :u8])
         low-signed
-        (- (ak/as (az/type [:vector 16 :i16])
-                  (ak/intCast low-unsigned))
-           (ak/as (az/type [:vector 16 :i16]) (ak/splat 8)))
-        ^{:zig/type [:vector 16 :i16]}
+        (ak/as (- (ak/as (ak/intCast low-unsigned)
+                  (az/type [:vector 16 :i16]))
+           (ak/as (ak/splat 8) (az/type [:vector 16 :i16]))) [:vector 16 :i16])
         high-signed
-        (- (ak/as (az/type [:vector 16 :i16])
-                  (ak/intCast high-unsigned))
-           (ak/as (az/type [:vector 16 :i16]) (ak/splat 8)))
-        ^{:zig/type [:vector 16 :f32]}
+        (ak/as (- (ak/as (ak/intCast high-unsigned)
+                  (az/type [:vector 16 :i16]))
+           (ak/as (ak/splat 8) (az/type [:vector 16 :i16]))) [:vector 16 :i16])
         low-values
-        (ak/as (az/type [:vector 16 :f32])
-               (ak/floatFromInt low-signed))
-        ^{:zig/type [:vector 16 :f32]}
+        (ak/as (ak/as (ak/floatFromInt low-signed)
+               (az/type [:vector 16 :f32])) [:vector 16 :f32])
         high-values
-        (ak/as (az/type [:vector 16 :f32])
-               (ak/floatFromInt high-signed))
-        ^{:zig/type [:vector 16 :f32]}
-        low-input (ak/bitCast
+        (ak/as (ak/as (ak/floatFromInt high-signed)
+               (az/type [:vector 16 :f32])) [:vector 16 :f32])
+        low-input (ak/as (ak/bitCast
                    (az/deref
                     (az/cast input
                              [:pointer {:size :one :const? true}
-                              [:array 16 :f32]])))
-        ^{:zig/type [:vector 16 :f32]}
-        high-input (ak/bitCast
+                              [:array 16 :f32]]))) [:vector 16 :f32])
+        high-input (ak/as (ak/bitCast
                     (az/deref
                      (az/cast (+ input 16)
                               [:pointer {:size :one :const? true}
-                               [:array 16 :f32]])))]
+                               [:array 16 :f32]]))) [:vector 16 :f32])]
     (* scale
        (ak/reduce :.Add
                   (+ (* low-values low-input)
@@ -1675,17 +1658,17 @@
    [index :usize]]
   (if (>= index 32)
     0.0
-    (let [scale-bits (+ (ak/as :u16 (az/index block 0))
-                        (* (ak/as :u16 (az/index block 1)) 256))
-          scale (ak/as :f32
-                       (ak/floatCast (ak/as :f16 (ak/bitCast scale-bits))))
+    (let [scale-bits (+ (ak/as (az/index block 0) :u16)
+                        (* (ak/as (az/index block 1) :u16) 256))
+          scale (ak/as (ak/floatCast (ak/as (ak/bitCast scale-bits) :f16))
+                       :f32)
           packed-byte (az/index block (+ 2 (mod index 16)))
           quantized (if (< index 16)
                       (mod packed-byte 16)
                       (/ packed-byte 16))]
       (* scale
-         (ak/as :f32
-                (ak/floatFromInt (- (ak/as :i16 quantized) 8)))))))
+         (ak/as (ak/floatFromInt (- (ak/as quantized :i16) 8))
+                :f32)))))
 
 (az/defn rms-norm! :void
   "Allocation-free RMSNorm over one dense activation vector."
@@ -1694,12 +1677,12 @@
    [weights [:pointer {:size :c :const? true} :f32]]
    [length :usize]
    [epsilon :f32]]
-  (let [^{:var true :zig/type :f32} square-sum 0.0]
+  (let [^:var square-sum (ak/f32 0.0)]
     (dotimes [index length]
       (set! square-sum (+ square-sum (* (az/index input index)
                                        (az/index input index)))))
     (let [inverse-rms (/ 1.0 (std-math/sqrt (+ (/ square-sum
-                                                   (ak/as :f32 (ak/floatFromInt length)))
+                                                   (ak/as (ak/floatFromInt length) :f32))
                                                 epsilon)))]
       (dotimes [index length]
         (set! (az/index output index)
@@ -1710,8 +1693,8 @@
   [[values [:c-pointer :f32]]
    [length :usize]]
   (when (> length 0)
-    (let [^{:var true :zig/type :f32} maximum (az/index values 0)
-          ^{:var true :zig/type :f32} total 0.0]
+    (let [^:var maximum (ak/f32 (az/index values 0))
+          ^:var total (ak/f32 0.0)]
       (dotimes [index length]
         (set! maximum (ak/max maximum (az/index values index))))
       (dotimes [index length]
@@ -1748,7 +1731,7 @@
       (dotimes [component head-dimension]
         (let [hidden-index (+ (* head head-dimension) component)
               hidden-value (az/index hidden hidden-index)
-              ^{:var true :zig/type :f32} total 0.0]
+              ^:var total (ak/f32 0.0)]
           (dotimes [state-component state-size]
             (let [state-index (+ (* hidden-index state-size) state-component)
                   next-state (+ (* (az/index state state-index) decay)
@@ -1771,7 +1754,7 @@
   (if (or (>= weights-index tensor-catalog-count)
           (ak/!= (az/field (az/index tensor-catalog weights-index) ggml_type) 0))
     false
-    (let [^{:var true :zig/type :f32} square-sum 0.0]
+    (let [^:var square-sum (ak/f32 0.0)]
       (dotimes [index length]
         (let [value (* (az/index hidden index)
                        (silu (az/index gate index)))]
@@ -1780,7 +1763,7 @@
       (let [inverse-rms (/ 1.0
                            (std-math/sqrt
                             (+ (/ square-sum
-                                  (ak/as :f32 (ak/floatFromInt length)))
+                                  (ak/as (ak/floatFromInt length) :f32))
                                epsilon)))]
         (dotimes [index length]
           (set! (az/index output index)
@@ -1807,7 +1790,7 @@
   [[layer :usize]]
   (if (ak/! (attention-layer? layer))
     model-attention-layer-count
-    (let [^{:var true :zig/type :usize} slot 0]
+    (let [^:var slot (ak/usize 0)]
       (dotimes [candidate layer]
         (when (attention-layer? candidate)
           (set! slot (+ slot 1))))
@@ -1815,7 +1798,7 @@
 
 (az/defn attention-layers-before :usize
   [[layer :usize]]
-  (let [^{:var true :zig/type :usize} count 0]
+  (let [^:var count (ak/usize 0)]
     (dotimes [candidate layer]
       (when (attention-layer? candidate)
         (set! count (+ count 1))))
@@ -1834,8 +1817,8 @@
     (if (ak/== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as :usize 1)
-                (ak/as :usize 0))))))
+                (ak/as 1 :usize)
+                (ak/as 0 :usize))))))
 
 (az/defn layer-ffn-down-index :usize
   [[layer :usize]]
@@ -1843,8 +1826,8 @@
     (if (ak/== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as :usize 5)
-                (ak/as :usize 1))))))
+                (ak/as 5 :usize)
+                (ak/as 1 :usize))))))
 
 (az/defn layer-ffn-gate-index :usize
   [[layer :usize]]
@@ -1852,8 +1835,8 @@
     (if (ak/== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as :usize 6)
-                (ak/as :usize 2))))))
+                (ak/as 6 :usize)
+                (ak/as 2 :usize))))))
 
 (az/defn layer-ffn-norm-index :usize
   [[layer :usize]]
@@ -1861,8 +1844,8 @@
     (if (ak/== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as :usize 7)
-                (ak/as :usize 3))))))
+                (ak/as 7 :usize)
+                (ak/as 3 :usize))))))
 
 (az/defn layer-ffn-up-index :usize
   [[layer :usize]]
@@ -1870,8 +1853,8 @@
     (if (ak/== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as :usize 8)
-                (ak/as :usize 4))))))
+                (ak/as 8 :usize)
+                (ak/as 4 :usize))))))
 
 (az/defn free-sequences! :void
   "Release all native racer cognition state while leaving shared weights loaded."
@@ -1902,7 +1885,7 @@
   []
   (free-sequences!)
   (let [allocation (runtime/malloc sequence-total-bytes)
-        ^{:var true :zig/type :bool} initialized false]
+        ^:var initialized (ak/bool false)]
     (when (ak/!= allocation null)
       (set! sequence-memory (az/cast allocation [:c-pointer :f32]))
       (set! sequence-memory-floats sequence-total-floats)
@@ -1950,10 +1933,10 @@
         (set! (az/index output index)
               (az/index action-head-inputs
                         (+ (* racer action-head-input-count)
-                           (* (ak/as :usize
-                                     (ak/min
+                           (* (ak/as (ak/min
                                       (- (az/index sequence-positions racer) 1)
-                                      (ak/as :u16 7)))
+                                      (ak/as 7 :u16))
+                                     :usize)
                               model-hidden-size)
                            index)))))
     valid))
@@ -2050,11 +2033,10 @@
         gate-index (layer-ffn-gate-index layer)
         up-index (layer-ffn-up-index layer)
         down-index (layer-ffn-down-index layer)
-        ^{:var true :zig/type :bool}
-        valid (ak/! (or (ak/== norm-index tensor-not-found)
+        ^:var valid (ak/bool (ak/! (or (ak/== norm-index tensor-not-found)
                         (ak/== gate-index tensor-not-found)
                         (ak/== up-index tensor-not-found)
-                        (ak/== down-index tensor-not-found)))]
+                        (ak/== down-index tensor-not-found))))]
     (when valid
       (set! valid
             (tensor-rms-norm! normalized hidden norm-index
@@ -2099,16 +2081,12 @@
         in-index (+ base 10)
         mamba-norm-index (+ base 11)
         out-index (+ base 12)
-        ^{:var [:array model-max-mamba-head-count :f32]}
-        a (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32]))
-        ^{:var [:array model-max-mamba-head-count :f32]}
-        d (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32]))
-        ^{:var [:array model-max-mamba-head-count :f32]}
-        dt-bias (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32]))
-        ^{:var true :zig/type :bool}
-        valid (and (< layer model-layer-count)
+        ^:var a (ak/as (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
+        ^:var d (ak/as (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
+        ^:var dt-bias (ak/as (std-mem/zeroes (az/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
+        ^:var valid (ak/bool (and (< layer model-layer-count)
                    (ak/! (attention-layer? layer))
-                   (ak/!= base tensor-not-found))]
+                   (ak/!= base tensor-not-found)))]
     (when valid
       (set! valid
             (tensor-rms-norm! normalized hidden norm-index
@@ -2122,8 +2100,7 @@
         (let [state-start (* channel 3)
               weight-start (* channel 4)
               current (az/index projected (+ model-mamba-inner-size channel))
-              ^{:var true :zig/type :f32}
-              total (tensor-element conv-bias-index channel)]
+              ^:var total (ak/f32 (tensor-element conv-bias-index channel))]
           (dotimes [tap 3]
             (set! total
                   (+ total
@@ -2217,10 +2194,9 @@
         out-index (+ base 2)
         query-index (+ base 3)
         value-index (+ base 4)
-        ^{:var true :zig/type :bool}
-        valid (and (< position sequence-capacity)
+        ^:var valid (ak/bool (and (< position sequence-capacity)
                    (attention-layer? layer)
-                   (ak/!= base tensor-not-found))]
+                   (ak/!= base tensor-not-found)))]
     (when valid
       (set! valid
             (tensor-rms-norm! normalized hidden norm-index
@@ -2251,7 +2227,7 @@
               kv-start (* kv-head model-attention-head-size)]
           (dotimes [token (+ position 1)]
             (let [cache-start (+ (* token model-attention-kv-size) kv-start)
-                  ^{:var true :zig/type :f32} score 0.0]
+                  ^:var score (ak/f32 0.0)]
               (dotimes [component model-attention-head-size]
                 (set! score
                       (+ score
@@ -2261,7 +2237,7 @@
               (set! (az/index scores token) (* score model-attention-scale))))
           (softmax! scores (+ position 1))
           (dotimes [component model-attention-head-size]
-            (let [^{:var true :zig/type :f32} total 0.0]
+            (let [^:var total (ak/f32 0.0)]
               (dotimes [token (+ position 1)]
                 (set! total
                       (+ total
@@ -2318,30 +2294,18 @@
   (if (or (ak/! (attention-layer? layer))
           (>= component model-hidden-size))
     0.0
-    (let [^{:var true :zig/type [:array 768 :f32]}
-          hidden (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          normalized (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          query (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 256 :f32]}
-          key (std-mem/zeroes (az/type [:array 256 :f32]))
-          ^{:var true :zig/type [:array 256 :f32]}
-          value (std-mem/zeroes (az/type [:array 256 :f32]))
-          ^{:var true :zig/type [:array 160 :f32]}
-          scores (std-mem/zeroes (az/type [:array 160 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          attention-output (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          branch-output (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 2048 :f32]}
-          ffn-gate (std-mem/zeroes (az/type [:array 2048 :f32]))
-          ^{:var true :zig/type [:array 2048 :f32]}
-          ffn-up (std-mem/zeroes (az/type [:array 2048 :f32]))
-          ^{:var true :zig/type [:array 2048 :f32]}
-          ffn-activated (std-mem/zeroes (az/type [:array 2048 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          ffn-output (std-mem/zeroes (az/type [:array 768 :f32]))
+    (let [^:var hidden (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var normalized (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var query (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var key (ak/as (std-mem/zeroes (az/type [:array 256 :f32])) [:array 256 :f32])
+          ^:var value (ak/as (std-mem/zeroes (az/type [:array 256 :f32])) [:array 256 :f32])
+          ^:var scores (ak/as (std-mem/zeroes (az/type [:array 160 :f32])) [:array 160 :f32])
+          ^:var attention-output (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var branch-output (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var ffn-gate (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-up (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-activated (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-output (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
           cache-elements (* sequence-capacity model-attention-kv-size)
           cache-allocation
           (runtime/malloc (* 2 cache-elements (ak/sizeOf :f32)))]
@@ -2381,26 +2345,16 @@
   (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
             (>= token model-vocabulary-size))
     (ak/return (std-math/nan :f32)))
-  (let [^{:var true :zig/type [:array 768 :f32]}
-        residual (std-mem/zeroes (az/type [:array 768 :f32]))
-        ^{:var true :zig/type [:array 768 :f32]}
-        normalized (std-mem/zeroes (az/type [:array 768 :f32]))
-        ^{:var true :zig/type [:array 3376 :f32]}
-        projected (std-mem/zeroes (az/type [:array 3376 :f32]))
-        ^{:var true :zig/type [:array 1792 :f32]}
-        convolved (std-mem/zeroes (az/type [:array 1792 :f32]))
-        ^{:var true :zig/type [:array 1536 :f32]}
-        scan-output (std-mem/zeroes (az/type [:array 1536 :f32]))
-        ^{:var true :zig/type [:array 1536 :f32]}
-        gated-output (std-mem/zeroes (az/type [:array 1536 :f32]))
-        ^{:var true :zig/type [:array 768 :f32]}
-        branch-output (std-mem/zeroes (az/type [:array 768 :f32]))
-        ^{:var true :zig/type [:array 48 :f32]}
-        a (std-mem/zeroes (az/type [:array 48 :f32]))
-        ^{:var true :zig/type [:array 48 :f32]}
-        d (std-mem/zeroes (az/type [:array 48 :f32]))
-        ^{:var true :zig/type [:array 48 :f32]}
-        dt-bias (std-mem/zeroes (az/type [:array 48 :f32]))
+  (let [^:var residual (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var normalized (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var projected (ak/as (std-mem/zeroes (az/type [:array 3376 :f32])) [:array 3376 :f32])
+        ^:var convolved (ak/as (std-mem/zeroes (az/type [:array 1792 :f32])) [:array 1792 :f32])
+        ^:var scan-output (ak/as (std-mem/zeroes (az/type [:array 1536 :f32])) [:array 1536 :f32])
+        ^:var gated-output (ak/as (std-mem/zeroes (az/type [:array 1536 :f32])) [:array 1536 :f32])
+        ^:var branch-output (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var a (ak/as (std-mem/zeroes (az/type [:array 48 :f32])) [:array 48 :f32])
+        ^:var d (ak/as (std-mem/zeroes (az/type [:array 48 :f32])) [:array 48 :f32])
+        ^:var dt-bias (ak/as (std-mem/zeroes (az/type [:array 48 :f32])) [:array 48 :f32])
         norm-index (find-tensor "blk.0.attn_norm.weight")
         in-index (find-tensor "blk.0.ssm_in.weight")
         conv-weight-index (find-tensor "blk.0.ssm_conv1d.weight")
@@ -2482,30 +2436,18 @@
     (ak/return (std-math/nan :f32)))
   (if (>= component model-hidden-size)
     0.0
-    (let [^{:var true :zig/type [:array 768 :f32]}
-          hidden (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          normalized (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 3376 :f32]}
-          projected (std-mem/zeroes (az/type [:array 3376 :f32]))
-          ^{:var true :zig/type [:array 1792 :f32]}
-          convolved (std-mem/zeroes (az/type [:array 1792 :f32]))
-          ^{:var true :zig/type [:array 1536 :f32]}
-          scan-output (std-mem/zeroes (az/type [:array 1536 :f32]))
-          ^{:var true :zig/type [:array 1536 :f32]}
-          gated-output (std-mem/zeroes (az/type [:array 1536 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          branch-output (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 2048 :f32]}
-          ffn-gate (std-mem/zeroes (az/type [:array 2048 :f32]))
-          ^{:var true :zig/type [:array 2048 :f32]}
-          ffn-up (std-mem/zeroes (az/type [:array 2048 :f32]))
-          ^{:var true :zig/type [:array 2048 :f32]}
-          ffn-activated (std-mem/zeroes (az/type [:array 2048 :f32]))
-          ^{:var true :zig/type [:array 768 :f32]}
-          ffn-output (std-mem/zeroes (az/type [:array 768 :f32]))
-          ^{:var true :zig/type [:array 5376 :f32]}
-          conv-state (std-mem/zeroes (az/type [:array 5376 :f32]))
+    (let [^:var hidden (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var normalized (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var projected (ak/as (std-mem/zeroes (az/type [:array 3376 :f32])) [:array 3376 :f32])
+          ^:var convolved (ak/as (std-mem/zeroes (az/type [:array 1792 :f32])) [:array 1792 :f32])
+          ^:var scan-output (ak/as (std-mem/zeroes (az/type [:array 1536 :f32])) [:array 1536 :f32])
+          ^:var gated-output (ak/as (std-mem/zeroes (az/type [:array 1536 :f32])) [:array 1536 :f32])
+          ^:var branch-output (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var ffn-gate (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-up (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-activated (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-output (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var conv-state (ak/as (std-mem/zeroes (az/type [:array 5376 :f32])) [:array 5376 :f32])
           state-allocation
           (runtime/malloc (* model-mamba-recurrent-size (ak/sizeOf :f32)))]
       (if (ak/== state-allocation null)
@@ -2547,58 +2489,55 @@
           low-index (+ (* (/ sub-block 4) 64)
                        (* (mod sub-block 2) 32)
                        within)
-          ^{:zig/type :u3} low-shift (if (>= (mod sub-block 4) 2) 4 0)
+          low-shift (ak/u3 (if (>= (mod sub-block 4) 2) 4 0))
           high-index (+ 128 (* (/ sub-block 4) 32) within)
-          ^{:zig/type :u3} high-shift (ak/intCast (* (mod sub-block 4) 2))
+          high-shift (ak/u3 (ak/intCast (* (mod sub-block 4) 2)))
           low (ak/& (ak/>> (az/index block low-index) low-shift) 15)
           high (ak/& (ak/>> (az/index block high-index) high-shift) 3)
-          quantized (- (ak/as :i16 (+ low (* high 16))) 32)
+          quantized (- (ak/as (+ low (* high 16)) :i16) 32)
           scale-byte (az/index block (+ 192 (/ index 16)))
-          scale (ak/as :i8 (ak/bitCast scale-byte))
-          delta-bits (+ (ak/as :u16 (az/index block 208))
-                        (* (ak/as :u16 (az/index block 209)) 256))
-          delta (ak/as :f32
-                       (ak/floatCast (ak/as :f16 (ak/bitCast delta-bits))))]
+          scale (ak/as (ak/bitCast scale-byte) :i8)
+          delta-bits (+ (ak/as (az/index block 208) :u16)
+                        (* (ak/as (az/index block 209) :u16) 256))
+          delta (ak/as (ak/floatCast (ak/as (ak/bitCast delta-bits) :f16))
+                       :f32)]
       (* delta
-         (ak/as :f32 (ak/floatFromInt scale))
-         (ak/as :f32 (ak/floatFromInt quantized))))))
+         (ak/as (ak/floatFromInt scale) :f32)
+         (ak/as (ak/floatFromInt quantized) :f32)))))
 
 (az/defn- q6-k-dot :f32
   "SIMD dot product for one GGML Q6_K block, sixteen values per signed
   subscale. Decode each packed plane once; preserve q6-k-value's weight layout."
   [[block [:pointer {:size :c :const? true} :u8]]
    [input [:pointer {:size :c :const? true} :f32]]]
-  (let [delta-bits (+ (ak/as :u16 (az/index block 208))
-                      (* (ak/as :u16 (az/index block 209)) 256))
-        delta (ak/as :f32 (ak/floatCast (ak/as :f16 (ak/bitCast delta-bits))))
-        ^{:var [:vector 16 :f32]} total (ak/splat (ak/as :f32 0.0))]
+  (let [delta-bits (+ (ak/as (az/index block 208) :u16)
+                      (* (ak/as (az/index block 209) :u16) 256))
+        delta (ak/as (ak/floatCast (ak/as (ak/bitCast delta-bits) :f16)) :f32)
+        ^:var total (ak/as (ak/splat (ak/as 0.0 :f32)) [:vector 16 :f32])]
     (dotimes [group 16]
       (let [sub-block (/ group 2)
             within (* (mod group 2) 16)
             low-index (+ (* (/ sub-block 4) 64) (* (mod sub-block 2) 32) within)
             high-index (+ 128 (* (/ sub-block 4) 32) within)
-            ^{:zig/type :u3} low-shift (if (>= (mod sub-block 4) 2) 4 0)
-            ^{:zig/type :u3} high-shift (ak/intCast (* (mod sub-block 4) 2))
-            ^{:zig/type [:vector 16 :u8]}
-            low-packed (ak/bitCast (az/deref (az/cast (+ block low-index)
-                                             [:pointer {:size :one :const? true} [:array 16 :u8]])))
-            ^{:zig/type [:vector 16 :u8]}
-            high-packed (ak/bitCast (az/deref (az/cast (+ block high-index)
-                                              [:pointer {:size :one :const? true} [:array 16 :u8]])))
-            low (ak/& (ak/>> low-packed (ak/as (az/type [:vector 16 :u3]) (ak/splat low-shift)))
-                      (ak/as (az/type [:vector 16 :u8]) (ak/splat 15)))
-            high (ak/& (ak/>> high-packed (ak/as (az/type [:vector 16 :u3]) (ak/splat high-shift)))
-                       (ak/as (az/type [:vector 16 :u8]) (ak/splat 3)))
-            quantized (- (ak/as (az/type [:vector 16 :i16])
-                                (ak/intCast (+ low (* high (ak/as (az/type [:vector 16 :u8]) (ak/splat 16))))))
-                         (ak/as (az/type [:vector 16 :i16]) (ak/splat 32)))
-            scale (ak/as :i8 (ak/bitCast (az/index block (+ 192 group))))
-            scaled-delta (ak/as (az/type [:vector 16 :f32])
-                               (ak/splat (* delta (ak/as :f32 (ak/floatFromInt scale)))))
-            values (* scaled-delta (ak/as (az/type [:vector 16 :f32]) (ak/floatFromInt quantized)))
-            ^{:zig/type [:vector 16 :f32]}
-            inputs (ak/bitCast (az/deref (az/cast (+ input (* group 16))
-                                         [:pointer {:size :one :const? true} [:array 16 :f32]])))]
+            low-shift (ak/u3 (if (>= (mod sub-block 4) 2) 4 0))
+            high-shift (ak/u3 (ak/intCast (* (mod sub-block 4) 2)))
+            low-packed (ak/as (ak/bitCast (az/deref (az/cast (+ block low-index)
+                                             [:pointer {:size :one :const? true} [:array 16 :u8]]))) [:vector 16 :u8])
+            high-packed (ak/as (ak/bitCast (az/deref (az/cast (+ block high-index)
+                                              [:pointer {:size :one :const? true} [:array 16 :u8]]))) [:vector 16 :u8])
+            low (ak/& (ak/>> low-packed (ak/as (ak/splat low-shift) (az/type [:vector 16 :u3])))
+                      (ak/as (ak/splat 15) (az/type [:vector 16 :u8])))
+            high (ak/& (ak/>> high-packed (ak/as (ak/splat high-shift) (az/type [:vector 16 :u3])))
+                       (ak/as (ak/splat 3) (az/type [:vector 16 :u8])))
+            quantized (- (ak/as (ak/intCast (+ low (* high (ak/as (ak/splat 16) (az/type [:vector 16 :u8])))))
+                                (az/type [:vector 16 :i16]))
+                         (ak/as (ak/splat 32) (az/type [:vector 16 :i16])))
+            scale (ak/as (ak/bitCast (az/index block (+ 192 group))) :i8)
+            scaled-delta (ak/as (ak/splat (* delta (ak/as (ak/floatFromInt scale) :f32)))
+                               (az/type [:vector 16 :f32]))
+            values (* scaled-delta (ak/as (ak/floatFromInt quantized) (az/type [:vector 16 :f32])))
+            inputs (ak/as (ak/bitCast (az/deref (az/cast (+ input (* group 16))
+                                         [:pointer {:size :one :const? true} [:array 16 :f32]]))) [:vector 16 :f32])]
         (set! total (+ total (* values inputs)))))
     (ak/reduce :.Add total)))
 
@@ -2629,10 +2568,9 @@
           (>= token 100352))
     0.0
     (let [tensor (az/index tensor-catalog 1)
-          ^{:zig/type [:c-pointer :u8]}
-          bytes (ak/ptrFromInt (az/field tensor data_address))
+          bytes (ak/as (ak/ptrFromInt (az/field tensor data_address)) [:c-pointer :u8])
           row-offset (* token 630)
-          ^{:var true :zig/type :f32} total 0.0]
+          ^:var total (ak/f32 0.0)]
       (dotimes [block 3]
         (set! total
               (+ total
@@ -2648,12 +2586,10 @@
           (ak/== (az/field model-summary valid) false))
     0.0
     (let [tensor (az/index tensor-catalog tensor-index)
-          ^{:zig/type [:c-pointer :u8]}
-          bytes (ak/ptrFromInt (az/field tensor data_address))]
+          bytes (ak/as (ak/ptrFromInt (az/field tensor data_address)) [:c-pointer :u8])]
       (cond
         (ak/== (az/field tensor ggml_type) 0)
-        (let [^{:zig/type [:c-pointer :f32]}
-              values (ak/ptrFromInt (az/field tensor data_address))]
+        (let [values (ak/as (ak/ptrFromInt (az/field tensor data_address)) [:c-pointer :f32])]
           (az/index values element-index))
 
         (ak/== (az/field tensor ggml_type) 2)
@@ -2675,23 +2611,21 @@
           (ak/== (az/field model-summary valid) false))
     0.0
     (let [tensor (az/index tensor-catalog tensor-index)
-          input-size (ak/as :usize
-                            (ak/intCast (az/index (az/field tensor dimensions) 0)))
+          input-size (ak/as (ak/intCast (az/index (az/field tensor dimensions) 0))
+                            :usize)
           output-size (if (> (az/field tensor dimension_count) 1)
-                        (ak/as :usize
-                               (ak/intCast
-                                (az/index (az/field tensor dimensions) 1)))
+                        (ak/as (ak/intCast
+                                (az/index (az/field tensor dimensions) 1))
+                               :usize)
                         1)
-          ^{:zig/type [:c-pointer :u8]}
-          bytes (ak/ptrFromInt (az/field tensor data_address))
-          ^{:var true :zig/type :f32} total 0.0]
+          bytes (ak/as (ak/ptrFromInt (az/field tensor data_address)) [:c-pointer :u8])
+          ^:var total (ak/f32 0.0)]
       (if (>= row output-size)
         0.0
         (do
           (cond
             (ak/== (az/field tensor ggml_type) 0)
-            (let [^{:zig/type [:c-pointer :f32]}
-                  values (ak/ptrFromInt (az/field tensor data_address))
+            (let [values (ak/as (ak/ptrFromInt (az/field tensor data_address)) [:c-pointer :f32])
                   row-start (* row input-size)]
               (dotimes [index input-size]
                 (set! total (+ total
@@ -2731,11 +2665,11 @@
   (if (or (>= tensor-index tensor-catalog-count)
           (< (az/field (az/index tensor-catalog tensor-index) dimension_count) 2)
           (ak/!= output-count
-                 (ak/as :usize
-                        (ak/intCast
+                 (ak/as (ak/intCast
                          (az/index
                           (az/field (az/index tensor-catalog tensor-index) dimensions)
-                          1)))))
+                          1))
+                        :usize)))
     false
     (do
       (dotimes [row output-count]
@@ -2756,7 +2690,7 @@
                   (az/field (az/index tensor-catalog weights-index) dimensions) 0)
                  length))
     false
-    (let [^{:var true :zig/type :f32} square-sum 0.0]
+    (let [^:var square-sum (ak/f32 0.0)]
       (dotimes [index length]
         (set! square-sum (+ square-sum
                             (* (az/index input index)
@@ -2764,7 +2698,7 @@
       (let [inverse-rms (/ 1.0
                            (std-math/sqrt
                             (+ (/ square-sum
-                                  (ak/as :f32 (ak/floatFromInt length)))
+                                  (ak/as (ak/floatFromInt length) :f32))
                                epsilon)))]
         (dotimes [index length]
           (set! (az/index output index)
@@ -2784,18 +2718,12 @@
   (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
             (>= token model-vocabulary-size))
     (ak/return (std-math/nan :f32)))
-  (let [^{:var true :zig/type [:array 768 :f32]}
-        hidden (std-mem/zeroes (az/type [:array 768 :f32]))
-        ^{:var true :zig/type [:array 768 :f32]}
-        normalized (std-mem/zeroes (az/type [:array 768 :f32]))
-        ^{:var true :zig/type [:array 2048 :f32]}
-        gate (std-mem/zeroes (az/type [:array 2048 :f32]))
-        ^{:var true :zig/type [:array 2048 :f32]}
-        up (std-mem/zeroes (az/type [:array 2048 :f32]))
-        ^{:var true :zig/type [:array 2048 :f32]}
-        activated (std-mem/zeroes (az/type [:array 2048 :f32]))
-        ^{:var true :zig/type [:array 768 :f32]}
-        output (std-mem/zeroes (az/type [:array 768 :f32]))
+  (let [^:var hidden (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var normalized (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var gate (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+        ^:var up (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+        ^:var activated (ak/as (std-mem/zeroes (az/type [:array 2048 :f32])) [:array 2048 :f32])
+        ^:var output (ak/as (std-mem/zeroes (az/type [:array 768 :f32])) [:array 768 :f32])
         norm-index (find-tensor "blk.0.ffn_norm.weight")
         gate-index (find-tensor "blk.0.ffn_gate.weight")
         up-index (find-tensor "blk.0.ffn_up.weight")
@@ -2831,8 +2759,7 @@
           (>= action action-head-output-count))
     0.0
     (let [row-start (* action action-head-input-count)
-          ^{:var true :zig/type :f32}
-          total (az/index action-head-biases action)]
+          ^:var total (ak/f32 (az/index action-head-biases action))]
       (dotimes [index action-head-input-count]
         (set! total
               (+ total
@@ -2848,8 +2775,7 @@
           (>= action team-head-output-count))
     0.0
     (let [row-start (* action action-head-input-count)
-          ^{:var true :zig/type :f32}
-          total (az/index team-head-biases action)]
+          ^:var total (ak/f32 (az/index team-head-biases action))]
       (dotimes [index action-head-input-count]
         (set! total
               (+ total
@@ -2863,58 +2789,39 @@
   prepared by `forward-fused-observation!`; ordinary token calls are unchanged."
   [[racer :usize]
    [token :usize]]
-  (let [^{:var [:array model-max-hidden-size :f32]}
-        hidden (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
-        ^{:var [:array model-max-hidden-size :f32]}
-        normalized (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
-        ^{:var [:array model-max-mamba-projection-size :f32]}
-        projected (std-mem/zeroes (az/type [:array model-max-mamba-projection-size :f32]))
-        ^{:var [:array model-max-mamba-conv-size :f32]}
-        convolved (std-mem/zeroes (az/type [:array model-max-mamba-conv-size :f32]))
-        ^{:var [:array model-max-mamba-inner-size :f32]}
-        scan-output (std-mem/zeroes (az/type [:array model-max-mamba-inner-size :f32]))
-        ^{:var [:array model-max-mamba-inner-size :f32]}
-        gated-output (std-mem/zeroes (az/type [:array model-max-mamba-inner-size :f32]))
-        ^{:var [:array model-max-hidden-size :f32]}
-        branch-output (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
-        ^{:var [:array model-max-ffn-size :f32]}
-        ffn-gate (std-mem/zeroes (az/type [:array model-max-ffn-size :f32]))
-        ^{:var [:array model-max-ffn-size :f32]}
-        ffn-up (std-mem/zeroes (az/type [:array model-max-ffn-size :f32]))
-        ^{:var [:array model-max-ffn-size :f32]}
-        ffn-activated (std-mem/zeroes (az/type [:array model-max-ffn-size :f32]))
-        ^{:var [:array model-max-hidden-size :f32]}
-        ffn-output (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
-        ^{:var [:array model-max-hidden-size :f32]}
-        query (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
-        ^{:var [:array model-max-attention-kv-size :f32]}
-        key (std-mem/zeroes (az/type [:array model-max-attention-kv-size :f32]))
-        ^{:var [:array model-max-attention-kv-size :f32]}
-        value (std-mem/zeroes (az/type [:array model-max-attention-kv-size :f32]))
-        ^{:var [:array sequence-capacity :f32]}
-        scores (std-mem/zeroes (az/type [:array sequence-capacity :f32]))
-        ^{:var [:array model-max-hidden-size :f32]}
-        attention-output (std-mem/zeroes (az/type [:array model-max-hidden-size :f32]))
+  (let [^:var hidden (ak/as (std-mem/zeroes (az/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var normalized (ak/as (std-mem/zeroes (az/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var projected (ak/as (std-mem/zeroes (az/type [:array model-max-mamba-projection-size :f32])) [:array model-max-mamba-projection-size :f32])
+        ^:var convolved (ak/as (std-mem/zeroes (az/type [:array model-max-mamba-conv-size :f32])) [:array model-max-mamba-conv-size :f32])
+        ^:var scan-output (ak/as (std-mem/zeroes (az/type [:array model-max-mamba-inner-size :f32])) [:array model-max-mamba-inner-size :f32])
+        ^:var gated-output (ak/as (std-mem/zeroes (az/type [:array model-max-mamba-inner-size :f32])) [:array model-max-mamba-inner-size :f32])
+        ^:var branch-output (ak/as (std-mem/zeroes (az/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var ffn-gate (ak/as (std-mem/zeroes (az/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
+        ^:var ffn-up (ak/as (std-mem/zeroes (az/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
+        ^:var ffn-activated (ak/as (std-mem/zeroes (az/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
+        ^:var ffn-output (ak/as (std-mem/zeroes (az/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var query (ak/as (std-mem/zeroes (az/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var key (ak/as (std-mem/zeroes (az/type [:array model-max-attention-kv-size :f32])) [:array model-max-attention-kv-size :f32])
+        ^:var value (ak/as (std-mem/zeroes (az/type [:array model-max-attention-kv-size :f32])) [:array model-max-attention-kv-size :f32])
+        ^:var scores (ak/as (std-mem/zeroes (az/type [:array sequence-capacity :f32])) [:array sequence-capacity :f32])
+        ^:var attention-output (ak/as (std-mem/zeroes (az/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
         candidate-tokens
         (az/array-init [:array 8 :u32] [32 33 34 35 36 37 38 39])
-        ^{:var true :zig/type [:array 8 :f32]}
-        candidate-logits (std-mem/zeroes (az/type [:array 8 :f32]))
-        ^{:zig/type :usize}
-        position (if (< racer sequence-racer-count)
-                   (ak/as :usize (az/index sequence-positions racer))
-                   sequence-capacity)
-        ^{:var true :zig/type :bool}
-        valid (and (az/field model-summary valid)
+        ^:var candidate-logits (ak/as (std-mem/zeroes (az/type [:array 8 :f32])) [:array 8 :f32])
+        position (ak/usize (if (< racer sequence-racer-count)
+                   (ak/as (az/index sequence-positions racer) :usize)
+                   sequence-capacity))
+        ^:var valid (ak/bool (and (az/field model-summary valid)
                    (ak/!= sequence-memory null)
                    (< racer sequence-racer-count)
                    (< position sequence-capacity)
-                   (<= token model-vocabulary-size))
-        ^{:var true :zig/type :f32} checksum 0.0
+                   (<= token model-vocabulary-size)))
+        ^:var checksum (ak/f32 0.0)
         team-actor (>= racer 8)
         candidate-count (if team-actor team-head-output-count
                             action-head-output-count)
-        ^{:var true :zig/type :u32} best-token 32
-        ^{:var true :zig/type :f32} best-logit -3.4e38]
+        ^:var best-token (ak/u32 32)
+        ^:var best-logit (ak/f32 -3.4e38)]
     (when valid
       (dotimes [index model-hidden-size]
         (set! (az/index hidden index)
@@ -3012,7 +2919,7 @@
 
                   :else
                   (/ (embedding-row-dot
-                      (ak/as :usize candidate-token)
+                      (ak/as candidate-token :usize)
                       (ak/& (az/index normalized 0)))
                      3.0))]
             (set! (az/index candidate-logits candidate) logit)
@@ -3044,13 +2951,12 @@
    [length :usize]
    [reset :bool]]
   (let [tokenized (tokenize-compact-ascii bytes length)
-        ^{:var true :zig/type ForwardReport} report (empty-forward-report)
-        ^{:var true :zig/type :bool}
-        valid (and (az/field tokenized valid)
+        ^:var report (ak/as (empty-forward-report) ForwardReport)
+        ^:var valid (ak/bool (and (az/field tokenized valid)
                    (ak/! (az/field tokenized truncated))
                    (ak/== (az/field tokenized token_count)
                           action-head-token-count)
-                   (< racer sequence-racer-count))]
+                   (< racer sequence-racer-count)))]
     (when (and valid reset)
       (set! valid (reset-sequence! racer)))
     (when valid
@@ -3060,16 +2966,15 @@
       (dotimes [group 2]
         (when valid
           (dotimes [dimension model-hidden-size]
-            (let [^{:var true :zig/type :f32} total 0.0]
+            (let [^:var total (ak/f32 0.0)]
               (dotimes [local-position 4]
                 (let [position (+ (* group 4) local-position)
                       token
-                      (ak/as :usize
-                             (az/index (az/field tokenized tokens) position))
+                      (ak/as (az/index (az/field tokenized tokens) position)
+                             :usize)
                       position-value
                       (embedding-value-kernel (+ 32 position) dimension)
-                      ^{:zig/type :f32}
-                      position-sign (if (>= position-value 0.0) 1.0 -1.0)]
+                      position-sign (ak/f32 (if (>= position-value 0.0) 1.0 -1.0))]
                   (set! total
                         (+ total
                            (* position-sign
@@ -3100,11 +3005,10 @@
    [length :usize]
    [reset :bool]]
   (let [tokenized (tokenize-compact-ascii bytes length)
-        ^{:var true :zig/type ForwardReport} report (empty-forward-report)
-        ^{:var true :zig/type :bool}
-        valid (and (az/field tokenized valid)
+        ^:var report (ak/as (empty-forward-report) ForwardReport)
+        ^:var valid (ak/bool (and (az/field tokenized valid)
                    (ak/! (az/field tokenized truncated))
-                   (> (az/field tokenized token_count) 0))]
+                   (> (az/field tokenized token_count) 0)))]
     (when (and valid reset)
       (set! valid (reset-sequence! racer)))
     (when valid
@@ -3113,8 +3017,8 @@
           (set! report
                 (forward-token!
                  racer
-                 (ak/as :usize
-                        (az/index (az/field tokenized tokens) index))))
+                 (ak/as (az/index (az/field tokenized tokens) index)
+                        :usize)))
           (set! valid (az/field report valid)))))
     (when (ak/! valid)
       (set! (az/field report valid) false))
@@ -3138,34 +3042,34 @@
         (and (>= code 174) (<= code 255))) (ak/intCast code)
     (and (>= code 256) (<= code 288)) (ak/intCast (- code 256))
     (and (>= code 289) (<= code 322)) (ak/intCast (- code 162))
-    (ak/== code 323) (ak/as :i16 173)
-    :else (ak/as :i16 -1)))
+    (ak/== code 323) (ak/as 173 :i16)
+    :else (ak/as -1 :i16)))
 
 (az/defn decode-language-token! :u16
   "Decode one real GGUF vocabulary entry into bytes. Return65535 on invalid
   Unicode/alphabet or insufficient space; never silently truncate a token." [[token :u32] [output [:c-pointer :u8]] [capacity :usize]]
   (when (or (ak/! tokenizer-valid) (>= token tokenizer-token-count))
-    (ak/return (ak/as :u16 65535)))
-  (let [start (ak/as :usize (az/index tokenizer-token-starts token))
-        length (ak/as :usize (az/index tokenizer-token-lengths token))
-        ^{:var :usize} offset 0
-        ^{:var :u16} written 0]
+    (ak/return (ak/as 65535 :u16)))
+  (let [start (ak/as (az/index tokenizer-token-starts token) :usize)
+        length (ak/as (az/index tokenizer-token-lengths token) :usize)
+        ^:var offset (ak/usize 0)
+        ^:var written (ak/u16 0)]
     (ak/while (< offset length)
       (let [first-byte (az/index (az/unwrap model-bytes) (+ start offset))
-            ^{:var :u32} code first-byte]
+            ^:var code (ak/u32 first-byte)]
         (set! offset (+ offset 1))
         (when (>= first-byte 128)
           (when (or (< first-byte 194) (> first-byte 197) (>= offset length))
-            (ak/return (ak/as :u16 65535)))
+            (ak/return (ak/as 65535 :u16)))
           (let [second-byte (az/index (az/unwrap model-bytes) (+ start offset))]
             (when (or (< second-byte 128) (> second-byte 191))
-              (ak/return (ak/as :u16 65535)))
-            (set! code (+ (* (ak/as :u32 (- first-byte 192)) 64)
-                         (ak/as :u32 (- second-byte 128))))
+              (ak/return (ak/as 65535 :u16)))
+            (set! code (+ (* (ak/as (- first-byte 192) :u32) 64)
+                         (ak/as (- second-byte 128) :u32)))
             (set! offset (+ offset 1))))
         (let [byte (gpt2-codepoint-byte code)]
           (when (or (< byte 0) (>= written capacity))
-            (ak/return (ak/as :u16 65535)))
+            (ak/return (ak/as 65535 :u16)))
           (set! (az/index output written) (ak/intCast byte))
           (set! written (+ written 1)))))
     written))
@@ -3176,27 +3080,27 @@
   backbone state already retained by forward-token!. Invalid returns0xffffffff." [[racer :usize]]
   (when (or (>= racer sequence-racer-count) (ak/! tokenizer-valid)
             (ak/== (az/index sequence-positions racer) 0))
-    (ak/return (ak/as :u32 0xffffffff)))
+    (ak/return (ak/as 0xffffffff :u32)))
   (let [separate (find-tensor "output.weight")
         output (if (< separate tensor-catalog-count) separate
                  (find-tensor "token_embd.weight"))
-        slot (ak/min (- (ak/as :usize (az/index sequence-positions racer)) 1)
+        slot (ak/min (- (ak/as (az/index sequence-positions racer) :usize) 1)
                      (- action-head-token-count 1))
         hidden (ak/& (az/index action-head-inputs
                       (+ (* racer action-head-input-count) (* slot model-hidden-size))))
-        ^{:var :u32} best 0xffffffff
-        ^{:var :f32} best-score -3.4e38]
+        ^:var best (ak/u32 0xffffffff)
+        ^:var best-score (ak/f32 -3.4e38)]
     (when (>= output tensor-catalog-count)
-      (ak/return (ak/as :u32 0xffffffff)))
+      (ak/return (ak/as 0xffffffff :u32)))
     (let [tensor (az/index tensor-catalog output)]
       (when (or (ak/!= (az/field tensor dimension_count) 2)
                 (ak/!= (az/index (az/field tensor dimensions) 0) model-hidden-size)
                 (ak/!= (az/index (az/field tensor dimensions) 1) tokenizer-token-count))
-        (ak/return (ak/as :u32 0xffffffff))))
+        (ak/return (ak/as 0xffffffff :u32))))
     (dotimes [token tokenizer-token-count]
       (let [score (tensor-row-dot-kernel output token hidden)]
         (when (ak/! (std-math/isFinite score))
-          (ak/return (ak/as :u32 0xffffffff)))
+          (ak/return (ak/as 0xffffffff :u32)))
         (when (> score best-score)
           (set! best-score score)
           (set! best (ak/intCast token)))))
@@ -3215,8 +3119,8 @@
             (when (ak/!= (az/index (az/unwrap model-bytes) (+ start i))
                         (az/index spelling i))
               (set! same false)))
-          (when same (ak/return (ak/as :u32 (ak/intCast token))))))))
-  (ak/as :u32 0xffffffff))
+          (when same (ak/return (ak/as (ak/intCast token) :u32)))))))
+  (ak/as 0xffffffff :u32))
 
 (az/defn- language-letter? :bool [[byte :u8]]
   (or (and (>= byte 65) (<= byte 90)) (and (>= byte 97) (<= byte 122))))
@@ -3233,20 +3137,20 @@
 (az/defn language-piece-length :usize
   "ASCII subset of Granite's published pre-tokenizer regex, in its alternative
   order. BPE must not merge across these word/number/punctuation boundaries." [[bytes [:pointer {:size :c :const? true} :u8]] [length :usize]]
-  (when (ak/== length 0) (ak/return (ak/as :usize 0)))
+  (when (ak/== length 0) (ak/return (ak/as 0 :usize)))
   (let [first-byte (az/index bytes 0)]
     (when (and (ak/== first-byte 39) (>= length 2))
       (let [second-byte (language-lower (az/index bytes 1))]
         (when (or (ak/== second-byte 115) (ak/== second-byte 116)
                   (ak/== second-byte 109) (ak/== second-byte 100))
-          (ak/return (ak/as :usize 2)))
+          (ak/return (ak/as 2 :usize)))
         (when (>= length 3)
           (let [third-byte (language-lower (az/index bytes 2))]
             (when (or (and (ak/== second-byte 114) (ak/== third-byte 101))
                       (and (ak/== second-byte 118) (ak/== third-byte 101))
                       (and (ak/== second-byte 108) (ak/== third-byte 108)))
-              (ak/return (ak/as :usize 3)))))))
-    (let [prefix (if (language-letter? first-byte) (ak/as :usize 0) (ak/as :usize 1))]
+              (ak/return (ak/as 3 :usize)))))))
+    (let [prefix (if (language-letter? first-byte) (ak/as 0 :usize) (ak/as 1 :usize))]
       (when (and (< prefix length) (language-letter? (az/index bytes prefix))
                  (ak/!= first-byte 10) (ak/!= first-byte 13)
                  (ak/! (language-digit? first-byte)))
@@ -3255,11 +3159,11 @@
             (set! end (+ end 1)))
           (ak/return end))))
     (when (language-digit? first-byte)
-      (let [^{:var :usize} end 1]
+      (let [^:var end (ak/usize 1)]
         (ak/while (and (< end (ak/min length 3)) (language-digit? (az/index bytes end)))
           (set! end (+ end 1)))
         (ak/return end)))
-    (let [prefix (if (ak/== first-byte 32) (ak/as :usize 1) (ak/as :usize 0))
+    (let [prefix (if (ak/== first-byte 32) (ak/as 1 :usize) (ak/as 0 :usize))
           ^:var end prefix]
       (ak/while (and (< end length)
                      (ak/! (language-space? (az/index bytes end)))
@@ -3272,8 +3176,8 @@
           (set! end (+ end 1)))
         (ak/return end)))
     (when (language-space? first-byte)
-      (let [^{:var :usize} end 0
-            ^{:var :usize} last-newline 0]
+      (let [^:var end (ak/usize 0)
+            ^:var last-newline (ak/usize 0)]
         (ak/while (and (< end length) (language-space? (az/index bytes end)))
           (set! end (+ end 1))
           (when (or (ak/== (az/index bytes (- end 1)) 10)
@@ -3283,14 +3187,14 @@
                          (ak/== end length) end
                          (> end 1) (- end 1)
                          :else end))))
-    (ak/as :usize 1)))
+    (ak/as 1 :usize)))
 
 (az/defn tokenize-language-ascii TokenizationReport
   "Bounded ordinary text: apply Granite's word-splitting rule before GGUF BPE.
   The old compact-head tokenizer is left unchanged for existing head fixtures."
   [[bytes [:pointer {:size :c :const? true} :u8]] [length :usize]]
   (let [^:var result (std-mem/zeroes (az/type TokenizationReport))
-        ^{:var :usize} offset 0
+        ^:var offset (ak/usize 0)
         bound (ak/min length tokenizer-capacity)]
     (set! (az/field result byte_count) (ak/intCast bound))
     (set! (az/field result truncated) (> length tokenizer-capacity))
@@ -3327,7 +3231,7 @@
                     (az/field system-role token_count) (az/field system-content token_count)
                    (az/field user-role token_count) (az/field assistant-role token_count))
         ^:var result (std-mem/zeroes (az/type TokenizationReport))
-        ^{:var :usize} cursor 0]
+        ^:var cursor (ak/usize 0)]
     (set! (az/field result byte_count) (az/field content byte_count))
     (set! (az/field result truncated)
           (or (az/field content truncated) (az/field system-content truncated)
@@ -3456,10 +3360,8 @@
                               1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0])
         norm-input (az/array-init [:array 4 :f32] [1.0 2.0 3.0 4.0])
         weights (az/array-init [:array 4 :f32] [1.0 1.0 1.0 1.0])
-        ^{:var true :zig/type [:array 4 :f32]}
-        norm-output (az/array-init [:array 4 :f32] [0.0 0.0 0.0 0.0])
-        ^{:var true :zig/type [:array 4 :f32]}
-        probabilities (az/array-init [:array 4 :f32] [1.0 2.0 3.0 4.0])]
+        ^:var norm-output (ak/as (az/array-init [:array 4 :f32] [0.0 0.0 0.0 0.0]) [:array 4 :f32])
+        ^:var probabilities (ak/as (az/array-init [:array 4 :f32] [1.0 2.0 3.0 4.0]) [:array 4 :f32])]
     (rms-norm! (ak/& (az/index norm-output 0)) (ak/& (az/index norm-input 0))
                (ak/& (az/index weights 0)) 4 0.00001)
     (softmax! (ak/& (az/index probabilities 0)) 4)

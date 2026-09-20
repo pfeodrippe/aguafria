@@ -20,8 +20,8 @@
   (try (testing/expectEqual 2 (ak/sizeOf Full)))
   (try (testing/expectEqual 2 (ak/sizeOf Divided)))
   (let [full (Full {:number 0x1234})
-        ^{:zig/type Divided} divided (ak/bitCast full)
-        ^{:zig/type [:array 2 :u8]} ordered (ak/bitCast full)]
+        divided (ak/as (ak/bitCast full) Divided)
+        ordered (ak/as (ak/bitCast full) [:array 2 :u8])]
     ;; Packed fields follow bit positions; array elements follow native byte order.
     (try (testing/expectEqual 0x34 (az/field divided :half1)))
     (try (testing/expectEqual 0x2 (az/field divided :quarter3)))

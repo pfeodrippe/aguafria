@@ -10,10 +10,9 @@
     (try (testing/expectEqual 4 (az/field information :alignment))))
   (try (testing/expectEqual (az/type [:pointer {:size :one :align 4} :u8])
                             (ak/TypeOf (& aligned-byte))))
-  (let [^{:zig/type [:pointer {:size :one :align 4} [:array 1 :u8]]}
-        array-pointer (& aligned-byte)
-        ^{:zig/type [:pointer {:size :slice :align 4} :u8]} aligned-slice array-pointer
-        ^{:zig/type [:slice :u8]} ordinary-slice aligned-slice]
+  (let [array-pointer (ak/as (& aligned-byte) [:pointer {:align 4, :size :one} [:array 1 :u8]])
+        aligned-slice (ak/as array-pointer [:pointer {:align 4, :size :slice} :u8])
+        ordinary-slice (ak/as aligned-slice [:slice :u8])]
     ;; Coercion may weaken an alignment guarantee without changing the data.
     (try (testing/expectEqual 100 (az/index ordinary-slice 0)))))
 

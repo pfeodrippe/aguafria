@@ -246,6 +246,23 @@ compilation:
 
 ## Native values
 
+Type constructors work both inside Aguafria declarations and in ordinary JVM
+code. `ak/as` takes the value first and accepts the same type data as signatures:
+
+```clojure
+(ak/i32 (+ 1 1))                  ;; => 2
+(ak/f32 (/ 7.0 3.0))              ;; => 2.3333333
+(-> 42 (ak/as :i32))              ;; => 42
+(with-open [items (ak/as [1 2 3] [:array 3 :u8])]
+  (az/value items))               ;; => [1 2 3]
+```
+
+Inside Zig these emit checked `@as(type, value)` coercions. JVM calls use cached
+in-process native adapters; composites own native storage and should be closed
+with `with-open`. Use `^:var` for a mutable local initialized by a constructor.
+Coercing an existing native value can produce a view; keep its source open
+while using that view. The result retains its source against garbage collection.
+
 Directly representable results return as ordinary Clojure values. Zig values
 with native-only representation use typed Aguafria values backed by FFM
 memory; they print and pretty-print as their real value and can be passed to

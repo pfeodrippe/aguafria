@@ -81,12 +81,12 @@
    [event-kind :u8]]
   (set! _ (initialize!))
   (let [slot next-slot
-        ordinal-f (ak/as :f32 (ak/floatFromInt ordinal))
+        ordinal-f (ak/as (ak/floatFromInt ordinal) :f32)
         angle (* ordinal-f 0.7853982)
         speed (+ 1.8 (* ordinal-f 0.12))
-        radius (+ 0.08 (* 0.01 (ak/as :f32 (ak/floatFromInt (mod ordinal 3)))))
-        world-x (* (- (ak/as :f32 (ak/floatFromInt grid-x)) 11.0) 0.5)
-        world-z (* (- (ak/as :f32 (ak/floatFromInt grid-y)) 12.0) 0.5)
+        radius (+ 0.08 (* 0.01 (ak/as (ak/floatFromInt (mod ordinal 3)) :f32)))
+        world-x (* (- (ak/as (ak/floatFromInt grid-x) :f32) 11.0) 0.5)
+        world-z (* (- (ak/as (ak/floatFromInt grid-y) :f32) 12.0) 0.5)
         ^{:var true} body-definition (box3d/b3DefaultBodyDef)
         ^{:var true} shape-definition (box3d/b3DefaultShapeDef)
         sphere (box3d/b3Sphere
@@ -128,7 +128,7 @@
   [[grid-x :i32]
    [grid-y :i32]
    [event-kind :u8]]
-  (let [^{:zig/type :usize} count (if (ak/== event-kind 4) 12 6)]
+  (let [count (ak/usize (if (ak/== event-kind 4) 12 6))]
     (dotimes [ordinal count]
       (spawn-one! grid-x grid-y ordinal event-kind))))
 
@@ -169,7 +169,7 @@
 (az/defn fill-active-views! :usize
   "Copy the active pool into one contiguous renderer buffer in one native call."
   [[output [:c-pointer ParticleView]]]
-  (let [^{:var true :zig/type :usize} count 0]
+  (let [^:var count (ak/usize 0)]
     (dotimes [slot particle-capacity]
       (let [particle (ak/& (az/index particles slot))]
         (when (az/field (az/deref particle) active)
@@ -189,7 +189,7 @@
 
 (az/defn active-count :u32
   []
-  (let [^{:var true :zig/type :u32} count 0]
+  (let [^:var count (ak/u32 0)]
     (dotimes [slot particle-capacity]
       (when (az/field (az/index particles slot) active)
         (set! count (+ count 1))))

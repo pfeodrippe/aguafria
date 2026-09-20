@@ -36,7 +36,7 @@
   (set! error-line line) (set! error-code code) false)
 
 (az/defn text-hash :u64 [[text [:slice-const :u8]]]
-  (let [^{:var :u64} h 14695981039346656037]
+  (let [^:var h (ak/u64 14695981039346656037)]
     (dotimes [i (az/field text len)] (set! h (ak/*% (ak/bit-xor h (az/index text i)) 1099511628211)))
     h))
 
@@ -76,30 +76,30 @@
   1=syntax, 2=capacity, 3=unknown voice, 4=indentation, 5=identity conflict." [[source [:slice-const :u8]]]
   (set! count-nodes 0) (set! text-used 0) (set! error-line 0) (set! error-code 0)
   (when (> (az/field source len) 262144) (ak/return (reject 1 2)))
-  (let [^{:var :usize} start 0 ^{:var :u32} line 0
-        ^{:var :u32} scene no-parent ^:var join false
-        ^{:var [:array 64 :u32]} stack ak/undefined ^{:var :usize} depth 0]
+  (let [^:var start (ak/usize 0) ^:var line (ak/u32 0)
+        ^:var scene (ak/u32 no-parent) ^:var join false
+        ^:var stack (ak/as ak/undefined [:array 64 :u32]) ^:var depth (ak/usize 0)]
     (ak/while (< start (az/field source len))
       (set! line (+ line 1))
-      (let [^{:var :usize} end start]
+      (let [^:var end (ak/usize start)]
         (ak/while (and (< end (az/field source len)) (ak/!= (az/index source end) 10))
           (set! end (+ end 1)))
         (let [raw (az/slice source start end)
-              ^{:var :usize} indent 0]
+              ^:var indent (ak/usize 0)]
           (set! start (+ end 1))
           (ak/while (and (< indent (az/field raw len)) (ak/== (az/index raw indent) 32))
             (set! indent (+ indent 1)))
           (let [^:var body (mem/trim (az/type :u8) (az/slice raw indent) " \r")]
             (when (ak/== (az/field body len) 0) (set! join false) (ak/continue))
             (when (>= count-nodes max-nodes) (ak/return (reject line 2)))
-            (let [^{:var Node} n (mem/zeroes (az/type Node))]
+            (let [^:var n (ak/as (mem/zeroes (az/type Node)) Node)]
               (set! (az/field n line) line) (set! (az/field n indent) (ak/intCast indent))
               (set! (az/field n kind) 2)
               ;; IDs are metadata at the end, never visible/spoken text.
-              (let [^{:var :usize} id-start (az/field body len)
-                    ^{:var :usize} id-end (az/field body len)
-                    ^{:var :usize} text-end (az/field body len)
-                    ^{:var :usize} j 0]
+              (let [^:var id-start (ak/usize (az/field body len))
+                    ^:var id-end (ak/usize (az/field body len))
+                    ^:var text-end (ak/usize (az/field body len))
+                    ^:var j (ak/usize 0)]
                 (ak/while (< j (az/field body len))
                   (when (and (> j 0) (ak/== (az/index body (- j 1)) 32))
                     (cond
@@ -124,7 +124,7 @@
                 (do (set! (az/field n kind) 1) (set! body (az/slice body 3)))
                 (mem/startsWith (az/type :u8) body "::") (ak/return (reject line 1))
                 (mem/startsWith (az/type :u8) body "#")
-                (let [^{:var :usize} tag-end 1]
+                (let [^:var tag-end (ak/usize 1)]
                   (ak/while (and (< tag-end (az/field body len)) (ak/== (az/index body tag-end) 35))
                     (set! tag-end (+ tag-end 1)))
                   (if (and (< tag-end (az/field body len)) (ak/== (az/index body tag-end) 32))
@@ -193,9 +193,9 @@
 (az/defn parse! :bool
   "Normalize every tab to four spaces before parsing; the source is never rewritten." [[source [:slice-const :u8]]]
   (set! count-nodes 0) (set! text-used 0) (set! error-line 0) (set! error-code 0)
-  (let [^{:var :usize} length 0 ^{:var :u32} line 1]
+  (let [^:var length (ak/usize 0) ^:var line (ak/u32 1)]
     (dotimes [i (az/field source len)]
-      (let [b (az/index source i) width (ak/as :usize (if (ak/== b 9) 4 1))]
+      (let [b (az/index source i) width (ak/as (if (ak/== b 9) 4 1) :usize)]
         (when (> (+ length width) (az/field normalized-buffer len)) (ak/return (reject line 2)))
         (dotimes [j width]
           (set! (az/index normalized-buffer (+ length j)) (if (ak/== b 9) 32 b)))
@@ -205,7 +205,7 @@
 
 (az/defn parse-file! :bool [[path [:slice-const :u8]]]
   (when (>= (az/field path len) 4096) (ak/return (reject 0 6)))
-  (let [^{:var [:array 4096 :u8]} name (mem/zeroes (az/type [:array 4096 :u8]))]
+  (let [^:var name (ak/as (mem/zeroes (az/type [:array 4096 :u8])) [:array 4096 :u8])]
     (ak/memcpy (az/slice name 0 (az/field path len)) path)
     (let [file (fopen (ak/& name) "rb")]
       (when (ak/== file ak/null) (ak/return (reject 0 6)))
@@ -219,8 +219,8 @@
 (az/defn write-document! :bool
   "Publish a complete native dialogue asset by rename. No Bitwig project or audio is touched." [[path [:slice-const :u8]]]
   (when (> (az/field path len) 4090) (ak/return (reject 0 6)))
-  (let [^{:var [:array 4096 :u8]} name (mem/zeroes (az/type [:array 4096 :u8]))
-        ^{:var [:array 4096 :u8]} temporary (mem/zeroes (az/type [:array 4096 :u8]))]
+  (let [^:var name (ak/as (mem/zeroes (az/type [:array 4096 :u8])) [:array 4096 :u8])
+        ^:var temporary (ak/as (mem/zeroes (az/type [:array 4096 :u8])) [:array 4096 :u8])]
     (ak/memcpy (az/slice name 0 (az/field path len)) path)
     (ak/memcpy (az/slice temporary 0 (az/field path len)) path)
     (ak/memcpy (az/slice temporary (az/field path len) (+ (az/field path len) 4)) ".tmp")

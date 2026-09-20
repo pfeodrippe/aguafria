@@ -5,7 +5,7 @@
 
 (az/deftest inline-while-test
   (let [^{:var true :zig/prefix "comptime"} index 0
-        ^{:var :usize} sum 0]
+        ^:var sum (ak/usize 0)]
     (az/while-loop {:inline? true
                     :continue (az/assign-expr "+=" index 1)}
       (< index 3)

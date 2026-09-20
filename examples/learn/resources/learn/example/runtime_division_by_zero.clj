@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^{:var :u32} numerator 1
-        ^{:var :u32} denominator 0]
+  (let [^:var numerator (ak/u32 1)
+        ^:var denominator (ak/u32 0)]
     ;; Taking addresses keeps the operands runtime-known.
     (set! _ [(ak/& numerator) (ak/& denominator)])
     (let [quotient (/ numerator denominator)]

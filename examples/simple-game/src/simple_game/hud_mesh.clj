@@ -42,10 +42,10 @@
    [depth :f32]]
   (if (> (+ output-count 6) mesh/frame-capacity)
     output-count
-    (let [left (ak/as :f32 (ak/floatFromInt x))
-          top (ak/as :f32 (ak/floatFromInt y))
-          right (ak/as :f32 (ak/floatFromInt (+ x width)))
-          bottom (ak/as :f32 (ak/floatFromInt (+ y height)))]
+    (let [left (ak/as (ak/floatFromInt x) :f32)
+          top (ak/as (ak/floatFromInt y) :f32)
+          right (ak/as (ak/floatFromInt (+ x width)) :f32)
+          bottom (ak/as (ak/floatFromInt (+ y height)) :f32)]
       (write-screen-vertex! output output-count left top depth color)
       (write-screen-vertex! output (+ output-count 1) right top depth color)
       (write-screen-vertex! output (+ output-count 2) right bottom depth color)
@@ -75,8 +75,8 @@
    [frame-height :i32]]
   (set! active-output output)
   (set! active-count (ak/intCast output-count))
-  (set! active-width (ak/as :f32 (ak/floatFromInt frame-width)))
-  (set! active-height (ak/as :f32 (ak/floatFromInt frame-height)))
+  (set! active-width (ak/as (ak/floatFromInt frame-width) :f32))
+  (set! active-height (ak/as (ak/floatFromInt frame-height) :f32))
   (set! active-depth 0.019)
   (hud/draw-overlay (ak/& capture-rect!) frame-width frame-height)
   (set! active-output null)

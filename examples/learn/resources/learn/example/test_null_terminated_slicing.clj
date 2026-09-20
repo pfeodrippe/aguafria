@@ -5,7 +5,7 @@
 
 (az/deftest sentinel-slicing-test
   (let [^:var bytes (az/array-init [:array _ :u8] [3 2 1 0 3 2 1 0])
-        ^{:var :usize} length 3]
+        ^:var length (ak/usize 3)]
     (set! _ (& length))
     (let [slice (az/slice-sentinel bytes 0 length 0)]
       (try (testing/expectEqual (az/type [:pointer {:size :slice :sentinel 0} :u8])

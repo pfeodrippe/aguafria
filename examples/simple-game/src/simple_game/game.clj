@@ -133,10 +133,10 @@
               frame-work
               (ak/max
                0.0
-               (ak/as :f64
-                      (ak/floatCast
+               (ak/as (ak/floatCast
                        (- (az/field (az/deref frame-info) frame_time_total)
-                          before-frame-time))))]
+                          before-frame-time))
+                      :f64))]
           (set! _ (flecs/ecs_time_measure (ak/& work-clock)))
           (factory/step! (az/field (az/deref frame-info) delta_time))
           (process-factory-event!)

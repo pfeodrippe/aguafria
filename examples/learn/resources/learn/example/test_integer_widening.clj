@@ -1,26 +1,27 @@
 (ns learn.example.test-integer-widening
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest integer-widening-test
-  (let [^{:zig/type :u8} a 250
-        ^{:zig/type :u16} b a
-        ^{:zig/type :u32} c b
-        ^{:zig/type :u64} d c
-        ^{:zig/type :u64} e d
-        ^{:zig/type :u128} f e]
+  (let [a (ak/u8 250)
+        b (ak/u16 a)
+        c (ak/u32 b)
+        d (ak/u64 c)
+        e (ak/u64 d)
+        f (ak/u128 e)]
     (try (testing/expectEqual f a))))
 
 (az/deftest unsigned-to-signed-test
-  (let [^{:zig/type :u8} a 250
-        ^{:zig/type :i16} b a]
+  (let [a (ak/u8 250)
+        b (ak/i16 a)]
     (try (testing/expectEqual 250 b))))
 
 (az/deftest float-widening-test
-  (let [^{:zig/type :f16} a 12.34
-        ^{:zig/type :f32} b a
-        ^{:zig/type :f64} c b
-        ^{:zig/type :f128} d c]
+  (let [a (ak/f16 12.34)
+        b (ak/f32 a)
+        c (ak/f64 b)
+        d (ak/f128 c)]
     (try (testing/expectEqual d a))))
 
 (comment

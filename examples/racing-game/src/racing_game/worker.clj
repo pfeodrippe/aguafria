@@ -205,8 +205,8 @@
   (let [^:var timestamp (std-mem/zeroes (az/type std-c/timespec))
         result (std-c/clock_gettime :.MONOTONIC (ak/& timestamp))]
     (if (ak/== result 0)
-      (+ (ak/as :f64 (ak/floatFromInt (az/field timestamp sec)))
-         (/ (ak/as :f64 (ak/floatFromInt (az/field timestamp nsec)))
+      (+ (ak/as (ak/floatFromInt (az/field timestamp sec)) :f64)
+         (/ (ak/as (ak/floatFromInt (az/field timestamp nsec)) :f64)
             1000000000.0))
       0.0)))
 
@@ -214,15 +214,14 @@
   "Yield the worker core for half a millisecond without coupling it to an I/O
   runtime. Mailbox latency remains negligible beside one native LLM pass."
   []
-  (let [^{:var true :zig/type std-c/timespec}
-        duration (std-mem/zeroes (az/type std-c/timespec))]
+  (let [^:var duration (ak/as (std-mem/zeroes (az/type std-c/timespec)) std-c/timespec)]
     (set! (az/field duration nsec) 500000)
     (set! _ (std-c/nanosleep (ak/& duration) null))))
 
 (az/defn submit-language! :bool
   "Nonblocking bounded handoff. Busy actors retain their current request/result;
   this call never invokes inference and never changes a simulation body." [[request LanguageRequest]]
-  (let [actor (ak/as :usize (az/field request actor))]
+  (let [actor (ak/as (az/field request actor) :usize)]
     (when (or (>= actor actor-count) (ak/! (az/field request valid))
               (ak/== (az/field request revision) 0)
               (ak/== (az/field request system_byte_count) 0)
@@ -339,15 +338,15 @@
   [[request InferenceRequest]]
   (let [^:var bytes (std-mem/zeroes (az/type [:array 160 :u8]))
         progress-percent
-        (ak/as :u8
-               (ak/intFromFloat
+        (ak/as (ak/intFromFloat
                 (ak/min 99.0
-                        (* (ak/max 0.0 (az/field request progress)) 100.0))))
+                        (* (ak/max 0.0 (az/field request progress)) 100.0)))
+               :u8)
         speed-percent
-        (ak/as :u8
-               (ak/intFromFloat
+        (ak/as (ak/intFromFloat
                 (ak/min 99.0
-                        (* (ak/max 0.0 (az/field request speed)) 100.0))))
+                        (* (ak/max 0.0 (az/field request speed)) 100.0)))
+               :u8)
         rendered
         (catch
          (std-fmt/bufPrint
@@ -412,7 +411,7 @@
   deliberately small hot unit is safe to tune while the native worker runs."
   [[action-code :u8]]
   (+ 0.076
-     (* (ak/as :f32 (ak/floatFromInt (/ action-code 3)))
+     (* (ak/as (ak/floatFromInt (/ action-code 3)) :f32)
         0.008)))
 
 (az/defn set-sampling-temperature! :f32
@@ -433,21 +432,18 @@
         (ak/+% (ak/*% old-state 6364136223846793005)
                1442695040888963407)
         random-unit
-        (/ (ak/as :f32
-                  (ak/floatFromInt (ak/>> next-state 40)))
+        (/ (ak/as (ak/floatFromInt (ak/>> next-state 40))
+                  :f32)
            16777216.0)
-        ^{:var true :zig/type :f32}
-        maximum (az/index (az/field report candidate_logits) 0)
-        ^{:var true :zig/type [:array 8 :f32]}
-        weights (std-mem/zeroes (az/type [:array 8 :f32]))
-        ^{:var true :zig/type :f32} total 0.0
-        ^{:var true :zig/type :f32} cumulative 0.0
-        candidate-count (ak/as :usize (az/field report candidate_count))
-        ^{:var true :zig/type :u8}
-        chosen (ak/intCast (if (> candidate-count 0)
+        ^:var maximum (ak/f32 (az/index (az/field report candidate_logits) 0))
+        ^:var weights (ak/as (std-mem/zeroes (az/type [:array 8 :f32])) [:array 8 :f32])
+        ^:var total (ak/f32 0.0)
+        ^:var cumulative (ak/f32 0.0)
+        candidate-count (ak/as (az/field report candidate_count) :usize)
+        ^:var chosen (ak/u8 (ak/intCast (if (> candidate-count 0)
                             (- candidate-count 1)
-                            0))
-        ^{:var true :zig/type :bool} found false]
+                            0)))
+        ^:var found (ak/bool false)]
     (dotimes [index candidate-count]
       (set! maximum
             (ak/max maximum
@@ -479,8 +475,7 @@
    [queue-us :u64]
   [inference-us :u64]]
   (let [team-actor (ak/== (az/field request actor_kind) actor-kind-team)
-        ^{:zig/type :u8}
-        candidate-count (if team-actor 3 8)
+        candidate-count (ak/u8 (if team-actor 3 8))
         valid (and (az/field report valid)
                    (ak/== (az/field report candidate_count) candidate-count)
                    (>= (az/field report best_token) 32)
@@ -498,15 +493,13 @@
           (SampledAction {:code 0 :state 0}))
         action-code (az/field sampled code)
         lane-code (if team-actor 1 (mod action-code 3))
-        ^{:zig/type :f32}
-        lane-target (cond
+        lane-target (ak/f32 (cond
                       (ak/== lane-code 0) -0.075
                       (ak/== lane-code 1) 0.0
-                      :else 0.075)
+                      :else 0.075))
         target-speed (if team-actor 0.0 (action-target-speed action-code))
         target (az/field request target)
-        ^{:zig/type :u8}
-        item-action (if (and (ak/! team-actor) (>= action-code 4)) 1 0)
+        item-action (ak/u8 (if (and (ak/! team-actor) (>= action-code 4)) 1 0))
         ^:var input-tokens (std-mem/zeroes (az/type [:array 160 :u32]))
         ^:var output-tokens (std-mem/zeroes (az/type [:array 1 :u32]))
         ^:var response-bytes (std-mem/zeroes (az/type [:array 1 :u8]))]
@@ -540,11 +533,11 @@
       :total_us (+ queue-us inference-us)
       :tokens_per_second
       (if (> inference-us 0)
-        (/ (* (ak/as :f32
-                     (ak/floatFromInt
-                     (az/field tokens token_count)))
+        (/ (* (ak/as (ak/floatFromInt
+                     (az/field tokens token_count))
+                     :f32)
               1000000.0)
-           (ak/as :f32 (ak/floatFromInt inference-us)))
+           (ak/as (ak/floatFromInt inference-us) :f32))
         0.0)
       :progress (az/field request progress)
       :speed (az/field request speed)
@@ -563,28 +556,28 @@
   "Run one complete prompt through the native model on the worker thread."
   [[request InferenceRequest]]
   (let [prompt (request-prompt request)
-        prompt-length (ak/as :usize (az/field prompt byte_count))
+        prompt-length (ak/as (az/field prompt byte_count) :usize)
         tokenized
         (inference/tokenize-compact-ascii
          (ak/& (az/index (az/field prompt bytes) 0)) prompt-length)
         started (monotonic-seconds)
         queue-us
-        (ak/as :u64
-               (ak/intFromFloat
+        (ak/as (ak/intFromFloat
                 (* (ak/max 0.0 (- started (az/field request enqueue_seconds)))
-                   1000000.0)))
+                   1000000.0))
+               :u64)
         report
         (inference/forward-compact-prompt!
-         (ak/as :usize (az/field request racer))
+         (ak/as (az/field request racer) :usize)
          (ak/& (az/index (az/field prompt bytes) 0)) prompt-length true)
         finished (monotonic-seconds)
         inference-us
-        (ak/as :u64
-               (ak/intFromFloat
-                (* (ak/max 0.0 (- finished started)) 1000000.0)))
+        (ak/as (ak/intFromFloat
+                (* (ak/max 0.0 (- finished started)) 1000000.0))
+               :u64)
         result
         (interpret-action request report prompt tokenized queue-us inference-us)
-        racer (ak/as :usize (az/field request racer))]
+        racer (ak/as (az/field request racer) :usize)]
     (set! (az/index results racer) result)
     (ak/atomicStore :u64 (ak/& (az/index result-revisions racer))
                     (az/field request revision) :.release)
@@ -645,9 +638,9 @@
         (set! idle-wait-count 0)
         (dotimes [actor actor-count]
           (set! (az/index sampler-states actor)
-                (+ 101 (* (ak/as :u64 (ak/intCast actor)) 103))))
+                (+ 101 (* (ak/as (ak/intCast actor) :u64) 103))))
         (ak/atomicStore :u8 (ak/& worker-running) 1 :.release)
-        (let [^{:var true :zig/type :bool} all-started true]
+        (let [^:var all-started (ak/bool true)]
           (dotimes [racer actor-count]
             (when all-started
               (let [thread
@@ -679,7 +672,7 @@
 (az/defn submit! :bool
   "Publish one immutable observation. A racer has only one in-flight request."
   [[request InferenceRequest]]
-  (let [racer (ak/as :usize (az/field request racer))
+  (let [racer (ak/as (az/field request racer) :usize)
         ^:var published request
         requested
         (if (< racer actor-count)
@@ -727,7 +720,7 @@
 
 (az/defn summary WorkerSummary
   []
-  (let [^{:var true :zig/type :u8} pending 0]
+  (let [^:var pending (ak/u8 0)]
     (dotimes [racer actor-count]
       (when (or (let [state (language-mailbox-state racer)]
                   (or (ak/== state 1) (ak/== state 2)))

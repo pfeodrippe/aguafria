@@ -31,8 +31,8 @@
   "Compare the compiled coarse points with the original runtime sampler." []
   (let [^{:var :f32} maximum 0.0]
     (dotimes [i track/projection-samples]
-      (let [progress (/ (ak/as :f32 (ak/floatFromInt i))
-                        (ak/as :f32 (ak/floatFromInt track/projection-samples)))
+      (let [progress (/ (ak/as (ak/floatFromInt i) :f32)
+                        (ak/as (ak/floatFromInt track/projection-samples) :f32))
             original (track/pose progress 0.0)
             cached (az/index track/projection-centers i)]
         (set! maximum (ak/max maximum

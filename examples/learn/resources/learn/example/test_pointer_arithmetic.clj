@@ -5,7 +5,7 @@
 
 (az/deftest many-item-arithmetic-test
   (let [numbers (az/array-init [:array _ :i32] [1 2 3 4])
-        ^{:var [:many-const :i32]} pointer (& numbers)]
+        ^:var pointer (ak/as (& numbers) [:many-const :i32])]
     (try (testing/expectEqual 1 (az/index pointer 0)))
     (ak/+= pointer 1)
     (try (testing/expectEqual 2 (az/index pointer 0)))
@@ -17,7 +17,7 @@
 
 (az/deftest slice-arithmetic-test
   (let [^:var numbers (az/array-init [:array _ :i32] [1 2 3 4])
-        ^{:var :usize} length 0]
+        ^:var length (ak/usize 0)]
     ;; Taking its address keeps length runtime-known.
     (set! _ (& length))
     (let [^:var slice (az/slice numbers length (az/field numbers :len))]

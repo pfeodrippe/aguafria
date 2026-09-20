@@ -12,9 +12,9 @@
         world-mask (az/array-init [:vector 6 :i32] [-1 0 4 1 -2 -3])
         world (ak/shuffle (az/type :u8) letters endings world-mask)]
     (try (testing/expectEqualStrings
-          "hello" (& (ak/as (az/type [:array 5 :u8]) hello))))
+          "hello" (& (ak/as hello (az/type [:array 5 :u8])))))
     (try (testing/expectEqualStrings
-          "world!" (& (ak/as (az/type [:array 6 :u8]) world))))))
+          "world!" (& (ak/as world (az/type [:array 6 :u8])))))))
 
 (comment
   (vector-shuffle-test))

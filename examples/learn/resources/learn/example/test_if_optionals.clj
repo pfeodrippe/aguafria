@@ -5,8 +5,8 @@
 
 (az/deftest if-optional-test
   ;; If expressions test for null.
-  (let [^{:zig/type [:optional :u32]} present 0
-        ^{:zig/type [:optional :u32]} absent nil]
+  (let [present (ak/as 0 [:optional :u32])
+        absent (ak/as nil [:optional :u32])]
     (az/if-capture-stmt {:payload [value]} present
                         (try (testing/expectEqual 0 value))
                         (ak/unreachable))
@@ -24,7 +24,7 @@
       (try (testing/expect true))))
 
   ;; Access the value by reference using a pointer capture.
-  (let [^{:var [:optional :u32]} optional-value 3]
+  (let [^:var optional-value (ak/as 3 [:optional :u32])]
     (az/if-capture-stmt {:payload [(az/pointer-capture value)]} optional-value
                         (set! @value 2))
 
@@ -35,10 +35,9 @@
 (az/deftest if-error-union-optional-test
   ;; If expressions test for errors before unwrapping optionals.
   ;; The optional-value capture has type ?u32.
-  (let [^{:zig/type [:error-union :anyerror [:optional :u32]]} present 0
-        ^{:zig/type [:error-union :anyerror [:optional :u32]]} absent nil
-        ^{:zig/type [:error-union :anyerror [:optional :u32]]}
-        failure (az/error-value :BadValue)]
+  (let [present (ak/as 0 [:error-union :anyerror [:optional :u32]])
+        absent (ak/as nil [:error-union :anyerror [:optional :u32]])
+        failure (ak/as (az/error-value :BadValue) [:error-union :anyerror [:optional :u32]])]
     (az/if-capture-stmt {:payload [optional-value] :error [error]} present
                         (try (testing/expectEqual 0 (az/unwrap optional-value)))
                         (az/block
@@ -56,7 +55,7 @@
                         (try (testing/expectEqual (az/error-value :BadValue) error))))
 
   ;; Access the value by reference by using a pointer capture each time.
-  (let [^{:var [:error-union :anyerror [:optional :u32]]} result 3]
+  (let [^:var result (ak/as 3 [:error-union :anyerror [:optional :u32]])]
     (az/if-capture-stmt {:payload [(az/pointer-capture optional-value)] :error [_]}
                         result
                         (az/if-capture-stmt {:payload [(az/pointer-capture value)]} @optional-value

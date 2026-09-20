@@ -5,12 +5,12 @@
 
 (az/defn main :void
   []
-  (let [^{:var :u32} x ak/undefined
-        ^{:var :u32} y ak/undefined
-        ^{:var :u32} z ak/undefined
+  (let [^:var x (ak/u32 ak/undefined)
+        ^:var y (ak/u32 ak/undefined)
+        ^:var z (ak/u32 ak/undefined)
         tuple [1 2 3]
         numbers (az/array-init [:array _ :u32] [4 5 6])
-        ^{:zig/type [:vector 3 :u32]} lanes [7 8 9]]
+        lanes (ak/as [7 8 9] [:vector 3 :u32])]
     ;; A vector target assigns existing bindings; it does not declare new ones.
     (set! [x y z] tuple)
     (debug/print "tuple: x = {}, y = {}, z = {}\n" [x y z])

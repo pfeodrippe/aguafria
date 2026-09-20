@@ -125,7 +125,7 @@
   "Render-thread only. Validate a candidate before releasing the current voice." [[path [:slice-const :u8]]]
   (when (or (ak/! engine-ready) (ak/== (az/field path len) 0)
             (>= (az/field path len) 4096)) (ak/return false))
-  (let [^{:var [:array 4096 :u8]} filename (mem/zeroes (az/type [:array 4096 :u8]))
+  (let [^:var filename (ak/as (mem/zeroes (az/type [:array 4096 :u8])) [:array 4096 :u8])
         next (mod (+ voice-slot 1) 2)
         decoder (ak/& (az/index voice-decoders next))
         candidate (ak/& (az/index voices next))]
@@ -134,7 +134,7 @@
     (when (ak/!= (audio/ma_decoder_init_file (ak/& filename) ak/null decoder) audio/MA_SUCCESS)
       (ak/return false))
     (when (ak/!= (audio/ma_sound_init_from_data_source (ak/& engine)
-                    (ak/as (az/type [:* audio/ma_data_source]) (ak/ptrCast decoder))
+                    (ak/as (ak/ptrCast decoder) (az/type [:* audio/ma_data_source]))
                     0 ak/null candidate) audio/MA_SUCCESS)
       (set! _ (audio/ma_decoder_uninit decoder)) (ak/return false))
     (audio/ma_sound_set_looping candidate 0)
@@ -148,8 +148,8 @@
   (let [file (io/fopen (ak/& voice-path) "rb")]
     (when (ak/== file ak/null) (ak/return 0))
     (ak/defer (set! _ (io/fclose file)))
-    (let [^{:var [:array 4096 :u8]} buffer ak/undefined
-          ^{:var :u64} hash 14695981039346656037]
+    (let [^:var buffer (ak/as ak/undefined [:array 4096 :u8])
+          ^:var hash (ak/u64 14695981039346656037)]
       (ak/while true
         (let [n (io/fread (ak/& buffer) 1 4096 file)]
           (when (ak/== n 0) (ak/break))
@@ -180,7 +180,7 @@
     ;; Advance through voiced passages in their Markdown order. Missing takes
     ;; are silent, never substituted with unrelated audio.
     (when (or changed (and voice-ready (ak/!= (audio/ma_sound_at_end (ak/& (az/index voices voice-slot))) 0)))
-      (let [start (if (ak/== voice-node story/no-parent) (ak/as :u32 0) (+ voice-node 1))]
+      (let [start (if (ak/== voice-node story/no-parent) (ak/as 0 :u32) (+ voice-node 1))]
         (dotimes [i (az/field data count)]
           (let [n (az/index (az/field data nodes) i)]
             (when (and (>= i start) (ak/== (az/field n parent) story-parent)
@@ -201,7 +201,7 @@
         previous-count passage-entity-count]
     (dotimes [i (az/field data count)]
       (let [node (az/index (az/field data nodes) i)
-            ^{:var [:array 65 :u8]} name (mem/zeroes (az/type [:array 65 :u8]))]
+            ^:var name (ak/as (mem/zeroes (az/type [:array 65 :u8])) [:array 65 :u8])]
         (ak/memcpy (az/slice name 0 (az/field node id_len)) (az/slice (az/field node id) 0 (az/field node id_len)))
         (let [desc (flecs/ecs_entity_desc_t {:name (if (> (az/field node id_len) 0) (ak/& name) ak/null)})
               entity (flecs/ecs_entity_init world (ak/& desc))
@@ -223,7 +223,7 @@
   (let [file (io/fopen "resources/demo/story.lpdialogue" "rb")]
     (when (ak/== file ak/null) (ak/return false))
     (ak/defer (set! _ (io/fclose file)))
-    (let [^{:var [:array 8 :u8]} magic ak/undefined
+    (let [^:var magic (ak/as ak/undefined [:array 8 :u8])
           slot (mod (+ active-story 1) 2)
           candidate (ak/& (az/index stories slot))]
       (when (or (ak/!= (io/fread (ak/& magic) 1 8 file) 8)
@@ -258,7 +258,7 @@
 (az/defn story-choice-parent :u32 []
   ;; Keep the leaf's response visible while returning to its enclosing choices.
   ;; Climb only authored parents; never cross into another scene.
-  (let [data (ak/& (az/index stories active-story)) ^{:var :u32} parent story-parent]
+  (let [data (ak/& (az/index stories active-story)) ^:var parent (ak/u32 story-parent)]
     (dotimes [_ (az/field data count)]
       (when (or (ak/== parent story/no-parent) (>= parent (az/field data count)))
         (ak/return story/no-parent))
@@ -275,7 +275,7 @@
     (and (ak/!= state ak/null) (az/field (az/cast state [:*const PassageState]) visited))))
 
 (az/defn story-choice :u32 [[ordinal :u32]]
-  (let [data (ak/& (az/index stories active-story)) parent (story-choice-parent) ^{:var :u32} found 0]
+  (let [data (ak/& (az/index stories active-story)) parent (story-choice-parent) ^:var found (ak/u32 0)]
     (when (ak/== parent story/no-parent) (ak/return story/no-parent))
     (dotimes [i (az/field data count)]
       (let [n (az/index (az/field data nodes) i)]
@@ -304,7 +304,7 @@
   (let [data (ak/& (az/index stories active-story))
         current (az/field (az/index (az/field data nodes) story-parent) scene)]
     (dotimes [step (az/field data count)]
-      (let [index (mod (+ current (ak/as :u32 (ak/intCast step)) 1) (az/field data count))]
+      (let [index (mod (+ current (ak/as (ak/intCast step) :u32) 1) (az/field data count))]
         (when (ak/== (az/field (az/index (az/field data nodes) index) kind) 0)
           (set! story-parent index) (set! story-page 0) (set! choice-offset 0) (ak/return))))))
 
@@ -324,8 +324,8 @@
   (let [file (io/fopen "resources/demo/lesson.wav" "rb")]
     (when (ak/== file ak/null) (ak/return 0))
     (ak/defer (set! _ (io/fclose file)))
-    (let [^{:var [:array 4096 :u8]} buffer ak/undefined
-          ^{:var :u64} hash 14695981039346656037]
+    (let [^:var buffer (ak/as ak/undefined [:array 4096 :u8])
+          ^:var hash (ak/u64 14695981039346656037)]
       (ak/while true
         (let [n (io/fread (ak/& buffer) 1 4096 file)]
           (when (ak/== n 0) (ak/break))
@@ -354,7 +354,7 @@
       (do
         ;; Own a fresh decoder, bypassing miniaudio's pathname resource cache.
         (when (ak/!= (audio/ma_sound_init_from_data_source (ak/& engine)
-                        (ak/as (az/type [:* audio/ma_data_source]) (ak/ptrCast decoder))
+                        (ak/as (ak/ptrCast decoder) (az/type [:* audio/ma_data_source]))
                         0 ak/null candidate)
                       audio/MA_SUCCESS)
           (set! _ (audio/ma_decoder_uninit decoder))
@@ -469,8 +469,8 @@
     (when audio-ready
       (audio/ma_sound_set_volume (ak/& (az/index tracks active-track)) (if (or audio-muted studio-audio-suppressed) 0.0 0.35))))
   (let [now (glfw/glfwGetTime)
-        ^{:var :f64} x 0.0 ^{:var :f64} y 0.0]
-    (when playing (set! elapsed (+ elapsed (ak/as :f32 (ak/floatCast (ak/min (- now previous-time) 0.1))))))
+        ^:var x (ak/f64 0.0) ^:var y (ak/f64 0.0)]
+    (when playing (set! elapsed (+ elapsed (ak/as (ak/floatCast (ak/min (- now previous-time) 0.1)) :f32))))
     (set! previous-time now)
     (glfw/glfwGetCursorPos window (ak/& x) (ak/& y))
     (set! hovered-choice 0)
@@ -502,9 +502,9 @@
   (when (>= vertex-count gpu/frame-capacity) (debug/panic "La Professeure frame capacity exceeded" []))
   (set! (az/index vertices vertex-count)
         (mesh/GpuVertex {:x (- (/ (* x 2.0) canvas-width) 1.0) :y (- (/ (* y 2.0) canvas-height) 1.0) :z 0.0
-                         :r (/ (ak/as :f32 (ak/floatFromInt (ak/& (ak/>> rgb 16) 255))) 255.0)
-                         :g (/ (ak/as :f32 (ak/floatFromInt (ak/& (ak/>> rgb 8) 255))) 255.0)
-                         :b (/ (ak/as :f32 (ak/floatFromInt (ak/& rgb 255))) 255.0)
+                         :r (/ (ak/as (ak/floatFromInt (ak/& (ak/>> rgb 16) 255)) :f32) 255.0)
+                         :g (/ (ak/as (ak/floatFromInt (ak/& (ak/>> rgb 8) 255)) :f32) 255.0)
+                         :b (/ (ak/as (ak/floatFromInt (ak/& rgb 255)) :f32) 255.0)
                          :nx 0.0 :ny 0.0 :nz lit :wx u :wy v :wz 0.0
                          :roughness textured :vx 0.0 :vy 0.0 :vz 0.0}))
   (set! vertex-count (+ vertex-count 1)))
@@ -524,7 +524,7 @@
 
 (az/defn glyph-code! :u32
   "Decode one UTF-8 code point into the font atlas, including French typography." [[text [:slice-const :u8]] [index [:* :usize]]]
-  (let [first (az/index text (az/deref index)) ^{:var :u32} code first ^{:var :usize} extra 0]
+  (let [first (az/index text (az/deref index)) ^:var code (ak/u32 first) ^:var extra (ak/usize 0)]
     (set! (az/deref index) (+ (az/deref index) 1))
     (cond
       (and (>= first 194) (< first 224)) (do (set! code (ak/& first 31)) (set! extra 1))
@@ -547,23 +547,23 @@
 
 (az/defn text! :void
   "UTF-8 Latin-1 plus French typography, using the loaded serif font atlas." [[text [:slice-const :u8]] [x :f32] [y :f32] [scale :f32] [rgb :u32]]
-  (let [^{:var :usize} index 0 ^{:var :f32} cursor x]
+  (let [^:var index (ak/usize 0) ^:var cursor (ak/f32 x)]
     (ak/while (< index (az/field text len))
       (let [code (glyph-code! text (ak/& index))]
         (quad! (- cursor (* 3.0 scale)) (+ y scale) (* 62.0 scale) (* 78.0 scale)
-          (+ 1.0 (ak/as :f32 (ak/floatFromInt (* (mod code 32) 64))))
-          (+ 1.0 (ak/as :f32 (ak/floatFromInt (* (ak/divTrunc code 32) 80))))
+          (+ 1.0 (ak/as (ak/floatFromInt (* (mod code 32) 64)) :f32))
+          (+ 1.0 (ak/as (ak/floatFromInt (* (ak/divTrunc code 32) 80)) :f32))
           62.0 78.0 rgb 1.0 0.0)
         (set! cursor (+ cursor (* (az/index glyph-advances code) scale)))))))
 
 (az/defn text-width :f32 [[text [:slice-const :u8]] [scale :f32]]
-  (let [^{:var :usize} index 0 ^{:var :f32} width 0.0]
+  (let [^:var index (ak/usize 0) ^:var width (ak/f32 0.0)]
     (ak/while (< index (az/field text len))
       (let [code (glyph-code! text (ak/& index))]
         (set! width (+ width (* (az/index glyph-advances code) scale))))) width))
 
 (az/defn revealed-prefix! :usize [[text [:slice-const :u8]]]
-  (let [^{:var :usize} visible 0]
+  (let [^:var visible (ak/usize 0)]
     (ak/while (and (< visible (az/field text len)) (> reveal-remaining 0))
       (set! _ (glyph-code! text (ak/& visible)))
       (set! reveal-remaining (- reveal-remaining 1)))
@@ -571,9 +571,9 @@
 
 (az/defn wrapped-text! :f32
   "Word-wrap using actual font advances; render only the current body page." [[text [:slice-const :u8]] [x :f32] [y :f32] [width :f32] [scale :f32] [rgb :u32]]
-  (let [^{:var :usize} start 0 ^{:var :f32} cursor x ^{:var :f32} row y]
+  (let [^:var start (ak/usize 0) ^:var cursor (ak/f32 x) ^:var row (ak/f32 y)]
     (ak/while (< start (az/field text len))
-      (let [^{:var :usize} end start]
+      (let [^:var end (ak/usize start)]
         (ak/while (and (< end (az/field text len)) (ak/!= (az/index text end) 32)) (set! end (+ end 1)))
         (let [word (az/slice text start end) word-width (text-width word scale)]
           (when (and (> cursor x) (> (+ cursor word-width) (+ x width)))
@@ -594,13 +594,13 @@
     (set! reveal-parent story-parent) (set! reveal-page story-page) (set! reveal-story active-story)
     (set! reveal-start (glfw/glfwGetTime)) (set! reveal-all false))
   (set! reveal-remaining (if reveal-all 262144
-    (ak/as :usize (ak/intFromFloat (ak/min 262144.0 (* 42.0 (ak/max 0.0 (- (glfw/glfwGetTime) reveal-start))))))))
+    (ak/as (ak/intFromFloat (ak/min 262144.0 (* 42.0 (ak/max 0.0 (- (glfw/glfwGetTime) reveal-start))))) :usize)))
   (rect! 0.0 0.0 1100.0 760.0 0x161b1e 0.0)
   (text! "LA PROFESSEURE" 180.0 27.0 0.60 0xe9e0c9)
   (rect! 180.0 98.0 48.0 2.0 0xbc8f5b 0.0)
   (let [data (ak/& (az/index stories active-story))
         scene (az/field (az/index (az/field data nodes) story-parent) scene)
-        ^{:var :f32} row (- 217.0 (* (ak/as :f32 (ak/floatFromInt story-page)) 208.0))]
+        ^:var row (ak/f32 (- 217.0 (* (ak/as (ak/floatFromInt story-page) :f32) 208.0)))]
     (text! (story-text scene) 180.0 125.0 0.65 0xece3ce)
     (set! story-more-pages false)
     (dotimes [i (az/field data count)]
@@ -615,12 +615,12 @@
   (rect! 180.0 445.0 740.0 1.0 0x414644 0.0)
   (when (and (> hovered-choice 0)
              (ak/!= (story-choice (+ hovered-choice choice-offset)) story/no-parent))
-    (rect! 180.0 (+ 473.0 (* 47.0 (ak/as :f32 (ak/floatFromInt (- hovered-choice 1)))))
+    (rect! 180.0 (+ 473.0 (* 47.0 (ak/as (ak/floatFromInt (- hovered-choice 1)) :f32)))
            740.0 36.0 0x262b2b 0.0))
   (dotimes [i 3]
-    (let [choice (story-choice (+ choice-offset (ak/as :u32 (ak/intCast (+ i 1)))))
-          y (+ 473.0 (* 47.0 (ak/as :f32 (ak/floatFromInt i))))
-          color (if (story-choice-visited? choice) (ak/as :u32 0x969081) (ak/as :u32 0xd4b07c))]
+    (let [choice (story-choice (+ choice-offset (ak/as (ak/intCast (+ i 1)) :u32)))
+          y (+ 473.0 (* 47.0 (ak/as (ak/floatFromInt i) :f32)))
+          color (if (story-choice-visited? choice) (ak/as 0x969081 :u32) (ak/as 0xd4b07c :u32))]
       (when (ak/!= choice story/no-parent)
         (text! (if (ak/== i 0) "1." (if (ak/== i 1) "2." "3.")) 190.0 y 0.40 color)
         (let [label (story-text choice) scale (ak/min 0.40 (/ 700.0 (ak/max 1.0 (text-width label 1.0))))]

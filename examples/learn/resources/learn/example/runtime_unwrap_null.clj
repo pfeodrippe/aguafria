@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^{:var [:optional :i32]} optional-number nil]
+  (let [^:var optional-number (ak/as nil [:optional :i32])]
     (set! _ (ak/& optional-number))
     (let [number (az/unwrap optional-number)]
       (debug/print "value: {}\n" [number]))))

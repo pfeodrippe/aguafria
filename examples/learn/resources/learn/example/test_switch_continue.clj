@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest switch-continue-test
-  (az/labeled-switch-stmt sw (ak/as :i32 5)
+  (az/labeled-switch-stmt sw (ak/as 5 :i32)
                           (case [5]
                             (ak/continue sw 4))
 

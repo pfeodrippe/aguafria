@@ -181,7 +181,7 @@
 (az/defn update-residual! :f64
   [[model [:* Model]]]
   (multiply! model (az/field model displacement) (az/field model product))
-  (let [^{:var :f64} squared 0.0]
+  (let [^:var squared (ak/f64 0.0)]
     (dotimes [i (az/field (az/field model load) len)]
       (let [r (if (az/index (az/field model fixed) i) 0.0
                   (- (az/index (az/field model load) i)
@@ -195,8 +195,8 @@
   (let [dofs (az/field (az/field model displacement) len)
         initial (update-residual! model)
         tolerance (ak/max absolute-tolerance (* relative-tolerance initial))
-        ^{:var :f64} norm initial
-        ^{:var :f64} rho 0.0
+        ^:var norm (ak/f64 initial)
+        ^:var rho (ak/f64 0.0)
         ^:var report (Report {:converged false :breakdown false :iterations 0
                              :residual initial :relative-residual 1.0 :strain-energy 0.0})]
     (when (ak/! (assemble-diagonal! model))
@@ -210,7 +210,7 @@
         (ak/+= rho (* z (az/index (az/field model residual) i)))))
     (while (and (> norm tolerance) (< (az/field report iterations) limit))
       (multiply! model (az/field model direction) (az/field model product))
-      (let [^{:var :f64} curvature 0.0]
+      (let [^:var curvature (ak/f64 0.0)]
         (dotimes [i dofs]
           (ak/+= curvature (* (az/index (az/field model direction) i)
                               (az/index (az/field model product) i))))
@@ -226,8 +226,8 @@
                    (if (az/index (az/field model fixed) i) 0.0
                        (* alpha (az/index (az/field model product) i)))))))
       (ak/+= (az/field report iterations) 1)
-      (let [^{:var :f64} next-rho 0.0
-            ^{:var :f64} squared 0.0]
+      (let [^:var next-rho (ak/f64 0.0)
+            ^:var squared (ak/f64 0.0)]
         (dotimes [i dofs]
           (let [r (az/index (az/field model residual) i)]
             (ak/+= squared (* r r))

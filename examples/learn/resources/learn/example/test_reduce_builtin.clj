@@ -6,7 +6,7 @@
 (az/deftest vector-reduction-test
   (let [Vector (az/type [:vector 4 :i32])
         values (az/array-init Vector [1 -1 1 -1])
-        positive (> values (ak/as Vector (ak/splat 0)))
+        positive (> values (ak/as (ak/splat 0) Vector))
         all-positive (ak/reduce :.And positive)]
     (try (ak/comptime
           (testing/expectEqual (az/type [:vector 4 :bool])

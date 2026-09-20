@@ -11,8 +11,8 @@
     (set! _
           (stdio/printf
            "frames=%llu average_ms=%.6f work_ms=%.6f simulation_ms=%.6f presentation_ms=%.6f\n"
-           (ak/as :c_ulonglong (az/field timing frames))
-           (ak/as :f64 (az/field timing average_ms))
-           (ak/as :f64 (az/field timing work_average_ms))
-           (ak/as :f64 (az/field timing simulation_average_ms))
-           (ak/as :f64 (az/field timing presentation_average_ms))))))
+           (ak/as (az/field timing frames) :c_ulonglong)
+           (ak/as (az/field timing average_ms) :f64)
+           (ak/as (az/field timing work_average_ms) :f64)
+           (ak/as (az/field timing simulation_average_ms) :f64)
+           (ak/as (az/field timing presentation_average_ms) :f64)))))

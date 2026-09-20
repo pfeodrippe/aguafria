@@ -4,5 +4,5 @@
 
 ;; Checked addition cannot store 256 in an eight-bit unsigned integer.
 (az/defcomptime checked-byte-overflow
-  (let [^{:var :u8} byte 255]
+  (let [^:var byte (ak/u8 255)]
     (ak/+= byte 1)))

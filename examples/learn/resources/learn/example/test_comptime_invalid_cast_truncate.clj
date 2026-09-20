@@ -4,6 +4,6 @@
 
 ;; intCast checks representability; unlike truncate, it does not discard bits.
 (az/defcomptime reject-too-large-byte
-  (let [^{:zig/type :u16} spartan-count 300
-        ^{:zig/type :u8} byte (ak/intCast spartan-count)]
+  (let [spartan-count (ak/u16 300)
+        byte (ak/u8 (ak/intCast spartan-count))]
     (set! _ byte)))

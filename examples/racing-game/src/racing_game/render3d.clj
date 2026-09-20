@@ -130,10 +130,10 @@
   (set! camera-initialized false))
 
 (az/defn select-camera! :void [[racer :u8] [follow :bool]]
-  (when (or (ak/!= camera-racer (mod racer (ak/as :u8 (ak/intCast sim/racer-count))))
-            (ak/!= camera-mode (if follow (ak/as :u8 1) (ak/as :u8 4))))
+  (when (or (ak/!= camera-racer (mod racer (ak/as (ak/intCast sim/racer-count) :u8)))
+            (ak/!= camera-mode (if follow (ak/as 1 :u8) (ak/as 4 :u8))))
     (reset-camera!))
-  (set! camera-racer (mod racer (ak/as :u8 (ak/intCast sim/racer-count))))
+  (set! camera-racer (mod racer (ak/as (ak/intCast sim/racer-count) :u8)))
   (set! follow-front-pack false)
   (set! follow-camera follow)
   (set! camera-mode (if follow 1 4)))
@@ -169,7 +169,7 @@
         ^:var sx (az/field target x)
         ^:var sy (az/field target y)
         ^:var sz (* 0.001 (az/field (presentation-pose (az/field target id) 0) z))
-        ^{:var :f32} count 1.0]
+        ^:var count (ak/f32 1.0)]
     (when (and follow-camera follow-front-pack)
       (dotimes [i sim/racer-count]
         (let [racer (presentation-view (ak/intCast i))
@@ -333,7 +333,7 @@
           ny (- (* uz vx) (* ux vz))
           nz (- (* ux vy) (* uy vx))
           length (ak/max 0.000000001 (ak/sqrt (+ (* nx nx) (* ny ny) (* nz nz))))
-          sign (if (and up-facing? (< nz 0.0)) (ak/as :f32 -1.0) (ak/as :f32 1.0))
+          sign (if (and up-facing? (< nz 0.0)) (ak/as -1.0 :f32) (ak/as 1.0 :f32))
           normal (Vec3 {:x (* sign (/ nx length)) :y (* sign (/ ny length))
                         :z (* sign (/ nz length))})]
       (material-vertex! out n a color normal 0.95)
@@ -378,10 +378,10 @@
 
 (az/defn road! :usize
   "The exact collision cross sections, with no overlapping grass/asphalt sheets." [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
-  (let [^{:var :usize} next n]
+  (let [^:var next (ak/usize n)]
     (dotimes [i track/surface-segments]
-      (let [pa (/ (ak/as :f32 (ak/floatFromInt i)) (ak/as :f32 (ak/floatFromInt track/surface-segments)))
-            pb (/ (ak/as :f32 (ak/floatFromInt (+ i 1))) (ak/as :f32 (ak/floatFromInt track/surface-segments)))]
+      (let [pa (/ (ak/as (ak/floatFromInt i) :f32) (ak/as (ak/floatFromInt track/surface-segments) :f32))
+            pb (/ (ak/as (ak/floatFromInt (+ i 1)) :f32) (ak/as (ak/floatFromInt track/surface-segments) :f32))]
         (dotimes [strip (- track/surface-columns 1)]
           (let [a (surface-point pa strip) b (surface-point pb strip)
                 c (surface-point pb (+ strip 1)) d (surface-point pa (+ strip 1))
@@ -410,8 +410,8 @@
         (set! next (pit-ribbon! out next (+ p 0.00115) (+ p 0.0012)
                                0.197 0.234 0.00005 white))))
     (dotimes [i 12]
-      (let [lane (+ -0.13 (* (ak/as :f32 (ak/floatFromInt i)) (/ 0.26 12.0)))
-            ^{:zig/type :f32} light (if (ak/== (mod i 2) 0) 0.90 0.02)]
+      (let [lane (+ -0.13 (* (ak/as (ak/floatFromInt i) :f32) (/ 0.26 12.0)))
+            light (ak/f32 (if (ak/== (mod i 2) 0) 0.90 0.02))]
         (set! next (ribbon! out next 0.0 0.0004 lane (+ lane (/ 0.26 12.0)) 0.00003
                            (Vec3 {:x light :y light :z light})))))
     next))
@@ -499,7 +499,7 @@
 
 (az/defn wheel-roll :f32
   "Radians from actual arc-length travel and Blender tire radius, not wall time." [[progress :f32] [lap :u16] [radius :f32]]
-  (mod (/ (* (+ progress (ak/as :f32 (ak/floatFromInt lap))) 4309.0)
+  (mod (/ (* (+ progress (ak/as (ak/floatFromInt lap) :f32)) 4309.0)
           (ak/max radius 0.01)) 6.2831855))
 
 (az/defn wheel! :usize
@@ -517,7 +517,7 @@
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [vertices [:slice-const [:array 10 :f32]]]
    [x :f32] [y :f32] [z :f32] [heading :f32] [scale :f32]]
-  (let [^{:var :usize} next n
+  (let [^:var next (ak/usize n)
         co (math/cos heading) si (math/sin heading)]
     (dotimes [triangle (ak/divTrunc (az/field vertices len) 3)]
       (let [base (* triangle 3)]
@@ -539,7 +539,7 @@
     next))
 
 (az/defn racer-tint Vec3 [[id :usize]]
-  (let [color (az/index colors (mod (ak/as :usize id) sim/racer-count))]
+  (let [color (az/index colors (mod (ak/as id :usize) sim/racer-count))]
     (Vec3 {:x (az/index color 0) :y (az/index color 1) :z (az/index color 2)})))
 
 (az/defn line! :usize
@@ -556,9 +556,9 @@
 (az/defn ring! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [x :f32] [y :f32] [z :f32] [radius :f32] [color Vec3]]
-  (let [^{:var true :zig/type :usize} next n]
+  (let [^:var next (ak/usize n)]
     (dotimes [i 24]
-      (let [a (* (ak/as :f32 (ak/floatFromInt i)) (/ 6.2831855 24.0))
+      (let [a (* (ak/as (ak/floatFromInt i) :f32) (/ 6.2831855 24.0))
             b (+ a (/ 6.2831855 24.0))]
         (set! next (line! out next (+ x (* radius (math/cos a)))
                          (+ y (* radius (math/sin a)))
@@ -570,9 +570,9 @@
   "Eight solid faces, not a screen-space diamond pretending to have depth."
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
    [x :f32] [y :f32] [z :f32] [radius :f32] [color Vec3]]
-  (let [^{:var true :zig/type :usize} next n]
+  (let [^:var next (ak/usize n)]
     (dotimes [i 4]
-      (let [a (* (ak/as :f32 (ak/floatFromInt i)) 1.5707963)
+      (let [a (* (ak/as (ak/floatFromInt i) :f32) 1.5707963)
             b (+ a 1.5707963)
             p (Vec3 {:x (+ x (* radius (math/cos a)))
                      :y (+ y (* radius (math/sin a))) :z z})
@@ -586,9 +586,9 @@
     next))
 
 (az/defn effects! :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
-  (let [^{:var true :zig/type :usize} next n]
+  (let [^:var next (ak/usize n)]
     (dotimes [i 4]
-      (let [progress (* (ak/as :f32 (ak/floatFromInt i)) 0.25)
+      (let [progress (* (ak/as (ak/floatFromInt i) :f32) 0.25)
             p (track/pose progress 0.0)]
         (set! next (diamond! out next (az/field p x) (az/field p y)
                             (+ (track/elevation progress) 0.0015) 0.0008
@@ -609,7 +609,7 @@
     next))
 
 (az/defn intents! :usize [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
-  (let [^{:var true :zig/type :usize} next n]
+  (let [^:var next (ak/usize n)]
     (dotimes [i sim/racer-count]
       (let [racer (presentation-view (ak/intCast i))
             goal (track/pose (mod (+ (az/field racer progress) 0.0045) 1.0)
@@ -622,7 +622,7 @@
 
 (az/defn containment! :usize
   "Draw Blender's metre-space barrier triangles used by Box3D." [[out [:c-pointer mesh/GpuVertex]] [n :usize]]
-  (let [^{:var :usize} next n
+  (let [^:var next (ak/usize n)
         color (Vec3 {:x 0.64 :y 0.68 :z 0.69})]
     (dotimes [i barriers/triangle-count]
       (let [indices (az/index barriers/triangles i)
@@ -652,7 +652,7 @@
 (az/defn draw-instanced-part! :bool [[slot :usize] [revision :u64]
              [vertices [:slice-const [:array 10 :f32]]]
              [part :usize] [origin Vec3] [camera mesh/InstanceCamera]]
-  (let [^{:var [:array sim/racer-count mesh/GpuInstance]} instances ak/undefined]
+  (let [^:var instances (ak/as ak/undefined [:array sim/racer-count mesh/GpuInstance])]
     (dotimes [i sim/racer-count]
       (set! (az/index instances i) (gpu-instance i part origin)))
     (when (ak/! (renderer/draw-instances! slot revision vertices (ak/& instances) camera))
@@ -690,12 +690,12 @@
 (az/defn build-world-geometry! :u32
   "Build the non-instanced world stream. Cars are separate GPU draws, so they
   no longer consume or overflow this CPU vertex buffer." [[out [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
-  (let [w (ak/as :f32 (ak/floatFromInt (ak/max width 1)))
-        h (ak/as :f32 (ak/floatFromInt (ak/max height 1)))]
+  (let [w (ak/as (ak/floatFromInt (ak/max width 1)) :f32)
+        h (ak/as (ak/floatFromInt (ak/max height 1)) :f32)]
     (set! fit-x (ak/min 1.0 (/ h w)))
     (set! fit-y (ak/min 1.0 (/ w h))))
   (let [human (sim/human-control-snapshot)
-        ^{:var true :zig/type :usize} next (containment! out (road! out 0))]
+        ^:var next (ak/usize (containment! out (road! out 0)))]
     (dotimes [team sim/team-count]
       (let [p (track/pit-pose (sim/pit-box-progress (ak/intCast team)) 0.285)]
         (set! next (model! out next (ak/& geometry/garage-vertices)

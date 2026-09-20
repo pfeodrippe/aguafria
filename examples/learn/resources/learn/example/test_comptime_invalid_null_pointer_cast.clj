@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-null-pointer
-  (let [^{:zig/type [:optional [:* :i32]]} optional-pointer nil
+  (let [optional-pointer (ak/as nil [:optional [:* :i32]])
         ;; Intentionally invalid: a nonoptional pointer cannot hold null.
-        ^{:zig/type [:* :i32]} pointer (ak/ptrCast optional-pointer)]
+        pointer (ak/as (ak/ptrCast optional-pointer) [:* :i32])]
     (set! _ pointer)))

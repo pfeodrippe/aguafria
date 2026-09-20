@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest integer-widening-peers-test
-  (let [^{:zig/type :i8} small 12
-        ^{:zig/type :i16} wide 34
+  (let [small (ak/i8 12)
+        wide (ak/i16 34)
         sum (+ small wide)]
     (try (testing/expectEqual 46 sum))
     (try (testing/expectEqual :i16 (ak/TypeOf sum)))))
@@ -13,8 +13,8 @@
 (az/deftest small-integer-and-float-peers-test
   ;; This only works for integer types that can coerce to the float type.
   ;; Larger integer types cause a compiler error; no float widening occurs.
-  (let [^{:var :u8} integer 12
-        ^{:var :f32} float 34]
+  (let [^:var integer (ak/u8 12)
+        ^:var float (ak/f32 34)]
     (set! _ [(& integer) (& float)])
     (let [sum (+ integer float)]
       (try (testing/expectEqual sum 46.0))
@@ -40,9 +40,9 @@
   [[choose-first? :bool]]
   (let [first-value (if choose-first?
                       "aoeu"
-                      (ak/as (az/type [:slice-const :u8]) "zz"))
+                      (ak/as "zz" (az/type [:slice-const :u8])))
         second-value (if choose-first?
-                       (ak/as (az/type [:slice-const :u8]) "zz")
+                       (ak/as "zz" (az/type [:slice-const :u8]))
                        "aoeu")]
     (try (testing/expectEqualStrings "aoeu" first-value))
     (try (testing/expectEqualStrings "zz" second-value))))
@@ -61,8 +61,8 @@
     (ak/return
      (if choose-null?
        nil
-       (ak/as :usize 0))))
-  (ak/as :usize 3))
+       (ak/as 0 :usize))))
+  (ak/as 3 :usize))
 
 (az/deftest empty-array-and-slice-peers-test
   (try (testing/expectEqual 0 (az/field (empty-array-or-slice true "hi") :len)))
@@ -96,8 +96,8 @@
   (az/slice slice 0 1))
 
 (az/deftest const-pointer-and-optional-pointer-peers-test
-  (let [^{:zig/type [:*const :usize]} constant-pointer (ak/ptrFromInt 0x123456780)
-        ^{:zig/type [:optional [:* :usize]]} optional-pointer (ak/ptrFromInt 0x123456780)]
+  (let [constant-pointer (ak/as (ak/ptrFromInt 0x123456780) [:*const :usize])
+        optional-pointer (ak/as (ak/ptrFromInt 0x123456780) [:optional [:* :usize]])]
     (try (testing/expectEqual constant-pointer optional-pointer))
     (try (testing/expectEqual optional-pointer constant-pointer))))
 
@@ -105,7 +105,7 @@
   ;; The successful and error branches are peers only when the error branch
   ;; is a direct switch expression. Wrapping its switch in a labeled block
   ;; would prevent peer type resolution across those branches.
-  (let [^{:var [:error-union [:error-set [:A :B :C]] :u32]} result 0]
+  (let [^:var result (ak/as 0 [:error-union [:error-set [:A :B :C]] :u32])]
     (set! _ (& result))
     (let [from-if (az/if-capture {:payload [value] :error [error]} result
                                  (+ value 3)

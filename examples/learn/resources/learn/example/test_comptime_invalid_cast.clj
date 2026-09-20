@@ -3,6 +3,6 @@
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-negative-unsigned-value
-  (let [^{:zig/type :i32} signed-value -1
-        ^{:zig/type :u32} unsigned-value (ak/intCast signed-value)]
+  (let [signed-value (ak/i32 -1)
+        unsigned-value (ak/u32 (ak/intCast signed-value))]
     (set! _ unsigned-value)))

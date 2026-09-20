@@ -6,22 +6,22 @@
 
 (az/deftest string-slices-test
   ;; String literals coerce to UTF-8 byte slices without decoding characters.
-  (let [^{:zig/type [:slice-const :u8]} hello "hello"
-        ^{:zig/type [:slice-const :u8]} world "世界"
-        ^{:var [:array 100 :u8]} buffer ak/undefined
-        ^{:var :usize} start 0]
+  (let [hello (ak/as "hello" [:slice-const :u8])
+        world (ak/as "世界" [:slice-const :u8])
+        ^:var buffer (ak/as ak/undefined [:array 100 :u8])
+        ^:var start (ak/usize 0)]
     (set! _ (& start))
     (let [slice (az/slice buffer start)
           greeting (try (fmt/bufPrint slice "{s} {s}" [hello world]))]
       (try (testing/expectEqualStrings "hello 世界" greeting)))))
 
 (az/deftest slice-pointer-test
-  (let [^{:var [:array 10 :u8]} bytes ak/undefined
+  (let [^:var bytes (ak/as ak/undefined [:array 10 :u8])
         pointer (& bytes)]
     (try (testing/expectEqual (az/type [:* [:array 10 :u8]])
                               (ak/TypeOf pointer)))
-    (let [^{:var :usize} start 0
-          ^{:var :usize} end 5]
+    (let [^:var start (ak/usize 0)
+          ^:var end (ak/usize 5)]
       (set! _ [(& start) (& end)])
       ;; Slicing a mutable array pointer yields a mutable slice.
       (let [slice (az/slice pointer start end)]

@@ -137,7 +137,7 @@
 
 (az/defn report-job-progress! :void [[tick :u32] [substeps :u32]]
   (ak/atomicStore :u64 (ak/& job-progress-word)
-                  (ak/| (ak/<< (ak/as :u64 tick) 32) (ak/as :u64 substeps)) :.release))
+                  (ak/| (ak/<< (ak/as tick :u64) 32) (ak/as substeps :u64)) :.release))
 
 (az/defn job-progress :u64 []
   (ak/atomicLoad :u64 (ak/& job-progress-word) :.acquire))
@@ -156,9 +156,9 @@
     (ak/atomicStore :u32 (ak/& job-target-ticks) ticks :.release)
     (report-job-progress! 0 0)
     (ak/atomicStore :u64 (ak/& job-command)
-                    (ak/| (ak/<< (ak/as :u64 ticks) 32) (ak/as :u64 source)
-                          (ak/<< (ak/as :u64 (+ refinement 1)) 4)
-                          (if ipc (ak/as :u64 8) (ak/as :u64 0))) :.release)
+                    (ak/| (ak/<< (ak/as ticks :u64) 32) (ak/as source :u64)
+                          (ak/<< (ak/as (+ refinement 1) :u64) 4)
+                          (if ipc (ak/as 8 :u64) (ak/as 0 :u64))) :.release)
     true))
 
 (az/defn queue-refined-scene-job! :bool [[source :u32] [ticks :u32] [ipc :bool] [refinement :u32]]
@@ -218,7 +218,7 @@
           (ui/aguafria_ui_same_line)
           (when (ak/!= (ui/aguafria_ui_radio "1209" (if (ak/== job-refinement 2) 1 0)) 0)
             (set! job-refinement 2))
-          (let [ticks (ak/as :u32 (ak/intFromFloat (ak/round (* 240.0 job-duration))))]
+          (let [ticks (ak/as (ak/intFromFloat (ak/round (* 240.0 job-duration))) :u32)]
             (when (ak/!= (ui/aguafria_ui_button "Bake one ball") 0)
               (set! _ (queue-refined-scene-job! 1 ticks (ak/== job-contact-method 1) job-refinement)))
             (ui/aguafria_ui_same_line)
@@ -235,11 +235,11 @@
       (let [progress (job-progress)
             tick (ak/>> progress 32)
             target (ak/atomicLoad :u32 (ak/& job-target-ticks) :.acquire)
-            ^{:var [:array 160 :u8]} buffer ak/undefined
+            ^:var buffer (ak/as ak/undefined [:array 160 :u8])
             label (catch (fmt/bufPrintZ (ak/& buffer) "{d}/{d} ticks | {d} steps in frame"
                                          [tick target (ak/& progress 4294967295)]) (ak/return))]
-        (ui/aguafria_ui_progress (ak/floatCast (ak/min 1.0 (/ (ak/as :f64 (ak/floatFromInt tick))
-                                                               (ak/as :f64 (ak/floatFromInt target)))))
+        (ui/aguafria_ui_progress (ak/floatCast (ak/min 1.0 (/ (ak/as (ak/floatFromInt tick) :f64)
+                                                               (ak/as (ak/floatFromInt target) :f64))))
                                  (az/field label ptr)))
       (when (ak/== phase 5) (job-text! "Published. Use PLAY or the timeline below."))
       (when (ak/== phase 7) (job-text! "Cancelled. The previous cache is retained."))
@@ -297,7 +297,7 @@
   (let [command (panel/PitocoCommandV1
                  {:abi_version 1 :struct_size (ak/sizeOf panel/PitocoCommandV1)
                   :operation 9 :reserved 0 :integer 0 :text directory})
-        ^{:var :u64} ticket 0]
+        ^:var ticket (ak/u64 0)]
     (if (ak/== (pitoco_aguafria_submit_v1 (ak/& command) (ak/& ticket)) 1) ticket 0)))
 
 (az/defn live-revision :u32
@@ -477,11 +477,11 @@
              (or (ak/== (az/field controls action) 1)
                  (ak/== (az/field controls action) 5)
                  (ak/== (az/field controls action) 6)))
-    (let [ticks (ak/as :u32 (ak/intFromFloat (ak/round (* 240.0 (az/field controls duration)))))
+    (let [ticks (ak/as (ak/intFromFloat (ak/round (* 240.0 (az/field controls duration)))) :u32)
           ^:var request (BakeRequest {:config (edited-config)
                                 :bodies (if (ak/== (az/field controls mode) 3) 3 1)
                                 :model 2 :young (az/field controls stiffness)
-                                :duration (/ (ak/as :f64 (ak/floatFromInt ticks)) 240.0)
+                                :duration (/ (ak/as (ak/floatFromInt ticks) :f64) 240.0)
                                 :action 1 :cursor 0})]
       (set! _ (queue-configured-scene-job! 4 ticks (ak/== job-contact-method 1)
                                           job-refinement (ak/& request)))
@@ -514,7 +514,7 @@
                                      (if scene/continuum 2 (if scene/deformable 1 0))
                                      scene/stiffness)]
     (when (ak/== file null) (set! (az/field controls exported) -1) (ak/return))
-    (let [^{:var :bool} success true
+    (let [^:var success (ak/bool true)
           scripted (scene/scripted-scene)]
       (when (ak/!= scripted null)
         (when (ak/== 0 (native-panel/export-scene-source! file
@@ -598,7 +598,7 @@
                                (native-panel/export-particle! file
                                                           (ak/intCast body)
                                                           (ak/intCast particle)
-                                                          (* (ak/as :f64 (ak/floatFromInt i))
+                                                          (* (ak/as (ak/floatFromInt i) :f64)
                                                              scene/dt)
                                                           (az/field position x)
                                                           (az/field position y)
@@ -648,7 +648,7 @@
                (physics/kinetic body config)))
           (az/field controls impacts)
           (+ (az/field controls impacts)
-             (ak/as :i32 (ak/intCast (az/field body impacts)))))))
+             (ak/as (ak/intCast (az/field body impacts)) :i32)))))
     (when scene/deformable
       (let [body (scene/soft-state 0)
             radius (az/field config radius)]
@@ -665,8 +665,8 @@
         (az/field controls paused) 1
         (az/field controls exported) -2))
     (let [owned (scene/mesh-cache)
-          ^{:var :i32} nodes 0
-          ^{:var :i32} tetrahedra 0]
+          ^:var nodes (ak/i32 0)
+          ^:var tetrahedra (ak/i32 0)]
       (when (ak/!= owned null)
         (az/set-many!
           (az/field controls energy) 0.0
@@ -680,8 +680,8 @@
                 frame (cache/frame-info item scene/cursor)
                 observation (az/field frame observation)]
             (az/set-many!
-              nodes (+ nodes (ak/as :i32 (ak/intCast (az/field (az/field item reference) len))))
-              tetrahedra (+ tetrahedra (ak/as :i32 (ak/intCast (az/field (az/field item cells) len))))
+              nodes (+ nodes (ak/as (ak/intCast (az/field (az/field item reference) len)) :i32))
+              tetrahedra (+ tetrahedra (ak/as (ak/intCast (az/field (az/field item cells) len)) :i32))
               (az/field controls energy)
               (+ (az/field controls energy) (az/field observation elastic-energy)
                  (az/field observation kinetic-energy) (az/field observation potential-energy))
@@ -692,7 +692,7 @@
               (az/field controls compression)
               (ak/max (az/field controls compression) (- 1.0 (/ (az/field frame height) (cache/reference-height item))))
               (az/field controls volume_ratio)
-              (+ (az/field controls volume_ratio) (/ (az/field frame volume-ratio) (ak/as :f64 (ak/floatFromInt scene/body-count))))))))
+              (+ (az/field controls volume_ratio) (/ (az/field frame volume-ratio) (ak/as (ak/floatFromInt scene/body-count) :f64)))))))
       (native-panel/render! command (ak/& controls) nodes tetrahedra (ak/intCast (readback/status))
                                 (ak/!= (scene/scripted-scene) null) (ak/& draw-job-panel!)))
     (when (ak/== (az/field controls action) 9)
@@ -704,12 +704,12 @@
     (route-inspector-bake!)
     (set! scene/requested-continuum (ak/== (az/field controls deform) 2))
     (ak/atomicStore :u64 (ak/& status-word)
-                    (ak/| (ak/as :u64 scene/count)
-                          (ak/<< (ak/as :u64 scene/cursor) 16)
-                          (ak/<< (ak/as :u64 (if (ak/!= (az/field controls baking) 0) 1 0)) 32)
-                          (ak/<< (ak/as :u64 (if scene/continuum 1 0)) 33)
-                          (ak/<< (ak/as :u64 (if scene/solver-failed 1 0)) 34)
-                          (ak/<< (ak/as :u64 (if (ak/!= (scene/mesh-cache) null) 1 0)) 35))
+                    (ak/| (ak/as scene/count :u64)
+                          (ak/<< (ak/as scene/cursor :u64) 16)
+                          (ak/<< (ak/as (if (ak/!= (az/field controls baking) 0) 1 0) :u64) 32)
+                          (ak/<< (ak/as (if scene/continuum 1 0) :u64) 33)
+                          (ak/<< (ak/as (if scene/solver-failed 1 0) :u64) 34)
+                          (ak/<< (ak/as (if (ak/!= (scene/mesh-cache) null) 1 0) :u64) 35))
                     :.release)
     (ak/atomicStore :u32 (ak/& revision-word) scene/revision :.release)))
 
@@ -756,12 +756,12 @@
                                 :rotations [[0.0 0.0 0.0 1.0] [0.0 0.0 0.0 1.0]
                                             [0.0 0.0 0.0 1.0]]
                                 :camera [(az/field controls yaw) (az/field controls pitch)
-                                         (ak/floatCast (surface/camera-distance (ak/as :f64 (az/field controls distance))))
+                                         (ak/floatCast (surface/camera-distance (ak/as (az/field controls distance) :f64)))
                                          (ak/floatCast (az/field (surface/camera-target) y))]
                                 :viewport [1280.0 820.0 (ak/floatFromInt scene/body-count)
-                                           (+ (ak/as :f32 (if scene/deformable 1.0 0.0))
-                                              (ak/as :f32 (if (and (ak/== (az/field controls paused) 0)
-                                                                   (ak/== (az/field controls baking) 0)) 2.0 0.0)))]})]
+                                           (+ (ak/as (if scene/deformable 1.0 0.0) :f32)
+                                              (ak/as (if (and (ak/== (az/field controls paused) 0)
+                                                                   (ak/== (az/field controls baking) 0)) 2.0 0.0) :f32))]})]
     (dotimes [i scene/body-count]
       (let [state (scene/body-state (ak/intCast i))
             center (az/field state position)
@@ -800,9 +800,9 @@
   (if scene/deformable
     (+ 3
        (surface/emit-bounded! (ak/& (az/index output 3)) 524285
-                      (ak/as :f64 (az/field controls yaw))
-                      (ak/as :f64 (az/field controls pitch))
-                      (surface/camera-distance (ak/as :f64 (az/field controls distance)))))
+                      (ak/as (az/field controls yaw) :f64)
+                      (ak/as (az/field controls pitch) :f64)
+                      (surface/camera-distance (ak/as (az/field controls distance) :f64))))
     3))
 
 (az/defn main :void
@@ -832,9 +832,9 @@
                                                      (az/field interop render_pass)
                                                      (az/field interop image_count))))
     (renderer/set-overlay-renderer! (ak/& draw-ui!))
-    (let [^{:var :f64} previous (glfw/glfwGetTime)
-          ^{:var :i32} previous-paused (az/field controls paused)
-          ^{:var :f64} accumulator 0.0]
+    (let [^:var previous (ak/f64 (glfw/glfwGetTime))
+          ^:var previous-paused (ak/i32 (az/field controls paused))
+          ^:var accumulator (ak/f64 0.0)]
       (while (ak/== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE)
         (glfw/glfwPollEvents)
         (let [now (glfw/glfwGetTime)
@@ -883,7 +883,7 @@
             (if (ak/== (az/field controls paused) 0)
               (do
                 (set! accumulator
-                      (+ accumulator (* elapsed (ak/as :f64 (az/field controls rate)))))
+                      (+ accumulator (* elapsed (ak/as (az/field controls rate) :f64))))
                 (let [playback (cache/playback-step scene/cursor scene/count accumulator scene/dt
                                                    (ak/!= (az/field controls loop) 0))]
                   (when (ak/!= scene/cursor (az/field playback cursor))

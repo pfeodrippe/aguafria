@@ -104,9 +104,9 @@
 
 (az/defn speed-envelope :f32
   "Look 150 metres ahead and brake before a bend instead of clipping speed in it." [[progress :f32] [grip :f32]]
-  (let [^{:var :f32} limit (corner-speed progress grip)]
+  (let [^:var limit (ak/f32 (corner-speed progress grip))]
     (dotimes [i 6]
-      (let [distance (* (ak/as :f32 (ak/floatFromInt (+ i 1))) 25.0)
+      (let [distance (* (ak/as (ak/floatFromInt (+ i 1)) :f32) 25.0)
             corner (* 1000.0 (corner-speed (+ progress (/ distance 4309.0)) grip))
             approaching (* 0.001 (std-math/sqrt (+ (* corner corner) (* 60.0 distance))))]
         (set! limit (ak/min limit approaching))))
@@ -131,10 +131,10 @@
   "Build the immutable coarse search table at compile time from the authored
   curve. Editing the curve regenerates this dependency; no runtime warm-up." []
   (ak/setEvalBranchQuota 1000000)
-  (let [^{:var [:array projection-samples [:array 2 :f32]]} points ak/undefined]
+  (let [^:var points (ak/as ak/undefined [:array projection-samples [:array 2 :f32]])]
     (dotimes [index projection-samples]
-      (let [progress (/ (ak/as :f32 (ak/floatFromInt index))
-                        (ak/as :f32 (ak/floatFromInt projection-samples)))
+      (let [progress (/ (ak/as (ak/floatFromInt index) :f32)
+                        (ak/as (ak/floatFromInt projection-samples) :f32))
             center (pose progress 0.0)]
         (set! (az/index points index)
               (az/array-init [:array 2 :f32] [(az/field center x) (az/field center y)]))))
@@ -150,12 +150,12 @@
   [[x :f32]
    [y :f32]]
   (let [sample-count
-        (ak/as :f32 (ak/floatFromInt projection-samples))
-        ^{:var true :zig/type :f32} best-progress 0.0
-        ^{:var true :zig/type :f32} best-distance 1000.0]
+        (ak/as (ak/floatFromInt projection-samples) :f32)
+        ^:var best-progress (ak/f32 0.0)
+        ^:var best-distance (ak/f32 1000.0)]
     (dotimes [index projection-samples]
       (let [progress
-            (/ (ak/as :f32 (ak/floatFromInt index)) sample-count)
+            (/ (ak/as (ak/floatFromInt index) :f32) sample-count)
             center (az/index projection-centers index)
             dx (- x (az/index center 0))
             dy (- y (az/index center 1))
@@ -163,7 +163,7 @@
         (when (< distance best-distance)
           (set! best-progress progress)
           (set! best-distance distance))))
-    (let [^{:var true :zig/type :f32} step (/ 1.0 sample-count)]
+    (let [^:var step (ak/f32 (/ 1.0 sample-count))]
       (dotimes [_ 10]
         (let [left (wrap-progress (- best-progress step))
               right (wrap-progress (+ best-progress step))

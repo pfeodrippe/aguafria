@@ -26,8 +26,8 @@
         (az/array-init [:array 6 :u64]
           [(az/field first-lap last_ticks) (az/field first-lap samples)
            (az/field fresh samples) (az/field fresh observed_tick)
-           (if (az/field fresh started) (ak/as :u64 1) 0)
-           (if (az/field paused started) (ak/as :u64 1) 0)])))))
+           (if (az/field fresh started) (ak/as 1 :u64) 0)
+           (if (az/field paused started) (ak/as 1 :u64) 0)])))))
 
 (deftest sparse-timer-crossings-reset-and-paused-frame-test
   (worker/stop!)

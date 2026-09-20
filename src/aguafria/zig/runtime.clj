@@ -1352,7 +1352,9 @@
       (let [[declaration cause]
             (or (some (fn [declaration]
                         (try
-                          (emit/emit-declaration declaration)
+                          ;; Keep the module's lexical namespace while locating
+                          ;; a failure, just as the original emission did.
+                          (emit/emit-module module [declaration])
                           nil
                           (catch clojure.lang.ExceptionInfo cause
                             [declaration cause])))
@@ -11106,6 +11108,10 @@
                               :segment result-segment
                               :size result-size
                               :alignment result-alignment
+                              ;; A returned slice/pointer can borrow from a
+                              ;; native argument rather than the call arena.
+                              ;; Keep its owner reachable for the result's life.
+                              :owners (filterv zig-value/zig-value? arguments)
                               :schema
                               (or (native-optional-field-schema module #{}
                                                                 function-binding)
@@ -11578,6 +11584,10 @@
    (let [identity [module type]]
      (when-not (contains? seen identity)
        (cond
+         (or (= :void type)
+             (and (keyword? type) (re-matches #"[iu][0-9]+" (name type))))
+         {:kind :scalar :type type}
+
          (and (vector? type)
               (contains? #{"*" "*const" "many" "many-const"
                            "sentinel" "sentinel-const" "c-pointer"

@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest while-basic-test
-  (let [^{:var :usize} i 0]
+  (let [^:var i (ak/usize 0)]
     (while (< i 10)
       (ak/+= i 1))
     (try (testing/expectEqual 10 i))))

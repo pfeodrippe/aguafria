@@ -7,17 +7,17 @@
   (set! _ value))
 
 (az/deftest declaration-coercion-test
-  (let [^{:zig/type :u8} narrow 1
-        ^{:zig/type :u16} wide narrow]
+  (let [narrow (ak/u8 1)
+        wide (ak/u16 narrow)]
     (set! _ wide)))
 
 (az/deftest argument-coercion-test
-  (let [^{:zig/type :u8} narrow 1]
+  (let [narrow (ak/u8 1)]
     (accept-wide-integer narrow)))
 
 (az/deftest explicit-coercion-test
-  (let [^{:zig/type :u8} narrow 1
-        wide (ak/as (az/type :u16) narrow)]
+  (let [narrow (ak/u8 1)
+        wide (ak/as narrow (az/type :u16))]
     (set! _ wide)))
 
 (comment

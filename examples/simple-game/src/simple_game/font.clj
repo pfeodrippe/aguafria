@@ -89,23 +89,23 @@
       (ak/== width 1) (ak/intCast first)
       (ak/== width 2)
       (ak/intCast
-       (ak/| (ak/<< (ak/as :u32 (ak/& first 31)) 6)
-             (ak/as :u32 (ak/& (az/index text (+ index 1)) 63))))
+       (ak/| (ak/<< (ak/as (ak/& first 31) :u32) 6)
+             (ak/as (ak/& (az/index text (+ index 1)) 63) :u32)))
       (ak/== width 3)
       (ak/intCast
        (ak/|
-        (ak/| (ak/<< (ak/as :u32 (ak/& first 15)) 12)
-              (ak/<< (ak/as :u32 (ak/& (az/index text (+ index 1)) 63)) 6))
-        (ak/as :u32 (ak/& (az/index text (+ index 2)) 63))))
+        (ak/| (ak/<< (ak/as (ak/& first 15) :u32) 12)
+              (ak/<< (ak/as (ak/& (az/index text (+ index 1)) 63) :u32) 6))
+        (ak/as (ak/& (az/index text (+ index 2)) 63) :u32)))
       :else
       (ak/intCast
        (ak/|
         (ak/|
-         (ak/<< (ak/as :u32 (ak/& first 7)) 18)
-         (ak/<< (ak/as :u32 (ak/& (az/index text (+ index 1)) 63)) 12))
+         (ak/<< (ak/as (ak/& first 7) :u32) 18)
+         (ak/<< (ak/as (ak/& (az/index text (+ index 1)) 63) :u32) 12))
         (ak/|
-         (ak/<< (ak/as :u32 (ak/& (az/index text (+ index 2)) 63)) 6)
-         (ak/as :u32 (ak/& (az/index text (+ index 3)) 63))))))))
+         (ak/<< (ak/as (ak/& (az/index text (+ index 2)) 63) :u32) 6)
+         (ak/as (ak/& (az/index text (+ index 3)) 63) :u32)))))))
 
 (az/defn load-font! :bool
   "Read one TTF through portable C stdio and bake Latin-1 glyphs with stb."
@@ -164,9 +164,8 @@
    [baseline-y :i32]
    [palette :u8]]
   (let [font (ak/& (az/index fonts font-index))
-        ^{:var true :zig/type :usize} index 0
-        ^{:var true :zig/type :f32}
-        cursor (ak/as :f32 (ak/floatFromInt start-x))]
+        ^:var index (ak/usize 0)
+        ^:var cursor (ak/f32 (ak/as (ak/floatFromInt start-x) :f32))]
     (ak/while (< index (az/field text len))
       (let [decoded (utf8-codepoint-at text index)
             codepoint (if (and (>= decoded glyph-first)
@@ -177,23 +176,23 @@
             character (ak/& (az/index
                               (az/field (az/deref font) characters)
                               character-index))
-            x0 (ak/as :i32 (ak/intCast (az/field (az/deref character) x0)))
-            y0 (ak/as :i32 (ak/intCast (az/field (az/deref character) y0)))
-            x1 (ak/as :i32 (ak/intCast (az/field (az/deref character) x1)))
-            y1 (ak/as :i32 (ak/intCast (az/field (az/deref character) y1)))
+            x0 (ak/as (ak/intCast (az/field (az/deref character) x0)) :i32)
+            y0 (ak/as (ak/intCast (az/field (az/deref character) y0)) :i32)
+            x1 (ak/as (ak/intCast (az/field (az/deref character) x1)) :i32)
+            y1 (ak/as (ak/intCast (az/field (az/deref character) y1)) :i32)
             width (- x1 x0)
             height (- y1 y0)
-            glyph-x (+ (ak/as :i32 (ak/intFromFloat cursor))
-                       (ak/as :i32
-                              (ak/intFromFloat
-                               (az/field (az/deref character) xoff))))
+            glyph-x (+ (ak/as (ak/intFromFloat cursor) :i32)
+                       (ak/as (ak/intFromFloat
+                               (az/field (az/deref character) xoff))
+                              :i32))
             glyph-y (+ baseline-y
-                       (ak/as :i32
-                              (ak/intFromFloat
-                               (az/field (az/deref character) yoff))))
-            ^{:var true :zig/type :i32} row 0]
+                       (ak/as (ak/intFromFloat
+                               (az/field (az/deref character) yoff))
+                              :i32))
+            ^:var row (ak/i32 0)]
         (ak/while (< row height)
-          (let [^{:var true :zig/type :i32} column 0]
+          (let [^:var column (ak/i32 0)]
             (ak/while (< column width)
               (let [pixel (atlas-pixel
                            font
@@ -282,7 +281,7 @@
 (az/defn snapshot FontSnapshot
   "Inspect actual font loading and cached layout state."
   []
-  (let [^{:var true :zig/type :u32} loaded 0]
+  (let [^:var loaded (ak/u32 0)]
     (dotimes [index font-count]
       (when (az/field (az/index fonts index) ready)
         (set! loaded (+ loaded 1))))

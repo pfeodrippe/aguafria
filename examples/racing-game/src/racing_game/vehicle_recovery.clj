@@ -72,7 +72,7 @@
    [rear-gap :f32] [rear-closing :f32] [enabled :bool]]
   (let [^:var state previous
         ^:var control traffic
-        ^{:var :i8} gear 1
+        ^:var gear (ak/i8 1)
         speed (az/field normal speed)
         up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                             (* (az/field body qy) (az/field body qy)))))
@@ -116,7 +116,7 @@
         (set! (az/field control brake) 1.0)
         (set! (az/field control steering) 0.0)
         (when (< speed 0.05)
-          (set! (az/field state phase) (if safe (ak/as :u8 3) 0))
+          (set! (az/field state phase) (if safe (ak/as 3 :u8) 0))
           (set! (az/field state waiting_ticks) 0)
           (set! (az/field state start_x) (az/field body x))
           (set! (az/field state start_y) (az/field body y))))

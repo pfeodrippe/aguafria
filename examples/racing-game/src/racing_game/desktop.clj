@@ -117,7 +117,7 @@
               (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_KP_SUBTRACT) glfw/GLFW_PRESS))
       (render3d/zoom-by! (ak/floatCast (ak/exp (* dt -2.0))))))
   (dotimes [racer 8]
-    (when (ak/== (glfw/glfwGetKey window (+ glfw/GLFW_KEY_1 (ak/as :i32 (ak/intCast racer)))) glfw/GLFW_PRESS)
+    (when (ak/== (glfw/glfwGetKey window (+ glfw/GLFW_KEY_1 (ak/as (ak/intCast racer) :i32))) glfw/GLFW_PRESS)
       (render3d/select-camera! (ak/intCast racer) true)))
   (let [pause-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_P)
                            glfw/GLFW_PRESS)
@@ -179,25 +179,21 @@
                               glfw/GLFW_GAMEPAD_BUTTON_A)
                     glfw/GLFW_PRESS))
         item-use (or keyboard-use gamepad-use)
-        ^{:zig/type :f32}
         keyboard-steering
-        (cond
+        (ak/f32 (cond
           (and left-down (ak/! right-down)) -1.0
           (and right-down (ak/! left-down)) 1.0
-          :else 0.0)
-        ^{:zig/type :f32}
+          :else 0.0))
         steering
-        (if (> (ak/abs gamepad-steering) 0.15)
+        (ak/f32 (if (> (ak/abs gamepad-steering) 0.15)
           gamepad-steering
-          keyboard-steering)
-        ^{:zig/type :f32}
+          keyboard-steering))
         throttle
-        (ak/max (if throttle-down (ak/as :f32 1.0) (ak/as :f32 0.0))
-                gamepad-throttle)
-        ^{:zig/type :f32}
+        (ak/f32 (ak/max (if throttle-down (ak/as 1.0 :f32) (ak/as 0.0 :f32))
+                gamepad-throttle))
         brake
-        (ak/max (if brake-down (ak/as :f32 1.0) (ak/as :f32 0.0))
-                gamepad-brake)]
+        (ak/f32 (ak/max (if brake-down (ak/as 1.0 :f32) (ak/as 0.0 :f32))
+                gamepad-brake))]
     (when (and pause-down (ak/! previous-pause))
       (set! _ (simulation/toggle-paused!)))
     (when (and reset-down (ak/! previous-reset))
@@ -233,7 +229,7 @@
           (if (az/field replay active)
             0.008333333333
             (* 0.008333333333 live-simulation-slowdown))
-          ^{:var true :zig/type :u8} substeps 0]
+          ^:var substeps (ak/u8 0)]
       (ak/while (and (>= accumulator step-seconds)
                      (< substeps 12))
         (simulation/step!)
@@ -241,7 +237,7 @@
         (set! accumulator (- accumulator step-seconds))
         (set! substeps (+ substeps 1)))
       (render3d/set-presentation-phase!
-       (if simulation/paused (ak/as :f32 1.0) (ak/floatCast (/ accumulator step-seconds)))))
+       (if simulation/paused (ak/as 1.0 :f32) (ak/floatCast (/ accumulator step-seconds)))))
     (set! frame-count (+ frame-count 1))
     (render3d/advance-camera! (ak/floatCast elapsed))
     (motion-qa/record! now)

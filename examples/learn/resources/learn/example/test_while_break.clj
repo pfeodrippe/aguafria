@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest while-break-test
-  (let [^{:var :usize} i 0]
+  (let [^:var i (ak/usize 0)]
     (while true
       (if (== i 10)
         (ak/break))

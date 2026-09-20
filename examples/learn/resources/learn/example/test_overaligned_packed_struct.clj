@@ -1,5 +1,6 @@
 (ns learn.example.test-overaligned-packed-struct
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defstruct PackedWords {:layout :packed}
@@ -7,7 +8,7 @@
 
 (az/deftest overaligned-pointer-to-packed-struct-test
   (let [^{:var true :zig/align 4} words (PackedWords {:a 1 :b 2})
-        ^{:zig/type [:pointer {:size :one :align 4} PackedWords]} pointer (& words)
+        pointer (ak/as (& words) [:pointer {:align 4, :size :one} PackedWords])
         second-word (& (az/field pointer :b))]
     (try (testing/expectEqual 2 @second-word))))
 

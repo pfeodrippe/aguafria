@@ -55,13 +55,13 @@
   :note "A floating-point literal from the ambiguous numeric-coercion example."}
 
  "@as(comptime_int, 10)"
- {:clojure-source "(ak/as :comptime_int 10)"
+ {:clojure-source "(ak/as 10 :comptime_int)"
   :kind :expr
   :standalone? true
   :note "Make the comptime integer result explicit."}
 
  "@as(f32, 10)"
- {:clojure-source "(ak/as :f32 10)"
+ {:clojure-source "(ak/as 10 :f32)"
   :kind :expr
   :standalone? true
   :note "Coerce the exact integer value ten to f32."}
@@ -73,13 +73,13 @@
   :note "An integer literal from the ambiguous numeric-coercion example."}
 
  "@as(comptime_float, 10.8)"
- {:clojure-source "(ak/as :comptime_float 10.8)"
+ {:clojure-source "(ak/as 10.8 :comptime_float)"
   :kind :expr
   :standalone? true
   :note "Make the comptime floating-point result explicit."}
 
  "@as(f32, 10.8)"
- {:clojure-source "(ak/as :f32 10.8)"
+ {:clojure-source "(ak/as 10.8 :f32)"
   :kind :expr
   :standalone? true
   :note "Coerce the floating-point literal to f32."}
@@ -131,7 +131,7 @@
   :note "Reflect the type that assignment to val requires."}
 
  "@as(T, x)"
- {:clojure-source "(ak/as T x)"
+ {:clojure-source "(ak/as x T)"
   :kind :expr
   :note "Provide result type T to x without propagating the enclosing result location."}
 

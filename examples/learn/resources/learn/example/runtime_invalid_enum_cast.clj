@@ -9,9 +9,9 @@
    :c])
 
 (az/defn main :void []
-  (let [^{:var :u2} tag-value 3]
+  (let [^:var tag-value (ak/u2 3)]
     (set! _ (ak/& tag-value))
-    (let [^{:zig/type Foo} value (ak/enumFromInt tag-value)]
+    (let [value (ak/as (ak/enumFromInt tag-value) Foo)]
       (debug/print "value: {s}\n" [(ak/tagName value)]))))
 
 (comment

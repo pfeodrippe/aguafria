@@ -6,8 +6,8 @@
 ;; If expressions have three uses, corresponding to bool, ?T and anyerror!T.
 (az/deftest if-expression-test
   ;; If expressions are used instead of a ternary expression.
-  (let [^{:zig/type :u32} a 5
-        ^{:zig/type :u32} b 4
+  (let [a (ak/u32 5)
+        b (ak/u32 4)
         result (if (ak/!= a b)
                  47
                  3089)]
@@ -15,8 +15,8 @@
 
 (az/deftest if-boolean-test
   ;; If expressions test boolean conditions.
-  (let [^{:zig/type :u32} a 5
-        ^{:zig/type :u32} b 4]
+  (let [a (ak/u32 5)
+        b (ak/u32 4)]
     (if (ak/!= a b)
       (try (testing/expect true))
       (if (== a 9)
@@ -25,8 +25,8 @@
 
 (az/deftest if-error-union-test
   ;; If expressions test for errors. Note the error capture on the else.
-  (let [^{:zig/type [:error-union :anyerror :u32]} success 0
-        ^{:zig/type [:error-union :anyerror :u32]} failure (az/error-value :BadValue)]
+  (let [success (ak/as 0 [:error-union :anyerror :u32])
+        failure (ak/as (az/error-value :BadValue) [:error-union :anyerror :u32])]
     (az/if-capture-stmt {:payload [value] :error [error]} success
                         (try (testing/expectEqual value 0))
                         (az/block
@@ -50,7 +50,7 @@
                         (try (testing/expectEqual error (az/error-value :BadValue)))))
 
   ;; Access the value by reference using a pointer capture.
-  (let [^{:var [:error-union :anyerror :u32]} result 3]
+  (let [^:var result (ak/as 3 [:error-union :anyerror :u32])]
     (az/if-capture-stmt {:payload [(az/pointer-capture value)] :error [_]} result
                         (set! @value 9)
                         (ak/unreachable))

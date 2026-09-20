@@ -1,9 +1,10 @@
 (ns learn.example.result-location-interfering-with-swap
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest array-initializer-swap-test
-  (let [^{:var [:array 2 :u32]} array [1 2]]
+  (let [^:var array (ak/as [1 2] [:array 2 :u32])]
     (set! array [(az/index array 1) (az/index array 0)])
     ;; The initializer writes directly into its result location, as if:
     ;;   (set! (az/index array 0) (az/index array 1))

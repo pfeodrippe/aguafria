@@ -23,7 +23,7 @@
         product (az/field workspace mass-product)
         ^{:var MassProbe} result ak/undefined]
     (dotimes [index (az/field input len)]
-      (set! (az/index input index) (* scale (ak/as :f64 (ak/floatFromInt (+ index 1))))))
+      (set! (az/index input index) (* scale (ak/as (ak/floatFromInt (+ index 1)) :f64))))
     (implicit/mass-product! workspace input product)
     (dotimes [index 12]
       (set! (az/index (az/field result first-product) index) (az/index product index)))
@@ -33,7 +33,7 @@
       (az/field result solved) (implicit/solve-mass! workspace input)
       (az/field result maximum-relative-error) 0.0)
     (dotimes [index (az/field input len)]
-      (let [expected (ak/as :f64 (ak/floatFromInt (+ index 1)))
+      (let [expected (ak/as (ak/floatFromInt (+ index 1)) :f64)
             actual (/ (az/index (az/field workspace mass-solution) index) scale)]
         (set! (az/field result maximum-relative-error)
               (ak/max (az/field result maximum-relative-error) (/ (ak/abs (- actual expected)) expected)))))
@@ -453,8 +453,8 @@
     ;; The 2x2 block has eigenvalues 3 and -1: its PSD projection is all 1.5.
     (dotimes [row 12]
       (dotimes [column 12]
-        (let [expected (ak/as :f64 (if (and (< row 2) (< column 2)) 1.5
-                                      (if (ak/== row column) 1.0 0.0)))]
+        (let [expected (ak/as (if (and (< row 2) (< column 2)) 1.5
+                                      (if (ak/== row column) 1.0 0.0)) :f64)]
           (debug/assert (< (ak/abs (- (az/index matrix (+ (* 12 row) column)) expected)) 1.0e-12)))))))
 
 (deftest element-projection-matches-known-spectrum

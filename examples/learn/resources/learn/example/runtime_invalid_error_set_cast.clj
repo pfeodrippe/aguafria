@@ -7,7 +7,7 @@
 (az/defconst Set2 (az/type [:error-set [:A :C]]))
 
 (az/defn- cast-error :void [[error Set1]]
-  (let [^{:zig/type Set2} casted-error (ak/errorCast error)]
+  (let [casted-error (ak/as (ak/errorCast error) Set2)]
     (debug/print "value: {}\n" [casted-error])))
 
 (az/defn main :void []

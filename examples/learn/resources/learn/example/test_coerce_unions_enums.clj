@@ -25,12 +25,12 @@
 
 (az/deftest union-enum-coercion-test
   (let [value (az/init Value {:two 12.34})
-        ^{:zig/type Tag} tag value]
+        tag (ak/as value Tag)]
     (try (testing/expectEqual (az/field Tag :two) tag)))
   (let [empty-tag (az/field Tag :three)
-        ^{:zig/type Value} from-enum empty-tag
-        ^{:zig/type Value} from-literal :.three
-        ^{:zig/type InferredTagValue} inferred :.a]
+        from-enum (ak/as empty-tag Value)
+        from-literal (ak/as :.three Value)
+        inferred (ak/as :.a InferredTagValue)]
     (try (testing/expectEqual (az/field Tag :three) from-enum))
     (try (testing/expectEqual (az/field Tag :three) from-literal))
     ;; A bare .b would be invalid: that variant requires an f32 payload.

@@ -169,7 +169,7 @@
             response (elastic/evaluate gradient (az/field state material))
             volume (az/field element volume)
             tangent-bound (elasticity-bound gradient (az/field state material))
-            ^{:var :f64} weighted-sum 0.0]
+            ^:var weighted-sum (ak/f64 0.0)]
         (az/set-many!
           (az/field result elastic-energy)
           (+ (az/field result elastic-energy) (* volume (az/field response energy-density)))
@@ -238,7 +238,7 @@
   [[state [:* Dynamics]]]
   (when (ak/! (az/field state floor)) (ak/return 0.0))
   (let [mesh (az/field state mesh)
-        ^{:var :f64} impulse 0.0]
+        ^:var impulse (ak/f64 0.0)]
     (dotimes [node (az/field (az/field state masses) len)]
       (let [point (position state node)]
         (when (<= (az/field point y) 0.0)
@@ -293,8 +293,8 @@
       (let [remaining (- target (az/field state time))
             ^:var h (ak/min remaining (ak/min maximum-step
                                              (/ 0.35 (ak/sqrt (ak/max 1.0 (az/field observation frequency-squared-bound))))))
-            ^{:var :f64} contact-impulse 0.0
-            ^{:var :bool} accepted false]
+            ^:var contact-impulse (ak/f64 0.0)
+            ^:var accepted (ak/bool false)]
         (checkpoint! state false)
         (while (ak/! accepted)
           (when (or (<= h 1.0e-12) (ak/== (+ (az/field state time) h) (az/field state time)))

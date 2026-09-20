@@ -1062,9 +1062,9 @@
                   (list 'unwrap value)
                   value)]
     (list 'aguafria.keyword/as
-          (list 'type output-type)
           (list 'aguafria.keyword/ptrCast
-                (list 'aguafria.keyword/alignCast pointer)))))
+                (list 'aguafria.keyword/alignCast pointer))
+          output-type)))
 
 ;; Structural forms are real, documented Vars so generated Clojure never
 ;; relies on an unresolved list head. Clojure-native forms (`if`, `do`, `for`,

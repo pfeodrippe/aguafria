@@ -4,20 +4,20 @@
             [aguafria.zig :as az]))
 
 (az/deftest vector-splat-test
-  (let [^{:zig/type :u32} scalar 5
-        ^{:zig/type [:vector 4 :u32]} repeated (ak/splat scalar)]
+  (let [scalar (ak/u32 5)
+        repeated (ak/as (ak/splat scalar) [:vector 4 :u32])]
     (try (testing/expectEqualSlices
           (az/type :u32)
           (& (az/array-init [:array _ :u32] [5 5 5 5]))
-          (& (ak/as (az/type [:array 4 :u32]) repeated))))))
+          (& (ak/as repeated (az/type [:array 4 :u32])))))))
 
 (az/deftest array-splat-test
-  (let [^{:zig/type :u32} scalar 5
-        ^{:zig/type [:array 4 :u32]} repeated (ak/splat scalar)]
+  (let [scalar (ak/u32 5)
+        repeated (ak/as (ak/splat scalar) [:array 4 :u32])]
     (try (testing/expectEqualSlices
           (az/type :u32)
           (& (az/array-init [:array _ :u32] [5 5 5 5]))
-          (& (ak/as (az/type [:array 4 :u32]) repeated))))))
+          (& (ak/as repeated (az/type [:array 4 :u32])))))))
 
 (comment
   (vector-splat-test)

@@ -194,7 +194,7 @@
         (.and (java.math.BigInteger. 1
                                     (native-bytes-big-endian native-segment))
               (.subtract modulus java.math.BigInteger/ONE))
-        value (if (and signed? (.testBit unsigned-value (dec bits)))
+        value (if (and signed? (pos? bits) (.testBit unsigned-value (dec bits)))
                 (.subtract unsigned-value modulus)
                 unsigned-value)]
     (narrow-integer value)))
@@ -380,7 +380,7 @@
         minimum (if signed?
                   (.negate (.shiftRight modulus 1))
                   java.math.BigInteger/ZERO)
-        maximum (if signed?
+        maximum (if (and signed? (pos? bits))
                   (.subtract (.shiftRight modulus 1) java.math.BigInteger/ONE)
                   (.subtract modulus java.math.BigInteger/ONE))]
     (when (or (neg? (.compareTo integer minimum))

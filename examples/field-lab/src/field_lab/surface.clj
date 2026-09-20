@@ -141,10 +141,10 @@
 (az/defn publish-visibility! :void
   [[active [:array 3 [:optional [:* embedding/Render]]]]]
   (when (or (ak/== visibility-output null) (< visibility-capacity 16)) (ak/return))
-  (let [^{:var :u8} modes 0]
+  (let [^:var modes (ak/u8 0)]
     (dotimes [body scene/body-count]
       (when (ak/!= (az/index active body) null)
-        (set! modes (ak/| modes (ak/<< (ak/as :u8 1) (ak/intCast body))))))
+        (set! modes (ak/| modes (ak/<< (ak/as 1 :u8) (ak/intCast body))))))
     (when (ak/!= modes visibility-modes)
       (dotimes [body 3]
         (when (ak/!= (az/index visibility-surfaces body) null)
@@ -157,7 +157,7 @@
       (ak/return))
     ;; Failed partial publication must not retain the previous cache key.
     (set! visibility-tick 0xffffffff)
-    (let [^{:var :usize} written 16]
+    (let [^:var written (ak/usize 16)]
       (dotimes [body scene/body-count]
         (let [owned (scene/mesh-cache-at body)
               hierarchy (prepare-visibility! body owned (az/index active body))]
@@ -182,7 +182,7 @@
   (let [^:var result (p/v 0.0 0.0 0.0)]
     (dotimes [i scene/body-count]
       (set! result (p/add result (az/field (scene/body-state (ak/intCast i)) position))))
-    (set! result (p/scale result (/ 1.0 (ak/as :f64 (ak/floatFromInt scene/body-count)))))
+    (set! result (p/scale result (/ 1.0 (ak/as (ak/floatFromInt scene/body-count) :f64))))
     (set! (az/field result y) (if framing-enabled (ak/max 0.05 (az/field result y)) 1.55))
     result))
 
@@ -190,7 +190,7 @@
   [[minimum :f64]]
   (let [target (camera-target)
         radius (az/field (scene/config) radius)
-        ^{:var :f64} extent 0.0]
+        ^:var extent (ak/f64 0.0)]
     (dotimes [i scene/body-count]
       (let [position (az/field (scene/body-state (ak/intCast i)) position)
             owned (scene/mesh-cache-at i)
@@ -202,7 +202,7 @@
                                   (p/length (p/add (cache/position item scene/cursor node)
                                                    (p/scale target -1.0)))))))
           (set! extent (ak/max extent (+ body-radius (p/length (p/add position (p/scale target -1.0)))))))))
-    (ak/max minimum (+ (if framing-enabled (ak/as :f64 0.0) (ak/as :f64 1.0))
+    (ak/max minimum (+ (if framing-enabled (ak/as 0.0 :f64) (ak/as 1.0 :f64))
                        (* 2.6 extent)))))
 
 (az/defn emit-bounded! :u32
@@ -215,7 +215,7 @@
     (set! embedding-revision scene/revision))
   (az/set-many! embedded-count 0 embedded-linear 0 embedded-rejected 0 maximum-inset 0.0 stream-overflow false)
   (let [^:var active (az/array-init [:array 3 [:optional [:* embedding/Render]]] [null null null])
-        ^{:var :usize} required 0]
+        ^:var required (ak/usize 0)]
     (dotimes [body scene/body-count]
       (let [owned (scene/mesh-cache-at body)
             render (prepare-embedding! body owned)
@@ -233,15 +233,15 @@
         forward (p/scale backward -1.0)
         right (p/v (ak/cos yaw) 0.0 (- (ak/sin yaw)))
         up (p/cross right forward)
-        ^{:var :u32} written 0]
+        ^:var written (ak/u32 0)]
     (dotimes [body-index scene/body-count]
       (let [owned (scene/mesh-cache-at body-index)
             render (az/index active body-index)
             ^:var local-normals (mem/zeroes (az/type [:array 43 p/Vec3]))
-            ^{:zig/type [:c-pointer p/Vec3]} normals
-            (if (ak/!= render null) (az/field (az/field (az/unwrap render) normals) ptr)
+            normals
+            (ak/as (if (ak/!= render null) (az/field (az/field (az/unwrap render) normals) ptr)
                 (if (ak/!= owned null) (az/field (az/field (az/unwrap owned) normals) ptr)
-                    (ak/& (az/index local-normals 0))))
+                    (ak/& (az/index local-normals 0)))) [:c-pointer p/Vec3])
             nodes (if (ak/!= owned null) (az/field (az/field (az/unwrap owned) reference) len) soft/particle-count)
             faces (if (ak/!= render null) (az/field (az/field (az/unwrap render) faces) len)
                       (if (ak/!= owned null) (az/field (az/field (az/unwrap owned) faces) len) soft/face-count))]

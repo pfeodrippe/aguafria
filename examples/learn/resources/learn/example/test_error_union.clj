@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest error-union-test
-  (let [^{:var [:error-union :anyerror :i32]} result ak/undefined]
+  (let [^:var result (ak/as ak/undefined [:error-union :anyerror :i32])]
     ;; Both a payload and an error coerce into their shared error-union type.
     (set! result 1234)
     (set! result (az/error-value :SomeError))

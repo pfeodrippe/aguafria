@@ -59,7 +59,7 @@
 
 (az/defn kinetic :f64
   [[body Body] [config p/Config]]
-  (let [^{:var :f64} result 0.0]
+  (let [^:var result (ak/f64 0.0)]
     (dotimes [i particle-count]
       (let [v (az/index (az/field body velocities) i)]
         (set! result
@@ -75,7 +75,7 @@
 
 (az/defn volume :f64
   [[body Body]]
-  (let [^{:var :f64} result 0.0]
+  (let [^:var result (ak/f64 0.0)]
     (dotimes [i face-count]
       (let [face (az/index mesh/faces i)]
         (set! result
@@ -137,7 +137,7 @@
         gradients (az/array-init [:array 4 p/Vec3] [ga gb gc gd])
         constraint (- (/ (signed-volume a b c d) rest) 1.0)
         compliance (/ 1.0 (* 20.0 modulus rest dt dt))
-        ^{:var :f64} denominator compliance]
+        ^:var denominator (ak/f64 compliance)]
     (dotimes [j 4]
       (let [gradient (az/index gradients j)]
         (set! denominator
@@ -163,8 +163,8 @@
   "Vertex/convex-surface contact; equal mass-weighted position reactions."
   [[a [:* Body]] [b [:* Body]] [vertex :u32] [config p/Config]]
   (let [point (az/index (az/field (az/deref a) positions) vertex)
-        ^{:var :f64} closest -1.0e30
-        ^{:var :usize} closest-face 0
+        ^:var closest (ak/f64 -1.0e30)
+        ^:var closest-face (ak/usize 0)
         ^:var normal (p/v 0.0 1.0 0.0)]
     (dotimes [i face-count]
       (let [face (az/index mesh/faces i)
@@ -202,7 +202,7 @@
           weights (az/array-init [:array 3 :f64]
                                  [(/ weight-x total) (/ weight-y total) (/ weight-z total)])
           wa (inverse-mass vertex config)
-          ^{:var :f64} denominator wa]
+          ^:var denominator (ak/f64 wa)]
       (dotimes [i 3]
         (set! denominator
               (+ denominator
@@ -225,8 +225,8 @@
   [[a Body] [b Body]]
   (let [ca (center a)
         cb (center b)
-        ^{:var :f64} ra 0.0
-        ^{:var :f64} rb 0.0]
+        ^:var ra (ak/f64 0.0)
+        ^:var rb (ak/f64 0.0)]
     (dotimes [i particle-count]
       (az/set-many!
         ra (ak/max ra (p/length (p/add (az/index (az/field a positions) i) (p/scale ca -1.0))))
@@ -316,7 +316,7 @@
 
 (az/defn elastic-energy :f64
   [[body Body] [config p/Config] [modulus :f64]]
-  (let [^{:var :f64} result 0.0
+  (let [^:var result (ak/f64 0.0)
         radius (az/field config radius)]
     (dotimes [i edge-count]
       (let [edge (az/index mesh/edges i)
@@ -343,8 +343,8 @@
 
 (az/defn height :f64
   [[body Body]]
-  (let [^{:var :f64} low 1.0e30
-        ^{:var :f64} high -1.0e30]
+  (let [^:var low (ak/f64 1.0e30)
+        ^:var high (ak/f64 -1.0e30)]
     (dotimes [i particle-count]
       (let [y (az/field (az/index (az/field body positions) i) y)]
         (az/set-many!
@@ -354,7 +354,7 @@
 
 (az/defn clearance :f64
   [[body Body]]
-  (let [^{:var :f64} result 1.0e30]
+  (let [^:var result (ak/f64 1.0e30)]
     (dotimes [i particle-count]
       (set! result (ak/min result (az/field (az/index (az/field body positions) i) y))))
     result))

@@ -134,7 +134,7 @@
 (az/defn frame-timing FrameTiming
   "Inspect exact native averages from frame start through presentation."
   []
-  (let [count (ak/as :f64 (ak/floatFromInt timing-sample-count))
+  (let [count (ak/as (ak/floatFromInt timing-sample-count) :f64)
         average (if (> count 0.0) (/ total-frame-seconds count) 0.0)
         simulation (if (> count 0.0) (/ total-simulation-seconds count) 0.0)
         work (if (> count 0.0) (/ total-work-seconds count) 0.0)]
@@ -153,22 +153,22 @@
   [[window [:* glfw/GLFWwindow]]]
   (set! frame-start-seconds (glfw/glfwGetTime))
   (glfw/glfwPollEvents)
-  (let [^{:var true :zig/type :f64} cursor-x 0.0
-        ^{:var true :zig/type :f64} cursor-y 0.0
-        ^{:var true :zig/type :i32} window-width 0
-        ^{:var true :zig/type :i32} window-height 0
-        ^{:var true :zig/type :i32} frame-width 0
-        ^{:var true :zig/type :i32} frame-height 0]
+  (let [^:var cursor-x (ak/f64 0.0)
+        ^:var cursor-y (ak/f64 0.0)
+        ^:var window-width (ak/i32 0)
+        ^:var window-height (ak/i32 0)
+        ^:var frame-width (ak/i32 0)
+        ^:var frame-height (ak/i32 0)]
     (glfw/glfwGetCursorPos window (ak/& cursor-x) (ak/& cursor-y))
     (glfw/glfwGetWindowSize window (ak/& window-width) (ak/& window-height))
     (glfw/glfwGetFramebufferSize window (ak/& frame-width) (ak/& frame-height))
     (let [pointer-x (if (> window-width 0)
-                      (* (ak/as :f32 (ak/floatCast cursor-x))
-                         (/ 720.0 (ak/as :f32 (ak/floatFromInt window-width))))
+                      (* (ak/as (ak/floatCast cursor-x) :f32)
+                         (/ 720.0 (ak/as (ak/floatFromInt window-width) :f32)))
                       -1.0)
           pointer-y (if (> window-height 0)
-                      (* (ak/as :f32 (ak/floatCast cursor-y))
-                         (/ 540.0 (ak/as :f32 (ak/floatFromInt window-height))))
+                      (* (ak/as (ak/floatCast cursor-y) :f32)
+                         (/ 540.0 (ak/as (ak/floatFromInt window-height) :f32)))
                       -1.0)
           actions (input/poll! window pointer-x pointer-y
                                previous-pointer-down (> pending-pointer-presses 0))

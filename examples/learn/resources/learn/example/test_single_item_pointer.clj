@@ -4,12 +4,12 @@
             [aguafria.zig :as az]))
 
 (az/deftest address-of-test
-  (let [^{:zig/type :i32} fixed-value 1234
+  (let [fixed-value (ak/i32 1234)
         fixed-pointer (& fixed-value)]
     (try (testing/expectEqual 1234 @fixed-pointer))
     (try (testing/expectEqual (az/type [:*const :i32])
                               (ak/TypeOf fixed-pointer))))
-  (let [^{:var :i32} value 5678
+  (let [^:var value (ak/i32 5678)
         pointer (& value)]
     (try (testing/expectEqual (az/type [:* :i32]) (ak/TypeOf pointer)))
     (ak/+= @pointer 1)
@@ -25,12 +25,12 @@
     (try (testing/expectEqual 4 (az/index numbers 2)))))
 
 (az/deftest single-item-slice-test
-  (let [^{:var :i32} value 1234
+  (let [^:var value (ak/i32 1234)
         pointer (& value)
         array-pointer (az/slice pointer 0 1)]
     (try (testing/expectEqual (az/type [:* [:array 1 :i32]])
                               (ak/TypeOf array-pointer)))
-    (let [^{:zig/type [:many :i32]} many-pointer array-pointer]
+    (let [many-pointer (ak/as array-pointer [:many :i32])]
       (try (testing/expectEqual 1234 (az/index many-pointer 0))))))
 
 (comment

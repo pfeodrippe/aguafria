@@ -83,8 +83,8 @@
                   (ak/mulAdd :f64 (az/field a x) (az/field b x) (- x))
                   (ak/mulAdd :f64 (az/field a y) (az/field b y) (- y))
                   (ak/mulAdd :f64 (az/field a z) (az/field b z) (- z))])
-        ^{:var :f64} sum 0.0
-        ^{:var :f64} correction 0.0]
+        ^:var sum (ak/f64 0.0)
+        ^:var correction (ak/f64 0.0)]
     (dotimes [index 7]
       (let [value (az/index values index)
             next (+ sum value)]
@@ -109,10 +109,10 @@
 
 (az/defn logarithm-remainder :f64
   "z-log(1+z) without subtracting first-order terms; caller keeps |z| below 0.125." [[z :f64]]
-  (let [^{:var :f64} result (/ 1.0 24.0)
-        ^{:var :u32} index 23]
+  (let [^:var result (ak/f64 (/ 1.0 24.0))
+        ^:var index (ak/u32 23)]
     (while (>= index 2)
-      (set! result (- (/ 1.0 (ak/as :f64 (ak/floatFromInt index))) (* z result)))
+      (set! result (- (/ 1.0 (ak/as (ak/floatFromInt index) :f64)) (* z result)))
       (ak/-= index 1))
     (* z z result)))
 

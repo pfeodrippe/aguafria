@@ -8,12 +8,12 @@
 
 (az/defn- first-primes [:array amount :i32]
   [[amount {:zig/prefix "comptime"} :usize]]
-  (let [^{:var [:array amount :i32]} prime-list ak/undefined
-        ^{:var :usize} next-index 0
-        ^{:var :i32} candidate 2]
+  (let [^:var prime-list (ak/as ak/undefined [:array amount :i32])
+        ^:var next-index (ak/usize 0)
+        ^:var candidate (ak/i32 2)]
     (az/while-loop {:continue (az/assign-expr "+=" candidate 1)}
       (< next-index (az/field prime-list :len))
-      (let [^{:var :usize} divisor-index 0
+      (let [^:var divisor-index (ak/usize 0)
             ^:var prime? true]
         (az/while-loop {:continue (az/assign-expr "+=" divisor-index 1)}
           (< divisor-index next-index)
@@ -27,7 +27,7 @@
 
 (az/defn- sum :i32
   [[numbers [:slice-const :i32]]]
-  (let [^{:var :i32} result 0]
+  (let [^:var result (ak/i32 0)]
     (for [number numbers]
       (ak/+= result number))
     result))

@@ -1,7 +1,8 @@
 (ns learn.example.test-comptime-unwrap-null
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defcomptime reject-absent-number
-  (let [^{:zig/type [:optional :i32]} optional-number nil
+  (let [optional-number (ak/as nil [:optional :i32])
         number (az/unwrap optional-number)]
     (set! _ number)))

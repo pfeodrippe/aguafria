@@ -150,7 +150,7 @@
 (az/defn pair-pass! :f64
   [[assembly [:* Assembly]] [move :bool]]
   (let [bodies (az/field assembly bodies)
-        ^{:var :f64} impulse 0.0]
+        ^:var impulse (ak/f64 0.0)]
     (dotimes [a (az/field bodies len)]
       (dotimes [b (az/field bodies len)]
         (when (ak/!= a b)
@@ -192,7 +192,7 @@
 (az/defn ground-pass! :f64
   [[assembly [:* Assembly]] [move :bool]]
   (let [bodies (az/field assembly bodies)
-        ^{:var :f64} impulse 0.0]
+        ^:var impulse (ak/f64 0.0)]
     (dotimes [index (az/field bodies len)]
       (let [body (az/index bodies index)]
         (ak/+= impulse (dynamics/ground-contact! (az/field body state)))
@@ -237,7 +237,7 @@
     (dotimes [index (az/field bodies len)]
       (let [body (az/index bodies index)
             state (az/field body state)
-            ^{:var :f64} kinetic 0.0
+            ^:var kinetic (ak/f64 0.0)
             ^:var momentum (p/v 0.0 0.0 0.0)]
         (dotimes [node (az/field (az/field state masses) len)]
           (let [point (dynamics/position state node)
@@ -339,7 +339,7 @@
   "Solve the active principal system with partial pivoting; never regularize it."
   [[system [:* NormalSystem]] [driven :usize]]
   (let [count (az/field (az/field system rhs) len)
-        ^{:var :usize} active-count 0]
+        ^:var active-count (ak/usize 0)]
     (dotimes [i count]
       (set! (az/index (az/field system direction) i) 0.0)
       (when (az/index (az/field system active) i)
@@ -355,7 +355,7 @@
                 (az/index (az/field system scaled)
                           (+ (* row count) (az/index (az/field system indices) j)))))))
     (dotimes [column active-count]
-      (let [^{:var :usize} pivot column]
+      (let [^:var pivot (ak/usize column)]
         (dotimes [offset (- active-count column)]
           (let [row (+ column offset)]
             (when (> (ak/abs (az/index (az/field system factor) (+ (* row count) column)))
@@ -437,13 +437,13 @@
           (set! (az/field report status) 1)
           (ak/return report))
         (dotimes [i count]
-          (let [^{:var :f64} value 0.0]
+          (let [^:var value (ak/f64 0.0)]
             (dotimes [j count]
               (ak/+= value (* (az/index (az/field system scaled) (+ (* i count) j))
                               (az/index (az/field system direction) j))))
             (set! (az/index (az/field system change) i) value)))
-        (let [^{:var :f64} step 1.0e300
-              ^{:var :usize} limiting driven
+        (let [^:var step (ak/f64 1.0e300)
+              ^:var limiting (ak/usize driven)
               derivative (az/index (az/field system change) driven)]
           (when (> derivative 1.0e-15)
             (set! step (/ (- (az/index (az/field system velocities) driven)) derivative)))
@@ -477,7 +477,7 @@
     (dotimes [i count]
       (set! (az/index (az/field system impulses) i)
             (/ (az/index (az/field system impulses) i) (az/index (az/field system scales) i))))
-    (let [^{:var :f64} maximum-impulse 0.0]
+    (let [^:var maximum-impulse (ak/f64 0.0)]
       (dotimes [i count]
         (let [^:var velocity (az/index (az/field system rhs) i)
               impulse (az/index (az/field system impulses) i)]
@@ -525,7 +525,7 @@
 
 (az/defn contact-row-inner :f64
   [[assembly [:* Assembly]] [left VelocityContact] [right VelocityContact]]
-  (let [^{:var :f64} value 0.0]
+  (let [^:var value (ak/f64 0.0)]
     (dotimes [i 4]
       (let [a (az/index (az/field left entries) i)]
         (when (ak/!= (az/field a weight) 0.0)
@@ -550,7 +550,7 @@
 
 (az/defn rows-closing-speed :f64
   [[assembly [:* Assembly]] [rows [:c-pointer VelocityContact]] [count :usize]]
-  (let [^{:var :f64} speed 0.0]
+  (let [^:var speed (ak/f64 0.0)]
     (dotimes [i count]
       (let [row (az/index rows i)]
         (set! speed (ak/max speed (- (p/dot (az/field row normal) (contact-row-velocity assembly row)))))))
@@ -631,8 +631,8 @@
                                               :normal (p/v 0.0 0.0 0.0) :ground false
                                               :friction (ak/sqrt (* (az/field (az/field left state) friction)
                                                                    (az/field (az/field right state) friction)))})})
-        ^{:var [:array 4 p/Vec3]} points ak/undefined
-        ^{:var [:array 4 :f64]} weights ak/undefined
+        ^:var points (ak/as ak/undefined [:array 4 p/Vec3])
+        ^:var weights (ak/as ak/undefined [:array 4 :f64])
         ^:var delta (p/v 0.0 0.0 0.0)]
     (dotimes [i 4]
       (let [body (if (az/index (az/field feature left) i) a b)
@@ -751,7 +751,7 @@
   "Store the actual representable displacement endpoints without committing them.
   Plane response limits the average velocity to land on, or above, the plane."
   [[assembly [:* Assembly]] [workspace [:* DriftWorkspace]] [duration :f64]]
-  (let [^{:var :f64} ground-impulse 0.0]
+  (let [^:var ground-impulse (ak/f64 0.0)]
     (dotimes [i (az/field (az/field assembly bodies) len)]
       (let [body (az/index (az/field assembly bodies) i)
             state (az/field body state)
@@ -823,7 +823,7 @@
 
 (az/defn row-coefficient p/Vec3
   [[row VelocityContact] [body :usize] [node :usize]]
-  (let [^{:var :f64} weight 0.0]
+  (let [^:var weight (ak/f64 0.0)]
     (dotimes [i 4]
       (let [entry (az/index (az/field row entries) i)]
         (when (and (ak/== (az/field entry body) body) (ak/== (az/field entry node) node))
@@ -856,7 +856,7 @@
 (az/defn resolve-proximity-block! BlockReport
   [[assembly [:* Assembly]] [workspace [:* DriftWorkspace]] [clearance :f64]]
   (let [bodies (az/field assembly bodies)
-        ^{:var :usize} count 0
+        ^:var count (ak/usize 0)
         ^:var report (BlockReport {:completed false :status 1 :contacts 0 :pivots 0
                                    :ground-impulse 0.0 :pair-impulse 0.0 :closing-speed 0.0})
         empty (ContactWeight {:body 0 :node 0 :weight 0.0})]
@@ -899,7 +899,7 @@
   [[assembly [:* Assembly]] [workspace [:* DriftWorkspace]] [duration :f64]
    [clearance :f64] [maximum-passes :u32] [maximum-work :u32] [maximum-iterations :u32]]
   (let [bodies (az/field assembly bodies)
-        ^{:var :f64} query-tolerance 1.0e-8
+        ^:var query-tolerance (ak/f64 1.0e-8)
         ^:var report (DriftReport {:completed false :status 5 :passes 0 :queries 0
                                    :safe-fraction 0.5 :ground-impulse 0.0 :pair-impulse 0.0
                                       :distance 0.0 :normal-speed 0.0 :toi 0.0 :achieved-tolerance 0.0})]
@@ -941,9 +941,9 @@
         (when (ak/! (contact/refit-motion! (az/field (az/index (az/field workspace bodies) i) motion)))
           (set! (az/field report status) 4)))
       (when (ak/!= (az/field report status) 0) (ak/break))
-      (let [^{:var :f64} earliest 1.0e300
-            ^{:var :usize} left 0
-            ^{:var :usize} right 0
+      (let [^:var earliest (ak/f64 1.0e300)
+            ^:var left (ak/usize 0)
+            ^:var right (ak/usize 0)
             ^:var selected (contact/MeshSweepResult {:status 0 :visits 0 :queries 0 :candidates 0
                                                     :face-a 0 :face-b 0 :feature 0 :reserved 0
                                                     :time 1.0e300 :achieved-tolerance 0.0})]
@@ -1025,8 +1025,8 @@
   fixed. Caller owns rollback: failure may leave partial velocity corrections.
   Status 1 is capacity, 3 is block limit, and 10+ is a normal-system failure."
   [[assembly [:* Assembly]]]
-  (let [^{:var [:array 128 VelocityContact]} rows ak/undefined
-        ^{:var :usize} count 0
+  (let [^:var rows (ak/as ak/undefined [:array 128 VelocityContact])
+        ^:var count (ak/usize 0)
         ^:var report (BlockReport {:completed false :status 0 :contacts 0 :pivots 0
                                    :ground-impulse 0.0 :pair-impulse 0.0
                                    :closing-speed (contact-closing-speed assembly)})
@@ -1072,7 +1072,7 @@
         (dotimes [local 4]
           (let [entry (az/index (az/field (az/index rows i) entries) local)
                 state (az/field (az/index bodies (az/field entry body)) state)
-                ^{:var :bool} present false]
+                ^:var present (ak/bool false)]
             (when (and (ak/!= (az/field entry weight) 0.0) (az/field state floor)
                        (<= (az/field (dynamics/position state (az/field entry node)) y) 0.0))
               (dotimes [offset (- count pair-count)]
@@ -1109,7 +1109,7 @@
   [[assembly [:* Assembly]] [contacts [:c-pointer PositionContact]]]
   (let [bodies (az/field assembly bodies)
         empty (ContactWeight {:body 0 :node 0 :weight 0.0})
-        ^{:var :usize} count 0]
+        ^:var count (ak/usize 0)]
     (dotimes [a (az/field bodies len)]
       (let [source (az/index bodies a)
             source-surface (az/field source surface)
@@ -1156,7 +1156,7 @@
   minimize dx^T M dx / 2 subject to g + J dx >= 0. Positions only; velocity
   impulses are resolved separately. Caller owns all-body rollback on failure."
   [[assembly [:* Assembly]]]
-  (let [^{:var [:array 128 PositionContact]} contacts ak/undefined
+  (let [^:var contacts (ak/as ak/undefined [:array 128 PositionContact])
         ^:var report (PositionReport {:completed false :status 0 :passes 0 :contacts 0 :penetration 0.0})
         length-scale 1.0e-6]
     (dotimes [pass 9]
@@ -1263,7 +1263,7 @@
         maximum-step (az/field task maximum-step)
         ^:var observation (az/field task observation)
         ^:var report (az/field task report)
-        ^{:var :u32} attempted 0]
+        ^:var attempted (ak/u32 0)]
     (defer (az/set-many!
              (az/field task observation) observation
              (az/field task report) report))
@@ -1277,10 +1277,10 @@
                       (az/field task next-step)
                       (ak/min remaining (ak/min maximum-step
                         (/ 0.35 (ak/sqrt (ak/max 1.0 (az/field observation frequency-squared-bound)))))))
-            ^{:var :bool} accepted false
-            ^{:var :bool} positions-solved true
-            ^{:var :f64} ground-impulse 0.0
-            ^{:var :f64} pair-impulse 0.0
+            ^:var accepted (ak/bool false)
+            ^:var positions-solved (ak/bool true)
+            ^:var ground-impulse (ak/f64 0.0)
+            ^:var pair-impulse (ak/f64 0.0)
             ^:var contact-residual (Residual {:penetration 0.0 :closing-speed 0.0})]
         (when (<= remaining (* 3.552713678800501e-15 (ak/max 1.0 (ak/abs target))))
           (set! (az/field assembly time) target)
@@ -1397,7 +1397,7 @@
 (az/defn ground-velocity! :f64
   "Post-kick inelastic plane response. It never edits positions."
   [[state [:* dynamics/Dynamics]]]
-  (let [^{:var :f64} impulse 0.0]
+  (let [^:var impulse (ak/f64 0.0)]
     (when (az/field state floor)
       (dotimes [node (az/field (az/field state masses) len)]
         (when (<= (az/field (dynamics/position state node) y) 0.0)
@@ -1440,12 +1440,12 @@
       (let [remaining (- target (az/field assembly time))
             ^:var h (ak/min remaining (ak/min maximum-step
                                              (/ 0.35 (ak/sqrt (ak/max 1.0 (az/field observation frequency-squared-bound))))))
-            ^{:var :bool} accepted false
-            ^{:var :f64} ground-impulse 0.0
+            ^:var accepted (ak/bool false)
+            ^:var ground-impulse (ak/f64 0.0)
             ^:var drift (DriftReport {:completed false :status 0 :passes 0 :queries 0
                                       :safe-fraction 0.5 :ground-impulse 0.0 :pair-impulse 0.0
                                       :distance 0.0 :normal-speed 0.0 :toi 0.0 :achieved-tolerance 0.0})
-            ^{:var :f64} penetration 0.0]
+            ^:var penetration (ak/f64 0.0)]
         (when (<= remaining (* 3.552713678800501e-15 (ak/max 1.0 (ak/abs target))))
           (set! (az/field assembly time) target)
           (ak/break))

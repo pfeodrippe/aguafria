@@ -13,9 +13,9 @@
                    [:start
                     :open-brace
                     :close-brace])
-           ^{:var :usize :zig/prefix "comptime"} start-index 0
+           ^{:zig/prefix "comptime", :var true} start-index (ak/usize 0)
            ^{:var true :zig/prefix "comptime"} state (az/field State :start)
-           ^{:var :usize :zig/prefix "comptime"} next-argument 0]
+           ^{:zig/prefix "comptime", :var true} next-argument (ak/usize 0)]
        (az/inline-for [[character format] [index (az/op ".." 0)]]
          (az/switch-stmt state
            (case [(az/field State :start)]

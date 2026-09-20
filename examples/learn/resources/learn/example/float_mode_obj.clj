@@ -2,7 +2,7 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defconst big (ak/as :f64 (az/op "<<" 1 40)))
+(az/defconst big (ak/as (az/op "<<" 1 40) :f64))
 
 (az/defn foo_strict :f64
   {:attrs #{:export}}

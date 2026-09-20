@@ -115,7 +115,7 @@
       (let [^{:var true}
             header (MeshHeader {:magic 0 :vertices 0})
             header-read (stdio/fread (ak/& header) (ak/sizeOf MeshHeader) 1 file)
-            count (ak/as :usize (ak/intCast (az/field header vertices)))
+            count (ak/as (ak/intCast (az/field header vertices)) :usize)
             valid (and (ak/== header-read 1)
                        (ak/== (az/field header magic) 0x314d4741)
                        (<= (+ source-count count) source-capacity))
@@ -179,7 +179,7 @@
    [scale :f32]
    [brightness :f32]]
   (let [range (az/index ranges slot)
-        count (ak/as :usize (ak/intCast (az/field range count)))
+        count (ak/as (ak/intCast (az/field range count)) :usize)
         cosine (std-math/cos rotation)
         sine (std-math/sin rotation)]
     (if (or (ak/! (az/field range ready))
@@ -188,8 +188,8 @@
       (do
         (dotimes [offset count]
           (let [source (az/index source-vertices
-                                 (+ (ak/as :usize
-                                           (ak/intCast (az/field range first)))
+                                 (+ (ak/as (ak/intCast (az/field range first))
+                                           :usize)
                                     offset))
                 local-x (* (az/field source x) scale)
                 local-y (* (az/field source y) scale)
@@ -203,8 +203,7 @@
                 ;; detached miniature-diorama look of the first composition.
                 screen-x (+ 360.0 (* (- x z) 39.0))
                 screen-y (- (+ 250.0 (* (+ x z) 18.0)) (* local-y 50.0))
-                ^{:zig/type :f32}
-                depth-bias (if (ak/== slot model-road) 0.004 0.0)
+                depth-bias (ak/f32 (if (ak/== slot model-road) 0.004 0.0))
                 camera-depth (- 0.50
                                 (* 0.025 (+ x z))
                                 (* 0.018 local-y)
@@ -289,7 +288,7 @@
    [output-count :usize]]
   (let [active-count
         (physics/fill-active-views! (ak/& (az/index particle-views 0)))
-        ^{:var true :zig/type :usize} count output-count]
+        ^:var count (ak/usize output-count)]
     (dotimes [slot active-count]
       (set! count
             (write-particle! output count (az/index particle-views slot))))
@@ -301,18 +300,18 @@
   (if (ak/! (initialize!))
     0
     (let [state (factory/snapshot)
-          ^{:var true :zig/type :usize} count 0]
+          ^:var count (ak/usize 0)]
       ;; Every visible tile is the same cell that owns native simulation state.
       (dotimes [row 9]
         (dotimes [column 19]
-          (let [grid-x (+ 2 (ak/as :i32 (ak/intCast column)))
-                grid-y (+ 8 (ak/as :i32 (ak/intCast row)))
-                world-x (* (- (ak/as :f32 (ak/floatFromInt grid-x)) 11.0) 0.5)
-                world-z (* (- (ak/as :f32 (ak/floatFromInt grid-y)) 12.0) 0.5)
+          (let [grid-x (+ 2 (ak/as (ak/intCast column) :i32))
+                grid-y (+ 8 (ak/as (ak/intCast row) :i32))
+                world-x (* (- (ak/as (ak/floatFromInt grid-x) :f32) 11.0) 0.5)
+                world-z (* (- (ak/as (ak/floatFromInt grid-y) :f32) 12.0) 0.5)
                 view (factory/cell-view grid-x grid-y)
                 kind (az/field view building)
                 direction (az/field view direction)
-                rotation (* (ak/as :f32 (ak/floatFromInt direction)) 1.5707963)
+                rotation (* (ak/as (ak/floatFromInt direction) :f32) 1.5707963)
                 selected (and (ak/== grid-x (az/field state selected_x))
                               (ak/== grid-y (az/field state selected_y)))]
             (set! count
@@ -390,7 +389,7 @@
 
 (az/defn snapshot MeshSnapshot
   []
-  (let [^{:var true :zig/type :u32} ready 0]
+  (let [^:var ready (ak/u32 0)]
     (dotimes [slot model-count]
       (when (az/field (az/index ranges slot) ready)
         (set! ready (+ ready 1))))

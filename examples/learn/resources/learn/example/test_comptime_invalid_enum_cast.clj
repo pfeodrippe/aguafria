@@ -8,6 +8,6 @@
    :c])
 
 (az/defcomptime reject-invalid-tag
-  (let [^{:zig/type :u2} tag-value 3
-        ^{:zig/type Foo} value (ak/enumFromInt tag-value)]
+  (let [tag-value (ak/u2 3)
+        value (ak/as (ak/enumFromInt tag-value) Foo)]
     (set! _ value)))

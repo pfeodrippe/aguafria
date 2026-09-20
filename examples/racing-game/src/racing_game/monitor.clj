@@ -142,15 +142,15 @@
 
 (az/defn progress-bin :u8
   [[progress :f32]]
-  (ak/as :u8
-         (ak/intFromFloat
-          (ak/min 9.0 (* (ak/max 0.0 progress) 10.0)))))
+  (ak/as (ak/intFromFloat
+          (ak/min 9.0 (* (ak/max 0.0 progress) 10.0)))
+         :u8))
 
 (az/defn speed-bin :u8
   [[speed :f32]]
-  (ak/as :u8
-         (ak/intFromFloat
-          (ak/min 9.0 (* (ak/max 0.0 speed) 100.0)))))
+  (ak/as (ak/intFromFloat
+          (ak/min 9.0 (* (ak/max 0.0 speed) 100.0)))
+         :u8))
 
 (az/defn lane-choice :u8
   [[lane-target :f32]]
@@ -173,7 +173,7 @@
    [destination :usize]
    [history-row :bool]
    [include-raw :bool]]
-  (let [index (ak/as :usize (ak/intCast identifier))
+  (let [index (ak/as (ak/intCast identifier) :usize)
         view (simulation/racer-view identifier)
         retirement (simulation/retirement-view index)
         entry (telemetry/entry-at identifier offset)
@@ -256,14 +256,14 @@
     (when detailed
       (let [prompt-count
             (ak/min worker/prompt-capacity
-                    (ak/as :usize
-                           (ak/intCast (az/field entry prompt_byte_count))))]
+                    (ak/as (ak/intCast (az/field entry prompt_byte_count))
+                           :usize))]
         (dotimes [position prompt-count]
           (set! (az/index (az/field row prompt) position)
                 (az/index (az/field entry prompt_bytes) position)))))
     (when (and include-raw detailed)
       (let [input-count
-            (ak/min (ak/as :usize (ak/intCast (az/field entry input_token_count)))
+            (ak/min (ak/as (ak/intCast (az/field entry input_token_count)) :usize)
                     8)]
         (when (> (az/field entry response_byte_count) 0)
           (set! (az/index (az/field row response) 0)
@@ -288,8 +288,8 @@
   (let [entry (simulation/team-radio-entry team-id offset)
         prompt-count
         (ak/min worker/prompt-capacity
-                (ak/as :usize
-                       (ak/intCast (az/field entry prompt_byte_count))))
+                (ak/as (ak/intCast (az/field entry prompt_byte_count))
+                       :usize))
         ^:var row
         (MonitorRadio
          {:valid (az/field entry valid)
@@ -363,10 +363,10 @@
       (refresh-racer! (ak/intCast identifier) 0 identifier false include-raw))
     (dotimes [team-id simulation/team-count]
       (let [radio-count
-            (ak/as :usize
-                   (ak/intCast
+            (ak/as (ak/intCast
                     (simulation/team-radio-history-count
-                     (ak/intCast team-id))))]
+                     (ak/intCast team-id)))
+                   :usize)]
         (set! (az/index (az/field snapshot radio_counts) team-id)
               (ak/intCast radio-count))
         (dotimes [offset 32]
@@ -378,10 +378,10 @@
     (when history-changed
       (dotimes [identifier simulation/racer-count]
         (let [history-count
-              (ak/as :usize
-                     (ak/intCast
+              (ak/as (ak/intCast
                       (ak/min (telemetry/decision-count (ak/intCast identifier))
-                              telemetry/entries-per-racer)))]
+                              telemetry/entries-per-racer))
+                     :usize)]
           (set! (az/index (az/field snapshot history_counts) identifier)
                 (ak/intCast history-count))
           (dotimes [offset 64]
@@ -420,8 +420,8 @@
   (if (and (< identifier simulation/racer-count)
            (< offset (monitor-history-count identifier)))
     (az/index (az/field snapshot history)
-              (+ (* (ak/as :usize (ak/intCast identifier)) 64)
-                 (ak/as :usize (ak/intCast offset))))
+              (+ (* (ak/as (ak/intCast identifier) :usize) 64)
+                 (ak/as (ak/intCast offset) :usize)))
     (std-mem/zeroes (az/type MonitorRacer))))
 
 (az/defn monitor-radio-count :u8
@@ -437,8 +437,8 @@
    [offset :u8]]
   (if (and (< team-id simulation/team-count) (< offset (monitor-radio-count team-id)))
     (az/index (az/field snapshot radio)
-              (+ (* (ak/as :usize (ak/intCast team-id)) 32)
-                 (ak/as :usize (ak/intCast offset))))
+              (+ (* (ak/as (ak/intCast team-id) :usize) 32)
+                 (ak/as (ak/intCast offset) :usize)))
     (std-mem/zeroes (az/type MonitorRadio))))
 
 (az/defn abi-valid? :bool
@@ -490,15 +490,15 @@
         request (az/field result request)
         generation (az/field result generation)
         tint (render3d/racer-tint (az/field request actor))
-        ^{:var [:array 512 :u8]} buffer ak/undefined
+        ^:var buffer (ak/as ak/undefined [:array 512 :u8])
         header (catch (std-fmt/bufPrint (ak/& buffer)
                         "R{d} | decision #{d} | race {d} | {s}\nInput {d} tokens, output {d} tokens | inference {d:.1} ms + queue {d:.1} ms = {d:.1} ms total"
                         [(az/field request actor) (az/field entry sequence) (az/field request epoch)
                          (protocol/driving-plan-rejection (az/field entry reason))
                          (az/field generation input_tokens) (az/field generation output_tokens)
-                         (/ (ak/as :f64 (ak/floatFromInt (az/field result inference_us))) 1000.0)
-                         (/ (ak/as :f64 (ak/floatFromInt (az/field result queue_us))) 1000.0)
-                         (/ (ak/as :f64 (ak/floatFromInt (az/field result total_us))) 1000.0)])
+                         (/ (ak/as (ak/floatFromInt (az/field result inference_us)) :f64) 1000.0)
+                         (/ (ak/as (ak/floatFromInt (az/field result queue_us)) :f64) 1000.0)
+                         (/ (ak/as (ak/floatFromInt (az/field result total_us)) :f64) 1000.0)])
                       (ak/return))]
     (ui/aguafria_ui_separator)
     (history-text! header (az/field tint x) (az/field tint y) (az/field tint z))
@@ -520,7 +520,7 @@
 (az/defn draw-language-group! :void [[latest simulation/LanguageExchange] [oldest :u64] [count :usize]]
   (draw-language-exchange! latest)
   (when (> count 1)
-    (let [^{:var [:array 192 :u8]} buffer ak/undefined
+    (let [^:var buffer (ak/as ak/undefined [:array 192 :u8])
           text (catch (std-fmt/bufPrint (ak/& buffer)
                         "Unchanged across {d} calls (#{d}-#{d}). Timings/token counts above are for the latest call."
                         [count oldest (az/field latest sequence)]) (ak/return))]
@@ -537,7 +537,7 @@
     (ak/defer (ui/aguafria_ui_window_end))
     (when (ak/== visible 0) (ak/return))
     (history-text! "Experimental driver AI. Accepted means valid and installed, NOT a good decision. Team text is not connected here yet." 1.0 0.8 0.25)
-    (let [^{:var [:array 128 :u8]} buffer ak/undefined
+    (let [^:var buffer (ak/as ak/undefined [:array 128 :u8])
           status (catch (std-fmt/bufPrint (ak/& buffer)
                           "Current race: {d}. Retained replies below may belong to earlier races."
                           [simulation/race-epoch]) (ak/return))]
@@ -545,7 +545,7 @@
     (when (ak/!= (ui/aguafria_ui_button "All racers") 0)
       (set! language-history-racer -1))
     (dotimes [identifier simulation/racer-count]
-      (let [^{:var [:array 12 :u8]} buffer ak/undefined
+      (let [^:var buffer (ak/as ak/undefined [:array 12 :u8])
             label (catch (std-fmt/bufPrintZ (ak/& buffer) "R{d}" [identifier]) (ak/return))]
         (when (ak/!= (mod identifier 10) 0)
           (ui/aguafria_ui_same_line))
@@ -555,9 +555,9 @@
     (set! _ (ui/aguafria_ui_checkbox "Show exact instructions too" (ak/& language-history-instructions)))
     (set! _ (ui/aguafria_ui_checkbox "Show every call (including unchanged replies)" (ak/& language-history-every-call)))
     (when (>= language-history-racer 0)
-      (let [identifier (ak/as :usize (ak/intCast language-history-racer))
+      (let [identifier (ak/as (ak/intCast language-history-racer) :usize)
             enabled (az/field (az/index simulation/language-drivers identifier) enabled)
-            ^{:var [:array 96 :u8]} buffer ak/undefined
+            ^:var buffer (ak/as ak/undefined [:array 96 :u8])
             status (catch (std-fmt/bufPrint (ak/& buffer) "Showing R{d}. Plain-English driver: {s}."
                             [identifier (if enabled "enabled" "disabled")]) (ak/return))]
         (history-text! status 1.0 1.0 1.0)
@@ -572,8 +572,8 @@
       (when (ak/== entries-visible 0) (ak/return))
       (let [end language-history-end
             ^:var pending (std-mem/zeroes (az/type simulation/LanguageExchange))
-            ^{:var :usize} count 0
-            ^{:var :u64} oldest 0]
+            ^:var count (ak/usize 0)
+            ^:var oldest (ak/u64 0)]
         (dotimes [offset (ak/min end 128)]
           (let [entry (simulation/language-exchange-at (- end offset))]
             (when (and (az/field entry valid)
@@ -613,7 +613,7 @@
   "Actual render cadence across the last 120 intervals, including presentation
   waits. This is not the fixed physics rate or the target frame rate." []
   (if (> frame-interval-sum 0.0)
-    (/ (ak/as :f64 (ak/floatFromInt frame-interval-count)) frame-interval-sum)
+    (/ (ak/as (ak/floatFromInt frame-interval-count) :f64) frame-interval-sum)
     0.0))
 
 (az/defn draw-frame-rate! :void
@@ -636,12 +636,12 @@
       (std-debug/print
         "PERF {d:.2} FPS | {d:.2} ms/frame | {d:.2} physics Hz | {d} instance draws | {d} instances | {d} mesh-upload bytes\n"
         [fps (if (> fps 0.0) (/ 1000.0 fps) 0.0)
-         (/ (ak/as :f64 (ak/floatFromInt (- tick (ak/min tick frame-report-tick)))) elapsed)
+         (/ (ak/as (ak/floatFromInt (- tick (ak/min tick frame-report-tick))) :f64) elapsed)
          renderer/instance-draws renderer/instance-stream-used renderer/instance-upload-bytes])
       (set! frame-report-time frame-previous-time)
       (set! frame-report-tick tick)))
   (let [fps (measured-fps)
-        ^{:var [:array 128 :u8]} buffer ak/undefined
+        ^:var buffer (ak/as ak/undefined [:array 128 :u8])
         label (catch (std-fmt/bufPrintZ (ak/& buffer)
                        "{d:.1} FPS | {d:.2} ms/frame\nTarget 120 FPS | last {d} frames"
                        [fps (if (> fps 0.0) (/ 1000.0 fps) 0.0) frame-interval-count])
@@ -668,20 +668,20 @@
         retired (az/field (simulation/retirement-view id) retired)
         overturned (driver/overturned? (simulation/vehicle-pose id 0))
         tint (render3d/racer-tint id)
-        ^{:zig/type [:slice-const :u8]} mode
-               (cond overturned "OVERTURNED / PROPULSION CUT"
+        mode
+               (ak/as (cond overturned "OVERTURNED / PROPULSION CUT"
                      retired "RETIRED"
                      (ak/!= simulation/race-state simulation/race-state-running) "RACE STOPPED"
                      (az/field racer finished) "FINISHED / 108 km/h COOLDOWN"
                      (az/field (az/field turnaround state) active) "TURNAROUND"
                      (ak/!= (az/field (az/field recovery state) phase) 0) "RECOVERY"
                      (> (az/field racer pit_state) simulation/pit-state-called) "PIT LANE / SERVICE"
-                     :else "RACING")
-        ^{:zig/type [:slice-const :u8]} gear
-               (cond (< (az/field recovery gear) 0) "REVERSE"
+                     :else "RACING") [:slice-const :u8])
+        gear
+               (ak/as (cond (< (az/field recovery gear) 0) "REVERSE"
                      (ak/== (az/field recovery gear) 0) "NEUTRAL"
-                     :else "FORWARD")
-        ^{:var [:array 512 :u8]} buffer ak/undefined
+                     :else "FORWARD") [:slice-const :u8])
+        ^:var buffer (ak/as ak/undefined [:array 512 :u8])
         text (catch (std-fmt/bufPrintZ (ak/& buffer)
                       "R{d}  LIVE DRIVING\n{d:.0} km/h\nThrottle {d:.0}%   Brake {d:.0}%\nSteering {d:.1} deg\nGear: {s}\n{s}\nAI cruise request: {d:.0} km/h\nCorner planner cap: {d:.0} km/h"
                       [id (* (az/field racer speed) 3600.0)

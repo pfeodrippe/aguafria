@@ -13,18 +13,18 @@
 (az/defn main :void
   []
   ;; Integers.
-  (let [^{:zig/type :i32} one-plus-one (+ 1 1)]
+  (let [one-plus-one (ak/i32 (+ 1 1))]
     (debug/print "1 + 1 = {}\n" [one-plus-one]))
 
   ;; Floats.
-  (let [^{:zig/type :f32} seven-div-three (/ 7.0 3.0)]
+  (let [seven-div-three (ak/f32 (/ 7.0 3.0))]
     (debug/print "7.0 / 3.0 = {}\n" [seven-div-three]))
 
   ;; Boolean.
   (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (ak/! true)])
 
   ;; Optional.
-  (let [^{:var [:optional [:slice-const :u8]]} optional-value nil]
+  (let [^:var optional-value (ak/as nil [:optional [:slice-const :u8]])]
     (debug/assert (== optional-value nil))
     (debug/print "\noptional 1\ntype: {}\nvalue: {?s}\n"
                  [(ak/TypeOf optional-value) optional-value])
@@ -35,8 +35,9 @@
                  [(ak/TypeOf optional-value) optional-value]))
 
   ;; Error union.
-  (let [^{:var [:error-union ExampleErrorSet :i32]}
-        number-or-error (az/field ExampleErrorSet :ExampleErrorVariant)]
+  (let [^:var number-or-error
+        (ak/as (az/field ExampleErrorSet :ExampleErrorVariant)
+               [:error-union ExampleErrorSet :i32])]
     (debug/print "\nerror union 1\ntype: {}\nvalue: {!}\n"
                  [(ak/TypeOf number-or-error) number-or-error])
 

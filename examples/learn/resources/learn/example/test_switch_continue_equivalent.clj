@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest switch-continue-loop-test
-  (let [^{:var :i32} state 5]
+  (let [^:var state (ak/i32 5)]
     (while true
       (az/switch-stmt state
         (case [5]

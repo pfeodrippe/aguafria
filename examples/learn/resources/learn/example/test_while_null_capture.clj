@@ -13,22 +13,22 @@
       numbers-left)))
 
 (az/deftest while-null-capture-test
-  (let [^{:var :u32} sum 0]
+  (let [^:var sum (ak/u32 0)]
     (set! numbers-left 3)
     (az/while-loop {:payload [number]} (next-number)
       (ak/+= sum number))
     (try (testing/expectEqual 3 sum)))
 
   ;; An optional loop's else branch runs when its condition becomes null.
-  (let [^{:var :u32} sum 0]
+  (let [^:var sum (ak/u32 0)]
     (set! numbers-left 3)
     (az/while-loop {:payload [number]
                     :else [(try (testing/expectEqual 3 sum))]}
       (next-number)
       (ak/+= sum number)))
 
-  (let [^{:var :u32} iterations 0
-        ^{:var :u32} sum 0]
+  (let [^:var iterations (ak/u32 0)
+        ^:var sum (ak/u32 0)]
     (set! numbers-left 3)
     (az/while-loop {:payload [number]
                     :continue (az/assign-expr "+=" iterations 1)}

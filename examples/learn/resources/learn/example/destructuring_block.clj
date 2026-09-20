@@ -1,13 +1,14 @@
 (ns learn.example.destructuring-block
-  (:require [aguafria.std.debug :as debug]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn main :void
   []
   (let [digits (az/array-init [:array _ :i8] [3 8 9 0 7 4 1])
         [minimum maximum]
-        (let [^{:var :i8} smallest 127
-              ^{:var :i8} largest -128]
+        (let [^:var smallest (ak/i8 127)
+              ^:var largest (ak/i8 -128)]
           (for [digit digits]
             (when (< digit smallest)
               (set! smallest digit))

@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^{:var :u32} numerator 10
-        ^{:var :u32} denominator 3]
+  (let [^:var numerator (ak/u32 10)
+        ^:var denominator (ak/u32 3)]
     (set! _ [(ak/& numerator) (ak/& denominator)])
     (let [quotient (ak/divExact numerator denominator)]
       (debug/print "value: {}\n" [quotient]))))

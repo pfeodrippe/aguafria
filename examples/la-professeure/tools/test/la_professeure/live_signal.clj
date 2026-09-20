@@ -16,7 +16,7 @@
   (let [out (az/cast output [:c-pointer :f32])]
     (dotimes [i frames]
       (dotimes [channel 16] (set! (az/index out (+ (* i 16) channel)) 0.0))
-      (let [t (/ (ak/as :f32 (ak/floatFromInt (mod frame 48000))) 48000.0)
+      (let [t (/ (ak/as (ak/floatFromInt (mod frame 48000)) :f32) 48000.0)
             v (* 0.015 (+ (ak/sin (* t 2764.6015)) (* 0.3 (ak/sin (* t 4580.442)))))]
         (set! (az/index out (+ (* i 16) 4)) v)
         (set! (az/index out (+ (* i 16) 5)) (* v 0.7)))

@@ -11,9 +11,9 @@
 
 (az/defn- evaluate [:error-union :i32]
   [[initial-stack [:slice-const :i32]] [code [:slice-const Instruction]]]
-  (let [^{:var [:array 8 :i32]} buffer ak/undefined
+  (let [^:var buffer (ak/as ak/undefined [:array 8 :i32])
         ^:var stack ((az/field (std/ArrayList :i32) :initBuffer) (ak/& buffer))
-        ^{:var :usize} instruction-pointer 0]
+        ^:var instruction-pointer (ak/usize 0)]
     (try ((az/field stack :appendSliceBounded) initial-stack))
     (az/labeled-switch vm (az/index code instruction-pointer)
       (case [:.add]

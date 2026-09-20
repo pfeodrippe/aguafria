@@ -180,7 +180,7 @@
 
 (az/defn initialize-instance! :void
   []
-  (let [^{:var true :zig/type :u32} extension-count 0
+  (let [^:var extension-count (ak/u32 0)
         glfw-extensions (vk/glfwGetRequiredInstanceExtensions (ak/& extension-count))
         ^:var extensions
         (std-mem/zeroes
@@ -210,14 +210,14 @@
 
 (az/defn select-device-and-queue! :void
   []
-  (let [^{:var true :zig/type :u32} device-count 0
+  (let [^:var device-count (ak/u32 0)
         ^:var devices (std-mem/zeroes (az/type [:array 8 vk/VkPhysicalDevice]))]
     (check (vk/vkEnumeratePhysicalDevices instance (ak/& device-count) null))
     (std-debug/assert (and (> device-count 0) (<= device-count 8)))
     (check (vk/vkEnumeratePhysicalDevices
             instance (ak/& device-count) (ak/& (az/index devices 0))))
     (set! physical-device (az/index devices 0))
-    (let [^{:var true :zig/type :u32} family-count 0
+    (let [^:var family-count (ak/u32 0)
           ^:var families
           (std-mem/zeroes (az/type [:array 32 vk/VkQueueFamilyProperties]))]
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
@@ -225,7 +225,7 @@
       (std-debug/assert (and (> family-count 0) (<= family-count 32)))
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
        physical-device (ak/& family-count) (ak/& (az/index families 0)))
-      (let [^{:var true :zig/type :u32} family-index 0
+      (let [^:var family-index (ak/u32 0)
             ^:var present-supported vk/VK_FALSE]
         (ak/while (< family-index family-count)
           (set! present-supported vk/VK_FALSE)
@@ -254,7 +254,7 @@
     (when (or (ak/== (az/field available bufferDeviceAddress) 0)
               (ak/== (az/field available scalarBlockLayout) 0))
       (std-debug/panic "La Professeure requires Vulkan bufferDeviceAddress and scalarBlockLayout" [])))
-  (let [^{:zig/type :f32} priority 1.0
+  (let [priority (ak/f32 1.0)
         queue-info
         (vk/VkDeviceQueueCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
@@ -280,7 +280,7 @@
     (vk/vkGetDeviceQueue device queue-family 0 (ak/& graphics-queue))))
 
 (az/defn framebuffer-extent vk/VkExtent2D []
-  (let [^{:var :c_int} width 0 ^{:var :c_int} height 0]
+  (let [^:var width (ak/as 0 :c_int) ^:var height (ak/as 0 :c_int)]
     (when (ak/!= renderer-window null)
       (vk/glfwGetFramebufferSize renderer-window (ak/& width) (ak/& height)))
     (vk/VkExtent2D {:width (ak/intCast (ak/max 0 width))
@@ -308,7 +308,7 @@
   []
   (let [^:var capabilities
         (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))
-        ^{:var true :zig/type :u32} format-count 0
+        ^:var format-count (ak/u32 0)
         ^:var formats
         (std-mem/zeroes (az/type [:array 128 vk/VkSurfaceFormatKHR]))]
     (check (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR
@@ -516,11 +516,11 @@
   (let [^{:var true}
         properties
         (std-mem/zeroes (az/type vk/VkPhysicalDeviceMemoryProperties))
-        ^{:var true :zig/type :u32} selected 0xffffffff]
+        ^:var selected (ak/u32 0xffffffff)]
     (vk/vkGetPhysicalDeviceMemoryProperties physical-device (ak/& properties))
     (dotimes [index (az/field properties memoryTypeCount)]
-      (let [bit (ak/<< (ak/as :u32 1)
-                       (ak/as :u5 (ak/intCast index)))
+      (let [bit (ak/<< (ak/as 1 :u32)
+                       (ak/as (ak/intCast index) :u5))
             flags (az/field (az/index (az/field properties memoryTypes) index)
                             propertyFlags)]
         (when (and (ak/== selected 0xffffffff)
@@ -585,8 +585,8 @@
 (az/defn create-mesh-buffer! :void
   "Create one persistently mapped, bounded vertex stream for the 3D scene."
   []
-  (let [buffer-size (ak/as vk/VkDeviceSize
-                           (+ (* frame-capacity (ak/sizeOf mesh/GpuVertex)) atlas-bytes))
+  (let [buffer-size (ak/as (+ (* frame-capacity (ak/sizeOf mesh/GpuVertex)) atlas-bytes)
+                           vk/VkDeviceSize)
         buffer-info
         (vk/VkBufferCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
@@ -629,7 +629,7 @@
   "Load one checked-in SPIR-V shader and create its Vulkan module."
   [[path [:pointer {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
-        ^{:var true} module (ak/as vk/VkShaderModule null)]
+        ^{:var true} module (ak/as null vk/VkShaderModule)]
     (when (ak/== file null) (ak/return null))
     (let [bytes (stdio/fread (ak/& (az/index shader-code 0))
                               1 (* 16384 (ak/sizeOf :u32)) file)]
@@ -675,8 +675,8 @@
         viewport
         (vk/VkViewport
          {:x 0.0 :y 0.0
-          :width (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent width)))
-          :height (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent height)))
+          :width (ak/as (ak/floatFromInt (az/field swapchain-extent width)) :f32)
+          :height (ak/as (ak/floatFromInt (az/field swapchain-extent height)) :f32)
           :minDepth 0.0 :maxDepth 1.0})
         scissor
         (vk/VkRect2D {:offset (vk/VkOffset2D {:x 0 :y 0})
@@ -740,8 +740,8 @@
         push-range (vk/VkPushConstantRange
                      {:stageFlags (ak/| vk/VK_SHADER_STAGE_VERTEX_BIT vk/VK_SHADER_STAGE_FRAGMENT_BIT) :offset 0
                       :size (ak/intCast (ak/sizeOf RootData))})
-        ^{:var true} candidate-layout (ak/as vk/VkPipelineLayout null)
-        ^{:var true} candidate-pipeline (ak/as vk/VkPipeline null)
+        ^{:var true} candidate-layout (ak/as null vk/VkPipelineLayout)
+        ^{:var true} candidate-pipeline (ak/as null vk/VkPipeline)
         layout-out (ak/& candidate-layout)
         pipeline-out (ak/& candidate-pipeline)
         layout-info
@@ -805,8 +805,8 @@
       (std-debug/panic "Invalid La Professeure RGBA atlas size; run :prepare" []))))
 
 (az/defn recreate-swapchain! :bool []
-  (let [^{:var vk/VkSurfaceCapabilitiesKHR} capabilities
-        (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))]
+  (let [^:var capabilities
+        (ak/as (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR)) vk/VkSurfaceCapabilitiesKHR)]
     (check (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR physical-device surface (ak/& capabilities)))
     (let [extent (choose-extent capabilities (framebuffer-extent))]
       (when (or (ak/== (az/field extent width) 0) (ak/== (az/field extent height) 0))
@@ -961,8 +961,8 @@
     (set! mesh-vertex-count
           (build-frame
            (az/cast mapped-mesh-vertices [:c-pointer mesh/GpuVertex])
-           (ak/as :i32 (ak/intCast (az/field swapchain-extent width)))
-           (ak/as :i32 (ak/intCast (az/field swapchain-extent height)))))
+           (ak/as (ak/intCast (az/field swapchain-extent width)) :i32)
+           (ak/as (ak/intCast (az/field swapchain-extent height)) :i32)))
     (when (> mesh-vertex-count 0)
       (let [root (RootData {:vertices vertex-address
                             :pixels (+ vertex-address (* frame-capacity (ak/sizeOf mesh/GpuVertex)))
@@ -989,7 +989,7 @@
               (ak/!= (az/field extent width) (az/field requested-extent width))
               (ak/!= (az/field extent height) (az/field requested-extent height)))
       (when (ak/! (recreate-swapchain!)) (ak/return false))))
-  (let [^{:var true :zig/type :u32} image-index 0
+  (let [^:var image-index (ak/u32 0)
         image-ready (az/index image-available synchronization-slot)]
     (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
     (let [acquired (vk/vkAcquireNextImageKHR
@@ -1004,8 +1004,8 @@
       (check (vk/vkResetFences device 1 (ak/& in-flight)))
       (record-frame image-index build-frame)
       (let [rendering-done (az/index render-finished image-index)
-            ^{:zig/type :u32} wait-stage
-            (ak/intCast vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+            wait-stage
+            (ak/u32 (ak/intCast vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT))
             command-buffer (az/index command-buffers image-index)
             submit-info
             (vk/VkSubmitInfo
@@ -1072,11 +1072,11 @@
              (ak/!= swapchain-format vk/VK_FORMAT_R8G8B8A8_UNORM)
              (ak/!= swapchain-format vk/VK_FORMAT_R8G8B8A8_SRGB))
     (ak/return 0))
-  (let [size (* (ak/as :usize (az/field swapchain-extent width))
+  (let [size (* (ak/as (az/field swapchain-extent width) :usize)
                 (az/field swapchain-extent height) 4)
-        ^{:var vk/VkBuffer} buffer null
-        ^{:var vk/VkDeviceMemory} memory null
-        ^{:var [:optional [:* :anyopaque]]} mapped null
+        ^:var buffer (ak/as null vk/VkBuffer)
+        ^:var memory (ak/as null vk/VkDeviceMemory)
+        ^:var mapped (ak/as null [:optional [:* :anyopaque]])
         ^:var requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))
         buffer-info (vk/VkBufferCreateInfo
                      {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO

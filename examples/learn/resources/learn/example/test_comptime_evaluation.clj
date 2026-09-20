@@ -27,7 +27,7 @@
 
 (az/defn- perform-fn :i32
   [[prefix-char {:zig/prefix "comptime"} :u8] [start-value :i32]]
-  (let [^{:var :i32} result start-value
+  (let [^:var result (ak/i32 start-value)
         ^{:var true :zig/prefix "comptime"} index 0]
     (az/while-loop {:inline? true
                     :continue (az/assign-expr "+=" index 1)}

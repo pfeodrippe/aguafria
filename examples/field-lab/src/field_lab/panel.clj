@@ -58,7 +58,7 @@
   `(~'let [^{:var [:array 512 :u8]} buffer# ak/undefined
          count# (snprintf (ak/& (az/index buffer# 0)) 512 ~format ~@arguments)]
      (~'when (~'and (~'>= count# 0) (~'< count# 512))
-       (text! (az/slice buffer# 0 (ak/as :usize (ak/intCast count#)))))))
+       (text! (az/slice buffer# 0 (ak/as (ak/intCast count#) :usize))))))
 
 (az/defn number! :void
   [[name [:pointer {:size :c :const? true} :u8]] [value [:c-pointer :f64]]
@@ -124,7 +124,7 @@
       (when (or (pressed? 257) (pressed? 258))
         (az/set-many! (az/field panel cursor)
                       (ak/max 0 (ak/min (ak/max 0 (- (az/field panel count) 1))
-                                        (+ (az/field panel cursor) (if (pressed? 258) 1 (ak/as :i32 -1)))))
+                                        (+ (az/field panel cursor) (if (pressed? 258) 1 (ak/as -1 :i32)))))
                       (az/field panel paused) 1
                       (az/field panel action) 3))
       (when (pressed? 256)
@@ -202,7 +202,7 @@
                  [(if scripted "   mesh_sources" "   sphere_source") "   mechanical_solver" "   telemetry_output"])]
     (dotimes [index 3]
       (when (ak/!= (ui/aguafria_ui_selectable (az/index names index)
-                      (flag (ak/== (az/field panel selected) (ak/as :i32 (ak/intCast index))))) 0)
+                      (flag (ak/== (az/field panel selected) (ak/as (ak/intCast index) :i32)))) 0)
         (set! (az/field panel selected) (ak/intCast index)))))
   (ui/aguafria_ui_spacing)
   (ui/aguafria_ui_separator)
@@ -309,7 +309,7 @@
            (az/field panel time) "s")
   (textf! "Speed %.3f m/s" (az/field panel speed))
   (if (ak/!= (az/field panel deform) 0)
-    (textf! "%s %.1f%% / min Y %.3f m" (ak/as (az/type [:pointer {:size :c :const? true} :u8]) (if scripted "Height decrease" "Compression"))
+    (textf! "%s %.1f%% / min Y %.3f m" (ak/as (if scripted "Height decrease" "Compression") (az/type [:pointer {:size :c :const? true} :u8]))
             (* (az/field panel compression) 100) (az/field panel clearance))
     (textf! "Impacts  %d" (az/field panel impacts)))
   (textf! "Cache    %d / 14401" (az/field panel count))
@@ -339,7 +339,7 @@
   (colored! "  /  live Flecs dependencies" 0.24 0.84 0.72)
   (let [y (- height 169)]
     (dotimes [index 2]
-      (let [a (+ 214 (* (ak/as :f32 (ak/floatFromInt index)) 242))]
+      (let [a (+ 214 (* (ak/as (ak/floatFromInt index) :f32) 242))]
         (ui/aguafria_ui_draw_bezier a (+ y 33) (+ a 28) (+ y 33) (+ a 30) (+ y 33)
                                    (+ a 60) (+ y 33) (rgba 65 150 141) 2)))
     (node! (if scripted "mesh_sources" "sphere_source") "Geometry + initial state" 0 panel 32 y)
@@ -449,13 +449,13 @@
     (when (ak/== metadata null) (ak/return null))
     (let [written (fprintf metadata
                     "{\n  \"solver\": \"%s\",\n  \"%s\": %.17g,\n  \"poisson_ratio\": %s,\n  \"body_count\": %d,\n  \"dt_s\": %.17g,\n  \"radius_m\": %.17g,\n  \"mass_kg\": %.17g,\n  \"drop_gap_m\": %.17g,\n  \"gravity_m_s2\": %.17g,\n  \"restitution\": %.17g,\n  \"friction\": %.17g,\n  \"rolling\": %.17g,\n  \"launch_x_m_s\": %.17g,\n  \"launch_z_m_s\": %.17g,\n  \"spin_y_rad_s\": %.17g\n}\n"
-                    (ak/as (az/type [:pointer {:size :c :const? true} :u8])
-                      (if (ak/== deform 2) "field-lab-stable-neo-hookean-v1"
-                        (if (ak/!= deform 0) "field-lab-xpbd-v1" "field-lab-rigid-v1")))
-                    (ak/as (az/type [:pointer {:size :c :const? true} :u8])
-                      (if (ak/== deform 2) "young_modulus_Pa" "effective_stiffness_Pa"))
+                    (ak/as (if (ak/== deform 2) "field-lab-stable-neo-hookean-v1"
+                        (if (ak/!= deform 0) "field-lab-xpbd-v1" "field-lab-rigid-v1"))
+                      (az/type [:pointer {:size :c :const? true} :u8]))
+                    (ak/as (if (ak/== deform 2) "young_modulus_Pa" "effective_stiffness_Pa")
+                      (az/type [:pointer {:size :c :const? true} :u8]))
                     stiffness
-                    (ak/as (az/type [:pointer {:size :c :const? true} :u8]) (if (ak/== deform 2) "0.4" "null"))
+                    (ak/as (if (ak/== deform 2) "0.4" "null") (az/type [:pointer {:size :c :const? true} :u8]))
                     bodies dt radius mass height gravity restitution friction rolling vx vz spin)
           closed (stdio/fclose metadata)]
       (when (or (< written 0) (ak/!= closed 0)) (ak/return null))))
@@ -551,9 +551,9 @@
     (flag (and (ak/!= (az/field run metadata) null)
                (>= (fprintf (az/field run metadata)
                      "%s{\"body\":%d,\"mass_kg\":%.17g,\"young_modulus_Pa\":%.17g,\"poisson_ratio\":%.17g,\"gravity_m_s2\":[%.17g,%.17g,%.17g],\"floor\":%s,\"friction\":%.17g}"
-                     (ak/as (az/type [:pointer {:size :c :const? true} :u8]) (if (ak/!= body 0) ",\n" ""))
+                     (ak/as (if (ak/!= body 0) ",\n" "") (az/type [:pointer {:size :c :const? true} :u8]))
                      body mass young poisson gx gy gz
-                     (ak/as (az/type [:pointer {:size :c :const? true} :u8]) (if (ak/!= floor 0) "true" "false")) friction) 0)))))
+                     (ak/as (if (ak/!= floor 0) "true" "false") (az/type [:pointer {:size :c :const? true} :u8])) friction) 0)))))
 
 (az/defn export-end! :i32 [[file [:optional [:* :anyopaque]]]]
   (when (ak/== file null) (ak/return 0))

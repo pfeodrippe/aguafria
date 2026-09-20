@@ -16,7 +16,7 @@
 
 (az/deftest tagged-union-switch-test
   (let [result (az/init Result {:ok 42})]
-    (try (testing/expectEqual (az/field ResultTag :ok) (ak/as ResultTag result)))
+    (try (testing/expectEqual (az/field ResultTag :ok) (ak/as result ResultTag)))
     (az/switch-stmt result
       (case [:.ok] [value] (try (testing/expectEqual 42 value)))
       (case [:.not_ok] (ak/unreachable)))

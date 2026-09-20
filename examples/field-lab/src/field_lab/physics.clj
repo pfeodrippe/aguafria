@@ -165,8 +165,8 @@
   "Event-resolved ballistic flight; finite impact loop and resting-contact branch."
   [[input State] [c Config] [dt :f64]]
   (let [^:var s input
-        ^{:var :f64} remaining dt
-        ^{:var :u32} events 0]
+        ^:var remaining (ak/f64 dt)
+        ^:var events (ak/u32 0)]
     (set! (az/field s impulse) 0.0)
     (while (and (> remaining 1.0e-12) (< events 16))
       (if (az/field s supported)

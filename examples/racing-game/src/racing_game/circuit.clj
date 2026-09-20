@@ -27,7 +27,7 @@
 
 (az/defn tangent :f32
   "Arc-distance derivative at an authored knot, including the closed seam." [[index :usize] [axis :usize]]
-  (let [i (if (ak/== index (- sample-count 1)) (ak/as :usize 0) index)
+  (let [i (if (ak/== index (- sample-count 1)) (ak/as 0 :usize) index)
         previous (az/index centerline (if (ak/== i 0) (- sample-count 2) (- i 1)))
         following (az/index centerline (+ i 1))
         span (- (az/index following 3)
@@ -52,8 +52,8 @@
   heading share the same curve derivative; lane offsets no longer jump at
   each polyline boundary. Distance remains the authored arc-distance coordinate." [[distance :f32] [lane :f32]]
   (let [d (mod distance length-metres)
-        ^{:var :usize} low 0
-        ^{:var :usize} high (- sample-count 1)]
+        ^:var low (ak/usize 0)
+        ^:var high (ak/usize (- sample-count 1))]
     (while (> (- high low) 1)
       (let [middle (ak/divTrunc (+ low high) 2)]
         (if (> (az/index (az/index centerline middle) 3) d)

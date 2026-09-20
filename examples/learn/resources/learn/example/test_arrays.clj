@@ -26,7 +26,7 @@
   (debug/assert (mem/eql :u8 (& message) same-message)))
 
 (az/deftest array-iteration-test
-  (let [^{:var :usize} sum 0]
+  (let [^:var sum (ak/usize 0)]
     (for [byte message]
       (ak/+= sum byte))
     (try (testing/expectEqual (+ \h \e (* \l 2) \o) sum))))
@@ -79,7 +79,7 @@
 ;; Use compile-time code to initialize an array.
 (az/defvar fancy-array
   (az/labeled-block init
-    (let [^{:var [:array 10 Point]} initial-value ak/undefined]
+    (let [^:var initial-value (ak/as ak/undefined [:array 10 Point])]
       (for [[(az/pointer-capture point) (& initial-value)]
             [index (az/op ".." 0)]]
         (set! @point (Point {:x (ak/intCast index)

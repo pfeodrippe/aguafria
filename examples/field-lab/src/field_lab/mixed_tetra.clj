@@ -30,15 +30,15 @@
 
 (az/defn legendre p/Vec3
   "P_n(x) and its derivative for quadrature roots strictly inside (-1,1)." [[order :u32] [x :f64]]
-  (let [^{:var :f64} previous 1.0
-        ^{:var :f64} current x
-        ^{:var :u32} degree 2]
+  (let [^:var previous (ak/f64 1.0)
+        ^:var current (ak/f64 x)
+        ^:var degree (ak/u32 2)]
     (while (<= degree order)
-      (let [n (ak/as :f64 (ak/floatFromInt degree))
+      (let [n (ak/as (ak/floatFromInt degree) :f64)
             next (/ (- (* (- (* 2.0 n) 1.0) x current) (* (- n 1.0) previous)) n)]
         (az/set-many! previous current current next)
         (ak/+= degree 1)))
-    (p/v current (/ (* (ak/as :f64 (ak/floatFromInt order)) (- (* x current) previous))
+    (p/v current (/ (* (ak/as (ak/floatFromInt order) :f64) (- (* x current) previous))
                      (- (* x x) 1.0)) 0.0)))
 
 (az/defn quadrature Quadrature
@@ -47,10 +47,10 @@
   (let [^:var result (mem/zeroes (az/type Quadrature))]
     (when (or (< order 2) (> order 12)) (ak/return result))
     (dotimes [index (ak/divTrunc (+ order 1) 2)]
-      (let [^{:var :f64} root (ak/cos (/ (* 3.141592653589793
-                                            (+ (ak/as :f64 (ak/floatFromInt index)) 0.75))
-                                         (+ (ak/as :f64 (ak/floatFromInt order)) 0.5)))
-            ^{:var :bool} converged false]
+      (let [^:var root (ak/f64 (ak/cos (/ (* 3.141592653589793
+                                            (+ (ak/as (ak/floatFromInt index) :f64) 0.75))
+                                         (+ (ak/as (ak/floatFromInt order) :f64) 0.5))))
+            ^:var converged (ak/bool false)]
         (dotimes [_ 32]
           (let [polynomial (legendre order root)
                 correction (/ (az/field polynomial x) (az/field polynomial y))]
@@ -77,13 +77,13 @@
   internal projection coefficients, not the positions of interior nodes.
   Gradients supplied by the caller are with respect to rest-world coordinates." [[barycentric [:array 4 :f64]] [gradients [:array 4 p/Vec3]]]
   (let [^:var result (mem/zeroes (az/type Basis))
-        ^{:var :f64} product 1.0
+        ^:var product (ak/f64 1.0)
         ^:var product-gradient (p/v 0.0 0.0 0.0)]
     (dotimes [index 4]
       (ak/*= product (az/index barycentric index)))
     ;; Products excluding one factor work at faces and vertices, without 0/0.
     (dotimes [index 4]
-      (let [^{:var :f64} remaining 1.0]
+      (let [^:var remaining (ak/f64 1.0)]
         (dotimes [other 4]
           (when (ak/!= index other) (ak/*= remaining (az/index barycentric other))))
         (set! product-gradient (p/add product-gradient (p/scale (az/index gradients index) remaining)))))
@@ -121,7 +121,7 @@
   Edge coefficients are Bernstein controls, not interpolating midpoint values." [[barycentric [:array 4 :f64]] [gradients [:array 4 p/Vec3]]]
   (let [^:var result (mem/zeroes (az/type QuadraticBasis))
         enriched (basis barycentric gradients)
-        ^{:var :usize} edge 4]
+        ^:var edge (ak/usize 4)]
     (dotimes [node 4]
       (let [coordinate (az/index barycentric node)]
         (az/set-many!
@@ -165,11 +165,11 @@
   the internal P1 velocity coefficients have the exact consistent tetra mass." [[density :f64] [volume :f64] [row :u32] [column :u32]]
   (if (or (< row 4) (< column 4) (>= row 8) (>= column 8))
     0.0
-    (* density volume 0.05 (ak/as :f64 (if (ak/== row column) 2.0 1.0)))))
+    (* density volume 0.05 (ak/as (if (ak/== row column) 2.0 1.0) :f64))))
 
 (az/defn kinetic-energy :f64 [[density :f64] [volume :f64] [velocities [:array 8 p/Vec3]]]
   (let [^:var sum (p/v 0.0 0.0 0.0)
-        ^{:var :f64} squared 0.0]
+        ^:var squared (ak/f64 0.0)]
     (dotimes [index 4]
       (let [velocity (az/index velocities (+ index 4))]
         (set! sum (p/add sum velocity))
@@ -333,7 +333,7 @@
                   (az/index sum-gradient axis) (interval/add (az/index sum-gradient axis) (interval/point g)))))))
         (dotimes [row 3]
           (dotimes [column 3]
-            (let [^{:var interval/Interval} entry (interval/point (if (ak/== row column) 1.0 0.0))]
+            (let [^:var entry (ak/as (interval/point (if (ak/== row column) 1.0 0.0)) interval/Interval)]
               (dotimes [node 4]
                 (set! entry (interval/add entry
                               (interval/multiply
@@ -343,8 +343,8 @@
         ;; There are 35 degree-four controls. Twenty-two equal the affine base,
         ;; twelve have exponents (0,2,1,1) under permutation, and one is (1,1,1,1).
         (dotimes [control 14]
-          (let [^{:var :u32} missing 0
-                ^{:var :u32} doubled 0]
+          (let [^:var missing (ak/u32 0)
+                ^:var doubled (ak/u32 0)]
             (when (>= control 2)
               (az/set-many! missing (ak/intCast (ak/divTrunc (- control 2) 3))
                             doubled (ak/intCast (mod (- control 2) 3)))
@@ -421,9 +421,9 @@
           (dotimes [b (- 5 a)]
             (dotimes [c (- 5 a b)]
               (let [alpha (az/array-init [:array 4 :usize] [a b c (- 4 a b c)])
-                    ^{:var :usize} missing 4
-                    ^{:var :usize} doubled 4
-                    ^{:var :usize} ones 0]
+                    ^:var missing (ak/usize 4)
+                    ^:var doubled (ak/usize 4)
+                    ^:var ones (ak/usize 0)]
                 (dotimes [node 4]
                   (let [power (az/index alpha node)]
                     (when (ak/== power 0) (set! missing node))
@@ -432,11 +432,11 @@
                 (dotimes [row 3]
                   (dotimes [column 3]
                     (let [^:var entry (interval/point (if (ak/== row column) 1.0 0.0))
-                          ^{:var :usize} edge 4]
+                          ^:var edge (ak/usize 4)]
                       ;; Degree elevation of a linear trace gradient to degree
                       ;; four evaluates it at alpha/4 (exact binary fractions).
                       (dotimes [left 4]
-                        (let [factor (* 0.5 (ak/as :f64 (ak/floatFromInt (az/index alpha left))))]
+                        (let [factor (* 0.5 (ak/as (ak/floatFromInt (az/index alpha left)) :f64))]
                           (set! entry (interval/add entry
                                         (interval/multiply
                                           (interval/point (fem/component (az/index values left) row))
@@ -444,8 +444,8 @@
                                             (interval/point (fem/component (az/index gradients left) column)))))))
                         (dotimes [right 4]
                           (when (> right left)
-                            (let [left-weight (* 0.5 (ak/as :f64 (ak/floatFromInt (az/index alpha right))))
-                                  right-weight (* 0.5 (ak/as :f64 (ak/floatFromInt (az/index alpha left))))
+                            (let [left-weight (* 0.5 (ak/as (ak/floatFromInt (az/index alpha right)) :f64))
+                                  right-weight (* 0.5 (ak/as (ak/floatFromInt (az/index alpha left)) :f64))
                                   gradient (interval/add
                                              (interval/multiply (interval/point left-weight)
                                                (interval/point (fem/component (az/index gradients left) column)))
@@ -615,7 +615,7 @@
                   (dotimes [other 4]
                     (let [column (+ (* 3 (trace-count element)) (* 3 other) axis)]
                       (ak/+= (az/index (az/field response hessian) (+ (* 42 row) column))
-                             (* inertia-factor (ak/as :f64 (if (ak/== node other) 2.0 1.0))))))))))
+                             (* inertia-factor (ak/as (if (ak/== node other) 2.0 1.0) :f64)))))))))
           (dotimes [node (coefficient-count element)]
             (let [index (coefficient-index vertex-count cell element node)
                   offset (* 3 node)]

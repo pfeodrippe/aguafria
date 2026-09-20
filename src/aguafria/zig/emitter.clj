@@ -400,6 +400,10 @@
         reference (when-not (or structural? (contains? *local-type-bindings* op))
                     (resolve-zig-reference context-ns op))
         args (cond
+               (and (= "@as" (:zig-name token)) (= 2 (count raw-args)))
+               [(qualify-form context-ns (first raw-args))
+                (qualify-type context-ns (second raw-args))]
+
                (and structural? (= 'type structural-op))
                (mapv #(qualify-type context-ns %) raw-args)
 
@@ -1139,14 +1143,21 @@
   [token args form]
   (keyword/validate-call! token args form)
   (case (:kind token)
+    :primitive
+    (if (:constructor? token)
+      (str "@as(" (:zig-token token) ", " (emit-expr (first args)) ")")
+      (fail! "This Zig primitive is not a value constructor" form {:token token}))
+
     :call
     (let [logical-type-name? (and *logical-type-names?*
-                                  (= "@typeName" (:zig-name token)))
+                                 (= "@typeName" (:zig-name token)))
           call-source
-          (str (if logical-type-name?
-                 "__aguafria_type_name"
-                 (:zig-name token))
-               "(" (str/join ", " (map emit-expr args)) ")")]
+          (if (= "@as" (:zig-name token))
+            (str "@as(" (emit-type (second args)) ", " (emit-expr (first args)) ")")
+            (str (if logical-type-name?
+                   "__aguafria_type_name"
+                   (:zig-name token))
+                 "(" (str/join ", " (map emit-expr args)) ")"))]
       call-source)
 
     :operator

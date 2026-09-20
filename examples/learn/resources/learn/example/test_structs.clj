@@ -38,7 +38,7 @@
 
 (az/defn set-y-from-x :void
   [[x-pointer [:* :f32]] [y :f32]]
-  (let [^{:zig/type [:* Point]} point (ak/fieldParentPtr "x" x-pointer)]
+  (let [point (ak/as (ak/fieldParentPtr "x" x-pointer) [:* Point])]
     (set! (az/field point :y) y)))
 
 (az/deftest field-parent-pointer-test

@@ -25,8 +25,8 @@
   [[stream net/Stream]
    [io aguafria.std/Io]]
   (ak/defer (net-stream/close (ak/& stream) io))
-  (let [^{:var [:array 4096 :u8]} read-buffer ak/undefined
-        ^{:var [:array 4096 :u8]} write-buffer ak/undefined
+  (let [^:var read-buffer (ak/as ak/undefined [:array 4096 :u8])
+        ^:var write-buffer (ak/as ak/undefined [:array 4096 :u8])
         ^:var reader (net-stream/reader stream io (ak/& read-buffer))
         ^:var writer (net-stream/writer stream io (ak/& write-buffer))
         ^:var server

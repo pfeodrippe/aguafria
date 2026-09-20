@@ -6,7 +6,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest fixed-buffer-allocation-test
-  (let [^{:var [:array 100 :u8]} buffer ak/undefined
+  (let [^:var buffer (ak/as ak/undefined [:array 100 :u8])
         ^:var fixed-buffer ((az/field heap/FixedBufferAllocator :init) (& buffer))
         allocator ((az/field fixed-buffer :allocator))
         result (try (concatenate allocator "foo" "bar"))]

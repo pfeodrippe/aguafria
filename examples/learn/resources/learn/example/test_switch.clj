@@ -4,19 +4,19 @@
             [aguafria.zig :as az]))
 
 (az/deftest switch-simple-test
-  (let [^{:zig/type :u64} value 10
-        ^{:zig/type :u64} special-value 103
+  (let [value (ak/u64 10)
+        special-value (ak/u64 103)
         result (ak/switch value
                  (case [1 2 3] 0)
                  ;; Ranges include both endpoints; cases never fall through.
                  (case [(az/op "..." 5 100)] 1)
                  (case [101]
-                   (let [^{:zig/type :u64} base 5]
+                   (let [base (ak/u64 5)]
                      (+ (* base 2) 1)))
                  (case [special-value] special-value)
                  ;; Case expressions may themselves compute a comptime value.
-                 (case [(let [^{:zig/type :u32} lower 5
-                              ^{:zig/type :u32} upper 100]
+                 (case [(let [lower (ak/u32 5)
+                              upper (ak/u32 100)]
                           (+ lower upper))]
                    107)
                  (az/case-else 9))]

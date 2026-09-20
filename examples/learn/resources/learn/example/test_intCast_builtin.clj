@@ -3,9 +3,9 @@
             [aguafria.zig :as az]))
 
 (az/deftest integer-cast-panic-test
-  (let [^{:var :u16} wide 0xabcd] ; runtime-known
+  (let [^:var wide (ak/u16 0xabcd)] ; runtime-known
     (set! _ (& wide))
-    (let [^{:zig/type :u8} narrow (ak/intCast wide)]
+    (let [narrow (ak/u8 (ak/intCast wide))]
       (set! _ narrow))))
 
 (comment

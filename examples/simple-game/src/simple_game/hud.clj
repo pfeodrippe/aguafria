@@ -102,18 +102,18 @@
    [color Color]
    [frame-width :i32]
    [frame-height :i32]]
-  (let [scale-x (/ (ak/as :f32 (ak/floatFromInt frame-width)) 720.0)
-        scale-y (/ (ak/as :f32 (ak/floatFromInt frame-height)) 540.0)
-        screen-x (ak/as :i32
-                        (ak/intFromFloat
-                         (* (ak/as :f32 (ak/floatFromInt x)) scale-x)))
-        screen-y (ak/as :i32
-                        (ak/intFromFloat
-                         (* (ak/as :f32 (ak/floatFromInt y)) scale-y)))
-        width (ak/max 1 (ak/as :i32 (ak/intFromFloat (* 9.0 scale-x))))
-        height (ak/max 1 (ak/as :i32 (ak/intFromFloat (* 14.0 scale-y))))
-        thickness (ak/max 1 (ak/as :i32 (ak/intFromFloat (* 2.0 scale-x))))
-        spacing (ak/max 1 (ak/as :i32 (ak/intFromFloat (* 14.0 scale-x))))
+  (let [scale-x (/ (ak/as (ak/floatFromInt frame-width) :f32) 720.0)
+        scale-y (/ (ak/as (ak/floatFromInt frame-height) :f32) 540.0)
+        screen-x (ak/as (ak/intFromFloat
+                         (* (ak/as (ak/floatFromInt x) :f32) scale-x))
+                        :i32)
+        screen-y (ak/as (ak/intFromFloat
+                         (* (ak/as (ak/floatFromInt y) :f32) scale-y))
+                        :i32)
+        width (ak/max 1 (ak/as (ak/intFromFloat (* 9.0 scale-x)) :i32))
+        height (ak/max 1 (ak/as (ak/intFromFloat (* 14.0 scale-y)) :i32))
+        thickness (ak/max 1 (ak/as (ak/intFromFloat (* 2.0 scale-x)) :i32))
+        spacing (ak/max 1 (ak/as (ak/intFromFloat (* 14.0 scale-x)) :i32))
         bounded (ak/min value 999)]
     (when (>= bounded 100)
       (draw-small-digit draw-rect (ak/divTrunc bounded 100)
@@ -132,44 +132,44 @@
    [frame-width :i32]
    [frame-height :i32]]
   (when (and (> frame-width 0) (> frame-height 0))
-    (let [scale-x (/ (ak/as :f32 (ak/floatFromInt frame-width)) 720.0)
-          scale-y (/ (ak/as :f32 (ak/floatFromInt frame-height)) 540.0)
+    (let [scale-x (/ (ak/as (ak/floatFromInt frame-width) :f32) 720.0)
+          scale-y (/ (ak/as (ak/floatFromInt frame-height) :f32) 540.0)
           state (factory/snapshot)
-          panel-x (ak/as :i32 (ak/intFromFloat (* 18.0 scale-x)))
-          panel-y (ak/as :i32 (ak/intFromFloat (* 444.0 scale-y)))
-          panel-width (ak/as :i32 (ak/intFromFloat (* 684.0 scale-x)))
-          panel-height (ak/as :i32 (ak/intFromFloat (* 66.0 scale-y)))]
+          panel-x (ak/as (ak/intFromFloat (* 18.0 scale-x)) :i32)
+          panel-y (ak/as (ak/intFromFloat (* 444.0 scale-y)) :i32)
+          panel-width (ak/as (ak/intFromFloat (* 684.0 scale-x)) :i32)
+          panel-height (ak/as (ak/intFromFloat (* 66.0 scale-y)) :i32)]
       (draw-rect (Color {:r 0.055 :g 0.11 :b 0.16 :a 1.0})
                  0 0 frame-width
-                 (ak/as :i32 (ak/intFromFloat (* 68.0 scale-y))))
+                 (ak/as (ak/intFromFloat (* 68.0 scale-y)) :i32))
       (draw-rect (Color {:r 0.94 :g 0.48 :b 0.20 :a 1.0})
-                 0 (ak/as :i32 (ak/intFromFloat (* 66.0 scale-y)))
-                 frame-width (ak/max 1 (ak/as :i32
-                                              (ak/intFromFloat (* 2.0 scale-y)))))
+                 0 (ak/as (ak/intFromFloat (* 66.0 scale-y)) :i32)
+                 frame-width (ak/max 1 (ak/as (ak/intFromFloat (* 2.0 scale-y))
+                                              :i32)))
       (draw-rect (Color {:r 0.055 :g 0.11 :b 0.16 :a 1.0})
                  panel-x panel-y panel-width panel-height)
       (dotimes [index (font/rect-count)]
         (let [rectangle (font/rect-at index)
-              x (ak/as :i32
-                       (ak/intFromFloat
-                        (* (ak/as :f32
-                                  (ak/floatFromInt (az/field rectangle x)))
-                           scale-x)))
-              y (ak/as :i32
-                       (ak/intFromFloat
-                        (* (ak/as :f32
-                                  (ak/floatFromInt (az/field rectangle y)))
-                           scale-y)))
-              width (ak/as :i32
-                           (ak/intFromFloat
-                            (* (ak/as :f32
-                                      (ak/floatFromInt (az/field rectangle width)))
-                               scale-x)))
-              height (ak/as :i32
-                            (ak/intFromFloat
-                             (* (ak/as :f32
-                                       (ak/floatFromInt (az/field rectangle height)))
-                                scale-y)))]
+              x (ak/as (ak/intFromFloat
+                        (* (ak/as (ak/floatFromInt (az/field rectangle x))
+                                  :f32)
+                           scale-x))
+                       :i32)
+              y (ak/as (ak/intFromFloat
+                        (* (ak/as (ak/floatFromInt (az/field rectangle y))
+                                  :f32)
+                           scale-y))
+                       :i32)
+              width (ak/as (ak/intFromFloat
+                            (* (ak/as (ak/floatFromInt (az/field rectangle width))
+                                      :f32)
+                               scale-x))
+                           :i32)
+              height (ak/as (ak/intFromFloat
+                             (* (ak/as (ak/floatFromInt (az/field rectangle height))
+                                       :f32)
+                                scale-y))
+                            :i32)]
           (let [palette (az/field rectangle palette)]
             (when (and (>= palette 4)
                        (or (ak/!= palette 10)

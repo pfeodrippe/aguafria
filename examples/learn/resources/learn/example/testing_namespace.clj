@@ -1,9 +1,10 @@
 (ns learn.example.testing-namespace
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest expect-equal-test
-  (let [^{:zig/type :i32} expected 42
+  (let [expected (ak/i32 42)
         actual 42]
     ;; The first argument is the known, expected result.
     ;; The second is the result of an expression.
@@ -12,8 +13,7 @@
 
 (az/deftest expect-error-test
   (let [expected-error (az/error-value :DemoError)
-        ^{:zig/type [:error-union :anyerror :void]}
-        actual-error-union (az/error-value :DemoError)]
+        actual-error-union (ak/as (az/error-value :DemoError) [:error-union :anyerror :void])]
     ;; `expectError` fails when the actual error differs from the expected error.
     (try (testing/expectError expected-error actual-error-union))))
 

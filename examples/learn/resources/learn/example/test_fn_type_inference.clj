@@ -10,7 +10,7 @@
 (az/deftest function-type-inference-test
   (try (testing/expectEqual 43 (add-forty-two 1)))
   (try (testing/expectEqual :comptime_int (ak/TypeOf (add-forty-two 1))))
-  (let [^{:zig/type :i64} y 2]
+  (let [y (ak/i64 2)]
     (try (testing/expectEqual 44 (add-forty-two y)))
     (try (testing/expectEqual :i64 (ak/TypeOf (add-forty-two y))))))
 

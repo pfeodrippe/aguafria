@@ -683,7 +683,7 @@
 (az/defn update-thought-cadence! :void
   []
   (let [workers (worker/summary)
-        ^{:var true :zig/type :u64} max-latency-us 0]
+        ^:var max-latency-us (ak/u64 0)]
     (when initialized
       (dotimes [index racer-count]
         (set! max-latency-us
@@ -708,7 +708,7 @@
     :max_latency_us cadence-max-latency-us
     :decisions_per_second
     (/ 120.0
-       (ak/as :f32 (ak/floatFromInt current-ordinary-thought-ticks)))}))
+       (ak/as (ak/floatFromInt current-ordinary-thought-ticks) :f32))}))
 
 (az/defn decision-deadline-ticks :u64
   "Return the hard simulation-time budget for one ordinary or urgent thought."
@@ -789,11 +789,11 @@
   []
   (clear-replay!)
   (dotimes [racer-index racer-count]
-    (let [racer-id (ak/as :u8 (ak/intCast racer-index))
-          count (ak/as :usize
-                       (ak/intCast
+    (let [racer-id (ak/as (ak/intCast racer-index) :u8)
+          count (ak/as (ak/intCast
                         (ak/min (telemetry/decision-count racer-id)
-                                telemetry/entries-per-racer)))]
+                                telemetry/entries-per-racer))
+                       :usize)]
       (dotimes [offset count]
         (when (< replay-count replay-capacity)
           (let [entry (telemetry/entry-at racer-id offset)]
@@ -818,10 +818,10 @@
                       :lane_target (az/field entry lane_target)
                       :target_speed (az/field entry target_speed)}))
               (set! replay-count (+ replay-count 1))))))))
-  (let [^{:var true :zig/type :usize} index 1]
+  (let [^:var index (ak/usize 1)]
     (ak/while (< index replay-count)
       (let [key (az/index replay-intents index)
-            ^{:var true :zig/type :usize} cursor index]
+            ^:var cursor (ak/usize index)]
         (ak/while (and (> cursor 0)
                        (replay-intent-before
                         key (az/index replay-intents (- cursor 1))))
@@ -835,28 +835,28 @@
 (az/defn replay-read-u16 :u16
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
-  (+ (ak/as :u16 (az/index bytes offset))
-     (ak/<< (ak/as :u16 (az/index bytes (+ offset 1))) 8)))
+  (+ (ak/as (az/index bytes offset) :u16)
+     (ak/<< (ak/as (az/index bytes (+ offset 1)) :u16) 8)))
 
 (az/defn replay-read-u32 :u32
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
-  (+ (ak/as :u32 (az/index bytes offset))
-     (ak/<< (ak/as :u32 (az/index bytes (+ offset 1))) 8)
-     (ak/<< (ak/as :u32 (az/index bytes (+ offset 2))) 16)
-     (ak/<< (ak/as :u32 (az/index bytes (+ offset 3))) 24)))
+  (+ (ak/as (az/index bytes offset) :u32)
+     (ak/<< (ak/as (az/index bytes (+ offset 1)) :u32) 8)
+     (ak/<< (ak/as (az/index bytes (+ offset 2)) :u32) 16)
+     (ak/<< (ak/as (az/index bytes (+ offset 3)) :u32) 24)))
 
 (az/defn replay-read-u64 :u64
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
-  (+ (ak/as :u64 (replay-read-u32 bytes offset))
-     (ak/<< (ak/as :u64 (replay-read-u32 bytes (+ offset 4))) 32)))
+  (+ (ak/as (replay-read-u32 bytes offset) :u64)
+     (ak/<< (ak/as (replay-read-u32 bytes (+ offset 4)) :u64) 32)))
 
 (az/defn replay-read-f32 :f32
   [[bytes [:c-pointer :u8]]
    [offset :usize]]
-  (let [^{:zig/type :u32} bits (replay-read-u32 bytes offset)
-        ^{:zig/type :f32} value (ak/bitCast bits)]
+  (let [bits (ak/u32 (replay-read-u32 bytes offset))
+        value (ak/f32 (ak/bitCast bits))]
     value))
 
 (az/defn replay-file-summary ReplayFileSummary
@@ -884,15 +884,15 @@
         (set! _ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
           (set! _ (runtime/fseek file 0 0))
-          (if (or (< signed-size (ak/as :isize replay-file-header-bytes))
+          (if (or (< signed-size (ak/as replay-file-header-bytes :isize))
                   (> signed-size
-                     (ak/as :isize
-                            (+ replay-file-header-bytes
-                               (* replay-capacity replay-file-entry-bytes)))))
+                     (ak/as (+ replay-file-header-bytes
+                               (* replay-capacity replay-file-entry-bytes))
+                            :isize)))
             (do
               (set! _ (runtime/fclose file))
               (replay-file-summary false replay-file-invalid-size 0 0 0 0 0))
-            (let [size (ak/as :usize (ak/intCast signed-size))
+            (let [size (ak/as (ak/intCast signed-size) :usize)
                   allocation (runtime/malloc size)]
               (if (ak/== allocation null)
                 (do
@@ -901,10 +901,9 @@
                                        0 0 0 0 0))
                 (let [bytes (az/cast allocation [:c-pointer :u8])
                       read-count (runtime/fread bytes 1 size file)
-                      ^{:var true :zig/type ReplayFileSummary}
-                      result
-                      (replay-file-summary false replay-file-invalid-size
-                                           0 0 0 0 0)]
+                      ^:var result
+                      (ak/as (replay-file-summary false replay-file-invalid-size
+                                           0 0 0 0 0) ReplayFileSummary)]
                   (set! _ (runtime/fclose file))
                   (when (ak/== read-count size)
                     (let [magic-valid
@@ -924,7 +923,7 @@
                           action-head-fingerprint (replay-read-u64 bytes 24)
                           expected-size
                           (+ replay-file-header-bytes
-                             (* (ak/as :usize count) replay-file-entry-bytes))
+                             (* (ak/as count :usize) replay-file-entry-bytes))
                           compatible
                           (and (ak/== (az/index bytes 14) racer-count)
                                (ak/== (az/index bytes 15) team-count)
@@ -964,8 +963,8 @@
                         :else
                         (do
                           (clear-replay!)
-                          (let [^{:var true :zig/type :bool} all-valid true]
-                            (dotimes [index (ak/as :usize count)]
+                          (let [^:var all-valid (ak/bool true)]
+                            (dotimes [index (ak/as count :usize)]
                               (when all-valid
                                 (let [base (+ replay-file-header-bytes
                                               (* index replay-file-entry-bytes))
@@ -1156,7 +1155,7 @@
     (std-mem/zeroes (az/type status/Entry))))
 
 (az/defn retired-count :u8 []
-  (let [^{:var :u8} count 0]
+  (let [^:var count (ak/u8 0)]
     (dotimes [i racer-count]
       (when (retired? i) (set! count (+ count 1))))
     count))
@@ -1175,11 +1174,11 @@
    [source :u8]
    [code :u8]]
   (let [racer (racer-pointer index)
-        team-index (ak/as :usize
-                          (ak/intCast (az/field (az/deref racer) team)))
+        team-index (ak/as (ak/intCast (az/field (az/deref racer) team))
+                          :usize)
         team (team-pointer team-index)
-        head (ak/as :usize
-                    (ak/intCast (az/index team-radio-heads team-index)))
+        head (ak/as (ak/intCast (az/index team-radio-heads team-index))
+                    :usize)
         destination (+ (* team-index team-radio-history-per-team) head)]
     (set! (az/field (az/deref team) radio_sequence)
           (+ (az/field (az/deref team) radio_sequence) 1))
@@ -1218,9 +1217,9 @@
     (set! (az/index team-radio-counts team-index)
           (ak/intCast
            (ak/min team-radio-history-per-team
-                   (+ (ak/as :usize
-                             (ak/intCast
-                              (az/index team-radio-counts team-index)))
+                   (+ (ak/as (ak/intCast
+                              (az/index team-radio-counts team-index))
+                             :usize)
                       1))))
     (set! team-radio-count (+ team-radio-count 1))))
 
@@ -1228,8 +1227,8 @@
   "Attach the completed strategist inference to the radio message it caused."
   [[team-index :usize]
    [result worker/InferenceResult]]
-  (let [head (ak/as :usize
-                    (ak/intCast (az/index team-radio-heads team-index)))
+  (let [head (ak/as (ak/intCast (az/index team-radio-heads team-index))
+                    :usize)
         slot (if (ak/== head 0)
                (- team-radio-history-per-team 1)
                (- head 1))
@@ -1237,8 +1236,8 @@
         ^:var entry (az/index team-radio-history destination)
         prompt-count
         (ak/min worker/prompt-capacity
-                (ak/as :usize
-                       (ak/intCast (az/field result prompt_byte_count))))]
+                (ak/as (ak/intCast (az/field result prompt_byte_count))
+                       :usize))]
     (when (and (az/field entry valid)
                (ak/== (az/field entry source) radio-source-strategist)
                (ak/== (az/field entry decision_revision)
@@ -1269,13 +1268,13 @@
    [offset :usize]]
   (if (or (>= team-id team-count)
           (>= offset
-              (ak/as :usize
-                     (ak/intCast
-                      (az/index team-radio-counts (ak/intCast team-id))))))
+              (ak/as (ak/intCast
+                      (az/index team-radio-counts (ak/intCast team-id)))
+                     :usize)))
     (std-mem/zeroes (az/type TeamRadioLog))
-    (let [team-index (ak/as :usize (ak/intCast team-id))
-          head (ak/as :usize
-                      (ak/intCast (az/index team-radio-heads team-index)))
+    (let [team-index (ak/as (ak/intCast team-id) :usize)
+          head (ak/as (ak/intCast (az/index team-radio-heads team-index))
+                      :usize)
           distance (+ offset 1)
           slot (if (>= head distance)
                  (- head distance)
@@ -1321,7 +1320,7 @@
         (<= (az/field (az/index replay-intents replay-cursor) install_tick)
             simulation-tick))
     (let [intent (az/index replay-intents replay-cursor)
-          racer-index (ak/as :usize (ak/intCast (az/field intent racer)))
+          racer-index (ak/as (ak/intCast (az/field intent racer)) :usize)
           racer (racer-pointer racer-index)
           brain (brain-pointer racer-index)]
       (set! (az/field (az/deref brain) lane_target)
@@ -1438,7 +1437,7 @@
    [stun-seconds :f32]]
   (let [target (racer-pointer target-index)
         target-brain (brain-pointer target-index)
-        ^{:var true :zig/type :bool} landed false]
+        ^:var landed (ak/bool false)]
     (if (az/field (az/deref target) shielded)
       (set! (az/field (az/deref target) shielded) false)
       (do
@@ -1459,7 +1458,7 @@
    [target :u8]]
   (let [owner (racer-pointer owner-index)
         owner-brain (brain-pointer owner-index)
-        ^{:var true :zig/type :bool} spawned false]
+        ^:var spawned (ak/bool false)]
     (dotimes [slot hazard-capacity]
       (when (ak/! spawned)
         (let [hazard (hazard-pointer slot)]
@@ -1505,9 +1504,9 @@
           (when (and (az/field (az/deref hazard) active)
                      (<= (az/field (az/deref hazard) arming_seconds) 0.0)
                      (ak/!= racer-index
-                            (ak/as :usize
-                                   (ak/intCast
-                                    (az/field (az/deref hazard) owner)))))
+                            (ak/as (ak/intCast
+                                    (az/field (az/deref hazard) owner))
+                                   :usize)))
             (let [racer (racer-pointer racer-index)
                   progress-distance
                   (wrapped-distance (az/field (az/deref hazard) progress)
@@ -1515,11 +1514,10 @@
                   lane-distance
                   (ak/abs (- (az/field (az/deref hazard) lane)
                              (az/field (az/deref racer) lane)))
-                  ^{:zig/type :f32}
                   progress-radius
-                  (if (ak/== (az/field (az/deref hazard) kind) item-bolt)
+                  (ak/f32 (if (ak/== (az/field (az/deref hazard) kind) item-bolt)
                     0.012
-                    0.009)]
+                    0.009))]
               (when (and (< progress-distance progress-radius)
                          (< lane-distance 0.045))
                 (when (hit-racer! racer-index
@@ -1550,7 +1548,7 @@
 
 (az/defn absolute-progress :f32
   [[racer [:* Racer]]]
-  (+ (ak/as :f32 (ak/floatFromInt (az/field (az/deref racer) lap)))
+  (+ (ak/as (ak/floatFromInt (az/field (az/deref racer) lap)) :f32)
      (az/field (az/deref racer) progress)))
 
 (az/defn checkpoint-for-progress :u8
@@ -1593,8 +1591,8 @@
   to the model. This does not schedule decisions for a retired driver."
   [[self-index :usize]]
   (let [self (racer-pointer self-index)
-        ^{:var true :zig/type :u8} chosen (az/field (az/deref self) id)
-        ^{:var true :zig/type :f32} best-distance 1000.0]
+        ^:var chosen (ak/u8 (az/field (az/deref self) id))
+        ^:var best-distance (ak/f32 1000.0)]
     (dotimes [other-index racer-count]
       (when (ak/!= other-index self-index)
         (let [other (racer-pointer other-index)
@@ -1614,12 +1612,12 @@
   (let [self (racer-pointer self-index)]
     (if (ak/== target (az/field (az/deref self) id))
       9
-      (let [other (racer-pointer (ak/as :usize (ak/intCast target)))
+      (let [other (racer-pointer (ak/as (ak/intCast target) :usize))
             distance
             (mod (- (az/field (az/deref other) progress)
                     (az/field (az/deref self) progress)) 1.0)]
-        (ak/as :u8
-               (ak/intFromFloat (ak/min 9.0 (* distance 100.0))))))))
+        (ak/as (ak/intFromFloat (ak/min 9.0 (* distance 100.0)))
+               :u8)))))
 
 (az/defn target-lane-relation :u8
   "Describe the selected opponent as left, same-lane, or right of the racer."
@@ -1628,7 +1626,7 @@
   (let [self (racer-pointer self-index)]
     (if (ak/== target (az/field (az/deref self) id))
       target-lane-same
-      (let [other (racer-pointer (ak/as :usize (ak/intCast target)))
+      (let [other (racer-pointer (ak/as (ak/intCast target) :usize))
             delta (- (az/field (az/deref other) lane)
                      (az/field (az/deref self) lane))]
         (cond
@@ -1651,13 +1649,13 @@
   Physical obstacles do not disappear when their driver is classified DNF."
   [[index :usize]]
   (let [racer (racer-pointer index)
-        ^{:var true :zig/type :bool} hazard-near false]
+        ^:var hazard-near (ak/bool false)]
     (dotimes [slot hazard-capacity]
       (let [hazard (hazard-pointer slot)]
         (when (and (az/field (az/deref hazard) active)
-                   (ak/!= (ak/as :usize
-                                 (ak/intCast
-                                  (az/field (az/deref hazard) owner)))
+                   (ak/!= (ak/as (ak/intCast
+                                  (az/field (az/deref hazard) owner))
+                                 :usize)
                           index)
                    (< (wrapped-distance
                        (az/field (az/deref hazard) progress)
@@ -1692,9 +1690,9 @@
           brain (brain-pointer index)
           aggression (az/field (az/deref brain) aggression)
           persona (cond
-                    (< aggression 0.48) (ak/as :u8 0)
-                    (< aggression 0.72) (ak/as :u8 1)
-                    :else (ak/as :u8 2))
+                    (< aggression 0.48) (ak/as 0 :u8)
+                    (< aggression 0.72) (ak/as 1 :u8)
+                    :else (ak/as 2 :u8))
           target (choose-target index)]
       (ObservationView
        {:valid true
@@ -1733,13 +1731,12 @@
         ;; behavior must use reset-local state so the same seed reproduces the
         ;; same physical race independently of prior REPL activity.
         lane-phase (mod (+ (az/field (az/deref brain) decisions)
-                           (ak/as :u64 (ak/intCast index)))
+                           (ak/as (ak/intCast index) :u64))
                         3)
-        ^{:zig/type :f32}
-        lane-target (cond
+        lane-target (ak/f32 (cond
                       (ak/== lane-phase 0) -0.075
                       (ak/== lane-phase 1) 0.0
-                      :else 0.075)
+                      :else 0.075))
         target-speed (+ 0.068 (* aggression 0.010) (* risk 0.006))
         target (choose-target index)
         revision (next-decision-revision!)
@@ -2026,7 +2023,7 @@
         item (az/field (az/deref racer) item)]
     (when (and (ak/!= item item-none)
                (ak/== (az/field (az/deref brain) item_action) action-use))
-      (let [^{:var true :zig/type :bool} used true]
+      (let [^:var used (ak/bool true)]
         (cond
           (ak/== item item-boost)
           (set! (az/field (az/deref racer) boost_seconds) 1.25)
@@ -2077,14 +2074,14 @@
                (< (wrapped-distance (az/field (az/deref racer) progress) 0.25)
                   0.008))
       (set! (az/field (az/deref racer) item)
-            (+ 1 (ak/as :u8
-                        (ak/intCast
-                         (mod (+ (ak/as :u64 (ak/intCast index))
-                                 (ak/as :u64
-                                        (ak/intCast
-                                         (az/field (az/deref racer) lap)))
+            (+ 1 (ak/as (ak/intCast
+                         (mod (+ (ak/as (ak/intCast index) :u64)
+                                 (ak/as (ak/intCast
+                                         (az/field (az/deref racer) lap))
+                                        :u64)
                                  race-seed)
-                              6)))))
+                              6))
+                        :u8)))
       (set! (az/field (az/deref racer) pickup_cooldown) 1.0)
       (let [brain (brain-pointer index)]
         (set! (az/field (az/deref brain) next_decision_tick) simulation-tick)
@@ -2325,35 +2322,35 @@
         revision (next-decision-revision!)
         actor-index (+ team-worker-offset team-index)
         tire-a
-        (ak/as :u8
-               (ak/intFromFloat
+        (ak/as (ak/intFromFloat
                 (ak/min 100.0
                         (* 100.0
                            (ak/max 0.0
                                    (az/field (az/deref driver-a)
-                                             tire_condition))))))
+                                             tire_condition)))))
+               :u8)
         tire-b
-        (ak/as :u8
-               (ak/intFromFloat
+        (ak/as (ak/intFromFloat
                 (ak/min 100.0
                         (* 100.0
                            (ak/max 0.0
                                    (az/field (az/deref driver-b)
-                                             tire_condition))))))
+                                             tire_condition)))))
+               :u8)
         damage-a
-        (ak/as :u8
-               (ak/intFromFloat
+        (ak/as (ak/intFromFloat
                 (ak/min 100.0
                         (* 100.0
                            (ak/max 0.0
-                                   (az/field (az/deref driver-a) damage))))))
+                                   (az/field (az/deref driver-a) damage)))))
+               :u8)
         damage-b
-        (ak/as :u8
-               (ak/intFromFloat
+        (ak/as (ak/intFromFloat
                 (ak/min 100.0
                         (* 100.0
                            (ak/max 0.0
-                                   (az/field (az/deref driver-b) damage))))))
+                                   (az/field (az/deref driver-b) damage)))))
+               :u8)
         request
         (worker/InferenceRequest
          {:valid true
@@ -2419,7 +2416,7 @@
 (az/defn pit-box-progress :f32
   [[team-id :u8]]
   ;; Ten 12.9m-spaced boxes remain within the fully widened pit apron.
-  (+ 0.968 (* (ak/as :f32 (ak/floatFromInt team-id)) 0.003)))
+  (+ 0.968 (* (ak/as (ak/floatFromInt team-id) :f32) 0.003)))
 
 (az/defn vehicle-pointer [:* physics/Vehicle] [[index :usize]]
   (-> world
@@ -2446,7 +2443,7 @@
                   (b3/b3Pos {:x (az/field p x) :y (az/field p y)
                              :z (+ (az/field p z) 0.76)})
                   (az/field p heading))
-            ^{:zig/type [:optional [:* :anyopaque]]} tag (ak/ptrFromInt (+ i 1))]
+            tag (ak/as (ak/ptrFromInt (+ i 1)) [:optional [:* :anyopaque]])]
         (b3/b3Body_SetUserData (az/field car chassis) tag)
         (dotimes [wheel 4]
           (b3/b3Body_SetUserData (az/index (az/field car wheels) wheel) tag))
@@ -2498,7 +2495,7 @@
                           (* (az/field body vy) (az/field body vy))))
         distance (ak/max 8.0 (* speed 1.5))]
     (dotimes [sample-index 16]
-      (let [fraction (/ (ak/as :f32 (ak/floatFromInt (+ sample-index 1))) 16.0)
+      (let [fraction (/ (ak/as (ak/floatFromInt (+ sample-index 1)) :f32) 16.0)
             seconds (* fraction 1.5)
             blend (* fraction fraction (- 3.0 (* 2.0 fraction)))
             lane (+ (* 50.0 (az/field projected lane) (- 1.0 blend)) (* lane-metres blend))
@@ -2581,7 +2578,7 @@
     (ak/return protocol/plan-inactive-driver))
   (let [state (ak/& (az/index language-drivers index))
         racer (racer-pointer index) brain (brain-pointer index)
-        team-index (ak/as :usize (ak/intCast (az/field (az/deref racer) team)))
+        team-index (ak/as (ak/intCast (az/field (az/deref racer) team)) :usize)
         team (team-pointer team-index)
         plan (protocol/parse-driving-plan bytes length complete)
         kind (az/field plan kind)
@@ -2652,7 +2649,7 @@
   the calling thread never reads or mutates Flecs/Box3D objects." [[index :usize] [enabled :bool]]
   (when (>= index racer-count) (ak/return false))
   (ak/atomicStore :u8 (ak/& (az/index language-mode-requests index))
-                  (if enabled (ak/as :u8 1) 2) :.release)
+                  (if enabled (ak/as 1 :u8) 2) :.release)
   true)
 
 (az/defn step-language-driving! :void
@@ -2689,7 +2686,7 @@
                 (LanguageExchange {:valid true :sequence sequence :reason reason :result reply}))
               (ak/atomicStore :u64 (ak/& language-exchange-sequence) sequence :.release))))))
       (let [state (az/index language-drivers index) racer (az/deref (racer-pointer index))
-            marker (ak/as :u8 (ak/intFromFloat (* 16.0 (track/wrap-progress (az/field racer progress)))))
+            marker (ak/as (ak/intFromFloat (* 16.0 (track/wrap-progress (az/field racer progress)))) :u8)
             incident (or (< (az/field racer speed) 0.002) (> (ak/abs (az/field racer lane)) 0.13))]
         (when (and (az/field state enabled) (ak/! paused) (ak/! replay-active)
                    (ak/== race-state race-state-running) (ak/! (retired? index))
@@ -2723,7 +2720,7 @@
 (az/defn physical-contacts! :void
   "Damage comes from Box3D impacts, never from positional separation patches." []
   (let [events (b3/b3World_GetContactEvents dynamics-world)]
-    (dotimes [event-index (ak/as :usize (ak/intCast (az/field events hitCount)))]
+    (dotimes [event-index (ak/as (ak/intCast (az/field events hitCount)) :usize)]
       (let [hit (az/index (az/field events hitEvents) event-index)
             impact-speed (az/field hit approachSpeed)]
         (when (> impact-speed 3.0)
@@ -2832,9 +2829,9 @@
           brain (brain-pointer i)
           body (vehicle-pose i 0)
           normal (az/index normal-controls i)
-          ^{:var :f32} front-gap 1000.0
-          ^{:var :f32} rear-gap 1000.0
-          ^{:var :f32} rear-closing 0.0
+          ^:var front-gap (ak/f32 1000.0)
+          ^:var rear-gap (ak/f32 1000.0)
+          ^:var rear-closing (ak/f32 0.0)
           route (circuit/at-distance (* 4309.0 (az/field (az/deref racer) progress)) 0.0)
           aligned (> (std-math/cos (- (az/field (az/deref racer) heading)
                                       (az/field route heading))) 0.8)
@@ -2982,7 +2979,7 @@
         progress (az/field (az/deref racer) progress)
         box-progress (pit-box-progress (az/field (az/deref racer) team))
         state (az/field (az/deref racer) pit_state)
-        ^{:var :bool} owns-control false]
+        ^:var owns-control (ak/bool false)]
     (cond
       (and (ak/== state pit-state-called)
            (pit-navigation-active? state progress box-progress))
@@ -3078,9 +3075,9 @@
           ;; racing. Stopping on the line/pit merge can trap the final runner.
           ;; Classification is already fixed by finish_tick, not this motion.
           requested (if running
-                      (if finished (ak/as :f32 30.0)
+                      (if finished (ak/as 30.0 :f32)
                         (* 1000.0 grip power-condition
-                           (+ (az/field (az/deref brain) target_speed) (if boosted (ak/as :f32 0.035) 0.0))))
+                           (+ (az/field (az/deref brain) target_speed) (if boosted (ak/as 0.035 :f32) 0.0))))
                       0.0)
           ^:var control (driver/follow-lane-plan car requested
                           (* (az/field (az/deref brain) lane_target) 50.0)
@@ -3118,7 +3115,7 @@
 (az/defn classification-progress :f32 [[index :usize]]
   (if (retired? index)
     (let [entry (az/deref (status-pointer index))]
-      (+ (ak/as :f32 (ak/floatFromInt (az/field entry lap)))
+      (+ (ak/as (ak/floatFromInt (az/field entry lap)) :f32)
          (az/field entry progress)))
     (absolute-progress (racer-pointer index))))
 
@@ -3126,7 +3123,7 @@
   []
   (dotimes [index racer-count]
     (let [racer (racer-pointer index)
-          ^{:var true :zig/type :u8} rank 1]
+          ^:var rank (ak/u8 1)]
       (dotimes [other-index racer-count]
         (when (ak/!= index other-index)
           (let [other (racer-pointer other-index)
@@ -3179,8 +3176,8 @@
       (flecs/ecs_add_id flecs-world team-component flecs/EcsSparse)
       (dotimes [index team-count]
         (let [entity (flecs/ecs_new flecs-world)
-              identifier (ak/as :u8 (ak/intCast index))
-              first-driver (ak/as :u8 (ak/intCast (* index protocol/drivers-per-team)))
+              identifier (ak/as (ak/intCast index) :u8)
+              first-driver (ak/as (ak/intCast (* index protocol/drivers-per-team)) :u8)
               team
               (Team {:id identifier
                      :driver_a first-driver
@@ -3206,17 +3203,16 @@
                             (ak/sizeOf Team) (ak/& team))))
       (dotimes [index racer-count]
         (let [entity (flecs/ecs_new flecs-world)
-              identifier (ak/as :u8 (ak/intCast index))
+              identifier (ak/as (ak/intCast index) :u8)
               seed-slot
-              (ak/as :usize
-                     (ak/intCast
+              (ak/as (ak/intCast
                       (mod race-seed
-                           (ak/as :u64 (ak/intCast racer-count)))))
+                           (ak/as (ak/intCast racer-count) :u64)))
+                     :usize)
               grid-index (mod (+ index seed-slot) racer-count)
               ;; Staggered 2-column grid, eight metres between rows.
-              progress (* (ak/as :f32 (ak/floatFromInt grid-index)) (/ 4.0 4309.0))
-              ^{:zig/type :f32}
-              lane (if (ak/== (mod grid-index 2) 0) -0.05 0.05)
+              progress (* (ak/as (ak/floatFromInt grid-index) :f32) (/ 4.0 4309.0))
+              lane (ak/f32 (if (ak/== (mod grid-index 2) 0) -0.05 0.05))
               racer (Racer {:id identifier
                             :rank (+ identifier 1)
                             :lap 0
@@ -3257,12 +3253,12 @@
                       :pending_target identifier
                       :lane_target lane
                       :target_speed 0.07
-                      :aggression (+ 0.28 (* 0.595 (/ (ak/as :f32 (ak/floatFromInt index))
-                                                     (ak/as :f32 (ak/floatFromInt (- racer-count 1))))))
-                      :patience (- 0.86 (* 0.49 (/ (ak/as :f32 (ak/floatFromInt index))
-                                                    (ak/as :f32 (ak/floatFromInt (- racer-count 1))))))
-                      :risk (+ 0.20 (* 0.075 (ak/as :f32 (ak/floatFromInt (mod (+ index 3) 8)))))
-                      :next_decision_tick (ak/as :u64 (ak/intCast (* index 5)))
+                      :aggression (+ 0.28 (* 0.595 (/ (ak/as (ak/floatFromInt index) :f32)
+                                                     (ak/as (ak/floatFromInt (- racer-count 1)) :f32))))
+                      :patience (- 0.86 (* 0.49 (/ (ak/as (ak/floatFromInt index) :f32)
+                                                    (ak/as (ak/floatFromInt (- racer-count 1)) :f32))))
+                      :risk (+ 0.20 (* 0.075 (ak/as (ak/floatFromInt (mod (+ index 3) 8)) :f32)))
+                      :next_decision_tick (ak/as (ak/intCast (* index 5)) :u64)
                       :pending_revision 0
                       :pending_tick 0
                       :last_decision_tick 0
@@ -3327,7 +3323,7 @@
       (dotimes [team-index team-count]
         (step-team-strategist! team-index)))
     (update-ranks!)
-    (let [^{:var true :zig/type :u8} terminal-count 0]
+    (let [^:var terminal-count (ak/u8 0)]
       (dotimes [index racer-count]
         (let [racer (racer-pointer index)]
           (when (or (az/field (az/deref racer) finished) (retired? index))
@@ -3375,12 +3371,12 @@
                 :team_decision_revision 0 :team_decisions 0
                 :team_last_latency_us 0 :team_average_latency_us 0
                 :finish_tick 0})
-    (let [index (ak/as :usize (ak/intCast identifier))
+    (let [index (ak/as (ak/intCast identifier) :usize)
           racer (racer-pointer index)
           brain (brain-pointer index)
           team (team-pointer
-                (ak/as :usize
-                       (ak/intCast (az/field (az/deref racer) team))))]
+                (ak/as (ak/intCast (az/field (az/deref racer) team))
+                       :usize))]
       (RacerView
        {:valid true
         :id identifier
@@ -3465,16 +3461,16 @@
   "Return real race ordering and aggregate decision/combat telemetry."
   []
   (set! _ (initialize!))
-  (let [^{:var true :zig/type :u8} finished 0
-        ^{:var true :zig/type :u8} leader 0
-        ^{:var true :zig/type :u16} leader-lap 0
-        ^{:var true :zig/type :f32} leader-progress 0.0
-        ^{:var true :zig/type :u64} decisions 0
-        ^{:var true :zig/type :u64} urgent-decisions 0
-        ^{:var true :zig/type :u64} invalid-decisions 0
-        ^{:var true :zig/type :u64} deadline-misses 0
-        ^{:var true :zig/type :u64} max-intent-age-ticks 0
-        ^{:var true :zig/type :u8} active-hazards 0]
+  (let [^:var finished (ak/u8 0)
+        ^:var leader (ak/u8 0)
+        ^:var leader-lap (ak/u16 0)
+        ^:var leader-progress (ak/f32 0.0)
+        ^:var decisions (ak/u64 0)
+        ^:var urgent-decisions (ak/u64 0)
+        ^:var invalid-decisions (ak/u64 0)
+        ^:var deadline-misses (ak/u64 0)
+        ^:var max-intent-age-ticks (ak/u64 0)
+        ^:var active-hazards (ak/u8 0)]
     (dotimes [index racer-count]
       (let [racer (racer-pointer index)
             brain (brain-pointer index)]
@@ -3542,21 +3538,21 @@
 (az/defn mix-state-f32 :u64
   [[fingerprint :u64]
    [value :f32]]
-  (let [^{:zig/type :u32} bits (ak/bitCast value)]
-    (mix-state-word fingerprint (ak/as :u64 bits))))
+  (let [bits (ak/u32 (ak/bitCast value))]
+    (mix-state-word fingerprint (ak/as bits :u64))))
 
 (az/defn state-fingerprint :u64
   "Hash canonical gameplay state field-by-field without struct padding,
   addresses, worker timings, or replay-control bookkeeping."
   []
   (set! _ (initialize!))
-  (let [^{:var true :zig/type :u64} fingerprint 14695981039346656037]
+  (let [^:var fingerprint (ak/u64 14695981039346656037)]
     (set! fingerprint (mix-state-word fingerprint simulation-tick))
     (set! fingerprint (mix-state-word fingerprint race-seed))
     (set! fingerprint
-          (mix-state-word fingerprint (ak/as :u64 race-state)))
+          (mix-state-word fingerprint (ak/as race-state :u64)))
     (set! fingerprint
-          (mix-state-word fingerprint (ak/as :u64 countdown-ticks)))
+          (mix-state-word fingerprint (ak/as countdown-ticks :u64)))
     (set! fingerprint
           (mix-state-word fingerprint (if human-controlled 1 0)))
     (set! fingerprint (mix-state-f32 fingerprint human-steering))
@@ -3582,42 +3578,42 @@
         (set! fingerprint (mix-state-f32 fingerprint (az/field classification progress)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) id))))
+                              (ak/as (az/field (az/deref racer) id)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) rank))))
+                              (ak/as (az/field (az/deref racer) rank)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) lap))))
+                              (ak/as (az/field (az/deref racer) lap)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
                               (if (az/field (az/deref racer) finished) 1 0)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) item))))
+                              (ak/as (az/field (az/deref racer) item)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
                               (if (az/field (az/deref racer) shielded) 1 0)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) team))))
+                              (ak/as (az/field (az/deref racer) team)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) pit_state))))
+                              (ak/as (az/field (az/deref racer) pit_state)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) pit_stops))))
+                              (ak/as (az/field (az/deref racer) pit_stops)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref racer) radio_code))))
+                              (ak/as (az/field (az/deref racer) radio_code)
+                                     :u64)))
         (set! fingerprint
               (mix-state-f32 fingerprint
                              (az/field (az/deref racer) tire_condition)))
@@ -3654,20 +3650,20 @@
                               (az/field (az/deref racer) finish_tick)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref brain) racer_id))))
+                              (ak/as (az/field (az/deref brain) racer_id)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref brain) pace))))
+                              (ak/as (az/field (az/deref brain) pace)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref brain) item_action))))
+                              (ak/as (az/field (az/deref brain) item_action)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref brain) target))))
+                              (ak/as (az/field (az/deref brain) target)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
                               (if (az/field (az/deref brain) urgent) 1 0)))
@@ -3707,24 +3703,24 @@
     (dotimes [index racer-count]
       (set! fingerprint
             (mix-state-word
-             fingerprint (ak/as :u64 (az/index contact-cooldowns index))))
+             fingerprint (ak/as (az/index contact-cooldowns index) :u64)))
       (let [entry (recovery-view index) state (az/field entry state)]
-        (set! fingerprint (mix-state-word fingerprint (ak/as :u64 (az/field state phase))))
-        (set! fingerprint (mix-state-word fingerprint (ak/as :u64 (az/field state waiting_ticks))))
+        (set! fingerprint (mix-state-word fingerprint (ak/as (az/field state phase) :u64)))
+        (set! fingerprint (mix-state-word fingerprint (ak/as (az/field state waiting_ticks) :u64)))
         (set! fingerprint (mix-state-f32 fingerprint (az/field state start_x)))
         (set! fingerprint (mix-state-f32 fingerprint (az/field state start_y)))
         (set! fingerprint (mix-state-word fingerprint
-                            (ak/as :u64 (ak/intCast (+ (ak/as :i32 (az/field entry gear)) 1)))))))
+                            (ak/as (ak/intCast (+ (ak/as (az/field entry gear) :i32) 1)) :u64)))))
     (dotimes [index team-count]
       (let [team (team-pointer index)]
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref team) pit_occupant))))
+                              (ak/as (az/field (az/deref team) pit_occupant)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref team) pit_stops))))
+                              (ak/as (az/field (az/deref team) pit_stops)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
                               (az/field (az/deref team) radio_sequence)))))
@@ -3735,16 +3731,16 @@
                               (if (az/field (az/deref hazard) active) 1 0)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref hazard) kind))))
+                              (ak/as (az/field (az/deref hazard) kind)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref hazard) owner))))
+                              (ak/as (az/field (az/deref hazard) owner)
+                                     :u64)))
         (set! fingerprint
               (mix-state-word fingerprint
-                              (ak/as :u64
-                                     (az/field (az/deref hazard) target))))
+                              (ak/as (az/field (az/deref hazard) target)
+                                     :u64)))
         (set! fingerprint
               (mix-state-f32 fingerprint
                              (az/field (az/deref hazard) progress)))

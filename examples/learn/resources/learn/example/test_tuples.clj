@@ -5,7 +5,7 @@
 
 (az/deftest tuple-test
   (let [values (az/op "++"
-                      [(ak/as :u32 1234) (ak/as :f64 12.34) true "hi"]
+                      [(ak/as 1234 :u32) (ak/as 12.34 :f64) true "hi"]
                       (az/op "**" [false] 2))]
     (try (testing/expectEqual 1234 (az/index values 0)))
     (try (testing/expectEqual false (az/index values 4)))

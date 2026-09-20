@@ -13,7 +13,8 @@ const __aguafria_jvm = struct {
                 try writer.print("{d}", .{value});
                 if (std.math.cast(i64, value) == null) try writer.writeByte('N');
             },
-            .float, .comptime_float => {
+            .comptime_float => try writer.print("{e}", .{value}),
+            .float => {
                 if (std.math.isNan(value)) {
                     try writer.writeAll("##NaN");
                 } else if (std.math.isInf(value)) {

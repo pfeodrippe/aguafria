@@ -3,6 +3,6 @@
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-out-of-range-float
-  (let [^{:zig/type :f32} float-value 4294967296
-        ^{:zig/type :i32} integer-value (ak/intFromFloat float-value)]
+  (let [float-value (ak/f32 4294967296)
+        integer-value (ak/i32 (ak/intFromFloat float-value))]
     (set! _ integer-value)))

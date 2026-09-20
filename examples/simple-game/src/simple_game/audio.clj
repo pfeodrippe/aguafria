@@ -84,7 +84,7 @@
   (when initialized
     (let [frequency (event-frequency event-kind)
           now (miniaudio/ma_engine_get_time_in_pcm_frames (ak/& engine))
-          ^{:zig/type :u32} divisor (if (ak/== event-kind 4) 7 18)
+          divisor (ak/u32 (if (ak/== event-kind 4) 7 18))
           duration (ak/divTrunc sample-rate divisor)]
       (set! _ (miniaudio/ma_sound_stop (ak/& sound)))
       (set! _ (miniaudio/ma_sound_seek_to_pcm_frame (ak/& sound) 0))

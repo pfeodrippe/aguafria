@@ -6,7 +6,7 @@
 
 (az/defn main :void []
   (ak/setRuntimeSafety true)
-  (let [^{:var :u8} value 255]
+  (let [^:var value (ak/u8 255)]
     (ak/+= value 1)))
 
 (az/defconst panic {:attrs #{:public}} (debug/FullPanic report-panic))

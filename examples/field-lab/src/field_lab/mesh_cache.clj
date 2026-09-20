@@ -63,10 +63,10 @@
         nodes (az/field (az/field cache reference) len)
         tick (az/field cache count)
         observation (dynamics/evaluate! state)
-        ^{:var :f64} lower 1.0e30
-        ^{:var :f64} upper -1.0e30
-        ^{:var :f64} rest-volume 0.0
-        ^{:var :f64} volume 0.0]
+        ^:var lower (ak/f64 1.0e30)
+        ^:var upper (ak/f64 -1.0e30)
+        ^:var rest-volume (ak/f64 0.0)
+        ^:var volume (ak/f64 0.0)]
     (debug/assert (< tick (az/field (az/field cache frames) len)))
     (debug/assert (ak/== nodes (az/field (az/field model positions) len)))
     (dotimes [node nodes]
@@ -113,8 +113,8 @@
 (az/defn reference-height :f64
   "Reference y extent; a height change is not a material strain tensor."
   [[owned [:* Cache]]]
-  (let [^{:var :f64} lower 1.0e30
-        ^{:var :f64} upper -1.0e30]
+  (let [^:var lower (ak/f64 1.0e30)
+        ^:var upper (ak/f64 -1.0e30)]
     (dotimes [node (az/field (az/field owned reference) len)]
       (let [y (az/field (az/index (az/field owned reference) node) y)]
         (az/set-many! lower (ak/min lower y) upper (ak/max upper y))))
@@ -132,11 +132,11 @@
       (az/set-many! (az/field result cursor) 0 (az/field result ended) true)
       (ak/return result))
     (let [ticks (ak/floor (/ elapsed dt))
-          target (+ (ak/as :f64 (ak/floatFromInt cursor)) ticks)]
+          target (+ (ak/as (ak/floatFromInt cursor) :f64) ticks)]
       (set! (az/field result remainder) (mod elapsed dt))
       (if looping
-        (set! (az/field result cursor) (ak/intFromFloat (mod target (ak/as :f64 (ak/floatFromInt count)))))
-        (if (>= target (ak/as :f64 (ak/floatFromInt (- count 1))))
+        (set! (az/field result cursor) (ak/intFromFloat (mod target (ak/as (ak/floatFromInt count) :f64))))
+        (if (>= target (ak/as (ak/floatFromInt (- count 1)) :f64))
           (az/set-many! (az/field result cursor) (- count 1)
                         (az/field result remainder) 0.0 (az/field result ended) true)
           (set! (az/field result cursor) (ak/intFromFloat target)))))

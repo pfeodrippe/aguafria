@@ -3,10 +3,10 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^{:var [:optional [:* :i32]]} optional-pointer nil]
+  (let [^:var optional-pointer (ak/as nil [:optional [:* :i32]])]
     (set! _ (& optional-pointer))
     ;; The same invalid conversion is diagnosed by a runtime safety check.
-    (let [^{:zig/type [:* :i32]} pointer (ak/ptrCast optional-pointer)]
+    (let [pointer (ak/as (ak/ptrCast optional-pointer) [:* :i32])]
       (set! _ pointer))))
 
 (comment

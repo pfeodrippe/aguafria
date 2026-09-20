@@ -376,7 +376,7 @@
   (let [settings (config)
         ^:var next (sample)]
     (if deformable
-      (let [^{:var soft/Sample} next-soft ak/undefined]
+      (let [^:var next-soft (ak/as ak/undefined soft/Sample)]
         (if continuum
           (let [result (fem/advance (soft-sample) settings body-count stiffness dt)]
             (when (ak/! (az/field result completed))
@@ -433,7 +433,7 @@
 (az/defn bake-chunk! :bool
   "Append numerical ticks independently of display time. Seeking never recomputes."
   [[end-tick :u32] [budget :u32]]
-  (let [last-tick (ak/min end-tick (ak/as :u32 (ak/intCast (- capacity 1))))]
+  (let [last-tick (ak/min end-tick (ak/as (ak/intCast (- capacity 1)) :u32))]
     (seek! (- count 1))
     (dotimes [_ budget]
       (when (>= cursor last-tick) (ak/return true))

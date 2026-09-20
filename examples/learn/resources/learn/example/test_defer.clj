@@ -5,7 +5,7 @@
 
 (az/defn- defer-example :!usize
   []
-  (let [^{:var :usize} a 1]
+  (let [^:var a (ak/usize 1)]
     (az/block
       (ak/defer (set! a 2))
       (set! a 1))

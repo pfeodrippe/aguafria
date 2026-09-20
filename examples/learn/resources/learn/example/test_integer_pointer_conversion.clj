@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest integer-pointer-conversion-test
-  (let [^{:zig/type [:* :i32]} pointer (ak/ptrFromInt 0xdeadbee0)
+  (let [pointer (ak/as (ak/ptrFromInt 0xdeadbee0) [:* :i32])
         address (ak/intFromPtr pointer)]
     (try (testing/expectEqual (az/type :usize) (ak/TypeOf address)))
     (try (testing/expectEqual 0xdeadbee0 address))))

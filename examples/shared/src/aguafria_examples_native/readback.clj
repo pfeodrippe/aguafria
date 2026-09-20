@@ -42,7 +42,7 @@
   "Copy a NUL-terminated path; reject empty/oversized paths and an occupied slot."
   [[path [:pointer {:size :c :const? true} :u8]]]
   (when (ak/== path null) (ak/return false))
-  (let [^{:var :usize} length 0]
+  (let [^:var length (ak/usize 0)]
     (while (and (< length 1024) (ak/!= (az/index path length) 0))
       (set! length (+ length 1)))
     (when (or (ak/== length 0) (>= length 1024)) (ak/return false))
@@ -72,14 +72,14 @@
   "Render-thread only. Allocate at most 64 MiB; require coherent host memory."
   [[device vk/VkDevice] [physical vk/VkPhysicalDevice] [extent vk/VkExtent2D]]
   (az/set-many! width (az/field extent width) height (az/field extent height))
-  (let [bytes (* (ak/as :u64 width) height 4)
+  (let [bytes (* (ak/as width :u64) height 4)
         info (vk/VkBufferCreateInfo
                {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
                 :size bytes :usage vk/VK_BUFFER_USAGE_TRANSFER_DST_BIT
                 :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})
         ^:var requirements (mem/zeroes (az/type vk/VkMemoryRequirements))
         ^:var properties (mem/zeroes (az/type vk/VkPhysicalDeviceMemoryProperties))
-        ^{:var :u32} selected 0xffffffff]
+        ^:var selected (ak/u32 0xffffffff)]
     (when (or (ak/== bytes 0) (> bytes (* 64 1024 1024))) (ak/return false))
     (when (ak/!= (vk/vkCreateBuffer device (ak/& info) null (ak/& buffer)) vk/VK_SUCCESS)
       (ak/return false))
@@ -90,7 +90,7 @@
             flags (az/field (az/index (az/field properties memoryTypes) index) propertyFlags)]
         (when (and (ak/== selected 0xffffffff)
                    (ak/!= (ak/& (az/field requirements memoryTypeBits)
-                                (ak/<< (ak/as :u32 1) (ak/as :u5 (ak/intCast index)))) 0)
+                                (ak/<< (ak/as 1 :u32) (ak/as (ak/intCast index) :u5))) 0)
                    (ak/== (ak/& flags required) required))
           (set! selected (ak/intCast index)))))
     (when (ak/== selected 0xffffffff) (release! device) (ak/return false))
@@ -158,16 +158,16 @@
         file (stdio/fopen (ak/& (az/index filename 0)) "wb")]
     (when (ak/== file null) (ak/return false))
     ;; Compact forward only after all four source bytes have been read.
-    (dotimes [index (* (ak/as :usize width) height)]
+    (dotimes [index (* (ak/as width :usize) height)]
       (let [source (* index 4)
             target (* index 3)
-            red (az/index pixels (+ source (if bgra (ak/as :usize 2) 0)))
+            red (az/index pixels (+ source (if bgra (ak/as 2 :usize) 0)))
             green (az/index pixels (+ source 1))
-            blue (az/index pixels (+ source (if bgra (ak/as :usize 0) 2)))]
+            blue (az/index pixels (+ source (if bgra (ak/as 0 :usize) 2)))]
         (az/set-many! (az/index pixels target) red
                       (az/index pixels (+ target 1)) green
                       (az/index pixels (+ target 2)) blue)))
-    (let [bytes (* (ak/as :usize width) height 3)
+    (let [bytes (* (ak/as width :usize) height 3)
           success (and (ak/== (fwrite (az/field header ptr) 1 (az/field header len) file)
                               (az/field header len))
                        (ak/== (fwrite pixels 1 bytes file) bytes))

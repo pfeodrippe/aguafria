@@ -61,7 +61,7 @@
   (let [typed (az/cast opaque [:c-pointer :u8])]
     (set! counter (+ counter 1))
     (+ (add-components point)
-       (ak/as :f32 (az/index typed 0)))))
+       (ak/as (az/index typed 0) :f32))))
 
 (az/defconst structural-values
   (az/container

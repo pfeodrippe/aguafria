@@ -12,8 +12,8 @@
   (try (testing/expectEqual \i (az/index (az/field value :s) 1))))
 
 (az/deftest fully-anonymous-struct-test
-  (try (check-fields {:int (ak/as (az/type :u32) 1234)
-                      :float (ak/as (az/type :f64) 12.34)
+  (try (check-fields {:int (ak/as 1234 (az/type :u32))
+                      :float (ak/as 12.34 (az/type :f64))
                       :b true
                       :s "hi"})))
 

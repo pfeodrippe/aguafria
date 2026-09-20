@@ -155,11 +155,11 @@
   :note "The type of the surrounding operand."}
 
  "@as(u1, 0)"
- {:clojure-source "(ak/as :u1 0)" :kind :expr :standalone? true
+ {:clojure-source "(ak/as 0 :u1)" :kind :expr :standalone? true
   :note "Zero with the explicit unsigned one-bit type."}
 
  "@as(u1, 1)"
- {:clojure-source "(ak/as :u1 1)" :kind :expr :standalone? true
+ {:clojure-source "(ak/as 1 :u1)" :kind :expr :standalone? true
   :note "One with the explicit unsigned one-bit type."}
 
  "@breakpoint()"
@@ -315,19 +315,19 @@
   :note "Add {:export true} after the return type to export a function through the C ABI. Public alone does not mean C-exported."}
 
  "i8 = -74"
- {:clojure-source "(ak/as :i8 -74)" :kind :expr
+ {:clojure-source "(ak/as -74 :i8)" :kind :expr
   :note "This is a typed-value annotation in prose, not a Zig assignment: the bit pattern interpreted as signed i8."}
 
  "i8 = 109"
- {:clojure-source "(ak/as :i8 109)" :kind :expr
+ {:clojure-source "(ak/as 109 :i8)" :kind :expr
   :note "The reversed bit pattern interpreted as signed i8."}
 
  "u8 = 109"
- {:clojure-source "(ak/as :u8 109)" :kind :expr
+ {:clojure-source "(ak/as 109 :u8)" :kind :expr
   :note "The reversed bit pattern interpreted as unsigned u8."}
 
  "u8 = 182"
- {:clojure-source "(ak/as :u8 182)" :kind :expr
+ {:clojure-source "(ak/as 182 :u8)" :kind :expr
   :note "The original bit pattern interpreted as unsigned u8."}
 
  "log2(@typeInfo(@TypeOf(a)).int.bits)"
@@ -359,7 +359,7 @@
   :note "Check whether the shift amount reaches T's bit width."}
 
  "~@as(i32, 0)"
- {:clojure-source "(ak/bit-not (ak/as :i32 0))" :kind :expr :standalone? true
+ {:clojure-source "(ak/bit-not (ak/as 0 :i32))" :kind :expr :standalone? true
   :note "Complementing all bits of signed i32 zero produces negative one."}
 
  "lib/std/start.zig"

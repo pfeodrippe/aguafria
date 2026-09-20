@@ -8,8 +8,8 @@
   (let [four-bytes (az/slice bytes 1 5)
         words (mem/bytesAsSlice
                (az/type :u32)
-               (ak/as (az/type [:pointer {:size :slice :align 4} :u8])
-                      (ak/alignCast four-bytes)))]
+               (ak/as (ak/alignCast four-bytes)
+                      (az/type [:pointer {:size :slice :align 4} :u8])))]
     (az/index words 0)))
 
 (az/deftest pointer-alignment-safety-test

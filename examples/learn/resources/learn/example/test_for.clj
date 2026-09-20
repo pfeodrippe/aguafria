@@ -5,7 +5,7 @@
 
 (az/deftest for-basics-test
   (let [items (az/array-init [:array _ :i32] [4 5 3 4 0])
-        ^{:var :i32} sum 0]
+        ^:var sum (ak/i32 0)]
     ;; For loops iterate over slices and arrays.
     (for [value items]
       ;; Break and continue are supported.
@@ -21,15 +21,15 @@
 
     ;; To access the index of iteration, specify a second condition as well
     ;; as a second capture value.
-    (let [^{:var :i32} index-sum 0]
+    (let [^:var index-sum (ak/i32 0)]
       (for [[_ items] [index (az/op ".." 0)]]
         (try (testing/expectEqual :usize (ak/TypeOf index)))
-        (ak/+= index-sum (ak/as :i32 (ak/intCast index))))
+        (ak/+= index-sum (ak/as (ak/intCast index) :i32)))
       (try (testing/expectEqual 10 index-sum)))
 
     ;; To iterate over consecutive integers, use the range syntax.
     ;; Unbounded range is always a compile error.
-    (let [^{:var :usize} range-sum 0]
+    (let [^:var range-sum (ak/usize 0)]
       (for [index (az/op ".." 0 5)]
         (ak/+= range-sum index))
       (try (testing/expectEqual 10 range-sum)))))
@@ -37,7 +37,7 @@
 (az/deftest multi-object-for-test
   (let [items (az/array-init [:array _ :usize] [1 2 3])
         other-items (az/array-init [:array _ :usize] [4 5 6])
-        ^{:var :usize} count 0]
+        ^:var count (ak/usize 0)]
     ;; Iterate over multiple objects.
     ;; All lengths must be equal at the start of the loop, otherwise detectable
     ;; illegal behavior occurs.
@@ -58,7 +58,7 @@
 (az/deftest for-else-test
   ;; For allows an else attached to it, the same as a while loop.
   (let [items (az/array-init [:array _ [:optional :i32]] [3 4 nil 5])
-        ^{:var :i32} sum 0]
+        ^:var sum (ak/i32 0)]
     ;; For loops can also be used as expressions.
     ;; Similar to while loops, when you break from a for loop,
     ;; the else branch is not evaluated.

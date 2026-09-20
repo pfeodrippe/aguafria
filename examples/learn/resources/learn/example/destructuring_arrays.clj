@@ -1,5 +1,6 @@
 (ns learn.example.destructuring-arrays
-  (:require [aguafria.std.debug :as debug]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn- swizzle-rgba-to-bgra [:array 4 :u8]
@@ -12,7 +13,7 @@
   []
   (let [position (az/array-init [:array _ :i32] [1 2])
         [x y] position
-        ^{:zig/type [:array 4 :u8]} orange [255 165 0 255]]
+        orange (ak/as [255 165 0 255] [:array 4 :u8])]
     (debug/print "x = {}, y = {}\n" [x y])
     (debug/print "{any}\n" [(swizzle-rgba-to-bgra orange)])))
 

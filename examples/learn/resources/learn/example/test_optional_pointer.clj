@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest optional-pointer-test
-  (let [^{:var [:optional [:* :i32]]} pointer nil
-        ^{:var :i32} value 1]
+  (let [^:var pointer (ak/as nil [:optional [:* :i32]])
+        ^:var value (ak/i32 1)]
     (set! pointer (& value))
     (try (testing/expectEqual 1 (deref (az/unwrap pointer))))
     ;; Zero represents null, so optional pointers need no extra storage.

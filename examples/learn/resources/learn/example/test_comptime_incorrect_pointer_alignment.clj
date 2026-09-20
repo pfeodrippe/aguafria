@@ -3,9 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-unaligned-address
-  (let [^{:zig/type [:pointer {:size :one :align 1} :i32]}
-        byte-aligned (ak/ptrFromInt 0x1)
+  (let [byte-aligned (ak/as (ak/ptrFromInt 0x1) [:pointer {:align 1, :size :one} :i32])
         ;; Intentionally invalid: address 1 does not satisfy four-byte alignment.
-        ^{:zig/type [:pointer {:size :one :align 4} :i32]}
-        word-aligned (ak/alignCast byte-aligned)]
+        word-aligned (ak/as (ak/alignCast byte-aligned) [:pointer {:align 4, :size :one} :i32])]
     (set! _ word-aligned)))

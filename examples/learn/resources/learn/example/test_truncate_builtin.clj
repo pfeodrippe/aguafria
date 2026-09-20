@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest integer-truncation-test
-  (let [^{:zig/type :u16} a 0xabcd
-        ^{:zig/type :u8} b (ak/truncate a)]
+  (let [a (ak/u16 0xabcd)
+        b (ak/u8 (ak/truncate a))]
     (try (testing/expectEqual 0xcd b))))
 
 (comment

@@ -201,7 +201,7 @@
 
 (az/defn device-loss-probe! :bool
   []
-  (renderer/frame-check (ak/as vk/VkResult vk/VK_ERROR_DEVICE_LOST))
+  (renderer/frame-check (ak/as vk/VK_ERROR_DEVICE_LOST vk/VkResult))
   (set! error-probe-continued true)
   true)
 

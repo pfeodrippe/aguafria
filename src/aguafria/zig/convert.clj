@@ -983,7 +983,8 @@
           (swap! (:project-aliases context) assoc alias namespace)
           alias))
       (if-let [builtin (get @builtin-symbols zig-name)]
-        (apply list builtin (map #(translate-expr context %) argument-nodes))
+        (let [arguments (mapv #(translate-expr context %) argument-nodes)]
+          (apply list builtin (if (= "@as" zig-name) (reverse arguments) arguments)))
         (record-fallback! context node-index :expression :unknown-zig-builtin)))))
 
 (defn- catch-captures
@@ -4702,7 +4703,7 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
-(def ^:private rendered-conversion-cache-version 10)
+(def ^:private rendered-conversion-cache-version 11)
 
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]

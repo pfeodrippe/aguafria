@@ -1,10 +1,11 @@
 (ns learn.example.test-coerce-optionals
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest optional-coercion-test
-  (let [^{:zig/type [:optional :i32]} present 1234
-        ^{:zig/type [:optional :i32]} absent nil]
+  (let [present (ak/as 1234 [:optional :i32])
+        absent (ak/as nil [:optional :i32])]
     (try (testing/expectEqual 1234 (az/unwrap present)))
     (try (testing/expectEqual nil absent))))
 

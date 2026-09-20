@@ -33,7 +33,7 @@
   (when (or (ak/== vertices 0) (ak/== cells 0) (> vertices 10000000) (> cells 10000000)) (ak/return null))
   (let [count (+ vertices (* 4 cells))
         context (catch ((az/field heap/page_allocator create) Context) (ak/return null))
-        ^{:var :bool} owned false]
+        ^:var owned (ak/bool false)]
     (defer (when (ak/! owned) ((az/field heap/page_allocator destroy) context)))
     (let [storage (catch ((az/field heap/page_allocator alloc) p/Vec3 (* 19 count)) (ak/return null))]
       (defer (when (ak/! owned) ((az/field heap/page_allocator free) storage)))
@@ -136,7 +136,7 @@
   (let [problem (ak/& (az/field context problem))]
     (when (or (az/field context ready) (>= cell (az/field (az/field problem elements) len))) (ak/return false))
     (let [element (ak/& (az/index (az/field problem elements) cell))
-          ^{:var :usize} edge 0]
+          ^:var edge (ak/usize 0)]
       (when (<= (az/field element volume) 0.0) (ak/return false))
       (dotimes [index 6]
         (let [control (az/index edges index)]
@@ -174,7 +174,7 @@
   (when (or (az/field context ready) (and floor (ak/! (math/isFinite height)))) (ak/return false))
   (let [problem (ak/& (az/field context problem))]
     (dotimes [vertex (az/field problem vertex-count)]
-      (let [^{:var :bool} used false]
+      (let [^:var used (ak/bool false)]
         (dotimes [cell (az/field (az/field problem elements) len)]
           (dotimes [node (mixed/trace-count (az/index (az/field problem elements) cell))]
             (when (ak/== vertex (mixed/coefficient-index (az/field problem vertex-count) cell
@@ -200,7 +200,7 @@
 (az/defn plane-reaction p/Vec3
   "Read the current successful solve's plane reaction before reusing workspace." [[context [:* Context]]]
   (let [problem (ak/& (az/field context problem))
-        ^{:var :f64} force 0.0]
+        ^:var force (ak/f64 0.0)]
     (dotimes [vertex (az/field problem vertex-count)]
       (let [position (az/index (az/field (az/field context workspace) x) vertex)
             lower (az/index (az/field problem lower) vertex)
@@ -246,7 +246,7 @@
         count (az/field (az/field problem initial) len)
         stage-position (segment (az/field context storage) count 17)
         stage-velocity (segment (az/field context storage) count 18)
-        gamma (- 1.0 (/ 1.0 (ak/sqrt (ak/as :f64 2.0))))
+        gamma (- 1.0 (/ 1.0 (ak/sqrt (ak/as 2.0 :f64))))
         stage-dt (* gamma duration)
         next-time (+ (az/field context time) duration)]
     (set! (az/field report status) 1)

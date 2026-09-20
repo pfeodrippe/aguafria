@@ -5,7 +5,7 @@
 
 (az/defn main :void
   []
-  (let [^{:var :i32} value ak/undefined]
+  (let [^:var value (ak/i32 ak/undefined)]
     (set! value 1)
     (debug/print "{d}" [value])))
 

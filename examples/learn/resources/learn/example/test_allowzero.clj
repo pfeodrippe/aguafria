@@ -4,10 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/deftest allowzero-test
-  (let [^{:var :usize} address 0]
+  (let [^:var address (ak/usize 0)]
     (set! _ (& address))
-    (let [^{:zig/type [:pointer {:size :one :allowzero? true} :i32]}
-          pointer (ak/ptrFromInt address)]
+    (let [pointer (ak/as (ak/ptrFromInt address) [:pointer {:size :one, :allowzero? true} :i32])]
       (try (testing/expectEqual 0 (ak/intFromPtr pointer))))))
 
 (comment

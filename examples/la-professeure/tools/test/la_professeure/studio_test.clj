@@ -98,10 +98,10 @@
 (az/defn game-input-state-qa :u32 []
   (when (ak/== scene/window ak/null)
     (ak/return 0))
-  (+ (ak/as :u32 (if (ak/== (glfw/glfwGetWindowAttrib scene/window glfw/GLFW_FOCUSED)
-                           glfw/GLFW_TRUE) 1 0))
-     (ak/as :u32 (if (ak/== (glfw/glfwGetInputMode scene/window glfw/GLFW_STICKY_KEYS)
-                           glfw/GLFW_TRUE) 2 0))))
+  (+ (ak/as (if (ak/== (glfw/glfwGetWindowAttrib scene/window glfw/GLFW_FOCUSED)
+                           glfw/GLFW_TRUE) 1 0) :u32)
+     (ak/as (if (ak/== (glfw/glfwGetInputMode scene/window glfw/GLFW_STICKY_KEYS)
+                           glfw/GLFW_TRUE) 2 0) :u32)))
 
 (defmacro set-studio-state! [bindings]
   ;; Exercise the production macro without exposing it as another public API.
@@ -156,13 +156,13 @@
               (ak/! ((az/field ime-probe-api :lp_studio_ime_probe_presentation)
                        window "かな é 中文" 60.0 625.0 "/tmp/professeure-ime-native-preedit.png")))
       (ak/return 25))
-    (let [keys (ak/as (az/type [:array 6 :i32]) [257 259 261 263 262 256])]
+    (let [keys (ak/as [257 259 261 263 262 256] (az/type [:array 6 :i32]))]
       (dotimes [i 6]
         (studio/key-event! studio/studio-window (az/index keys i) 0 1 0)
         (when (or (ak/!= studio/pending 0)
                   (ak/! studio/name-focus)
                   (ak/! (mem/eql (az/type :u8) (studio/entered-name) "QA")))
-          (ak/return (+ 10 (ak/as :u32 (ak/intCast i)))))))
+          (ak/return (+ 10 (ak/as (ak/intCast i) :u32))))))
     (when (or (ak/! (ime-probe! true))
               (studio/composing-name?)
               (ak/! (mem/eql (az/type :u8) (studio/entered-name) "QAé")))
@@ -183,7 +183,7 @@
         frames recorder/input-check-frames
         dry-frames recorder/dry-frames
         wet-frames recorder/recorded-frames
-        ^:var samples (ak/as (az/type [:array 4 :f32]) [0.25 -0.5 0.125 0.0])]
+        ^:var samples (ak/as [0.25 -0.5 0.125 0.0] (az/type [:array 4 :f32]))]
     (ak/defer
       (set-studio-state! [recorder/input-check-channels channels
                           recorder/input-check-offset offset
@@ -1042,10 +1042,10 @@
   (when (ak/== studio/studio-window ak/null) (ak/return 0))
   (| (if (or (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_LEFT_ALT) glfw/GLFW_PRESS)
              (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_ALT) glfw/GLFW_PRESS))
-       (ak/as :u32 4) (ak/as :u32 0))
+       (ak/as 4 :u32) (ak/as 0 :u32))
      (if (or (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_LEFT_SHIFT) glfw/GLFW_PRESS)
              (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_SHIFT) glfw/GLFW_PRESS))
-       (ak/as :u32 1) (ak/as :u32 0))))
+       (ak/as 1 :u32) (ak/as 0 :u32))))
 
 (az/defn game-suppressed? :bool [] scene/studio-audio-suppressed)
 (az/defn game-muted? :bool [] scene/audio-muted)
@@ -1073,7 +1073,7 @@
     (dotimes [i frames]
       (dotimes [channel 16]
         (set! (az/index samples (+ (* i 16) channel)) 0.0))
-      (let [time (/ (ak/as :f64 (ak/floatFromInt test-tone-frame)) 48000.0)]
+      (let [time (/ (ak/as (ak/floatFromInt test-tone-frame) :f64) 48000.0)]
         (set! (az/index samples (+ (* i 16) test-tone-offset))
               (ak/floatCast (* 0.08 (ak/sin (* 1382.300768 time)))))
         (set! (az/index samples (+ (* i 16) test-tone-offset 1))
@@ -1249,8 +1249,8 @@
         frames recorder/recorded-frames
         source recorder/source-frames
         peak recorder/input-peak-ppm
-        ^:var output (ak/as (az/type [:array 64 :f32]) (mem/zeroes (az/type [:array 64 :f32])))
-        ^:var input (ak/as (az/type [:array 64 :f32]) (mem/zeroes (az/type [:array 64 :f32])))]
+        ^:var output (ak/as (mem/zeroes (az/type [:array 64 :f32])) (az/type [:array 64 :f32]))
+        ^:var input (ak/as (mem/zeroes (az/type [:array 64 :f32])) (az/type [:array 64 :f32]))]
     (ak/defer (if held (recorder/hold-capture!) (recorder/release-capture!)))
     (dotimes [i 64]
       (set! (az/index input i) 0.25)
@@ -1430,7 +1430,7 @@
                          scene/vertex-count 0])
       (studio/waveform! 611.0)
       ;; Background + 128 bars + a cursor, plus two trim handles only in Edit.
-      (when (ak/!= scene/vertex-count (ak/as :u32 (if (ak/== mode-index 0) 792 780)))
+      (when (ak/!= scene/vertex-count (ak/as (if (ak/== mode-index 0) 792 780) :u32))
         (ak/return 1))
       (let [first (az/index vertices (- scene/vertex-count 6))
             second (az/index vertices (- scene/vertex-count 5))
@@ -1675,7 +1675,7 @@
     (studio/scroll-by! 0.0 -1000.0 false false)
     (when (ak/!= studio/track-offset 12) (ak/return 10))
     (set! studio/mouse-x 300.0)
-    (set! studio/mouse-y (ak/as :f64 (ak/floatCast studio/editor-top)))
+    (set! studio/mouse-y (ak/as (ak/floatCast studio/editor-top) :f64))
     (set! studio/clicked true) (studio/divider-input!)
     (when studio/divider-drag (ak/return 4))
     (set! studio/record-enabled 0)
@@ -3085,7 +3085,7 @@
       (is (= label (#'studio/native-string text))))))
 
 (az/defn passage-freshness-contract :u32 []
-  (let [index (ak/as :u32 1)
+  (let [index (ak/as 1 :u32)
         saved (az/index studio/passage-freshness index)
         id (studio/node-id index)
         revision (studio/node-revision index)]
@@ -3123,7 +3123,7 @@
     (studio/reset-frame-timings!)
     (set! studio/frame-build-ms 2.0)
     (dotimes [i 301]
-      (let [started (+ 1.0 (* 0.01 (ak/as :f64 (ak/floatFromInt i))))]
+      (let [started (+ 1.0 (* 0.01 (ak/as (ak/floatFromInt i) :f64)))]
         (studio/record-frame-timing! started (+ started 0.003))))
     (when (or (ak/!= studio/frame-timing-count 240)
               (ak/!= studio/frame-timing-index 60))
@@ -3440,8 +3440,8 @@
 
 (az/defn navigation-focus-qa! :u32 [[mask :u32]]
   ;; Typed access keeps inferred native bools out of JVM schema construction.
-  (let [previous (+ (ak/as :u32 (if studio/name-focus 1 0))
-                    (ak/as :u32 (if studio/name-drag 2 0)))]
+  (let [previous (+ (ak/as (if studio/name-focus 1 0) :u32)
+                    (ak/as (if studio/name-drag 2 0) :u32))]
     (when (< mask 4)
       (set-studio-state! [studio/name-focus (ak/!= (& mask 1) 0)
                           studio/name-drag (ak/!= (& mask 2) 0)]))
@@ -3704,7 +3704,7 @@
     (when (ak/!= studio/name-length 120) (ak/return 6))
     (studio/name! "éx")
     (dotimes [x 80]
-      (when (ak/== (studio/name-hit (ak/as :f64 (ak/floatFromInt x))) 1)
+      (when (ak/== (studio/name-hit (ak/as (ak/floatFromInt x) :f64)) 1)
         (ak/return 7)))
     (studio/name! "́x")
     (studio/name-move! 0 false)
@@ -3795,8 +3795,8 @@
 (az/defn route-key! :void [[key :u32] [action :u32]]
   (studio/key-event! ak/null (ak/intCast key) 0 (ak/intCast action) 0))
 (az/defn route-test-flags :u32 []
-  (+ (ak/as :u32 (if studio/name-focus 1 0)) (ak/as :u32 (if studio/name-drag 2 0))
-     (ak/as :u32 (if studio/clicked 4 0)) (ak/as :u32 (if studio/route-click 8 0))))
+  (+ (ak/as (if studio/name-focus 1 0) :u32) (ak/as (if studio/name-drag 2 0) :u32)
+     (ak/as (if studio/clicked 4 0) :u32) (ak/as (if studio/route-click 8 0) :u32)))
 (az/defn restore-route-test-flags! :void [[flags :u32]]
   (set! studio/name-focus (ak/!= (& flags 1) 0))
   (set! studio/name-drag (ak/!= (& flags 2) 0))

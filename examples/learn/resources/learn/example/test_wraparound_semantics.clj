@@ -5,7 +5,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest wraparound-test
-  (let [^{:zig/type :i32} x (math/maxInt :i32)
+  (let [x (ak/i32 (math/maxInt :i32))
         min-val (ak/+% x 1)]
     (try (testing/expectEqual (math/minInt :i32) min-val))
     (let [max-val (ak/-% min-val 1)]

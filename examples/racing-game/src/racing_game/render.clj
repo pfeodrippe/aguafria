@@ -36,7 +36,7 @@
 (az/defn- racer-color RacerColor
   "Use the same permanent identity color as the native 3D car and minimap."
   [[identifier :u8]]
-  (let [color (az/index render3d/colors (mod (ak/as :usize identifier) simulation/racer-count))]
+  (let [color (az/index render3d/colors (mod (ak/as identifier :usize) simulation/racer-count))]
     (RacerColor {:r (az/index color 0) :g (az/index color 1) :b (az/index color 2)})))
 
 (az/defn set-debug-overlay! :bool
@@ -55,8 +55,8 @@
   "Fit equal world units to equal framebuffer pixels for any aspect ratio."
   [[frame-width :i32]
    [frame-height :i32]]
-  (let [width (ak/as :f32 (ak/floatFromInt (ak/max frame-width 1)))
-        height (ak/as :f32 (ak/floatFromInt (ak/max frame-height 1)))]
+  (let [width (ak/as (ak/floatFromInt (ak/max frame-width 1)) :f32)
+        height (ak/as (ak/floatFromInt (ak/max frame-height 1)) :f32)]
     (set! world-x-scale (if (> width height) (/ height width) 1.0))
     (set! world-y-scale (if (> height width) (/ width height) 1.0))
     (WorldScale {:x world-x-scale :y world-y-scale})))
@@ -156,13 +156,13 @@
    [radius :f32]
    [z :f32]
    [r :f32] [g :f32] [b :f32]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [segment circle-segments]
-      (let [angle-a (* (/ (ak/as :f32 (ak/floatFromInt segment))
-                           (ak/as :f32 (ak/floatFromInt circle-segments)))
+      (let [angle-a (* (/ (ak/as (ak/floatFromInt segment) :f32)
+                           (ak/as (ak/floatFromInt circle-segments) :f32))
                         6.2831855)
-            angle-b (* (/ (ak/as :f32 (ak/floatFromInt (+ segment 1)))
-                           (ak/as :f32 (ak/floatFromInt circle-segments)))
+            angle-b (* (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
+                           (ak/as (ak/floatFromInt circle-segments) :f32))
                         6.2831855)]
         (set! next
               (append-world-line!
@@ -183,13 +183,13 @@
    [radius :f32]
    [z :f32]
    [r :f32] [g :f32] [b :f32]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [segment circle-segments]
-      (let [angle-a (* (/ (ak/as :f32 (ak/floatFromInt segment))
-                           (ak/as :f32 (ak/floatFromInt circle-segments)))
+      (let [angle-a (* (/ (ak/as (ak/floatFromInt segment) :f32)
+                           (ak/as (ak/floatFromInt circle-segments) :f32))
                         6.2831855)
-            angle-b (* (/ (ak/as :f32 (ak/floatFromInt (+ segment 1)))
-                           (ak/as :f32 (ak/floatFromInt circle-segments)))
+            angle-b (* (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
+                           (ak/as (ak/floatFromInt circle-segments) :f32))
                         6.2831855)]
         (set! next
               (append-line!
@@ -207,30 +207,29 @@
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [race (simulation/snapshot)
-        ^{:var true :zig/type :usize} next count]
+        ^:var next (ak/usize count)]
     (when (ak/== (az/field race state) simulation/race-state-countdown)
       (let [remaining
             (ak/divTrunc (+ (az/field race countdown_ticks) 119) 120)]
         (dotimes [slot 3]
           (let [active (< slot remaining)
-                ^{:zig/type :f32}
-                brightness (if active 1.0 0.28)]
+                brightness (ak/f32 (if active 1.0 0.28))]
             (set! next
                   (append-screen-circle!
                    output next
-                   (+ -0.08 (* (ak/as :f32 (ak/floatFromInt slot)) 0.08))
+                   (+ -0.08 (* (ak/as (ak/floatFromInt slot) :f32) 0.08))
                    0.86 0.026 0.20 brightness (* brightness 0.78) 0.0))))))
     next))
 
 (az/defn append-track! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [segment track-segments]
-      (let [progress-a (/ (ak/as :f32 (ak/floatFromInt segment))
-                          (ak/as :f32 (ak/floatFromInt track-segments)))
-            progress-b (/ (ak/as :f32 (ak/floatFromInt (+ segment 1)))
-                          (ak/as :f32 (ak/floatFromInt track-segments)))
+      (let [progress-a (/ (ak/as (ak/floatFromInt segment) :f32)
+                          (ak/as (ak/floatFromInt track-segments) :f32))
+            progress-b (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
+                          (ak/as (ak/floatFromInt track-segments) :f32))
             outer-a (track/pose progress-a 0.13)
             outer-b (track/pose progress-b 0.13)
             inner-a (track/pose progress-a -0.13)
@@ -259,14 +258,14 @@
   "Draw the shared pit lane and four real team boxes beside the final sector."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [segment 18]
       (let [progress-a (+ 0.80
-                          (* (/ (ak/as :f32 (ak/floatFromInt segment)) 18.0)
+                          (* (/ (ak/as (ak/floatFromInt segment) :f32) 18.0)
                              0.18))
             progress-b (+ 0.80
-                          (* (/ (ak/as :f32
-                                      (ak/floatFromInt (+ segment 1))) 18.0)
+                          (* (/ (ak/as (ak/floatFromInt (+ segment 1))
+                                      :f32) 18.0)
                              0.18))
             a (track/pose progress-a 0.19)
             b (track/pose progress-b 0.19)]
@@ -311,8 +310,8 @@
             occupied (ak/!= (az/field team pit_occupant)
                              simulation/no-pit-occupant)
             brightness (if occupied
-                         (ak/as :f32 1.0)
-                         (ak/as :f32 0.55))]
+                         (ak/as 1.0 :f32)
+                         (ak/as 0.55 :f32))]
         (set! next (append-world-line! output next ax ay bx by 0.003 0.64
                                        brightness (* brightness 0.78) 0.0))
         (set! next (append-world-line! output next bx by cx cy 0.003 0.64
@@ -326,9 +325,9 @@
 (az/defn append-pickups! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [slot simulation/team-count]
-      (let [sample (track/pose (* (ak/as :f32 (ak/floatFromInt slot)) 0.25) 0.0)
+      (let [sample (track/pose (* (ak/as (ak/floatFromInt slot) :f32) 0.25) 0.0)
             x (az/field sample x)
             y (az/field sample y)
             radius 0.025]
@@ -346,17 +345,16 @@
   "Render pooled bolts as arrow diamonds and traps as crossed contours."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [slot simulation/hazard-capacity]
       (let [hazard (simulation/hazard-view slot)]
         (when (az/field hazard active)
           (let [x (az/field hazard x)
                 y (az/field hazard y)
-                ^{:zig/type :f32}
-                radius (if (ak/== (az/field hazard kind)
+                radius (ak/f32 (if (ak/== (az/field hazard kind)
                                   simulation/item-bolt)
                          0.018
-                         0.022)]
+                         0.022))]
             (if (ak/== (az/field hazard kind) simulation/item-bolt)
               (do
                 (set! next (append-world-line! output next x (+ y radius)
@@ -386,7 +384,7 @@
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [human (simulation/human-control-snapshot)
-        ^{:var true :zig/type :usize} next count]
+        ^:var next (ak/usize count)]
     (dotimes [index simulation/racer-count]
       (let [view (simulation/racer-view (ak/intCast index))
             identifier (az/field view id)
@@ -395,20 +393,16 @@
             parking-index (- (az/field view rank) 1)
             parking-column (mod parking-index 4)
             parking-row (ak/divTrunc parking-index 4)
-            ^{:zig/type :f32}
-            x (if finished
+            x (ak/f32 (if finished
                 (+ -0.24
-                   (* (ak/as :f32 (ak/floatFromInt parking-column)) 0.16))
-                (az/field view x))
-            ^{:zig/type :f32}
-            y (if finished
+                   (* (ak/as (ak/floatFromInt parking-column) :f32) 0.16))
+                (az/field view x)))
+            y (ak/f32 (if finished
                 (- -0.06
-                   (* (ak/as :f32 (ak/floatFromInt parking-row)) 0.11))
-                (az/field view y))
-            ^{:zig/type :f32}
-            heading (if finished 0.0 (az/field view heading))
-            ^{:zig/type :f32}
-            radius (if (az/field view shielded) 0.035 0.028)]
+                   (* (ak/as (ak/floatFromInt parking-row) :f32) 0.11))
+                (az/field view y)))
+            heading (ak/f32 (if finished 0.0 (az/field view heading)))
+            radius (ak/f32 (if (az/field view shielded) 0.035 0.028))]
         (when (az/field view shielded)
           (set! next
                 (append-circle! output next x y 0.043 0.40
@@ -431,9 +425,9 @@
         (set! next
               (append-world-line! output next x y
                             (+ x (* (std-math/cos heading)
-                                    (+ 0.046 (* (ak/as :f32 (ak/floatFromInt identifier)) 0.002))))
+                                    (+ 0.046 (* (ak/as (ak/floatFromInt identifier) :f32) 0.002))))
                             (+ y (* (std-math/sin heading)
-                                    (+ 0.046 (* (ak/as :f32 (ak/floatFromInt identifier)) 0.002))))
+                                    (+ 0.046 (* (ak/as (ak/floatFromInt identifier) :f32) 0.002))))
                             0.004 0.31
                             (az/field color r)
                             (az/field color g)
@@ -444,12 +438,12 @@
   "Show authoritative first-through-eighth classification on the right."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [rank-index simulation/racer-count]
       (dotimes [racer-index simulation/racer-count]
         (let [view (simulation/racer-view (ak/intCast racer-index))]
           (when (ak/== (az/field view rank) (+ rank-index 1))
-            (let [y (- 0.82 (* (ak/as :f32 (ak/floatFromInt rank-index)) 0.105))
+            (let [y (- 0.82 (* (ak/as (ak/floatFromInt rank-index) :f32) 0.105))
                   length (+ 0.055 (* (az/field view progress) 0.11))]
               (set! next (append-line! output next 0.80 (+ y 0.030)
                                        (+ 0.80 length) (+ y 0.030)
@@ -469,7 +463,7 @@
   "Draw each racer's chosen target and short-horizon lane goal."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [index simulation/racer-count]
       (let [view (simulation/racer-view (ak/intCast index))
             target-id (az/field view target)
@@ -498,10 +492,10 @@
   actor, and a second ring means a request is currently in flight."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^{:var true :zig/type :usize} next count]
+  (let [^:var next (ak/usize count)]
     (dotimes [index simulation/racer-count]
       (let [view (simulation/racer-view (ak/intCast index))
-            y (- 0.84 (* (ak/as :f32 (ak/floatFromInt index)) 0.105))
+            y (- 0.84 (* (ak/as (ak/floatFromInt index) :f32) 0.105))
             speed-width
             (* (ak/min 1.0
                        (/ (ak/max 0.0 (- (az/field view target_speed) 0.04))
@@ -509,22 +503,21 @@
                0.17)
             latency-width
             (* (ak/min 1.0
-                       (/ (ak/as :f32
-                                 (ak/floatFromInt
-                                  (az/field view average_latency_us)))
+                       (/ (ak/as (ak/floatFromInt
+                                  (az/field view average_latency_us))
+                                 :f32)
                           600000.0))
                0.17)
-            ^{:zig/type :f32}
             source-brightness
-            (cond
+            (ak/f32 (cond
               (ak/== (az/field view source) telemetry/source-llm)
-              (ak/as :f32 1.0)
+              (ak/as 1.0 :f32)
 
               (ak/== (az/field view source) telemetry/source-human)
-              (ak/as :f32 0.82)
+              (ak/as 0.82 :f32)
 
               :else
-              (ak/as :f32 0.48))]
+              (ak/as 0.48 :f32)))]
         (set! next
               (append-screen-circle! output next -0.935 y 0.018 0.24
                               source-brightness
@@ -553,20 +546,20 @@
   Colored markers are physical racer positions; white ring identifies the leader."
   [[output [:c-pointer mesh/GpuVertex]] [count :usize]
    [frame-width :i32] [frame-height :i32]]
-  (let [w (ak/as :f32 (ak/floatFromInt (ak/max frame-width 1)))
-        h (ak/as :f32 (ak/floatFromInt (ak/max frame-height 1)))
+  (let [w (ak/as (ak/floatFromInt (ak/max frame-width 1)) :f32)
+        h (ak/as (ak/floatFromInt (ak/max frame-height 1)) :f32)
         ;; Fixed physical aspect, occupying the upper-right 27% of the window.
         size (ak/min (* w 0.27) (* h 0.29))
         sx (/ size w) sy (/ size h)
         cx (- 1.0 sx 0.03) cy (+ -1.0 sy 0.03)
-        ^{:var :usize} next count]
+        ^:var next (ak/usize count)]
     (set! next (append-quad! output next
                             (- cx sx) (- cy sy) (+ cx sx) (- cy sy)
                             (+ cx sx) (+ cy sy) (- cx sx) (+ cy sy)
                             0.06 0.035 0.045 0.055))
     (dotimes [i 192]
-      (let [a (track/pose (/ (ak/as :f32 (ak/floatFromInt i)) 192.0) 0.0)
-            b (track/pose (/ (ak/as :f32 (ak/floatFromInt (+ i 1))) 192.0) 0.0)]
+      (let [a (track/pose (/ (ak/as (ak/floatFromInt i) :f32) 192.0) 0.0)
+            b (track/pose (/ (ak/as (ak/floatFromInt (+ i 1)) :f32) 192.0) 0.0)]
         (set! next (append-line! output next
                                 (+ cx (* (az/field a x) sx 1.5))
                                 (- cy (* (az/field a y) sy 1.5))
@@ -601,4 +594,4 @@
                        (render3d/intents! output world-count)
                        world-count)
         state-count (append-race-state! output intent-count)]
-    (ak/as :u32 (ak/intCast (append-minimap! output state-count frame-width frame-height)))))
+    (ak/as (ak/intCast (append-minimap! output state-count frame-width frame-height)) :u32)))

@@ -37,15 +37,15 @@
 (az/defn static-clearance :bool
   "Query the actual static collision meshes, including authored containment.
   The cloud encloses the car footprint; this never moves a simulation body." [[world b3/b3WorldId] [x :f32] [y :f32] [z :f32] [yaw :f32]]
-  (let [^{:var [:array 8 b3/b3Vec3]} points ak/undefined
-        ^{:var :bool} blocked false]
+  (let [^:var points (ak/as ak/undefined [:array 8 b3/b3Vec3])
+        ^:var blocked (ak/bool false)]
     (dotimes [i 8]
-      (let [local-x (if (ak/== (ak/& i 1) 0) (ak/as :f32 -2.55) 2.55)
-            local-y (if (ak/== (ak/& i 2) 0) (ak/as :f32 -1.47) 1.47)]
+      (let [local-x (if (ak/== (ak/& i 1) 0) (ak/as -2.55 :f32) 2.55)
+            local-y (if (ak/== (ak/& i 2) 0) (ak/as -1.47 :f32) 1.47)]
         (set! (az/index points i)
           (b3/b3Vec3 {:x (- (* local-x (math/cos yaw)) (* local-y (math/sin yaw)))
                       :y (+ (* local-x (math/sin yaw)) (* local-y (math/cos yaw)))
-                      :z (if (ak/== (ak/& i 4) 0) (ak/as :f32 -0.25) 0.25)}))))
+                      :z (if (ak/== (ak/& i 4) 0) (ak/as -0.25 :f32) 0.25)}))))
     (let [proxy (b3/b3ShapeProxy {:points (ak/& points) :count 8 :radius 0.05})]
       (set! _ (b3/b3World_OverlapShape world (b3/b3Pos {:x x :y y :z z})
                  (ak/& proxy) (b3/b3DefaultQueryFilter) (ak/& static-overlap) (ak/& blocked))))
@@ -147,15 +147,15 @@
    [count :usize] [self :usize] [gear :i8] [steering :f32] [world b3/b3WorldId]
    [lane-limit :f32]]
   (when (ak/== gear 0)
-    (ak/return (ak/as :u8 32)))
+    (ak/return (ak/as 32 :u8)))
   (let [yaw (heading body)
         current-projection (track/project (* (az/field body x) 0.001)
                                            (* (az/field body y) 0.001))
         current-lane (* 50.0 (az/field current-projection lane))
-        direction (ak/as :f32 (ak/floatFromInt gear))
-        ^{:var :u8} reasons 0]
+        direction (ak/as (ak/floatFromInt gear) :f32)
+        ^:var reasons (ak/u8 0)]
     (dotimes [i 4]
-      (let [distance (* direction (+ 0.05 (* 0.1 (ak/as :f32 (ak/floatFromInt i)))))
+      (let [distance (* direction (+ 0.05 (* 0.1 (ak/as (ak/floatFromInt i) :f32))))
             predicted (motion-pose body steering distance)
             predicted-yaw (az/index predicted 2)
             x (az/index predicted 0)
@@ -200,9 +200,9 @@
   [[body physics/BodyState] [others [:array protocol/racer-count physics/BodyState]]
    [count :usize] [self :usize] [gear :i8] [sign :f32] [world b3/b3WorldId]
    [lane-limit :f32]]
-  (if (ak/== sign 0.0) (ak/as :u8 32)
+  (if (ak/== sign 0.0) (ak/as 32 :u8)
     (motion-clearance-reasons body others count self gear
-      (* sign 0.45 (ak/as :f32 (ak/floatFromInt gear))) world lane-limit)))
+      (* sign 0.45 (ak/as (ak/floatFromInt gear) :f32)) world lane-limit)))
 
 (az/defn guard-recovery-control driver/Control
   "A low-speed safety veto, not a tactical decision. Check the final requested
@@ -249,8 +249,8 @@
       (set! (az/field state lane_limit)
         (if (> (ak/abs (az/field normal lane)) 7.0)
           (+ (ak/abs (az/field normal lane)) 1.5)
-          (ak/as :f32 7.2)))
-      (set! (az/field state turn_sign) (if (> heading-error 0.0) (ak/as :f32 1.0) -1.0)))
+          (ak/as 7.2 :f32)))
+      (set! (az/field state turn_sign) (if (> heading-error 0.0) (ak/as 1.0 :f32) -1.0)))
     (when (az/field state active)
       (let [^:var forward (and safe (clearance body others count self 1 (az/field state turn_sign) world (az/field state lane_limit)))
             ^:var backward (and safe (clearance body others count self -1 (az/field state turn_sign) world (az/field state lane_limit)))
@@ -277,13 +277,13 @@
 
             (or (ak/== (az/field state gear) 0) (ak/! current-clear))
             (set! (az/field state gear)
-                  (if forward (ak/as :i8 1) (if backward (ak/as :i8 -1) 0)))))
+                  (if forward (ak/as 1 :i8) (if backward (ak/as -1 :i8) 0)))))
         (when (and (az/field state active) safe
                    (ak/!= (az/field state gear) 0)
                    (> (ak/abs heading-error) 0.20)
                    (if (> (az/field state gear) 0) forward backward))
           (set! (az/field control steering)
-                (* 0.45 (az/field state turn_sign) (ak/as :f32 (ak/floatFromInt (az/field state gear)))))
+                (* 0.45 (az/field state turn_sign) (ak/as (ak/floatFromInt (az/field state gear)) :f32)))
           (set! (az/field control throttle) (driver/clamp-unit (* (- 0.8 speed) 0.3)))
           (set! (az/field control brake) (driver/clamp-unit (* (- speed 0.8) 0.5))))))
     (Output {:state state :control control})))

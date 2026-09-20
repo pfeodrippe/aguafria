@@ -5,10 +5,10 @@
 
 (az/deftest basic-slices-test
   (let [^:var numbers (az/array-init [:array _ :i32] [1 2 3 4])
-        ^{:var :usize} start 0]
+        ^:var start (ak/usize 0)]
     (set! _ (& start))
     (let [slice (az/slice numbers start (az/field numbers :len))
-          ^{:zig/type [:slice-const :i32]} expected (& [1 2 3 4])]
+          expected (ak/as (& [1 2 3 4]) [:slice-const :i32])]
       (try (testing/expectEqualSlices (az/type :i32) slice expected))
       (try (testing/expectEqual (az/type [:slice :i32]) (ak/TypeOf slice)))
       (try (testing/expectEqual (& (az/index numbers 0)) (& (az/index slice 0))))
@@ -20,7 +20,7 @@
                                   (ak/TypeOf array-pointer))))
 
       ;; Slicing twice retains a compile-time length with a runtime start.
-      (let [^{:var :usize} runtime-start 1
+      (let [^:var runtime-start (ak/usize 1)
             length 2]
         (set! _ (& runtime-start))
         (let [pair-pointer (az/slice (az/slice numbers runtime-start) 0 length)]
@@ -39,7 +39,7 @@
 
       ;; Zero-length storage permits empty mutable slices, too.
       (let [empty-array (& (az/init [:array 0 :u8] (az/object [])))
-            ^{:zig/type [:slice :u8]} empty-slice (& (az/object []))]
+            empty-slice (ak/as (& (az/object [])) [:slice :u8])]
         (try (testing/expectEqual 0 (az/field empty-array :len)))
         (try (testing/expectEqual 0 (az/field empty-slice :len)))))))
 

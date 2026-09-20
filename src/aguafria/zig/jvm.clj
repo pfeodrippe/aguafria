@@ -18,6 +18,7 @@
 
 (defonce ^:private output-lock (Object.))
 (defonce ^:private prepared-adapters (atom #{}))
+(defonce ^:private prepared-coercions (atom #{}))
 (def ^:dynamic ^:private *capturing-output?* false)
 
 (def ^:private posix-output
@@ -138,6 +139,75 @@
           (finally
             (runtime/invoke! (symbol module (str release-name)) [address])))))))
 
+(defn- constructor-type
+  "Resolve actual type constructors inside the same compositional type data
+  accepted by declarations. No caller namespace is guessed from a REPL."
+  [type]
+  (cond
+    (value/zig-type? type)
+    (let [{:keys [module name type]} (value/type-info type)]
+      (or type (symbol module (str name))))
+
+    (var? type)
+    (constructor-type (var-get type))
+
+    (vector? type)
+    (mapv constructor-type type)
+
+    (map? type)
+    (into (empty type) (map (fn [[key item]] [key (constructor-type item)])) type)
+
+    :else type))
+
+(defn coerce!
+  "Coerce a JVM value using a cached in-process Zig adapter. Scalar results
+  have their ordinary JVM representation; composites retain owned native
+  storage (including slice backing). The adapter is keyed by types, not values."
+  [argument type]
+  (let [type (constructor-type type)
+        type (if-let [payload (emitter/inferred-error-payload type)]
+               [:error-union :anyerror (constructor-type payload)]
+               type)
+        native? (value/zig-value? argument)
+        input-type (if native?
+                     (let [input (value/type argument)]
+                       (if (and (symbol? input) (nil? (namespace input)))
+                         (symbol (:module (value/info argument)) (name input))
+                         input))
+                     type)
+        extended-float? (and (not native?) (#{:f16 :f80 :f128} type))
+        input-type (if extended-float? :f64 input-type)
+        namespace-name (symbol (str "aguafria.jvm.coercion-" (token [type input-type])))
+        context (or (find-ns namespace-name) (create-ns namespace-name))
+        qualified-name (symbol (str namespace-name) "coerce")
+        expression (if extended-float?
+                     '(aguafria.keyword/floatCast input)
+                     'input)]
+    (when-not (or (keyword? type) (vector? type) (symbol? type) (seq? type))
+      (throw (ex-info "ak/as expects a Zig type as its second argument"
+                      {:value argument :type type})))
+    ;; A coercion to the same type does not copy a borrowed pointer or detach
+    ;; its owner. Return the original owning value rather than a dangling view.
+    (cond
+      (#{:comptime_int :comptime_float} type)
+      (invoke-expression! context (list 'aguafria.keyword/as argument type) [] [])
+
+      (and native? (= type input-type))
+      (do (value/realize! argument) argument)
+
+      :else
+      (do
+        (locking context
+          (when-not (contains? @prepared-coercions [type input-type])
+            (binding [runtime/*source-only-registration?* true]
+              (register! context
+                         {:kind :fn :name 'coerce :qualified-name qualified-name
+                          :declaration-key [:fn 'coerce]
+                          :return type :args [{:name 'input :type input-type}]
+                          :body [(list 'aguafria.keyword/as expression type)]}))
+            (swap! prepared-coercions conj [type input-type])))
+        (runtime/invoke! qualified-name [argument])))))
+
 (defn- call-inputs [argument-declarations arguments]
   (when-not (= (count argument-declarations) (count arguments))
     (throw (ex-info "Wrong number of arguments for Zig function"
@@ -158,6 +228,10 @@
                                    (symbol (:module (value/info argument)) (name type))
                                    type))
                                (boolean? argument) :bool
+                               (instance? Byte argument) :i8
+                               (instance? Short argument) :i16
+                               (instance? Integer argument) :i32
+                               (instance? Float argument) :f32
                                (integer? argument) :i64
                                (float? argument) :f64
                                (string? argument) [:slice-const :u8])

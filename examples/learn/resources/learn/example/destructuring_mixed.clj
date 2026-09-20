@@ -5,7 +5,7 @@
 
 (az/defn main :void
   []
-  (let [^{:var :u32} x ak/undefined
+  (let [^:var x (ak/u32 ak/undefined)
         tuple [1 2 3]]
     ;; This Zig-specific form mixes assignment with two new declarations in
     ;; one operation. Use let for ordinary binding-only destructuring.

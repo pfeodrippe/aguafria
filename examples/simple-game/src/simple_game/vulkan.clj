@@ -104,7 +104,7 @@
 
 (az/defn initialize-instance! :void
   []
-  (let [^{:var true :zig/type :u32} extension-count 0
+  (let [^:var extension-count (ak/u32 0)
         glfw-extensions (vk/glfwGetRequiredInstanceExtensions (ak/& extension-count))
         ^:var extensions
         (std-mem/zeroes
@@ -134,14 +134,14 @@
 
 (az/defn select-device-and-queue! :void
   []
-  (let [^{:var true :zig/type :u32} device-count 0
+  (let [^:var device-count (ak/u32 0)
         ^:var devices (std-mem/zeroes (az/type [:array 8 vk/VkPhysicalDevice]))]
     (check (vk/vkEnumeratePhysicalDevices instance (ak/& device-count) null))
     (std-debug/assert (and (> device-count 0) (<= device-count 8)))
     (check (vk/vkEnumeratePhysicalDevices
             instance (ak/& device-count) (ak/& (az/index devices 0))))
     (set! physical-device (az/index devices 0))
-    (let [^{:var true :zig/type :u32} family-count 0
+    (let [^:var family-count (ak/u32 0)
           ^:var families
           (std-mem/zeroes (az/type [:array 32 vk/VkQueueFamilyProperties]))]
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
@@ -149,7 +149,7 @@
       (std-debug/assert (and (> family-count 0) (<= family-count 32)))
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
        physical-device (ak/& family-count) (ak/& (az/index families 0)))
-      (let [^{:var true :zig/type :u32} family-index 0
+      (let [^:var family-index (ak/u32 0)
             ^:var present-supported vk/VK_FALSE]
         (ak/while (< family-index family-count)
           (set! present-supported vk/VK_FALSE)
@@ -168,7 +168,7 @@
 
 (az/defn create-device! :void
   []
-  (let [^{:zig/type :f32} priority 1.0
+  (let [priority (ak/f32 1.0)
         queue-info
         (vk/VkDeviceQueueCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
@@ -193,7 +193,7 @@
   []
   (let [^:var capabilities
         (std-mem/zeroes (az/type vk/VkSurfaceCapabilitiesKHR))
-        ^{:var true :zig/type :u32} format-count 0
+        ^:var format-count (ak/u32 0)
         ^:var formats
         (std-mem/zeroes (az/type [:array 128 vk/VkSurfaceFormatKHR]))]
     (check (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR
@@ -371,11 +371,11 @@
   (let [^{:var true}
         properties
         (std-mem/zeroes (az/type vk/VkPhysicalDeviceMemoryProperties))
-        ^{:var true :zig/type :u32} selected 0xffffffff]
+        ^:var selected (ak/u32 0xffffffff)]
     (vk/vkGetPhysicalDeviceMemoryProperties physical-device (ak/& properties))
     (dotimes [index (az/field properties memoryTypeCount)]
-      (let [bit (ak/<< (ak/as :u32 1)
-                       (ak/as :u5 (ak/intCast index)))
+      (let [bit (ak/<< (ak/as 1 :u32)
+                       (ak/as (ak/intCast index) :u5))
             flags (az/field (az/index (az/field properties memoryTypes) index)
                             propertyFlags)]
         (when (and (ak/== selected 0xffffffff)
@@ -440,8 +440,8 @@
 (az/defn create-mesh-buffer! :void
   "Create one persistently mapped, bounded vertex stream for the 3D scene."
   []
-  (let [buffer-size (ak/as vk/VkDeviceSize
-                           (* mesh/frame-capacity (ak/sizeOf mesh/GpuVertex)))
+  (let [buffer-size (ak/as (* mesh/frame-capacity (ak/sizeOf mesh/GpuVertex))
+                           vk/VkDeviceSize)
         buffer-info
         (vk/VkBufferCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
@@ -475,7 +475,7 @@
   "Load one checked-in SPIR-V shader and create its Vulkan module."
   [[path [:pointer {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
-        ^{:var true} module (ak/as vk/VkShaderModule null)]
+        ^{:var true} module (ak/as null vk/VkShaderModule)]
     (std-debug/assert (ak/!= file null))
     (let [bytes (stdio/fread (ak/& (az/index shader-code 0))
                               1 (* 16384 (ak/sizeOf :u32)) file)]
@@ -535,8 +535,8 @@
         viewport
         (vk/VkViewport
          {:x 0.0 :y 0.0
-          :width (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent width)))
-          :height (ak/as :f32 (ak/floatFromInt (az/field swapchain-extent height)))
+          :width (ak/as (ak/floatFromInt (az/field swapchain-extent width)) :f32)
+          :height (ak/as (ak/floatFromInt (az/field swapchain-extent height)) :f32)
           :minDepth 0.0 :maxDepth 1.0})
         scissor
         (vk/VkRect2D {:offset (vk/VkOffset2D {:x 0 :y 0})
@@ -662,8 +662,8 @@
              {:offset (vk/VkOffset2D {:x x :y y})
               :extent
               (vk/VkExtent2D
-               {:width (ak/as :u32 (ak/intCast width))
-                :height (ak/as :u32 (ak/intCast height))})})
+               {:width (ak/as (ak/intCast width) :u32)
+                :height (ak/as (ak/intCast height) :u32)})})
             :baseArrayLayer 0
             :layerCount 1})]
       (vk/vkCmdClearAttachments
@@ -716,10 +716,10 @@
           (hud-mesh/append-overlay!
            (az/cast mapped-mesh-vertices [:c-pointer mesh/GpuVertex])
            mesh-vertex-count
-           (ak/as :i32 (ak/intCast (az/field swapchain-extent width)))
-           (ak/as :i32 (ak/intCast (az/field swapchain-extent height)))))
+           (ak/as (ak/intCast (az/field swapchain-extent width)) :i32)
+           (ak/as (ak/intCast (az/field swapchain-extent height)) :i32)))
     (when (> mesh-vertex-count 0)
-      (let [offset (ak/as vk/VkDeviceSize 0)]
+      (let [offset (ak/as 0 vk/VkDeviceSize)]
         (vk/vkCmdBindPipeline command-buffer vk/VK_PIPELINE_BIND_POINT_GRAPHICS
                               mesh-pipeline)
         (vk/vkCmdBindVertexBuffers command-buffer 0 1
@@ -732,15 +732,15 @@
   "Render one game packet and present it."
   [[packet game/RenderPacket]]
   (std-debug/assert initialized)
-  (let [^{:var true :zig/type :u32} image-index 0]
+  (let [^:var image-index (ak/u32 0)]
     (check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
     (check (vk/vkAcquireNextImageKHR
             device swapchain vk/VK_WHOLE_SIZE image-available null (ak/& image-index)))
     (let [render-start (vk/glfwGetTime)]
       (check (vk/vkResetFences device 1 (ak/& in-flight)))
       (record-frame image-index packet)
-      (let [^{:zig/type :u32} wait-stage
-            (ak/intCast vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+      (let [wait-stage
+            (ak/u32 (ak/intCast vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT))
             command-buffer (az/index command-buffers image-index)
             submit-info
             (vk/VkSubmitInfo

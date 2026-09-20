@@ -3,9 +3,9 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [^{:var :f32} float-value 4294967296]
+  (let [^:var float-value (ak/f32 4294967296)]
     (set! _ (ak/& float-value))
-    (let [^{:zig/type :i32} integer-value (ak/intFromFloat float-value)]
+    (let [integer-value (ak/i32 (ak/intFromFloat float-value))]
       (set! _ integer-value))))
 
 (comment

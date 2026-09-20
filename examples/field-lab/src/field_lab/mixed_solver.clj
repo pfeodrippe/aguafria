@@ -35,7 +35,7 @@
        (if (ak/== axis 2) component (az/field value z))))
 
 (az/defn inner :f64 [[left [:slice p/Vec3]] [right [:slice p/Vec3]]]
-  (let [^{:var :f64} result 0.0]
+  (let [^:var result (ak/f64 0.0)]
     (dotimes [index (az/field left len)] (ak/+= result (p/dot (az/index left index) (az/index right index))))
     result))
 
@@ -43,7 +43,7 @@
   "Lower det F bound over every element and straight coefficient interpolation.
   Nonpositive/nonfinite results are inconclusive. Connectivity must be validated
   by successful assembly before calling. No general collision detection here." [[problem [:* Problem]] [before [:slice p/Vec3]] [after [:slice p/Vec3]]]
-  (let [^{:var :f64} lower (math/inf :f64)]
+  (let [^:var lower (ak/f64 (math/inf :f64))]
     (dotimes [cell (az/field (az/field problem elements) len)]
       (let [element (az/index (az/field problem elements) cell)
             ^:var start (mem/zeroes (az/type [:array 14 p/Vec3]))
@@ -67,7 +67,7 @@
 (az/defn prepare-direction! :f64
   "Exact projected KKT residual in N. Equality supports have zero residual;
   a binding lower/upper bound suppresses only the correctly signed reaction." [[problem [:* Problem]] [workspace [:* Workspace]]]
-  (let [^{:var :f64} norm 0.0
+  (let [^:var norm (ak/f64 0.0)
         diagonal (az/field workspace diagonal)]
     (dotimes [index (az/field diagonal len)] (set! (az/index diagonal index) (p/v 0.0 0.0 0.0)))
     (dotimes [cell (az/field (az/field problem elements) len)]
@@ -118,7 +118,7 @@
         search (az/field workspace search)
         product (az/field workspace product)
         direction (az/field workspace direction)
-        ^{:var :f64} rz (inner residual search)
+        ^:var rz (ak/f64 (inner residual search))
         initial rz]
     (when (or (<= rz 0.0) (ak/! (math/isFinite rz))) (ak/return false))
     (dotimes [_ (az/field problem cg-limit)]
@@ -134,7 +134,7 @@
         (ak/+= (az/field report cg-iterations) 1)
         (when (or (<= curvature 0.0) (ak/! (math/isFinite curvature))) (ak/return false))
         (let [alpha (/ rz curvature)
-              ^{:var :f64} next-rz 0.0]
+              ^:var next-rz (ak/f64 0.0)]
           (dotimes [index (az/field direction len)]
             (az/set-many!
               (az/index direction index) (p/add (az/index direction index) (p/scale (az/index search index) alpha))
@@ -157,11 +157,11 @@
     true))
 
 (az/defn line-search! :bool [[problem [:* Problem]] [workspace [:* Workspace]] [report [:* Report]]]
-  (let [^{:var :f64} alpha 1.0
+  (let [^:var alpha (ak/f64 1.0)
         x (az/field workspace x)
         trial (az/field workspace trial)]
     (dotimes [_ 40]
-      (let [^{:var :f64} slope 0.0]
+      (let [^:var slope (ak/f64 0.0)]
         (ak/+= (az/field report line-trials) 1)
         (dotimes [index (az/field x len)]
           (dotimes [axis 3]
@@ -233,7 +233,7 @@
     (when (<= (az/field report path-lower-bound) 0.0)
       (set! (az/field report status) 2)
       (ak/return report))
-    (dotimes [iteration (+ (ak/as :usize (az/field problem iteration-limit)) 1)]
+    (dotimes [iteration (+ (ak/as (az/field problem iteration-limit) :usize) 1)]
       (set! (az/field report force-residual) (prepare-direction! problem workspace))
       (when (<= (az/field report force-residual) (az/field problem force-tolerance))
         (set! (az/field report status) 0)

@@ -115,9 +115,9 @@
 
 (az/defn create! [:* Workspace] [[assembly [:* coupled/Assembly]]]
   (let [bodies (az/field assembly bodies)
-        ^{:var :usize} nodes 0
-        ^{:var :usize} faces 0
-        ^{:var :usize} tetrahedra 0]
+        ^:var nodes (ak/usize 0)
+        ^:var faces (ak/usize 0)
+        ^:var tetrahedra (ak/usize 0)]
     (dotimes [i (az/field bodies len)]
       (let [body (az/index bodies i)
             state (az/field body state)]
@@ -129,9 +129,9 @@
           indices (fem/allocate :u32 (* 3 faces))
           cells (fem/allocate :u32 (* 4 tetrahedra))
           floor (fem/allocate :u8 nodes)
-          ^{:var :usize} offset 0
-          ^{:var :usize} face-offset 0
-          ^{:var :usize} cell-offset 0]
+          ^:var offset (ak/usize 0)
+          ^:var face-offset (ak/usize 0)
+          ^:var cell-offset (ak/usize 0)]
       (defer ((az/field heap/page_allocator free) indices))
       (defer ((az/field heap/page_allocator free) cells))
       (defer ((az/field heap/page_allocator free) floor))
@@ -235,8 +235,8 @@
         (let [state (az/field (az/index bodies body) state)
               elements (az/field (az/field state mesh) elements)
               offset (az/index (az/field workspace offsets) body)
-              ^{:var :f64} total-mass 0.0
-              ^{:var :f64} volume 0.0]
+              ^:var total-mass (ak/f64 0.0)
+              ^:var volume (ak/f64 0.0)]
           (dotimes [node (az/field (az/field state masses) len)]
             (let [mass (az/index (az/field workspace masses) (+ offset node))]
               (when (or (ak/! (math/isFinite mass)) (<= mass 0.0)) (ak/return false))
@@ -279,7 +279,7 @@
               (let [element (az/index elements element-index)
                     weight (* 0.05 density (az/field element volume))]
                 (dotimes [axis 3]
-                  (let [^{:var :f64} sum 0.0]
+                  (let [^:var sum (ak/f64 0.0)]
                     (dotimes [local 4]
                       (ak/+= sum (az/index input (+ (* 3 (+ offset (az/index (az/field element nodes) local))) axis))))
                     (dotimes [local 4]
@@ -292,8 +292,8 @@
   Diagnostic only; scratch search/product buffers are overwritten." [[workspace [:* Workspace]] [rhs [:slice :f64]]]
   (let [search (az/field workspace mass-search)
         product (az/field workspace mass-product)
-        safe (* 2.2250738585072014e-308 (ak/as :f64 (ak/floatFromInt (+ (az/field rhs len) 1))))
-        ^{:var :f64} backward-error 0.0]
+        safe (* 2.2250738585072014e-308 (ak/as (ak/floatFromInt (+ (az/field rhs len) 1)) :f64))
+        ^:var backward-error (ak/f64 0.0)]
     (dotimes [index (az/field rhs len)]
       (set! (az/index search index) (ak/abs (az/index (az/field workspace mass-solution) index))))
     (mass-product! workspace search product)
@@ -313,15 +313,15 @@
   (let [bodies (az/field (az/field workspace assembly) bodies)
         residual (az/field workspace mass-residual)
         masses (az/field workspace masses)
-        ^{:var :f64} maximum 0.0]
+        ^:var maximum (ak/f64 0.0)]
     (dotimes [body (az/field bodies len)]
       (let [state (az/field (az/index bodies body) state)
             offset (az/index (az/field workspace offsets) body)
             count (az/field (az/field state masses) len)]
         (dotimes [axis 3]
-          (let [^{:var :f64} scale 0.0
-                ^{:var :f64} rhs-squared 0.0
-                ^{:var :f64} residual-squared 0.0]
+          (let [^:var scale (ak/f64 0.0)
+                ^:var rhs-squared (ak/f64 0.0)
+                ^:var residual-squared (ak/f64 0.0)]
             (dotimes [node count]
               (let [index (+ (* 3 (+ offset node)) axis)
                     value (/ (ak/abs (az/index rhs index))
@@ -354,7 +354,7 @@
         search (az/field workspace mass-search)
         product (az/field workspace mass-product)
         masses (az/field workspace masses)
-        ^{:var :f64} rho 0.0]
+        ^:var rho (ak/f64 0.0)]
     (dotimes [index (az/field rhs len)]
       (let [value (az/index rhs index)
             preconditioned (/ value (az/index masses (ak/divTrunc index 3)))]
@@ -371,8 +371,8 @@
     (let [threshold (ak/max 1e-300 (* 1e-24 rho))]
       (dotimes [_ 64]
         (mass-product! workspace search product)
-        (let [^{:var :f64} denominator 0.0
-              ^{:var :f64} next-rho 0.0]
+        (let [^:var denominator (ak/f64 0.0)
+              ^:var next-rho (ak/f64 0.0)]
           (dotimes [index (az/field rhs len)]
             (ak/+= denominator (* (az/index search index) (az/index product index))))
           (when (or (ak/! (math/isFinite denominator)) (<= denominator 0.0)) (ak/return false))
@@ -421,7 +421,7 @@
             offset (az/index (az/field workspace offsets) body)
             count (az/field (az/field state masses) len)]
         (dotimes [axis 3]
-          (let [^{:var :f64} scale 0.0]
+          (let [^:var scale (ak/f64 0.0)]
             (dotimes [node count]
               (let [index (+ (* 3 (+ offset node)) axis)
                     value (/ (ak/abs (az/index rhs index))
@@ -460,8 +460,8 @@
             density (az/index (az/field workspace densities) body)]
         (dotimes [index (az/field elements len)]
           (let [element (az/index elements index)
-                ^{:var p/Vec3} sum (p/v 0.0 0.0 0.0)
-                ^{:var :f64} squares 0.0]
+                ^:var sum (ak/as (p/v 0.0 0.0 0.0) p/Vec3)
+                ^:var squares (ak/f64 0.0)]
             (dotimes [local 4]
               (let [velocity (dynamics/particle-velocity state (az/index (az/field element nodes) local))]
                 (set! sum (p/add sum velocity))
@@ -497,8 +497,8 @@
         scale (* duration duration)
         ^:var result (Objective {:valid false :energy 0.0 :elastic-energy 0.0 :contact-energy 0.0 :friction-energy 0.0
                                  :minimum-jacobian 1.0e300 :residual 0.0})
-        ^{:var :f64} barrier 0.0
-        ^{:var :f64} friction 0.0]
+        ^:var barrier (ak/f64 0.0)
+        ^:var friction (ak/f64 0.0)]
     (capture! workspace)
     (dotimes [body (az/field bodies len)]
       (let [observation (dynamics/elastic-objective! (az/field (az/index bodies body) state) derivatives)]
@@ -560,15 +560,15 @@
   owns symmetrization, eigenvalue clamping and reconstruction; Accelerate
   supplies its native LAPACK eigensolve. Failure leaves the input unchanged." [[values [:c-pointer :f64]]]
   (when (ak/== values null) (ak/return false))
-  (let [^{:var [:array 144 :f64]} vectors ak/undefined
-        ^{:var [:array 12 :f64]} eigenvalues ak/undefined
-        ^{:var [:array 480 :f64]} scratch ak/undefined
-        ^{:var [:array 144 :f64]} projected ak/undefined
-        ^{:var :u8} job \V
-        ^{:var :u8} triangle \U
-        ^{:var :i32} count 12
-        ^{:var :i32} scratch-count 480
-        ^{:var :i32} status 0]
+  (let [^:var vectors (ak/as ak/undefined [:array 144 :f64])
+        ^:var eigenvalues (ak/as ak/undefined [:array 12 :f64])
+        ^:var scratch (ak/as ak/undefined [:array 480 :f64])
+        ^:var projected (ak/as ak/undefined [:array 144 :f64])
+        ^:var job (ak/u8 \V)
+        ^:var triangle (ak/u8 \U)
+        ^:var count (ak/i32 12)
+        ^:var scratch-count (ak/i32 480)
+        ^:var status (ak/i32 0)]
     (dotimes [row 12]
       (dotimes [column 12]
         (let [a (az/index values (+ (* 12 row) column))
@@ -586,7 +586,7 @@
       (set! (az/index eigenvalues mode) (ak/max 0.0 (az/index eigenvalues mode))))
     (dotimes [row 12]
       (dotimes [column (+ row 1)]
-        (let [^{:var :f64} sum 0.0]
+        (let [^:var sum (ak/f64 0.0)]
           (dotimes [mode 12]
             (ak/+= sum (* (az/index vectors (+ (* 12 mode) row))
                           (az/index eigenvalues mode)
@@ -611,8 +611,8 @@
         (dotimes [element-index (az/field (az/field mesh elements) len)]
           (let [element (az/index (az/field mesh elements) element-index)
                 deformation (dynamics/deformation state element)
-                ^{:var [:array 4 :u32]} nodes ak/undefined
-                ^{:var [:array 144 :f64]} tangent ak/undefined]
+                ^:var nodes (ak/as ak/undefined [:array 4 :u32])
+                ^:var tangent (ak/as ak/undefined [:array 144 :f64])]
             (dotimes [local 4]
               (set! (az/index nodes local) (ak/intCast (+ offset (az/index (az/field element nodes) local)))))
             (dotimes [column 12]
@@ -643,7 +643,7 @@
                       (let [row (+ (* 3 row-node) axis)
                             column (+ (* 3 column-node) axis)]
                         (ak/+= (az/index tangent (+ (* 12 row) column))
-                               (* weight (ak/as :f64 (if (ak/== row-node column-node) -3.0 1.0))))))))))
+                               (* weight (ak/as (if (ak/== row-node column-node) -3.0 1.0) :f64)))))))))
             (when (ak/!= (pitoco_aguafria_variational_add_projected_element (az/field workspace handle)
                                                         (ak/& (az/index nodes 0)) (ak/& (az/index tangent 0))) 0)
               (ak/return false)))))))
@@ -711,7 +711,7 @@
 (az/defn net-contact-force p/Vec3
   "Sum forces from the contact potential, independently of momentum changes.
   Internal pair forces cancel; the remaining resultant belongs to the fixed floor." [[workspace [:* Workspace]]]
-  (let [^{:var p/Vec3} force (p/v 0.0 0.0 0.0)
+  (let [^:var force (ak/as (p/v 0.0 0.0 0.0) p/Vec3)
         gradient (az/field workspace contact-gradient)]
     (dotimes [node (ak/divTrunc (az/field gradient len) 3)]
       (let [index (* 3 node)]
@@ -752,8 +752,8 @@
                  (ak/!= (pitoco_aguafria_variational_friction_origin
                          (az/field workspace handle) (az/field (az/field workspace trial) ptr)) 0))
         (ak/return false))
-      (let [^{:var :f64} barrier 0.0
-            ^{:var :f64} friction 0.0]
+      (let [^:var barrier (ak/f64 0.0)
+            ^:var friction (ak/f64 0.0)]
         (when (ak/!= (pitoco_aguafria_variational_evaluate
                      (az/field workspace handle) (az/field (az/field workspace base) ptr)
                      clearance pressure 1 (az/field (az/field workspace contact-gradient) ptr)
@@ -835,7 +835,7 @@
         target (az/field task target)
         ^:var step-cap (az/field task step-cap)
         ^:var report (az/field task report)
-        ^{:var :u32} attempts 0]
+        ^:var attempts (ak/u32 0)]
     (defer
       (az/set-many! (az/field task step-cap) step-cap
                     (az/field task report) report))
@@ -861,8 +861,8 @@
             coefficients (time-coefficients h previous-step integration)
             effective-h (az/field coefficients effective-step)
             history-weight (az/field coefficients history-weight)
-            ^{:var :bool} converged false
-            ^{:var p/Vec3} initial-contact-force (p/v 0.0 0.0 0.0)]
+            ^:var converged (ak/bool false)
+            ^:var initial-contact-force (ak/as (p/v 0.0 0.0 0.0) p/Vec3)]
         (when (<= remaining clock-roundoff)
           (when history-ready (set! (az/field workspace history-time) target))
           (set! (az/field assembly time) target)
@@ -903,11 +903,11 @@
             (when (ak/! (newton-direction! workspace effective-h)) (set! (az/field report status) 3) (ak/break))
             (dotimes [index (az/field (az/field workspace positions) len)]
               (set! (az/index (az/field workspace iterate) index) (az/index (az/field workspace positions) index)))
-            (let [^{:var :f64} slope 0.0
+            (let [^:var slope (ak/f64 0.0)
                   ^:var alpha (pitoco_aguafria_variational_safe_step (az/field workspace handle)
                                                             (az/field (az/field workspace positions) ptr)
                                                             (az/field (az/field workspace direction) ptr))
-                  ^{:var :bool} accepted false]
+                  ^:var accepted (ak/bool false)]
               (dotimes [index (az/field (az/field workspace gradient) len)]
                 (ak/+= slope (* (az/index (az/field workspace gradient) index)
                                 (az/index (az/field workspace direction) index))))

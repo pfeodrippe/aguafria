@@ -5,9 +5,9 @@
 (az/defn foo :c_int
   {:attrs #{:export}}
   []
-  (let [^{:var :c_int} a 1]
+  (let [^:var a (ak/as 1 :c_int)]
     (set! _ (& a))
-    (let [^{:var :c_int} b 2]
+    (let [^:var b (ak/as 2 :c_int)]
       (set! _ (& b))
       (+ a b))))
 

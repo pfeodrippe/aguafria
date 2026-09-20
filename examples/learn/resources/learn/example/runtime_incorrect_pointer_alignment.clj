@@ -5,8 +5,8 @@
 
 (az/defn- read-misaligned-word :u32 [[bytes [:slice :u8]]]
   (let [four-bytes (az/slice bytes 1 5)
-        aligned-bytes (ak/as (az/type [:pointer {:size :slice :align 4} :u8])
-                             (ak/alignCast four-bytes))
+        aligned-bytes (ak/as (ak/alignCast four-bytes)
+                             (az/type [:pointer {:size :slice :align 4} :u8]))
         words (mem/bytesAsSlice :u32 aligned-bytes)]
     (az/index words 0)))
 

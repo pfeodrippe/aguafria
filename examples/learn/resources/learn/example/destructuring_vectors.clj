@@ -1,5 +1,6 @@
 (ns learn.example.destructuring-vectors
-  (:require [aguafria.std.debug :as debug]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 ;; Interleave the first two lanes from each vector (like punpckldq).
@@ -11,8 +12,8 @@
 
 (az/defn main :void
   []
-  (let [^{:zig/type [:vector 4 :f32]} left [1.0 2.0 3.0 4.0]
-        ^{:zig/type [:vector 4 :f32]} right [5.0 6.0 7.0 8.0]]
+  (let [left (ak/as [1.0 2.0 3.0 4.0] [:vector 4 :f32])
+        right (ak/as [5.0 6.0 7.0 8.0] [:vector 4 :f32])]
     (debug/print "{}" [(unpack left right)])))
 
 (comment

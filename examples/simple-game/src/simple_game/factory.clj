@@ -216,16 +216,16 @@
 (az/defn cell-index :usize
   [[x :i32]
    [y :i32]]
-  (+ (ak/as :usize (ak/intCast x))
-     (* (ak/as :usize (ak/intCast y)) grid-width)))
+  (+ (ak/as (ak/intCast x) :usize)
+     (* (ak/as (ak/intCast y) :usize) grid-width)))
 
 (az/defn valid-cell? :bool
   [[x :i32]
    [y :i32]]
   (and (>= x 0)
        (>= y 0)
-       (< x (ak/as :i32 (ak/intCast grid-width)))
-       (< y (ak/as :i32 (ak/intCast grid-height)))))
+       (< x (ak/as (ak/intCast grid-width) :i32))
+       (< y (ak/as (ak/intCast grid-height) :i32))))
 
 (az/defn register-component :u64
   [[world [:* flecs/ecs_world_t]]
@@ -344,11 +344,10 @@
                         (flecs/ecs_field_at_w_size
                          (ak/sizeOf FactoryRuntime) 1 (ak/intCast row))
                         (az/cast [:* FactoryRuntime]))
-            ^{:zig/type :f32}
-            rate (if (ak/== (az/field (az/deref building) kind)
+            rate (ak/f32 (if (ak/== (az/field (az/deref building) kind)
                             building-belt)
                    1.0
-                   0.35)]
+                   0.35))]
         (set! (az/field (az/deref runtime) progress)
               (+ (az/field (az/deref runtime) progress)
                  (* (az/field (az/index iterator 0) delta_time) rate)))
@@ -539,7 +538,7 @@
                 forward-index)
               target (ak/& (az/index cells target-index))
               target-kind (az/field (az/deref target) building)
-              ^{:var true :zig/type :bool} moved false]
+              ^:var moved (ak/bool false)]
           (cond
             (and (ak/!= target-index source-index)
                  (ak/== target-kind building-coco-house)
@@ -616,8 +615,8 @@
               (set! (az/field (az/deref cell) item_progress) 0.0)
               (set! coconuts-harvested-count (+ coconuts-harvested-count 1)))
             (move-item! index
-                        (ak/as :i32 (ak/intCast x))
-                        (ak/as :i32 (ak/intCast y))
+                        (ak/as (ak/intCast x) :i32)
+                        (ak/as (ak/intCast y) :i32)
                         fixed-step))
 
           (ak/== kind building-assembler)
@@ -632,15 +631,15 @@
                 (set! (az/field (az/deref cell) item_progress) 0.0)
                 (set! panels-produced-count (+ panels-produced-count 1))))
             (move-item! index
-                        (ak/as :i32 (ak/intCast x))
-                        (ak/as :i32 (ak/intCast y))
+                        (ak/as (ak/intCast x) :i32)
+                        (ak/as (ak/intCast y) :i32)
                         fixed-step))
 
           (and (ak/!= kind building-empty)
                (ak/!= kind building-coco-house))
           (move-item! index
-                      (ak/as :i32 (ak/intCast x))
-                      (ak/as :i32 (ak/intCast y))
+                      (ak/as (ak/intCast x) :i32)
+                      (ak/as (ak/intCast y) :i32)
                       fixed-step)))))
   (set! simulation-ticks (+ simulation-ticks 1)))
 
@@ -649,7 +648,7 @@
   [[delta-seconds :f32]]
   (when (and initialized (ak/! paused))
     (set! accumulator (+ accumulator (ak/min 0.1 (ak/max 0.0 delta-seconds))))
-    (let [^{:var true :zig/type :u8} substeps 0]
+    (let [^:var substeps (ak/u8 0)]
       (ak/while (and (>= accumulator fixed-step) (< substeps 8))
         (simulate-step!)
         (set! accumulator (- accumulator fixed-step))
@@ -664,8 +663,8 @@
         camera-z (/ (- pointer-y 250.0) 18.0)
         world-x (/ (+ camera-z camera-x) 2.0)
         world-z (/ (- camera-z camera-x) 2.0)
-        x (ak/as :i32 (ak/intFromFloat (+ (/ world-x 0.5) 11.5)))
-        y (ak/as :i32 (ak/intFromFloat (+ (/ world-z 0.5) 12.5)))]
+        x (ak/as (ak/intFromFloat (+ (/ world-x 0.5) 11.5)) :i32)
+        y (ak/as (ak/intFromFloat (+ (/ world-z 0.5) 12.5)) :i32)]
     (if (valid-cell? x y)
       (let [cell (az/index cells (cell-index x y))]
         (CellView {:valid true
@@ -767,11 +766,11 @@
     ;; A complete working line makes the first frame immediately understandable.
     (set! _ (place! 4 12 building-extractor direction-east))
     (dotimes [offset 4]
-      (set! _ (place! (+ 5 (ak/as :i32 (ak/intCast offset))) 12
+      (set! _ (place! (+ 5 (ak/as (ak/intCast offset) :i32)) 12
                        building-belt direction-east)))
     (set! _ (place! 9 12 building-assembler direction-east))
     (dotimes [offset 5]
-      (set! _ (place! (+ 10 (ak/as :i32 (ak/intCast offset))) 12
+      (set! _ (place! (+ 10 (ak/as (ak/intCast offset) :i32)) 12
                        building-belt direction-east)))
     (set! _ (place! 15 12 building-coco-house direction-east)))
   initialized)
@@ -779,11 +778,11 @@
 (az/defn snapshot FactorySnapshot
   "Inspect factory occupancy, objective progress, and stable Flecs storage."
   []
-  (let [^{:var true :zig/type :u32} buildings 0
-        ^{:var true :zig/type :u32} belts 0
-        ^{:var true :zig/type :u32} items 0
-        ^{:var true :zig/type :u32} houses-started 0
-        ^{:var true :zig/type :usize} stable-sample 0]
+  (let [^:var buildings (ak/u32 0)
+        ^:var belts (ak/u32 0)
+        ^:var items (ak/u32 0)
+        ^:var houses-started (ak/u32 0)
+        ^:var stable-sample (ak/usize 0)]
     (dotimes [index cell-count]
       (let [cell (az/index cells index)]
         (when (ak/!= (az/field cell building) building-empty)

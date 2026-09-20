@@ -236,7 +236,7 @@
         ^:var centers (Box {:lower initial :upper initial})
         ^:var buckets (mem/zeroes (az/type [:array 12 SplitBucket]))
         ^:var prefix (mem/zeroes (az/type [:array 11 SplitBucket]))
-        ^{:var :usize} axis 0]
+        ^:var axis (ak/usize 0)]
     (dotimes [offset count]
       (let [center (box-center (face-bounds surface (az/index order (+ start offset))))]
         (set! centers (union-box centers (Box {:lower center :upper center})))))
@@ -264,8 +264,8 @@
                 (ak/+= (az/field accumulated count) (az/field bucket count)))
               (set! (az/index prefix i) accumulated))))
         (let [^:var accumulated (mem/zeroes (az/type SplitBucket))
-              ^{:var :f64} minimum 1.0e300
-              ^{:var :usize} split 0]
+              ^:var minimum (ak/f64 1.0e300)
+              ^:var split (ak/usize 0)]
           (dotimes [offset 11]
             (let [i (- 11 offset)
                   bucket (az/index buckets i)
@@ -276,13 +276,13 @@
                           (union-box (az/field accumulated bounds) (az/field bucket bounds))))
                 (ak/+= (az/field accumulated count) (az/field bucket count)))
               (when (and (> (az/field left count) 0) (> (az/field accumulated count) 0))
-                (let [cost (+ (* (ak/as :f64 (ak/floatFromInt (az/field left count)))
+                (let [cost (+ (* (ak/as (ak/floatFromInt (az/field left count)) :f64)
                                  (box-area (az/field left bounds)))
-                              (* (ak/as :f64 (ak/floatFromInt (az/field accumulated count)))
+                              (* (ak/as (ak/floatFromInt (az/field accumulated count)) :f64)
                                  (box-area (az/field accumulated bounds))))]
                   (when (< cost minimum)
                     (az/set-many! minimum cost split (- i 1)))))))
-          (let [^{:var :usize} left-count 0]
+          (let [^:var left-count (ak/usize 0)]
             (dotimes [offset count]
               (let [index (+ start offset)
                     face (az/index order index)]
@@ -339,7 +339,7 @@
               (az/index cursor vertex) (+ 1 (az/index cursor vertex)))))))
     (let [order (fem/allocate :usize count)
           ^:var pending (mem/zeroes (az/type [:array 128 BuildRange]))
-          ^{:var :usize} size 1]
+          ^:var size (ak/usize 1)]
       (defer ((az/field heap/page_allocator free) order))
       (dotimes [i count] (set! (az/index order i) i))
       (set! (az/index pending 0) (BuildRange {:node 0 :parent 0 :start 0 :count count :depth 0}))
@@ -428,8 +428,8 @@
             bounds (az/field node bounds)
             base (+ 4 (* 8 i))]
         (dotimes [axis 3]
-          (let [lower (ak/as :f32 (ak/floatCast (vector-coordinate (az/field bounds lower) axis)))
-                upper (ak/as :f32 (ak/floatCast (vector-coordinate (az/field bounds upper) axis)))]
+          (let [lower (ak/as (ak/floatCast (vector-coordinate (az/field bounds lower) axis)) :f32)
+                upper (ak/as (ak/floatCast (vector-coordinate (az/field bounds upper) axis)) :f32)]
             (az/set-many!
               (az/index output (+ base axis))
               (float-word (math/nextAfter :f32 lower (- (math/inf :f32))))
@@ -460,7 +460,7 @@
         end (az/index (az/field surface offsets) (+ vertex 1))]
     (dotimes [offset (- end start)]
       (let [face (az/index (az/field surface incidents) (+ start offset))
-            ^{:var :usize} index (az/index (az/field surface leaves) face)]
+            ^:var index (ak/usize (az/index (az/field surface leaves) face))]
         (while true
           (refit-node! surface index)
           (when (ak/== index 0) (ak/break))
@@ -537,9 +537,9 @@
   [[surface [:* Surface]] [closest Closest]]
   (let [face (az/index (az/field surface faces) (az/field closest face))
         weights (az/field closest weights)
-        ^{:var :usize} positives 0
-        ^{:var :usize} first 0
-        ^{:var :usize} second 0]
+        ^:var positives (ak/usize 0)
+        ^:var first (ak/usize 0)
+        ^:var second (ak/usize 0)]
     (dotimes [local 3]
       (when (> (fem/component weights local) 0.0)
         (if (ak/== positives 0) (set! first (az/index face local)) (set! second (az/index face local)))
@@ -569,8 +569,8 @@
 
 (az/defn closest-point Closest
   [[surface [:* Surface]] [point p/Vec3]]
-  (let [^{:var [:array 64 :usize]} stack ak/undefined
-        ^{:var :usize} size 1
+  (let [^:var stack (ak/as ak/undefined [:array 64 :usize])
+        ^:var size (ak/usize 1)
         ^:var result (Closest {:point point :weights (p/v 0.0 0.0 0.0)
                               :squared-distance 1.0e300 :face 0 :signed-distance 0.0
                               :normal (p/v 0.0 0.0 0.0)})]
@@ -638,7 +638,7 @@
         vv (p/dot v v)
         ^:var result (segment-pair a u b v 0.0 0.0)]
     (dotimes [index 4]
-      (let [endpoint (ak/as :f64 (if (ak/== (mod index 2) 0) 0.0 1.0))
+      (let [endpoint (ak/as (if (ak/== (mod index 2) 0) 0.0 1.0) :f64)
             on-a (< index 2)
             offset (if on-a (p/add r (p/scale u endpoint))
                                 (p/add (p/scale r -1.0) (p/scale v endpoint)))
@@ -754,8 +754,8 @@
   Status 1 means output/work capacity; candidates still require distance tests."
   [[a [:* Surface]] [b [:* Surface]] [separation :f64] [pairs [:slice [:array 2 :u32]]]]
   (let [^:var report (FacePairsReport {:status 0 :count 0 :visits 0})
-        ^{:var [:array 128 [:array 2 :usize]]} stack ak/undefined
-        ^{:var :usize} size 1]
+        ^:var stack (ak/as ak/undefined [:array 128 [:array 2 :usize]])
+        ^:var size (ak/usize 1)]
     (set! (az/index stack 0) (az/array-init [:array 2 :usize] [0 0]))
     (while (> size 0)
       (when (>= (az/field report visits) 100000)
@@ -818,8 +818,8 @@
       (ak/return))
     (let [feature (triangle-feature (az/index (az/field (az/field a source) faces) face-a)
                                     (az/index (az/field (az/field b source) faces) face-b) index)
-          ^{:var [:array 4 p/Vec3]} start ak/undefined
-          ^{:var [:array 4 p/Vec3]} end ak/undefined]
+          ^:var start (ak/as ak/undefined [:array 4 p/Vec3])
+          ^:var end (ak/as ak/undefined [:array 4 p/Vec3])]
       (dotimes [i 4]
         (let [motion (if (az/index (az/field feature left) i) a b)
               node (az/index (az/field feature nodes) i)]
@@ -854,8 +854,8 @@
   (let [^:var report (MeshSweepResult {:status 2 :visits 0 :queries 0 :candidates 0
                                       :face-a 0 :face-b 0 :feature 0 :reserved 0
                                       :time 0.0 :achieved-tolerance 0.0})
-        ^{:var [:array 128 [:array 2 :usize]]} stack ak/undefined
-        ^{:var :usize} size 1]
+        ^:var stack (ak/as ak/undefined [:array 128 [:array 2 :usize]])
+        ^:var size (ak/usize 1)]
     (when (or (ak/! (az/field a ready)) (ak/! (az/field b ready))
               (ak/! (math/isFinite separation)) (< separation 0.0) (> separation 1.0e50)
               (ak/! (math/isFinite tolerance)) (<= tolerance 0.0)

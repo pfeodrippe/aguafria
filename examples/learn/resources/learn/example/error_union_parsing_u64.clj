@@ -13,7 +13,7 @@
 
 (az/defn parseU64 [:error-union :u64]
   [[text [:slice-const :u8]] [radix :u8]]
-  (let [^{:var :u64} accumulated 0]
+  (let [^:var accumulated (ak/u64 0)]
     (for [character text]
       (let [digit (char-to-digit character)]
         (when (>= digit radix)

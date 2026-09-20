@@ -111,7 +111,7 @@
     (dotimes [i 8]
       (set! (az/index cars i)
             (physics/create-vehicle world
-              (b3/b3Pos {:x 0.0 :y (* (ak/as :f32 (ak/floatFromInt i)) 6.0) :z 0.70}) 0.0)))
+              (b3/b3Pos {:x 0.0 :y (* (ak/as (ak/floatFromInt i) :f32) 6.0) :z 0.70}) 0.0)))
     (dotimes [_ physics/step-rate] (physics/step! world))
     (let [started (b3/b3GetTicks)
           ^{:var :f32} speed 0.0
@@ -207,8 +207,8 @@
              (+ (ak/abs (- (az/field still x) (az/field untouched x)))
                 (ak/abs (- (az/field still z) (az/field untouched z))))
              (az/field endcap z) (az/field endcap vz)
-             (ak/as :f32 (ak/floatFromInt (az/field state-a count)))
-             (ak/as :f32 (ak/floatFromInt (az/field state-b count)))]))))))
+             (ak/as (ak/floatFromInt (az/field state-a count)) :f32)
+             (ak/as (ak/floatFromInt (az/field state-b count)) :f32)]))))))
 
 (deftest tire-lifecycle-test
   (let [[height vz travel other-world-change cap-height cap-vz count-a count-b :as result]
@@ -234,7 +234,7 @@
         center (b3/b3Pos {:x (* -0.5 (az/field normal x)) :y 0.0
                           :z (* -0.5 (az/field normal z))})
         ground (physics/create-ground world center
-                 (b3/b3Vec3 {:x (if finite? (ak/as :f32 3.0) 200.0) :y 20.0 :z 0.5}) 0.0)]
+                 (b3/b3Vec3 {:x (if finite? (ak/as 3.0 :f32) 200.0) :y 20.0 :z 0.5}) 0.0)]
     (ak/defer (physics/destroy-world! world))
     (b3/b3DestroyBody (az/field car chassis))
     (dotimes [i 3] (b3/b3DestroyBody (az/index (az/field car wheels) (+ i 1))))
@@ -276,8 +276,8 @@
   (let [world (physics/create-world -9.81)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.7}) 0.0)
         wall (physics/create-box world
-               (b3/b3Pos {:x 18.0 :y (if offset? (ak/as :f32 1.16) 0.0) :z 1.0})
-               (b3/b3Vec3 {:x 0.3 :y (if offset? (ak/as :f32 0.10) 20.0) :z 1.0}) 0.0 0.0)
+               (b3/b3Pos {:x 18.0 :y (if offset? (ak/as 1.16 :f32) 0.0) :z 1.0})
+               (b3/b3Vec3 {:x 0.3 :y (if offset? (ak/as 0.10 :f32) 20.0) :z 1.0}) 0.0 0.0)
         ^{:var :f32} tire-hits 0.0
         ^{:var :f32} maximum-speed 0.0
         ^{:var :f32} maximum-x 0.0]
@@ -352,10 +352,10 @@
           (ak/+= left-torque (b3/b3WheelJoint_GetSpinTorque left))
           (ak/+= right-torque (b3/b3WheelJoint_GetSpinTorque right)))
         (let [state (physics/body-state (az/field car chassis))
-              count (ak/as :f32 (ak/floatFromInt physics/step-rate))]
+              count (ak/as (ak/floatFromInt physics/step-rate) :f32)]
           (set! (az/index result second)
                 (az/array-init [:array 8 :f32]
-                  [(ak/as :f32 (ak/floatFromInt (+ second 1)))
+                  [(ak/as (ak/floatFromInt (+ second 1)) :f32)
                    (az/field state vx) (az/field state vy)
                    (/ left-torque count) (/ right-torque count)
                    (b3/b3WheelJoint_GetSpinSpeed left)
@@ -420,7 +420,7 @@
   Modes4/5/6/7 use allowances1/2/4/12rad/s respectively.
   All modes retain the same torque/power bounds and production aero forces.
   No body position, velocity, or rotation is assigned." [[car physics/Vehicle] [mode :u8]]
-  (physics/drive! car (if (ak/== mode 0) (ak/as :f32 1.0) 0.0) 0.0 0.0)
+  (physics/drive! car (if (ak/== mode 0) (ak/as 1.0 :f32) 0.0) 0.0 0.0)
   (when (> mode 0)
     (let [chassis (az/field car chassis)
           forward (b3/b3RotateVector (b3/b3Body_GetRotation chassis)
@@ -434,7 +434,7 @@
                        (ak/min physics/rear-wheel-torque-nm
                          (/ physics/engine-power-watts
                             (* 2.0 (ak/max 10.0 (ak/abs spin)))))
-                       (ak/as :f32 0.0))]
+                       (ak/as 0.0 :f32))]
           (if (ak/== mode 2)
             (let [axis (b3/b3RotateVector (b3/b3Body_GetRotation wheel)
                          (b3/b3Vec3 {:x 0.0 :y 1.0 :z 0.0}))
@@ -457,7 +457,7 @@
                         (ak/== mode 6) 4.0 (ak/== mode 7) 12.0 :else 32.0)]
               (b3/b3WheelJoint_SetMaxSpinTorque joint torque)
               (b3/b3WheelJoint_SetSpinMotorSpeed joint
-                (if (ak/== mode 3) (ak/as :f32 260.0)
+                (if (ak/== mode 3) (ak/as 260.0 :f32)
                   (ak/min 260.0 (+ (ak/max 0.0 (/ speed radius)) allowance)))))))))))
 
 (az/defn diagnostic-tire-shape! :void
@@ -491,7 +491,7 @@
             (ak/== shape-kind 3)
             (let [^:var vertices (mem/zeroes (az/type [:array 84 b3/b3Vec3]))]
               (dotimes [part 42]
-                (let [angle (* 6.28318530718 (/ (ak/as :f32 (ak/floatFromInt part)) 42.0))
+                (let [angle (* 6.28318530718 (/ (ak/as (ak/floatFromInt part) :f32) 42.0))
                       x (* radius (ak/cos angle))
                       z (* radius (ak/sin angle))]
                   (set! (az/index vertices (* 2 part))
@@ -506,9 +506,9 @@
             (let [^:var vertices (mem/zeroes (az/type [:array 72 b3/b3Vec3]))]
               (dotimes [ring 3]
                 (dotimes [part 24]
-                  (let [angle (* 6.28318530718 (/ (ak/as :f32 (ak/floatFromInt part)) 24.0))
+                  (let [angle (* 6.28318530718 (/ (ak/as (ak/floatFromInt part) :f32) 24.0))
                         r (if (ak/== ring 1) radius (- radius 0.03))
-                        y (* (- (ak/as :f32 (ak/floatFromInt ring)) 1.0) half-width)]
+                        y (* (- (ak/as (ak/floatFromInt ring) :f32) 1.0) half-width)]
                     (set! (az/index vertices (+ (* ring 24) part))
                       (b3/b3Vec3 {:x (* r (ak/cos angle)) :y y :z (* r (ak/sin angle))})))))
               (let [hull (b3/b3CreateHull (ak/& vertices) 72 72)]
@@ -517,7 +517,7 @@
 
             :else
             (dotimes [part 32]
-              (let [angle (* 6.28318530718 (/ (ak/as :f32 (ak/floatFromInt part)) 32.0))
+              (let [angle (* 6.28318530718 (/ (ak/as (ak/floatFromInt part) :f32) 32.0))
                     centre-radius (- radius half-width)
                     sphere (b3/b3Sphere
                              {:center {:x (* centre-radius (ak/cos angle))
@@ -543,7 +543,7 @@
         inverse-inertia (b3/b3Body_GetWorldInverseRotationalInertia wheel)]
     (when (> radial-length 0.05)
       (dotimes [edge 2]
-        (let [side (* half-width (if (ak/== edge 0) (ak/as :f32 -1.0) 1.0))
+        (let [side (* half-width (if (ak/== edge 0) (ak/as -1.0 :f32) 1.0))
               r (b3/b3Vec3
                   {:x (+ (* (/ radius radial-length) (- (* vertical (az/field axis x)) (az/field surface-normal x))) (* side (az/field axis x)))
                    :y (+ (* (/ radius radial-length) (- (* vertical (az/field axis y)) (az/field surface-normal y))) (* side (az/field axis y)))
@@ -562,7 +562,7 @@
               normal (if (> penetration 0.0)
                        (ak/max 0.0 (- (* edge-mass frequency frequency penetration)
                                        (* 2.0 edge-mass frequency normal-speed)))
-                       (ak/as :f32 0.0))
+                       (ak/as 0.0 :f32))
               slip (ak/sqrt (b3/b3Dot tangent tangent))
               direction (b3/b3MulSV (/ 1.0 (ak/max slip 0.000001)) tangent)
               arm (b3/b3Cross r direction)
@@ -657,7 +657,7 @@
                     indices (b3/b3GetMeshMaterialIndices (az/field mesh data))]
                 (when (ak/!= indices ak/null)
                   (set! material (b3/b3Shape_GetMeshSurfaceMaterial shape
-                    (az/index indices (ak/as :usize (ak/intCast (az/field hit triangleIndex)))))))))
+                    (az/index indices (ak/as (ak/intCast (az/field hit triangleIndex)) :usize)))))))
             (tread-plane-contact-probe! wheel radius (* 0.5 (az/index dimensions 4))
               (az/field hit normal) (az/field hit point) (az/field material friction))))))))
 
@@ -693,7 +693,7 @@
                  (b3/b3Vec3 {:x 0.0 :y 0.0 :z 1.0}))]
         (set! (az/index rows second)
           (az/array-init [:array 10 :f32]
-            [(ak/as :f32 (ak/floatFromInt (+ second 1)))
+            [(ak/as (ak/floatFromInt (+ second 1)) :f32)
              (az/field state vx) (az/field state vy)
              (az/field state x) (az/field state y) (az/field state z)
              (az/field up z) (az/field state wz)
@@ -759,7 +759,7 @@
         (let [state (physics/body-state wheel)]
           (set! (az/index rows second)
             (az/array-init [:array 8 :f32]
-              [(ak/as :f32 (ak/floatFromInt second))
+              [(ak/as (ak/floatFromInt second) :f32)
                (az/field state vx) (az/field state vy) (az/field state wy)
                (az/field state z) (az/field state y)
                (az/field state wx) (az/field state wz)]))))
@@ -767,7 +767,7 @@
 
 (az/defn free-rolling-tire-trace [:array 11 [:array 8 :f32]]
   "Original cylinder/sphere control comparison; shape2 is the analytic probe." [[sphere? :bool] [initial-speed :f32]]
-  (free-rolling-contact-trace (if sphere? (ak/as :u8 1) 0) initial-speed))
+  (free-rolling-contact-trace (if sphere? (ak/as 1 :u8) 0) initial-speed))
 
 (az/defn vehicle-contact-probe VehicleResult [[steering :f32] [analytic? :bool]]
   (let [world (physics/create-world -9.81)

@@ -34,7 +34,7 @@
   (when (ak/! (mem/eql :u8 (mem/span command) "rewind")) (ak/return 3))
   (let [request (sdk/PitocoCommandV1 {:abi_version 1 :struct_size (ak/sizeOf sdk/PitocoCommandV1)
                                       :operation 1 :reserved 0 :integer 0 :text null})
-        ^{:var :u64} ticket 0
+        ^:var ticket (ak/u64 0)
         submit (az/unwrap (az/field (az/unwrap host) submit))
         result (submit (ak/& request) (ak/& ticket))]
     (if (ak/== result 1) 0 result)))

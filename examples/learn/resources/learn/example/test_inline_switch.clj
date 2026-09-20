@@ -18,7 +18,7 @@
    [:b [:optional :u32]]])
 
 (az/deftest runtime-index-type-info-test
-  (let [^{:var :usize} index 0]
+  (let [^:var index (ak/usize 0)]
     (try (testing/expect (ak/! (try (field-optional? Struct1 index)))))
     (ak/+= index 1)
     (try (testing/expect (try (field-optional? Struct1 index))))

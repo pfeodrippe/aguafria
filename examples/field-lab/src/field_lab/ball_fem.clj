@@ -39,7 +39,7 @@
   [[body soft/Body] [config p/Config] [young :f64]]
   (let [parameters (elastic/material young poisson)
         origin (az/index (az/field body positions) 0)
-        ^{:var :f64} total 0.0]
+        ^:var total (ak/f64 0.0)]
     (dotimes [index soft/face-count]
       (let [element (reference-element index (az/field config radius))
             ^:var gradient (elastic/zero)]
@@ -60,7 +60,7 @@
 
 (az/defn read-body soft/Body
   [[state [:* dynamics/Dynamics]]]
-  (let [^{:var soft/Body} body ak/undefined]
+  (let [^:var body (ak/as ak/undefined soft/Body)]
     (dotimes [node soft/particle-count]
       (az/set-many!
         (az/index (az/field body positions) node) (dynamics/position state node)
@@ -78,12 +78,12 @@
 
 (az/defn advance Result
   [[input soft/Sample] [config p/Config] [active :u32] [young :f64] [dt :f64]]
-  (let [^{:var [:array 3 [:* fem/Model]]} models ak/undefined
-        ^{:var [:array 3 [:* dynamics/Dynamics]]} states ak/undefined
+  (let [^:var models (ak/as ak/undefined [:array 3 [:* fem/Model]])
+        ^:var states (ak/as ak/undefined [:array 3 [:* dynamics/Dynamics]])
         ^:var result (Result {:sample input :completed false :substeps 0 :minimum-jacobian 1.0})
         radius (az/field config radius)
         density (/ (az/field config mass) (* mesh/unit-volume radius radius radius))
-        ^{:var :f64} time 0.0]
+        ^:var time (ak/f64 0.0)]
     (dotimes [body active]
       (let [model (fem/create! soft/particle-count soft/face-count young poisson)]
         (set! (az/index models body) model)
@@ -103,8 +103,8 @@
         (dynamics/destroy! (az/index states body))
         (fem/destroy! (az/index models body))))
     (while (< time dt)
-      (let [^{:var :f64} h (ak/min (- dt time) 0.0001)
-            ^{:var :bool} accepted false]
+      (let [^:var h (ak/f64 (ak/min (- dt time) 0.0001))
+            ^:var accepted (ak/bool false)]
         (dotimes [body active]
           (let [state (az/index states body)
                 observation (dynamics/evaluate! state)]

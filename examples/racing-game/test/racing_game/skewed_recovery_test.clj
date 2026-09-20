@@ -86,7 +86,7 @@
         (set! (az/index bodies 0) body)
         (set! (az/index bodies 1) other-body)
         (set! state (az/field output state))
-        (set! phases (ak/| phases (ak/<< (ak/as :u8 1) (ak/intCast (az/field state phase)))))
+        (set! phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (az/field state phase)))))
         (set! lane (ak/max lane (ak/abs (az/field normal lane))))
         (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                                             (* (az/field body qy) (az/field body qy)))))))
@@ -104,7 +104,7 @@
     (let [final (driver/follow car 8.0 -3.75)]
       (az/array-init [:array 6 :f32]
         [(* 4309.0 (- (az/field final progress) start)) lane up reverse-travel
-         (ak/as :f32 (ak/floatFromInt phases)) (az/field final speed)]))))
+         (ak/as (ak/floatFromInt phases) :f32) (az/field final speed)]))))
 
 (deftest skewed-wreck-clearance-test
   (let [[forward lane up reverse-distance phases speed]

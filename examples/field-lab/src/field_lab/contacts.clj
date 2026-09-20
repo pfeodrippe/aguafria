@@ -70,7 +70,7 @@
   Floor collisions use the single-ball CCD solver. Pair contacts are discrete."
   [[input Sample] [config p/Config] [body-count :u32] [dt :f64]]
   (let [^:var result input
-        ^{:var [:array 3 :f64]} floor-impulses [0.0 0.0 0.0]
+        ^:var floor-impulses (ak/as [0.0 0.0 0.0] [:array 3 :f64])
         step (/ dt 8.0)]
     (dotimes [_ 8]
       (dotimes [i body-count]

@@ -91,7 +91,7 @@
   "Control-worker only. Owned devices that unexpectedly stopped: capture=1,
    FX source/send=2, monitor=4, input check=8. Never probes uninitialized storage." []
   (let [stopped (az/field api ma_device_state_stopped)
-        ^{:var :u32} result 0]
+        ^:var result (ak/u32 0)]
     (when (and running
                (ak/== ((az/field api ma_device_get_state) (ak/& device)) stopped))
       (set! result (| result 1)))
@@ -108,7 +108,7 @@
 
 (az/defn process-input-check! :void
   [[input [:c-pointer :f32]] [frames :u32]]
-  (let [^{:var :f32} peak 0.0]
+  (let [^:var peak (ak/f32 0.0)]
     (when (ak/!= input ak/null)
       (dotimes [i frames]
         (dotimes [channel 2]
@@ -116,7 +116,7 @@
                                          input-check-offset channel))]
             (when (< (ak/abs sample) 100.0)
               (set! peak (ak/max peak (ak/abs sample))))))))
-    (let [value (ak/as :u32 (ak/intFromFloat (* 1000000.0 (ak/min peak 1.0))))]
+    (let [value (ak/as (ak/intFromFloat (* 1000000.0 (ak/min peak 1.0))) :u32)]
       (ak/atomicStore :u32 (ak/& input-check-peak) value :.release)
       (when (> value (ak/atomicLoad :u32 (ak/& input-check-held) :.acquire))
         (ak/atomicStore :u32 (ak/& input-check-held) value :.release)))
@@ -164,7 +164,7 @@
   true)
 
 (az/defn update-signal-level! :void [[input? :bool] [peak :f32]]
-  (let [value (ak/as :u32 (ak/intFromFloat (* 1000000.0 (ak/min 1.0 (ak/max 0.0 peak)))))
+  (let [value (ak/as (ak/intFromFloat (* 1000000.0 (ak/min 1.0 (ak/max 0.0 peak)))) :u32)
         current (if input? (ak/& input-peak-ppm) (ak/& return-peak-ppm))
         held (if input? (ak/& input-held-ppm) (ak/& return-held-ppm))]
     (ak/atomicStore :u32 current value :.release)
@@ -177,7 +177,7 @@
                   (if held? (ak/& input-check-held) (ak/& input-check-peak))
                   (if held? (ak/& input-held-ppm) (ak/& input-peak-ppm)))
                 (if held? (ak/& return-held-ppm) (ak/& return-peak-ppm)))]
-    (* 0.000001 (ak/as :f32 (ak/floatFromInt (ak/atomicLoad :u32 value :.acquire))))))
+    (* 0.000001 (ak/as (ak/floatFromInt (ak/atomicLoad :u32 value :.acquire)) :f32))))
 
 (az/defn meter-input! :void [[value :f32]]
   (when (ak/! (< (ak/abs value) 1.0)) (ak/atomicStore :u8 (ak/& clipped) 1 :.release)))
@@ -194,8 +194,8 @@
 (az/defn process-monitor! :void
   [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
   (when (ak/== output ak/null) (ak/return))
-  (let [gain (* 0.01 (ak/as :f32 (ak/floatFromInt (ak/min 50 (ak/atomicLoad :u32 (ak/& monitor-gain) :.acquire)))))
-        ^{:var :f32} peak 0.0]
+  (let [gain (* 0.01 (ak/as (ak/floatFromInt (ak/min 50 (ak/atomicLoad :u32 (ak/& monitor-gain) :.acquire))) :f32))
+        ^:var peak (ak/f32 0.0)]
     (dotimes [i frames]
       (dotimes [c 2]
         (let [v (if (ak/== input ak/null) 0.0 (az/index input (+ (* i 16) 2 c)))]
@@ -248,8 +248,8 @@
     (ak/return))
   (let [start (ak/atomicLoad :u64 (ak/& source-frames) :.monotonic)
         stopping (ak/!= (ak/atomicLoad :u8 (ak/& source-stop) :.acquire) 0)
-        count (if stopping (ak/as :u64 0) (ak/min (ak/as :u64 frames) (- max-frames live-tail start)))
-        ^{:var :f32} peak 0.0]
+        count (if stopping (ak/as 0 :u64) (ak/min (ak/as frames :u64) (- max-frames live-tail start)))
+        ^:var peak (ak/f32 0.0)]
     (dotimes [i frames]
       (when (ak/!= output ak/null)
         (dotimes [channel 16] (set! (az/index output (+ (* i 16) channel)) 0.0)))
@@ -289,16 +289,16 @@
   (set! measured-frames 0) (set! measured-peak 0.0)
   (let [config ((az/field api ma_decoder_config_init) (az/field api ma_format_f32) 2 48000)
         ^:var decoder (mem/zeroes (az/type Decoder))
-        ^{:var :u64} length 0
-        ^{:var [:array 4096 :f32]} samples ak/undefined]
+        ^:var length (ak/u64 0)
+        ^:var samples (ak/as ak/undefined [:array 4096 :f32])]
     (when (ak/!= ((az/field api ma_decoder_init_file) (ak/& path-buffer) (ak/& config) (ak/& decoder)) 0)
       (ak/return false))
     (ak/defer (set! _ ((az/field api ma_decoder_uninit) (ak/& decoder))))
     (when (or (ak/!= ((az/field api ma_decoder_get_length_in_pcm_frames) (ak/& decoder) (ak/& length)) 0)
               (ak/== length 0) (> length max-frames)) (ak/return false))
     (ak/while (< measured-frames length)
-      (let [^{:var :u64} read 0
-            wanted (ak/min (ak/as :u64 2048) (- length measured-frames))]
+      (let [^:var read (ak/u64 0)
+            wanted (ak/min (ak/as 2048 :u64) (- length measured-frames))]
         (set! _ ((az/field api ma_decoder_read_pcm_frames) (ak/& decoder) (ak/& samples) wanted (ak/& read)))
         (when (ak/!= read wanted) (ak/return false))
         (dotimes [i (* read 2)]
@@ -330,12 +330,12 @@
 (az/defn device-name [:slice-const :u8] [[capture :bool] [index :u32]]
   (when (or (ak/! initialized) (>= index (if capture capture-count playback-count))) (ak/return ""))
   (let [info (if capture (az/index capture-info index) (az/index playback-info index))
-        ^{:var :usize} length 0]
+        ^:var length (ak/usize 0)]
     (ak/while (and (< length 256) (ak/!= (az/index (az/field info name) length) 0))
       (set! length (+ length 1)))
     ;; Return the context-owned array, not the local struct copy.
-    (let [^{:zig/type [:* DeviceInfo]} entry
-          (ak/ptrCast (az/unwrap (ak/as (az/type [:c-pointer DeviceInfo]) (ak/& (az/index (if capture capture-info playback-info) index)))))]
+    (let [entry
+          (ak/as (ak/ptrCast (az/unwrap (ak/as (ak/& (az/index (if capture capture-info playback-info) index)) (az/type [:c-pointer DeviceInfo])))) [:* DeviceInfo])]
       (az/slice (az/field entry name) 0 length))))
 
 (az/defn process-block! :void
@@ -344,8 +344,8 @@
     (silence-preparing-output! output frames)
     (ak/return))
   (let [start (ak/atomicLoad :u64 (ak/& recorded-frames) :.monotonic)
-        ^{:var :f32} peak 0.0
-        ^{:var :f32} sent-peak 0.0]
+        ^:var peak (ak/f32 0.0)
+        ^:var sent-peak (ak/f32 0.0)]
     (when (and (ak/== mode 3) (ak/! tail-started)
                (ak/!= (ak/atomicLoad :u8 (ak/& source-ended) :.acquire) 0))
       (set! tail-started true) (set! limit-frames (ak/min max-frames (+ start live-tail))))
@@ -361,8 +361,8 @@
         (when (< position limit-frames)
           (dotimes [channel 2]
             (let [value (if (ak/== input ak/null) 0.0
-                          (az/index input (+ (* i (if (>= mode 2) (ak/as :usize 16) 2))
-                                             (if (>= mode 2) (ak/as :usize 2) 0) channel)))]
+                          (az/index input (+ (* i (if (>= mode 2) (ak/as 16 :usize) 2))
+                                             (if (>= mode 2) (ak/as 2 :usize) 0) channel)))]
               (when (ak/== mode 1) (set! (az/index dry (+ (* position 2) channel)) value))
               (when (>= mode 2) (set! (az/index wet (+ (* position 2) channel)) value))
               (meter-input! value)
@@ -480,7 +480,7 @@
   (set! dry-frames 0)
   (let [^:var config ((az/field api ma_decoder_config_init) (az/field api ma_format_f32) 2 48000)
         ^:var decoder (mem/zeroes (az/type Decoder))
-        ^{:var :u64} length 0]
+        ^:var length (ak/u64 0)]
     (when (ak/!= ((az/field api ma_decoder_init_file) (ak/& path-buffer) (ak/& config) (ak/& decoder)) 0)
       (ak/return false))
     (ak/defer (set! _ ((az/field api ma_decoder_uninit) (ak/& decoder))))
@@ -494,7 +494,7 @@
   (let [frames (if processed (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire) dry-frames)
         ^:var config ((az/field api ma_encoder_config_init) (az/field api ma_encoding_format_wav)
                         (az/field api ma_format_f32) 2 48000)
-        ^:var encoder (mem/zeroes (az/type Encoder)) ^{:var :u64} written 0]
+        ^:var encoder (mem/zeroes (az/type Encoder)) ^:var written (ak/u64 0)]
     (when (or (ak/== frames 0) (> frames max-frames) (and processed (< mode 2))) (ak/return false))
     (when (ak/!= ((az/field api ma_encoder_init_file) (ak/& path-buffer) (ak/& config) (ak/& encoder)) 0)
       (ak/return false))
@@ -533,7 +533,7 @@
         start (/ (* frames bin) 128)
         end (/ (* frames (+ bin 1)) 128)
         step (ak/max 1 (/ (- end start) 64))
-        ^{:var :f32} peak 0.0 ^:var i start]
+        ^:var peak (ak/f32 0.0) ^:var i start]
     (ak/while (< i end)
       (set! peak (ak/max peak (ak/abs (az/index (if processed wet dry) (* i 2)))))
       (set! i (+ i step)))
@@ -546,8 +546,8 @@
 (az/defn routing-test! :bool
   "No device/microphone: test channel isolation, tail silence and frame bounds." []
   (when running (ak/return false))
-  (let [^{:var [:array 64 :f32]} input (mem/zeroes (az/type [:array 64 :f32]))
-        ^{:var [:array 64 :f32]} output ak/undefined]
+  (let [^:var input (ak/as (mem/zeroes (az/type [:array 64 :f32])) [:array 64 :f32])
+        ^:var output (ak/as ak/undefined [:array 64 :f32])]
     (set! mode 2) (set! dry-frames 2) (set! limit-frames 3)
     (set! (az/index dry 0) 0.1) (set! (az/index dry 1) 0.2)
     (set! (az/index dry 2) 0.3) (set! (az/index dry 3) 0.4)
@@ -570,8 +570,8 @@
 (az/defn live-routing-test! :bool
   "Offline live callbacks: distinct buses, dry retention, stop silence, bounded return tail." []
   (when (or running source-running) (ak/return false))
-  (let [^{:var [:array 64 :f32]} input (mem/zeroes (az/type [:array 64 :f32]))
-        ^{:var [:array 64 :f32]} output ak/undefined]
+  (let [^:var input (ak/as (mem/zeroes (az/type [:array 64 :f32])) [:array 64 :f32])
+        ^:var output (ak/as ak/undefined [:array 64 :f32])]
     (set! mode 3) (set! source-channels 16) (set! source-offset 4)
     (set! live-tail 2) (set! limit-frames max-frames) (set! tail-started false)
     (ak/atomicStore :u64 (ak/& source-frames) 0 :.release)
@@ -594,7 +594,7 @@
                 (ak/!= (az/index wet (+ (* i 2) 1)) 0.25)) (ak/return false))
       (dotimes [channel 16]
         (when (ak/!= (az/index output (+ (* i 16) channel))
-                    (ak/as :f32 (if (ak/== channel 0) 0.5 (if (ak/== channel 1) 0.75 0.0))))
+                    (ak/as (if (ak/== channel 0) 0.5 (if (ak/== channel 1) 0.75 0.0)) :f32))
           (ak/return false))))
     (finish-live!)
     (process-source! (ak/& output) (ak/& input) 4)

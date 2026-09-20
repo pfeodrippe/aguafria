@@ -277,7 +277,7 @@
     (let [center (p/scale (p/add lower upper) 0.5)
           first-point (az/index rest (az/index (az/index faces 0) 0))
           radius (p/length (p/add first-point (p/scale center -1.0)))
-          ^{:var :f64} inner-radius radius]
+          ^:var inner-radius (ak/f64 radius)]
       (when (<= radius 1.0e-9) (ak/return null))
       (dotimes [index (az/field faces len)]
         (let [face (az/index faces index)
@@ -299,22 +299,22 @@
             (dotimes [node (az/field rest len)]
               (when (> (p/dot unit (p/add (az/index rest node) (p/scale a -1.0))) (* radius 1.0e-10))
                 (ak/return null))))))
-      (let [^{:zig/type :usize} longitude 48
-            ^{:zig/type :usize} latitude 24
+      (let [longitude (ak/usize 48)
+            latitude (ak/usize 24)
             count (+ 2 (* longitude (- latitude 1)))
             face-count (* 2 longitude (- latitude 1))
             render (create! source count face-count)
             display-radius (* inner-radius 0.999)
-            ^{:var :usize} written 0]
+            ^:var written (ak/usize 0)]
         (when (ak/! (bind! render source 0 (p/add center (p/v 0.0 display-radius 0.0))))
           (destroy! render)
           (ak/return null))
         (dotimes [ring (- latitude 1)]
-          (let [theta (/ (* math/pi (ak/as :f64 (ak/floatFromInt (+ ring 1))))
-                         (ak/as :f64 (ak/floatFromInt latitude)))]
+          (let [theta (/ (* math/pi (ak/as (ak/floatFromInt (+ ring 1)) :f64))
+                         (ak/as (ak/floatFromInt latitude) :f64))]
             (dotimes [column longitude]
-              (let [phi (/ (* 2.0 math/pi (ak/as :f64 (ak/floatFromInt column)))
-                           (ak/as :f64 (ak/floatFromInt longitude)))
+              (let [phi (/ (* 2.0 math/pi (ak/as (ak/floatFromInt column) :f64))
+                           (ak/as (ak/floatFromInt longitude) :f64))
                     point (p/add center (p/scale (p/v (* (ak/sin theta) (ak/cos phi))
                                                      (ak/cos theta)
                                                      (* (ak/sin theta) (ak/sin phi))) display-radius))]

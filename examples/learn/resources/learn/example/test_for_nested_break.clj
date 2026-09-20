@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest nested-break-test
-  (let [^{:var :usize} count 0]
+  (let [^:var count (ak/usize 0)]
     (az/for-loop {:label outer} [_ (az/op ".." 1 6)]
       (for [_ (az/op ".." 1 6)]
         (ak/+= count 1)
@@ -12,7 +12,7 @@
     (try (testing/expectEqual 1 count))))
 
 (az/deftest nested-continue-test
-  (let [^{:var :usize} count 0]
+  (let [^:var count (ak/usize 0)]
     (az/for-loop {:label outer} [_ (az/op ".." 1 9)]
       (for [_ (az/op ".." 1 6)]
         (ak/+= count 1)

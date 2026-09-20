@@ -324,8 +324,8 @@
     (sim/step-many! 360)
     (az/array-init [:array 3 :f32]
       [(* 1000.0 (az/field (sim/racer-view 0) speed))
-       (ak/as :f32 (ak/floatFromInt (az/field (sim/racer-view 0) finish_tick)))
-       (ak/as :f32 (ak/floatFromInt (az/field (sim/snapshot) state)))])))
+       (ak/as (ak/floatFromInt (az/field (sim/racer-view 0) finish_tick)) :f32)
+       (ak/as (ak/floatFromInt (az/field (sim/snapshot) state)) :f32)])))
 
 (deftest finishers-clear-the-line-under-wheel-power-test
   (worker/stop!)
@@ -341,7 +341,7 @@
   (ak/defer (sim/shutdown!))
   (dotimes [i sim/racer-count]
     (let [racer (sim/racer-pointer i)]
-      (set! (az/field (az/deref racer) progress) (* 0.1 (ak/as :f32 (ak/floatFromInt i))))
+      (set! (az/field (az/deref racer) progress) (* 0.1 (ak/as (ak/floatFromInt i) :f32)))
       (set! (az/field (az/deref racer) lane) 0.0)
       (set! (az/field (az/deref racer) speed) 0.0)
       (set! (az/field (az/deref racer) stun_seconds) 0.0)
