@@ -130,6 +130,100 @@ const __aguafria_jvm = struct {
         }
     }
 
+    // Inspection follows value fields, never arbitrary pointers. Envelopes keep
+    // field names distinct from user maps and preserve anonymous/generic types.
+    fn inspect(writer: *std.Io.Writer, value: anytype) !void {
+        const T = @TypeOf(value);
+        switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                try writer.writeAll(if (info.is_tuple) "[" else "{:aguafria.jvm/struct [");
+                inline for (info.fields) |field| {
+                    if (!info.is_tuple) {
+                        try writer.writeByte('[');
+                        try write(writer, @as([]const u8, field.name));
+                        try writer.writeByte(' ');
+                    }
+                    try inspect(writer, @field(value, field.name));
+                    try writer.writeAll(if (info.is_tuple) " " else "] ");
+                }
+                try writer.writeAll(if (info.is_tuple) "]" else "]}");
+            },
+            .pointer => |pointer| {
+                if (pointer.size == .slice) {
+                    if (pointer.child == u8) {
+                        try write(writer, value);
+                    } else {
+                        try writer.writeByte('[');
+                        for (value) |item| {
+                            try inspect(writer, item);
+                            try writer.writeByte(' ');
+                        }
+                        try writer.writeByte(']');
+                    }
+                } else {
+                    try writer.writeAll("{:aguafria.jvm/pointer {:address ");
+                    try write(writer, @intFromPtr(value));
+                    try writer.writeAll(" :type ");
+                    try write(writer, @as([]const u8, @typeName(T)));
+                    try writer.writeAll("}}");
+                }
+            },
+            .array, .vector => {
+                const length = if (@typeInfo(T) == .array) @typeInfo(T).array.len else @typeInfo(T).vector.len;
+                try writer.writeByte('[');
+                inline for (0..length) |index| {
+                    try inspect(writer, value[index]);
+                    try writer.writeByte(' ');
+                }
+                try writer.writeByte(']');
+            },
+            .optional => if (value) |payload| try inspect(writer, payload) else try writer.writeAll("nil"),
+            .error_union => {
+                if (value) |payload| {
+                    try writer.writeAll("{:ok ");
+                    try inspect(writer, payload);
+                    try writer.writeByte('}');
+                } else |err| {
+                    try writer.writeAll("{:error {:name ");
+                    try write(writer, @errorName(err));
+                    try writer.writeAll("}}");
+                }
+            },
+            .@"enum" => {
+                try writer.writeAll("{:aguafria.jvm/enum ");
+                try write(writer, @tagName(value));
+                try writer.writeByte('}');
+            },
+            .@"union" => |info| {
+                if (info.tag_type != null) {
+                    switch (value) {
+                        inline else => |payload, tag| {
+                            try writer.writeAll("{:aguafria.jvm/struct [[");
+                            try write(writer, @tagName(tag));
+                            try writer.writeByte(' ');
+                            try inspect(writer, payload);
+                            try writer.writeAll("]]}");
+                        },
+                    }
+                } else {
+                    // Untagged unions have no safely discoverable active field.
+                    try writer.writeAll("{:type ");
+                    try write(writer, @as([]const u8, @typeName(T)));
+                    try writer.writeAll(" :active-field :unknown}");
+                }
+            },
+            else => try write(writer, value),
+        }
+    }
+
+    fn inspectResult(value: anytype) usize {
+        var writer: std.Io.Writer.Allocating = .init(allocator);
+        defer writer.deinit();
+        inspect(&writer.writer, value) catch @panic("Cannot inspect JVM value");
+        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate JVM inspection");
+        return @intFromPtr(encoded.ptr);
+    }
+
     fn result(value: anytype) usize {
         var writer: std.Io.Writer.Allocating = .init(allocator);
         defer writer.deinit();

@@ -94,12 +94,8 @@ function resolveDeclaration(original) {
   return { declaration, category, aliasDepth };
 }
 
-function declarationMembers(declaration, category, seen = new Set()) {
-  if (seen.has(declaration)) return [];
-  seen.add(declaration);
+function forwardedType(declaration, category) {
   if (category === 10 || (category === 3 && /\)\s+type$/.test(declarationSignature(declaration, category)))) {
-    const members = unwrapSlice32(wasm.type_fn_members(declaration, false));
-    if (members.length) return members;
     // The docs resolver handles a bare delegated callee, but not qualified
     // forwarding calls such as `return array_list.Aligned(T, null)`.
     const source = htmlText(unwrapString(wasm.decl_source_html(declaration)));
@@ -112,18 +108,51 @@ function declarationMembers(declaration, category, seen = new Set()) {
         new Uint8Array(wasm.memory.buffer, pointer, query.length).set(query);
         const found = wasm.find_decl();
         if (found >= 0 && found !== 0xffffffff) {
-          const target = resolveDeclaration(found);
-          return declarationMembers(target.declaration, target.category, seen);
+          return resolveDeclaration(found);
         }
         parent.pop();
       }
     }
-    return [];
+  }
+  return null;
+}
+
+function declarationMembers(declaration, category, seen = new Set()) {
+  if (seen.has(declaration)) return [];
+  seen.add(declaration);
+  if (category === 10 || (category === 3 && /\)\s+type$/.test(declarationSignature(declaration, category)))) {
+    const members = unwrapSlice32(wasm.type_fn_members(declaration, false));
+    if (members.length) return members;
+    const target = forwardedType(declaration, category);
+    return target ? declarationMembers(target.declaration, target.category, seen) : [];
   }
   if (category === 0 || category === 1) {
     return unwrapSlice32(wasm.namespace_members(declaration, false));
   }
   return [];
+}
+
+function declarationFields(declaration, category, seen = new Set()) {
+  if (seen.has(declaration)) return [];
+  seen.add(declaration);
+  const fields = unwrapSlice32(wasm.decl_fields(declaration));
+  if (!fields.length) {
+    const target = forwardedType(declaration, category);
+    return target ? declarationFields(target.declaration, target.category, seen) : [];
+  }
+  return fields.flatMap(field => {
+    const html = unwrapString(wasm.decl_field_html(declaration, field));
+    const signature = htmlText(html.match(/<pre><code>([\s\S]*?)<\/code><\/pre>/)?.[1] ?? "");
+    const match = signature.match(/^(?:comptime\s+)?(@"(?:[^"\\]|\\.)*"|[A-Za-z_][A-Za-z0-9_]*)\s*:/);
+    // Enum variants and tuple positions are not named instance fields.
+    if (!match) return [];
+    const name = match[1].startsWith('@"') ? JSON.parse(match[1].slice(1)) : match[1];
+    return [{name: `-${name}`, "field-name": name, category: "field",
+      signature, documentation: htmlText(html.match(/<div class="fieldDocs">([\s\S]*)<\/div>/)?.[1] ?? ""),
+      source: unwrapString(wasm.decl_file_path(declaration)),
+      "param-count": 1, parameters: [{name: "self", type: "Self", comptime: false}],
+      "alias-depth": 0, container: false}];
+  });
 }
 
 function declarationDocs(original, resolved) {
@@ -156,7 +185,9 @@ function walkNamespace(original, resolved, category, path, zigPath, ancestors) {
   if (traversedPaths.has(pathKey)) return;
   traversedPaths.add(pathKey);
 
-  const members = [];
+  const members = declarationFields(resolved, category).map(field => ({
+    ...field, "zig-name": zigMember(zigPath, field["field-name"]),
+  }));
   const childNamespaces = [];
   for (const memberOriginal of declarationMembers(resolved, category)) {
     const name = unwrapString(wasm.decl_name(memberOriginal));
@@ -167,7 +198,7 @@ function walkNamespace(original, resolved, category, path, zigPath, ancestors) {
       memberResolved.declaration,
       memberResolved.category,
     );
-    const container = childMembers.length > 0;
+    const container = childMembers.length > 0 || declarationFields(memberResolved.declaration, memberResolved.category).length > 0;
     const signature = declarationSignature(memberResolved.declaration, memberResolved.category);
     const entry = {
       name,

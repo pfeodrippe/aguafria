@@ -81,6 +81,9 @@
 (def ^:dynamic *reloadable-state-references?* false)
 (def ^:dynamic *reloadable-state-accessors* nil)
 (def ^:dynamic *lexical-bindings* #{})
+(def ^:dynamic *registered-declaration-names*
+  "Already registered native declarations when preparing a programmatic module."
+  #{})
 
 (def ^:dynamic *local-type-bindings*
   "Lexically scoped local names and whether their initializers produce types."
@@ -291,7 +294,9 @@
 
 (defn- reference-symbol
   [context-ns original-symbol reference]
-  (let [reference (contextual-reference context-ns original-symbol reference)]
+  (let [reference (cond-> reference
+                    (nil? (:symbol reference)) (assoc :symbol original-symbol))
+        reference (contextual-reference context-ns original-symbol reference)]
     (with-meta (:symbol reference)
       (assoc (meta (:symbol reference)) :aguafria/zig-reference reference))))
 
@@ -471,14 +476,21 @@
       (fail! (str "Unresolved Zig reference `" op "`. "
                   "Qualified calls must name a real Var from a required namespace.")
              form {:operator op :context-ns (ns-name context-ns)}))
-    (if (:receiver-method? reference)
+    (cond
+      (:field-accessor? reference)
+      (do
+        (when-not (= 1 (count args))
+          (fail! "A field accessor requires exactly one receiver" form))
+        (with-meta (list 'field (first args) (keyword (:member-name reference))) (meta form)))
+
+      (:receiver-method? reference)
       (do
         (when-not (seq args)
           (fail! "A container method requires its receiver as the first argument" form))
         (with-meta (apply list (list 'field (first args) (keyword (:member-name reference)))
                          (rest args))
           (meta form)))
-      (with-meta (apply list qualified-op args) (meta form)))))
+      :else (with-meta (apply list qualified-op args) (meta form)))))
 
 (defn qualify-form
   "Replace keyword aliases with canonical `aguafria.keyword/...` Var symbols.
@@ -597,10 +609,172 @@
                         :else [])))))
         (tree-seq coll? seq (:body declaration))))
 
+(declare nested-declaration for-bindings validate-declaration-references!)
+
+(defn- binding-symbols [form]
+  (set (filter symbol? (tree-seq coll? seq form))))
+
+(defn- known-reference? [context-ns names sym]
+  (or (contains? names sym)
+      (keyword/resolve-token context-ns sym)
+      (resolved-syntax-operator context-ns sym)
+      (namespace-root-reference context-ns sym)
+      (when-let [v (resolve-context-var context-ns sym)]
+        (or (:aguafria/zig-reference (meta v))
+            (:aguafria/declaration (meta v))
+            (and (var? v) (not (bound? v)))))))
+
+(declare validate-reference-form! validate-reference-body!)
+
+(defn- validate-reference-form! [context-ns names form]
+  (cond
+    (symbol? form)
+    (when-not (known-reference? context-ns names form)
+      (fail! (str "Unresolved Zig reference `" form "`. Define it before use.")
+             form {:symbol form :context-ns (ns-name context-ns)
+                   :clojure.error/phase :compile-syntax-check}))
+
+    (seq? form)
+    (let [[op & args] form
+          token (keyword/resolve-token context-ns op)
+          op (or (resolved-syntax-operator context-ns op)
+                 (when (= :keyword (:kind token)) (symbol (:zig-token token)))
+                 op)
+          check #(validate-reference-form! context-ns names %)
+          body #(validate-reference-body! context-ns %1 %2)]
+      (cond
+        (contains? #{'comment 'quote 'raw 'raw-chunks 'raw-statements
+                     'raw-statement-chunks 'identifier-literal 'enum-literal
+                     'error-value} op) nil
+
+        (= 'field op) (check (first args))
+
+        (= 'let op)
+        (let [[bindings & forms] args
+              _ (when (odd? (count bindings))
+                  (fail! "let expects an even Clojure binding vector; every local needs an initial value"
+                         form {:clojure.error/phase :compile-syntax-check}))
+              scope (reduce (fn [scope [binding value]]
+                              (validate-reference-form! context-ns scope value)
+                              (into scope (binding-symbols binding)))
+                            names (partition 2 bindings))]
+          (body scope forms))
+
+        (contains? #{'do 'block 'comptime 'comptime-stmt} op)
+        (body names args)
+
+        (= 'labeled-block op)
+        (body (conj names (first args)) (rest args))
+
+        (contains? #{'container} op)
+        (body names (if (vector? (second args)) (second args) (rest args)))
+
+        (= 'asm op)
+        (let [[template options] args]
+          (check template)
+          (doseq [operand (concat (:outputs options) (:inputs options))]
+            (check (last operand))))
+
+        (contains? #{'catch 'orelse} op) (doseq [arg args] (check arg))
+
+        (= 'catch-capture op)
+        (do (check (second args))
+            (body (into names (binding-symbols (first args))) (drop 2 args)))
+
+        (and (= 'errdefer op) (vector? (first args)))
+        (body (into names (binding-symbols (first args))) (rest args))
+
+        (contains? #{'labeled-switch 'labeled-switch-stmt} op)
+        (body (conj names (first args)) (rest args))
+
+        (contains? #{'case 'inline-case 'case-else 'inline-case-else} op)
+        (let [[patterns forms] (if (contains? #{'case 'inline-case} op)
+                                 [(first args) (rest args)]
+                                 [[] args])
+              [captures forms] (if (vector? (first forms))
+                                 [(first forms) (rest forms)]
+                                 [[] forms])]
+          (doseq [pattern patterns :when (not= '_ pattern)] (check pattern))
+          (body (into names (binding-symbols captures)) forms))
+
+        (contains? declaration-name-operators op)
+        (validate-declaration-references! context-ns (nested-declaration form) names)
+
+        (contains? #{'for 'inline-for 'for-loop} op)
+        (let [[options bindings forms] (if (= 'for-loop op)
+                                         [(first args) (second args) (drop 2 args)]
+                                         [{} (first args) (rest args)])
+              pairs (for-bindings bindings form)
+              scope (into names (binding-symbols
+                                  (concat (map first pairs)
+                                          [(:label options) (:body-label options)])))]
+          (doseq [[_ value] pairs] (check value))
+          (body scope forms))
+
+        (= 'dotimes op)
+        (do (check (second (first args)))
+            (body (conj names (ffirst args)) (rest args)))
+
+        (contains? #{'if-capture 'if-capture-stmt 'while-loop} op)
+        (let [[options condition & forms] args
+              scope (into names (binding-symbols
+                                  (select-keys options [:payload :error :label :body-label])))]
+          (check condition)
+          (doseq [value (vals (dissoc options :payload :error :label :body-label))]
+            (validate-reference-form! context-ns scope value))
+          (body scope forms))
+
+        (contains? #{'const 'var} op)
+        (doseq [value (rest args)] (check value))
+
+        :else
+        (do
+          (when-not (or token (structural-operator? op)
+                        (contains? '#{+ - * / < > <= >= == != and or not & | !} op))
+            (check (first form)))
+          (doseq [arg args] (check arg)))))
+
+    (map? form) (doseq [value (vals form)]
+                  (validate-reference-form! context-ns names value))
+    (coll? form) (doseq [value form]
+                   (validate-reference-form! context-ns names value)))
+  nil)
+
+(defn- validate-reference-body! [context-ns names forms]
+  (reduce (fn [scope form]
+            (validate-reference-form! context-ns scope form)
+            (if (and (seq? form)
+                     (or (contains? declaration-name-operators (first form))
+                         (contains? #{'const 'var} (first form))))
+              (conj scope (second form))
+              scope))
+          names forms))
+
+(defn validate-declaration-references!
+  "Reject unknown names before registration, including source-only/batch loads.
+  A source catalog describes imports; it never declares future local Vars."
+  ([context-ns declaration]
+   (validate-declaration-references! context-ns declaration *registered-declaration-names*))
+  ([context-ns declaration names]
+   (let [scope (cond-> names (:name declaration) (conj (:name declaration)))
+         scope (reduce (fn [scope {:keys [name type properties]}]
+                         (when-not (:zig/variadic properties)
+                           (validate-reference-form! context-ns scope type))
+                         (conj scope name))
+                       scope (:args declaration))]
+     (doseq [key [:type :return :value]]
+       (validate-reference-form! context-ns scope (get declaration key)))
+     (doseq [field (when-not (:value declaration) (:fields declaration))]
+       (validate-reference-form! context-ns scope (:type field)))
+     (validate-reference-body! context-ns scope (:body declaration)))
+   declaration))
+
 (defn prepare-declaration
   "Qualify every Zig form in a declaration using its defining Clojure ns."
   [context-ns declaration]
-  (cond-> declaration
+  (validate-declaration-references!
+   context-ns
+   (cond-> declaration
     (contains? declaration :type)
     (update :type #(when (some? %) (qualify-type context-ns %)))
 
@@ -625,7 +799,7 @@
     (update :fields #(mapv (fn [field]
                              (update field :type
                                      (partial qualify-type context-ns)))
-                           %))))
+                           %)))))
 
 (def ^:dynamic *source-mapping?*
   "When true, statement emission includes Clojure line/column marker comments.
@@ -1314,6 +1488,9 @@
           token (when-not (= :keyword (:kind source-token)) source-token)
           expansion (expand-clojure-macro-once (or *keyword-context* *ns*) form)]
       (cond
+        (:field-accessor? (current-zig-reference source-op))
+        (emit-expr (qualify-form (or *keyword-context* *ns*) form))
+
         expansion
         (emit-expr (qualify-form (or *keyword-context* *ns*) (:expanded expansion)))
 
@@ -3609,7 +3786,11 @@
             "\n")))))
   ([context-ns module-name declarations]
    (emit-module module-name
-                (mapv (partial prepare-declaration context-ns) declarations))))
+                (reduce (fn [preceding declaration]
+                          (binding [*registered-declaration-names*
+                                    (into #{} (map :name) preceding)]
+                            (conj preceding (prepare-declaration context-ns declaration))))
+                        [] declarations))))
 
 (defn emit-static-dependency-module
   "Emit an ordinary static dependency module without development containers.

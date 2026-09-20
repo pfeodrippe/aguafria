@@ -506,6 +506,54 @@ comparisons and one has explicit test-discovery verification. File-example succe
 does not establish coverage of all Zig.
 # JVM expression interoperability follow-up
 
+- [x] Audit declaration order in every Learn example and snippet. Move helpers
+      and constants before their consumers without renaming them; add an audit
+      regression and rebuild/verify the page (`test_container_level_variables`
+      must define `add`, then `x`, then `y`, then its test).
+
+- [x] Expose native fields as normal completable namespace Vars such as
+      `aguafria.std.ArrayList/-items` and `-capacity`, using shared catalog
+      extraction and field dispatch. Verify getters from JVM and compiled forms,
+      real argument/docs metadata, and another native container.
+
+- [x] Reject unknown references at declaration registration, including source-only
+      evaluation and programmatic batches. Dependencies must already exist;
+      a catalog of later source declarations is not permission to use them.
+- [x] Keep incomplete snippets as non-runnable syntax excerpts. Remove the added
+      `declare` forms; render their syntax without registering or evaluating
+      declarations. Do not invent missing dependencies or entry points.
+- Current reference verification: 288 upstream outcomes matched plus 4 reviewed
+  special cases; 200 in-process REPL transcripts. All 58 Learn tests / 11,291
+  assertions and 10 browser tests passed. Rebuilt the full HTML and checked the
+  served page for dependency ordering and absence of added `declare` forms.
+  Compiler/JVM/field-accessor regressions: 53 tests / 6,229 assertions, zero
+  failures or errors (including ordinary, source-only, and batch registration).
+
+- [x] Inspect generated/native container fields instead of displaying unlabelled
+      storage bytes. Print every ZigValue with `#aguafria.zig.value.ZigValue[...]`
+      consistently in ordinary and pretty printing; retain plain decoded deref.
+      Verify mutable ArrayList contents, nested values and safe pointer display.
+- [x] Reproduce direct allocator calls versus `detect-leak-test`: distinguish
+      per-call success from test-scope leak checking. The exact native test fails
+      for the intended leak; adding deinit passes. Direct calls pass and can be
+      cleaned up afterward. Neither path reproduced the separate count exception.
+- [ ] Resolve the separately reported `count not supported on this type: ZigValue`
+      exception once its full JVM stack trace/evaluated form is available; asked
+      the user for it. Do not mislabel the expected leak as this exception.
+- [x] Map native runtime/leak stack frames to original Clojure source locations
+      and forms using shared source markers. Preserve the full native trace and
+      expose mapped locations in exception data, without editor-specific code.
+      Verified the real Learn leak maps to the append form (now line 12 after
+      the owner's ArrayList alias edit). Raw native stderr remains in :native-stderr;
+      :stderr includes the preserved trace and mapped source report.
+- Latest printer/interop/diagnostic regression: 112 tests / 669 assertions,
+  plus 57 Learn tests / 10,802 assertions, zero failures or errors.
+  Full reference acceptance passed: 289 matching upstream outcomes plus 3
+  reviewed special cases, 202 in-process REPL transcripts. Browser checks 10/10;
+  live served-page check confirms the mapped Clojure line/form and single leak
+  report. Visually inspected the mapped report. Preserved and reverified the
+  owner's concurrent `al/append` edit; regenerated the complete HTML.
+
 - [x] Fix JVM construction of void-payload error unions, including
       `(ak/as (az/error-value :DemoError) [:error-union :anyerror :void])`.
       Shared coercion adapters return the typed value explicitly; canonical

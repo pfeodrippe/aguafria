@@ -51,13 +51,17 @@
     - [x] wth do we have addOne after deftest that uses it !!! it shouldn't be allowed, why the hell isn't az/deftests erroring out in this case ???? we can't put vars and such anywhere
   - [x] testing_failure.clj
   - [x] testing_skip.clj
-  - [ ] testing_detect_leak.clj
-    - [ ] in the jvm, evaluating (ak/var :.empty (std/ArrayList :u21)) give us error Zig function argument requires a native Zig value or constructible Clojure value
-    - [ ] duplicated error output
-  - [ ] testing_detect_test.clj
-    - [ ] (az/defconst builtin (ak/import "builtin")) should be a require import just like we have for std, then we could do builtin/is_test to refer to it
-  - [ ] testing_namespace.clj
-    - [ ] (ak/as (az/error-value :DemoError) [:error-union :anyerror :void]) returns an error
+  - [x] testing_detect_leak.clj
+    - [x] in the jvm, evaluating (ak/var :.empty (std/ArrayList :u21)) give us error Zig function argument requires a native Zig value or constructible Clojure value
+    - [x] duplicated error output
+  - [x] testing_detect_test.clj
+    - [x] (az/defconst builtin (ak/import "builtin")) should be a require import just like we have for std, then we could do builtin/is_test to refer to it
+  - [x] testing_namespace.clj
+    - [x] (ak/as (az/error-value :DemoError) [:error-union :anyerror :void]) returns an error
+  - [x] test_container_level_variables.clj
+    - [x] out of order
+  - [ ] test_namespaced_container_level_variable.clj
+  - [ ] test_static_local_variable.clj
 
 - [ ] show tree structure of a running program
   - [ ] call tree and what's in the middle of the invocations

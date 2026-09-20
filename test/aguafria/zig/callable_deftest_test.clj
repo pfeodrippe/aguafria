@@ -104,6 +104,7 @@
                                         (swap! invocations conj [module test-name])
                                         {:status :succeeded :test test-name})]
         (let [test-var (binding [*ns* namespace]
+                         (eval '(declare only-native-values))
                          (eval '(az/deftest body-is-native
                                   "A native-only test body."
                                   (try (only-native-values (az/type [:slice-const :u8]))))))
@@ -129,6 +130,7 @@
       (with-redefs [runtime/check-test-definition! identity
                     runtime/register-declaration! identity]
         (binding [*ns* namespace]
+          (eval '(declare native-first native-second))
           (let [first-var (eval '(az/deftest same-test (native-first)))
                 first-body (get-in (meta first-var) [:aguafria/declaration :body])
                 second-var (eval '(az/deftest same-test (native-second)))]
@@ -150,7 +152,8 @@
               test-name (second form)
               test-var (ns-resolve namespace test-name)]
           (is (some? failure))
-          (is (str/includes? (str failure) "undeclared identifier"))
+          (is (str/includes? (ex-message (last (take-while some? (iterate ex-cause failure))))
+                             "Unresolved Zig reference"))
           ;; Like Clojure def, compilation may intern an unbound Var. It must
           ;; never publish a callable or register the rejected declaration.
           (is (or (nil? test-var) (not (bound? test-var))))
@@ -179,13 +182,56 @@
       (finally
         (remove-ns (ns-name namespace))))))
 
+(deftest unknown-references-fail-before-any-registration-mode
+  (doseq [mode [:ordinary :source-only :batch]
+          form ['(az/defn- caller :void [] (unknown-function))
+                '(az/defn- generic-caller :void [[T {:zig/prefix "comptime"} :type]]
+                   (unknown-function T))
+                '(az/defconst missing-constant :i32 later-value)
+                '(az/defvar missing-state :i32 (later-helper 1))
+                '(az/defstruct Missing [[:field UnknownType]])
+                '(az/deftest missing-test (unknown-function))
+                '(az/defn- bad-local :i32 [] (let [x y y 1] x))]]
+    (let [namespace (scratch-namespace)]
+      (try
+        (let [failure (binding [*ns* namespace
+                                runtime/*source-only-registration?* (= mode :source-only)
+                                runtime/*registration-batch* (when (= mode :batch) (atom []))]
+                        (try (eval form) nil (catch Exception error error)))]
+          (is (some? failure) (str mode " " form))
+          (is (str/includes? (ex-message (last (take-while some? (iterate ex-cause failure))))
+                             "Unresolved Zig reference")
+              (str mode " " form)))
+        (finally (remove-ns (ns-name namespace)))))))
+
+(deftest programmatic-batches-also-require-declaration-order
+  (let [namespace (scratch-namespace)
+        module (str (ns-name namespace))
+        helper {:kind :fn :name 'helper :declaration-key [:fn 'helper]
+                :module module :return :i32 :args []
+                :body [7] :implicit-return? true}
+        caller {:kind :fn :name 'caller :declaration-key [:fn 'caller]
+                :module module :return :i32 :args []
+                :body ['(helper)] :implicit-return? true}]
+    (try
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                            (runtime/register-batch! [caller helper] {:compile? false})))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                            (binding [runtime/*source-only-registration?* true]
+                              (runtime/register-declaration! caller))))
+      (is (= 2 (:declaration-count
+                (runtime/register-batch! [helper caller] {:compile? false}))))
+      (finally
+        (remove-ns (ns-name namespace))
+        (swap! @#'runtime/registry dissoc module)))))
+
 (deftest loading-a-file-rejects-a-test-before-its-helper
   (let [namespace 'fixture.test-before-helper]
     (try
       (let [{:keys [failure]}
             (capture-execution #(load-file "test/fixtures/test_before_helper.clj"))]
         (is (some? failure))
-        (is (str/includes? (str failure) "undeclared identifier"))
+        (is (str/includes? (str failure) "Unresolved Zig reference"))
         (is (str/includes? (str failure) "test_before_helper.clj"))
         (is (nil? (ns-resolve namespace 'later-helper))))
       (finally
@@ -313,7 +359,7 @@
         (require '[aguafria.std.testing :as testing])
         (eval '(az/deftest skipped-test (ak/return (az/error-value :SkipZigTest))))
         (eval '(az/deftest leak-test
-                 (set! _ (try ((az/field testing/allocator :alloc) :u8 10))))))
+                 (ak/= :_ (try ((az/field testing/allocator :alloc) :u8 10))))))
       (is (= :skipped (:status (:result (capture-execution (ns-resolve namespace 'skipped-test))))))
       (let [{:keys [failure printed-err]} (capture-execution (ns-resolve namespace 'leak-test))]
         (is (= :failed (:status (ex-data failure))))
@@ -321,4 +367,40 @@
         (is (= printed-err (:stderr (ex-data failure))))
         (is (= 1 (count (re-seq #"1 test leaked memory"
                                 (str printed-err (ex-message failure)))))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest array-list-leak-is-a-test-scope-failure-not-a-call-failure
+  (let [namespace (scratch-namespace)]
+    (try
+      (binding [*ns* namespace runtime/*source-only-registration?* true
+                *file* (.getCanonicalPath
+                        (io/file (io/resource "aguafria/zig/callable_deftest_test.clj")))]
+        (require '[aguafria.std :as std] '[aguafria.std.testing :as testing])
+        (eval '(az/deftest detect-leak-test
+                 (let [allocator testing/allocator
+                       list (ak/var :.empty (std/ArrayList :u21))]
+                   (try ((az/field list :append) allocator \☔))
+                   (try (testing/expectEqual 1 (az/field (az/field list :items) :len))))))
+        (eval '(az/deftest cleaned-up-test
+                 (let [allocator testing/allocator
+                       list (ak/var :.empty (std/ArrayList :u21))]
+                   (ak/defer ((az/field list :deinit) allocator))
+                   (try ((az/field list :append) allocator \☔))
+                   (try (testing/expectEqual 1 (az/field (az/field list :items) :len)))))))
+      (let [{:keys [failure printed-err]}
+            (capture-execution (ns-resolve namespace 'detect-leak-test))]
+        (is (instance? clojure.lang.ExceptionInfo failure))
+        (is (= :failed (:status (ex-data failure))))
+        (is (str/includes? printed-err "1 test leaked memory"))
+        (is (not (str/includes? (str failure printed-err) "count not supported")))
+        (is (str/includes? printed-err "Aguafria source locations:"))
+        (is (str/includes? printed-err "(try ((az/field list :append) allocator \\☔))"))
+        (is (str/ends-with? (:clojure.error/source (ex-data failure))
+                           "aguafria/zig/callable_deftest_test.clj"))
+        (is (= :execution (:clojure.error/phase (ex-data failure))))
+        (is (= printed-err (:stderr (ex-data failure)))))
+      (let [{:keys [result failure]}
+            (capture-execution (ns-resolve namespace 'cleaned-up-test))]
+        (is (nil? failure))
+        (is (= :passed (:status result))))
       (finally (remove-ns (ns-name namespace))))))

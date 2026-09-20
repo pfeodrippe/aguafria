@@ -1385,6 +1385,34 @@
          (code-frame generated-line generated-column generated-source-line
                      "Zig reported the error here"))))
 
+(defn- native-stack-diagnostics
+  "Map runtime stack frames through the same source markers as compiler errors."
+  [source-path stderr]
+  (let [source (source-text source-path)]
+    (->> (str/split-lines (remove-ansi stderr))
+         (keep (fn [line]
+                 (when-let [[_ file line-number column frame]
+                            (re-matches #"^\s*(.*):(\d+):(\d+): (?:0x[0-9a-fA-F]+ )?in (.+)$"
+                                        line)]
+                   (let [diagnostic (enrich-zig-diagnostic
+                                     source source-path
+                                     {:file file :line (parse-long line-number)
+                                      :column (parse-long column) :frame frame})]
+                     (when (get-in diagnostic [:aguafria/source :file])
+                       (dissoc diagnostic :generated-source))))))
+         distinct
+         vec)))
+
+(defn- native-stack-source-report
+  [diagnostics]
+  (when (seq diagnostics)
+    (str "\nAguafria source locations:\n"
+         (apply str
+                (for [{:keys [frame] :as diagnostic} diagnostics
+                      :let [{:keys [file line column]} (:aguafria/source diagnostic)]]
+                  (str "  --> " file ":" line ":" (or column 1) "\n"
+                       (clojure-code-frame file line column (str "native frame: " frame))))))))
+
 (defn- compilation-exception
   "Expose a standard compiler exception, with the complete report in its cause.
   CompilerException must be outermost: Compiler/load otherwise wraps a runtime
@@ -9902,6 +9930,12 @@
                 (= "load" (.getMethodName frame))))
          (.getStackTrace (Thread/currentThread)))))
 
+(defn- validate-registration-references!
+  [declaration preceding]
+  (let [context (or (find-ns (symbol (:module declaration))) *ns*)
+        names (into #{} (map :name) preceding)]
+    (emit/validate-declaration-references! context declaration names)))
+
 (defn register-declaration!
   "Add or replace a declaration and rebuild its namespace module.
 
@@ -9914,6 +9948,10 @@
     (when-not (and module declaration-key)
       (throw (ex-info "Declaration requires :module and :declaration-key"
                       {:declaration declaration})))
+    (validate-registration-references!
+     declaration
+     (concat (vals (get-in @registry [module :definitions]))
+             (when *registration-batch* @*registration-batch*)))
     (if *registration-batch*
       (do
         (swap! *registration-batch* conj declaration)
@@ -10008,6 +10046,11 @@
                       {:modules modules :declaration-count (count declarations)})))
     (let [module (first modules)
           definitions (into {} (map (juxt :declaration-key identity)) declarations)]
+      (reduce (fn [preceding declaration]
+                (validate-registration-references! declaration preceding)
+                (conj preceding declaration))
+              (if replace? [] (vec (vals (get-in @registry [module :definitions]))))
+              declarations)
       (if compile?
         ;; Seed the whole immutable snapshot, then ask the existing single-module
         ;; compiler to compile that complete definition map exactly once. Keep
@@ -10481,12 +10524,25 @@
                        (check-native-panic! {:panic-handle panic-handle
                                             :declaration {:qualified-name (symbol module (str test-name))}})))
                    result))))))
-        details (assoc artifact :exit (if (= 1 status) 1 0)
-                       :stdout (str stdout) :stderr (str stderr)
-                       :duration-ms (- (System/currentTimeMillis) started-at))]
+        diagnostics (when (= 1 status)
+                      (native-stack-diagnostics (:source-path artifact) (str stderr)))
+        report (native-stack-source-report diagnostics)
+        location (:aguafria/source (first diagnostics))
+        details (cond-> (assoc artifact :exit (if (= 1 status) 1 0)
+                              :stdout (str stdout) :native-stderr (str stderr)
+                              :stderr (str stderr report)
+                              :aguafria/stack-trace diagnostics
+                              :aguafria/source-report report
+                              :duration-ms (- (System/currentTimeMillis) started-at))
+                  location (assoc :clojure.error/phase :execution
+                                  :clojure.error/source (:file location)
+                                  :clojure.error/line (:line location)
+                                  :clojure.error/column (:column location))
+                  (:declaration location)
+                  (assoc :clojure.error/symbol (symbol (:declaration location))))]
     (print (str stdout))
     (flush)
-    (binding [*out* *err*] (print (str stderr)) (flush))
+    (binding [*out* *err*] (print (:stderr details)) (flush))
     (if (= 1 status)
       (throw (ex-info (str "Native Zig test " module "/" test-name " failed")
                       (assoc details :status :failed :aguafria/phase :zig-test)))

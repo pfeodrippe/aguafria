@@ -46,7 +46,7 @@
           (set! [left] (next-single (& calls)))
           (when (!= left 7) (return (error-value :WrongSingleAssignment)))
           (when (!= calls 6) (return (error-value :RepeatedSingleAssignment)))
-          (set! [_ right] (next-pair (& calls)))
+          (set! [:_ right] (next-pair (& calls)))
           (when (!= right 22) (return (error-value :WrongDiscardAssignment)))
           (when (!= calls 7) (return (error-value :RepeatedDiscardAssignment)))
           (set! [left right] (array-init [right left] [:array 2 :i32]))

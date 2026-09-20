@@ -14,7 +14,7 @@
          (ak/return ((az/field self :write) value)))
        (az/case-else
          (ak/compileError
-          (ak/++ "Unable to print type '" (ak/typeName (ak/TypeOf value)) "'")))))
+          (az/op "++" "Unable to print type '" (ak/typeName (ak/TypeOf value)) "'")))))
 
    (az/fn-decl write [:error-union :void]
      [[self [:* Writer]] [value [:slice-const :u8]]]

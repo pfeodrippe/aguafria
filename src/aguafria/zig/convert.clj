@@ -1629,7 +1629,9 @@
    'az/deftest 'test-decl
    'az/defextern 'fn-proto-decl})
 
-(defn- nested-declaration-form
+(defn nested-declaration-form
+  "Represent a declaration as syntax data, without registering or compiling it.
+  Used for containers and incomplete documentation fragments."
   [form]
   (if-let [operator (get nested-declaration-operators (first form))]
     (with-meta (apply list operator (rest form)) (meta form))

@@ -114,7 +114,7 @@
   [reference]
   (with-meta
     (fn [& arguments]
-      (if (contains? #{:function :type-function} (:category reference))
+      (if (contains? #{:function :type-function :field} (:category reference))
         ((requiring-resolve 'aguafria.zig.jvm/invoke-reference!) reference arguments)
         (with-meta (apply list (:symbol reference) arguments)
           {:aguafria/zig-reference reference})))
@@ -128,7 +128,9 @@
    :symbol (:symbol member)
    :zig-name (:zig-name member)}
     (:receiver-method member)
-    (assoc :receiver-method? true :member-name (:name member))))
+    (assoc :receiver-method? true :member-name (:name member))
+    (= :field (:category member))
+    (assoc :field-accessor? true :member-name (:field-name member))))
 
 (defn- member-doc
   [{:keys [category documentation signature source zig-name zig-version]}]
@@ -137,8 +139,9 @@
        "This Var represents Zig `" zig-name "` (" (name category) ") from `"
        source "`, generated against Zig " zig-version ". Inside an `az/defn` "
        "form it emits the Zig reference directly. "
-       (if (= :function category)
-         "Calling this Var from Clojure or Java executes native Zig, specializing comptime arguments as needed."
+       (case category
+         :field "Calling this Var reads the receiver's field through the native JVM bridge."
+         (:function :type-function) "Calling this Var from Clojure or Java executes native Zig, specializing comptime arguments as needed."
          "This declaration represents Zig type/constant syntax inside Aguafria forms.")))
 
 (defn- install-member!

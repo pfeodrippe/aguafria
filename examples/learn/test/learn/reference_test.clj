@@ -14,12 +14,14 @@
                (re-find #"\(ak/(!=|==)\s" source))
       (is (str/includes? source "[aguafria.keyword :as ak]") (.getPath file)))))
 
-(deftest authored-tests-follow-their-local-declarations
-  (doseq [file (file-seq (io/file "resources/learn/example"))
+(deftest authored-declarations-follow-their-dependencies
+  (doseq [file (file-seq (io/file "resources/learn"))
           :when (str/ends-with? (.getName file) ".clj")
           :let [forms (inline/read-forms (slurp file))]
           [index form] (map-indexed vector forms)
-          :when (= 'az/deftest (first form))
+          :when (and (seq? form) (symbol? (first form))
+                     (= "az" (namespace (first form)))
+                     (str/starts-with? (name (first form)) "def"))
           :let [later (set (keep #(when (and (seq? %) (symbol? (first %))
                                             (= "az" (namespace (first %)))
                                             (str/starts-with? (name (first %)) "def"))
@@ -27,6 +29,17 @@
                                 (drop (inc index) forms)))]]
     (is (empty? (filter later (tree-seq coll? seq form)))
         (str (.getName file) " / " (second form)))))
+
+(deftest incomplete-fragments-are-rendered-not-registered
+  (let [source "(ns learn.snippet.fragment-test (:require [aguafria.zig :as az]))\n(az/defn excerpt :void [] (external-helper))"
+        emitted (ref/emit-fragment source)]
+    (is (str/includes? emitted "external_helper()"))
+    (is (thrown? Exception
+                 (ref/emit-clojure source 'learn.snippet.fragment-test {}))))
+  (doseq [file (file-seq (io/file "resources/learn/snippet"))
+          :when (str/ends-with? (.getName file) ".clj")]
+    (is (not-any? #(= 'declare (first %)) (inline/read-forms (slurp file)))
+        (.getName file))))
 
 (deftest repl-result-is-separated-from-unterminated-native-output
   (doseq [streams [{:stdout "5679"} {:stderr "5679"} {:stdout "56" :stderr "79"}]]
@@ -583,8 +596,18 @@
     (is (= :host (get-in hello [:value :scope])))
     (is (= :compile-only (get-in compilation [:value :scope])))
     (is (= 0 (get-in compilation [:value :exit])))
+    (is (= "clojure.lang.Compiler$CompilerException"
+           (get-in failure [:exception :class])))
     (is (str/includes? (get-in failure [:exception :message])
-                       "let expects an even Clojure binding vector"))))
+                       "Syntax error macroexpanding az/defn"))
+    (let [error (try
+                  (binding [ref/*example-context* context]
+                    (ref/run-example! "var_must_be_initialized.zig"))
+                  nil
+                  (catch Exception error error))]
+      (is (some #(str/includes? (or (ex-message %) "")
+                               "let expects an even Clojure binding vector")
+                (take-while some? (iterate ex-cause error)))))))
 
 (deftest authored-recipes-are-complete-and-call-their-own-example
   (doseq [[file {:keys [source]}] (ref/read-edn "resources/learn/overrides.edn")

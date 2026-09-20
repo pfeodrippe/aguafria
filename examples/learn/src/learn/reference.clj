@@ -219,8 +219,9 @@
                         nil
                         (catch Exception error error))]
           (when-not (and failure
-                         (str/includes? (.getMessage failure)
-                                        (:expected-front-end-error override)))
+                         (some #(str/includes? (or (ex-message %) "")
+                                               (:expected-front-end-error override))
+                               (take-while some? (iterate ex-cause failure))))
             (throw (ex-info "Expected Aguafria binding diagnostic was not produced"
                             {:file file :error (some-> failure .getMessage)})))
           (write-text! output source)
@@ -232,8 +233,9 @@
            :reason (:reason override)})
 
         :else
-        (let [converted (convert/convert-file
-                         (str upstream-dir "/doc/langref/" file) options)
+        (let [converted (when-not (:source override)
+                          (convert/convert-file
+                           (str upstream-dir "/doc/langref/" file) options))
               report (:report converted)
               source (if-let [resource (:source override)]
                        (slurp (io/resource resource))
@@ -252,10 +254,22 @@
            :clojure-path output
            :report report}))
       (catch Exception failure
-        {:file file :id id :source-sha256 sha256
-         :status :compiler-gap
-         :error (.getMessage failure)
-         :details (ex-data failure)}))))
+        (let [cause (last (take-while some? (iterate ex-cause failure)))
+              kind (get-in example [:manifest :kind])
+              expected-compile-error? (or (str/starts-with? (or kind "") "test_error=")
+                                          (= kind "exe=build_fail"))]
+          (if (and expected-compile-error?
+                   (= :compile-syntax-check (:clojure.error/phase (ex-data cause)))
+                   (.isFile (io/file output)))
+            {:file file :id id :source-sha256 sha256
+             :status :translated-front-end-error
+             :authored-source (:source override) :clojure-path output
+             :diagnostic (.getMessage failure)
+             :reason (.getMessage cause)}
+            {:file file :id id :source-sha256 sha256
+             :status :compiler-gap
+             :error (.getMessage failure)
+             :details (ex-data failure)}))))))
 
 (defn translate!
   ([] (translate! (:examples (inventory))))
@@ -293,6 +307,35 @@
       (throw (ex-info "A function fixture needs an authored entry point" {})))
     (emitter/identifier (second definition))))
 
+(defn emit-fragment
+  "Render incomplete source as syntax data. Never evaluate its declarations or
+  manufacture missing Vars; native comparisons supply their own explicit context."
+  [source]
+  (let [[ns-form & forms] (inline/read-forms source)
+        namespace-symbol (symbol (str "learn.fragment.inspection-" (random-uuid)))
+        imports (atom [])]
+    (try
+      (binding [*ns* *ns* runtime/*registration-batch* imports]
+        (eval (with-meta (list* 'ns namespace-symbol (drop 2 ns-form)) (meta ns-form)))
+        (let [context *ns*
+              declarations
+              (mapv
+               (fn [form]
+                 (if (= 'az/defimport (first form))
+                   (do (eval form) (last @imports))
+                   (-> (emitter/container-description
+                        context
+                        (list 'container {:kind :struct}
+                              [(emitter/qualify-form
+                                context (convert/nested-declaration-form form))]))
+                       :members first)))
+               (remove #(= 'comment (first %)) forms))]
+          (emitter/emit-module (str namespace-symbol)
+                               (map-indexed #(assoc %2 :source-order %1) declarations))))
+      (finally
+        (remove-ns namespace-symbol)
+        (dosync (alter @#'clojure.core/*loaded-libs* disj namespace-symbol))))))
+
 (defn translate-block!
   "Round-trip an upstream explanatory block without inventing missing context.
   Parsing emitted Zig is syntax verification, not an execution claim."
@@ -323,8 +366,7 @@
                                    (:namespace converted))]
             (require-structural! report)
             (write-text! output clojure-source)
-            (let [emitted (emit-clojure clojure-source namespace-symbol
-                                        (if override {} report))]
+            (let [emitted (emit-fragment clojure-source)]
               (convert/parse-source emitted (assoc options :path title))
               (write-text! emitted-path emitted))
             (let [comparison
@@ -353,7 +395,7 @@
                    :fingerprint (fragment-fingerprint)
                    :authored-source (:source override)
                    :context-review (:context-only override)
-                   :note "Explanatory fragment: exact displayed Clojure evaluated and emitted Zig parsed. Surrounding definitions/imports may be omitted by the reference; this is not a standalone execution test."
+                   :note "Explanatory fragment: displayed syntax rendered without evaluating declarations; emitted Zig parsed. Surrounding definitions/imports may be omitted by the reference; this is not a standalone execution test."
                    :clojure-path output
                    :clojure-sha256 (sha256 output)
                    :emitted-path emitted-path

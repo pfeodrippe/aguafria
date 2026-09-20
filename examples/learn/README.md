@@ -83,11 +83,29 @@ Generic container methods also have ordinary, completable Vars. Require
 The method mutates the original `ak/var` receiver, not a copied list. Use
 `array-list/deinit` with the same allocator to release the list's allocation;
 closing the native value handle alone only releases its container storage.
+Fields have corresponding getters: `(array-list/-items list)` and
+`(array-list/-capacity list)`. These read the current receiver from the JVM and
+compile to direct field access in native code, with field docs and `[self]` metadata.
 Prepared, ignored namespace files expose declarations and documentation for
 static editor tooling; the live Vars also expose normal `:arglists` and `:doc`.
 `testing/allocator` is backed by a persistent native test context when used from
 the JVM. Native `az/deftest` execution still owns its usual leak-checking scope;
 an ordinary Clojure `let` does not itself create a native test scope.
+Thus a successful append/length check is not a promise that allocations were
+freed. Failed native tests retain their full Zig trace and add mapped Clojure
+source locations/forms, also available in the exception data.
+
+Runnable declarations must define their dependencies before use. Unknown names
+are rejected before registration, including generic functions and batch loading.
+Incomplete documentation snippets remain syntax-only excerpts; they do not gain
+invented declarations or runnable entry points.
+
+Native handles print explicitly, for example
+`#aguafria.zig.value.ZigValue[{:items [], :capacity 0}]`. Dereference (`@list`)
+or `az/value` returns the decoded view without the tag. Inspection uses current
+native fields, including generated generic structs; unbounded pointer fields
+display their addresses/types without being dereferenced. The tag is for
+inspection, not a readable serialization of native ownership.
 
 Teaching examples are hand-written under `resources/learn/example/`, with
 `learn.example.*` namespaces and Zig-derived filenames (`test_if.zig` becomes

@@ -118,7 +118,7 @@
 
   Object
   (toString [this]
-    (pr-str (decoded this))))
+    (pr-str this)))
 
 (defn zig-value?
   "True when value is an Aguafria native Zig value handle."
@@ -877,9 +877,10 @@
           zig-type (type zig-value)]
       (if (= :scalar representation)
         value
-        (if decoded-fn
-          (decoded-fn segment)
-          (decode-value-segment segment zig-type schema))))
+        (cond
+          decoded-fn (decoded-fn segment)
+          (:kind schema) (decode-value-segment segment zig-type schema)
+          :else ((requiring-resolve 'aguafria.zig.jvm/inspect-value!) zig-value))))
     (finally
       ;; Cleaner ownership is attached to the ZigValue rather than the raw
       ;; segment. The JVM may otherwise prove the wrapper dead while a long
@@ -931,9 +932,17 @@
     (letfn [(qualify [form]
               (cond
                 (and module (symbol? form) (nil? (namespace form)))
-                (symbol module (name form))
+                (with-meta (symbol module (name form)) (meta form))
 
                 (vector? form) (mapv qualify form)
+                (seq? form)
+                (let [[operator & arguments] form
+                      ;; Prepared types retain intrinsic operators such as
+                      ;; `type`; only declaration references name a module.
+                      operator (if (:aguafria/zig-reference (meta operator))
+                                 (qualify operator)
+                                 operator)]
+                  (with-meta (apply list operator (map qualify arguments)) (meta form)))
                 :else form))]
       (qualify (type zig-value)))))
 
@@ -955,7 +964,8 @@
       (let [storage (.allocate arena (long size) (long alignment))]
         (.copyFrom storage segment)
         (let [result (native-value
-                      {:kind :var :type zig-type}
+                      (merge (select-keys (info source) [:module :execution-context])
+                             {:kind :var :type zig-type})
                       (constantly {:representation :native
                                    :segment storage :size size :alignment alignment
                                    :owners [source]
@@ -969,17 +979,19 @@
 
 (defmethod print-method ZigValue
   [value ^java.io.Writer writer]
-  (print-method (decoded value) writer))
+  (.write writer "#aguafria.zig.value.ZigValue[")
+  (print-method (decoded value) writer)
+  (.write writer "]"))
 
 (defmethod print-dup ZigValue
   [value ^java.io.Writer writer]
-  ;; Native pointers are process-local, so print the portable decoded value
-  ;; instead of pretending the wrapper itself can be read back.
-  (print-dup (decoded value) writer))
+  ;; This is an inspection tag, not a promise to reconstruct native ownership.
+  (print-method value writer))
 
 (defmethod pprint/simple-dispatch ZigValue
   [value]
-  (pprint/write-out (decoded value)))
+  (pprint/pprint-logical-block :prefix "#aguafria.zig.value.ZigValue[" :suffix "]"
+    (pprint/write-out (decoded value))))
 
 (defmethod print-method ZigType
   [zig-type ^java.io.Writer writer]

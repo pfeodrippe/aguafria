@@ -7,7 +7,8 @@
 
 (deftest local-type-constructors-respect-lexical-scope
   (let [body (fn [form]
-               (-> (emit/prepare-declaration *ns* {:body [form]})
+               (-> (emit/prepare-declaration *ns* {:args [{:name 'callback :type :anytype}]
+                                                  :body [form]})
                    :body first emit/emit-expr))]
     (testing "locally declared types and their aliases are constructors"
       (let [source (body '(let [Local (aguafria.zig/struct [[:x :u8]])
@@ -20,7 +21,9 @@
                            (let [Local callback]
                              (Local {:x 7}))
                            (Local {:x 9})))]
-        (is (str/includes? source "Local(.{.x = 7})"))
+        (let [[_ local-name] (re-find #"const ([A-Za-z0-9_]+) = callback;" source)]
+          (is (some? local-name))
+          (is (str/includes? source (str local-name "(.{.x = 7})"))))
         (is (str/includes? source "Local{.x = 9}"))))
     (testing "ordinary functions receiving maps are not constructors"
       (is (str/includes? (body '(let [f callback] (f {:x 7})))

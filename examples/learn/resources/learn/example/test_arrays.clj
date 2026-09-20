@@ -90,13 +90,13 @@
   (try (testing/expectEqual 4 (az/field (az/index fancy-array 4) :x)))
   (try (testing/expectEqual 8 (az/field (az/index fancy-array 4) :y))))
 
-;; Call a function to initialize an array.
-(az/defvar more-points
-  (az/op "**" (az/array-init [(make-point 3)] [:array :_ Point]) 10))
-
 (az/defn- make-point Point
   [[x :i32]]
   (Point {:x x :y (* x 2)}))
+
+;; Call a function to initialize an array.
+(az/defvar more-points
+  (az/op "**" (az/array-init [(make-point 3)] [:array :_ Point]) 10))
 
 (az/deftest function-array-test
   (try (testing/expectEqual 3 (az/field (az/index more-points 4) :x)))

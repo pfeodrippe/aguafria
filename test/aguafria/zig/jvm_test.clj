@@ -2,6 +2,7 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std :as std]
             [aguafria.std.ArrayList :as array-list]
+            [aguafria.std.SemanticVersion :as semantic-version]
             [aguafria.std.testing :as zig-testing]
             [aguafria.std.debug :as debug]
             [aguafria.std.math :as math]
@@ -172,6 +173,10 @@
         (is (= {:ok nil} (append allocator \☔)))
         (is (= {:ok nil} (array-list/append list allocator \☺)))
         (is (= [9748 9786] (az/field list :items)))
+        (is (= [9748 9786] (:items @list)))
+        (is (= (az/field list :capacity) (:capacity @list)))
+        (is (str/starts-with? (pr-str list)
+                             "#aguafria.zig.value.ZigValue[{:items [9748 9786]"))
         (is (= {:ok nil} (zig-testing/expectEqual 2 (az/field (az/field list :items) :len))))
         (finally (array-list/deinit list allocator)))))
   (let [namespace (fixture)]
@@ -208,6 +213,40 @@
                    (try (array-list/append list testing/allocator \☔))
                    (try (testing/expectEqual 1 (az/field (az/field list :items) :len)))))))
       (is (= :passed (:status ((ns-resolve namespace 'method-vars-work-in-native-code)))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest field-accessor-vars-work-in-jvm-and-native-code
+  (is (= '([self]) (:arglists (meta #'array-list/-items))))
+  (is (str/includes? (:doc (meta #'array-list/-items)) "Contents of the list"))
+  (is (:field-accessor? (:aguafria/zig-reference (meta #'array-list/-items))))
+  (is (= "list.items" (az/emit-expr '(aguafria.std.ArrayList/-items list))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exactly one receiver"
+                        (array-list/-items)))
+  (let [version (:ok (semantic-version/parse "1.2.3"))]
+    (is (= [1 2 3] [(semantic-version/-major version)
+                    (semantic-version/-minor version)
+                    (semantic-version/-patch version)])))
+  (with-open [list (ak/var :.empty (std/ArrayList :u21))]
+    (try
+      (is (= [] (array-list/-items list)))
+      (is (= 0 (array-list/-capacity list)))
+      (array-list/append list zig-testing/allocator \☔)
+      (is (= [9748] (array-list/-items list)))
+      (is (= (az/field list :capacity) (array-list/-capacity list)))
+      (finally (array-list/deinit list zig-testing/allocator))))
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (require '[aguafria.std :as std]
+                 '[aguafria.std.ArrayList :as array-list]
+                 '[aguafria.std.testing :as testing])
+        (eval '(az/deftest field-vars-work-in-native-code
+                 (let [list (ak/var :.empty (std/ArrayList :u21))]
+                   (ak/defer (array-list/deinit list testing/allocator))
+                   (try (array-list/append list testing/allocator \☔))
+                   (try (testing/expectEqual 1 (az/field (array-list/-items list) :len)))
+                   (try (testing/expect (> (array-list/-capacity list) 0)))))))
+      (is (= :passed (:status ((ns-resolve namespace 'field-vars-work-in-native-code)))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest invalid-private-function-fails-at-its-own-definition
@@ -411,8 +450,8 @@
     (binding [*ns* namespace]
       (eval '(az/defvar calls :i64 0))
       (eval '(az/defn count-call :i64 [[T {:zig/prefix "comptime"} :type] [x T]]
-               (set! _ x)
-               (set! calls (+ calls 1))
+               (ak/= :_ x)
+               (ak/= calls (+ calls 1))
                calls))
       (eval '(az/defn count-now :i64 [] calls)))
     (let [count-call (ns-resolve namespace 'count-call)

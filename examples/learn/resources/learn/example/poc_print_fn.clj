@@ -46,7 +46,7 @@
                (case [\s] (ak/continue))
                (az/case-else
                  (ak/compileError
-                  (ak/++ "Unknown format character: " (az/array-init [character] [:array 1 :u8]))))))
+                  (az/op "++" "Unknown format character: " (az/array-init [character] [:array 1 :u8]))))))
            (case [(az/field State :close-brace)]
              (az/switch-stmt character
                (case [\}]
@@ -60,7 +60,7 @@
            (when (ak/!= (az/field arguments :len) next-argument)
              (ak/compileError "Unused arguments"))
            (when (ak/!= state (az/field State :start))
-             (ak/compileError (ak/++ "Incomplete format string: " format)))))
+             (ak/compileError (az/op "++" "Incomplete format string: " format)))))
        (when (< start-index (az/field format :len))
          (try ((az/field self :write) (az/slice format start-index (az/field format :len)))))
        (try ((az/field self :flush)))))

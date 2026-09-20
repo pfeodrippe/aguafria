@@ -3,9 +3,6 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst first-25-primes (firstNPrimes 25))
-(az/defconst sum-of-first-25-primes (sum (& first-25-primes)))
-
 (az/defn- firstNPrimes [:array amount :i32]
   [[amount {:zig/prefix "comptime"} :usize]]
   (let [prime-list (ak/var ak/undefined [:array amount :i32])
@@ -31,6 +28,9 @@
     (for [number numbers]
       (ak/+= result number))
     result))
+
+(az/defconst first-25-primes (firstNPrimes 25))
+(az/defconst sum-of-first-25-primes (sum (& first-25-primes)))
 
 (az/deftest compile-time-variable-values-test
   (try (testing/expectEqual 1060 sum-of-first-25-primes)))

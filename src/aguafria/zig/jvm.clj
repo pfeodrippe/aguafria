@@ -100,12 +100,14 @@
         0 24))
 
 (defn- register! [namespace descriptor]
-  (runtime/register-declaration!
-   (emitter/prepare-declaration
-    namespace
-    (merge {:module (str (ns-name namespace)) :public? false :export? false
-            :implicit-return? true}
-           descriptor))))
+  (binding [emitter/*registered-declaration-names*
+            (set (map :name (:definitions (runtime/module-info (ns-name namespace)))))]
+    (runtime/register-declaration!
+     (emitter/prepare-declaration
+      namespace
+      (merge {:module (str (ns-name namespace)) :public? false :export? false
+              :implicit-return? true}
+             descriptor)))))
 
 (declare coerce!)
 
@@ -132,7 +134,10 @@
                       #(coerce! % type)))
     :else result))
 
-(defn- invoke-expression! [namespace expression parameters arguments]
+(defn- invoke-expression!
+  ([namespace expression parameters arguments]
+   (invoke-expression! namespace expression parameters arguments 'result))
+  ([namespace expression parameters arguments result-writer]
   (binding [runtime/*native-test-context?*
             (or runtime/*native-test-context?*
                 (some #(and (value/zig-value? %)
@@ -140,10 +145,10 @@
     (locking namespace
     (let [module (str (ns-name namespace))
           helper-source (slurp (io/resource "aguafria/jvm_result.zig"))
-          call-name (symbol (str "__jvm_call_" (token [expression parameters helper-source])))
+          call-name (symbol (str "__jvm_call_" (token [expression parameters helper-source result-writer])))
           release-name '__jvm_release
           helper-name '__aguafria_jvm
-          adapter-key [module call-name expression parameters helper-source]]
+          adapter-key [module call-name expression parameters helper-source result-writer]]
       (when-not (contains? @prepared-adapters adapter-key)
         (binding [runtime/*source-only-registration?* true]
           (register! namespace
@@ -160,7 +165,7 @@
                       :qualified-name (symbol module (str call-name))
                       :declaration-key [:fn call-name]
                       :return :usize :args parameters
-                      :body [(list '(field __aguafria_jvm :result) expression)]})))
+                      :body [(list (list 'field helper-name (keyword result-writer)) expression)]})))
       (let [address (runtime/invoke! (symbol module (str call-name)) arguments)]
         (try
           (let [result (edn/read-string
@@ -169,7 +174,48 @@
             (swap! prepared-adapters conj adapter-key)
             (expression-result namespace expression parameters result))
           (finally
-            (runtime/invoke! (symbol module (str release-name)) [address]))))))))
+            (runtime/invoke! (symbol module (str release-name)) [address])))))))))
+
+(defn inspect-value!
+  "Decode an otherwise unschematized native value using Zig's own reflection.
+  Read the current storage; retain the owner and never follow unbounded pointers."
+  [native-value]
+  (requiring-resolve 'aguafria.zig/deref)
+  (let [type (value/qualified-type native-value)
+        namespace-name (symbol (str "aguafria.jvm.inspect-" (token type)))
+        context (or (some-> (:module (value/info native-value)) symbol find-ns)
+                    (find-ns namespace-name)
+                    (create-ns namespace-name))
+        pointer (list 'aguafria.keyword/as
+                      '(aguafria.keyword/ptrFromInt address)
+                      [:*const type])]
+    (binding [runtime/*native-test-context?*
+              (or runtime/*native-test-context?*
+                  (= :test (:execution-context (value/info native-value))))]
+      (try
+        (let [result (invoke-expression!
+                      context (list 'aguafria.zig/deref pointer)
+                      [{:name 'address :type :usize}]
+                      [(.address ^MemorySegment (value/segment native-value))]
+                      'inspectResult)]
+          (walk/postwalk
+           (fn [item]
+             (cond
+               (and (map? item) (= #{:aguafria.jvm/struct} (set (keys item))))
+               (into (array-map)
+                     (map (fn [[name field]] [(keyword name) field]))
+                     (:aguafria.jvm/struct item))
+
+               (and (map? item) (= #{:aguafria.jvm/enum} (set (keys item))))
+               (keyword (:aguafria.jvm/enum item))
+
+               (and (map? item) (= #{:aguafria.jvm/pointer} (set (keys item))))
+               (let [{:keys [address type]} (:aguafria.jvm/pointer item)]
+                 (value/->ZigPointer address type))
+
+               :else item))
+           result))
+        (finally (java.lang.ref.Reference/reachabilityFence native-value))))))
 
 (defn test-resource!
   "Materialize a stable test-owned native resource. Its library and allocator
@@ -551,12 +597,23 @@
   [reference arguments]
   (call-with-output
    (fn []
-     (if (:receiver-method? reference)
+     (cond
+       (:field-accessor? reference)
+       (do
+         (when-not (= 1 (count arguments))
+           (throw (ex-info "A field accessor requires exactly one receiver"
+                           {:function (:symbol reference) :actual (count arguments)})))
+         (invoke-syntax! {:name 'field :symbol 'aguafria.zig/field
+                          :kind :syntax :param-count 2}
+                         [(first arguments) (keyword (:member-name reference))]))
+
+       (:receiver-method? reference)
        (let [[receiver & operands] arguments]
          (when-not (value/zig-value? receiver)
            (throw (ex-info "A container method requires a native receiver"
                            {:function (:symbol reference) :receiver receiver})))
          (apply (bound-method receiver (keyword (:member-name reference))) operands))
+       :else
        (let [{:keys [expression-arguments parameters arguments]}
            (call-inputs (signature-arguments (:signature reference)) arguments)
            namespace-name (symbol (str "aguafria.jvm.imported-" (token reference)))

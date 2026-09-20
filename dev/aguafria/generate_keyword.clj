@@ -544,7 +544,14 @@
 (defn- clojure-namespace-path
   [path replacements]
   (mapv (fn [index segment]
-          (get replacements (subvec path 0 (inc index)) segment))
+          (let [segment (quoted-zig-name
+                         (get replacements (subvec path 0 (inc index)) segment))
+                segment (str/replace segment #"[^A-Za-z0-9_-]"
+                                     (fn [match]
+                                       (str "_u" (format "%04x" (int (first match))) "_")))]
+            (if (re-find #"^[A-Za-z_]" segment)
+              segment
+              (str "zig_" segment))))
         (range (count path))
         path))
 

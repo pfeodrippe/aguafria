@@ -9,13 +9,13 @@
   (let [value (ak/var 255 :u8)]
     (ak/+= value 1)))
 
-(az/defconst panic {:attrs #{:public}} (debug/FullPanic myPanic))
-
 (az/defn- myPanic :noreturn
   [[message [:slice-const :u8]] [first-trace-address [:optional :usize]]]
   (ak/= :_ first-trace-address)
   (debug/print "Panic! {s}\n" [message])
   (process/exit 1))
+
+(az/defconst panic {:attrs #{:public}} (debug/FullPanic myPanic))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

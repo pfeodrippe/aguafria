@@ -7,11 +7,6 @@
   [[:name [:slice-const :u8]]
    [:func [:fn {} [{:type :i32}] :i32]]])
 
-(az/defconst cmd-fns
-  (az/array-init [(CmdFn {:name "one" :func one})
-                  (CmdFn {:name "two" :func two})
-                  (CmdFn {:name "three" :func three})] [:array :_ CmdFn]))
-
 (az/defn- one :i32
   [[value :i32]]
   (+ value 1))
@@ -23,6 +18,11 @@
 (az/defn- three :i32
   [[value :i32]]
   (+ value 3))
+
+(az/defconst cmd-fns
+  (az/array-init [(CmdFn {:name "one" :func one})
+                  (CmdFn {:name "two" :func two})
+                  (CmdFn {:name "three" :func three})] [:array :_ CmdFn]))
 
 (az/defn- perform-fn :i32
   [[prefix-char {:zig/prefix "comptime"} :u8] [start-value :i32]]
