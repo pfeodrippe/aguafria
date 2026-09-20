@@ -4,14 +4,14 @@
             [aguafria.zig :as az]))
 
 (az/deftest tagged-union-payload-capture-test
-  (let [Point (az/container {:kind :struct}
-                (az/field-decl :x :u8)
-                (az/field-decl :y :u8))
-        Item (az/container {:kind :union :attrs #{:enum}}
-               (az/field-decl :a :u32)
-               (az/field-decl :c Point)
-               (az/enum-field-decl :d)
-               (az/field-decl :e :u32))
+  (let [Point (az/struct
+                [[:x :u8]
+                 [:y :u8]])
+        Item (az/union {:attrs #{:enum}}
+               [[:a :u32]
+                [:c Point]
+                [:d :void]
+                [:e :u32]])
         ^:var item (az/init Item {:c (az/init Point {:x 1 :y 2})})
         result (ak/switch item
                  ;; Matching fields with the same payload type can share a prong.

@@ -7,7 +7,7 @@
             [aguafria.std.mem :as mem]
             [field-lab.physics :as p]))
 
-(az/defextern fegetround {:zig/prefix "pub extern"} :- :c_int [])
+(az/defextern fegetround :c_int {:zig/prefix "pub extern"}  [])
 
 (az/defstruct Interval [[:lower :f64] [:upper :f64]])
 

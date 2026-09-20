@@ -13,8 +13,8 @@
   (let [^{:var :usize} i 1
         ^{:var :usize} j 1]
     (az/while-loop {:continue (az/block
-                               (ak/*= i 2)
-                               (ak/*= j 3))}
+                                (ak/*= i 2)
+                                (ak/*= j 3))}
       (< (* i j) 2000)
       (let [my-ij (* i j)]
         (try (testing/expect (< my-ij 2000)))))))

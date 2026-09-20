@@ -26,12 +26,12 @@
   "Native storage for one loaded TTF and its stb_truetype baked atlas."
   []
   (az/container
-   {:kind :struct}
-   (az/field-decl data [:array 524288 :u8])
-   (az/field-decl atlas [:array 262144 :u8])
-   (az/field-decl characters [:array 224 stb/stbtt_bakedchar])
-   (az/field-decl bytes :usize)
-   (az/field-decl ready :bool)))
+    {:kind :struct}
+    [(az/field-decl data [:array 524288 :u8])
+     (az/field-decl atlas [:array 262144 :u8])
+     (az/field-decl characters [:array 224 stb/stbtt_bakedchar])
+     (az/field-decl bytes :usize)
+     (az/field-decl ready :bool)]))
 
 (az/defconst FontStorage
   (FontStorageType))

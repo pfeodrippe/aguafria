@@ -4,16 +4,16 @@
             [aguafria.zig :as az]))
 
 (az/defconst Variant
-  (az/container {:kind :union :attrs #{:enum}}
-    (az/field-decl :int :i32)
-    (az/field-decl :boolean :bool)
-    (az/enum-field-decl :none)
-    (az/fn-decl truthy :- :bool [[self Variant]]
-      (ak/return
+  (az/union {:attrs #{:enum}}
+    [[:int :i32]
+     [:boolean :bool]
+     [:none :void]
+     (az/fn-decl truthy :bool [[self Variant]]
+       (ak/return
         (ak/switch self
           (case [(az/field Variant :int)] [integer] (!= integer 0))
           (case [(az/field Variant :boolean)] [boolean] boolean)
-          (case [(az/field Variant :none)] false))))))
+          (case [(az/field Variant :none)] false))))]))
 
 (az/deftest union-method-test
   (let [^{:var Variant} integer {:int 1}

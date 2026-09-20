@@ -4,14 +4,16 @@
             [aguafria.zig :as az]))
 
 (az/defn List :type [[T {:zig/prefix "comptime"} :type]]
-  (az/container {:kind :struct}
-    (az/field-decl :x T)))
+  (az/struct
+    [[:x T]]))
 
 (az/defn main :void []
-  (let [Foo (az/container {:kind :struct})]
+  (let [Foo (az/struct
+              [])]
     (debug/print "variable: {s}\n" [(ak/typeName Foo)])
     (debug/print "anonymous: {s}\n"
-                 [(ak/typeName (az/container {:kind :struct}))])
+                 [(ak/typeName (az/struct
+                                 []))])
     (debug/print "function: {s}\n" [(ak/typeName (List (az/type :i32)))])))
 
 (comment

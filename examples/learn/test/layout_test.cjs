@@ -172,31 +172,32 @@ test("URL view selection defaults to side-by-side and preserves independent tabs
   }
 });
 
-test("contents drawer and section disclosure work without moving the examples", async () => {
+test("contents drawer keeps the complete upstream tree expanded without moving examples", async () => {
   const browser = await chromium.launch({channel: process.env.LEARN_BROWSER || "chrome"});
   try {
     for (const width of [1600, 640]) {
       const page = await browser.newPage({viewport: {width, height: 1000}});
       await page.goto(`${reference}?view=side-by-side#Hello-World`);
       const initial = await geometry(page);
-      const toggle = page.getByRole('button', {name: '☰ Contents', exact: true});
+      const toggle = page.getByRole('button', {name: 'Table of contents', exact: true});
+      assert.equal(await toggle.textContent(), '☰');
       const navigation = page.locator('#navigation');
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
       await toggle.click();
       assert.equal(await navigation.isVisible(), true);
       near((await geometry(page)).tabs.x, initial.tabs.x, 'drawer does not shift the tabs');
       near((await geometry(page)).clojure.x, width / 2, 'drawer does not shift the panels');
-      const values = navigation.getByRole('button', {name: 'Toggle Values sections', exact: true});
-      assert.equal(await values.getAttribute('aria-expanded'), 'false');
-      await values.focus();
-      await values.press('Space');
-      assert.equal(await values.getAttribute('aria-expanded'), 'true');
+      assert.equal(await navigation.locator('ul[hidden]').count(), 0);
+      assert.equal(await navigation.locator('.learn-toc-branch').count(), 0);
+      assert.equal(await navigation.getByRole('link', {name: 'Primitive Types', exact: true}).isVisible(), true);
+      assert.equal(await page.locator('.learn-inline-toggle').count(), 0);
+      assert.equal(await page.locator('.learn-inline').first().textContent().then(text => text.includes('⇄')), false);
       await navigation.getByRole('link', {name: 'Primitive Types', exact: true}).click();
       assert.equal(new URL(page.url()).hash, '#Primitive-Types');
       assert.equal(new URL(page.url()).searchParams.get('view'), 'side-by-side');
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
       await toggle.click();
-      assert.equal(await values.getAttribute('aria-expanded'), 'true');
+      assert.equal(await navigation.locator('ul[hidden]').count(), 0);
       assert.equal(await navigation.getByRole('link', {name: 'Primitive Types', exact: true}).getAttribute('aria-current'), 'location');
       await page.keyboard.press('Escape');
       assert.equal(await navigation.isVisible(), false);

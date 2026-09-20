@@ -5,10 +5,56 @@ document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
 served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Use one explicit member vector for named and anonymous container types.
+      Add `az/struct`, `az/enum`, `az/union`, and `az/opaque`; allow enum keywords
+      and detailed tag vectors together. Keep methods inside the member vector.
+      Reject variadic member syntax, migrate examples/converter/tooling, test
+      generic type factories and native calls, and rebuild/verify the reference.
+      Verified: 255 library tests / 5,579 assertions; 51 Learn tests / 8,768
+      assertions; all 292 upstream comparisons; 10 browser/highlighting tests.
+      Direct nREPL calls exercised a generic struct's method and native value
+      round-trip. Rebuilt and visually checked the served reference. The simple
+      struct converter path and nested declarations also use the member vector;
+      the 245-file TigerBeetle corpus was regenerated and its regressions pass.
+
+- [x] Keep the contents tree fully expanded like the original Zig reference;
+      use an icon-only, accessible hamburger button for the sidebar.
+- [x] Remove the inline ⇄ controls from prose and empty/context-only comment
+      recipes. Preserve actual runnable comment forms and all upstream wording.
+- [x] Give `az/defextern` and `az/fn-decl` the same return-type-first syntax as
+      `az/defn`; migrate all callers, converter output, tests and tooling.
+- [x] Support idiomatic `az/defenum` and vector-field `az/defstruct` declarations
+      with documentation and nested methods; hand-review and migrate similar
+      verbose declarations throughout the Learn examples.
+- [x] Map compiler diagnostics to precise Clojure file/line/form excerpts,
+      including constant_identifier_cannot_change.clj. Test native and front-end
+      errors rather than substituting an example-specific explanation.
+- [x] Rerun compiler/Learn tests and source/output verification, regenerate real
+      REPL transcripts, rebuild the page, and verify it visually in the browser.
+
+Additional compiler repairs required by the wider regression run:
+
+- [x] TigerBeetle type-factory constant dependencies can fail to stabilize
+      (`message-bus-fuzz/MessageBus`). Reproduced with the pre-change compiler
+      from HEAD and a freshly converted corpus in `.tmp/learn-api-baseline.LPF18L`.
+      Implemented stable cyclic source-graph identities and removed indirect
+      self-dependencies. Recursive-group edit/idempotence tests and full corpus
+      loading now pass. Full converter regressions: 34 tests / 254 assertions,
+      including TigerBeetle compilation, execution and hot reload, all passing.
+- [x] TigerBeetle's for/else `unreachable` can be emitted as a quoted identifier.
+      The same output is produced by the pre-change compiler. Fixed expression
+      translation and added a native regression fixture. The full TigerBeetle
+      compile-and-execute regression now passes.
+- [x] Preserve C-header documentation after the return type in generated
+      function declarations, invalidate cached bindings, and rerun C binding tests.
+- [x] Scope the constant-reload test's waits to its provider/consumer modules,
+      so an intentionally failed editor compilation cannot poison that test.
+      Both pass together, and the complete library suite passes.
+
 - [x] Keep language tabs in their original prose-aligned position while panels
       scroll independently. Place Clojure at the window midpoint. Default to
       side-by-side, support `?view=zig|clj|side-by-side`, and add a collapsible
-      contents sidebar with expandable sections. Verify links, keyboard use,
+      contents sidebar with the entire upstream tree expanded. Verify links, keyboard use,
       all paired heights, narrow windows and resizing in the browser.
 
 - [x] Match each Zig/Clojure source block to the taller code block, and likewise
@@ -20,7 +66,7 @@ served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
       resizing and multiple open pairs.
       Browser regressions cover all 307 pairs and live resizing from 640 to
       2600 pixels; code and output text areas align, tabs stay fixed, and the
-      contents toggle/section disclosure work. Checked the rebuilt page visually.
+      contents toggle and complete tree work. Checked the rebuilt page visually.
 
 Current verification (2026-09-19): all 292 file outcomes pass (161 output,
 78 diagnostic, 50 compile-only comparisons and 3 reviewed special cases).
@@ -28,12 +74,17 @@ The page records 264 actual comment evaluations across 202 in-process lessons.
 49 context-only, 32 deliberately fatal and 7 target-specific cases do not receive
 fabricated REPL output. These direct-call recordings replace the older file-runner
 transcripts mentioned in the implementation history below.
-All 50 Learn tests / 8,763 assertions and ten JavaScript tests pass. The served
+All 51 Learn tests / 8,768 assertions and ten JavaScript tests pass. The served
 HTML matches the built file and recovers the upstream HTML byte-for-byte.
 Browser interaction and screenshot checks confirm default side-by-side selection,
 307 Side by side controls, paired Shell/REPL panels, highlighting, direct `(main)`
 and named-test calls, and the repaired compiler diagnostic. All outcome
 fingerprints match the final compiler and verifier.
+Generic native-call/compiler regressions also pass: 161 tests / 994 assertions.
+The repaired C binding and scoped reload tests pass with the editor suite:
+16 tests / 113 assertions. The complete library suite, including the full
+TigerBeetle converter/native regressions, passes: 252 tests / 5,539 assertions,
+zero failures or errors. clj-kondo's API fixture has zero warnings/errors.
 
 - [x] Recognize public `:!void` main with `std.process.Init` / `Init.Minimal`
       for `(main)` and `(main ["arg"])`, initializing and calling it in the JVM.
@@ -281,7 +332,7 @@ fingerprints match the final compiler and verifier.
       native harness and generic output/diagnostic comparisons.
       Regression checks reject hash-named bindings, ak/const or ak/var local forms,
       split declaration names, and string-named tests in authored sources.
-- [ ] Separate library follow-up: finish repository-wide API migration validation
+- [x] Finish repository-wide API migration validation
       (outside this completed reference; breaking, no compatibility forms):
       `(az/defn foo :i32 [] ...)`, with the name and
       return type beside the macro. No `:-`, no attributes before the return type.
@@ -289,25 +340,28 @@ fingerprints match the final compiler and verifier.
       Var and keeps that name on the header line. Its symbol supplies the test
       name; no duplicate `:zig/test-name` metadata or hidden naming fallback.
       Migrate callers, editor hooks, docs and tests; verify old forms are rejected.
+      Completed and covered by the final complete library run above.
 - [x] Fix labeled `for`/`while` else blocks in the shared converter; native regression.
 - [x] Fix switch-prong `comptime unreachable` in the shared emitter: extra
       parentheses incorrectly change Zig's syntax-sensitive error-set checks.
       Native regression plus original reference example pass after the fix.
-- [ ] Separate library follow-up: investigate any further compiler failures.
+- [x] Investigate and fix further compiler failures found during verification.
       Added reader @pointer support via the real clojure.core/deref Var, and fixed
       direct comptime let blocks receiving an invalid semicolon, and keyword tuple
       field names (:3) now emit Zig's required quoted identifier. 32 emitter tests /
       146 assertions pass; native pointer/comptime/tuple lessons match upstream output.
       Named-test/public/private API tests: 2 tests / 26 assertions pass. Isolated
       tooling/converter/editor checks: 10 tests / 733 assertions pass; both packaged
-      clj-kondo fixtures have zero errors and warnings. Full native library suite
-      is not yet verified after the breaking API migration.
-- [ ] Separate library follow-up: broader converter-suite failures. The full 28-test run reported
+      clj-kondo fixtures have zero errors and warnings. The full native library
+      suite is now verified after the breaking API migration (results above).
+- [x] Fix broader converter-suite failures. The earlier 28-test run reported
       5 failures and 2 errors involving TigerBeetle constant dependencies that do
-      not stabilize. Do not claim the overall library suite is green. Isolated
+      not stabilize. Isolated
       baseline/current require-and-await checks both reproduce the same failure.
       The checked baseline used HEAD's converter/emitter, extracted into
       `.tmp/learn-baseline.7zPwlK`; this failure predates the two reference fixes.
+      Resolved by stable cyclic source-graph identities and keyword-expression
+      translation, with native regressions and the full library run passing.
 - [x] Complete browser light/dark, responsive, copy, deep-link and no-JS QA.
       Already observed: original dark layout, mouse switching, ArrowLeft/End,
       and independent first/second example selection work. Copy is now verified

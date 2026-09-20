@@ -4,9 +4,9 @@
 
 (az/defconst c
   (ak/cImport
-    (az/block
-      (ak/cDefine "_NO_CRT_STDIO_INLINE" "1")
-      (ak/cInclude "stdio.h"))))
+   (az/block
+     (ak/cDefine "_NO_CRT_STDIO_INLINE" "1")
+     (ak/cInclude "stdio.h"))))
 
 (az/defconst builtin (ak/import "builtin"))
 

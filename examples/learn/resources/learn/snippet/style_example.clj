@@ -27,20 +27,16 @@
 (az/defn- ShortList :type
   [[T {:zig/prefix "comptime"} :type]
    [length {:zig/prefix "comptime"} :usize]]
-  (az/container {:kind :struct}
-    (az/field-decl :field_name [:array length T])
-    (az/fn-decl method-name :- :void [])))
+  (az/struct
+    [[:field_name [:array length T]]
+     (az/fn-decl method-name :void [])]))
 
 (az/defconst xml-document
   (az/multiline-string
-    ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-     "<document>"
-     "</document>"]))
+   ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+    "<document>"
+    "</document>"]))
 
 (az/defstruct XmlParser [[:field :i32]])
 
 (az/defn- read-u32-be :u32 [])
-
-(comment
-  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
-  )

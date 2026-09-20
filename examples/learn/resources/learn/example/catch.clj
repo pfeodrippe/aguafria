@@ -7,7 +7,3 @@
   ;; A fallback turns either parse failure into an ordinary value.
   (let [number (catch (parsing/parseU64 text 10) 13)]
     (set! _ number)))
-
-(comment
-  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
-  )

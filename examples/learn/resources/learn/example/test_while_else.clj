@@ -11,11 +11,11 @@
   [[begin :usize] [end :usize] [number :usize]]
   (let [^:var i begin]
     (ak/return
-      (az/while-loop {:continue (az/assign-expr "+=" i 1)
-                      :else-expression false}
-        (< i end)
-        (if (== i number)
-          (ak/break true))))))
+     (az/while-loop {:continue (az/assign-expr "+=" i 1)
+                     :else-expression false}
+       (< i end)
+       (if (== i number)
+         (ak/break true))))))
 
 (comment
   (while-else-test))

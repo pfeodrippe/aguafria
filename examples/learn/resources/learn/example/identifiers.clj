@@ -10,22 +10,15 @@
   {:zig/name "@\"1SmallStep4Man\""}
   112358)
 
-(az/defextern error
+(az/defextern error :void
   {:zig/prefix "pub extern \"c\""}
-  :- :void
   [])
-(az/defextern fstat-inode64
+(az/defextern fstat-inode64 :c_int
   {:zig/name "@\"fstat$INODE64\"" :zig/prefix "pub extern \"c\""}
-  :- :c_int
   [[fd c/fd_t] [buf [:* c/Stat]]])
 
-(az/defconst Color
-  (az/container {:kind :enum}
-    (az/enum-field-decl :red)
-    (az/enum-field-decl :really-red {:zig/name "@\"really red\""})))
+(az/defenum Color
+  [:red
+   [:really-red {:zig/name "@\"really red\""}]])
 
 (az/defconst color Color (az/enum-literal ".@\"really red\""))
-
-(comment
-  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
-  )

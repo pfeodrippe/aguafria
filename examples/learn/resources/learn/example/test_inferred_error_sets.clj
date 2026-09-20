@@ -20,9 +20,9 @@
 
 (az/deftest inferred-error-set-test
   (az/if-capture-stmt {:payload [_] :error [error]} (add-inferred :u8 255 1)
-    (ak/unreachable)
-    (az/switch-stmt error
-      (case [(az/error-value :Overflow)] (az/block)))))
+                      (ak/unreachable)
+                      (az/switch-stmt error
+                        (case [(az/error-value :Overflow)] (az/block)))))
 
 (comment
   (inferred-error-set-test))

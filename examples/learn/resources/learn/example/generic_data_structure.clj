@@ -3,9 +3,9 @@
             [aguafria.zig :as az]))
 
 (az/defn- ListOf :type [[T {:zig/prefix "comptime"} :type]]
-  (az/container {:kind :struct}
-    (az/field-decl :items [:slice T])
-    (az/field-decl :len :usize)))
+  (az/struct
+    [[:items [:slice T]]
+     [:len :usize]]))
 
 (az/defvar buffer [:array 10 :i32] ak/undefined)
 

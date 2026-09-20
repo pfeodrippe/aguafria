@@ -2,10 +2,10 @@
   (:require [aguafria.zig :as az]))
 
 (az/defconst Payload
-  (az/container {:kind :union}
-    (az/field-decl :int :i64)
-    (az/field-decl :float :f64)
-    (az/field-decl :boolean :bool)))
+  (az/union
+    [[:int :i64]
+     [:float :f64]
+     [:boolean :bool]]))
 
 (az/deftest simple-union-test
   (let [^:var payload (az/init Payload {:int 1234})]

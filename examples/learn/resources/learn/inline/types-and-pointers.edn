@@ -318,7 +318,7 @@
   :note "Use container options {:kind :union :layout :packed}; all fields must have equal bit size."}
 
  "opaque {}"
- {:clojure-source "(az/container {:kind :opaque})"
+ {:clojure-source "(az/opaque [])"
   :kind :type
   :note "Declare an opaque type with unknown size and alignment."}
 

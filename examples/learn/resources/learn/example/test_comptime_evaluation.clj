@@ -9,9 +9,9 @@
 
 (az/defconst commands
   (az/array-init [:array _ Command]
-    [(Command {:name "one" :func one})
-     (Command {:name "two" :func two})
-     (Command {:name "three" :func three})]))
+                 [(Command {:name "one" :func one})
+                  (Command {:name "two" :func two})
+                  (Command {:name "three" :func three})]))
 
 (az/defn- one :i32
   [[value :i32]]

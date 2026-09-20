@@ -6,8 +6,8 @@
   []
   (let [^{:zig/type [:optional :i32]} optional-number nil]
     (az/if-capture-stmt {:payload [number]} optional-number
-      (debug/print "got number: {}\n" [number])
-      (debug/print "it's null\n" []))))
+                        (debug/print "got number: {}\n" [number])
+                        (debug/print "it's null\n" []))))
 
 (comment
   (main))

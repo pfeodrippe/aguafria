@@ -4,22 +4,21 @@
             [aguafria.std.log :as log]
             [aguafria.zig :as az]))
 
-(az/defconst Threshold
-  (az/container {:kind :struct}
-    (az/field-decl :minimum :f32 0.25)
-    (az/field-decl :maximum :f32 0.75)
-    (az/const-decl Category
-      (az/container {:kind :enum}
-        (az/enum-field-decl :low)
-        (az/enum-field-decl :medium)
-        (az/enum-field-decl :high)))
-    (az/fn-decl categorize :- Category [[threshold Threshold] [value :f32]]
-      (debug/assert (>= (az/field threshold :maximum)
-                        (az/field threshold :minimum)))
-      (ak/return
-        (if (< value (az/field threshold :minimum))
-          :.low
-          (if (> value (az/field threshold :maximum)) :.high :.medium))))))
+(az/defstruct Threshold
+  [[:minimum {:default 0.25} :f32]
+   [:maximum {:default 0.75} :f32]
+   (az/const-decl Category
+     (az/enum
+       [:low
+        :medium
+        :high]))
+   (az/fn-decl categorize Category [[threshold Threshold] [value :f32]]
+     (debug/assert (>= (az/field threshold :maximum)
+                       (az/field threshold :minimum)))
+     (ak/return
+      (if (< value (az/field threshold :minimum))
+        :.low
+        (if (> value (az/field threshold :maximum)) :.high :.medium))))])
 
 (az/defn main [:error-union :void] []
   (let [^{:var Threshold} threshold {:maximum 0.20}

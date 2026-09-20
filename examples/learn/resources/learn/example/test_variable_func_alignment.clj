@@ -28,19 +28,19 @@
   (try (testing/expectEqual 1234 (aligned-answer)))
   (try (testing/expectEqual (az/type [:fn {} [] :i32]) (ak/TypeOf aligned-answer)))
   (try (testing/expectEqual
-         (az/type [:pointer {:size :one :const? true :align (* (ak/sizeOf (az/type :usize)) 2)}
-                   [:fn {} [] :i32]])
-         (ak/TypeOf (& aligned-answer))))
+        (az/type [:pointer {:size :one :const? true :align (* (ak/sizeOf (az/type :usize)) 2)}
+                  [:fn {} [] :i32]])
+        (ak/TypeOf (& aligned-answer))))
   (noop-one)
   (try (testing/expectEqual (az/type [:fn {} [] :void]) (ak/TypeOf noop-one)))
   (try (testing/expectEqual
-         (az/type [:pointer {:size :one :const? true :align 1} [:fn {} [] :void]])
-         (ak/TypeOf (& noop-one))))
+        (az/type [:pointer {:size :one :const? true :align 1} [:fn {} [] :void]])
+        (ak/TypeOf (& noop-one))))
   (noop-four)
   (try (testing/expectEqual (az/type [:fn {} [] :void]) (ak/TypeOf noop-four)))
   (try (testing/expectEqual
-         (az/type [:pointer {:size :one :const? true :align 4} [:fn {} [] :void]])
-         (ak/TypeOf (& noop-four)))))
+        (az/type [:pointer {:size :one :const? true :align 4} [:fn {} [] :void]])
+        (ak/TypeOf (& noop-four)))))
 
 (comment
   (global-variable-alignment-test)

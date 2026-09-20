@@ -14,9 +14,9 @@
 
 (az/defn- bar [:error-union :void] []
   (az/if-capture-stmt {:error [error]} (baz)
-    (try (quux))
-    (az/switch-stmt error
-      (case [(az/error-value :FileNotFound)] (try (hello))))))
+                      (try (quux))
+                      (az/switch-stmt error
+                        (case [(az/error-value :FileNotFound)] (try (hello))))))
 
 (az/defn- baz [:error-union :void] []
   (try (bang1)))

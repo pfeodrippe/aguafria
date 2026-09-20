@@ -1222,8 +1222,12 @@
                  (when (= :keyword (:kind source-token))
                    (symbol (:zig-token source-token)))
                  source-op)
-          token (when-not (= :keyword (:kind source-token)) source-token)]
+          token (when-not (= :keyword (:kind source-token)) source-token)
+          expansion (expand-clojure-macro-once (or *keyword-context* *ns*) form)]
       (cond
+        expansion
+        (emit-expr (qualify-form (or *keyword-context* *ns*) (:expanded expansion)))
+
         token
         (emit-keyword-expr token args form)
 
@@ -2456,7 +2460,10 @@
           ";")
 
      :struct
-     (str (declaration-prefix zig-prefix
+     (if value
+       (str (declaration-prefix zig-prefix (when (not= false public?) "pub "))
+            "const " (identifier declaration-name) " = " (emit-expr value) ";")
+       (str (declaration-prefix zig-prefix
                               (when (not= false public?) "pub "))
           "const " (identifier declaration-name) " = "
           (case layout
@@ -2470,7 +2477,7 @@
                          (map (fn [{:keys [name type]}]
                                 (str (identifier name) ": " (emit-type type) ",")))
                          (str/join "\n")))
-          "\n};")
+          "\n};"))
 
      :field
      (str (declaration-prefix zig-prefix "")
@@ -2481,7 +2488,7 @@
 
      :comptime
      (let [body-source (binding [*source-mapping?*
-                                 (not= false emit-source-comment?)]
+                                 (or *source-mapping?* (not= false emit-source-comment?))]
                          (emit-function-body body :void false))]
        (str "comptime {\n"
             (when (seq body-source) (str (indent 1 body-source) "\n"))
@@ -2505,7 +2512,7 @@
 
      :fn
      (let [body-source (binding [*source-mapping?*
-                                 (not= false emit-source-comment?)]
+                                 (or *source-mapping?* (not= false emit-source-comment?))]
                          (emit-function-body body return implicit-return?))
            body-source (str (when (seq body-prefix-source)
                               (str body-prefix-source
@@ -2539,7 +2546,7 @@
 
      :test
      (let [body-source (binding [*source-mapping?*
-                                 (not= false emit-source-comment?)]
+                                 (or *source-mapping?* (not= false emit-source-comment?))]
                          (emit-function-body body :void false))]
        (str "test"
             (when (some? test-name)
@@ -3001,6 +3008,77 @@
           [{:attrs #{}} declaration])]
     [(or docstring (:doc attributes)) attributes declaration]))
 
+(defn type-declaration-prefix
+  "Read the optional docstring and attributes of a struct or enum declaration."
+  [declaration]
+  (let [[doc declaration] (if (string? (first declaration))
+                            [(first declaration) (next declaration)]
+                            [nil declaration])
+        [attributes members] (if (map? (first declaration))
+                               [(first declaration) (next declaration)]
+                               [{} declaration])]
+    [(or doc (:doc attributes)) attributes members]))
+
+(defn struct-container-form
+  "Lower vector fields and nested declarations through the regular container emitter."
+  [options members]
+  (list 'aguafria.zig/container (merge {:kind :struct} options)
+         (mapv (fn [member]
+                (if (vector? member)
+                  (let [{:keys [name type properties]} (first (parse-struct-fields [member]))]
+                    (with-meta
+                      (apply list 'aguafria.zig/field-decl name
+                             (dissoc properties :default) type
+                             (when (contains? properties :default) [(:default properties)]))
+                      (meta member)))
+                  (if (seq? member)
+                    member
+                    (fail! "Struct/union members must be field vectors or nested declarations"
+                           member))))
+              members)))
+
+(defn enum-container-form
+  "Lower vector tags, preserving explicit values, names and documentation."
+  [options members]
+  (list 'aguafria.zig/container (assoc options :kind :enum)
+         (mapv (fn [member]
+                (if (or (keyword? member) (vector? member))
+                  (let [[tag & tail] (if (keyword? member) [member] member)
+                        [properties values] (if (map? (first tail))
+                                              [(first tail) (next tail)]
+                                              [{} tail])]
+                    (when-not (and (or (keyword? tag) (symbol? tag) (string? tag))
+                                   (<= (count values) 1))
+                      (fail! "Enum tags expect [name], [name properties], or [name properties value]"
+                             member))
+                    (with-meta
+                      (apply list 'aguafria.zig/enum-field-decl tag
+                             (merge (meta tag) (meta member) properties) values)
+                      (meta member)))
+                  (if (seq? member)
+                    member
+                    (fail! "Enum members must be keywords, tag vectors, or nested declarations"
+                           member))))
+              members)))
+
+(defn type-declaration-members
+  "Parse one explicit vector containing all fields/tags and nested declarations."
+  [declaration]
+  (let [[doc options tail] (type-declaration-prefix declaration)]
+    (when-not (and (= 1 (count tail)) (vector? (first tail)))
+      (fail! "Container declarations require one member vector" declaration))
+    [doc options (first tail)]))
+
+(defn anonymous-container-form
+  [kind declaration]
+  (let [[doc options members] (type-declaration-members declaration)]
+    (when doc
+      (fail! "Anonymous container documentation belongs on its named declaration" declaration))
+    (case kind
+      :enum (enum-container-form options members)
+      (:struct :union) (struct-container-form (assoc options :kind kind) members)
+      :opaque (list 'aguafria.zig/container (assoc options :kind kind) members))))
+
 (defn- nested-base
   [kind name attributes]
   (let [attributes (merge (meta name) attributes)
@@ -3054,25 +3132,27 @@
                      source-operator)]
     (case operator
       fn-decl
-      (let [[name & declaration] declaration
+      (let [[name return & declaration] declaration
             [doc attributes declaration] (nested-doc-attributes declaration)
-            [marker return bindings & body] declaration]
-        (when-not (= marker ':-)
-          (fail! "fn-decl expects name, optional doc/attributes, :-, return, args, and body"
+            [bindings & body] declaration]
+        (when-not (and return (not (or (= return ':-) (map? return) (string? return)))
+                       (vector? bindings))
+          (fail! "fn-decl expects name, return, optional doc/attributes, args, and body"
                  form))
         (merge (nested-base :fn name attributes)
                {:doc doc :return return
                 :args (parse-typed-bindings bindings) :body (vec body)}))
 
       fn-proto-decl
-      (let [[name & declaration] declaration
-            [_doc attributes declaration] (nested-doc-attributes declaration)
-            [marker return bindings] declaration]
-        (when-not (and (= marker ':-) (= 3 (count declaration)))
-          (fail! "fn-proto-decl expects name, optional attributes, :-, return, and args"
+      (let [[name return & declaration] declaration
+            [doc attributes declaration] (nested-doc-attributes declaration)
+            [bindings] declaration]
+        (when-not (and return (not (or (= return ':-) (map? return) (string? return)))
+                       (= 1 (count declaration)) (vector? bindings))
+          (fail! "fn-proto-decl expects name, return, optional doc/attributes, and args"
                  form))
         (merge (nested-base :fn-proto name attributes)
-               {:return return :args (parse-typed-bindings bindings)}))
+               {:doc doc :return return :args (parse-typed-bindings bindings)}))
 
       const-decl
       (let [[name & declaration] declaration
@@ -3106,13 +3186,12 @@
 
       struct-decl
       (let [[name & declaration] declaration
-            [doc attributes declaration] (nested-doc-attributes declaration)
-            [fields] declaration]
-        (when-not (= 1 (count declaration))
-          (fail! "struct-decl expects one Malli-style field vector" form))
+            [doc attributes members] (type-declaration-members declaration)]
         (merge (nested-base :struct name attributes)
                {:doc doc :layout (or (:layout attributes) :normal)
-                :fields (parse-struct-fields fields)}))
+                :fields (parse-struct-fields (vec (filter vector? members)))
+                :value (struct-container-form
+                        (select-keys attributes [:layout :argument :zig/trailing]) members)}))
 
       import-decl
       (let [[name import-name _members] declaration]
@@ -3186,12 +3265,12 @@
   ([form] (container-description *ns* form))
   ([context-ns form]
    (when (seq? form)
-     (let [[source-operator options & members] form
+     (let [[source-operator options members] form
            operator (or (resolved-syntax-operator context-ns source-operator)
                         source-operator)]
        (when (= 'container operator)
-         (when-not (map? options)
-           (fail! "container expects an option map with :kind" form))
+         (when-not (and (= 3 (count form)) (map? options) (vector? members))
+           (fail! "container expects an option map and one member vector" form))
          {:options options
           :members (mapv #(binding [*keyword-context* context-ns]
                             (nested-declaration %))
@@ -3221,9 +3300,10 @@
 
 (defn- emit-container
   [form]
-  (let [[_ options & members] form]
-    (when-not (and (map? options) (keyword? (:kind options)))
-      (fail! "container expects an option map with :kind" form))
+  (let [[_ options members] form]
+    (when-not (and (= 3 (count form)) (map? options)
+                   (keyword? (:kind options)) (vector? members))
+      (fail! "container expects an option map with :kind and one member vector" form))
     (let [{:keys [kind layout enum? argument zig/trailing attrs]} options
           enum? (or enum? (contains? (set attrs) :enum))
           layout-source (case layout

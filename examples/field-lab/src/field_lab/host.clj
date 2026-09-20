@@ -15,51 +15,51 @@
 
 (require '[field-lab.host-api :as api])
 
-(az/defextern dlopen {:zig/prefix "pub extern"}
-  :- [:optional [:* :anyopaque]] [[path [:pointer {:size :c :const? true} :u8]] [flags :c_int]])
+(az/defextern dlopen [:optional [:* :anyopaque]] {:zig/prefix "pub extern"}
+   [[path [:pointer {:size :c :const? true} :u8]] [flags :c_int]])
 
-(az/defextern dlsym {:zig/prefix "pub extern"}
-  :- [:optional [:* :anyopaque]] [[handle [:optional [:* :anyopaque]]] [name [:pointer {:size :c :const? true} :u8]]])
+(az/defextern dlsym [:optional [:* :anyopaque]] {:zig/prefix "pub extern"}
+   [[handle [:optional [:* :anyopaque]]] [name [:pointer {:size :c :const? true} :u8]]])
 
-(az/defextern dlclose {:zig/prefix "pub extern"}
-  :- :c_int [[handle [:optional [:* :anyopaque]]]])
+(az/defextern dlclose :c_int {:zig/prefix "pub extern"}
+   [[handle [:optional [:* :anyopaque]]]])
 
-(az/defextern getenv {:zig/prefix "pub extern"}
-  :- [:pointer {:size :c :const? true} :u8] [[name [:pointer {:size :c :const? true} :u8]]])
+(az/defextern getenv [:pointer {:size :c :const? true} :u8] {:zig/prefix "pub extern"}
+   [[name [:pointer {:size :c :const? true} :u8]]])
 
-(az/defextern open {:zig/prefix "pub extern"}
-  :- :c_int [[path [:pointer {:size :c :const? true} :u8]] [flags :c_int] [... {:zig/variadic true} _]])
+(az/defextern open :c_int {:zig/prefix "pub extern"}
+   [[path [:pointer {:size :c :const? true} :u8]] [flags :c_int] [... {:zig/variadic true} _]])
 
-(az/defextern close {:zig/prefix "pub extern"}
-  :- :c_int [[descriptor :c_int]])
+(az/defextern close :c_int {:zig/prefix "pub extern"}
+   [[descriptor :c_int]])
 
-(az/defextern read {:zig/prefix "pub extern"}
-  :- :isize [[descriptor :c_int] [buffer [:* :anyopaque]] [count :usize]])
+(az/defextern read :isize {:zig/prefix "pub extern"}
+   [[descriptor :c_int] [buffer [:* :anyopaque]] [count :usize]])
 
-(az/defextern write {:zig/prefix "pub extern"}
-  :- :isize [[descriptor :c_int] [buffer [:*const :anyopaque]] [count :usize]])
+(az/defextern write :isize {:zig/prefix "pub extern"}
+   [[descriptor :c_int] [buffer [:*const :anyopaque]] [count :usize]])
 
-(az/defextern rename {:zig/prefix "pub extern"}
-  :- :c_int [[before [:pointer {:size :c :const? true} :u8]] [after [:pointer {:size :c :const? true} :u8]]])
+(az/defextern rename :c_int {:zig/prefix "pub extern"}
+   [[before [:pointer {:size :c :const? true} :u8]] [after [:pointer {:size :c :const? true} :u8]]])
 
-(az/defextern unlink {:zig/prefix "pub extern"}
-  :- :c_int [[path [:pointer {:size :c :const? true} :u8]]])
+(az/defextern unlink :c_int {:zig/prefix "pub extern"}
+   [[path [:pointer {:size :c :const? true} :u8]]])
 
-(az/defextern access {:zig/prefix "pub extern"}
-  :- :c_int [[path [:pointer {:size :c :const? true} :u8]] [mode :c_int]])
+(az/defextern access :c_int {:zig/prefix "pub extern"}
+   [[path [:pointer {:size :c :const? true} :u8]] [mode :c_int]])
 
-(az/defextern opendir {:zig/prefix "pub extern"}
-  :- [:optional [:* :anyopaque]] [[path [:pointer {:size :c :const? true} :u8]]])
+(az/defextern opendir [:optional [:* :anyopaque]] {:zig/prefix "pub extern"}
+   [[path [:pointer {:size :c :const? true} :u8]]])
 
-(az/defextern closedir {:zig/prefix "pub extern"}
-  :- :c_int [[directory [:optional [:* :anyopaque]]]])
+(az/defextern closedir :c_int {:zig/prefix "pub extern"}
+   [[directory [:optional [:* :anyopaque]]]])
 
-(az/defextern flock {:zig/prefix "pub extern"}
-  :- :c_int [[descriptor :c_int] [operation :c_int]])
+(az/defextern flock :c_int {:zig/prefix "pub extern"}
+   [[descriptor :c_int] [operation :c_int]])
 
-(az/defextern sched_yield {:zig/prefix "pub extern"} :- :c_int [])
+(az/defextern sched_yield :c_int {:zig/prefix "pub extern"}  [])
 
-(az/defextern __error {:zig/prefix "pub extern"} :- [:* :c_int] [])
+(az/defextern __error [:* :c_int] {:zig/prefix "pub extern"}  [])
 
 (az/defstruct Pending
   [[:operation :u32] [:integer :i64] [:ticket :u64] [:text [:array 4097 :u8]]])

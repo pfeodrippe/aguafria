@@ -5,15 +5,14 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst ResultTag
-  (az/container {:kind :enum}
-    (az/enum-field-decl :ok)
-    (az/enum-field-decl :not_ok)))
+(az/defenum ResultTag
+  [:ok
+   :not_ok])
 
 (az/defconst Result
-  (az/container {:kind :union :argument ResultTag}
-    (az/field-decl :ok :u8)
-    (az/field-decl :not_ok :void)))
+  (az/union {:argument ResultTag}
+    [[:ok :u8]
+     [:not_ok :void]]))
 
 (az/deftest tagged-union-switch-test
   (let [result (az/init Result {:ok 42})]

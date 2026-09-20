@@ -3,7 +3,7 @@
 
   Require this namespace as `az`. Declaration macros capture their bodies;
   the bodies are emitted as Zig and are never evaluated as Clojure."
-  (:refer-clojure :exclude [cast defn defn- defstruct])
+  (:refer-clojure :exclude [cast defn defn- defstruct struct])
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
@@ -613,18 +613,18 @@
          [:y {:doc \"Vertical component\"} :f32]])
 
   Each entry is `[field type]` or `[field properties type]`; properties remain
-  inspectable in declaration metadata. The default is an ordinary Zig
+  inspectable in declaration metadata. All members belong in one vector;
+  nested declarations can be interleaved with fields inside that vector.
+  Use `:default` in field properties for an initializer.
+  The default is an ordinary Zig
   `struct`; pass `{:layout :extern}` or `{:layout :packed}` to change it. A
   known struct Var is also a constructor form inside Zig code, so
   `(Vector2 {:x 1.0 :y 2.0})` emits `Vector2{ .x = 1.0, .y = 2.0 }`."
   [name & declaration]
   (let [[docstring attributes declaration]
-        (leading-doc-and-attributes declaration)
-        _ (when-not (= 1 (count declaration))
-            (throw (ex-info
-                    "az/defstruct expects name, optional doc/attr-map, and fields"
-                    {:form &form :name name :declaration declaration})))
-        fields (first declaration)
+        (emitter/type-declaration-members declaration)
+        fields (vec (filter vector? declaration))
+        layout (or (:layout attributes) (:layout (meta name)) :normal)
         descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :struct
@@ -633,7 +633,11 @@
                             :module (str *ns*)
                             :doc docstring
                             :fields (emitter/parse-struct-fields fields)
-                            :layout (or (:layout attributes) (:layout (meta name)) :normal)
+                            :layout layout
+                            :value (emitter/struct-container-form
+                                    (assoc (select-keys attributes [:argument :zig/trailing])
+                                           :layout layout)
+                                    declaration)
                             :clojure-form &form
                             :source (source-location &form)}
                            (declaration-options name attributes)))
@@ -647,6 +651,48 @@
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
        (runtime/refresh-declaration-var! descriptor#)
        (var ~name))))
+
+(defmacro defenum
+  "Define a named Zig enum with vector tags and optional nested declarations.
+
+      (az/defenum Color
+        [:red [:really-red {:zig/name \"@\\\"really red\\\"\"}]])
+
+  One vector contains keyword tags, `[name properties]`,
+  `[name properties value]`, and optional nested declarations.
+  Set `:argument` in the declaration attributes for an explicit tag type."
+  [name & declaration]
+  (let [[doc attributes members] (emitter/type-declaration-members declaration)
+        value (emitter/enum-container-form
+               (select-keys attributes [:argument :zig/trailing]) members)]
+    (with-meta
+      (apply list `defconst name
+             (concat (when doc [doc]) [attributes value]))
+      (meta &form))))
+
+(defmacro struct
+  "An anonymous Zig struct: (az/struct [[:x :f32] [:y :f32]]).
+  Accepts an optional options map; nested declarations share the member vector."
+  [& declaration]
+  (with-meta (emitter/anonymous-container-form :struct declaration) (meta &form)))
+
+(defmacro enum
+  "An anonymous Zig enum: (az/enum [:red [:green {:doc \"Green\"}] :blue]).
+  Pass {:argument :u8} before the member vector for an explicit tag type."
+  [& declaration]
+  (with-meta (emitter/anonymous-container-form :enum declaration) (meta &form)))
+
+(defmacro union
+  "An anonymous Zig union: (az/union {:enum? true} [[:value :i32] [:empty :void]]).
+  Fields and nested declarations share one member vector."
+  [& declaration]
+  (with-meta (emitter/anonymous-container-form :union declaration) (meta &form)))
+
+(defmacro opaque
+  "An anonymous Zig opaque type: (az/opaque []).
+  Optional nested declarations belong in the member vector."
+  [& declaration]
+  (with-meta (emitter/anonymous-container-form :opaque declaration) (meta &form)))
 
 (defmacro defimport
   "Import a Zig module and expose its named members as real Clojure Vars.
@@ -802,17 +848,20 @@
 (defmacro defextern
   "Declare an external Zig function prototype without a body.
 
-      (az/defextern GetCommandLineW :- windows/LPWSTR [])
+      (az/defextern GetCommandLineW windows/LPWSTR [])
 
   Prefix/library/calling-convention spelling is retained in the optional
   attr-map. The Var is usable from Zig declarations but is not a JVM FFM
   export of the generated module."
   [name & declaration]
-  (let [[docstring attributes declaration]
+  (let [[return & declaration] declaration
+        [docstring attributes declaration]
         (leading-doc-and-attributes declaration)
-        [marker return bindings] declaration]
-  (when-not (= marker ':-)
-    (throw (ex-info "az/defextern expects: name :- return-type [typed args]"
+        [bindings] declaration]
+  (when-not (and (symbol? name) return
+                 (not (or (= return ':-) (map? return) (string? return)))
+                 (= 1 (count declaration)) (vector? bindings))
+    (throw (ex-info "az/defextern expects: name return-type optional-doc optional-attributes [typed args]"
                     {:form &form :name name})))
   (let [qualified-name (symbol (str *ns*) (str name))
         descriptor (emitter/prepare-declaration

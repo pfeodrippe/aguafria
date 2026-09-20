@@ -7,9 +7,8 @@
   (try (testing/expectEqual 1235 (increment-state)))
   (try (testing/expectEqual 1236 (increment-state))))
 
-(az/defconst State
-  (az/container {:kind :struct}
-    (az/var-decl value :i32 1234)))
+(az/defstruct State
+  [(az/var-decl value :i32 1234)])
 
 (az/defn- increment-state :i32
   []

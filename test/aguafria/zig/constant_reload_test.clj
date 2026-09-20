@@ -79,7 +79,8 @@
             (alias 'p (ns-name provider))
             (eval '(az/defn indirect :i32 [] (p/computed)))
             (eval '(az/defn embedded :i32 [] (+ p/base 10))))
-          (az/await!)
+          (az/await! (ns-name provider))
+          (az/await! (ns-name consumer))
           (let [direct (ns-resolve provider 'direct)
                 computed (ns-resolve provider 'computed)
                 indirect (ns-resolve consumer 'indirect)
@@ -88,7 +89,8 @@
             ;; Only reevaluate the constant: all these already-bound function
             ;; Vars must observe the new compiled value, without require :reload.
             (binding [*ns* provider] (eval '(az/defconst base :i32 7)))
-            (az/await!)
+            (az/await! (ns-name provider))
+            (az/await! (ns-name consumer))
             (is (= 7 (direct)))
             (is (= 10 (computed)))
             (is (= 10 (indirect)))

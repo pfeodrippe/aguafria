@@ -17,7 +17,3 @@
    [arguments :anytype]]
   ;; A custom logger can replace this delegation to the default implementation.
   (log/defaultLog level scope format arguments))
-
-(comment
-  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
-  )

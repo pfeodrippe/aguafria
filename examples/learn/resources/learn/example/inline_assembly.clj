@@ -9,22 +9,22 @@
 
 (az/defn syscall1 :usize [[number :usize] [argument :usize]]
   (ak/asm "syscall"
-    {:attrs #{:volatile}
-     :outputs [[:result "={rax}" {:type :usize}]]
-     :inputs [[:number "{rax}" number] [:argument "{rdi}" argument]]
-     :clobbers {:rcx true :r11 true}}))
+          {:attrs #{:volatile}
+           :outputs [[:result "={rax}" {:type :usize}]]
+           :inputs [[:number "{rax}" number] [:argument "{rdi}" argument]]
+           :clobbers {:rcx true :r11 true}}))
 
 (az/defn syscall3 :usize
   [[number :usize] [first-argument :usize] [second-argument :usize]
    [third-argument :usize]]
   (ak/asm "syscall"
-    {:attrs #{:volatile}
-     :outputs [[:result "={rax}" {:type :usize}]]
-     :inputs [[:number "{rax}" number]
-              [:first "{rdi}" first-argument]
-              [:second "{rsi}" second-argument]
-              [:third "{rdx}" third-argument]]
-     :clobbers {:rcx true :r11 true}}))
+          {:attrs #{:volatile}
+           :outputs [[:result "={rax}" {:type :usize}]]
+           :inputs [[:number "{rax}" number]
+                    [:first "{rdi}" first-argument]
+                    [:second "{rsi}" second-argument]
+                    [:third "{rdx}" third-argument]]
+           :clobbers {:rcx true :r11 true}}))
 
 (az/defn main :noreturn []
   (let [message "hello world\n"]

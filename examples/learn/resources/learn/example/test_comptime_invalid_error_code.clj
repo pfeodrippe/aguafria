@@ -4,7 +4,3 @@
 
 (az/defcomptime reject-invalid-error-code
   (set! _ (ak/errorFromInt 12345)))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )

@@ -7,9 +7,5 @@
 (az/defn- do-a-thing [:error-union :void] [[text [:slice :u8]]]
   ;; Capture the error and explicitly propagate it to the caller.
   (let [number (az/catch-capture [error] (parsing/parseU64 text 10)
-                 (ak/return error))]
+                                 (ak/return error))]
     (set! _ number)))
-
-(comment
-  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
-  )

@@ -131,7 +131,7 @@
   :note "A function result that either succeeds without a value or returns any error."}
 
  "opaque{}"
- {:clojure-source "(az/container {:kind :opaque})" :kind :type
+ {:clojure-source "(az/opaque [])" :kind :type
   :note "An opaque type with unknown size and alignment."}
 
  "@\"foo\""

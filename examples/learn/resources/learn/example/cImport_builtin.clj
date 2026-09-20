@@ -4,10 +4,10 @@
 
 (az/defconst c
   (ak/cImport
-    (az/block
+   (az/block
       ;; See https://github.com/ziglang/zig/issues/515
-      (ak/cDefine "_NO_CRT_STDIO_INLINE" "1")
-      (ak/cInclude "stdio.h"))))
+     (ak/cDefine "_NO_CRT_STDIO_INLINE" "1")
+     (ak/cInclude "stdio.h"))))
 
 (az/defconst builtin (ak/import "builtin"))
 

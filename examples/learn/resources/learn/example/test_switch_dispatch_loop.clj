@@ -4,11 +4,10 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst Instruction
-  (az/container {:kind :enum}
-    (az/enum-field-decl :add)
-    (az/enum-field-decl :mul)
-    (az/enum-field-decl :end)))
+(az/defenum Instruction
+  [:add
+   :mul
+   :end])
 
 (az/defn- evaluate [:error-union :i32]
   [[initial-stack [:slice-const :i32]] [code [:slice-const Instruction]]]

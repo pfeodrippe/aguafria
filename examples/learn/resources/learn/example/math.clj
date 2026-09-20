@@ -2,9 +2,8 @@
   (:refer-clojure :exclude [print])
   (:require [aguafria.zig :as az]))
 
-(az/defextern print
+(az/defextern print :void
   {:zig/prefix "extern"}
-  :- :void
   [[value :i32]])
 
 (az/defn add :void

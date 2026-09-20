@@ -8,7 +8,3 @@
   (if (== (az/field (az/field builtin :os) :tag) :.windows)
     \\
     \/))
-
-(comment
-  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
-  )

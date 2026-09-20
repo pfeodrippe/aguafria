@@ -22,25 +22,23 @@
 
 (require '[field-lab.panel-api :as api])
 
-(az/defextern fprintf
+(az/defextern fprintf :c_int
   {:zig/prefix "pub extern"}
-  :- :c_int
   [[file [:optional [:* stdio/AguafriaFile]]] [format [:pointer {:size :c :const? true} :u8]]
    [... {:zig/variadic true} _]])
 
-(az/defextern snprintf
+(az/defextern snprintf :c_int
   {:zig/prefix "pub extern"}
-  :- :c_int
   [[buffer [:c-pointer :u8]] [size :usize] [format [:pointer {:size :c :const? true} :u8]]
    [... {:zig/variadic true} _]])
 
-(az/defextern mkdir
+(az/defextern mkdir :c_int
   {:zig/prefix "pub extern"}
-  :- :c_int [[path [:pointer {:size :c :const? true} :u8]] [mode :u16]])
+   [[path [:pointer {:size :c :const? true} :u8]] [mode :u16]])
 
-(az/defextern remove
+(az/defextern remove :c_int
   {:zig/prefix "pub extern"}
-  :- :c_int [[path [:pointer {:size :c :const? true} :u8]]])
+   [[path [:pointer {:size :c :const? true} :u8]]])
 
 (az/defn text! :void [[text [:slice-const :u8]]]
   (ui/aguafria_ui_text (az/field text ptr) (az/field text len) 0.87 0.91 0.94))

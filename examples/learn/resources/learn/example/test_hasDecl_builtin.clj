@@ -3,11 +3,10 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst Foo
-  (az/container {:kind :struct}
-    (az/field-decl :nope :i32)
-    (az/var-decl blah {:attrs #{:public}} "xxx")
-    (az/const-decl hi 1)))
+(az/defstruct Foo
+  [[:nope :i32]
+   (az/var-decl blah {:attrs #{:public}} "xxx")
+   (az/const-decl hi 1)])
 
 (az/deftest declaration-presence-test
   (try (testing/expect (ak/hasDecl Foo "blah")))

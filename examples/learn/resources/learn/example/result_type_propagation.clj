@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest struct-initializer-result-type-test
-  (let [S (az/container {:kind :struct}
-            (az/field-decl :x :u32))
+  (let [S (az/struct
+            [[:x :u32]])
         ^{:zig/type :u64} value 123
         ^{:zig/type S} result {:x (ak/intCast value)}]
     ;; The initializer's result type is S because of the binding annotation.

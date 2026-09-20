@@ -27,6 +27,14 @@
   (is (= "<<|=" (get @#'convert/assignment-tokens :assign_shl_sat)))
   (is (= '<<|= (get @#'convert/simple-assignment-symbols "<<|="))))
 
+(deftest unreachable-expressions-remain-native-keywords
+  (let [result (convert/verify-file "test/fixtures/for_else_unreachable.zig"
+                                    {:namespace 'fixture.for-else-unreachable
+                                     :mode :test :throw? false})]
+    (is (:success? result) (:stderr result))
+    (is (str/includes? (:zig-source result) "else unreachable"))
+    (is (not (str/includes? (:zig-source result) "@\"unreachable\"")))))
+
 (deftest absolute-build-module-path-resolves-to-converted-plan-test
   (let [input-root (.getCanonicalFile (io/file "test/fixtures"))
         source (.getCanonicalFile (io/file input-root "container.zig"))
@@ -443,6 +451,19 @@
     (is (= 'az/defconst (ffirst forms)))
     (is (= 'builtin (second (first forms))))
     (is (:success? verification))))
+
+(deftest converted-types-always-group-members-in-one-vector-test
+  (doseq [path ["test/fixtures/ordered_object.zig" "test/fixtures/container.zig"]]
+    (let [{:keys [forms]} (convert/convert-file path {:namespace 'fixture.member-vectors})
+          types (filter #(and (seq? %)
+                              (contains? '#{az/defstruct az/defenum az/struct-decl struct-decl}
+                                         (first %)))
+                        (tree-seq coll? seq forms))]
+      (is (seq types) path)
+      (doseq [[operator name & declaration :as form] types
+              :let [members (drop-while #(or (string? %) (map? %)) declaration)]]
+        (is (= 1 (count members)) (str operator " " name " " (pr-str form)))
+        (is (vector? (first members)) (pr-str form))))))
 
 (deftest struct-literal-field-order-is-explicit-test
   (let [{:keys [clojure-source zig-source]}

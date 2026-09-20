@@ -1263,7 +1263,7 @@
       (= :try tag) (list 'try (translate-expr context a))
       (= :comptime tag) (list 'comptime (translate-expr context a))
       (= :nosuspend tag) (list 'nosuspend (translate-expr context a))
-      (= :unreachable_literal tag) 'unreachable
+      (= :unreachable_literal tag) (list 'unreachable)
       (contains? (:block-index context) node-index)
       (translate-block context node-index)
 
@@ -1746,7 +1746,7 @@
                          :zig/trailing trailing}
                   argument-node
                   (assoc :argument (translate-type context argument-node)))]
-    (apply list 'container options translated)))
+    (list 'container options translated)))
 
 (defn- translate-for
   [context node-index]
@@ -2048,9 +2048,9 @@
                    [(record-statement-fallback! context body-node :non-block-function-body)])
             docstring (docstring-from-leading leading)]
         (cond-> (apply list (if (:public metadata) 'az/defn 'az/defn-)
-                       declaration-name
+                       declaration-name return
                        (concat (when docstring [docstring])
-                               [attributes ':- return bindings]
+                               [attributes bindings]
                                body))
           (seq (:aguafria/trailing-comments (meta block-form)))
           (vary-meta assoc :aguafria/trailing-comments
@@ -2176,8 +2176,8 @@
           (let [{:keys [layout fields]} simple-struct]
             (apply list 'az/defstruct declaration-name
                    (concat (when docstring [docstring])
-                           [(cond-> attributes layout (assoc :layout layout))
-                            fields])))
+                           [(cond-> attributes layout (assoc :layout layout))]
+                           [fields])))
 
           :else
           (let [kind (if (= :keyword_const (first (token context mut-token)))
@@ -2276,10 +2276,9 @@
           [declaration-name attributes]
           (declaration-name-and-attributes context zig-name metadata)
           docstring (docstring-from-leading leading)]
-      (apply list 'az/defextern declaration-name
+      (apply list 'az/defextern declaration-name (translate-type context return-node)
              (concat (when docstring [docstring])
-                     [attributes ':-
-                      (translate-type context return-node)
+                     [attributes
                       (function-arguments context params)])))))
 
 (defn- unsupported-top-level!
@@ -2306,6 +2305,42 @@
                 0)
         end (first (node-range context node-index))]
     (byte-slice (:source-bytes context) start end)))
+
+(defn- named-container-declaration
+  "Give named structs/enums the same public API as hand-written declarations.
+  Anonymous, tuple and type-factory containers keep their expression form."
+  [form]
+  (if-not (= 'az/defconst (first form))
+    form
+    (let [[_ name & tail] form
+          [doc attributes values] (emitter/type-declaration-prefix tail)
+          value (first values)
+          [_ options members] (when (seq? value) value)
+          kind (:kind options)]
+      (if-not (and (= 1 (count values)) (= 'container (first (when (seq? value) value)))
+                   (contains? #{:struct :enum} kind)
+                   (not-any? #(= 'tuple-field-decl (first %)) members))
+        form
+        (with-meta
+          (apply list (if (= kind :struct) 'az/defstruct 'az/defenum) name
+                 (concat (when doc [doc])
+                         [(merge attributes (select-keys options [:layout :argument :zig/trailing]))]
+                         [(mapv (fn [member]
+                                (let [[operator field & tail] member]
+                                  (if (contains? #{'field-decl 'enum-field-decl} operator)
+                                    (let [[doc properties values] (emitter/type-declaration-prefix tail)
+                                          properties (cond-> properties
+                                                       doc (assoc :doc doc)
+                                                       (and (= operator 'field-decl) (next values))
+                                                       (assoc :default (second values)))]
+                                      (with-meta
+                                        (vec (concat [field properties]
+                                                     (if (= operator 'field-decl)
+                                                       [(first values)] values)))
+                                        (meta member)))
+                                    member)))
+                              members)]))
+          (meta form))))))
 
 (defn- translate-declarations
   [context]
@@ -2337,14 +2372,15 @@
 
                    :else nil)
             form (or form
-                     (unsupported-top-level! context node-index))]
+                     (unsupported-top-level! context node-index))
+            form (if (seq? form) (named-container-declaration form) form)]
         (recur (next remaining) node-index (inc order)
                (cond-> forms
                  (not= ::omit-declaration form) (conj form))))
       forms)))
 
 (def ^:private declaration-form-operators
-  '#{az/defn az/defn- az/defconst az/defvar az/defstruct az/defcomptime
+  '#{az/defn az/defn- az/defconst az/defvar az/defstruct az/defenum az/defcomptime
      az/defextern az/defexternvar az/deffield az/deftest
      fn-decl fn-proto-decl const-decl var-decl struct-decl comptime-decl
      field-decl enum-field-decl tuple-field-decl test-decl container
@@ -2361,10 +2397,8 @@
         (cond (map? (second form)) 1
               (string? (nth form 2 nil)) 3
               :else 2)
-        (and (#{'az/defn 'az/defn-} operator)
-             (not (map? (nth form 2 nil)))
-             (not (string? (nth form 2 nil)))
-             (not= ':- (nth form 2 nil)))
+        (#{'az/defn 'az/defn- 'az/defextern
+           'fn-decl 'fn-proto-decl 'az/fn-decl 'az/fn-proto-decl} operator)
         (if (string? (nth form 3 nil)) 4 3)
         (#{'test-decl 'container 'tuple-field-decl
            'az/test-decl 'az/container 'az/tuple-field-decl} operator) 1
@@ -2401,11 +2435,12 @@
 
 (defn- readable-docstring
   [form]
-  (if (and (seq? form)
-           (string? (nth form 2 nil))
-           (str/includes? (nth form 2) "\n"))
-    (apply list (assoc (vec form) 2 (MultilineDocstring. (nth form 2))))
-    form))
+  (let [index (if (#{'az/defn 'az/defn- 'az/defextern
+                     'fn-decl 'fn-proto-decl 'az/fn-decl 'az/fn-proto-decl} (first form)) 3 2)
+        doc (nth form index nil)]
+    (if (and (string? doc) (str/includes? doc "\n"))
+      (apply list (assoc (vec form) index (MultilineDocstring. doc)))
+      form)))
 
 (defn- presentational-form
   [form]
@@ -2413,7 +2448,7 @@
     (let [items (vec form)
           attributes (nth items attributes-index nil)]
       (if (map? attributes)
-        (let [docstring? (string? (nth items 2 nil))
+        (let [docstring? (string? (nth items (dec attributes-index) nil))
               comments (vec (clojure-comment-lines attributes docstring?))
               attributes (dissoc attributes :doc :comments)
               attributes (cond-> attributes
@@ -2463,8 +2498,9 @@
         (pprint/pprint-newline :mandatory))
       (write-clojure-comments (concat leading-comments comments))
       (case (first form)
-        (az/defn az/defn-) (write-declaration-header form 3)
-        az/deftest (write-declaration-header form 2)
+        (az/defn az/defn- az/defextern az/fn-decl az/fn-proto-decl
+         fn-decl fn-proto-decl) (write-declaration-header form 3)
+        (az/deftest az/defstruct az/defenum) (write-declaration-header form 2)
         (pprint/code-dispatch form)))
 
     :else
@@ -2604,19 +2640,12 @@
 (defn- compact-generated-seq
   [form]
   (let [items (mapv compact-generated-form form)
-        doc? (string? (nth items 2 nil))
-        attributes-index (if doc? 3 2)
+        attributes-index (declaration-attributes-index form)
+        doc? (and attributes-index (string? (nth items (dec attributes-index) nil)))
         items (if (and doc? (map? (nth items attributes-index nil)))
                 (update items attributes-index dissoc :doc)
                 items)
         items (cond
-                (#{'az/defn 'az/defn-} (first items))
-                (let [marker-index (inc attributes-index)
-                      return-type (nth items (inc marker-index))]
-                  (vec (concat (take 2 items) [return-type]
-                               (subvec items 2 (inc attributes-index))
-                               (subvec items (+ marker-index 2)))))
-
                 (= 'az/deftest (first items))
                 (vec (concat [(first items) (nth items 2) (second items)]
                              (drop 3 items)))
@@ -2630,7 +2659,21 @@
   [form]
   (cond
     (map? form) (with-meta (compact-generated-map form) (meta form))
-    (vector? form) (with-meta (mapv compact-generated-form form) (meta form))
+    (vector? form)
+    (let [items (mapv compact-generated-form form)
+          properties (second items)
+          ;; Field/tag properties are data, so there is no declaration printer
+          ;; to remove an empty converted attribute set for us.
+          compact-field? (and (map? properties) (contains? properties :attrs)
+                              (empty? (:attrs properties)))
+          properties (if compact-field?
+                       (dissoc properties :attrs) properties)
+          items (if compact-field?
+                  (if (empty? properties)
+                    (into [(first items)] (drop 2 items))
+                    (assoc items 1 properties))
+                  items)]
+      (with-meta items (meta form)))
     (set? form) (with-meta (into (empty form) (map compact-generated-form) form)
                            (meta form))
     (seq? form) (compact-generated-seq form)
@@ -2967,14 +3010,20 @@
                   zig-name (or (:zig/name (meta declaration-name))
                                (some-> declaration-name str))
                   doc (or (get declaration-docs zig-name)
-                          (get declaration-docs (some-> declaration-name str)))]
+                          (get declaration-docs (some-> declaration-name str)))
+                  doc-index (if (contains? #{'az/defn 'az/defn- 'az/defextern}
+                                           (first form))
+                              3
+                              2)]
               (if (and doc
                        (seq? form)
                        (symbol? declaration-name)
                        (str/starts-with? (str (first form)) "az/def")
-                       (not (string? (nth form 2 nil))))
+                       (not (string? (nth form doc-index nil))))
                 (with-meta
-                  (apply list (first form) declaration-name doc (nnext form))
+                  (apply list (concat (take doc-index form)
+                                      [doc]
+                                      (drop doc-index form)))
                   (meta form))
                 form)))
           (translate-declarations context))
@@ -4653,7 +4702,7 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
-(def ^:private rendered-conversion-cache-version 5)
+(def ^:private rendered-conversion-cache-version 10)
 
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]

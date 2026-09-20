@@ -1,7 +1,71 @@
 (ns aguafria.zig.runtime-test
   (:require [aguafria.zig.runtime :as runtime]
             [aguafria.zig.emitter :as emitter]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
+
+(deftest diagnostic-frames-use-original-forms-generically
+  (let [source "(let [value 0]\n  (consume\n    value\n    false))\n"]
+    (with-redefs-fn
+      {#'runtime/source-text (constantly source)}
+      (fn []
+        (let [frame (#'runtime/clojure-code-frame "any-source.clj" 2 3 "offending form")]
+          (is (str/includes? frame "2 |   (consume\n   |   ^^^^^^^^"))
+          (is (str/includes? frame "3 |     value\n   |     ^^^^^"))
+          (is (str/includes? frame "4 |     false))\n   |     ^^^^^^ offending form")
+              "The enclosing let's closing delimiter is not part of the offending form.")
+          (doseq [message ["expected type 'i32', found 'bool'"
+                           "use of undeclared identifier 'missing'"
+                           "overflow of integer type 'u8'"]]
+            (let [rendered (#'runtime/format-zig-diagnostic
+                            {:file "generated.zig" :line 9 :column 4
+                             :severity :error :message message
+                             :aguafria/source {:file "any-source.clj" :line 2 :column 3}})]
+              (is (str/includes? rendered message))
+              (is (str/includes? rendered "any-source.clj:2:3"))
+              (is (str/includes? rendered "4 |     false))"))))
+          (let [form (with-meta '(consume value false) {:line 2 :column 3})
+                rendered (#'runtime/pretty-emission-error
+                          {:module "fixture" :name 'consumer
+                           :source {:file "any-source.clj" :line 1 :column 1}}
+                          (ex-info "Unsupported expression" {:form form}))]
+            (is (str/includes? rendered "any-source.clj:2:3"))
+            (is (str/includes? rendered "^^^^^^ this form could not be emitted"))))))))
+
+(deftest diagnostic-sources-can-be-classpath-resources
+  (is (str/starts-with? (#'runtime/source-text "aguafria/zig/runtime_test.clj")
+                       "(ns aguafria.zig.runtime-test"))
+  (is (nil? (#'runtime/clojure-code-frame "missing-diagnostic-source.clj" 3 2 "unavailable"))))
+
+(deftest cyclic-compile-time-identities-follow-source-not-previous-hashes
+  (let [module "fixture.cyclic-types"
+        describe runtime/declaration-info
+        declarations
+        (fn [size]
+          (mapv describe
+                [{:module module :kind :const :name 'capacity
+                  :declaration-key [:const 'capacity] :value size}
+                 {:module module :kind :const :name 'Packet
+                  :declaration-key [:const 'Packet]
+                  :value '(make-packet Socket capacity)}
+                 {:module module :kind :const :name 'Socket
+                  :declaration-key [:const 'Socket]
+                  :value '(container {:kind :struct}
+                                     [(field-decl :packet [:* Packet])])}]))
+        refresh (fn [ds]
+                  (with-redefs-fn {#'runtime/registered-declarations-by-logical-id (constantly {})}
+                    #(#'runtime/refresh-live-declaration-references ds)))
+        original (refresh (declarations 8))
+        again (refresh original)
+        edited (refresh (declarations 16))
+        fingerprint #(mapv :implementation-fingerprint %)]
+    (is (= (fingerprint original) (fingerprint again)))
+    (is (= (fingerprint original) (fingerprint (mapv describe original))))
+    (is (every? false? (map = (fingerprint original) (fingerprint edited)))
+        "A changed scalar prerequisite invalidates both members of the recursive type group.")
+    (doseq [d again]
+      (is (not-any? #(= (:logical-id d) (first %))
+                    (:callable-dependency-fingerprints d))))))
 
 (deftest inferred-error-results-use-explicit-storage-types
   (let [bridge-type #'runtime/jvm-callable-result-type]
@@ -608,24 +672,24 @@
          :declaration-key [:const 'Options]
          :value
          '(aguafria.zig/container
-           {:kind :struct :layout :normal}
-           (aguafria.zig/field-decl count :u32)
-           (aguafria.zig/fn-decl calculate :- :u32 [] 1))}
+            {:kind :struct :layout :normal}
+            [(aguafria.zig/field-decl count :u32)
+             (aguafria.zig/fn-decl calculate :u32  [] 1)])}
         baseline (runtime/declaration-info declaration)
         body-change
         (runtime/declaration-info
          (assoc declaration :value
                 '(aguafria.zig/container
-                  {:kind :struct :layout :normal}
-                  (aguafria.zig/field-decl count :u32)
-                  (aguafria.zig/fn-decl calculate :- :u32 [] 2))))
+                   {:kind :struct :layout :normal}
+                   [(aguafria.zig/field-decl count :u32)
+                    (aguafria.zig/fn-decl calculate :u32  [] 2)])))
         layout-change
         (runtime/declaration-info
          (assoc declaration :value
                 '(aguafria.zig/container
-                  {:kind :struct :layout :packed}
-                  (aguafria.zig/field-decl count :u32)
-                  (aguafria.zig/fn-decl calculate :- :u32 [] 1))))]
+                   {:kind :struct :layout :packed}
+                   [(aguafria.zig/field-decl count :u32)
+                    (aguafria.zig/fn-decl calculate :u32  [] 1)])))]
     (is (= 64 (count (:schema-fingerprint baseline))))
     (is (= (:schema-fingerprint baseline)
            (:schema-fingerprint body-change)))
@@ -643,24 +707,24 @@
          :return :type
          :body
          '[(aguafria.zig/container
-            {:kind :struct :layout :normal}
-            (aguafria.zig/field-decl count :u32)
-            (aguafria.zig/fn-decl calculate :- :u32 [] 1))]}
+             {:kind :struct :layout :normal}
+             [(aguafria.zig/field-decl count :u32)
+              (aguafria.zig/fn-decl calculate :u32  [] 1)])]}
         baseline (runtime/declaration-info declaration)
         method-change
         (runtime/declaration-info
          (assoc declaration :body
                 '[(aguafria.zig/container
-                   {:kind :struct :layout :normal}
-                   (aguafria.zig/field-decl count :u32)
-                   (aguafria.zig/fn-decl calculate :- :u32 [] 2))]))
+                    {:kind :struct :layout :normal}
+                    [(aguafria.zig/field-decl count :u32)
+                     (aguafria.zig/fn-decl calculate :u32  [] 2)])]))
         field-change
         (runtime/declaration-info
          (assoc declaration :body
                 '[(aguafria.zig/container
-                   {:kind :struct :layout :normal}
-                   (aguafria.zig/field-decl count :u64)
-                   (aguafria.zig/fn-decl calculate :- :u32 [] 1))]))]
+                    {:kind :struct :layout :normal}
+                    [(aguafria.zig/field-decl count :u64)
+                     (aguafria.zig/fn-decl calculate :u32  [] 1)])]))]
     (is (:type-factory? baseline))
     (is (= 64 (count (:schema-fingerprint baseline))))
     (is (= (:schema-fingerprint baseline)
@@ -706,7 +770,7 @@
                      :value
                      (list 'fixture.api/Struct :zig
                            (list 'container {:kind :struct :layout :normal}
-                                 (list 'field-decl 'value field-type)))})]
+                                 [(list 'field-decl 'value field-type)]))})]
                {:declaration declaration
                 :reference (#'runtime/declaration-reference-view declaration)})))
         baseline-result (describe :u32)
@@ -748,7 +812,7 @@
           :declaration-key [:fn 'ReplType]
           :args []
           :return :type
-          :body '[(container {:kind :struct :layout :normal})]})
+          :body '[(container {:kind :struct :layout :normal} [])]})
         alias
         (runtime/declaration-info
          {:module "fixture.reexport.api"
@@ -770,7 +834,7 @@
          ;; Exercise adoption of an index snapshot produced by the former
          ;; whole-descriptor reference walk.
          :callable-dependency-fingerprints
-         [[ ["fixture.reexport.consumer" :fn "start"] "abi" "impl"]])
+         [[["fixture.reexport.consumer" :fn "start"] "abi" "impl"]])
         definitions
         (fn [declaration]
           {(:declaration-key declaration) declaration})]
@@ -798,7 +862,7 @@
       (is ((var-get
             #'aguafria.zig.runtime/declaration-references-impact?)
            consumer
-           #{{:kind :type :logical-id (:logical-id factory)} }))
+           #{{:kind :type :logical-id (:logical-id factory)}}))
       (finally
         (reset! registry old-registry)
         (reset! reference-index old-index)))))

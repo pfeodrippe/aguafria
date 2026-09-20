@@ -392,21 +392,19 @@
   (az/defn HotAmountType :type
     [[bonus {:zig/prefix "comptime"} :u64]]
     (az/container
-     {:kind :struct}
-     (az/field-decl base :u64)
-     (az/const-decl Self (ak/This))
-     (az/fn-decl amount
-       {:public false}
-       :-
-       :u64
-       [[self [:*const Self]]]
-       (+ (az/field self base) bonus))))
+      {:kind :struct}
+      [(az/field-decl base :u64)
+       (az/const-decl Self (ak/This))
+       (az/fn-decl amount :u64
+         {:public false}
+         [[self [:*const Self]]]
+         (+ (az/field self base) bonus))]))
 
   (az/defn comptime-amount :u64
     [[base :u64]]
     (ak/var calculator
-      (HotAmountType 5)
-      (az/object [[:base base]]))
+            (HotAmountType 5)
+            (az/object [[:base base]]))
     ((az/field calculator amount)))
 
   (await-module-reload! 'tigerbeetle-agua.core)
@@ -436,5 +434,4 @@
   ;; stored-layout change creates a new version: old objects/callers stay valid
   ;; on that old version while new code uses the new version, until the user
   ;; chooses an explicit safe migration/restart.
-
   )

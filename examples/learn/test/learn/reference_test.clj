@@ -509,15 +509,14 @@
                 calls (ref/comment-calls code)
                 tests (mapv #(list (second %)) (filter #(= 'az/deftest (first %)) forms))]]
     (testing file
-      (is (= 'comment (first (last forms))))
+      (is (or (seq calls) (not= 'comment (first (last forms)))))
       (is (not (str/includes? code "reference/run-example!")))
       (when (seq tests) (is (= tests calls)))
       (when (some #(and (#{'az/defn 'az/defn-} (first %)) (= 'main (second %))) forms)
         (is (some #{'main} (tree-seq coll? seq calls))))))
   (doseq [[id {:keys [source]}] (ref/read-edn "resources/learn/fragment-overrides.edn")]
     (is (not (str/includes? (slurp (io/resource source)) "reference/check-snippet!")) id))
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"final comment"
-                       (ref/comment-calls "(ns example)")))
+  (is (= [] (ref/comment-calls "(ns example)")))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not a file runner"
                        (ref/comment-calls "(ns example) (comment (reference/run-example! \"x.zig\"))"))))
 
@@ -536,6 +535,16 @@
     (is (str/includes? (:printed-value test-call) ":status :passed"))
     (is (nil? (find-ns 'learn.example.hello-again)))
     (is (nil? (find-ns 'learn.example.test-comptime-max-with-bool)))))
+
+(deftest native-diagnostics-point-at-the-authored-clojure-form
+  (let [path (.getCanonicalPath (io/file "resources/learn/example/constant_identifier_cannot_change.clj"))
+        result (ref/capture-comment-repl! (slurp path) nil path)
+        message (get-in result [:evaluations 0 :exception :message])]
+    (is (= :zig-compile (get-in result [:evaluations 0 :exception :phase])))
+    (is (str/includes? message (str path ":12:5")))
+    (is (str/includes? message "12 |     (ak/+= y 1)))"))
+    (is (str/includes? message "^^^^^^^^^^^ this Aguafria form"))
+    (is (str/includes? message "cannot assign to constant"))))
 
 (deftest recipe-capture-does-not-invent-success-for-a-bad-call
   (let [result (ref/capture-comment-repl!

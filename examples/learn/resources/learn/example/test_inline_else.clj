@@ -14,11 +14,11 @@
    [:len :usize]])
 
 (az/defconst AnySlice
-  (az/container {:kind :union :enum? true}
-    (az/field-decl :a SliceTypeA)
-    (az/field-decl :b SliceTypeB)
-    (az/field-decl :c [:slice-const :u8])
-    (az/field-decl :d [:slice AnySlice])))
+  (az/union {:enum? true}
+    [[:a SliceTypeA]
+     [:b SliceTypeB]
+     [:c [:slice-const :u8]]
+     [:d [:slice AnySlice]]]))
 
 (az/defn- with-for :usize
   [[any-slice AnySlice]]

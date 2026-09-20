@@ -7,19 +7,18 @@
 (az/defstruct Point [[:x :f32] [:y :f32]])
 (az/defconst origin Point {:x 0.12 :y 0.34})
 
-(az/defconst Vec3
-  (az/container {:kind :struct}
-    (az/field-decl :x :f32)
-    (az/field-decl :y :f32)
-    (az/field-decl :z :f32)
-    (az/fn-decl init {:attrs #{:public}} :- Vec3
-      [[x :f32] [y :f32] [z :f32]]
-      (ak/return (az/init Vec3 {:x x :y y :z z})))
-    (az/fn-decl dot {:attrs #{:public}} :- :f32
-      [[self Vec3] [other Vec3]]
-      (ak/return (+ (* (az/field self :x) (az/field other :x))
-                    (* (az/field self :y) (az/field other :y))
-                    (* (az/field self :z) (az/field other :z)))))))
+(az/defstruct Vec3
+  [[:x :f32]
+   [:y :f32]
+   [:z :f32]
+   (az/fn-decl init Vec3 {:attrs #{:public}}
+     [[x :f32] [y :f32] [z :f32]]
+     (ak/return (az/init Vec3 {:x x :y y :z z})))
+   (az/fn-decl dot :f32 {:attrs #{:public}}
+     [[self Vec3] [other Vec3]]
+     (ak/return (+ (* (az/field self :x) (az/field other :x))
+                   (* (az/field self :y) (az/field other :y))
+                   (* (az/field self :z) (az/field other :z)))))])
 
 (az/deftest dot-product-test
   (let [horizontal ((az/field Vec3 :init) 1.0 0.0 0.0)
@@ -28,9 +27,8 @@
     ;; Method syntax and the equivalent namespaced function call are identical.
     (try (testing/expectEqual 0.0 ((az/field Vec3 :dot) horizontal vertical)))))
 
-(az/defconst Empty
-  (az/container {:kind :struct}
-    (az/const-decl PI {:attrs #{:public}} 3.14)))
+(az/defstruct Empty
+  [(az/const-decl PI {:attrs #{:public}} 3.14)])
 
 (az/deftest namespaced-constant-test
   (try (testing/expectEqual 3.14 (az/field Empty :PI)))
@@ -49,14 +47,14 @@
     (try (testing/expectEqual 0.9 (az/field point :y)))))
 
 (az/defn LinkedList :type [[T {:zig/prefix "comptime"} :type]]
-  (az/container {:kind :struct}
-    (az/struct-decl Node {:attrs #{:public}}
-      [[:prev [:optional [:* Node]]]
-       [:next [:optional [:* Node]]]
-       [:data T]])
-    (az/field-decl :first [:optional [:* Node]])
-    (az/field-decl :last [:optional [:* Node]])
-    (az/field-decl :len :usize)))
+  (az/struct
+    [(az/struct-decl Node {:attrs #{:public}}
+       [[:prev [:optional [:* Node]]]
+        [:next [:optional [:* Node]]]
+        [:data T]])
+     [:first [:optional [:* Node]]]
+     [:last [:optional [:* Node]]]
+     [:len :usize]]))
 
 (az/deftest linked-list-test
   ;; Repeated calls at compile time return the same memoized type.
@@ -67,9 +65,9 @@
     (try (testing/expectEqual 0 (az/field empty-list :len)))
     (try (testing/expectEqual (LinkedList (az/type :i32)) ListOfInts))
     (let [^:var node (az/init (az/field ListOfInts :Node)
-                             {:prev nil :next nil :data 1234})
+                              {:prev nil :next nil :data 1234})
           list (az/init (LinkedList (az/type :i32))
-                         {:first (& node) :last (& node) :len 1})]
+                        {:first (& node) :last (& node) :len 1})]
       ;; Pointer field access dereferences automatically.
       (try (testing/expectEqual 1234 (az/field (az/unwrap (az/field list :first)) :data))))))
 

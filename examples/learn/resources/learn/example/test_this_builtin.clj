@@ -10,13 +10,12 @@
 
 (az/defn- List :type
   [[T {:zig/prefix "comptime"} :type]]
-  (az/container {:kind :struct}
-    (az/const-decl Self (ak/This))
-    (az/field-decl :items [:slice T])
-    (az/fn-decl length
-      :- :usize
-      [[self Self]]
-      (az/field (az/field self :items) :len))))
+  (az/struct
+    [(az/const-decl Self (ak/This))
+     [:items [:slice T]]
+     (az/fn-decl length :usize
+       [[self Self]]
+       (az/field (az/field self :items) :len))]))
 
 (comment
   (this-type-test))

@@ -19,72 +19,61 @@
 
 (force native-library)
 
-(az/defextern pitoco_aguafria_variational_create
+(az/defextern pitoco_aguafria_variational_create [:optional [:* :anyopaque]]
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- [:optional [:* :anyopaque]]
   [[nodes :u32] [rest [:c-pointer :f64]] [initial [:c-pointer :f64]] [face-count :u32] [faces [:c-pointer :u32]]
    [tet-count :u32] [cells [:c-pointer :u32]] [floor [:c-pointer :u8]]])
 
-(az/defextern pitoco_aguafria_variational_destroy
+(az/defextern pitoco_aguafria_variational_destroy :void
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :void [[handle [:optional [:* :anyopaque]]]])
+   [[handle [:optional [:* :anyopaque]]]])
 
-(az/defextern pitoco_aguafria_variational_error
+(az/defextern pitoco_aguafria_variational_error [:pointer {:size :c :const? true} :u8]
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- [:pointer {:size :c :const? true} :u8] [])
+   [])
 
-(az/defextern pitoco_aguafria_variational_evaluate
+(az/defextern pitoco_aguafria_variational_evaluate :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [positions [:c-pointer :f64]] [clearance :f64]
    [pressure :f64] [derivatives :u32] [gradient [:c-pointer :f64]] [energy [:c-pointer :f64]] [friction-energy [:c-pointer :f64]]])
 
-(az/defextern pitoco_aguafria_variational_begin_step
+(az/defextern pitoco_aguafria_variational_begin_step :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [start [:c-pointer :f64]] [coefficients [:c-pointer :f64]]
    [duration :f64] [clearance :f64] [pressure :f64]])
 
-(az/defextern pitoco_aguafria_variational_lag_friction
+(az/defextern pitoco_aguafria_variational_lag_friction :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [positions [:c-pointer :f64]] [clearance :f64] [pressure :f64]])
 
-(az/defextern pitoco_aguafria_variational_friction_origin
+(az/defextern pitoco_aguafria_variational_friction_origin :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [origin [:c-pointer :f64]]])
 
-(az/defextern pitoco_aguafria_variational_matrix_begin
+(az/defextern pitoco_aguafria_variational_matrix_begin :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [masses [:c-pointer :f64]] [scale :f64]])
 
-(az/defextern pitoco_aguafria_variational_add_projected_element
+(az/defextern pitoco_aguafria_variational_add_projected_element :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [nodes [:c-pointer :u32]] [values [:c-pointer :f64]]])
 
-(az/defextern symmetric-eigenvectors!
+(az/defextern symmetric-eigenvectors! :void
   {:zig/prefix "pub extern" :zig/name "@\"dsyev$NEWLAPACK\"" :attrs #{:public}}
-  :- :void
   [[vectors [:c-pointer :u8]] [triangle [:c-pointer :u8]] [count [:c-pointer :i32]]
    [matrix [:c-pointer :f64]] [leading [:c-pointer :i32]] [eigenvalues [:c-pointer :f64]]
    [scratch [:c-pointer :f64]] [scratch-count [:c-pointer :i32]] [status [:c-pointer :i32]]])
 
-(az/defextern pitoco_aguafria_variational_solve
+(az/defextern pitoco_aguafria_variational_solve :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [gradient [:c-pointer :f64]] [direction [:c-pointer :f64]]])
 
-(az/defextern pitoco_aguafria_variational_safe_step
+(az/defextern pitoco_aguafria_variational_safe_step :f64
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :f64
   [[handle [:optional [:* :anyopaque]]] [start [:c-pointer :f64]] [direction [:c-pointer :f64]]])
 
-(az/defextern pitoco_aguafria_variational_trial
+(az/defextern pitoco_aguafria_variational_trial :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32
   [[handle [:optional [:* :anyopaque]]] [start [:c-pointer :f64]] [direction [:c-pointer :f64]]
    [alpha :f64] [output [:c-pointer :f64]]])
 

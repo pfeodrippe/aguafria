@@ -13,7 +13,7 @@
     (try (testing/expectEqual (az/slice pointer 1) (+ pointer 1)))
     ;; Pointer subtraction counts elements, not bytes.
     (try (testing/expectEqual 1 (- (& (az/index pointer 1))
-                                  (& (az/index pointer 0)))))))
+                                   (& (az/index pointer 0)))))))
 
 (az/deftest slice-arithmetic-test
   (let [^:var numbers (az/array-init [:array _ :i32] [1 2 3 4])

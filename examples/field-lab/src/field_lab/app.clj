@@ -26,18 +26,17 @@
             [field-lab.panel :as native-panel]
             [field-lab.panel-api :as panel]))
 
-(az/defextern pitoco_aguafria_tick_v1
+(az/defextern pitoco_aguafria_tick_v1 :void
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :void
   [[panel [:c-pointer panel/LabPanel]]])
 
-(az/defextern pitoco_aguafria_submit_v1
+(az/defextern pitoco_aguafria_submit_v1 :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :u32 [[command [:pointer {:size :c :const? true} panel/PitocoCommandV1]] [ticket [:c-pointer :u64]]])
+   [[command [:pointer {:size :c :const? true} panel/PitocoCommandV1]] [ticket [:c-pointer :u64]]])
 
-(az/defextern pitoco_aguafria_shutdown_v1
+(az/defextern pitoco_aguafria_shutdown_v1 :void
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :void [])
+   [])
 
 (az/defvar host-service-state :u8 0)
 

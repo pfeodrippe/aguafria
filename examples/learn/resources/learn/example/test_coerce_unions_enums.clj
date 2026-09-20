@@ -3,26 +3,25 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst Tag
-  (az/container {:kind :enum}
-    (az/enum-field-decl :one)
-    (az/enum-field-decl :two)
-    (az/enum-field-decl :three)))
+(az/defenum Tag
+  [:one
+   :two
+   :three])
 
 (az/defconst Value
-  (az/container {:kind :union :argument Tag}
-    (az/field-decl :one :i32)
-    (az/field-decl :two :f32)
-    (az/enum-field-decl :three)))
+  (az/union {:argument Tag}
+    [[:one :i32]
+     [:two :f32]
+     [:three :void]]))
 
 (az/defconst InferredTagValue
-  (az/container {:kind :union :attrs #{:enum}}
-    (az/field-decl :a :void)
-    (az/field-decl :b :f32)
-    (az/fn-decl tag :- :usize [[self InferredTagValue]]
-      (switch self
-        (case [:.a] 1)
-        (case [:.b] 2)))))
+  (az/union {:attrs #{:enum}}
+    [[:a :void]
+     [:b :f32]
+     (az/fn-decl tag :usize [[self InferredTagValue]]
+       (switch self
+         (case [:.a] 1)
+         (case [:.b] 2)))]))
 
 (az/deftest union-enum-coercion-test
   (let [value (az/init Value {:two 12.34})

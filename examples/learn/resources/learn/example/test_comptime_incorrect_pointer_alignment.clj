@@ -9,7 +9,3 @@
         ^{:zig/type [:pointer {:size :one :align 4} :i32]}
         word-aligned (ak/alignCast byte-aligned)]
     (set! _ word-aligned)))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )

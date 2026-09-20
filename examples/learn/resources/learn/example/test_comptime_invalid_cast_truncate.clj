@@ -7,7 +7,3 @@
   (let [^{:zig/type :u16} spartan-count 300
         ^{:zig/type :u8} byte (ak/intCast spartan-count)]
     (set! _ byte)))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )

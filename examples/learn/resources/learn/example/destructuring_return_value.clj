@@ -4,9 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/defconst Division
-  (az/container {:kind :struct}
-    (az/tuple-field-decl :u32)
-    (az/tuple-field-decl :u32)))
+  (az/struct
+    [(az/tuple-field-decl :u32)
+     (az/tuple-field-decl :u32)]))
 
 (az/defn- divmod Division
   [[numerator :u32] [denominator :u32]]

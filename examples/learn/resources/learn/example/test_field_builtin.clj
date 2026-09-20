@@ -3,11 +3,10 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst Point
-  (az/container {:kind :struct}
-    (az/field-decl :x :u32)
-    (az/field-decl :y :u32)
-    (az/var-decl z {:attrs #{:public}} :u32 1)))
+(az/defstruct Point
+  [[:x :u32]
+   [:y :u32]
+   (az/var-decl z {:attrs #{:public}} :u32 1)])
 
 (az/deftest string-field-access-test
   (let [^:var point (az/init Point {:x 0 :y 0})]

@@ -2,12 +2,12 @@
   (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst NumberTag
-  (az/container {:kind :enum :argument :u8}
-    (az/enum-field-decl :one)
-    (az/enum-field-decl :two)
-    (az/enum-field-decl :three)
-    (az/enum-field-decl :_)))
+(az/defenum NumberTag
+  {:argument :u8}
+  [:one
+   :two
+   :three
+   :_])
 
 (az/deftest non-exhaustive-enum-test
   (let [number (az/field NumberTag :one)

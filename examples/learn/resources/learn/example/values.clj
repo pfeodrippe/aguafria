@@ -27,22 +27,22 @@
   (let [^{:var [:optional [:slice-const :u8]]} optional-value nil]
     (debug/assert (== optional-value nil))
     (debug/print "\noptional 1\ntype: {}\nvalue: {?s}\n"
-      [(ak/TypeOf optional-value) optional-value])
+                 [(ak/TypeOf optional-value) optional-value])
 
     (set! optional-value "hi")
     (debug/assert (!= optional-value nil))
     (debug/print "\noptional 2\ntype: {}\nvalue: {?s}\n"
-      [(ak/TypeOf optional-value) optional-value]))
+                 [(ak/TypeOf optional-value) optional-value]))
 
   ;; Error union.
   (let [^{:var [:error-union ExampleErrorSet :i32]}
         number-or-error (az/field ExampleErrorSet :ExampleErrorVariant)]
     (debug/print "\nerror union 1\ntype: {}\nvalue: {!}\n"
-      [(ak/TypeOf number-or-error) number-or-error])
+                 [(ak/TypeOf number-or-error) number-or-error])
 
     (set! number-or-error 1234)
     (debug/print "\nerror union 2\ntype: {}\nvalue: {!}\n"
-      [(ak/TypeOf number-or-error) number-or-error])))
+                 [(ak/TypeOf number-or-error) number-or-error])))
 
 (comment
   (main))

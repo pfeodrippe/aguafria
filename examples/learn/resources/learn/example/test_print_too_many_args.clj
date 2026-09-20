@@ -7,7 +7,7 @@
 
 (az/deftest unused-print-argument-test
   (debug/print "here is a string: '{s}' here is a number: {}\n"
-    [text number number]))
+               [text number number]))
 
 (comment
   (unused-print-argument-test))

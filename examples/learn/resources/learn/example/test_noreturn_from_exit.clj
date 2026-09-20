@@ -11,9 +11,9 @@
     (az/object [[:x86_stdcall (az/object [])]])
     :.c))
 
-(az/defextern ExitProcess
+(az/defextern ExitProcess :noreturn
   {:zig/prefix "extern \"kernel32\"" :zig/qualifiers "callconv(WINAPI)"}
-  :- :noreturn [[exit-code :c_uint]])
+  [[exit-code :c_uint]])
 
 (az/defn- successful-number [:error-union :anyerror :u32] []
   1234)

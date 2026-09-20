@@ -6,14 +6,14 @@
 ;; x86-64 Linux, LLVM backend. The assembler supplies this external symbol.
 (az/defcomptime install-addition
   (ak/asm
-    (az/multiline-string
-      [".global my_func;"
-       ".type my_func, @function;"
-       "my_func:"
-       "  lea (%rdi,%rsi,1),%eax"
-       "  retq"])))
+   (az/multiline-string
+    [".global my_func;"
+     ".type my_func, @function;"
+     "my_func:"
+     "  lea (%rdi,%rsi,1),%eax"
+     "  retq"])))
 
-(az/defextern my-func {:zig/prefix "extern"} :- :i32
+(az/defextern my-func :i32 {:zig/prefix "extern"}
   [[first-value :i32] [second-value :i32]])
 
 (az/deftest global-assembly-test

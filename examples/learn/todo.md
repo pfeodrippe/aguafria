@@ -6,6 +6,7 @@
 - [x] fix (maximum :bool false true)
 - [x] we should have a option in the tab to see both zig and aguafria zig side by side (with their shell and repl outputs)
 - [x] all examples should also have a `comment` form with the call (e.g. calling main directly or the deftest or whatever) in the end so people can reproduce the exact output from the repl
+- [ ] check for errors
+  - where we have stopped : TBD
 - [ ] use -> for hello.clj (?)
-- [ ]
 - [ ] attach small model for showing errors during development

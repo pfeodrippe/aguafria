@@ -59,9 +59,9 @@
   [[choose-optional? :bool] [choose-null? :bool]]
   (when choose-optional?
     (ak/return
-      (if choose-null?
-        nil
-        (ak/as :usize 0))))
+     (if choose-null?
+       nil
+       (ak/as :usize 0))))
   (ak/as :usize 3))
 
 (az/deftest empty-array-and-slice-peers-test
@@ -108,20 +108,20 @@
   (let [^{:var [:error-union [:error-set [:A :B :C]] :u32]} result 0]
     (set! _ (& result))
     (let [from-if (az/if-capture {:payload [value] :error [error]} result
-                    (+ value 3)
-                    (ak/switch error
-                      (case [(az/error-value :A)] 0)
-                      (case [(az/error-value :B)] 1)
-                      (case [(az/error-value :C)] nil)))]
+                                 (+ value 3)
+                                 (ak/switch error
+                                   (case [(az/error-value :A)] 0)
+                                   (case [(az/error-value :B)] 1)
+                                   (case [(az/error-value :C)] nil)))]
       (try (testing/expectEqual (az/type [:optional :u32]) (ak/TypeOf from-if))))
 
     ;; The same direct-switch requirement applies to catch: a labeled block
     ;; would prevent the unwrapped value and error cases from being peers.
     (let [from-catch (az/catch-capture [error] result
-                       (ak/switch error
-                         (case [(az/error-value :A)] 0)
-                         (case [(az/error-value :B)] 1)
-                         (case [(az/error-value :C)] nil)))]
+                                       (ak/switch error
+                                         (case [(az/error-value :A)] 0)
+                                         (case [(az/error-value :B)] 1)
+                                         (case [(az/error-value :C)] nil)))]
       (try (testing/expectEqual (az/type [:optional :u32]) (ak/TypeOf from-catch))))))
 
 (comment

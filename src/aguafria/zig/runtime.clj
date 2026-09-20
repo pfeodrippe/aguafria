@@ -229,7 +229,7 @@
 
 (defn- container-type-form
   [{:keys [kind module value] :as declaration}]
-  (when (= :const kind)
+  (when (contains? #{:const :struct} kind)
     (or
      (when (and (seq? value) (symbol? (first value))
                 (= "container" (name (first value))))
@@ -918,7 +918,7 @@
 
 (defn- container-value-schema
   [form]
-  (let [[_ options & members] form]
+  (let [[_ options members] form]
     {:kind :container-schema
      :container (select-keys options [:kind :layout :enum? :argument])
      :fields
@@ -979,6 +979,10 @@
 (defn- type-factory-declaration?
   [{:keys [kind return]}]
   (and (= :fn kind) (= :type return)))
+
+(def ^:dynamic *cyclic-implementation-fingerprints*
+  "Source-graph identities for mutually dependent compile-time declarations."
+  nil)
 
 (defn declaration-info
   "Return a declaration with a stable logical identity and deterministic
@@ -1111,7 +1115,15 @@
                      :type-dependencies (type-dependency-shapes declaration)}))
 
             declaration-key
-            (assoc :logical-key declaration-key))]
+            (assoc :logical-key declaration-key))
+          declaration
+          (let [fingerprint (if (some? *cyclic-implementation-fingerprints*)
+                              (get *cyclic-implementation-fingerprints* logical-id)
+                              (:cyclic-implementation-fingerprint declaration))]
+            (if fingerprint
+              (assoc declaration :implementation-fingerprint fingerprint
+                                 :cyclic-implementation-fingerprint fingerprint)
+              (dissoc declaration :cyclic-implementation-fingerprint)))]
       ;; Emission identity intentionally includes docs, source mapping, value
       ;; forms, body forms, and emission-relevant reference metadata. Computing
       ;; it once at registration makes later source-plan cache lookups cheap
@@ -1153,12 +1165,16 @@
   (when (and line (pos? line))
     (nth (str/split-lines (or text "")) (dec line) nil)))
 
+(defn- source-text
+  [file]
+  (when file
+    (let [source-file (io/file file)
+          source (if (.isFile source-file) source-file (io/resource file))]
+      (when source (slurp source)))))
+
 (defn- existing-source-line
   [file line]
-  (when (and file line)
-    (let [source-file (io/file file)]
-      (when (.isFile source-file)
-        (line-at (slurp source-file) line)))))
+  (when line (some-> (source-text file) (line-at line))))
 
 (defn- code-frame
   [line column source-line label]
@@ -1170,6 +1186,40 @@
            " " line-label " | " source-line "\n"
            " " gutter " | " (apply str (repeat (dec column) " "))
            "^ " label "\n"))))
+
+(defn- clojure-code-frame
+  "Underline the original form, not its generated Zig spelling. Reading never evaluates it."
+  [file line column label]
+  (when-let [source (and line (source-text file))]
+    (let [lines (vec (str/split-lines source))
+          column (max 1 (or column 1))
+          source-line (get lines (dec line))
+          extent
+          (when (and source-line (<= column (count source-line)))
+            (try
+              (let [tail (str/join "\n" (cons (subs source-line (dec column)) (drop line lines)))
+                    reader (clojure.lang.LineNumberingPushbackReader. (java.io.StringReader. tail))]
+                (binding [*read-eval* false] (read {:eof nil :read-cond :allow} reader))
+                {:end-line (+ line (dec (.getLineNumber reader)))
+                 :end-column (+ (.getColumnNumber reader)
+                                (if (= 1 (.getLineNumber reader)) (dec column) 0))})
+              (catch Exception _ nil)))
+          end-line (min (+ line 7) (or (:end-line extent) line))
+          gutter (apply str (repeat (count (str end-line)) " "))]
+      (when source-line
+        (str " " gutter " |\n"
+             (apply str
+                    (for [number (range line (inc end-line))
+                          :let [text (get lines (dec number) "")
+                                start (if (= number line) (dec column)
+                                          (count (re-find #"^\s*" text)))
+                                end (if (= number (:end-line extent))
+                                      (dec (:end-column extent)) (count text))
+                                width (max 1 (- end start))]]
+                      (str " " (format (str "%" (count gutter) "d") number) " | " text "\n"
+                           " " gutter " | " (apply str (repeat start " "))
+                           (apply str (repeat width "^"))
+                           (when (= number end-line) (str " " label)) "\n"))))))))
 
 (defn- source-location-at
   [source generated-line]
@@ -1247,8 +1297,8 @@
            (str "  --> " file
                 (when line (str ":" line))
                 (when column (str ":" column)) "\n"
-                (code-frame line column clojure-line
-                            "this Aguafria source generated the failing Zig")))
+                (clojure-code-frame file line column
+                                    "this Aguafria form generated the failing Zig")))
          (when declaration
            (str "  = Aguafria declaration: " declaration "\n"))
          "  ::: " generated-file ":" generated-line ":" generated-column "\n"
@@ -1288,7 +1338,7 @@
          "  --> " (or file "<repl>")
          (when line (str ":" line))
          (when column (str ":" column)) "\n"
-         (code-frame line column source-line "this form could not be emitted")
+         (clojure-code-frame file line column "this form could not be emitted")
          (when form (str "  = form: " (pr-str form) "\n")))))
 
 (defn- emit-source!
@@ -6373,10 +6423,85 @@
       (reset! declaration-reference-index updated)
       by-logical)))
 
+(declare compute-dependency-topology)
+
+(defn- cyclic-implementation-fingerprints
+  "Hash a cyclic source graph once, never a previous hash of that same cycle.
+  Concrete dispatchable functions remain ABI boundaries. External dependencies
+  retain their published identities; edits inside a component invalidate all of
+  its compile-time consumers together."
+  [declarations registered]
+  (let [by-id (merge registered (into {} (map (juxt :logical-id identity)) declarations))
+        by-name (into {} (mapcat (fn [d]
+                                  (map #(vector [(:module d) %] (:logical-id d))
+                                       (declaration-index-names d)))
+                                (vals by-id)))
+        source-keys [:kind :name :zig-name :layout :type :value :fields :args :return
+                     :body :zig-prefix :zig-qualifiers :implicit-return? :export?
+                     :development-export? :public?]
+        reference-id
+        (fn [d v]
+          (when (symbol? v)
+            (let [reference (:aguafria/zig-reference (meta v))]
+              (when-not (= :namespace-root (:kind reference))
+                (or (:logical-id reference)
+                    (get by-name [(or (:module reference) (namespace v) (:module d))
+                                  (name v)]))))))
+        references
+        (fn [d]
+          (into #{}
+                (keep #(reference-id d %))
+                (nested-form-values (select-keys d [:type :value :fields :args :return :body]))))
+        local-ids (set (map :logical-id declarations))
+        graph (into {} (map (fn [d]
+                              [(:logical-id d)
+                               (if (dispatchable-declaration? d) #{}
+                                   (filterv local-ids (references d)))])
+                            declarations))
+        components (:components (compute-dependency-topology graph))]
+    (into {}
+          (mapcat
+           (fn [{:keys [modules cyclic?]}]
+             (when cyclic?
+               (let [reachable
+                     (loop [pending (vec modules) seen #{}]
+                       (if-let [id (peek pending)]
+                         (if (seen id)
+                           (recur (pop pending) seen)
+                           (recur (into (pop pending) (get graph id)) (conj seen id)))
+                         seen))
+                     basis
+                     (mapv (fn [id]
+                             (let [d (by-id id)]
+                               [id (if (and (local-ids id) (not (dispatchable-declaration? d)))
+                                     (canonical-fingerprint-value
+                                      (walk-reference-values
+                                       (fn [v]
+                                         (if-let [reference (reference-id d v)]
+                                           (with-meta v (assoc (meta v) :aguafria/zig-reference
+                                                              {:logical-id reference}))
+                                           v))
+                                       (select-keys d source-keys))
+                                      [:module :zig-name :import-name :import-alias :logical-id])
+                                     (select-keys d
+                                                  (if (dispatchable-declaration? d)
+                                                    [:abi-fingerprint]
+                                                    [:implementation-fingerprint
+                                                     :schema-fingerprint :shape-fingerprint])))]))
+                           (sort (into reachable
+                                       (mapcat #(remove local-ids (references (by-id %))))
+                                       reachable)))
+                     fingerprint (data-fingerprint basis)]
+                 (map #(vector % (data-fingerprint [% fingerprint])) modules))))
+           components))))
+
 (defn- refresh-live-declaration-references
   ([declarations]
    (refresh-live-declaration-references declarations nil))
   ([declarations target-declaration-keys]
+   (binding [*cyclic-implementation-fingerprints*
+             (cyclic-implementation-fingerprints
+              declarations (registered-declarations-by-logical-id))]
    (letfn [(refresh-pass [declarations target-keys]
             (let [registered-by-logical
                   (registered-declarations-by-logical-id)
@@ -6580,6 +6705,7 @@
                                             (:implementation-fingerprint reference)
                                             (:shape-fingerprint reference)]])))))
                             (mapcat identity)
+                            (remove #(= self-logical-id (first %)))
                             distinct
                             (sort-by pr-str)
                             vec)
@@ -6642,6 +6768,7 @@
                                             (:implementation-fingerprint reference)
                                             (:shape-fingerprint reference)]])))))
                             (mapcat identity)
+                            (remove #(= self-logical-id (first %)))
                             distinct
                             (sort-by pr-str)
                             vec)
@@ -6683,6 +6810,7 @@
                                           (:callable-dependency-fingerprints
                                            current))))))
                             (mapcat identity)
+                            (remove #(= self-logical-id (first %)))
                             distinct
                             (sort-by pr-str)
                             vec)
@@ -6784,7 +6912,7 @@
                             {:aguafria/phase :zig-constant-dependency
                              :logical-ids changed-constants}))
             :else (recur current (refresh-pass current affected-keys)
-                         (dec remaining)))))))))
+                         (dec remaining))))))))))
 
 (defn- declarations-live-slice
   "Close one or more roots over their same-module declaration references.

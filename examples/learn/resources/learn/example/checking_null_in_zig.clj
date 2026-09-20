@@ -11,10 +11,6 @@
   [[optional-foo [:optional [:* Foo]]]]
   ;; Do some stuff.
   (az/if-capture-stmt {:payload [foo]} optional-foo
-    (do-something-with-foo foo))
+                      (do-something-with-foo foo))
   ;; Do some stuff.
-  )
-
-(comment
-  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
   )

@@ -34,17 +34,24 @@ document.querySelectorAll('code.language-clojure, [data-language="aguafria"] cod
 // Explanations are available as tooltips and accessible descriptions, without
 // expanding every type mention into a full-size code panel inside prose.
 document.querySelectorAll(".learn-inline").forEach(example => {
-  const button = example.querySelector(".learn-inline-toggle");
+  const button = example;
   const zig = example.querySelector('[data-language="zig"]');
   const aguafria = example.querySelector('[data-language="aguafria"]');
   const original = zig.textContent;
-  button.hidden = false;
+  button.setAttribute("role", "button");
+  button.tabIndex = 0;
   button.addEventListener("click", () => {
     const selected = button.getAttribute("aria-pressed") !== "true";
     button.setAttribute("aria-pressed", String(selected));
     button.setAttribute("aria-label", `Show ${selected ? "original Zig" : "Aguafria equivalent"} for ${original}`);
     zig.hidden = selected;
     aguafria.hidden = !selected;
+  });
+  button.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      button.click();
+    }
   });
 });
 
@@ -172,7 +179,8 @@ function setupContents() {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "learn-toc-toggle";
-  toggle.textContent = "☰ Contents";
+  toggle.textContent = "☰";
+  toggle.setAttribute("aria-label", "Table of contents");
   toggle.setAttribute("aria-controls", "navigation");
   document.body.appendChild(toggle);
   function setOpen(open, restoreFocus = false) {
@@ -198,36 +206,12 @@ function setupContents() {
     }
   });
 
-  const branches = new Map();
-  navigation.querySelectorAll('nav[aria-labelledby="table-of-contents"] li').forEach((item, index) => {
-    const children = item.querySelector(":scope > ul");
-    const link = item.querySelector(":scope > a");
-    if (!children || !link) return;
-    children.id = `learn-toc-children-${index}`;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "learn-toc-branch";
-    button.setAttribute("aria-label", `Toggle ${link.textContent} sections`);
-    button.setAttribute("aria-controls", children.id);
-    function expand(open) {
-      children.hidden = !open;
-      button.setAttribute("aria-expanded", String(open));
-      button.textContent = open ? "▾" : "▸";
-    }
-    branches.set(children, expand);
-    expand(false);
-    button.addEventListener("click", () => expand(children.hidden));
-    link.before(button);
-  });
   function revealCurrentSection() {
     navigation.querySelectorAll('a[aria-current]').forEach(link => link.removeAttribute("aria-current"));
     const link = Array.from(navigation.querySelectorAll('a[href^="#"]'))
       .find(link => link.hash === location.hash);
     if (!link) return;
     link.setAttribute("aria-current", "location");
-    for (let parent = link.parentElement; parent !== navigation; parent = parent.parentElement) {
-      branches.get(parent)?.(true);
-    }
   }
   navigation.addEventListener("click", event => {
     const link = event.target.closest('a[href^="#"]');

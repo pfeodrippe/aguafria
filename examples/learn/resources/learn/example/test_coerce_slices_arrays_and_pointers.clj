@@ -37,9 +37,9 @@
         ^{:zig/type [:slice-const :f32]} values (& numbers)]
     (try (testing/expectEqualStrings "hello" bytes))
     (try (testing/expectEqualSlices
-           (az/type :f32)
-           (& (az/array-init [:array 2 :f32] [1.2 3.4]))
-           values))))
+          (az/type :f32)
+          (& (az/array-init [:array 2 :f32] [1.2 3.4]))
+          values))))
 
 (az/deftest array-to-many-pointer-test
   (let [^{:var [:array 5 :u8]} buffer (deref "hello")

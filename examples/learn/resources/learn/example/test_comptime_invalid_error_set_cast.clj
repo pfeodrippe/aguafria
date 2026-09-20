@@ -7,7 +7,3 @@
 
 (az/defcomptime reject-incompatible-error
   (set! _ (ak/as Set2 (ak/errorCast (az/field Set1 :B)))))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )

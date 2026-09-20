@@ -165,7 +165,7 @@
     [mesh-vertex-buffer vk/VkBuffer] [mesh-vertex-memory vk/VkDeviceMemory]
     [mapped-mesh-vertices [:optional [:* :anyopaque]]] [mesh-vertex-count :u32]])
 
-(eval `(az/defstruct ~'RendererContext ~renderer-context-fields))
+(eval `(az/defstruct ~'RendererContext [~renderer-context-fields]))
 (eval `(az/defn ~'swap-context! :void [[~'other [:* ~'RendererContext]]]
          ~@(for [[field _] renderer-context-fields]
              (list 'let ['saved field]

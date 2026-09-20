@@ -9,8 +9,8 @@
 
 (az/defn- increment-state :i32
   []
-  (let [State (az/container {:kind :struct}
-                (az/var-decl value :i32 1234))]
+  (let [State (az/struct
+                [(az/var-decl value :i32 1234)])]
     (ak/+= (az/field State :value) 1)
     (az/field State :value)))
 

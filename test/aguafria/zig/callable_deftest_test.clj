@@ -236,7 +236,7 @@
     (try
       (binding [*ns* namespace runtime/*source-only-registration?* true]
         (require '[aguafria.std.testing :as testing])
-        (eval '(az/defextern getpid {:zig/prefix "extern"} :- :c_int []))
+        (eval '(az/defextern getpid :c_int {:zig/prefix "extern"}  []))
         (eval (list 'az/deftest 'same-process-test
                     (list 'try (list 'testing/expectEqual
                                      (list 'ak/as :c_int pid) '(getpid))))))

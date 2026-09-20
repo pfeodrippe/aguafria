@@ -9,7 +9,3 @@
   (try ((az/field writer :printValue) number))
   (try ((az/field writer :write) "\n"))
   (try ((az/field writer :flush))))
-
-(comment
-  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
-  )

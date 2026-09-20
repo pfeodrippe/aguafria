@@ -21,9 +21,8 @@
 (az/defstruct CCDResult {:layout :extern}
   [[:status :u32] [:reserved :u32] [:time :f64] [:achieved-tolerance :f64]])
 
-(az/defextern pitoco_aguafria_ccd_query
+(az/defextern pitoco_aguafria_ccd_query :void
   {:zig/prefix "pub extern" :attrs #{:public}}
-  :- :void
   [[kind :u32] [start [:pointer {:size :c :const? true} p/Vec3]]
    [end [:pointer {:size :c :const? true} p/Vec3]]
    [separation :f64] [tolerance :f64] [maximum-time :f64]

@@ -164,6 +164,49 @@
         (finally
           (remove-ns module-symbol))))))
 
+(deftest member-vector-types-execute-natively-test
+  (let [old-config (az/configuration)
+        test-symbol (symbol (str "aguafria.member-vector-" fixture-suffix))
+        test-ns (create-ns test-symbol)]
+    (try
+      (az/configure! {:async? false :modules {}})
+      (binding [*ns* test-ns]
+        (refer 'clojure.core)
+        (alias 'az 'aguafria.zig)
+        (alias 'ak 'aguafria.keyword)
+        (eval '(az/defn ShortList :type
+                 [[T {:zig/prefix "comptime"} :type]
+                  [length {:zig/prefix "comptime"} :usize]]
+                 (az/struct
+                   [[:items [:array length T]]
+                    (az/fn-decl first-item T {:attrs #{:public}}
+                      [[self (ak/This)]]
+                      (az/index (az/field self :items) 0))])))
+        (eval '(az/defconst ThreeItems (ShortList :u32 3)))
+        (eval '(az/defenum Color {:argument :u8}
+                 [:red [:blue {:doc "Blue"} 7]]))
+        (eval '(az/defconst Payload
+                 (az/union {:enum? true} [[:value :u32] [:empty :void]])))
+        (eval '(az/defconst Handle (az/opaque [])))
+        (eval '(az/defn inspect-types :u32 []
+                 (let [list-value (az/init (ShortList :u32 3) {:items [20 2 3]})
+                       payload (az/init Payload {:value 15})]
+                   (set! _ (az/type [:* Handle]))
+                   (+ ((az/field list-value :first-item))
+                      (az/field payload :value)
+                      (ak/intFromEnum (az/field Color :blue)))))))
+      (is (= 42 ((ns-resolve test-ns 'inspect-types))))
+      (let [list-type (var-get (ns-resolve test-ns 'ThreeItems))]
+        (is (az/zig-type? list-type))
+        (with-open [value (list-type {:items [5 6 7]})]
+          (is (= {:items [5 6 7]} (az/value value)))))
+      (let [color (var-get (ns-resolve test-ns 'Color))]
+        (with-open [value (color :blue)]
+          (is (= :blue (az/value value)))))
+      (finally
+        (az/configure! old-config)
+        (remove-ns test-symbol)))))
+
 (deftest native-process-main-host-test
   (testing "a std.process.Init main runs in the JVM and shares live native state"
     (let [old-config (az/configuration)
@@ -420,12 +463,12 @@
                    [items :- [:optional [:slice-const [:optional :u24]]]]
                    items))
           (eval '(az/defn maybe-nested-result [:error-union [:error-set [NoValue]]
-                       [:optional :u24]]
+                                               [:optional :u24]]
                    [fail :- :bool]
                    (if fail (az/error-value NoValue) nil)))
           (eval '(az/defn echo-nested-results [:array 2
-                       [:error-union [:error-set [NoValue]]
-                        [:optional :u24]]]
+                                               [:error-union [:error-set [NoValue]]
+                                                [:optional :u24]]]
                    [results :- [:array 2
                                 [:error-union [:error-set [NoValue]]
                                  [:optional :u24]]]]
@@ -662,10 +705,10 @@
           (eval '(az/defconst Mode
                    {:attrs #{:public}}
                    (az/container
-                    {:kind :enum :layout :normal :argument :u8}
-                    (az/enum-field-decl idle)
-                    (az/enum-field-decl running 7)
-                    (az/enum-field-decl stopped))))
+                     {:kind :enum :layout :normal :argument :u8}
+                     [(az/enum-field-decl idle)
+                      (az/enum-field-decl running 7)
+                      (az/enum-field-decl stopped)])))
           (eval '(az/defconst default-mode Mode :.running))
           (eval '(az/defn identity-mode Mode
                    [mode :- Mode]
@@ -703,9 +746,9 @@
           (eval '(az/defconst Point
                    {:attrs #{:public}}
                    (az/container
-                    {:kind :struct :layout :extern}
-                    (az/field-decl x :i32)
-                    (az/field-decl y :f64))))
+                     {:kind :struct :layout :extern}
+                     [(az/field-decl x :i32)
+                      (az/field-decl y :f64)])))
           (eval '(az/defn identity-point Point
                    [point :- Point]
                    point)))
@@ -739,11 +782,11 @@
           (eval '(az/defconst Value
                    {:attrs #{:public}}
                    (az/container
-                    {:kind :union :layout :normal
-                     :enum? true :argument :u8}
-                    (az/field-decl integer :i32)
-                    (az/field-decl floating :f64)
-                    (az/field-decl none :void))))
+                     {:kind :union :layout :normal
+                      :enum? true :argument :u8}
+                     [(az/field-decl integer :i32)
+                      (az/field-decl floating :f64)
+                      (az/field-decl none :void)])))
           (eval '(az/defn identity-value Value
                    [value :- Value]
                    value)))
@@ -977,15 +1020,15 @@
                   ((ns-resolve test-ns 'identity-payload) @old-value))
           (is (= {:value 41} (az/value @returned)))
           (is (pos? (or (some #(when (= old-generation (:generation %))
-                                (:native-value-reference-count %))
-                             (:native-generations (az/module-info test-symbol)))
+                                 (:native-value-reference-count %))
+                              (:native-generations (az/module-info test-symbol)))
                         0)))
           (az/close! @old-value)
           (is (not (pos? (or (some #(when (= old-generation (:generation %))
                                       (:native-value-reference-count %))
                                    (:native-generations
                                     (az/module-info test-symbol)))
-                              0)))))
+                             0)))))
         (finally
           (doseq [value [@returned @old-value]
                   :when (az/zig-value? value)]
@@ -1019,8 +1062,8 @@
           (is (= {:items [65535]} (az/value @new-value)))
           (is (some? old-generation))
           (is (pos? (or (some #(when (= old-generation (:generation %))
-                                (:native-value-reference-count %))
-                             (:native-generations (az/module-info test-symbol)))
+                                 (:native-value-reference-count %))
+                              (:native-generations (az/module-info test-symbol)))
                         0))
               (pr-str {:old-generation old-generation
                        :generations
@@ -1030,7 +1073,7 @@
                                       (:native-value-reference-count %))
                                    (:native-generations
                                     (az/module-info test-symbol)))
-                              0)))))
+                             0)))))
         (finally
           (doseq [value [@new-value @old-value]
                   :when (az/zig-value? value)]
@@ -1957,7 +2000,7 @@
           (let [pair-result ((ns-resolve b-ns 'call-pair) 3 4)
                 fallible-result ((ns-resolve b-ns 'call-fallible) 3)
                 publication
-                 {:module (select-keys (az/module-info a-symbol)
+                {:module (select-keys (az/module-info a-symbol)
                                       [:generation :requested-generation
                                        :published-generation :pending?
                                        :last-dependent-publication])
@@ -2161,10 +2204,10 @@
                 '(az/defn OptionsType :type {:attrs #{:public}} []
                    (ak/return
                     (az/container
-                     {:kind :struct :layout :normal}
-                     (az/field-decl value :u32)
-                     (az/fn-decl answer {:attrs #{:public}} :- :u32 []
-                       (ak/return aguafria-test/answer)))))))))]
+                      {:kind :struct :layout :normal}
+                      [(az/field-decl value :u32)
+                       (az/fn-decl answer :u32 {:attrs #{:public}}  []
+                         (ak/return aguafria-test/answer))])))))))]
       (try
         (az/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
@@ -2216,9 +2259,9 @@
                 '(az/defn Policy :type {:attrs #{:public}} []
                    (ak/return
                     (az/container
-                     {:kind :struct}
-                     (az/fn-decl answer {:attrs #{:public}} :- :u32 []
-                       (ak/return aguafria-test/answer)))))))))]
+                      {:kind :struct}
+                      [(az/fn-decl answer :u32 {:attrs #{:public}}  []
+                         (ak/return aguafria-test/answer))])))))))]
       (try
         (az/configure! {:async? false :modules {}})
         (binding [*ns* module-ns]
@@ -2304,9 +2347,9 @@
            '(az/defn ColorType :type
               []
               (az/container
-               {:kind :struct :layout :extern}
-               (az/field-decl r :f32)
-               (az/field-decl g :f32))))
+                {:kind :struct :layout :extern}
+                [(az/field-decl r :f32)
+                 (az/field-decl g :f32)])))
           (eval '(az/defconst Color {:attrs #{:public}} (ColorType)))
           (eval
            '(az/defn sum-color :f32
@@ -3033,12 +3076,12 @@
                 '(az/defn OptionsType :type {:attrs #{:public}} []
                    (ak/return
                     (az/container
-                     {:kind :struct :layout :normal}
-                     (az/field-decl value aguafria-test/field-type)
-                     (az/fn-decl answer
-                       {:attrs #{:public}}
-                       :- :u32 []
-                       (ak/return aguafria-test/answer-value)))))))))]
+                      {:kind :struct :layout :normal}
+                      [(az/field-decl value aguafria-test/field-type)
+                       (az/fn-decl answer :u32
+                         {:attrs #{:public}}
+                         []
+                         (ak/return aguafria-test/answer-value))])))))))]
       (try
         (az/configure! {:async? true :modules {}})
         (doseq [target [type-ns caller-ns irrelevant-ns downstream-ns
@@ -3194,8 +3237,8 @@
                 '(az/defn OptionsType :type {:attrs #{:public}} []
                    (ak/return
                     (az/container
-                     {:kind :struct :layout :normal}
-                     (az/field-decl value aguafria-test/field-type))))))))]
+                      {:kind :struct :layout :normal}
+                      [(az/field-decl value aguafria-test/field-type)])))))))]
       (try
         (az/configure! {:async? true :modules {}})
         (doseq [target [type-ns state-ns]]
@@ -3221,12 +3264,12 @@
            '(az/defn migrate-options :void {:attrs #{:export}}
               [old-address :- :usize new-address :- :usize]
               (ak/const old-options [:*const OldOptions]
-                (ak/ptrFromInt old-address))
+                        (ak/ptrFromInt old-address))
               (ak/const new-options [:* (types/OptionsType)]
-                (ak/ptrFromInt new-address))
+                        (ak/ptrFromInt new-address))
               (set! (az/field (az/deref new-options) value)
-                (ak/intCast
-                 (az/field (az/deref old-options) value))))))
+                    (ak/intCast
+                     (az/field (az/deref old-options) value))))))
         (is (= 11 ((ns-resolve state-ns 'read-option))))
 
         (define-options! :u64)
@@ -3245,12 +3288,12 @@
            '(az/defn migrate-options :void {:attrs #{:export}}
               [old-address :- :usize new-address :- :usize]
               (ak/const old-options [:*const OldOptions]
-                (ak/ptrFromInt old-address))
+                        (ak/ptrFromInt old-address))
               (ak/const new-options [:* (types/OptionsType)]
-                (ak/ptrFromInt new-address))
+                        (ak/ptrFromInt new-address))
               (set! (az/field (az/deref new-options) value)
-                (ak/intCast
-                 (az/field (az/deref old-options) value))))))
+                    (ak/intCast
+                     (az/field (az/deref old-options) value))))))
         (let [migration-required
               (try
                 (az/await! state-symbol)
@@ -3335,15 +3378,15 @@
           (eval '(az/defn migrate-struct-state :void {:attrs #{:export}}
                    [old-address :- :usize new-address :- :usize]
                    (ak/const old-state [:*const OldCounterState]
-                     (ak/ptrFromInt old-address))
+                             (ak/ptrFromInt old-address))
                    (ak/const new-state [:* CounterState]
-                     (ak/ptrFromInt new-address))
+                             (ak/ptrFromInt new-address))
                    (az/assign "="
-                     (az/field (az/deref new-state) value)
-                     (az/field (az/deref old-state) value))
+                              (az/field (az/deref new-state) value)
+                              (az/field (az/deref old-state) value))
                    (az/assign "="
-                     (az/field (az/deref new-state) extra)
-                     99))))
+                              (az/field (az/deref new-state) extra)
+                              99))))
 
         (az/migrate-state!
          (symbol (str test-symbol) "state")
@@ -3616,7 +3659,7 @@
         (is (str/includes? (ex-message error) "test/aguafria/zig_integration_test.clj"))
         (is (str/includes? (ex-message error)
                            "Aguafria declaration: aguafria.error-fixture/broken-constant"))
-        (is (str/includes? (ex-message error) "this Aguafria source generated the failing Zig"))
+        (is (str/includes? (ex-message error) "this Aguafria form generated the failing Zig"))
         (is (str/includes? (ex-message error) "Zig reported the error here"))
         (is (str/includes? (ex-message error) "compiler command")))
       (finally

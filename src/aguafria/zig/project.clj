@@ -18,7 +18,7 @@
 (defonce ^:private resource-lock (Object.))
 
 (def ^:private declaration-macro-names
-  #{"defn" "defn-" "defconst" "defvar" "defstruct" "defimport" "defraw"
+  #{"defn" "defn-" "defconst" "defvar" "defstruct" "defenum" "defimport" "defraw"
     "deffield" "defcomptime" "defextern" "defexternvar" "deftest"})
 
 (def ^:dynamic *catalog-namespace*

@@ -477,7 +477,7 @@
 (az/defvar name-pointer-time :f64 0.0)
 
 (az/defstruct NameDraft {:layout :extern}
-              [[text [:array 128 :u8]] [length :usize] [caret :usize] [anchor :usize] [view :usize]])
+  [[text [:array 128 :u8]] [length :usize] [caret :usize] [anchor :usize] [view :usize]])
 
 (az/defvar name-history [:array 33 NameDraft] (mem/zeroes (az/type [:array 33 NameDraft])))
 (az/defvar name-history-position :usize 0)
@@ -595,7 +595,7 @@
 (az/defvar track-snapshot :u32 4294967295)
 
 (az/defstruct ClipViewportRow {:layout :extern}
-              [[seconds :f32] [start :f32] [count :u32] [wave [:array 128 :f32]]])
+  [[seconds :f32] [start :f32] [count :u32] [wave [:array 128 :f32]]])
 
 (az/defvar clip-viewport [:array 32 ClipViewportRow]
   (mem/zeroes (az/type [:array 32 ClipViewportRow])))
@@ -3267,8 +3267,8 @@
 
 ;; GLFW geometry is in screen points, never Retina framebuffer pixels.
 (az/defstruct WindowBounds {:layout :extern}
-              [[x :i32] [y :i32] [width :i32] [height :i32]
-               [left :i32] [top :i32] [right :i32] [bottom :i32] [normal :i32]])
+  [[x :i32] [y :i32] [width :i32] [height :i32]
+   [left :i32] [top :i32] [right :i32] [bottom :i32] [normal :i32]])
 
 (az/defn window-bounds WindowBounds []
   (let [^{:var WindowBounds} bounds (mem/zeroes (az/type WindowBounds))]

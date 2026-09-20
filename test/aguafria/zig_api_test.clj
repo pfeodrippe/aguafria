@@ -1,5 +1,7 @@
 (ns aguafria.zig-api-test
   (:require [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.emitter :as emitter]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (deftest declaration-doc-attributes-and-inferred-types-test
@@ -81,4 +83,44 @@
         (is (false? (:public? (by-name 'private-answer))))
         (is (= "answer-test" (:test-name (by-name 'answer-test))))
         (is (= [] (:body (by-name 'answer-test)))))
+      (finally (remove-ns namespace-symbol)))))
+
+(deftest vector-types-retain-fields-docs-names-defaults-and-methods
+  (let [namespace-symbol (gensym "aguafria.zig-api-test.types-")
+        scratch (create-ns namespace-symbol)
+        declarations (atom [])]
+    (try
+      (binding [*ns* scratch runtime/*registration-batch* declarations]
+        (refer 'clojure.core)
+        (require '[aguafria.zig :as az])
+        (eval '(az/defenum Color
+                 "A documented enum."
+                 {:argument :u8}
+                 [[:red 1]
+                  [:really-red {:doc "Quoted tag." :zig/name "@\"really red\""} 7]]))
+        (eval '(az/defstruct Timestamp
+                 "Documented timestamp."
+                 [[:seconds {:doc "Seconds since the epoch." :default 0} :i64]
+                  [:nanos {:doc "Nanoseconds."} :u32]
+                  (az/fn-decl unix-epoch Timestamp
+                    "Returns the epoch."
+                    {:attrs #{:public}}
+                    []
+                    (az/init Timestamp {:seconds 0 :nanos 0}))]))
+        (eval '(az/defextern sample :void "Extern docs." {:zig/prefix "extern \"c\""} []))
+        (doseq [form '[(az/defextern old :- :void [])
+                       (az/defextern old {:zig/prefix "extern"} :- :void [])
+                       (az/defstruct Old [:x :u8])
+                       (az/defstruct Old [:x :u8] [:y :u8])
+                       (az/defstruct Bad [[:x]])
+                       (az/defenum Old [:x] [:y])
+                       (az/defenum Bad [[:x 1 2]])]]
+          (is (thrown? Exception (eval form)) (pr-str form))))
+      (let [source (emitter/emit-module (str namespace-symbol) @declarations)]
+        (doseq [expected ["enum(u8)" "red = 1" "/// Quoted tag." "@\"really red\" = 7"
+                          "/// Seconds since the epoch." "seconds: i64 = 0"
+                          "/// Nanoseconds." "/// Returns the epoch."
+                          "pub fn unix_epoch() Timestamp" "extern \"c\" fn sample() void;"]]
+          (is (str/includes? source expected) expected))
+        (is (= "A documented enum." (:doc (meta (ns-resolve scratch 'Color))))))
       (finally (remove-ns namespace-symbol)))))

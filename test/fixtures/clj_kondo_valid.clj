@@ -11,6 +11,28 @@
   [[:x :f32]
    [:y {:doc "Vertical component."} :f32]])
 
+(az/defenum Color
+  [:red
+   [:really-red {:zig/name "@\"really red\""}]])
+
+(az/defn ShortList :type
+  [[T {:zig/prefix "comptime"} :type]
+   [length {:zig/prefix "comptime"} :usize]]
+  (az/struct
+    [[:items [:array length T]]
+     (az/fn-decl first-item T
+       [[items [:array length T]]]
+       (az/index items 0))]))
+
+(az/defconst TaggedValue
+  (az/union {:enum? true} [[:value :i32] [:empty :void]]))
+
+(az/defconst Handle (az/opaque []))
+
+(az/defconst Status (az/enum [:ready [:waiting {:doc "Pending"} 2]]))
+
+(def color-type Color)
+
 (az/defimport fixture-module "fixture" [fixture-member])
 
 (az/defraw fixture-raw "const fixture_raw: u8 = 1;")
@@ -21,7 +43,7 @@
   (when false
     (ak/compileError "unreachable fixture branch")))
 
-(az/defextern puts :- :c_int
+(az/defextern puts :c_int
   [[message [:c-pointer :c_char]]])
 
 (az/defexternvar errno :- :c_int)
@@ -43,11 +65,11 @@
 
 (az/defconst structural-values
   (az/container
-   {:kind :struct}
-   (az/field-decl value :u8 1)
-   (az/enum-field-decl ready 0)
-   (az/field-decl object :u8
-                  (az/object [[:value capacity]]))))
+    {:kind :struct}
+    [(az/field-decl value :u8 1)
+     (az/enum-field-decl ready 0)
+     (az/field-decl object :u8
+       (az/object [[:value capacity]]))]))
 
 (az/deftest clj-kondo-fixture
   "A named Zig test and an inspectable Clojure Var."

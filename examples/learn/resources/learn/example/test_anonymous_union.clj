@@ -3,9 +3,9 @@
             [aguafria.zig :as az]))
 
 (az/defconst NumericValue
-  (az/container {:kind :union}
-    (az/field-decl :int :i32)
-    (az/field-decl :float :f64)))
+  (az/union
+    [[:int :i32]
+     [:float :f64]]))
 
 (az/defn make-number NumericValue []
   {:float 12.34})

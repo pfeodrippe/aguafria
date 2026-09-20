@@ -7,7 +7,3 @@
   ;; try propagates an error, or unwraps the successful number.
   (let [number (try (parsing/parseU64 text 10))]
     (set! _ number)))
-
-(comment
-  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
-  )

@@ -11,9 +11,9 @@
         output (az/slice destination 0 destination-length)
         decoder (az/field base64/standard :Decoder)
         decoded-length (catch ((az/field decoder :calcSizeForSlice) input)
-                         (ak/unreachable))]
+                              (ak/unreachable))]
     (catch ((az/field decoder :decode) (az/slice output 0 decoded-length) input)
-      (ak/unreachable))
+           (ak/unreachable))
     decoded-length))
 
 (comment

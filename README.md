@@ -117,6 +117,24 @@ without changing the shape of the declaration:
 (Point {:y 2.0 :x 1.0})
 ```
 
+All container members share one vector, including nested methods. Enums accept
+bare tags or detailed tag vectors:
+
+```clojure
+(az/defenum Color
+  [:red [:blue {:doc "Blue channel"} 4]])
+
+(az/defn ShortList :type
+  [[T {:zig/prefix "comptime"} :type]
+   [length {:zig/prefix "comptime"} :usize]]
+  (az/struct
+    [[:items [:array length T]]
+     (az/fn-decl capacity :usize [] length)]))
+```
+
+Anonymous `az/struct`, `az/enum`, `az/union`, and `az/opaque` use the same member
+vector, optionally preceded by a container options map.
+
 Normal layout is the default. Use declaration options only for behavior that
 differs from that default.
 

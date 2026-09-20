@@ -24,14 +24,12 @@
 ;; or at runtime when linking dynamically. The quoted library name identifies
 ;; the library containing the function (for example, "c" refers to libc.so).
 ;; callconv changes the function's calling convention.
-(az/defextern ExitProcess
+(az/defextern ExitProcess :noreturn
   {:zig/prefix "extern \"kernel32\"" :zig/qualifiers "callconv(.winapi)"}
-  :- :noreturn
   [[exit-code :u32]])
 
-(az/defextern atan2
+(az/defextern atan2 :f64
   {:zig/prefix "extern \"c\""}
-  :- :f64
   [[a :f64] [b :f64]])
 
 ;; @branchHint tells the optimizer that a function is rarely called ("cold").
@@ -62,8 +60,8 @@
 ;; Function pointers have a *const prefix.
 (az/defconst Call2Op
   (az/type [:*const [:fn {} [{:name :a :type :i8}
-                            {:name :b :type :i8}]
-                    :i8]]))
+                             {:name :b :type :i8}]
+                     :i8]]))
 
 (az/defn- do-op :i8
   [[operation Call2Op] [left :i8] [right :i8]]

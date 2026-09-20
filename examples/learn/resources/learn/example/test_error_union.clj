@@ -9,13 +9,13 @@
     (set! result 1234)
     (set! result (az/error-value :SomeError))
     (try (ak/comptime
-           (testing/expectEqual :i32
-             (az/field (az/field (ak/typeInfo (ak/TypeOf result)) :error_union)
-                       :payload))))
+          (testing/expectEqual :i32
+                               (az/field (az/field (ak/typeInfo (ak/TypeOf result)) :error_union)
+                                         :payload))))
     (try (ak/comptime
-           (testing/expectEqual :anyerror
-             (az/field (az/field (ak/typeInfo (ak/TypeOf result)) :error_union)
-                       :error_set))))))
+          (testing/expectEqual :anyerror
+                               (az/field (az/field (ak/typeInfo (ak/TypeOf result)) :error_union)
+                                         :error_set))))))
 
 (comment
   (error-union-test))

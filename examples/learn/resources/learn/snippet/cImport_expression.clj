@@ -6,15 +6,11 @@
 
 (az/defconst c
   (ak/cImport
-    (az/block
-      (ak/cDefine "NDEBUG" (== builtin/mode :.ReleaseFast))
-      (when something
-        (ak/cDefine "_GNU_SOURCE" (az/block)))
-      (ak/cInclude "stdlib.h")
-      (when something
-        (ak/cUndef "_GNU_SOURCE"))
-      (ak/cInclude "soundio.h"))))
-
-(comment
-  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
-  )
+   (az/block
+     (ak/cDefine "NDEBUG" (== builtin/mode :.ReleaseFast))
+     (when something
+       (ak/cDefine "_GNU_SOURCE" (az/block)))
+     (ak/cInclude "stdlib.h")
+     (when something
+       (ak/cUndef "_GNU_SOURCE"))
+     (ak/cInclude "soundio.h"))))

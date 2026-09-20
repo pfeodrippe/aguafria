@@ -5,12 +5,12 @@
 (az/defconst DirectoryError
   (az/type [:error-set [:NotDir
                        ;; A doc comment: this set describes missing paths.
-                       :PathNotFound]]))
+                        :PathNotFound]]))
 
 (az/defconst AllocationError
   (az/type [:error-set [:OutOfMemory
                        ;; B doc comment: the shared member merges by name.
-                       :PathNotFound]]))
+                        :PathNotFound]]))
 
 (az/defconst CombinedError (az/op "||" DirectoryError AllocationError))
 
@@ -19,11 +19,11 @@
 
 (az/deftest merge-error-sets-test
   (az/if-capture-stmt {:error [error]} (fail-not-directory)
-    (ak/panic "unexpected")
-    (az/switch-stmt error
-      (case [(az/error-value :OutOfMemory)] (ak/panic "unexpected"))
-      (case [(az/error-value :PathNotFound)] (ak/panic "unexpected"))
-      (case [(az/error-value :NotDir)] (az/block)))))
+                      (ak/panic "unexpected")
+                      (az/switch-stmt error
+                        (case [(az/error-value :OutOfMemory)] (ak/panic "unexpected"))
+                        (case [(az/error-value :PathNotFound)] (ak/panic "unexpected"))
+                        (case [(az/error-value :NotDir)] (az/block)))))
 
 (comment
   (merge-error-sets-test))

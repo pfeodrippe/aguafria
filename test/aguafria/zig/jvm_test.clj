@@ -162,14 +162,14 @@
       (binding [*ns* namespace]
         (eval '(az/defconst Mode
                  (az/container {:kind :enum :argument :c_int}
-                   (az/enum-field-decl :idle)
-                   (az/enum-field-decl :running))))
+                   [(az/enum-field-decl :idle)
+                    (az/enum-field-decl :running)])))
         (eval '(az/defn running? :bool [[mode Mode]] (== mode :.running))))
       (let [running? (ns-resolve namespace 'running?)]
         (is (false? (running? :idle)))
         (is (true? (running? :running)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown Zig enum member"
-                             (running? :missing))))
+                              (running? :missing))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest quoted-native-export-is-looked-up-without-zig-syntax

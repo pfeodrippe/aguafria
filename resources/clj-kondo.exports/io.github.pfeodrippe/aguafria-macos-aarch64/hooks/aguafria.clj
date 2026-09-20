@@ -56,21 +56,17 @@
          :types (mapv last entries)}))))
 
 (defn function-declaration
-  "Lint an `az/defn`, `az/defn-`, or `az/defextern` as a normal Clojure fn."
+  "Analyze top-level functions and container methods with their typed arguments."
   [{:keys [node]}]
   (let [[operator definition-name & raw-declaration] (:children node)
         operator-name (some-> operator sexpr name)
         private? (= "defn-" operator-name)
-        extern? (= "defextern" operator-name)
+        nested? (contains? #{"fn-decl" "fn-proto-decl"} operator-name)
+        extern? (contains? #{"defextern" "fn-proto-decl"} operator-name)
         {:keys [declaration docstring]}
-        (declaration-prefix (if extern? raw-declaration (rest raw-declaration)))
-        marker (when extern? (marker-index declaration))
-        return-type (if extern?
-                      (when marker (nth declaration (inc marker) nil))
-                      (first raw-declaration))
-        bindings (if extern?
-                   (when marker (nth declaration (+ marker 2) nil))
-                   (first declaration))
+        (declaration-prefix (rest raw-declaration))
+        return-type (first raw-declaration)
+        bindings (first declaration)
         body (if extern? [] (rest declaration))
         {:keys [arguments types]}
         (if (= :vector (:tag bindings))
@@ -81,8 +77,9 @@
                                     types
                                     (when extern? arguments)
                                     body)))
-        rewritten (concat [(token (if private? 'defn- 'defn)) definition-name]
-                          (when docstring [docstring])
+        rewritten (concat [(token (cond nested? 'fn private? 'defn- :else 'defn))
+                           definition-name]
+                          (when (and docstring (not nested?)) [docstring])
                           [(api/vector-node arguments) function-body])]
     {:node (api/list-node rewritten)}))
 

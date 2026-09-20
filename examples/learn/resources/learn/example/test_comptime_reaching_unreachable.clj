@@ -9,7 +9,3 @@
 ;; A false assertion reaches unreachable during compile-time evaluation.
 (az/defcomptime reject-false-condition
   (require-condition false))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )

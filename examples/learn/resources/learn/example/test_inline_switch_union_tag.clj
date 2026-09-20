@@ -4,9 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/defconst NumericValue
-  (az/container {:kind :union :attrs #{:enum}}
-    (az/field-decl :a :u32)
-    (az/field-decl :b :f32)))
+  (az/union {:attrs #{:enum}}
+    [[:a :u32]
+     [:b :f32]]))
 
 (az/defn- as-integer :u32 [[value NumericValue]]
   (switch value

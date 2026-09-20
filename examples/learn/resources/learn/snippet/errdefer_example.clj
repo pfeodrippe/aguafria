@@ -7,13 +7,9 @@
     ;; Ownership transfers to the caller only when this function succeeds.
     (ak/errdefer (deallocate-foo foo))
     (let [temporary-buffer (orelse (allocate-tmp-buffer)
-                                  (ak/return (az/error-value :OutOfMemory)))]
+                                   (ak/return (az/error-value :OutOfMemory)))]
       ;; Temporary storage is released on either exit path.
       (ak/defer (deallocate-tmp-buffer temporary-buffer))
       (when (> parameter 1337)
         (ak/return (az/error-value :InvalidParam)))
       foo)))
-
-(comment
-  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
-  )

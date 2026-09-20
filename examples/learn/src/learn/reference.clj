@@ -906,18 +906,17 @@
   "The authored REPL recipe is the final comment form, never inferred at display time."
   [source]
   (let [form (last (inline/read-forms source))]
-    (when-not (= 'comment (first form))
-      (throw (ex-info "Example needs a final comment with its REPL calls" {})))
     (when (some #{'reference/run-example! 'learn.reference/run-example!
                   'reference/check-snippet! 'learn.reference/check-snippet!}
                 (tree-seq coll? seq form))
       (throw (ex-info "A REPL recipe must call its own Vars, not a file runner" {})))
-    (vec (rest form))))
+    (if (= 'comment (first form)) (vec (rest form)) [])))
 
 (defn capture-comment-repl!
   "Evaluate the authored comment's forms in its own namespace in this JVM.
   There is no file-runner substitution. Context-only excerpts have no calls."
-  [source context]
+  ([source context] (capture-comment-repl! source context nil))
+  ([source context source-path]
   (let [calls (comment-calls source)
         namespace-symbol (second (read-string source))
         namespaces-before (set (map ns-name (all-ns)))]
@@ -929,7 +928,12 @@
                 *example-context* context
                 runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (when (seq calls) (load-string source))
+        (when (seq calls)
+          (if source-path
+            (clojure.lang.Compiler/load
+             (clojure.lang.LineNumberingPushbackReader. (java.io.StringReader. source))
+             source-path (.getName (io/file source-path)))
+            (load-string source)))
         {:evaluations
          (mapv (fn [form]
                  (let [stdout (java.io.StringWriter.)
@@ -966,7 +970,7 @@
                            (or (= created namespace-symbol)
                                (str/starts-with? (str created) "learn.example.")))]
           (remove-ns created)
-          (dosync (alter @#'clojure.core/*loaded-libs* disj created)))))))
+          (dosync (alter @#'clojure.core/*loaded-libs* disj created))))))))
 
 (defn capture-example-comment!
   "Capture same-JVM calls, without running known process-terminating lessons
@@ -987,7 +991,11 @@
       {:evaluations [] :scope :native-failure-requires-disposable-jvm}
       (some #(str/starts-with? % "target=") (:options manifest))
       {:evaluations [] :scope :target-specific}
-      :else (capture-comment-repl! source context))))
+      :else (capture-comment-repl!
+             source context
+             (.getCanonicalPath
+              (io/file (or (some-> (:authored-source translation) io/resource)
+                           (:clojure-path translation))))))))
 
 (def matching-comparisons
   #{:output-matched :diagnostics-matched :compile-only-matched})

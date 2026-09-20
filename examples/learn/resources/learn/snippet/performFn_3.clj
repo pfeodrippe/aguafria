@@ -6,7 +6,3 @@
   (let [^{:var :i32} result start-value]
     (set! _ (ak/& result))
     result))
-
-(comment
-  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
-  )

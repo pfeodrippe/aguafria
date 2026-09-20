@@ -9,9 +9,8 @@
             [aguafria-examples-native.bindings.glfw :as vk]
             [aguafria-examples-native.bindings.runtime :as stdio]))
 
-(az/defextern fwrite
+(az/defextern fwrite :usize
   {:zig/prefix "pub extern"}
-  :- :usize
   [[data [:*const :anyopaque]] [size :usize] [count :usize]
    [file [:optional [:* stdio/AguafriaFile]]]])
 

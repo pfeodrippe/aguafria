@@ -28,36 +28,36 @@
   (let [^{:zig/type [:error-union :anyerror :u32]} success 0
         ^{:zig/type [:error-union :anyerror :u32]} failure (az/error-value :BadValue)]
     (az/if-capture-stmt {:payload [value] :error [error]} success
-      (try (testing/expectEqual value 0))
-      (az/block
-        (set! _ error)
-        (ak/unreachable)))
+                        (try (testing/expectEqual value 0))
+                        (az/block
+                          (set! _ error)
+                          (ak/unreachable)))
 
     (az/if-capture-stmt {:payload [value] :error [error]} failure
-      (az/block
-        (set! _ value)
-        (ak/unreachable))
-      (try (testing/expectEqual error (az/error-value :BadValue))))
+                        (az/block
+                          (set! _ value)
+                          (ak/unreachable))
+                        (try (testing/expectEqual error (az/error-value :BadValue))))
 
     ;; The else branch and error capture are strictly required.
     (az/if-capture-stmt {:payload [value] :error [_]} success
-      (try (testing/expectEqual value 0))
-      (az/block))
+                        (try (testing/expectEqual value 0))
+                        (az/block))
 
     ;; To check only the error value, use an empty block expression.
     (az/if-capture-stmt {:payload [_] :error [error]} failure
-      (az/block)
-      (try (testing/expectEqual error (az/error-value :BadValue)))))
+                        (az/block)
+                        (try (testing/expectEqual error (az/error-value :BadValue)))))
 
   ;; Access the value by reference using a pointer capture.
   (let [^{:var [:error-union :anyerror :u32]} result 3]
     (az/if-capture-stmt {:payload [(az/pointer-capture value)] :error [_]} result
-      (set! @value 9)
-      (ak/unreachable))
+                        (set! @value 9)
+                        (ak/unreachable))
 
     (az/if-capture-stmt {:payload [value] :error [_]} result
-      (try (testing/expectEqual value 9))
-      (ak/unreachable))))
+                        (try (testing/expectEqual value 9))
+                        (ak/unreachable))))
 
 (comment
   (if-expression-test)

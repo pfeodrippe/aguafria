@@ -18,7 +18,7 @@
     (az/while-loop {:payload [number]
                     :error [error]
                     :else [(try (testing/expectEqual
-                                  (az/error-value :ReachedZero) error))]}
+                                 (az/error-value :ReachedZero) error))]}
       (next-number)
       (ak/+= sum number))))
 

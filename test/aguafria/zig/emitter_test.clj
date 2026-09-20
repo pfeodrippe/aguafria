@@ -6,6 +6,47 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest anonymous-containers-use-one-member-vector
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (doseq [[form expected]
+            [['(az/struct [[:x {:doc "Coordinate" :default 3} :u8]
+                           (az/fn-decl answer :u8 [] 42)])
+              ["struct {" "/// Coordinate" "x: u8 = 3" "fn answer() u8" "return 42;"]]
+             ['(az/enum {:argument :u8}
+                 [:red [:blue {:doc "Blue" :zig/name "@\"deep blue\""} 4]])
+              ["enum(u8)" "red," "/// Blue" "@\"deep blue\" = 4"]]
+             ['(az/union {:enum? true} [[:value :u32] [:empty :void]])
+              ["union(enum)" "value: u32" "empty: void"]]
+             ['(az/struct {:layout :packed :argument :u16}
+                 [[:low :u8] [:high :u8]])
+              ["packed struct(u16)" "low: u8" "high: u8"]]
+             ['(az/opaque [(az/fn-decl size :usize [] 0)])
+              ["opaque {" "fn size() usize"]]
+             ['(az/struct [(az/struct-decl Nested [[:value :u8]])])
+              ["const Nested = struct" "value: u8"]]]]
+      (let [source (emit/emit-expr context form)]
+        (doseq [fragment expected]
+          (is (str/includes? source fragment) (str form " => " source)))))
+    (doseq [form '[(az/struct [:x :u8])
+                   (az/struct [:x :u8] [:y :u8])
+                   (az/struct [[:x :u8 (az/fn-decl method :void [])]])
+                   (az/enum [:a] [:b])
+                   (az/enum [[:a 1 2]])
+                   (az/union [:x :u8])
+                   (az/opaque)
+                   (az/container {:kind :struct} (az/field-decl :x :u8))]]
+      (is (thrown? Exception (emit/emit-expr context form)) (pr-str form)))))
+
+(deftest compiler-modules-preserve-inner-source-locations
+  (doseq [kind [:fn :test :comptime]]
+    (let [statement (with-meta '(consume value) {:line 17 :column 5})
+          declaration {:kind kind :name 'exercise :return :void :args []
+                       :body [statement]
+                       :source {:file "fixture.clj" :line 9 :column 1}
+                       :emit-source-comment? false}
+          source (emit/emit-module "fixture" [declaration])]
+      (is (str/includes? source "// Aguafria form: 17:5") (str kind)))))
+
 (deftest keyword-field-names-are-quoted-native-identifiers
   (doseq [field [:enum :fn :struct :union :error :type :test]]
     (let [expected (if (= field :type) "type" (str "@\"" (name field) "\""))]
@@ -232,8 +273,8 @@
           :args []
           :return :type
           :body '((az/container
-                   {:kind :struct :layout :normal}
-                   (az/fn-decl sync :- :void []))
+                    {:kind :struct :layout :normal}
+                    [(az/fn-decl sync :void  [])])
                   (sync self frame))})]
     (is (= '(sync self frame) (second (:body declaration))))))
 
@@ -277,7 +318,7 @@
   (is (str/starts-with?
        (emit/emit-expr
         '(container {:kind :struct :layout :packed :argument :u16}
-                    (field-decl bits :u16)))
+                    [(field-decl bits :u16)]))
        "packed struct(u16)"))
   (is (= (str "enum {\n"
               "    /// Waiting for work.\n"
@@ -285,7 +326,7 @@
               "}")
          (emit/emit-expr
           '(container {:kind :enum :layout :normal}
-                      (enum-field-decl waiting "Waiting for work.")))))
+                      [(enum-field-decl waiting "Waiting for work.")]))))
   (is (= ".{.x = 1, .y = 2}" (emit/emit-expr {:y 2 :x 1})))
   (is (= ".{1, 2, 3}" (emit/emit-expr [1 2 3])))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -532,7 +573,7 @@
          [{:kind :const
            :name 'Thing
            :public? true
-           :value '(container {:kind :struct})}])
+           :value '(container {:kind :struct} [])}])
         root-source
         (emit/emit-named-module
          "demo.root"

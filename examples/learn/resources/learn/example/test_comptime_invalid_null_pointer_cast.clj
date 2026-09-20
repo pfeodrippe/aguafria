@@ -7,7 +7,3 @@
         ;; Intentionally invalid: a nonoptional pointer cannot hold null.
         ^{:zig/type [:* :i32]} pointer (ak/ptrCast optional-pointer)]
     (set! _ pointer)))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )

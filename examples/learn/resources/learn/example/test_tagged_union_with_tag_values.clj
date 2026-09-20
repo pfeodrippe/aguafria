@@ -4,9 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/defconst Tagged
-  (az/container {:kind :union :attrs #{:enum} :argument :u32}
-    (az/field-decl :int :i64 123)
-    (az/field-decl :boolean :bool 67)))
+  (az/union {:argument :u32, :attrs #{:enum}}
+    [[:int {:default 123} :i64]
+     [:boolean {:default 67} :bool]]))
 
 (az/deftest explicit-tag-values-test
   (let [^{:zig/type Tagged} integer {:int -40}

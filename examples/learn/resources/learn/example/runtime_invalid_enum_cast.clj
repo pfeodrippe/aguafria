@@ -3,11 +3,10 @@
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defconst Foo
-  (az/container {:kind :enum}
-    (az/enum-field-decl :a)
-    (az/enum-field-decl :b)
-    (az/enum-field-decl :c)))
+(az/defenum Foo
+  [:a
+   :b
+   :c])
 
 (az/defn main :void []
   (let [^{:var :u2} tag-value 3]

@@ -6,7 +6,3 @@
 (az/defcomptime checked-byte-overflow
   (let [^{:var :u8} byte 255]
     (ak/+= byte 1)))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )

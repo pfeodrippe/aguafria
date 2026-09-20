@@ -9,10 +9,10 @@
         positive (> values (ak/as Vector (ak/splat 0)))
         all-positive (ak/reduce :.And positive)]
     (try (ak/comptime
-           (testing/expectEqual (az/type [:vector 4 :bool])
-                                (ak/TypeOf positive))))
+          (testing/expectEqual (az/type [:vector 4 :bool])
+                               (ak/TypeOf positive))))
     (try (ak/comptime
-           (testing/expectEqual (az/type :bool) (ak/TypeOf all-positive))))
+          (testing/expectEqual (az/type :bool) (ak/TypeOf all-positive))))
     (try (testing/expectEqual false all-positive))))
 
 (comment

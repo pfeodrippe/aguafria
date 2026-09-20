@@ -9,7 +9,9 @@
             [field-lab.nonlinear-fem :as dynamics]))
 
 (az/defstruct Frame {:layout :extern}
-  [[:observation dynamics/Observables] [:time :f64] [:height :f64]
+  [[:observation dynamics/Observables]
+   [:time :f64]
+   [:height :f64]
    [:volume-ratio :f64]])
 
 (az/defstruct Cache

@@ -266,18 +266,16 @@
           snippets)))
 
 (defn markup [original {:keys [id source clojure-source note form-kind]} escape-html]
-  (str "<span class=\"learn-inline\" id=\"learn-" id "\">"
+  (str "<span class=\"learn-inline\" id=\"learn-" id "\""
+       " aria-describedby=\"learn-" id "-note\""
+       " aria-pressed=\"false\" aria-label=\"Show Aguafria equivalent for "
+       (escape-html source) "\" title=\"" (escape-html note) "\">"
        "<span data-language=\"zig\">" original "</span>"
        "<span data-language=\"aguafria\" hidden>"
        (if (= :syntax-note form-kind)
          (escape-html note)
          (str "<code>" (escape-html clojure-source) "</code>"))
        "</span>"
-       "<button type=\"button\" class=\"learn-inline-toggle\" hidden"
-       " aria-describedby=\"learn-" id "-note\""
-       " aria-pressed=\"false\" aria-label=\"Show Aguafria equivalent for "
-       (escape-html source) "\" title=\"" (escape-html note) "\">"
-       "<span aria-hidden=\"true\">⇄</span></button>"
        "<span class=\"learn-inline-note\" id=\"learn-" id "-note\" hidden>" (escape-html note)
        "</span></span>"))
 

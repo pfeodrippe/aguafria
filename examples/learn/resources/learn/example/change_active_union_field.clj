@@ -3,9 +3,9 @@
             [aguafria.zig :as az]))
 
 (az/defconst Value
-  (az/container {:kind :union}
-    (az/field-decl :float :f32)
-    (az/field-decl :int :u32)))
+  (az/union
+    [[:float :f32]
+     [:int :u32]]))
 
 (az/defn change-to-float :void [[value [:* Value]]]
   (set! @value (az/init Value {:float 12.34}))

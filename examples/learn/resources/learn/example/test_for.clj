@@ -66,9 +66,9 @@
                    (when (ak/!= value nil)
                      (ak/+= sum (az/unwrap value)))
                    (az/else-expression
-                     (az/labeled-block blk
-                       (try (testing/expectEqual 12 sum))
-                       (ak/break blk sum))))]
+                    (az/labeled-block blk
+                      (try (testing/expectEqual 12 sum))
+                      (ak/break blk sum))))]
       (try (testing/expectEqual 12 result)))))
 
 (comment

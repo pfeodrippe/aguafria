@@ -7,9 +7,9 @@
 (az/defn read-misaligned-word :u32 [[bytes [:slice :u8]]]
   (let [four-bytes (az/slice bytes 1 5)
         words (mem/bytesAsSlice
-                (az/type :u32)
-                (ak/as (az/type [:pointer {:size :slice :align 4} :u8])
-                       (ak/alignCast four-bytes)))]
+               (az/type :u32)
+               (ak/as (az/type [:pointer {:size :slice :align 4} :u8])
+                      (ak/alignCast four-bytes)))]
     (az/index words 0)))
 
 (az/deftest pointer-alignment-safety-test

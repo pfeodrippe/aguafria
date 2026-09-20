@@ -48,8 +48,8 @@
 
 (az/defcomptime concatenated-array
   (debug/assert
-    (mem/eql :i32 (& all-of-it)
-             (& (az/array-init [:array _ :i32] [1 2 3 4 5 6 7 8])))))
+   (mem/eql :i32 (& all-of-it)
+            (& (az/array-init [:array _ :i32] [1 2 3 4 5 6 7 8])))))
 
 ;; Remember that string literals are arrays.
 (az/defconst hello "hello")
@@ -83,7 +83,7 @@
       (for [[(az/pointer-capture point) (& initial-value)]
             [index (az/op ".." 0)]]
         (set! @point (Point {:x (ak/intCast index)
-                            :y (ak/intCast (* index 2))})))
+                             :y (ak/intCast (* index 2))})))
       (ak/break init initial-value))))
 
 (az/deftest compile-time-array-test

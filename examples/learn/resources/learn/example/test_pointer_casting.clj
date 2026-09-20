@@ -17,10 +17,10 @@
 
 (az/deftest pointer-child-type-test
   (try (testing/expectEqual
-         (az/type :u32)
-         (-> (ak/typeInfo (az/type [:* :u32]))
-             (az/field :pointer)
-             (az/field :child)))))
+        (az/type :u32)
+        (-> (ak/typeInfo (az/type [:* :u32]))
+            (az/field :pointer)
+            (az/field :child)))))
 
 (comment
   (pointer-casting-test)

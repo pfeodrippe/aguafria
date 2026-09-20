@@ -4,9 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/defconst Foo
-  (az/container {:kind :union}
-    (az/field-decl :float :f32)
-    (az/field-decl :int :u32)))
+  (az/union
+    [[:float :f32]
+     [:int :u32]]))
 
 (az/defn- overwrite-inactive-field :void [[value [:* Foo]]]
   (set! (az/field value :float) 12.34)

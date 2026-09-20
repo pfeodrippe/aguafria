@@ -16,9 +16,9 @@
     (debug/print "{d}\n" [(az/char-literal "'💯'")]) ; 128175
     (debug/print "{u}\n" [\⚡])
     (debug/print "{}\n"
-      [(mem/eql :u8 "hello" (az/string-literal "\"h\\x65llo\""))]) ; true
+                 [(mem/eql :u8 "hello" (az/string-literal "\"h\\x65llo\""))]) ; true
     (debug/print "{}\n"
-      [(mem/eql :u8 "💯" (az/string-literal "\"\\xf0\\x9f\\x92\\xaf\""))]) ; also true
+                 [(mem/eql :u8 "💯" (az/string-literal "\"\\xf0\\x9f\\x92\\xaf\""))]) ; also true
     ;; Non-UTF-8 strings are possible with Zig's \xNN notation.
     (let [invalid-utf8 (az/string-literal "\"\\xff\\xfe\"")]
       ;; Indexing returns individual bytes...

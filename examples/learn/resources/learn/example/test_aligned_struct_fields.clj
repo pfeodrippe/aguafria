@@ -4,9 +4,9 @@
             [aguafria.zig :as az]))
 
 (az/deftest aligned-struct-fields-test
-  (let [AlignedFields (az/container {:kind :struct}
-                        (az/field-decl :a {:zig/align 2} :u32)
-                        (az/field-decl :b {:zig/align 64} :u32))
+  (let [AlignedFields (az/struct
+                        [[:a {:zig/align 2} :u32]
+                         [:b {:zig/align 64} :u32]])
         ^:var fields (az/init AlignedFields {:a 1 :b 2})]
     ;; The strongest field alignment determines the containing struct's alignment.
     (try (testing/expectEqual 64 (ak/alignOf AlignedFields)))

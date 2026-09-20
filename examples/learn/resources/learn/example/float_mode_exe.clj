@@ -2,14 +2,12 @@
   (:require [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defextern foo_strict
+(az/defextern foo_strict :f64
   {:zig/prefix "extern"}
-  :- :f64
   [[x :f64]])
 
-(az/defextern foo_optimized
+(az/defextern foo_optimized :f64
   {:zig/prefix "extern"}
-  :- :f64
   [[x :f64]])
 
 (az/defn main :void

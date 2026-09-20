@@ -11,10 +11,10 @@
 
     ;; Use compile-time reflection to access the child type of the optional.
     (try (ak/comptime
-           (testing/expectEqual
-             :i32
-             (az/field (az/field (ak/typeInfo (ak/TypeOf optional-number)) :optional)
-                       :child))))))
+          (testing/expectEqual
+           :i32
+           (az/field (az/field (ak/typeInfo (ak/TypeOf optional-number)) :optional)
+                     :child))))))
 
 (comment
   (optional-type-test))

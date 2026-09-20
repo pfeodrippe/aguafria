@@ -6,7 +6,3 @@
   (let [^{:zig/type :u8} alternating-bits 2r01010101
         shifted-bits (ak/shlExact alternating-bits 2)]
     (set! _ shifted-bits)))
-
-(comment
-  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
-  )
