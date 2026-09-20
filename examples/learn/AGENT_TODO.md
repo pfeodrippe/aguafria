@@ -5,6 +5,12 @@ document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
 served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
 
+- [x] Cap side-by-side Zig + Aguafria panels to the viewport width. Keep code
+      unwrapped with local horizontal scrolling, fixed tabs and paired heights;
+      rebuild and verify responsive layouts and the served page.
+      All 10 browser/highlighting tests pass (640–2600px); verified every pair's
+      bounds and no-wrap styling, and visually checked the rebuilt page.
+
 - [x] Make primitive type Vars callable, and make `(ak/as value type)` the
       canonical, thread-first-friendly coercion API for primitive and complex
       signature type forms. Return real JVM/native values, preserve Zig checks

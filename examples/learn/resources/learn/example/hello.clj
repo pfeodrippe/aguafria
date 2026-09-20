@@ -6,10 +6,11 @@
 
 (az/defn main :!void
   [[process-init process/Init]]
-  (try (std-file/writeStreamingAll
-        (std-file/stdout)
-        (az/field process-init :io)
-        "Hello, World!\n")))
+  (try
+    (-> (std-file/stdout)
+        (std-file/writeStreamingAll
+         (az/field process-init :io)
+         "Hello, World!\n"))))
 
 (comment
   (main))

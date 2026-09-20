@@ -7,7 +7,12 @@
 - [x] we should have a option in the tab to see both zig and aguafria zig side by side (with their shell and repl outputs)
 - [x] all examples should also have a `comment` form with the call (e.g. calling main directly or the deftest or whatever) in the end so people can reproduce the exact output from the repl
 - [ ] UX improvements
-  - where should we continue from : values.clj
-  - [ ] ...
-- [ ] use -> for hello.clj (?)
+  - [ ] hello.clj
+    - [x] call from repl
+    - [x] use ->
+    - [ ] remove this try clj kondo warning when inside a az/...
+    - [ ] how can we fix fix (main) kondo error regarding using no arguments for a function that expects one?
+  - [ ] hello_again.clj
+
 - [ ] attach small model for showing errors during development
+- [ ] show tree structure of a running program

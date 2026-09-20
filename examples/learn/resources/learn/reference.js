@@ -75,33 +75,19 @@ function matchExampleHeights() {
   examples.forEach(example => example.classList.remove("learn-measuring"));
 }
 
-let comparisonLayout = null;
-
-function positionComparison(example) {
-  if (!comparisonLayout) return;
-  const panels = example.querySelector(".learn-panels");
-  const gap = parseFloat(getComputedStyle(panels).columnGap);
-  panels.scrollLeft = Math.max(0, example.clientWidth + gap - comparisonLayout.start);
-}
-
 function refreshExampleLayout() {
   const contents = document.getElementById("contents");
   if (contents) {
     const viewport = document.documentElement.clientWidth;
-    comparisonLayout = {start: viewport / 2};
     contents.style.setProperty("--learn-viewport-width", `${viewport}px`);
-    contents.style.setProperty("--learn-comparison-start", `${comparisonLayout.start}px`);
-    // Examples can be nested in lists. Preserve their individual width while
-    // positioning each comparison against the window, not its list indent.
+    // Examples can be nested in lists; position each pair against the window.
     const measurements = Array.from(document.querySelectorAll(".learn-example"), example => ({
-      example, width: example.clientWidth,
+      example,
       left: example.getBoundingClientRect().left + window.scrollX
     }));
-    measurements.forEach(({example, width, left}) => {
-      example.style.setProperty("--learn-column-width", `${width}px`);
+    measurements.forEach(({example, left}) => {
       example.style.setProperty("--learn-content-left", `${left}px`);
     });
-    document.querySelectorAll(".learn-side-by-side").forEach(positionComparison);
   }
   matchExampleHeights();
 }
@@ -134,7 +120,6 @@ document.querySelectorAll(".learn-example").forEach(example => {
       panel.hidden = !visiblePanels.includes(panel.id);
     });
     if (focus) tab.focus();
-    if (visiblePanels.length === 2) positionComparison(example);
   }
   tabs.forEach((tab, index) => {
     tab.addEventListener("click", () => select(tab));

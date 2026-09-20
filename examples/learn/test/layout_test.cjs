@@ -19,6 +19,8 @@ async function geometry(page, file = "hello_again.zig") {
     };
     return {
       tabs: box('.learn-tabs'),
+      panels: box('.learn-panels'),
+      gap: parseFloat(getComputedStyle(example.querySelector('.learn-panels')).columnGap),
       zig: box('[id$="-z"] > figure:first-child pre > code'),
       clojure: box('[id$="-a"] > figure:first-child pre > code'),
       shell: box('[id$="-z"] > figure:not(:first-child)'),
@@ -34,7 +36,7 @@ async function geometry(page, file = "hello_again.zig") {
   }, file);
 }
 
-test("fixed tabs and full-width pairs at the window midpoint survive switching and scrolling", async () => {
+test("fixed tabs and equal-width pairs fit the viewport without scrolling the container", async () => {
   const browser = await chromium.launch({channel: process.env.LEARN_BROWSER || "chrome"});
   try {
     for (const width of [2600, 1600, 1194, 900, 640]) {
@@ -51,11 +53,13 @@ test("fixed tabs and full-width pairs at the window midpoint survive switching a
       near(zigOnly.shell.height, initial.repl.height, "individual output height");
       await example.getByRole("tab", {name: "Side by side", exact: true}).click();
       const paired = await geometry(page);
-      near(paired.clojure.x, width / 2, `${width}: Clojure starts at the window midpoint`);
+      near(paired.clojure.x, (width + paired.gap) / 2, `${width}: centered pair`);
       near(paired.tabs.x, initial.tabs.x, "tabs stay in their original position");
       near(paired.tabs.width, initial.tabs.width, "tabs retain their width");
-      near(paired.clojure.width, initial.clojure.width, `${width}: full Clojure width`);
-      near(paired.zig.width, initial.clojure.width, `${width}: full Zig width`);
+      near(paired.clojure.width, paired.zig.width, `${width}: equal columns`);
+      near(paired.panels.width, width, `${width}: container fits viewport`);
+      assert.ok(paired.zig.x >= 0);
+      assert.ok(paired.clojure.x + paired.clojure.width <= width);
       near(paired.zig.y, paired.clojure.y, "source top alignment");
       near(paired.zig.height, paired.clojure.height, "paired code height");
       near(paired.shell.y, paired.repl.y, "output top alignment");
@@ -64,16 +68,12 @@ test("fixed tabs and full-width pairs at the window midpoint survive switching a
       near(paired.shellText.height, paired.replText.height, "output text height");
       assert.ok(paired.zig.x + paired.zig.width < paired.clojure.x);
       assert.equal(paired.navOpen, false);
-      if (paired.zig.x < 0) {
-        await example.evaluate(element => { element.querySelector('.learn-panels').scrollLeft = 0; });
-        const scrolled = await geometry(page);
-        assert.ok(scrolled.zig.x >= 0, `the full left column is reachable: ${JSON.stringify(scrolled)}`);
-      }
       await example.evaluate(element => {
         const panels = element.querySelector('.learn-panels');
         panels.scrollLeft = panels.scrollWidth;
       });
       const rightEdge = await geometry(page);
+      assert.equal(rightEdge.comparisonScroll, 0, "both columns fit without container scrolling");
       assert.ok(rightEdge.clojure.x + rightEdge.clojure.width <= width + 1,
         "the full right column is reachable");
       assert.equal(rightEdge.scrollX, 0, "comparisons do not scroll the whole document");
@@ -119,11 +119,20 @@ test("every source and output pair stays matched across live resizing", async ()
         const clojure = example.querySelector('[id$="-a"] > figure:first-child pre > code');
         return {file: example.getAttribute('aria-label'), code, output, naturalCode, naturalOutput,
           clojureLeft: clojure?.getBoundingClientRect().x,
-          midpoint: document.documentElement.clientWidth / 2,
+          midpoint: (document.documentElement.clientWidth +
+            parseFloat(getComputedStyle(example.querySelector('.learn-panels')).columnGap)) / 2,
+          fits: Array.from(example.querySelectorAll('[role="tabpanel"]')).every(panel => {
+            const box = panel.getBoundingClientRect();
+            return box.x >= -1 && box.right <= document.documentElement.clientWidth + 1;
+          }),
+          unwrapped: Array.from(example.querySelectorAll('pre code, pre samp')).every(block =>
+            getComputedStyle(block).whiteSpace === 'pre'),
           outputMinimum: parseFloat(example.style.getPropertyValue('--learn-output-height'))};
       }));
       assert.equal(pairs.length, 307);
-      for (const {file, code, output, naturalCode, naturalOutput, outputMinimum, clojureLeft, midpoint} of pairs) {
+      for (const {file, code, output, naturalCode, naturalOutput, outputMinimum, clojureLeft, midpoint, fits, unwrapped} of pairs) {
+        assert.ok(fits, `${width}: ${file} columns stay inside viewport`);
+        assert.ok(unwrapped, `${width}: ${file} code and output never wrap`);
         if (code.length === 2) {
           near(clojureLeft, midpoint, `${width}: ${file} midpoint after resizing`);
           near(code[0], code[1], `${width}: ${file} code`);
@@ -186,7 +195,7 @@ test("contents drawer keeps the complete upstream tree expanded without moving e
       await toggle.click();
       assert.equal(await navigation.isVisible(), true);
       near((await geometry(page)).tabs.x, initial.tabs.x, 'drawer does not shift the tabs');
-      near((await geometry(page)).clojure.x, width / 2, 'drawer does not shift the panels');
+      near((await geometry(page)).clojure.x, initial.clojure.x, 'drawer does not shift the panels');
       assert.equal(await navigation.locator('ul[hidden]').count(), 0);
       assert.equal(await navigation.locator('.learn-toc-branch').count(), 0);
       assert.equal(await navigation.getByRole('link', {name: 'Primitive Types', exact: true}).isVisible(), true);
