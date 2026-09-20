@@ -1026,7 +1026,10 @@
   native test inside the JVM through Panama, prints its output, and returns an
   execution result or throws with compiler/test diagnostics. The embedded Zig
   compiler builds the code; no child test process is executed. The body is never
-  evaluated as Clojure. Native panics/exit can terminate the JVM."
+  evaluated as Clojure. Definition checks compile against declarations already
+  available, without running the test. Define helpers before their tests.
+  Zig safety panics become JVM exceptions; explicit process exits and arbitrary
+  native memory corruption are not contained."
   [name & declaration]
   (when-not (and (symbol? name) (nil? (namespace name)))
     (throw (ex-info "az/deftest requires an unqualified symbol name"
@@ -1058,6 +1061,7 @@
                                          :emit-source-comment? :comments])))
         descriptor-form (descriptor-expression descriptor)]
     `(let [descriptor# ~descriptor-form]
+       (runtime/check-test-definition! descriptor#)
        (runtime/register-declaration! descriptor#)
        (def ~(with-meta name (assoc (meta name) :doc docstring))
          (fn [] (runtime/run-test! ~(:module descriptor) '~name)))

@@ -5,6 +5,29 @@
             [learn.inline :as inline]
             [learn.reference :as ref]))
 
+(deftest authored-equality-operators-are-jvm-callable
+  (doseq [file (file-seq (io/file "resources/learn"))
+          :when (and (.isFile file) (re-find #"\.(clj|edn)$" (.getName file)))
+          :let [source (slurp file)]]
+    (is (not (re-find #"\((==|!=)\s" source)) (.getPath file))
+    (when (and (str/ends-with? (.getName file) ".clj")
+               (re-find #"\(ak/(!=|==)\s" source))
+      (is (str/includes? source "[aguafria.keyword :as ak]") (.getPath file)))))
+
+(deftest authored-tests-follow-their-local-declarations
+  (doseq [file (file-seq (io/file "resources/learn/example"))
+          :when (str/ends-with? (.getName file) ".clj")
+          :let [forms (inline/read-forms (slurp file))]
+          [index form] (map-indexed vector forms)
+          :when (= 'az/deftest (first form))
+          :let [later (set (keep #(when (and (seq? %) (symbol? (first %))
+                                            (= "az" (namespace (first %)))
+                                            (str/starts-with? (name (first %)) "def"))
+                                   (second %))
+                                (drop (inc index) forms)))]]
+    (is (empty? (filter later (tree-seq coll? seq form)))
+        (str (.getName file) " / " (second form)))))
+
 (deftest repl-result-is-separated-from-unterminated-native-output
   (doseq [streams [{:stdout "5679"} {:stderr "5679"} {:stdout "56" :stderr "79"}]]
     (is (= "learn.example.mutable-var=&gt; (main)\n5679\nnil\n"

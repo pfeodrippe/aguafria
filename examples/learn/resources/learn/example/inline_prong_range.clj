@@ -7,5 +7,5 @@
   (let [fields (az/field (az/field (ak/typeInfo T) :struct) :fields)]
     (switch field-index
       (az/inline-case [(az/op "..." 0 (- (az/field fields :len) 1))] [index]
-        (== (ak/typeInfo (az/field (az/index fields index) :type)) :.optional))
+        (ak/== (ak/typeInfo (az/field (az/index fields index) :type)) :.optional))
       (az/case-else (ak/return (az/error-value :IndexOutOfBounds))))))

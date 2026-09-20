@@ -7,7 +7,7 @@
 (az/defconst c
   (ak/cImport
    (az/block
-     (ak/cDefine "NDEBUG" (== builtin/mode :.ReleaseFast))
+     (ak/cDefine "NDEBUG" (ak/== builtin/mode :.ReleaseFast))
      (when something
        (ak/cDefine "_GNU_SOURCE" (az/block)))
      (ak/cInclude "stdlib.h")

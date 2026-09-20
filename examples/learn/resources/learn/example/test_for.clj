@@ -9,7 +9,7 @@
     ;; For loops iterate over slices and arrays.
     (for [value items]
       ;; Break and continue are supported.
-      (when (== value 0)
+      (when (ak/== value 0)
         (ak/continue))
       (ak/+= sum value))
     (try (testing/expectEqual 16 sum))

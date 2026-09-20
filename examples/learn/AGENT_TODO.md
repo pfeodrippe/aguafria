@@ -506,6 +506,59 @@ comparisons and one has explicit test-discovery verification. File-example succe
 does not establish coverage of all Zig.
 # JVM expression interoperability follow-up
 
+- [x] Fix JVM construction of void-payload error unions, including
+      `(ak/as (az/error-value :DemoError) [:error-union :anyerror :void])`.
+      Shared coercion adapters return the typed value explicitly; canonical
+      type resolution covers shorthand, finite/anyerror sets and mutable writes.
+
+- [x] Expose compiler-provided `builtin` through the regular require/import
+      infrastructure (distinct from `std.builtin`), and use `builtin/is_test`
+      in `testing_detect_test.clj` instead of an ad-hoc `ak/import` constant.
+      Converter and all authored file imports use the namespace. Tests cover
+      actual JVM values and different ordinary-function/native-test contexts.
+
+- [x] Follow-up found while checking ArrayList: direct JVM bound-method access
+      such as `(az/field list :append)` needs native callable transport; field
+      reads and passing the list to a compiled function already work.
+      Reproduce the complete user expression with `testing/allocator`, not only
+      a page-allocator substitute. Preserve native receiver mutation and test
+      allocator context across separate JVM calls.
+      Verified repeated append, length/contents, cleanup with the same native
+      test allocator, and mutation of an unrelated hand-written Counter type.
+
+- [x] Expose generic-container methods as ordinary required namespace Vars
+      (e.g. `aguafria.std.ArrayList/append`) with argument/doc metadata for editor
+      completion. Use the prepared hidden import catalog and shared native
+      dispatch, not editor-specific completion code or an ArrayList-only shim.
+      Prepared 1,681 hidden std namespace entry points with static declarations;
+      the standard nREPL completions operation returns `array-list/append` and
+      related methods. Native and JVM method-Var calls pass regression tests.
+
+- Latest regression run: 120 native/JVM/catalog/preparation tests, 4,044
+  assertions; 28 converter tests, 210 assertions; 57 Learn tests, 10,801
+  assertions. All passed. Full post-change reference acceptance passed:
+  289 matching upstream outcomes, 3 reviewed special cases, 202 in-process
+  REPL transcripts, 356 sections and 307 tabbed figures. Browser checks passed
+  10/10, including every code/output pair across live resizing; removed upward
+  pixel rounding that could add one extra pixel to measured code heights.
+  The served-page check confirmed real test output, builtin imports, qualified
+  equality and a single leak diagnostic. Visually inspected the rebuilt page.
+
+- [x] Print native test diagnostics once: keep the full stdout/stderr in
+      exception data, but do not repeat already-printed output in its message.
+
+- [x] Make inferred member literals such as `:.empty` construct mutable typed
+      values through the JVM bridge, including `(ak/var :.empty (std/ArrayList
+      :u21))`; cover generic containers and other inferred-member defaults.
+
+- [x] Qualify equality and inequality throughout authored examples, snippets,
+      and inline sources with `ak/==` / `ak/!=`; fix converter output and add
+      regression coverage so bare JVM-incompatible calls do not return.
+
+- [x] Check `az/deftest` at definition time against declarations already present,
+      without executing it; failed definitions/redefinitions must not publish.
+      Move helpers before tests in Learn, starting with `testing_introduction.clj`.
+
 - [x] Add `az/zig-source!`: print formatted declaration/type/value Zig to `*out*`
       using the pinned formatter, without invoking inspected functions. Verify
       Vars, native globals, documented structs, tests, imported references,

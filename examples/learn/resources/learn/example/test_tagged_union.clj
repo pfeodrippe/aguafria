@@ -23,7 +23,7 @@
     (az/switch-stmt result
       ;; A tag captured by a single prong is known at compile time.
       (case [:.ok] [_ tag]
-        (ak/comptime (debug/assert (== tag :.ok))))
+        (ak/comptime (debug/assert (ak/== tag :.ok))))
       (case [:.not_ok] (ak/unreachable)))))
 
 (az/deftest tag-type-test

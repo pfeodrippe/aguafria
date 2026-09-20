@@ -17,7 +17,7 @@
 
 ;; Get the size of an array.
 (az/defcomptime message-length
-  (debug/assert (== (az/field message :len) 5)))
+  (debug/assert (ak/== (az/field message :len) 5)))
 
 ;; A string literal is a single-item pointer to an array.
 (az/defconst same-message "hello")
@@ -69,8 +69,8 @@
 (az/defconst all-zero (az/op "**" (az/array-init [0] [:array :_ :u16]) 10))
 
 (az/defcomptime zero-initialization
-  (debug/assert (== (az/field all-zero :len) 10))
-  (debug/assert (== (az/index all-zero 5) 0)))
+  (debug/assert (ak/== (az/field all-zero :len) 10))
+  (debug/assert (ak/== (az/index all-zero 5) 0)))
 
 (az/defstruct Point
   [[:x :i32]

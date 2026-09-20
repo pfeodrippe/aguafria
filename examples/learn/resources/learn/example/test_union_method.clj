@@ -11,7 +11,7 @@
      (az/fn-decl truthy :bool [[self Variant]]
        (ak/return
         (ak/switch self
-          (case [(az/field Variant :int)] [integer] (!= integer 0))
+          (case [(az/field Variant :int)] [integer] (ak/!= integer 0))
           (case [(az/field Variant :boolean)] [boolean] boolean)
           (case [(az/field Variant :none)] false))))]))
 

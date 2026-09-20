@@ -6,7 +6,7 @@
 (az/defvar numbers-left :u32 ak/undefined)
 
 (az/defn- eventuallyErrorSequence [:error-union :anyerror :u32] []
-  (if (== numbers-left 0)
+  (if (ak/== numbers-left 0)
     (az/error-value :ReachedZero)
     (let []
       (ak/-= numbers-left 1)

@@ -23,6 +23,15 @@
           forms
           (recur (conj forms form)))))))
 
+(deftest equality-operators-use-callable-keyword-vars
+  (let [converted (convert/convert-file
+                   "test/fixtures/qualified_equality.zig"
+                   {:namespace 'fixture.qualified-equality})
+        source (:clojure-source converted)]
+    (is (str/includes? source "(ak/== a b)"))
+    (is (str/includes? source "(ak/!= a b)"))
+    (is (str/includes? source "[aguafria.keyword :as ak]"))))
+
 (deftest saturating-left-shift-has-a-readable-assignment-operator
   (is (= "<<|=" (get @#'convert/assignment-tokens :assign_shl_sat)))
   (is (= '<<|= (get @#'convert/simple-assignment-symbols "<<|="))))
@@ -439,7 +448,7 @@
           (when root-report (remove-ns (:namespace root-report)))
           (when optional-report (remove-ns (:namespace optional-report))))))))
 
-(deftest compiler-provided-import-is-an-ordinary-module-var-test
+(deftest compiler-provided-import-uses-a-required-namespace-test
   (let [path "test/fixtures/compiler_import.zig"
         {:keys [forms report clojure-source]}
         (convert/convert-file path {:namespace 'fixture.compiler-import})
@@ -448,9 +457,11 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "az/defimport")))
-    (is (str/includes? clojure-source "(ak/import \"builtin\")"))
+    (is (str/includes? clojure-source "[aguafria.builtin :as builtin]"))
+    (is (str/includes? clojure-source "builtin/is_test"))
+    (is (not (str/includes? clojure-source "(ak/import \"builtin\")")))
     (is (= 'az/defconst (ffirst forms)))
-    (is (= 'builtin (second (first forms))))
+    (is (= 1 (count forms)))
     (is (:success? verification))))
 
 (deftest converted-types-always-group-members-in-one-vector-test

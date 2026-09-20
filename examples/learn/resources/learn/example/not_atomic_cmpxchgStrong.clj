@@ -7,7 +7,7 @@
   [[T {:zig/prefix "comptime"} :type]
    [pointer [:* T]] [expected T] [replacement T]]
   (let [previous @pointer]
-    (if (== previous expected)
+    (if (ak/== previous expected)
       (do
         (ak/= @pointer replacement)
         nil)

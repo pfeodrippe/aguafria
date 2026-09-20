@@ -8,7 +8,7 @@
      (fibonacci (- index 2))))
 
 (az/deftest fibonacci-infinite-recursion-test
-  (try (ak/comptime (debug/assert (== (fibonacci 7) 13)))))
+  (try (ak/comptime (debug/assert (ak/== (fibonacci 7) 13)))))
 
 (comment
   (fibonacci-infinite-recursion-test))

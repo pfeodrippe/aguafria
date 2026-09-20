@@ -6,7 +6,7 @@
 
 (az/defcomptime discover-api-files
   (ak/= :_ (ak/import "api.zig"))
-  (when (== builtin/os-tag :.windows)
+  (when (ak/== builtin/os-tag :.windows)
     (ak/= :_ (ak/import "windows_api.zig"))))
 
 ;; A test-mode comptime guard replaces Zig's unnamed discovery test, so
@@ -14,5 +14,5 @@
 (az/defcomptime discover-test-files
   (when builtin/is-test
     (ak/= :_ (ak/import "tests.zig"))
-    (when (== builtin/os-tag :.windows)
+    (when (ak/== builtin/os-tag :.windows)
       (ak/= :_ (ak/import "windows_tests.zig")))))

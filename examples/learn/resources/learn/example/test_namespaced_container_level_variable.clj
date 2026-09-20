@@ -3,10 +3,6 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest namespaced-state-test
-  (try (testing/expectEqual 1235 (foo)))
-  (try (testing/expectEqual 1236 (foo))))
-
 (az/defstruct S
   [(az/var-decl value :i32 1234)])
 
@@ -14,6 +10,10 @@
   []
   (ak/+= (az/field S :value) 1)
   (az/field S :value))
+
+(az/deftest namespaced-state-test
+  (try (testing/expectEqual 1235 (foo)))
+  (try (testing/expectEqual 1236 (foo))))
 
 (comment
   (namespaced-state-test))

@@ -94,9 +94,31 @@ function resolveDeclaration(original) {
   return { declaration, category, aliasDepth };
 }
 
-function declarationMembers(declaration, category) {
-  if (category === 10) {
-    return unwrapSlice32(wasm.type_fn_members(declaration, false));
+function declarationMembers(declaration, category, seen = new Set()) {
+  if (seen.has(declaration)) return [];
+  seen.add(declaration);
+  if (category === 10 || (category === 3 && /\)\s+type$/.test(declarationSignature(declaration, category)))) {
+    const members = unwrapSlice32(wasm.type_fn_members(declaration, false));
+    if (members.length) return members;
+    // The docs resolver handles a bare delegated callee, but not qualified
+    // forwarding calls such as `return array_list.Aligned(T, null)`.
+    const source = htmlText(unwrapString(wasm.decl_source_html(declaration)));
+    const delegated = source.match(/\{\s*return\s+([A-Za-z_][A-Za-z0-9_.]*)\([^;]*\);\s*\}$/s);
+    if (delegated) {
+      const parent = unwrapString(wasm.decl_fqn(wasm.decl_parent(declaration))).split(".");
+      while (parent.length) {
+        const query = new TextEncoder().encode([...parent, delegated[1]].join("."));
+        const pointer = wasm.set_input_string(query.length);
+        new Uint8Array(wasm.memory.buffer, pointer, query.length).set(query);
+        const found = wasm.find_decl();
+        if (found >= 0 && found !== 0xffffffff) {
+          const target = resolveDeclaration(found);
+          return declarationMembers(target.declaration, target.category, seen);
+        }
+        parent.pop();
+      }
+    }
+    return [];
   }
   if (category === 0 || category === 1) {
     return unwrapSlice32(wasm.namespace_members(declaration, false));
@@ -146,14 +168,12 @@ function walkNamespace(original, resolved, category, path, zigPath, ancestors) {
       memberResolved.category,
     );
     const container = childMembers.length > 0;
+    const signature = declarationSignature(memberResolved.declaration, memberResolved.category);
     const entry = {
       name,
       "zig-name": memberZigPath,
       category: categories[memberResolved.category] ?? `unknown-${memberResolved.category}`,
-      signature: declarationSignature(
-        memberResolved.declaration,
-        memberResolved.category,
-      ),
+      signature,
       documentation: declarationDocs(memberOriginal, memberResolved.declaration),
       source: unwrapString(wasm.decl_file_path(memberResolved.declaration)),
       "param-count":
@@ -162,7 +182,21 @@ function walkNamespace(original, resolved, category, path, zigPath, ancestors) {
           : null,
       "alias-depth": memberResolved.aliasDepth,
       container,
+      parameters: (memberResolved.category === 3 || memberResolved.category === 10)
+        ? unwrapSlice32(wasm.decl_params(memberResolved.declaration)).map(parameter => {
+            const source = htmlText(unwrapString(wasm.decl_param_html(memberResolved.declaration, parameter)));
+            const match = source.match(/^(?:(comptime|noalias)\s+)?([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/s);
+            return {name: match?.[2] ?? null, type: match?.[3] ?? source,
+              comptime: match?.[1] === "comptime" || (match != null &&
+                new RegExp(`\\bcomptime\\s+${match[2]}\\s*:`).test(signature))};
+          }) : [],
     };
+    const firstParameter = entry.parameters[0];
+    if (!entry.parameters.length) delete entry.parameters;
+    if ((category === 10 || (category === 3 && /\)\s+type$/.test(declarationSignature(resolved, category))))
+        && firstParameter && /^(?:\*\s*(?:const\s+)?)?Self$/.test(firstParameter.type)) {
+      entry["receiver-method"] = true;
+    }
     members.push(entry);
 
     if (container && !ancestors.has(memberResolved.declaration)) {

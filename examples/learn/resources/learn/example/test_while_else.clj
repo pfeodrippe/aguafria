@@ -3,10 +3,6 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest while-else-test
-  (try (testing/expect (range-has-number 0 10 5)))
-  (try (testing/expect (ak/! (range-has-number 0 10 15)))))
-
 (az/defn- range-has-number :bool
   [[begin :usize] [end :usize] [number :usize]]
   (let [i (ak/var begin)]
@@ -14,8 +10,12 @@
      (az/while-loop {:continue (az/assign-expr "+=" i 1)
                      :else-expression false}
        (< i end)
-       (if (== i number)
+       (if (ak/== i number)
          (ak/break true))))))
+
+(az/deftest while-else-test
+  (try (testing/expect (range-has-number 0 10 5)))
+  (try (testing/expect (ak/! (range-has-number 0 10 15)))))
 
 (comment
   (while-else-test))

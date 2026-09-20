@@ -98,7 +98,8 @@
         registered (atom [])
         invocations (atom [])]
     (try
-      (with-redefs [runtime/register-declaration! #(swap! registered conj %)
+      (with-redefs [runtime/check-test-definition! identity
+                    runtime/register-declaration! #(swap! registered conj %)
                     runtime/run-test! (fn [module test-name]
                                         (swap! invocations conj [module test-name])
                                         {:status :succeeded :test test-name})]
@@ -125,7 +126,8 @@
 (deftest deftest-redefinition-retains-the-var-and-updates-the-descriptor
   (let [namespace (scratch-namespace)]
     (try
-      (with-redefs [runtime/register-declaration! identity]
+      (with-redefs [runtime/check-test-definition! identity
+                    runtime/register-declaration! identity]
         (binding [*ns* namespace]
           (let [first-var (eval '(az/deftest same-test (native-first)))
                 first-body (get-in (meta first-var) [:aguafria/declaration :body])
@@ -135,6 +137,60 @@
             (is (= '([]) (:arglists (meta second-var)))))))
       (finally
         (remove-ns (ns-name namespace))))))
+
+(deftest test-definitions-check-current-declarations-without-running
+  (let [namespace (scratch-namespace)
+        module (str (ns-name namespace))
+        define (fn [form]
+                 (capture-execution #(binding [*ns* namespace] (eval form))))]
+    (try
+      (doseq [form ['(az/deftest missing-function (later-helper))
+                    '(az/deftest missing-value (ak/= :_ later-value))]]
+        (let [{:keys [failure]} (define form)
+              test-name (second form)
+              test-var (ns-resolve namespace test-name)]
+          (is (some? failure))
+          (is (str/includes? (str failure) "undeclared identifier"))
+          ;; Like Clojure def, compilation may intern an unbound Var. It must
+          ;; never publish a callable or register the rejected declaration.
+          (is (or (nil? test-var) (not (bound? test-var))))
+          (is (nil? (get-in @@#'runtime/registry
+                           [module :definitions [:test test-name]])))))
+      (is (nil? (:failure (define '(az/defn- later-helper :void [])))))
+      (let [{:keys [failure result printed-out printed-err]}
+            (define '(az/deftest checked-test
+                       (later-helper)
+                       (ak/panic "Only fail when the test is called")))]
+        (is (nil? failure) (some-> failure str))
+        (is (var? result))
+        (is (= "" (str printed-out printed-err)))
+        (when (var? result)
+          (let [previous @result
+                descriptor (:aguafria/declaration (meta result))
+                rejected (define '(az/deftest checked-test (still-missing)))]
+            (is (some? (:failure rejected)))
+            (is (identical? previous @result))
+            (is (= descriptor (:aguafria/declaration (meta result))))
+            (is (= (:body descriptor)
+                   (get-in @@#'runtime/registry
+                           [module :definitions [:test 'checked-test] :body]))))
+          (is (str/includes? (str (:failure (capture-execution result)))
+                             "Only fail when the test is called"))))
+      (finally
+        (remove-ns (ns-name namespace))))))
+
+(deftest loading-a-file-rejects-a-test-before-its-helper
+  (let [namespace 'fixture.test-before-helper]
+    (try
+      (let [{:keys [failure]}
+            (capture-execution #(load-file "test/fixtures/test_before_helper.clj"))]
+        (is (some? failure))
+        (is (str/includes? (str failure) "undeclared identifier"))
+        (is (str/includes? (str failure) "test_before_helper.clj"))
+        (is (nil? (ns-resolve namespace 'later-helper))))
+      (finally
+        (remove-ns namespace)
+        (swap! @#'runtime/registry dissoc (str namespace))))))
 
 (deftest unknown-native-test-is-rejected-before-starting-zig
   (let [failure (try
@@ -216,7 +272,10 @@
           (is (not (zero? (:exit details))))
           (is (= printed-out (:stdout details)))
           (is (= printed-err (:stderr details)))
-          (is (str/includes? (str printed-out printed-err) "FAIL")))
+          (is (str/includes? (str printed-out printed-err) "FAIL"))
+          (is (not (str/includes? (ex-message failure) printed-err)))
+          (is (= 1 (count (re-seq #"FAIL \(TestUnexpectedResult\)"
+                                  (str printed-out printed-err (ex-message failure)))))))
         (binding [*ns* namespace runtime/*source-only-registration?* true]
           (eval '(az/deftest failure-test
                    (ak/compileError "callable-test-compile-diagnostic"))))
@@ -258,5 +317,8 @@
       (is (= :skipped (:status (:result (capture-execution (ns-resolve namespace 'skipped-test))))))
       (let [{:keys [failure printed-err]} (capture-execution (ns-resolve namespace 'leak-test))]
         (is (= :failed (:status (ex-data failure))))
-        (is (str/includes? printed-err "leaked memory")))
+        (is (str/includes? printed-err "leaked memory"))
+        (is (= printed-err (:stderr (ex-data failure))))
+        (is (= 1 (count (re-seq #"1 test leaked memory"
+                                (str printed-err (ex-message failure)))))))
       (finally (remove-ns (ns-name namespace))))))

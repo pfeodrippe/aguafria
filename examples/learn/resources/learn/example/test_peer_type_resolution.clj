@@ -3,6 +3,44 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
+(az/defn- boolToStr [:slice-const :u8]
+  [[value :bool]]
+  (if value
+    "true"
+    "false"))
+
+(az/defn- testPeerResolveArrayConstSlice :!void
+  [[choose-first? :bool]]
+  (let [first-value (if choose-first?
+                      "aoeu"
+                      (ak/as "zz" (az/type [:slice-const :u8])))
+        second-value (if choose-first?
+                       (ak/as "zz" (az/type [:slice-const :u8]))
+                       "aoeu")]
+    (try (testing/expectEqualStrings "aoeu" first-value))
+    (try (testing/expectEqualStrings "zz" second-value))))
+
+(az/defn- peerTypeTAndOptionalT [:optional :usize]
+  [[choose-optional? :bool] [choose-null? :bool]]
+  (when choose-optional?
+    (ak/return
+     (if choose-null?
+       nil
+       (ak/as 0 :usize))))
+  (ak/as 3 :usize))
+
+(az/defn- peerTypeEmptyArrayAndSlice [:slice-const :u8]
+  [[choose-empty? :bool] [slice [:slice-const :u8]]]
+  (when choose-empty?
+    (ak/return (& (az/array-init [] [:array :_ :u8]))))
+  (az/slice slice 0 1))
+
+(az/defn- peerTypeEmptyArrayAndSliceAndError [:error-union :anyerror [:slice :u8]]
+  [[choose-empty? :bool] [slice [:slice :u8]]]
+  (when choose-empty?
+    (ak/return (& (az/array-init [] [:array :_ :u8]))))
+  (az/slice slice 0 1))
+
 (az/deftest integer-widening-peers-test
   (let [small (ak/i8 12)
         wide (ak/i16 34)
@@ -26,26 +64,9 @@
   (try (ak/comptime (testing/expectEqualStrings "true" (boolToStr true))))
   (try (ak/comptime (testing/expectEqualStrings "false" (boolToStr false)))))
 
-(az/defn- boolToStr [:slice-const :u8]
-  [[value :bool]]
-  (if value
-    "true"
-    "false"))
-
 (az/deftest array-and-const-slice-peers-test
   (try (testPeerResolveArrayConstSlice true))
   (try (ak/comptime (testPeerResolveArrayConstSlice true))))
-
-(az/defn- testPeerResolveArrayConstSlice :!void
-  [[choose-first? :bool]]
-  (let [first-value (if choose-first?
-                      "aoeu"
-                      (ak/as "zz" (az/type [:slice-const :u8])))
-        second-value (if choose-first?
-                       (ak/as "zz" (az/type [:slice-const :u8]))
-                       "aoeu")]
-    (try (testing/expectEqualStrings "aoeu" first-value))
-    (try (testing/expectEqualStrings "zz" second-value))))
 
 (az/deftest value-and-optional-peers-test
   (try (testing/expectEqual 0 (az/unwrap (peerTypeTAndOptionalT true false))))
@@ -55,15 +76,6 @@
       (try (testing/expectEqual 0 (az/unwrap (peerTypeTAndOptionalT true false))))
       (try (testing/expectEqual 3 (az/unwrap (peerTypeTAndOptionalT false false)))))))
 
-(az/defn- peerTypeTAndOptionalT [:optional :usize]
-  [[choose-optional? :bool] [choose-null? :bool]]
-  (when choose-optional?
-    (ak/return
-     (if choose-null?
-       nil
-       (ak/as 0 :usize))))
-  (ak/as 3 :usize))
-
 (az/deftest empty-array-and-slice-peers-test
   (try (testing/expectEqual 0 (az/field (peerTypeEmptyArrayAndSlice true "hi") :len)))
   (try (testing/expectEqual 1 (az/field (peerTypeEmptyArrayAndSlice false "hi") :len)))
@@ -71,12 +83,6 @@
     (az/block
       (try (testing/expectEqual 0 (az/field (peerTypeEmptyArrayAndSlice true "hi") :len)))
       (try (testing/expectEqual 1 (az/field (peerTypeEmptyArrayAndSlice false "hi") :len))))))
-
-(az/defn- peerTypeEmptyArrayAndSlice [:slice-const :u8]
-  [[choose-empty? :bool] [slice [:slice-const :u8]]]
-  (when choose-empty?
-    (ak/return (& (az/array-init [] [:array :_ :u8]))))
-  (az/slice slice 0 1))
 
 (az/deftest empty-array-slice-and-error-peers-test
   (let [data (ak/var @"hi")
@@ -88,12 +94,6 @@
           slice (az/slice data 0)]
       (try (testing/expectEqual 0 (az/field (try (peerTypeEmptyArrayAndSliceAndError true slice)) :len)))
       (try (testing/expectEqual 1 (az/field (try (peerTypeEmptyArrayAndSliceAndError false slice)) :len))))))
-
-(az/defn- peerTypeEmptyArrayAndSliceAndError [:error-union :anyerror [:slice :u8]]
-  [[choose-empty? :bool] [slice [:slice :u8]]]
-  (when choose-empty?
-    (ak/return (& (az/array-init [] [:array :_ :u8]))))
-  (az/slice slice 0 1))
 
 (az/deftest const-pointer-and-optional-pointer-peers-test
   (let [constant-pointer (ak/as (ak/ptrFromInt 0x123456780) [:*const :usize])

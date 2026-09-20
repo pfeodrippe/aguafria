@@ -17,7 +17,7 @@
             prime? (ak/var true)]
         (az/while-loop {:continue (az/assign-expr "+=" divisor-index 1)}
           (< divisor-index next-index)
-          (when (== (ak/% candidate (az/index prime-list divisor-index)) 0)
+          (when (ak/== (ak/% candidate (az/index prime-list divisor-index)) 0)
             (ak/= prime? false)
             (ak/break)))
         (when prime?

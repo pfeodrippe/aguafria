@@ -6,7 +6,7 @@
 (az/deftest while-break-test
   (let [i (ak/var 0 :usize)]
     (while true
-      (if (== i 10)
+      (if (ak/== i 10)
         (ak/break))
       (ak/+= i 1))
     (try (testing/expectEqual 10 i))))

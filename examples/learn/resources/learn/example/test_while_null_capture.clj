@@ -6,7 +6,7 @@
 (az/defvar numbers-left :u32 ak/undefined)
 
 (az/defn- eventuallyNullSequence [:optional :u32] []
-  (if (== numbers-left 0)
+  (if (ak/== numbers-left 0)
     nil
     (let []
       (ak/-= numbers-left 1)

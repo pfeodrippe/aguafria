@@ -4,7 +4,7 @@
   :note "Greater-than-or-equal comparison."}
 
  "(2 >= 1) == true"
- {:clojure-source "(== (>= 2 1) true)"
+ {:clojure-source "(ak/== (>= 2 1) true)"
   :kind :expr
   :standalone? true
   :note "Two is greater than or equal to one."}
@@ -15,7 +15,7 @@
   :note "Strict less-than comparison."}
 
  "(1 < 2) == true"
- {:clojure-source "(== (< 1 2) true)"
+ {:clojure-source "(ak/== (< 1 2) true)"
   :kind :expr
   :standalone? true
   :note "One is strictly less than two."}
@@ -26,7 +26,7 @@
   :note "Less-than-or-equal comparison."}
 
  "(1 <= 2) == true"
- {:clojure-source "(== (<= 1 2) true)"
+ {:clojure-source "(ak/== (<= 1 2) true)"
   :kind :expr
   :standalone? true
   :note "One is less than or equal to two."}
@@ -59,7 +59,7 @@
   :note "Reader dereference syntax accesses the pointed-to value."}
 
  "const x: u32 = 1234;\nconst ptr = &x;\nptr.* == 1234"
- {:clojure-source "(let [x (ak/as 1234 :u32)\n      ptr (ak/& x)]\n  (== @ptr 1234))"
+ {:clojure-source "(let [x (ak/as 1234 :u32)\n      ptr (ak/& x)]\n  (ak/== @ptr 1234))"
   :kind :expr
   :standalone? true
   :note "Take the address of a typed local and read it through the pointer."}
@@ -75,7 +75,7 @@
   :note "Merge two error set types."}
 
  "const A = error{One};\nconst B = error{Two};\n(A || B) == error{One, Two}"
- {:clojure-source "(let [A (az/type [:error-set [:One]])\n      B (az/type [:error-set [:Two]])]\n  (== (az/op \"||\" A B)\n      (az/type [:error-set [:One :Two]])))"
+ {:clojure-source "(let [A (az/type [:error-set [:One]])\n      B (az/type [:error-set [:Two]])]\n  (ak/== (az/op \"||\" A B)\n      (az/type [:error-set [:One :Two]])))"
   :kind :expr
   :standalone? true
   :note "Merging error sets produces the set containing both error names."}

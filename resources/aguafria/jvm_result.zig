@@ -4,6 +4,31 @@ const __aguafria_jvm = struct {
     const std = @import("std");
     const allocator = std.heap.page_allocator;
 
+    fn isMethod(comptime T: type, comptime name: []const u8) bool {
+        const Container = switch (@typeInfo(T)) {
+            .pointer => |p| if (p.size == .one) p.child else T,
+            else => T,
+        };
+        return switch (@typeInfo(Container)) {
+            .@"struct", .@"union", .@"enum", .@"opaque" =>
+                @hasDecl(Container, name) and @typeInfo(@TypeOf(@field(Container, name))) == .@"fn",
+            else => false,
+        };
+    }
+
+    fn FieldValue(comptime T: type, comptime name: []const u8) type {
+        if (isMethod(T, name)) return struct { __aguafria_bound_method: bool = true };
+        return @TypeOf(@field(@as(T, undefined), name));
+    }
+
+    fn lookupField(value: anytype, comptime name: []const u8) FieldValue(@TypeOf(value), name) {
+        if (comptime isMethod(@TypeOf(value), name)) {
+            return .{};
+        } else {
+            return @field(value, name);
+        }
+    }
+
     fn write(writer: *std.Io.Writer, value: anytype) !void {
         const T = @TypeOf(value);
         switch (@typeInfo(T)) {

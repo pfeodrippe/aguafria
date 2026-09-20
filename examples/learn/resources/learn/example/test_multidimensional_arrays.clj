@@ -16,7 +16,7 @@
   (try (testing/expectEqual 9.9 (az/index (az/index matrix 3) 4)))
   (for [[row matrix] [row-index (az/op ".." 0)]]
     (for [[cell row] [column-index (az/op ".." 0)]]
-      (when (== row-index column-index)
+      (when (ak/== row-index column-index)
         (try (testing/expectEqual 1.0 cell)))))
   (let [zeroes (ak/as (az/op "**" [(az/op "**" [0] 5)] 4) [:array 4 [:array 5 :f32]])]
     (try (testing/expectEqual 0 (az/index (az/index zeroes 0) 0)))))

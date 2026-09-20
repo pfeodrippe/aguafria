@@ -591,7 +591,7 @@
          (boolean (re-matches #"[iuf][0-9]+" %)))))
 
 (def ^:private binary-operators
-  {:equal_equal '== :bang_equal '!= :less_than '< :greater_than '>
+  {:equal_equal 'ak/== :bang_equal 'ak/!= :less_than '< :greater_than '>
    :less_or_equal '<= :greater_or_equal '>=
    :mul '* :div '/ :mod '% :add '+ :sub '-
    :mul_wrap '*% :add_wrap '+% :sub_wrap '-%
@@ -816,6 +816,17 @@
                 (symbol (str alias) (str clojure-name))
                 (drop 2 segments))))))
 
+(defn- compiler-builtin-alias [context]
+  (swap! (:std-aliases context) assoc 'aguafria.builtin 'builtin)
+  'builtin)
+
+(defn- compiler-builtin-reference [context segments]
+  (when (and (contains? (:builtin-imports context) (first segments))
+             (< 1 (count segments)))
+    (reduce (fn [target member] (list 'field target (keyword member)))
+            (symbol (str (compiler-builtin-alias context)) (second segments))
+            (drop 2 segments))))
+
 (declare translate-expr translate-type translate-stmt translate-block
          translate-switch translate-container translate-while
          translate-for
@@ -850,6 +861,7 @@
               (do
                 (swap! (:project-aliases context) assoc alias namespace)
                 (symbol (str alias) (str clojure-name))))))
+        (compiler-builtin-reference context segments)
         (std-reference context segments)
         (project-reference context segments)
         (list 'field
@@ -1199,8 +1211,14 @@
           "true" true
           "false" false
           "undefined" (symbol "ak" (keyword/token-name text))
-          (if (and (= "std" text) (:std-import? context))
+          (cond
+            (contains? (:builtin-imports context) text)
+            (compiler-builtin-alias context)
+
+            (and (= "std" text) (:std-import? context))
             (std-alias context 'aguafria.std)
+
+            :else
             (or (declaration-reference-symbol context text)
                 (clojure-identifier text)))))
 
@@ -2167,6 +2185,10 @@
                  (some #{node-index} (:root-decls context)))
             ::omit-declaration
 
+            (and (= "builtin" import-name)
+                 (some #{node-index} (:root-decls context)))
+            (do (compiler-builtin-alias context) ::omit-declaration)
+
             :else
             ;; Compiler/build-provided imports have no converted Clojure
             ;; namespace and therefore remain explicit external module data.
@@ -2907,6 +2929,15 @@
          :project-require-modes (or (:project-require-modes options) {})
          :import-bindings (or (:import-bindings options) {})
          :project-imports-by-node (or (:project-imports-by-node options) {})
+         :builtin-imports
+         (into #{}
+               (keep (fn [node-index]
+                       (when-let [[_ _ _ _ _ _ mut-token _ _ _ _ init-node]
+                                  (get (:var-index parsed) node-index)]
+                         (when (= "builtin" (and init-node
+                                                 (import-initializer parsed init-node)))
+                           (token-text parsed (inc mut-token))))))
+               (:root-decls parsed))
          :std-import?
          (boolean
           (some (fn [node-index]
@@ -4705,7 +4736,7 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
-(def ^:private rendered-conversion-cache-version 12)
+(def ^:private rendered-conversion-cache-version 14)
 
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]

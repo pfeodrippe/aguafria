@@ -32,6 +32,15 @@
             (is (str/includes? rendered "any-source.clj:2:3"))
             (is (str/includes? rendered "^^^^^^ this form could not be emitted"))))))))
 
+(deftest relative-zig-diagnostics-use-the-compilers-working-directory
+  (let [source "// Aguafria source: lesson.clj:4:1\n// Aguafria form: 5:3\nmissing();\n"
+        root "/tmp/aguafria-diagnostic-fixture/lesson.zig"
+        diagnostic (#'runtime/enrich-zig-diagnostic
+                    source root {:file "lesson.zig" :line 3 :column 1})]
+    (is (= source (:generated-source diagnostic)))
+    (is (= {:file "lesson.clj" :line 5 :column 3}
+           (:aguafria/source diagnostic)))))
+
 (deftest diagnostic-sources-can-be-classpath-resources
   (is (str/starts-with? (#'runtime/source-text "aguafria/zig/runtime_test.clj")
                        "(ns aguafria.zig.runtime-test"))

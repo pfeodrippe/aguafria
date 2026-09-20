@@ -9,7 +9,7 @@
     (ak/switch field-index
       ;; This prong is analyzed twice, with a compile-time-known index each time.
       (az/inline-case [0 1] [index]
-        (== (ak/typeInfo (az/field (az/index fields index) :type)) :.optional))
+        (ak/== (ak/typeInfo (az/field (az/index fields index) :type)) :.optional))
       (az/case-else
         (ak/return (az/error-value :IndexOutOfBounds))))))
 

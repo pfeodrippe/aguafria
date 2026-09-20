@@ -131,7 +131,7 @@
   (let [state-map @(.-state value)]
     (merge
      (select-keys (.-descriptor value)
-                  [:module :name :kind :type :logical-id])
+                  [:module :name :kind :type :logical-id :execution-context])
      (select-keys state-map
                   [:status :representation :size :alignment :generation]))))
 
@@ -877,19 +877,9 @@
           zig-type (type zig-value)]
       (if (= :scalar representation)
         value
-        (cond
-          decoded-fn (decoded-fn segment)
-          schema
-          (decode-value-segment segment zig-type schema)
-          :else
-          (if-let [[_ signed-marker bit-count]
-                   (and (keyword? zig-type)
-                        (re-matches #"([iu])(\d+)" (name zig-type)))]
-            (decode-integer segment (= "i" signed-marker)
-                            (Long/parseLong bit-count))
-            ;; Unknown composites remain lossless and inspectable while their
-            ;; schema decoder is added.
-            (bytes zig-value)))))
+        (if decoded-fn
+          (decoded-fn segment)
+          (decode-value-segment segment zig-type schema))))
     (finally
       ;; Cleaner ownership is attached to the ZigValue rather than the raw
       ;; segment. The JVM may otherwise prove the wrapper dead while a long

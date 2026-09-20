@@ -10,7 +10,7 @@
        (fibonacci (- index 2)))))
 
 (az/deftest fibonacci-unreachable-test
-  (try (ak/comptime (debug/assert (== (fibonacci 7) 99999)))))
+  (try (ak/comptime (debug/assert (ak/== (fibonacci 7) 99999)))))
 
 (comment
   (fibonacci-unreachable-test))

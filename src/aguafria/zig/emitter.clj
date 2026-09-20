@@ -199,10 +199,10 @@
                    (select-keys
                     (project/module-import (ns-name context-ns) sym)
                     [:source-order]))
-            (= "aguafria.std" module)
+            (contains? #{"aguafria.std" "aguafria.builtin"} module)
             (assoc :module nil
                    :import-alias (identifier sym)
-                   :import-name "std")))))))
+                   :import-name (if (= "aguafria.std" module) "std" "builtin"))))))))
 
 (defn- resolve-zig-reference
   [context-ns sym]
@@ -471,7 +471,14 @@
       (fail! (str "Unresolved Zig reference `" op "`. "
                   "Qualified calls must name a real Var from a required namespace.")
              form {:operator op :context-ns (ns-name context-ns)}))
-    (with-meta (apply list qualified-op args) (meta form))))
+    (if (:receiver-method? reference)
+      (do
+        (when-not (seq args)
+          (fail! "A container method requires its receiver as the first argument" form))
+        (with-meta (apply list (list 'field (first args) (keyword (:member-name reference)))
+                         (rest args))
+          (meta form)))
+      (with-meta (apply list qualified-op args) (meta form)))))
 
 (defn qualify-form
   "Replace keyword aliases with canonical `aguafria.keyword/...` Var symbols.

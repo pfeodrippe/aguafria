@@ -11,7 +11,7 @@
 (az/defn- getNum :u32 [[value U]]
   (switch value
     (az/inline-case-else [number tag]
-      (if (== tag :.b)
+      (if (ak/== tag :.b)
         (ak/intFromFloat number)
         number))))
 

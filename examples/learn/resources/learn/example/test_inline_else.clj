@@ -26,7 +26,7 @@
     (az/inline-for [field (az/field (az/field (ak/typeInfo Tag) :enum) :fields)]
       ;; Inline for generates a series of if statements, relying on the
       ;; optimizer to convert them into a switch.
-      (when (== (az/field field :value) (ak/intFromEnum any-slice))
+      (when (ak/== (az/field field :value) (ak/intFromEnum any-slice))
         (ak/return (az/field (ak/field any-slice (az/field field :name)) :len)))))
   ;; With inline for, the compiler does not know that every possible case
   ;; has been handled, so an explicit unreachable is required.

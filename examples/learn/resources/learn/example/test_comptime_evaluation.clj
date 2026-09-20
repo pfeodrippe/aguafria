@@ -32,7 +32,7 @@
                     :continue (az/assign-expr "+=" i 1)}
       (< i (az/field cmd-fns :len))
       (let [command (az/index cmd-fns i)]
-        (when (== (az/index (az/field command :name) 0) prefix-char)
+        (when (ak/== (az/index (az/field command :name) 0) prefix-char)
           (ak/= result ((az/field command :func) result)))))
     result))
 

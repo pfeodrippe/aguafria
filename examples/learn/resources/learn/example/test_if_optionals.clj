@@ -20,7 +20,7 @@
                         (try (testing/expectEqual 0 value)))
 
     ;; To test against null only, use the binary equality operator.
-    (when (== absent nil)
+    (when (ak/== absent nil)
       (try (testing/expect true))))
 
   ;; Access the value by reference using a pointer capture.

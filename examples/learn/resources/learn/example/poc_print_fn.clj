@@ -57,9 +57,9 @@
                  (ak/compileError "Single '}' encountered in format string"))))))
        (az/comptime-stmt
          (do
-           (when (!= (az/field arguments :len) next-argument)
+           (when (ak/!= (az/field arguments :len) next-argument)
              (ak/compileError "Unused arguments"))
-           (when (!= state (az/field State :start))
+           (when (ak/!= state (az/field State :start))
              (ak/compileError (ak/++ "Incomplete format string: " format)))))
        (when (< start-index (az/field format :len))
          (try ((az/field self :write) (az/slice format start-index (az/field format :len)))))

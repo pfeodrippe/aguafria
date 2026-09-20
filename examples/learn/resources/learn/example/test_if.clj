@@ -19,7 +19,7 @@
         b (ak/u32 4)]
     (if (ak/!= a b)
       (try (testing/expect true))
-      (if (== a 9)
+      (if (ak/== a 9)
         (ak/unreachable)
         (ak/unreachable)))))
 

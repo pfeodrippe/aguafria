@@ -1,5 +1,6 @@
 (ns learn.example.test-noreturn-from-exit
-  (:require [aguafria.std.builtin :as builtin-types]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.builtin :as builtin-types]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -7,7 +8,7 @@
 (az/defimport target "builtin" [[native-arch "cpu.arch"]])
 
 (az/defconst WINAPI builtin-types/CallingConvention
-  (if (== target/native-arch :.x86)
+  (if (ak/== target/native-arch :.x86)
     (az/object [[:x86_stdcall (az/object [])]])
     :.c))
 

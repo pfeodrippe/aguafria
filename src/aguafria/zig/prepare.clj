@@ -32,8 +32,9 @@
       (recur (.getParent part))))
   path)
 
-(defn- entrypoint [kind namespace-name]
-  (let [[prefix loader] (case kind
+(defn- entrypoint [kind {:keys [name members]}]
+  (let [namespace-name name
+        [prefix loader] (case kind
                           :std ["aguafria.std." 'aguafria.zig.std/install!]
                           :packages ["aguafria.pkg." 'aguafria.zig.package/install-namespace!])
         text (str namespace-name)]
@@ -46,7 +47,18 @@
           "(ns " namespace-name "\n"
           "  (:refer-clojure :only [])\n"
           "  (:require [" (namespace loader) "]))\n\n"
-          "(" loader " clojure.core/*ns*)\n")]))
+          (when (= kind :std)
+            (apply str
+                   (for [{:keys [clojure-name signature documentation parameters]} members]
+                     (str "(clojure.core/declare ^"
+                          (pr-str
+                           (cond-> {:aguafria/std true
+                                    :doc (str signature "\n\n" documentation)}
+                             (and (seq parameters) (every? :name parameters))
+                             (assoc :arglists
+                                    (list 'quote (list (mapv (comp symbol :name) parameters))))))
+                          " " clojure-name ")\n"))))
+          "\n(" loader " clojure.core/*ns*)\n")]))
 
 (defn write-entrypoints!
   "Refresh one catalog's entry points in `generated-dir` (default `generated`).
@@ -72,7 +84,7 @@
                                  (= kind (:kind manifest))
                                  (map? (:files manifest)))))
               (throw (ex-info "Unrecognized generated manifest" {:path (str manifest-path)})))
-          entries (mapv #(entrypoint kind (:name %))
+          entries (mapv #(entrypoint kind %)
                         (remove #(= 'aguafria.std (:name %)) namespaces))
           sources (into (sorted-map) entries)
           _ (when-not (= (count entries) (count sources))

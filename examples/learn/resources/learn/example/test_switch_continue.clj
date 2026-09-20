@@ -12,7 +12,7 @@
                             (az/block
                               (if (> value 3)
                                 (ak/continue sw 2)
-                                (when (== value 3)
+                                (when (ak/== value 3)
             ;; `break` can target labeled loops.
                                   (az/break-label sw)))
                               (ak/continue sw 1)))

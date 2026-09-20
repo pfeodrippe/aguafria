@@ -63,6 +63,9 @@ MIT-licensed snapshot and do not download the reference again.
 Each lesson can be loaded directly in a fresh REPL. Nested std namespaces have
 their own prepared classpath entry points under Aguafria's ignored `generated/`;
 no preliminary `[aguafria.std]` import is needed.
+Compiler-provided values use `[aguafria.builtin :as builtin]`, for example
+`builtin/is_test`. This is Zig's `@import("builtin")`, distinct from
+`std.builtin`; its values follow the consuming compilation's mode and target.
 Error-returning functions use `:!void`, `:!u32`, or `:!MyType`; composite payloads
 use `[:! payload-type]` (equivalent to `[:error-union payload-type]`).
 
@@ -72,6 +75,19 @@ Clojure or Java. Generic/comptime calls are specialized natively. For example,
 while `(math/sqrt 9.0)` returns `3.0`. Bound Clojure output writers receive
 stdout/stderr from synchronous calls, including CIDER's output buffer.
 Use a quoted form with `az/emit-expr` when you want source instead of execution.
+
+Generic container methods also have ordinary, completable Vars. Require
+`[aguafria.std.ArrayList :as array-list]`, then call
+`(array-list/append list allocator \☔)`. This is equivalent to
+`((az/field list :append) allocator \☔)`, in native code and from the JVM.
+The method mutates the original `ak/var` receiver, not a copied list. Use
+`array-list/deinit` with the same allocator to release the list's allocation;
+closing the native value handle alone only releases its container storage.
+Prepared, ignored namespace files expose declarations and documentation for
+static editor tooling; the live Vars also expose normal `:arglists` and `:doc`.
+`testing/allocator` is backed by a persistent native test context when used from
+the JVM. Native `az/deftest` execution still owns its usual leak-checking scope;
+an ordinary Clojure `let` does not itself create a native test scope.
 
 Teaching examples are hand-written under `resources/learn/example/`, with
 `learn.example.*` namespaces and Zig-derived filenames (`test_if.zig` becomes

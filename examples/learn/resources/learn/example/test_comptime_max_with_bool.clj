@@ -1,10 +1,11 @@
 (ns learn.example.test-comptime-max-with-bool
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defn- max T
   [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
-  (if (== T :bool)
+  (if (ak/== T :bool)
     (or left right)
     (if (> left right) left right)))
 

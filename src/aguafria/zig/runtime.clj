@@ -356,7 +356,11 @@
             (container-type-info declaration))
      (if-let [type (explicit-declaration-type declaration)]
        #((requiring-resolve 'aguafria.zig.jvm/coerce!) % type)
-       #(materialize-type! declaration %)))))
+       (fn [argument]
+         (if ((requiring-resolve 'aguafria.zig.jvm/native-literal?) argument)
+           ((requiring-resolve 'aguafria.zig.jvm/coerce!)
+            argument (symbol (:module declaration) (str (:name declaration))))
+           (materialize-type! declaration argument)))))))
 
 (defn declaration-state-value
   "Return a live, inspectable Clojure view of an `az/defvar`. Dereferencing or
@@ -1332,9 +1336,12 @@
 
 (defn- diagnostic-source
   [root-source root-source-path generated-file]
-  (if (same-file? root-source-path generated-file)
-    root-source
-    (let [file (io/file generated-file)]
+  (let [file (io/file generated-file)
+        file (if (.isAbsolute file)
+               file
+               (io/file (.getParentFile (io/file root-source-path)) generated-file))]
+    (if (same-file? root-source-path file)
+      root-source
       (when (.isFile file)
         (slurp file)))))
 
@@ -3309,6 +3316,34 @@
                   (map #(str "    _ = &aguafria_module." % ";\n") symbols))
            "}\n"))))
 
+(def ^:dynamic *native-test-context?*
+  "Compile JVM test-resource access with Zig's real test builtin environment.
+  Ordinary JVM/native calls keep normal build-lib semantics."
+  false)
+
+(defn- run-library-command
+  [command directory test-context?]
+  (if-not test-context?
+    (run-command command directory)
+    (let [output (subs (nth command 3) (count "-femit-bin="))
+          bitcode (str output ".bc")
+          runner (io/file directory "jvm_resource_runner.zig")
+          _ (spit runner "pub fn main() void {}\n")
+          arguments (drop 4 command)
+          ;; The panic support is a link input, not a Zig module argument.
+          libraries (take-while #(not (str/starts-with? % "-")) arguments)
+          compile-command (vec (concat [(first command) "test" "--test-no-exec"
+                                        "--test-runner" (.getAbsolutePath runner)
+                                        "-fno-entry" "-fPIC" "-fllvm" "-fno-emit-bin"
+                                        (str "-femit-llvm-bc=" bitcode)]
+                                       (drop (count libraries) arguments)))
+          compiled (assoc (run-command compile-command directory) :command compile-command)]
+      (if-not (zero? (:exit compiled))
+        compiled
+        (let [link-command (vec (concat [(first command) "build-lib" bitcode "-dynamic"
+                                        "-lc" (str "-femit-bin=" output)] libraries))]
+          (assoc (run-command link-command directory) :command link-command))))))
+
 (defn- compile-source!
   ([module-name source declarations]
    (compile-source! module-name source declarations nil))
@@ -3432,7 +3467,7 @@
          dependency-snapshot development-linkage-logical-ids)
         root-getter-linkage-source
         (development-root-getter-linkage-source development-root-source)
-        hash-input [source compiler-version
+        hash-input [source compiler-version *native-test-context?*
                     (assoc (select-keys compiler-options
                                          [:optimize :development-debug-info
                                           :target :cpu :zig-args
@@ -3529,8 +3564,9 @@
                       (assoc command 3 (str "-femit-bin="
                                             (.getAbsolutePath temporary-file)))]
                   (try
-                    (let [result (run-command temporary-command
-                                              (.getAbsolutePath module-dir))]
+                    (let [result (run-library-command temporary-command
+                                                     (.getAbsolutePath module-dir)
+                                                     *native-test-context?*)]
                       (when (and (zero? (:exit result))
                                  (not (usable-artifact? temporary-file)))
                         (throw (ex-info "Zig exited successfully but produced no usable library"
@@ -3545,7 +3581,8 @@
                     (finally
                       (Files/deleteIfExists (.toPath temporary-file))))))]
           (when (and result (not (zero? (:exit result))))
-            (let [{:keys [message diagnostics report location]}
+            (let [command (or (:command result) command)
+                  {:keys [message diagnostics report location]}
                   (pretty-zig-error module-name source
                                     (.getAbsolutePath source-file)
                                     command (:err result))]
@@ -9857,6 +9894,14 @@
        :source-only? true
        :compiled? false})))
 
+(defn- loading-clojure-file?
+  []
+  (boolean
+   (some (fn [^StackTraceElement frame]
+           (and (= "clojure.lang.Compiler" (.getClassName frame))
+                (= "load" (.getMethodName frame))))
+         (.getStackTrace (Thread/currentThread)))))
+
 (defn register-declaration!
   "Add or replace a declaration and rebuild its namespace module.
 
@@ -9885,12 +9930,7 @@
               current (get @registry module)
               old-declaration (get-in current [:definitions declaration-key])
               file-load-registration?
-              (boolean
-               (some (fn [^StackTraceElement frame]
-                       (and (= "clojure.lang.Compiler"
-                               (.getClassName frame))
-                            (= "load" (.getMethodName frame))))
-                     (.getStackTrace (Thread/currentThread))))
+              (loading-clojure-file?)
               expected-declaration-count
               (when file-load-registration?
                 (or (when (project/converted-module? module)
@@ -10300,9 +10340,10 @@
         declarations))
 
 (defn- native-test-snapshot
-  [module test-name]
+  [module test-name & [candidate]]
   (locking compile-lock
-    (let [definitions (:definitions (get @registry module))
+    (let [definitions (cond-> (:definitions (get @registry module))
+                        candidate (assoc [:test test-name] candidate))
           selected (get definitions [:test test-name])]
       (when-not (= :test (:kind selected))
         (throw (ex-info "Cannot run an unknown Aguafria test"
@@ -10328,9 +10369,9 @@
          :compiler-options compiler-options}))))
 
 (defn- native-test-library!
-  [module test-name]
+  [module test-name & [candidate]]
   (let [{:keys [selected source dependencies compiler-options]}
-        (native-test-snapshot module test-name)
+        (native-test-snapshot module test-name candidate)
         runner (str development-panic-forwarder-source
                     (slurp (io/resource "aguafria/jvm_guard.zig")) "\n"
                     (slurp (io/resource "aguafria/jvm_test_runner.zig")))
@@ -10387,6 +10428,22 @@
                   location nil))))))))
     details))
 
+(defn check-test-definition!
+  "Compile a proposed test against declarations available now, without running
+  it or publishing it. Explicit source collection/batches defer native checking
+  to their caller, as they do for other declarations."
+  [declaration]
+  (project/ensure-source-catalog! (get-in declaration [:source :file]))
+  (when-not (or *source-only-registration?*
+               *registration-batch*
+               ;; Imported converted libraries have an explicit source catalog
+               ;; and load lazily, including target-specific upstream tests.
+               ;; Direct evaluation of their tests still checks immediately.
+               (and (project/converted-module? (:module declaration))
+                    (loading-clojure-file?)))
+    (native-test-library! (:module declaration) (:name declaration) declaration))
+  nil)
+
 (declare check-native-panic!)
 
 (defn run-test!
@@ -10431,7 +10488,7 @@
     (flush)
     (binding [*out* *err*] (print (str stderr)) (flush))
     (if (= 1 status)
-      (throw (ex-info (str "Native Zig test " module "/" test-name " failed\n\n" stderr)
+      (throw (ex-info (str "Native Zig test " module "/" test-name " failed")
                       (assoc details :status :failed :aguafria/phase :zig-test)))
       (with-meta {:test (symbol module (str test-name))
                   :status (if (= 2 status) :skipped :passed)

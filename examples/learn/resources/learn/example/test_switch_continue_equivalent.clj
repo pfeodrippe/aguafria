@@ -16,7 +16,7 @@
               (az/block
                 (ak/= state 2)
                 (ak/continue))
-              (when (== value 3)
+              (when (ak/== value 3)
                 (ak/break)))
             (ak/= state 1)
             (ak/continue)))

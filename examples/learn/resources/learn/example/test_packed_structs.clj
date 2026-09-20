@@ -1,11 +1,11 @@
 (ns learn.example.test-packed-structs
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.builtin :as builtin]
+            [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defconst native-endian
-  (let [architecture (-> (ak/import "builtin")
-                         (az/field :target)
+  (let [architecture (-> builtin/target
                          (az/field :cpu)
                          (az/field :arch))]
     ((az/field architecture :endian))))

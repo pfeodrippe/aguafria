@@ -11,7 +11,7 @@
     (try (testing/expectEqual 2 x))
     (try (testing/expectEqual 2 y))
 
-    (when (!= y 2)
+    (when (ak/!= y 2)
       ;; This compile error never triggers: y is a comptime variable, so
       ;; y != 2 is a comptime value and the condition is statically evaluated.
       (ak/compileError "wrong y value"))))

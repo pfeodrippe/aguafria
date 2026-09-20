@@ -7,7 +7,7 @@
   (let [value (ak/var 1234 :i32)]
     (try (testing/expectEqual (az/type [:* :i32]) (ak/TypeOf (& value))))
     (try (testing/expect
-          (== (az/op "%" (ak/intFromPtr (& value)) (ak/alignOf (az/type :i32))) 0)))
+          (ak/== (az/op "%" (ak/intFromPtr (& value)) (ak/alignOf (az/type :i32))) 0)))
     ;; An explicit alignment equal to the natural alignment is the same guarantee.
     (let [pointer (ak/as (& value) [:pointer {:align (ak/alignOf (az/type :i32)), :size :one} :i32])]
       (try (testing/expectEqual 1234 @pointer)))))

@@ -1,5 +1,6 @@
 (ns learn.example.test-switch
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.builtin :as builtin]
+            [aguafria.keyword :as ak]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -23,8 +24,7 @@
     (try (testing/expectEqual 1 result))))
 
 (az/defconst target-os
-  (-> (ak/import "builtin")
-      (az/field :target)
+  (-> builtin/target
       (az/field :os)
       (az/field :tag)))
 

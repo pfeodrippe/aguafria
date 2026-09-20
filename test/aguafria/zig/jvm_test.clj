@@ -1,5 +1,8 @@
 (ns aguafria.zig.jvm-test
   (:require [aguafria.keyword :as ak]
+            [aguafria.std :as std]
+            [aguafria.std.ArrayList :as array-list]
+            [aguafria.std.testing :as zig-testing]
             [aguafria.std.debug :as debug]
             [aguafria.std.math :as math]
             [aguafria.std.mem :as mem]
@@ -111,6 +114,100 @@
                    (ak/= value "hi")
                    (ak/!= value nil)))))
       (is (true? ((ns-resolve namespace 'optional-mutation))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest void-error-unions-return-errors-and-success-to-the-jvm
+  (doseq [type [:!void [:! :void] [:error-union :anyerror :void]
+               [:error-union [:error-set [:DemoError]] :void]]]
+    (with-open [failed (ak/as (az/error-value :DemoError) type)
+                succeeded (ak/as nil type)
+                mutable (ak/var (az/error-value :DemoError) type)]
+      (is (= :DemoError (get-in @failed [:error :name])))
+      (is (= {:ok nil} @succeeded))
+      (is (= :DemoError (get-in @mutable [:error :name])))
+      (ak/= mutable {:ok nil})
+      (is (= {:ok nil} @mutable)))))
+
+(deftest inferred-member-literals-construct-native-values
+  (let [namespace (fixture)
+        list-type (std/ArrayList :u21)]
+    (try
+      (binding [*ns* namespace]
+        (require '[aguafria.std :as std] '[aguafria.std.heap :as heap])
+        (eval '(az/defstruct Threshold
+                 [[:minimum :f32]
+                  [:maximum :f32]
+                  (az/const-decl default {:attrs #{:public}} Threshold
+                    {:minimum 0.25 :maximum 0.75})]))
+        (eval '(az/defenum Mode [:active :inactive]))
+        (eval '(az/defn append-and-read :!u21 [[initial (std/ArrayList :u21)]]
+                 (let [list (ak/var initial)]
+                   (ak/defer ((az/field list :deinit) heap/page_allocator))
+                   (try ((az/field list :append) heap/page_allocator \☔))
+                   (az/index (az/field list :items) 0)))))
+      (with-open [list (ak/var :.empty list-type)
+                  appended ((ns-resolve namespace 'append-and-read) list)]
+        (is (= :var (:kind (value/info list))))
+        (is (= 0 (az/field list :capacity)))
+        (is (= 0 (az/field (az/field list :items) :len)))
+        (is (= {:ok (int \☔)} @appended)))
+      (let [threshold-type @(ns-resolve namespace 'Threshold)
+            mode-type @(ns-resolve namespace 'Mode)]
+        (with-open [threshold (threshold-type :.default)
+                    mutable-threshold (ak/var :.default threshold-type)
+                    mode (ak/var :.active mode-type)]
+          (is (= {:minimum 0.25 :maximum 0.75} @threshold))
+          (is (= @threshold @mutable-threshold))
+          (is (true? (ak/== mode :.active)))
+          (ak/= mode :.inactive)
+          (is (true? (ak/== mode :.inactive)))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest bound-container-methods-preserve-native-receivers
+  (with-open [list (ak/var :.empty (std/ArrayList :u21))]
+    (let [append (az/field list :append)
+          allocator zig-testing/allocator]
+      (try
+        (is (fn? append))
+        (is (= {:ok nil} (append allocator \☔)))
+        (is (= {:ok nil} (array-list/append list allocator \☺)))
+        (is (= [9748 9786] (az/field list :items)))
+        (is (= {:ok nil} (zig-testing/expectEqual 2 (az/field (az/field list :items) :len))))
+        (finally (array-list/deinit list allocator)))))
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defstruct Counter
+                 [[:value :i32]
+                  (az/fn-decl increment :void {:attrs #{:public}}
+                    [[self [:* Counter]] [amount :i32]]
+                    (ak/+= (az/field self :value) amount))])))
+      (let [Counter @(ns-resolve namespace 'Counter)]
+        (with-open [counter (ak/var (Counter {:value 1}))]
+          (let [increment (az/field counter :increment)]
+            (is (nil? (increment 4)))
+            (is (nil? (increment 6)))
+            (is (= 11 (az/field counter :value))))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest generic-method-vars-have-real-completion-metadata
+  (is (= '([self gpa item]) (:arglists (meta #'array-list/append))))
+  (is (str/includes? (:doc (meta #'array-list/append)) "Extend the list"))
+  (is (:receiver-method? (:aguafria/zig-reference (meta #'array-list/append))))
+  (is (str/includes? (slurp (io/resource "aguafria/std/ArrayList.clj"))
+                     "clojure.core/declare"))
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (require '[aguafria.std :as std]
+                 '[aguafria.std.ArrayList :as array-list]
+                 '[aguafria.std.testing :as testing])
+        (eval '(az/deftest method-vars-work-in-native-code
+                 (let [list (ak/var :.empty (std/ArrayList :u21))]
+                   (ak/defer (array-list/deinit list testing/allocator))
+                   (try (array-list/append list testing/allocator \☔))
+                   (try (testing/expectEqual 1 (az/field (az/field list :items) :len)))))))
+      (is (= :passed (:status ((ns-resolve namespace 'method-vars-work-in-native-code)))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest invalid-private-function-fails-at-its-own-definition

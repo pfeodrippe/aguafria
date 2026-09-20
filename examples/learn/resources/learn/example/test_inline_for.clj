@@ -3,6 +3,10 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
+(az/defn- type-name-length :usize
+  [[T {:zig/prefix "comptime"} :type]]
+  (az/field (ak/typeName T) :len))
+
 (az/deftest inline-for-test
   (let [numbers (az/array-init [2 4 6] [:array :_ :i32])
         sum (ak/var 0 :usize)]
@@ -14,10 +18,6 @@
                 (az/case-else (ak/unreachable)))]
         (ak/+= sum (type-name-length T))))
     (try (testing/expectEqual 9 sum))))
-
-(az/defn- type-name-length :usize
-  [[T {:zig/prefix "comptime"} :type]]
-  (az/field (ak/typeName T) :len))
 
 (comment
   (inline-for-test))

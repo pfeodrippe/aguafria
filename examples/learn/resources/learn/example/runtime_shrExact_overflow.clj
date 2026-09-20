@@ -14,8 +14,8 @@
     (when (and (or ((az/field target/native-arch :isPowerPC))
                    ((az/field target/native-arch :isRISCV))
                    ((az/field target/native-arch :isLoongArch))
-                   (== target/native-arch :.s390x))
-               (== target/zig-backend :.stage2_llvm))
+                   (ak/== target/native-arch :.s390x))
+               (ak/== target/zig-backend :.stage2_llvm))
       (ak/panic "https://github.com/ziglang/zig/issues/24304"))))
 
 (comment

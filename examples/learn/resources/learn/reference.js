@@ -67,8 +67,8 @@ function matchExampleHeights() {
     .filter(({blocks}) => blocks.length === 2);
   const examples = new Set(groups.map(({example}) => example));
   examples.forEach(example => example.classList.add("learn-measuring"));
-  const heights = groups.map(({blocks}) => Math.ceil(Math.max(
-    ...blocks.map(block => block.getBoundingClientRect().height))));
+  const heights = groups.map(({blocks}) => Math.max(
+    ...blocks.map(block => block.getBoundingClientRect().height)));
   groups.forEach(({example, property}, index) => {
     example.style.setProperty(property, `${heights[index]}px`);
   });
