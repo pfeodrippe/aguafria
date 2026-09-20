@@ -9,3 +9,6 @@
   ;; Only executed defer statements participate in reverse-order cleanup.
   (when false
     (defer (debug/print "3 " []))))
+
+(comment
+  (main))

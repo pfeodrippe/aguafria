@@ -21,3 +21,6 @@
                                   (az/error-value :ReachedZero) error))]}
       (next-number)
       (ak/+= sum number))))
+
+(comment
+  (while-error-capture-test))

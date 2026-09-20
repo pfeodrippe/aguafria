@@ -8,3 +8,6 @@
         address (ak/intFromPtr pointer)]
     (try (testing/expectEqual (az/type :usize) (ak/TypeOf address)))
     (try (testing/expectEqual 0xdeadbee0 address))))
+
+(comment
+  (integer-pointer-conversion-test))

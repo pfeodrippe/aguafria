@@ -3,3 +3,6 @@
 
 (az/defn- maximum :bool [[left :bool] [right :bool]]
   (or left right))
+
+(comment
+  (maximum false true))

@@ -136,12 +136,19 @@
 
 (defn emit-clojure
   "Evaluate the exact displayed namespace, not converter-only in-memory forms.
-  Collect descriptors without starting native code or a hot-reload runtime."
+  Collect descriptors without starting native code or a hot-reload runtime.
+  An already-open lesson is inspected in a temporary namespace, never overwritten."
   [source namespace-symbol report]
-  (when (find-ns namespace-symbol)
-    (throw (ex-info "Refusing to replace an existing REPL namespace"
-                    {:namespace namespace-symbol})))
-  (let [declarations (atom [])]
+  (let [occupied? (find-ns namespace-symbol)
+        evaluation-ns (if occupied?
+                        (symbol (str namespace-symbol ".inspection-" (random-uuid)))
+                        namespace-symbol)
+        source (if occupied?
+                 (str/replace-first source #"\(ns\s+[^\s()]+"
+                                    (str "(ns " evaluation-ns))
+                 source)
+        namespace-symbol evaluation-ns
+        declarations (atom [])]
     (when-let [catalog-module (:catalog-module report)]
       (project/register-catalog!
        {:schema-version 1
@@ -356,9 +363,17 @@
           (assoc base :status :compiler-gap
                  :error (.getMessage failure) :details (ex-data failure)))))))
 
+(declare capture-comment-repl!)
+
 (defn translate-blocks! []
   (let [blocks (filter #(= "syntax_block" (:kind %)) (:snippets (inventory)))
-        results (mapv translate-block! blocks)]
+        results (mapv (fn [block]
+                        (let [result (translate-block! block)]
+                          (if (= :translated (:status result))
+                            (assoc result :repl-transcript
+                                   (capture-comment-repl! (slurp (:clojure-path result)) nil))
+                            result)))
+                      blocks)]
     (write-edn! "build/blocks.edn" results)
     (frequencies (map :status results))))
 
@@ -887,8 +902,113 @@
     (merge {:namespace "learn.reference" :form form
             :stdout (str stdout) :stderr (str stderr)} result)))
 
+(defn comment-calls
+  "The authored REPL recipe is the final comment form, never inferred at display time."
+  [source]
+  (let [form (last (inline/read-forms source))]
+    (when-not (= 'comment (first form))
+      (throw (ex-info "Example needs a final comment with its REPL calls" {})))
+    (when (some #{'reference/run-example! 'learn.reference/run-example!
+                  'reference/check-snippet! 'learn.reference/check-snippet!}
+                (tree-seq coll? seq form))
+      (throw (ex-info "A REPL recipe must call its own Vars, not a file runner" {})))
+    (vec (rest form))))
+
+(defn capture-comment-repl!
+  "Evaluate the authored comment's forms in its own namespace in this JVM.
+  There is no file-runner substitution. Context-only excerpts have no calls."
+  [source context]
+  (let [calls (comment-calls source)
+        namespace-symbol (second (read-string source))
+        namespaces-before (set (map ns-name (all-ns)))]
+    (when (find-ns namespace-symbol)
+      (throw (ex-info "Cannot capture over an existing lesson namespace"
+                      {:namespace namespace-symbol})))
+    (try
+      (binding [*ns* (create-ns namespace-symbol)
+                *example-context* context
+                runtime/*source-only-registration?* true]
+        (refer 'clojure.core)
+        (when (seq calls) (load-string source))
+        {:evaluations
+         (mapv (fn [form]
+                 (let [stdout (java.io.StringWriter.)
+                       stderr (java.io.StringWriter.)
+                       result (binding [*out* stdout *err* stderr]
+                                (try
+                                  {:printed-value (pr-str (eval form))}
+                                  (catch Exception error
+                                    ;; Compiler.eval can wrap an exception from a
+                                    ;; native call in CompilerException. Retain
+                                    ;; the actual diagnostic, not just its generic
+                                    ;; "Syntax error macroexpanding" wrapper.
+                                    (let [diagnostic
+                                          (or (some #(when (:aguafria/phase (ex-data %)) %)
+                                                    (take-while some? (iterate ex-cause error)))
+                                              error)]
+                                      {:exception {:class (.getName (class diagnostic))
+                                                   :message (.getMessage diagnostic)
+                                                   :phase (:aguafria/phase (ex-data diagnostic))}}))))]
+                   (merge {:namespace (str namespace-symbol)
+                           :form (str/trimr
+                                  (with-out-str
+                                    (pprint/with-pprint-dispatch pprint/code-dispatch
+                                      (pprint/pprint form))))
+                           :stdout (str stdout) :stderr (str stderr)}
+                          result)))
+               calls)})
+      (finally
+        ;; A recipe can require another lesson (for example its object library).
+        ;; Retire only lessons this capture created, not any pre-existing REPL
+        ;; namespace, so the next independent recipe can load its own source.
+        (doseq [created (map ns-name (all-ns))
+                :when (and (not (contains? namespaces-before created))
+                           (or (= created namespace-symbol)
+                               (str/starts-with? (str created) "learn.example.")))]
+          (remove-ns created)
+          (dosync (alter @#'clojure.core/*loaded-libs* disj created)))))))
+
+(defn capture-example-comment!
+  "Capture same-JVM calls, without running known process-terminating lessons
+  in the documentation server. The direct call remains in their comment with
+  a warning; no standalone program output is presented as REPL output."
+  [{:keys [file manifest]} translation context]
+  (let [kind (:kind manifest)
+        source (slurp (:clojure-path translation))
+        upstream-output (io/file "build/doctest/zig" (str file ".html"))
+        panics? (and (.isFile upstream-output)
+                     (re-find #"thread [0-9]+ panic:"
+                              (observed-output (slurp upstream-output))))]
+    (cond
+      (empty? (comment-calls source)) {:evaluations [] :scope :context-only}
+      (or (= "exe=fail" kind)
+          (str/starts-with? kind "test_safety=")
+          panics?)
+      {:evaluations [] :scope :native-failure-requires-disposable-jvm}
+      (some #(str/starts-with? % "target=") (:options manifest))
+      {:evaluations [] :scope :target-specific}
+      :else (capture-comment-repl! source context))))
+
 (def matching-comparisons
   #{:output-matched :diagnostics-matched :compile-only-matched})
+
+(defn verified-comment?
+  "A recorded native diagnostic can be the result of a compile-error lesson.
+  JVM arity/resolution/loading failures never count as a verified native result.
+  Syntax-only excerpts may intentionally fail when their declarations are used."
+  [{:keys [kind]} {:keys [scope evaluations]}]
+  (or (contains? #{:context-only :native-failure-requires-disposable-jvm
+                   :target-specific} scope)
+      (and (seq evaluations)
+           (every? (fn [{:keys [exception]}]
+                     (or (nil? exception)
+                         (and (or (= "syntax" kind)
+                                  (str/starts-with? kind "test_error=")
+                                  (str/starts-with? kind "obj=")
+                                  (= "exe=build_fail" kind))
+                              (contains? #{:zig-compile :zig-test :zig-program-compile}
+                                         (:phase exception)))))
+                   evaluations))))
 
 (defn verify-example!
   "Run the original and the emitted displayed Aguafria through the same pinned
@@ -921,7 +1041,11 @@
        :diagnostic (:diagnostic translation)
        :original original
        :repl-transcript (when front-end?
-                          (capture-example-repl! file *example-context*))}
+                          (try
+                            (capture-example-comment! example translation *example-context*)
+                            (catch Exception error
+                              {:evaluations [] :scope :front-end-error
+                               :load-error (.getMessage error)})))}
       (let [source (slurp (str "build/emitted/" file))]
         (write-text! (str "build/verification-input/" file)
                      (str source (:text manifest)))
@@ -930,7 +1054,13 @@
               harness-passed? (and (zero? (:exit original))
                                    (= 0 (:exit converted)))
               comparison (when harness-passed? (compare-doctest-output file manifest))
-              passed? (and harness-passed? (matching-comparisons (:status comparison)))
+              recipe (try
+                       (capture-example-comment! example translation *example-context*)
+                       (catch Exception error
+                         {:capture-error (.getMessage error)}))
+              recipe-passed? (verified-comment? manifest recipe)
+              passed? (and harness-passed? (matching-comparisons (:status comparison))
+                           recipe-passed?)
               cross-target? (some #(str/starts-with? % "target=") (:options manifest))]
           {:file file
            :status (if passed? :upstream-outcome-passed :failed)
@@ -947,7 +1077,7 @@
                               :host
                               :else :compile-or-expected-failure)
            :original original
-           :repl-transcript transcript
+           :repl-transcript recipe
            :aguafria converted})))))
 
 (defn verify-outcomes!
@@ -978,16 +1108,20 @@
 (def figure-pattern
   #"(?s)<figure><figcaption class=\"zig-cap\"><cite class=\"file\">([^<]+)</cite></figcaption>.*?</figure>(?:\s*<figure><figcaption class=\"shell-cap\">Shell</figcaption>.*?</figure>)?")
 
-(defn repl-panel [{:keys [namespace form stdout stderr value exception]}]
-  (str "<div class=\"learn-repl\" aria-label=\"Recorded REPL evaluation\">"
-       "<p class=\"learn-repl-label\">REPL</p><pre><samp>"
-       (escape-html (str namespace "=> " form "\n"))
+(defn repl-evaluation [{:keys [namespace form stdout stderr value printed-value exception]}]
+  (str (escape-html (str namespace "=> " form "\n"))
        (escape-html stdout)
        (escape-html stderr)
        (escape-html (if exception
                       (str (:class exception) ": " (:message exception) "\n")
-                      (str (pr-str value) "\n")))
-       "</samp></pre></div>"))
+                      (str (or printed-value (pr-str value)) "\n")))))
+
+(defn repl-panel [transcript]
+  (when-not (= [] (:evaluations transcript))
+    (str "<div class=\"learn-repl\" aria-label=\"Recorded REPL evaluation\">"
+       "<p class=\"learn-repl-label\">REPL</p><pre><samp>"
+       (str/join "\n" (map repl-evaluation (or (:evaluations transcript) [transcript])))
+       "</samp></pre></div>")))
 
 (defn example-panel [[original file] translation index]
   (let [id (str "learn-example-" index)
@@ -1021,7 +1155,9 @@
          "<button role=\"tab\" id=\"" id "-zt\" aria-controls=\"" id
          "-z\" aria-selected=\"true\">Zig</button>"
          "<button role=\"tab\" id=\"" id "-at\" aria-controls=\"" id
-         "-a\" aria-selected=\"false\" tabindex=\"-1\">Aguafria Zig</button></div>"
+         "-a\" aria-selected=\"false\" tabindex=\"-1\">Aguafria Zig</button>"
+         "<button role=\"tab\" id=\"" id "-bt\" aria-controls=\"" id "-z " id
+         "-a\" aria-selected=\"false\" tabindex=\"-1\">Side by side</button></div>"
          "<div role=\"tabpanel\" id=\"" id "-z\" aria-labelledby=\"" id "-zt\">"
          original "</div>"
          "<div role=\"tabpanel\" id=\"" id "-a\" aria-labelledby=\"" id "-at\" hidden>"
@@ -1139,7 +1275,14 @@
                         (filter :upstream-difference inline-snippets))
                   :block-status (frequencies (map :status blocks))
                   :block-verification (frequencies (map :verification blocks))
-                  :repl-transcripts (count (filter :repl-transcript translations))
+                  :repl-transcripts
+                  (count (filter #(seq (get-in % [:repl-transcript :evaluations]))
+                                 translations))
+                  :repl-scopes
+                  (frequencies
+                   (keep #(when-let [transcript (:repl-transcript %)]
+                            (or (:scope transcript) :in-process))
+                         translations))
                   :hand-written-examples
                   (count (filter :source (vals (read-edn "resources/learn/overrides.edn"))))
                   :file-verification (frequencies (map :verification translations))

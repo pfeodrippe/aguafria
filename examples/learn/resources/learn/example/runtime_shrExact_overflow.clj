@@ -17,3 +17,7 @@
                    (== target/native-arch :.s390x))
                (== target/zig-backend :.stage2_llvm))
       (ak/panic "https://github.com/ziglang/zig/issues/24304"))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

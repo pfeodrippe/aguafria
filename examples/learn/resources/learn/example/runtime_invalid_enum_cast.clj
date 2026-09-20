@@ -14,3 +14,7 @@
     (set! _ (ak/& tag-value))
     (let [^{:zig/type Foo} value (ak/enumFromInt tag-value)]
       (debug/print "value: {s}\n" [(ak/tagName value)]))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

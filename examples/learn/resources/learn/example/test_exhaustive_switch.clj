@@ -16,3 +16,6 @@
                    (case [:.on] false)
                    (case [:.off] true))]
     (try (testing/expect disabled))))
+
+(comment
+  (exhaustive-enum-switch-test))

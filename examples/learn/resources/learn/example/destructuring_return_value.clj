@@ -17,3 +17,6 @@
   (let [[quotient remainder] (divmod 10 3)]
     (debug/print "10 / 3 = {}\n" [quotient])
     (debug/print "10 % 3 = {}\n" [remainder])))
+
+(comment
+  (main))

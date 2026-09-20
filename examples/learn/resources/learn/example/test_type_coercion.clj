@@ -19,3 +19,8 @@
   (let [^{:zig/type :u8} narrow 1
         wide (ak/as (az/type :u16) narrow)]
     (set! _ wide)))
+
+(comment
+  (declaration-coercion-test)
+  (argument-coercion-test)
+  (explicit-coercion-test))

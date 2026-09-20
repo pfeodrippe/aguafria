@@ -16,3 +16,6 @@
         (< i end)
         (if (== i number)
           (ak/break true))))))
+
+(comment
+  (while-else-test))

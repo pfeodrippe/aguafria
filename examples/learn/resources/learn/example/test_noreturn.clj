@@ -12,3 +12,6 @@
 
 (az/deftest noreturn-test
   (use-when false 1))
+
+(comment
+  (noreturn-test))

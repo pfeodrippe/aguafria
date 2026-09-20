@@ -245,11 +245,20 @@
                returned))))))))
 
 (defn- container-type-description
-  [declaration]
-  (when-let [form (container-type-form declaration)]
-    (emit/container-description
-     (or (some-> (:module declaration) symbol find-ns) *ns*)
-     form)))
+  [{:keys [module value] :as declaration}]
+  (if (and (seq? value) (= 1 (count value))
+           (symbol? (first value)) (= "This" (name (first value))))
+    ;; At file scope @This is the module's struct, including its root fields.
+    ;; Use the same description as an explicit container for JVM value access.
+    {:options {:kind :struct}
+     :members (->> (get-in @registry [module :definitions])
+                   vals
+                   (sort-by #(or (:order %) Long/MAX_VALUE))
+                   vec)}
+    (when-let [form (container-type-form declaration)]
+      (emit/container-description
+       (or (some-> module symbol find-ns) *ns*)
+       form))))
 
 (defn declaration-root-value
   "Return the public Clojure root for a Zig constant. Literal values retain
@@ -1382,10 +1391,10 @@
     :as declaration}]
   (and (:reloadable? @config)
        (= :fn kind)
-       ;; Forced-inline wrappers can still inline the cell load and indirect
-       ;; call into each concrete caller. Their implementation must be emitted
-       ;; as an addressable non-inline helper (see emit-reloadable-function).
-       (contains? #{nil "inline" "pub inline"} zig-prefix)
+       ;; Forced-inline calls must keep their body at the callsite: even a
+       ;; runtime call can fold its result and eliminate a compileError branch.
+       ;; An indirect cell loses that property. Edits rebuild dependent callers.
+       (nil? zig-prefix)
        (not (contains? #{:type 'type :anytype 'anytype} return))
        (not (anonymous-type? return))
        (not-any? #(anonymous-type? (:type %)) args)
@@ -3401,7 +3410,16 @@
 
 (defn- scalar-key
   [type]
-  (when (keyword? type) type))
+  (when (keyword? type)
+    (if-let [[c-name signed?]
+             ({:c_short ["short" true] :c_ushort ["short" false]
+               :c_int ["int" true] :c_uint ["int" false]
+               :c_long ["long" true] :c_ulong ["long" false]
+               :c_longlong ["long long" true] :c_ulonglong ["long long" false]}
+              type)]
+      (when-let [layout (get (.canonicalLayouts (Linker/nativeLinker)) c-name)]
+        (keyword (str (if signed? "i" "u") (* 8 (.byteSize ^MemoryLayout layout)))))
+      type)))
 
 (defn- supported-signature?
   [{:keys [args return]}]
@@ -3417,11 +3435,14 @@
       (FunctionDescriptor/of ^MemoryLayout (get scalar-layouts (scalar-key return))
                              arg-layouts))))
 
+(declare unquote-zig-identifier)
+
 (defn- bind-function
   ([^Linker linker ^SymbolLookup lookup declaration]
    (bind-function linker lookup declaration
-                  (emit/identifier (or (:zig-name declaration)
-                                       (:name declaration)))))
+                  (unquote-zig-identifier
+                   (emit/identifier (or (:zig-name declaration)
+                                        (:name declaration))))))
   ([^Linker linker ^SymbolLookup lookup declaration symbol-name]
   (if-not (supported-signature? declaration)
     {:declaration declaration
@@ -6819,7 +6840,16 @@
                             (nested-form-values reference-source))
                       (keep by-name
                             (declaration-qualifier-reference-names
-                             declaration)))
+                             declaration))
+                      ;; A file-level @This() denotes this container's fields
+                      ;; and methods, not merely its named constant. Preserve
+                      ;; that container when the JVM calls one of its methods,
+                      ;; just as dependency-live-slice-declarations does.
+                      (when (and (some #(= :field (:kind %)) declarations)
+                                 (let [value (:value declaration)]
+                                   (and (seq? value) (symbol? (first value))
+                                        (= "This" (name (first value))))))
+                        (remove #(= :test (:kind %)) declarations)))
                      distinct)]
             (recur (concat (next pending) references)
                    (assoc selected (:declaration-key declaration)
@@ -10020,61 +10050,96 @@
          :dependencies (vec (keys dependencies))
          :compiler-options compiler-options}))))
 
-(defn run-test!
-  "Compile and run one registered named test with Aguafria's embedded Zig.
+(defn- native-test-library!
+  [module test-name]
+  (let [{:keys [selected source dependencies compiler-options]}
+        (native-test-snapshot module test-name)
+        runner (slurp (io/resource "aguafria/jvm_test_runner.zig"))
+        materialized (io/file (materialize-module-source! module source))
+        directory (.getParentFile materialized)
+        basename (str/replace (last (str/split module #"\.")) "-" "_")
+        source-file (io/file directory (str basename ".zig"))
+        token (subs (sha256 [source runner compiler-options]) 0 24)
+        runner-file (io/file directory (str "jvm_test_runner_" token ".zig"))
+        bitcode-file (io/file directory (str "test_" token ".bc"))
+        library-file (io/file directory (System/mapLibraryName (str "test_" token)))
+        selector (str basename ".test." (:test-name selected))
+        ;; `zig test` supplies builtin.is_test and real test discovery. Emit
+        ;; code only, then link a library: neither command executes the test.
+        compile-command
+        (vec (concat [(:zig compiler-options) "test" "--test-filter" selector
+                      "--test-no-exec" "--test-runner" (.getAbsolutePath runner-file)
+                      "-fno-entry" "-fPIC" "-fllvm" "-fno-emit-bin"
+                      (str "-femit-llvm-bc=" (.getAbsolutePath bitcode-file)) "-lc"]
+                     (root-module-arguments source-file compiler-options)))
+        link-command
+        (vec (concat [(:zig compiler-options) "build-lib" (.getAbsolutePath bitcode-file)
+                      "-dynamic" "-lc"
+                      (str "-femit-bin=" (.getAbsolutePath library-file))]
+                     (when-let [target (:target compiler-options)] ["-target" (str target)])
+                     (when-let [cpu (:cpu compiler-options)] ["-mcpu" (str cpu)])))
+        details {:module module :test test-name :test-name (:test-name selected)
+                 :source-path (.getAbsolutePath source-file)
+                 :library-path (.getAbsolutePath library-file)
+                 :dependencies dependencies :execution :in-process
+                 :command compile-command :link-command link-command}]
+    (locking compile-lock
+      (doseq [[file text] [[source-file source] [runner-file runner]]]
+        (when-not (.isFile ^File file)
+          (Files/writeString (.toPath ^File file) text StandardCharsets/UTF_8
+                             (make-array StandardOpenOption 0))))
+      (when-not (usable-artifact? library-file)
+        (doseq [command [compile-command link-command]]
+          (let [result (run-command command (.getAbsolutePath directory))]
+            (when-not (zero? (:exit result))
+              (let [{:keys [message diagnostics]}
+                    (pretty-zig-error module source (.getAbsolutePath source-file)
+                                      command (:err result))]
+                (throw (ex-info message
+                                (assoc details :aguafria/phase :zig-test
+                                       :status :failed :command command
+                                       :exit (:exit result) :stdout (:out result)
+                                       :stderr (:err result) :diagnostics diagnostics)))))))))
+    details))
 
-  Root siblings and top-level tests in registered dependencies are excluded
-  from this invocation's immutable sources. A fully qualified native_test.test
-  filter additionally excludes normally named nested/imported tests. The
-  original label and the default Zig runner's output are preserved verbatim.
-  Returns a compact success summary (full execution details are in metadata),
-  or throws ExceptionInfo with native diagnostics."
+(defn run-test!
+  "Call one registered Zig test inside this JVM through Panama.
+
+  The embedded compiler builds a test-mode shared library; no test executable
+  or child runner is launched. Sibling tests are excluded. Returns a passed or
+  skipped summary, or throws for compiler/test failures and allocator leaks.
+  Deliberate panics and process.exit retain native process semantics."
   [module test-name]
   (let [module (str module)
-        {:keys [selected source dependencies compiler-options]}
-        (native-test-snapshot module test-name)
-        source-file (locking compile-lock
-                      (let [materialized (io/file (materialize-module-source! module source))
-                            file (io/file (.getParentFile materialized) "native_test.zig")]
-                        (when-not (.isFile file)
-                          (Files/writeString (.toPath file) source StandardCharsets/UTF_8
-                                             (into-array StandardOpenOption
-                                                         [StandardOpenOption/CREATE_NEW
-                                                          StandardOpenOption/WRITE])))
-                        file))
-        selector (str "native_test.test." (:test-name selected))
-        command (vec (concat [(:zig compiler-options) "test" "--test-filter" selector]
-                             (root-module-arguments source-file compiler-options)))
         started-at (System/currentTimeMillis)
-        result (run-command command (.getAbsolutePath (.getParentFile source-file)))
-        details {:module module :test test-name :test-name (:test-name selected)
-                 :exit (:exit result) :command command
-                 :source-path (.getAbsolutePath source-file)
-                 :dependencies dependencies
-                 :stdout (:out result) :stderr (:err result)
-                 :duration-ms (- (System/currentTimeMillis) started-at)}]
-    (when (seq (:out result))
-      (print (:out result))
-      (flush))
-    (when (seq (:err result))
-      (binding [*out* *err*]
-        (print (:err result))
-        (flush)))
-    (if (zero? (:exit result))
+        artifact (native-test-library! module test-name)
+        stdout (java.io.StringWriter.)
+        stderr (java.io.StringWriter.)
+        status
+        (binding [*out* stdout *err* stderr]
+          ((requiring-resolve 'aguafria.zig.jvm/call-with-output)
+           (fn []
+             (with-open [arena (Arena/ofConfined)]
+               (let [lookup (SymbolLookup/libraryLookup (:library-path artifact) arena)
+                     address (.orElseThrow (.find lookup "aguafria_run_test"))
+                     function (.downcallHandle (Linker/nativeLinker) address
+                                               (FunctionDescriptor/of ValueLayout/JAVA_INT
+                                                                      (make-array MemoryLayout 0))
+                                               (make-array Linker$Option 0))]
+                 (.invokeWithArguments function (ArrayList.)))))))
+        details (assoc artifact :exit (if (= 1 status) 1 0)
+                       :stdout (str stdout) :stderr (str stderr)
+                       :duration-ms (- (System/currentTimeMillis) started-at))]
+    (print (str stdout))
+    (flush)
+    (binding [*out* *err*] (print (str stderr)) (flush))
+    (if (= 1 status)
+      (throw (ex-info (str "Native Zig test " module "/" test-name " failed\n\n" stderr)
+                      (assoc details :status :failed :aguafria/phase :zig-test)))
       (with-meta {:test (symbol module (str test-name))
-                  :status :passed :exit 0 :duration-ms (:duration-ms details)}
-        {:aguafria/test-result details})
-      (let [{:keys [message diagnostics]}
-            (pretty-zig-error module source (.getAbsolutePath source-file)
-                              command (:err result))]
-        (throw (ex-info
-                 (str "Native Zig test " module "/" test-name " failed\n\n"
-                      (if (seq diagnostics)
-                        message
-                        (str (:out result) (:err result))))
-                 (assoc details :status :failed
-                                :aguafria/phase :zig-test
-                                :diagnostics diagnostics)))))))
+                  :status (if (= 2 status) :skipped :passed)
+                  :exit 0 :duration-ms (:duration-ms details)}
+        {:aguafria/test-result details}))))
 
 (defn- dispatch-version-views
   [module-state]
@@ -10654,7 +10719,7 @@
 
 (defn- coerce-argument
   [type value]
-  (case type
+  (case (scalar-key type)
     :bool
     (if (instance? Boolean value)
       (byte (if value 1 0))
@@ -10677,7 +10742,7 @@
 
 (defn- coerce-result
   [type value]
-  (case type
+  (case (scalar-key type)
     :void nil
     :bool (not (zero? (long value)))
     :u8 (bit-and 0xff (long value))
@@ -11071,7 +11136,9 @@
                                               address-getter-handle
                                               (ArrayList.)))
                   segment (.reinterpret (MemorySegment/ofAddress address) size)]
-              {:name (keyword (str (or (:zig-name member) (:name member))))
+              {:name (keyword (if-let [spelling (:zig-name member)]
+                                (unquote-zig-identifier spelling)
+                                (name (:name member))))
                :bytes (vec (.toArray segment ValueLayout/JAVA_BYTE))}))
           enum-member-bindings)}))))
 
@@ -11773,6 +11840,23 @@
          :generation (or (:wrapper-generation owner-binding) generation)
          :close! close!}))))
 
+(declare start-process-main! await-host!)
+
+(defn- process-entry-call?
+  [declaration arguments]
+  (and (= 'main (:name declaration))
+       (:public? declaration)
+       (not (:export? declaration))
+       (= 1 (count (:args declaration)))
+       (= :void (emit/inferred-error-payload (:return declaration)))
+       (contains? #{"@import(\"std\").process.Init"
+                    "@import(\"std\").process.Init.Minimal"}
+                  (emit/emit-type (:type (first (:args declaration)))))
+       (or (empty? arguments)
+           (and (= 1 (count arguments))
+                (vector? (first arguments))
+                (every? string? (first arguments))))))
+
 (defn- invoke-uncaptured!
   "Invoke the latest loaded generation of a scalar Zig Var. Non-exported
   declarations receive a cached development-only trampoline on first call."
@@ -11786,8 +11870,17 @@
           (current-function-declaration (get @registry module)
                                         qualified-name))
         generic? (some generic-function-argument? (:args declaration))]
-    (if generic?
+    (cond
+      (process-entry-call? declaration arguments)
+      (let [result (await-host! (start-process-main! function (or (first arguments) [])))]
+        (when-not (zero? (:exit-code result))
+          (throw (ex-info "Native main returned an error" result)))
+        nil)
+
+      generic?
       ((requiring-resolve 'aguafria.zig.jvm/invoke-generic!) declaration arguments)
+
+      :else
       (let [_ (materialize-jvm-callable! qualified-name)
             _ (doseq [zig-type (concat (map :type (:args declaration))
                                       [(:return declaration)])
@@ -11839,27 +11932,29 @@
        "    const environ: std.process.Environ.Block = .{\n"
        "        .slice = env_pointer[0..envc :null],\n"
        "    };\n"
-       "    const gpa = std.heap.smp_allocator;\n\n"
-       "    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);\n"
-       "    defer arena_allocator.deinit();\n\n"
-       "    var threaded: std.Io.Threaded = .init(gpa, .{\n"
-       "        .argv0 = .init(.{ .vector = args }),\n"
-       "        .environ = .{ .block = environ },\n"
-       "    });\n"
-       "    defer threaded.deinit();\n\n"
-       "    var environ_map = std.process.Environ.createMap(\n"
-       "        .{ .block = environ }, gpa,\n"
-       "    ) catch |err| {\n"
-       "        std.log.err(\"failed to parse environment variables: {t}\", .{err});\n"
-       "        return 1;\n"
-       "    };\n"
-       "    defer environ_map.deinit();\n\n"
-       "    const preopens = std.process.Preopens.init(\n"
-       "        arena_allocator.allocator(),\n"
-       "    ) catch |err| {\n"
-       "        std.log.err(\"failed to initialize process preopens: {t}\", .{err});\n"
-       "        return 1;\n"
-       "    };\n\n"
+       (when-not minimal-init?
+         (str
+          "    const gpa = std.heap.smp_allocator;\n\n"
+          "    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);\n"
+          "    defer arena_allocator.deinit();\n\n"
+          "    var threaded: std.Io.Threaded = .init(gpa, .{\n"
+          "        .argv0 = .init(.{ .vector = args }),\n"
+          "        .environ = .{ .block = environ },\n"
+          "    });\n"
+          "    defer threaded.deinit();\n\n"
+          "    var environ_map = std.process.Environ.createMap(\n"
+          "        .{ .block = environ }, gpa,\n"
+          "    ) catch |err| {\n"
+          "        std.log.err(\"failed to parse environment variables: {t}\", .{err});\n"
+          "        return 1;\n"
+          "    };\n"
+          "    defer environ_map.deinit();\n\n"
+          "    const preopens = std.process.Preopens.init(\n"
+          "        arena_allocator.allocator(),\n"
+          "    ) catch |err| {\n"
+          "        std.log.err(\"failed to initialize process preopens: {t}\", .{err});\n"
+          "        return 1;\n"
+          "    };\n\n"))
        "    _ = application." entry-name
        (if minimal-init? "(.{\n" "(.{\n        .minimal = .{\n")
        (when-not minimal-init?

@@ -11,3 +11,6 @@
 
 (az/deftest runtime-type-is-not-comptime-test
   (choose-runtime-type false))
+
+(comment
+  (runtime-type-is-not-comptime-test))

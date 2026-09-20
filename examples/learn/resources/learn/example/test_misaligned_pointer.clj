@@ -14,3 +14,6 @@
   ;; Intentionally rejected: a packed-field pointer carries bit-offset metadata
   ;; that an ordinary *const u3 parameter cannot represent.
   (try (testing/expectEqual 2 (read-three-bits (& (az/field bits :b))))))
+
+(comment
+  (pointer-to-non-byte-aligned-field-test))

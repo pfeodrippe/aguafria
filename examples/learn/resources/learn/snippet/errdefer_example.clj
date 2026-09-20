@@ -13,3 +13,7 @@
       (when (> parameter 1337)
         (ak/return (az/error-value :InvalidParam)))
       foo)))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

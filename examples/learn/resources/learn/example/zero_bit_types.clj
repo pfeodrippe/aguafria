@@ -6,3 +6,6 @@
         ^{:var :void} second-value (az/block)]
     (set! first-value second-value)
     (set! second-value first-value)))
+
+(comment
+  (entry))

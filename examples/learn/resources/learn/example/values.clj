@@ -43,3 +43,6 @@
     (set! number-or-error 1234)
     (debug/print "\nerror union 2\ntype: {}\nvalue: {!}\n"
       [(ak/TypeOf number-or-error) number-or-error])))
+
+(comment
+  (main))

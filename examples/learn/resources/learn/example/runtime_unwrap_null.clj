@@ -8,3 +8,7 @@
     (set! _ (ak/& optional-number))
     (let [number (az/unwrap optional-number)]
       (debug/print "value: {}\n" [number]))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

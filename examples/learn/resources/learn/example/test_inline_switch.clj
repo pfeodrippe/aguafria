@@ -34,3 +34,6 @@
     (case [1] true)
     (az/case-else
       (ak/return (az/error-value :IndexOutOfBounds)))))
+
+(comment
+  (runtime-index-type-info-test))

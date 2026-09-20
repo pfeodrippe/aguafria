@@ -14,3 +14,6 @@
 (az/defn main :void []
   (let [^:var value (az/init Value {:int 42})]
     (change-to-float (& value))))
+
+(comment
+  (main))

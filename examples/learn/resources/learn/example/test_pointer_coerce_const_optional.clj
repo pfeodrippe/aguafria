@@ -11,3 +11,6 @@
     (try (testing/expectEqualStrings
            "window name"
            (mem/span (az/unwrap (az/index optional-names 0)))))))
+
+(comment
+  (optional-sentinel-pointer-coercion-test))

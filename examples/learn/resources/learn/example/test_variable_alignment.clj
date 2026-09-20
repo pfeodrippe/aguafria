@@ -12,3 +12,6 @@
     (let [^{:zig/type [:pointer {:size :one :align (ak/alignOf (az/type :i32))} :i32]}
           pointer (& value)]
       (try (testing/expectEqual 1234 @pointer)))))
+
+(comment
+  (variable-alignment-test))

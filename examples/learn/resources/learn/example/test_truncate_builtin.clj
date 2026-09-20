@@ -7,3 +7,6 @@
   (let [^{:zig/type :u16} a 0xabcd
         ^{:zig/type :u8} b (ak/truncate a)]
     (try (testing/expectEqual 0xcd b))))
+
+(comment
+  (integer-truncation-test))

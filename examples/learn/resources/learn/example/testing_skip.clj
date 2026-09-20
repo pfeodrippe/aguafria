@@ -4,3 +4,6 @@
 
 (az/deftest skipped-test
   (ak/return (az/error-value :SkipZigTest)))
+
+(comment
+  (skipped-test))

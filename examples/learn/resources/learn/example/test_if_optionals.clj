@@ -66,3 +66,7 @@
     (az/if-capture-stmt {:payload [optional-value] :error [_]} result
       (try (testing/expectEqual 9 (az/unwrap optional-value)))
       (ak/unreachable))))
+
+(comment
+  (if-optional-test)
+  (if-error-union-optional-test))

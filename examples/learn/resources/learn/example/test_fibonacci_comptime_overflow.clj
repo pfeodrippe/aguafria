@@ -9,3 +9,6 @@
 
 (az/deftest fibonacci-overflow-test
   (try (ak/comptime (testing/expectEqual 13 (fibonacci 7)))))
+
+(comment
+  (fibonacci-overflow-test))

@@ -22,3 +22,6 @@
     (try (testing/expect ((az/field integer :truthy))))
     (try (testing/expect (ak/! ((az/field boolean :truthy)))))
     (try (testing/expect (ak/! ((az/field empty :truthy)))))))
+
+(comment
+  (union-method-test))

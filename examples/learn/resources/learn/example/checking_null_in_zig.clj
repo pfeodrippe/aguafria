@@ -14,3 +14,7 @@
     (do-something-with-foo foo))
   ;; Do some stuff.
   )
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

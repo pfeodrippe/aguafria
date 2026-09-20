@@ -8,3 +8,7 @@
     ;; Intentionally panics: bytes[length] is 1, not the promised zero sentinel.
     (let [slice (az/slice-sentinel bytes 0 length 0)]
       (set! _ slice))))
+
+(comment
+  ;; This deliberately panics and can terminate this JVM.
+  (sentinel-mismatch-test))

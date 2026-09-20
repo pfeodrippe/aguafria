@@ -11,3 +11,6 @@
 (az/defn- test-build? :bool
   []
   (az/field builtin :is_test))
+
+(comment
+  (detect-test-build-test))

@@ -5,3 +5,6 @@
   {:attrs #{:export}}
   [[a :i32] [b :i32]]
   (+ a b))
+
+(comment
+  (add 12 34))

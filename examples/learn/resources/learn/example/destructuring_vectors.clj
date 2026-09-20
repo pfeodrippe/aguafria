@@ -14,3 +14,6 @@
   (let [^{:zig/type [:vector 4 :f32]} left [1.0 2.0 3.0 4.0]
         ^{:zig/type [:vector 4 :f32]} right [5.0 6.0 7.0 8.0]]
     (debug/print "{}" [(unpack left right)])))
+
+(comment
+  (main))

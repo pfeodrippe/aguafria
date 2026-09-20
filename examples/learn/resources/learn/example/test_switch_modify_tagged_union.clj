@@ -21,3 +21,6 @@
           (ak/+= @value 1)))
       (case [(az/field ResultTag :not_ok)] (ak/unreachable)))
     (try (testing/expectEqual 43 (az/field result :ok)))))
+
+(comment
+  (mutate-tagged-payload-test))

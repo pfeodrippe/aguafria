@@ -17,3 +17,6 @@
 
   ;; test fibonacci at compile-time
   (try (ak/comptime (testing/expectEqual 13 (fibonacci 7)))))
+
+(comment
+  (fibonacci-test))

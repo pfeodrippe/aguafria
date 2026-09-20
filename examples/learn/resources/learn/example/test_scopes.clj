@@ -6,3 +6,6 @@
     (set! _ pi))
   (let [^{:var :bool} pi true]
     (set! _ (& pi))))
+
+(comment
+  (separate-scopes-test))

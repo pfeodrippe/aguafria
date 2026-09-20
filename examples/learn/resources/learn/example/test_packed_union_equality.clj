@@ -9,3 +9,6 @@
         ^{:zig/type Nibble} unsigned {:a 3}
         ^{:zig/type Nibble} signed {:b 3}]
     (try (testing/expectEqual unsigned signed))))
+
+(comment
+  (packed-union-equality-test))

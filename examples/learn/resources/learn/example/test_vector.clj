@@ -35,3 +35,7 @@
         (try (testing/expectEqual (az/index slice offset) (az/index fixed-vector 0)))
         (try (testing/expectEqual (az/index slice (+ offset 1)) (az/index fixed-vector 1)))
         (try (testing/expectEqual fixed-vector offset-vector))))))
+
+(comment
+  (basic-vector-test)
+  (vector-array-slice-conversion-test))

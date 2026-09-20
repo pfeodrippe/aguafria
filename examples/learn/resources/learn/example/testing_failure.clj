@@ -7,3 +7,7 @@
 
 (az/deftest passing-expectation-test
   (try (testing/expect true)))
+
+(comment
+  (failing-expectation-test)
+  (passing-expectation-test))

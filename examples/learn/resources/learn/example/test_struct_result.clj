@@ -9,3 +9,6 @@
   (let [^{:zig/type Point} point {:x 13 :y 67}]
     (try (testing/expectEqual 13 (az/field point :x)))
     (try (testing/expectEqual 67 (az/field point :y)))))
+
+(comment
+  (anonymous-struct-literal-test))

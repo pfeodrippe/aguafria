@@ -34,3 +34,7 @@
           (try (testing/expectEqual 3 (az/index element-pointer 0)))
           (try (testing/expectEqual (az/type [:* [:array 1 :u8]])
                                     (ak/TypeOf element-pointer))))))))
+
+(comment
+  (string-slices-test)
+  (slice-pointer-test))

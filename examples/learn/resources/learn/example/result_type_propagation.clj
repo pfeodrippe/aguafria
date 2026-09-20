@@ -12,3 +12,6 @@
     ;; intCast's result type is u32 because that is the type of S.x.
     ;; value has no result type: the cast accepts any integer type.
     (try (testing/expectEqual (ak/as :u32 123) (az/field result :x)))))
+
+(comment
+  (struct-initializer-result-type-test))

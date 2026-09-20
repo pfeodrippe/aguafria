@@ -9,3 +9,6 @@
   (for [[preopen ((az/field (az/field (az/field init :preopens) :map) :keys))]
         [index (az/op ".." 0)]]
     (log/info "{d}: {s}" [index preopen])))
+
+(comment
+  (main))

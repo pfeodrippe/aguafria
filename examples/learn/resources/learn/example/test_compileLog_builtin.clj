@@ -12,3 +12,6 @@
 (az/deftest compile-log-test
   (ak/compileLog "comptime in main")
   (debug/print "Runtime in main, num1 = {}.\n" [number]))
+
+(comment
+  (compile-log-test))

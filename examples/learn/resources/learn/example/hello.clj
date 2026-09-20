@@ -10,3 +10,6 @@
         (std-file/stdout)
         (az/field process-init :io)
         "Hello, World!\n")))
+
+(comment
+  (main))

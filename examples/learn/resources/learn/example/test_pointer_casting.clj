@@ -21,3 +21,7 @@
          (-> (ak/typeInfo (az/type [:* :u32]))
              (az/field :pointer)
              (az/field :child)))))
+
+(comment
+  (pointer-casting-test)
+  (pointer-child-type-test))

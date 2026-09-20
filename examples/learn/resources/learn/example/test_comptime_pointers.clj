@@ -10,3 +10,6 @@
       (ak/+= @pointer 1)
       (ak/+= value 1)
       (try (testing/expectEqual 3 @pointer)))))
+
+(comment
+  (comptime-pointers-test))

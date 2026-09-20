@@ -11,3 +11,6 @@
   (let [^{:zig/type Foo} value {:b 5}]
     (when (!= (+ (az/field value :a) (az/field value :b)) 1239)
       (az/comptime-stmt (ak/unreachable)))))
+
+(comment
+  (default-fields-test))

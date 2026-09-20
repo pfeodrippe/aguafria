@@ -12,3 +12,6 @@
 (az/deftest pass-struct-to-function-test
   (let [point (Point {:x 1 :y 2})]
     (try (testing/expectEqual 3 (sum-coordinates point)))))
+
+(comment
+  (pass-struct-to-function-test))

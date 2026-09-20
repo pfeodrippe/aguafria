@@ -18,3 +18,7 @@
       (< (* i j) 2000)
       (let [my-ij (* i j)]
         (try (testing/expect (< my-ij 2000)))))))
+
+(comment
+  (continue-expression-test)
+  (compound-continue-expression-test))

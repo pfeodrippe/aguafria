@@ -16,3 +16,6 @@
            (testing/expectEqual :anyerror
              (az/field (az/field (ak/typeInfo (ak/TypeOf result)) :error_union)
                        :error_set))))))
+
+(comment
+  (error-union-test))

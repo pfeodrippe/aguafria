@@ -25,3 +25,6 @@
       (debug/print "0x{x}\n" [(az/index invalid-utf8 1)])
       ;; ...including part-way through a non-ASCII character.
       (debug/print "0x{x}\n" [(az/index "💯" 1)]))))
+
+(comment
+  (main))

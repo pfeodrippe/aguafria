@@ -8,3 +8,7 @@
 (az/defcomptime reject-unexpected-error
   (let [number (catch (number-or-error) (ak/unreachable))]
     (set! _ number)))
+
+(comment
+  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
+  )

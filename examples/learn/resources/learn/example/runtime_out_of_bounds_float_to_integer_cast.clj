@@ -7,3 +7,7 @@
     (set! _ (ak/& float-value))
     (let [^{:zig/type :i32} integer-value (ak/intFromFloat float-value)]
       (set! _ integer-value))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

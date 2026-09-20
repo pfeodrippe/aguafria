@@ -10,3 +10,6 @@
   (let [^{:zig/type Tuple} tuple [5 6]
         ^{:zig/type [:array 2 :u8]} array tuple]
     (set! _ array)))
+
+(comment
+  (homogeneous-tuple-to-array-test))

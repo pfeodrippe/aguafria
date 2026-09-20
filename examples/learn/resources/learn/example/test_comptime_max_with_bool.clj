@@ -10,3 +10,6 @@
 
 (az/deftest boolean-maximum-test
   (try (testing/expectEqual true (maximum :bool false true))))
+
+(comment
+  (boolean-maximum-test))

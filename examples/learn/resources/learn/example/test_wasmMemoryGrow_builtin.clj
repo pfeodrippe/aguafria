@@ -15,3 +15,6 @@
   (let [previous-pages (ak/wasmMemorySize 0)]
     (try (testing/expectEqual (ak/wasmMemoryGrow 0 1) previous-pages))
     (try (testing/expectEqual (ak/wasmMemorySize 0) (+ previous-pages 1)))))
+
+(comment
+  (wasm-memory-growth-test))

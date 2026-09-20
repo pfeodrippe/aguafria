@@ -9,3 +9,7 @@
 (az/defcomptime reject-inactive-field
   (let [^:var value (az/init Foo {:int 42})]
     (set! (az/field value :float) 12.34)))
+
+(comment
+  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
+  )

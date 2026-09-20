@@ -21,3 +21,6 @@
       (ak/return))
 
     (az/case-else (ak/unreachable))))
+
+(comment
+  (switch-continue-test))

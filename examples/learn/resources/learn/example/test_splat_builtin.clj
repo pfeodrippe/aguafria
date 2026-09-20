@@ -18,3 +18,7 @@
            (az/type :u32)
            (& (az/array-init [:array _ :u32] [5 5 5 5]))
            (& (ak/as (az/type [:array 4 :u32]) repeated))))))
+
+(comment
+  (vector-splat-test)
+  (array-splat-test))

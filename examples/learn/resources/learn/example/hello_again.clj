@@ -5,3 +5,6 @@
 (az/defn main :void
   []
   (debug/print "Hello, {s}!\n" ["World"]))
+
+(comment
+  (main))

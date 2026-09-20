@@ -7,3 +7,7 @@
 (az/defn main :void []
   (let [byte (sixth-byte "hello")]
     (set! _ byte)))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

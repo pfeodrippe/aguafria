@@ -20,3 +20,6 @@
                    (case [:.one] true)
                    (az/case-else false))]
       (try (testing/expect is-one)))))
+
+(comment
+  (non-exhaustive-enum-test))

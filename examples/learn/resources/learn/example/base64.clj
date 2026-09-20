@@ -15,3 +15,10 @@
     (catch ((az/field decoder :decode) (az/slice output 0 decoded-length) input)
       (ak/unreachable))
     decoded-length))
+
+(comment
+  (with-open [arena (java.lang.foreign.Arena/ofConfined)]
+    (let [source (.allocateFrom arena "SGVsbG8=")
+          destination (.allocate arena 6)]
+      (decode-base-64 destination 6 source 8)
+      (.getString destination 0))))

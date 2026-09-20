@@ -36,3 +36,6 @@
 (az/deftest stack-machine-test
   (let [result (try (evaluate (ak/& [7 2 -3]) (ak/& [:.mul :.add :.end])))]
     (try (testing/expectEqual 1 result))))
+
+(comment
+  (stack-machine-test))

@@ -16,3 +16,6 @@
                       :float (ak/as (az/type :f64) 12.34)
                       :b true
                       :s "hi"})))
+
+(comment
+  (fully-anonymous-struct-test))

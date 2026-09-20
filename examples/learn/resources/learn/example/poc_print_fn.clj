@@ -79,3 +79,7 @@
     (az/fn-decl flush :- [:error-union :void]
       [[self [:* Writer]]]
       (set! _ self))))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

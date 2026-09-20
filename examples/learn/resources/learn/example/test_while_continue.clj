@@ -11,3 +11,6 @@
         (ak/continue))
       (ak/break))
     (try (testing/expectEqual 10 i))))
+
+(comment
+  (while-continue-test))

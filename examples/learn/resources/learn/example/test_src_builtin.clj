@@ -20,3 +20,6 @@
 
 (az/deftest source-location-test
   (try (doTheTest)))
+
+(comment
+  (source-location-test))

@@ -11,3 +11,7 @@
       ;; Handle overflow here.
       (case [(az/error-value :Overflow)] (az/block))
       (az/case-else [remaining-error] (ak/return remaining-error)))))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

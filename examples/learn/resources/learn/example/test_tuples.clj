@@ -15,3 +15,6 @@
       (try (testing/expect value)))
     (try (testing/expectEqual 6 (az/field values :len)))
     (try (testing/expectEqual \h (az/index (az/field values :3) 0)))))
+
+(comment
+  (tuple-test))

@@ -8,3 +8,7 @@
         ^{:zig/type :u32} denominator 3
         quotient (ak/divExact numerator denominator)]
     (set! _ quotient)))
+
+(comment
+  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
+  )

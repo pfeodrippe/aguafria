@@ -10,3 +10,6 @@
     ;; Copying to an ordinary array drops the type's sentinel guarantee.
     ;; Intentionally rejected: printf requires a zero-terminated pointer.
     (set! _ (c/printf (& bytes)))))
+
+(comment
+  (main))

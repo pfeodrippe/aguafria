@@ -9,3 +9,6 @@
     ;; Intentionally missing (defer ((az/field list :deinit) allocator)).
     (try ((az/field list :append) allocator \☔))
     (try (testing/expectEqual 1 (az/field (az/field list :items) :len)))))
+
+(comment
+  (detect-leak-test))

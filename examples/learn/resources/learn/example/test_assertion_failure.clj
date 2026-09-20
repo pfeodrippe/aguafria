@@ -12,3 +12,7 @@
 ;; This test will fail because we hit unreachable.
 (az/deftest assertion-failure-test
   (assert false))
+
+(comment
+  ;; This deliberately panics and can terminate this JVM.
+  (assertion-failure-test))

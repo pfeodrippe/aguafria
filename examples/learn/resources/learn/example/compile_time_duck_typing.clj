@@ -10,3 +10,7 @@
 
 (az/defn- bigger-integer :u64 [[left :u64] [right :u64]]
   (maximum :u64 left right))
+
+(comment
+  (bigger-float 1.5 2.5)
+  (bigger-integer 12 34))

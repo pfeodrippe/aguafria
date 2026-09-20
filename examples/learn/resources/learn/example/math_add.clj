@@ -14,3 +14,7 @@
           (debug/print "unable to add one: {s}\n" [(ak/errorName error)])
           (ak/return error))))
     (debug/print "result: {}\n" [byte])))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

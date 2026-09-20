@@ -13,3 +13,6 @@
 
 (az/deftest call-foo-test
   (foo ak/undefined))
+
+(comment
+  (call-foo-test))

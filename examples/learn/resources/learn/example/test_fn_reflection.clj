@@ -13,3 +13,6 @@
     (try (testing/expectEqual testing/TmpDir
                               (az/unwrap (az/field tmp-dir-signature :return_type))))
     (try (testing/expect (az/field log2-signature :is_generic)))))
+
+(comment
+  (function-reflection-test))

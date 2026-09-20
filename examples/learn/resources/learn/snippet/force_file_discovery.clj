@@ -16,3 +16,7 @@
     (set! _ (ak/import "tests.zig"))
     (when (== builtin/os-tag :.windows)
       (set! _ (ak/import "windows_tests.zig")))))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

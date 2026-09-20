@@ -23,3 +23,6 @@
         (case [1]
           (ak/return))
         (az/case-else (ak/unreachable))))))
+
+(comment
+  (switch-continue-loop-test))

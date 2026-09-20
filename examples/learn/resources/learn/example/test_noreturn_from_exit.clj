@@ -22,3 +22,6 @@
   ;; A noreturn handler coerces to any payload type because it never returns.
   (let [number (catch (successful-number) (ExitProcess 1))]
     (try (testing/expectEqual 1234 number))))
+
+(comment
+  (noreturn-fallback-test))

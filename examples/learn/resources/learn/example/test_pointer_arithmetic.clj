@@ -27,3 +27,7 @@
       ;; Deliberately inconsistent: moving ptr does not update len.
       (try (testing/expectEqual 2 (az/index slice 0)))
       (try (testing/expectEqual 4 (az/field slice :len))))))
+
+(comment
+  (many-item-arithmetic-test)
+  (slice-arithmetic-test))

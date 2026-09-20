@@ -30,3 +30,6 @@
 (az/deftest parse-u64-test
   (let [number (try (parseU64 "1234" 10))]
     (try (testing/expectEqual 1234 number))))
+
+(comment
+  (parse-u64-test))

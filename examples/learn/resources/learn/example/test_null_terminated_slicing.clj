@@ -11,3 +11,6 @@
       (try (testing/expectEqual (az/type [:pointer {:size :slice :sentinel 0} :u8])
                                 (ak/TypeOf slice)))
       (try (testing/expectEqual 3 (az/field slice :len))))))
+
+(comment
+  (sentinel-slicing-test))

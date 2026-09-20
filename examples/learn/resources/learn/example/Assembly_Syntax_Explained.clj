@@ -19,3 +19,7 @@
      ;; The kernel overwrites these registers. Inputs/outputs are not clobbers.
      ;; A :memory clobber would also declare arbitrary undeclared memory writes.
      :clobbers {:rcx true :r11 true}}))
+
+(comment
+  ;; Linux x86-64 syscall illustration; not callable on other hosts.
+  )

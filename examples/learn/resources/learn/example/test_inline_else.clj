@@ -44,3 +44,6 @@
   (let [any-slice (az/init AnySlice {:c "hello"})]
     (try (testing/expectEqual 5 (with-for any-slice)))
     (try (testing/expectEqual 5 (with-switch any-slice)))))
+
+(comment
+  (inline-for-and-else-test))

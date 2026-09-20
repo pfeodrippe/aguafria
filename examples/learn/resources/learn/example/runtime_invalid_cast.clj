@@ -8,3 +8,7 @@
     (set! _ (ak/& signed-value))
     (let [^{:zig/type :u32} unsigned-value (ak/intCast signed-value)]
       (debug/print "value: {}\n" [unsigned-value]))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

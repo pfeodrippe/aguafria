@@ -9,3 +9,7 @@
       (az/inline-case [(az/op "..." 0 (- (az/field fields :len) 1))] [index]
         (== (ak/typeInfo (az/field (az/index fields index) :type)) :.optional))
       (az/case-else (ak/return (az/error-value :IndexOutOfBounds))))))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

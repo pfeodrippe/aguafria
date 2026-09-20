@@ -13,3 +13,6 @@
 (az/defn- get-number-or-fail :!i32
   []
   (az/error-value :UnableToReturnNumber))
+
+(comment
+  (main))

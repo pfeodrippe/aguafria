@@ -11,3 +11,7 @@
       ;; A nested scope can override the setting again.
       (az/block
         (ak/setRuntimeSafety false)))))
+
+(comment
+  ;; This deliberately panics and can terminate this JVM.
+  (scope-local-runtime-safety-test))

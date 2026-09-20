@@ -17,3 +17,6 @@
     (set! value (az/init Value {:float ak/undefined}))
     (initialize-float (& value))
     (debug/print "value: {}\n" [(az/field value :float)])))
+
+(comment
+  (main))

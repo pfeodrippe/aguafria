@@ -8,3 +8,6 @@
 
 (az/defn main :void []
   (debug/print format [text number]))
+
+(comment
+  (main))

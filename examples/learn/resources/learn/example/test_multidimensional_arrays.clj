@@ -21,3 +21,6 @@
   (let [^{:zig/type [:array 4 [:array 5 :f32]]}
         zeroes (az/op "**" [(az/op "**" [0] 5)] 4)]
     (try (testing/expectEqual 0 (az/index (az/index zeroes 0) 0)))))
+
+(comment
+  (multidimensional-arrays-test))

@@ -19,3 +19,6 @@
   ;; @hasDecl is for declarations, not fields.
   (try (testing/expect (ak/! (ak/hasDecl Foo "nope"))))
   (try (testing/expect (ak/! (ak/hasDecl Foo "nope1234")))))
+
+(comment
+  (declaration-presence-test))

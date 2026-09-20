@@ -9,3 +9,7 @@
     (set! _ [(ak/& numerator) (ak/& denominator)])
     (let [remainder (ak/% numerator denominator)]
       (debug/print "value: {}\n" [remainder]))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

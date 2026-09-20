@@ -29,3 +29,7 @@
 
 (az/deftest tag-type-test
   (try (testing/expectEqual ResultTag (meta/Tag Result))))
+
+(comment
+  (tagged-union-switch-test)
+  (tag-type-test))

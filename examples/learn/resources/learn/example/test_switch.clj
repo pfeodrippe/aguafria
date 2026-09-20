@@ -38,3 +38,7 @@
   (az/switch-stmt target-os
     (case [:.fuchsia] (do (ak/compileError "fuchsia not supported")))
     (az/case-else (do))))
+
+(comment
+  (switch-simple-test)
+  (switch-inside-function-test))

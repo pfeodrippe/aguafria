@@ -12,3 +12,6 @@
     (az/switch-stmt color
       (case [(az/field Color :auto)] (az/block))
       (case [(az/field Color :on)] (az/block)))))
+
+(comment
+  (missing-enum-prong-test))

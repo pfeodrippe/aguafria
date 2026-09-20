@@ -12,3 +12,6 @@
 (az/defn main :void []
   (when (ak/!= (add-at-callsite 1200 34) 1234)
     (ak/compileError "bad")))
+
+(comment
+  (main))

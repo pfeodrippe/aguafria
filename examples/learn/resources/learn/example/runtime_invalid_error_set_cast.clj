@@ -12,3 +12,7 @@
 
 (az/defn main :void []
   (cast-error (az/field Set1 :B)))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

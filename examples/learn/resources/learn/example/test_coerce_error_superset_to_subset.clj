@@ -14,3 +14,6 @@
 
 (az/deftest superset-to-subset-test
   (catch (narrow-error (az/field FileOpenError :OutOfMemory)) (az/block)))
+
+(comment
+  (superset-to-subset-test))

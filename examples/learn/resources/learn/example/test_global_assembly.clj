@@ -18,3 +18,6 @@
 
 (az/deftest global-assembly-test
   (try (testing/expectEqual 46 (my-func 12 34))))
+
+(comment
+  (global-assembly-test))

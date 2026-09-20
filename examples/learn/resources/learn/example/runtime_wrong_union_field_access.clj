@@ -15,3 +15,7 @@
 (az/defn main :void []
   (let [^:var value (az/init Foo {:int 42})]
     (overwrite-inactive-field (ak/& value))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

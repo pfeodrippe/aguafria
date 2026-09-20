@@ -12,3 +12,6 @@
 (az/defn- add :i32
   [[a :i32] [b :i32]]
   (+ a b))
+
+(comment
+  (container-level-variables-test))

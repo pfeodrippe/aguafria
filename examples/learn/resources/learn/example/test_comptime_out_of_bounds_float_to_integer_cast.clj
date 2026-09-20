@@ -6,3 +6,7 @@
   (let [^{:zig/type :f32} float-value 4294967296
         ^{:zig/type :i32} integer-value (ak/intFromFloat float-value)]
     (set! _ integer-value)))
+
+(comment
+  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
+  )

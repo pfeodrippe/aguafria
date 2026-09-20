@@ -55,11 +55,15 @@ document.querySelectorAll(".learn-example").forEach(example => {
   const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
   tablist.hidden = false;
   function select(tab, focus = false) {
+    const visiblePanels = tab.getAttribute("aria-controls").split(" ");
+    example.classList.toggle("learn-side-by-side", visiblePanels.length === 2);
     tabs.forEach(candidate => {
       const selected = candidate === tab;
       candidate.setAttribute("aria-selected", String(selected));
       candidate.tabIndex = selected ? 0 : -1;
-      document.getElementById(candidate.getAttribute("aria-controls")).hidden = !selected;
+    });
+    example.querySelectorAll('[role="tabpanel"]').forEach(panel => {
+      panel.hidden = !visiblePanels.includes(panel.id);
     });
     if (focus) tab.focus();
   }

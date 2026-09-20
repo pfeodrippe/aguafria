@@ -10,3 +10,6 @@
         ^{:zig/type [:pointer {:size :one :align 4} PackedWords]} pointer (& words)
         second-word (& (az/field pointer :b))]
     (try (testing/expectEqual 2 @second-word))))
+
+(comment
+  (overaligned-pointer-to-packed-struct-test))

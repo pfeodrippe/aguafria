@@ -8,3 +8,6 @@
   (let [^{:var :i32} value ak/undefined]
     (set! value 1)
     (debug/print "{d}" [value])))
+
+(comment
+  (main))

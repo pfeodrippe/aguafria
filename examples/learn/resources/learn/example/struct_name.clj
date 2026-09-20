@@ -13,3 +13,6 @@
     (debug/print "anonymous: {s}\n"
                  [(ak/typeName (az/container {:kind :struct}))])
     (debug/print "function: {s}\n" [(ak/typeName (List (az/type :i32)))])))
+
+(comment
+  (main))

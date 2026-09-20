@@ -7,3 +7,6 @@
 
 (az/deftest string-to-const-slice-test
   (accept-string "hello"))
+
+(comment
+  (string-to-const-slice-test))

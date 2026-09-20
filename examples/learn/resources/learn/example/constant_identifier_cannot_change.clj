@@ -14,3 +14,6 @@
 (az/defn main :void
   []
   (change-constant))
+
+(comment
+  (main))

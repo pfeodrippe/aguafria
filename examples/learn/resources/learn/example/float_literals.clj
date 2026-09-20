@@ -14,3 +14,7 @@
 (az/defconst lightspeed (az/number-literal "299_792_458.000_000"))
 (az/defconst nanosecond (az/number-literal "0.000_000_001"))
 (az/defconst more-hex (az/number-literal "0x1234_5678.9ABC_CDEFp-10"))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

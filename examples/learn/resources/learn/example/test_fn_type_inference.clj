@@ -13,3 +13,6 @@
   (let [^{:zig/type :i64} y 2]
     (try (testing/expectEqual 44 (add-forty-two y)))
     (try (testing/expectEqual :i64 (ak/TypeOf (add-forty-two y))))))
+
+(comment
+  (function-type-inference-test))

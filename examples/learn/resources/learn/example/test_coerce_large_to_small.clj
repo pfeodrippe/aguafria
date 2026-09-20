@@ -7,3 +7,6 @@
   (let [^{:zig/type :u64} wide 255
         ^{:zig/type :u8} narrow wide]
     (try (testing/expectEqual 255 narrow))))
+
+(comment
+  (comptime-narrowing-test))

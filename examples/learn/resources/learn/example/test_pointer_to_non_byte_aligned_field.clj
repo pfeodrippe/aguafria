@@ -11,3 +11,6 @@
   ;; Keeping the inferred pointer type retains the sub-byte offset.
   (let [pointer (& (az/field bits :b))]
     (try (testing/expectEqual 2 @pointer))))
+
+(comment
+  (pointer-to-non-byte-aligned-field-test))

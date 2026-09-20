@@ -10,3 +10,6 @@
   (az/comptime-stmt
     (az/block
       (exit))))
+
+(comment
+  (comptime-extern-call-test))

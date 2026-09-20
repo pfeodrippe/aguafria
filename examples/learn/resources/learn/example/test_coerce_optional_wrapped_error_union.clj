@@ -8,3 +8,6 @@
     ;; Unwrap the successful error union before inspecting its optional payload.
     (try (testing/expectEqual 1234 (az/unwrap (try present))))
     (try (testing/expectEqual nil (try absent)))))
+
+(comment
+  (optional-error-union-coercion-test))

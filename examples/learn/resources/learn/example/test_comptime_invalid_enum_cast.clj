@@ -12,3 +12,7 @@
   (let [^{:zig/type :u2} tag-value 3
         ^{:zig/type Foo} value (ak/enumFromInt tag-value)]
     (set! _ value)))
+
+(comment
+  ;; Evaluate the comptime declaration above; it runs during native compilation, not at runtime.
+  )

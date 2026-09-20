@@ -16,3 +16,7 @@
   (set! _ first-trace-address)
   (debug/print "Panic! {s}\n" [message])
   (process/exit 1))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

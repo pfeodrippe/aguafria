@@ -25,3 +25,7 @@
   (let [^{:var Threshold} threshold {:maximum 0.20}
         category ((az/field threshold :categorize) 0.90)]
     (log/info "category: {t}" [category])))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

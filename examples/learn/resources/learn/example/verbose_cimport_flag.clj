@@ -16,3 +16,6 @@
     ;; https://github.com/Vexu/arocc/issues/960
     (ak/return))
   (set! _ c))
+
+(comment
+  (main))

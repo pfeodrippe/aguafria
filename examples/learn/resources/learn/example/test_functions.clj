@@ -72,3 +72,6 @@
 (az/deftest function-test
   (try (testing/expectEqual 11 (do-op add 5 6)))
   (try (testing/expectEqual -1 (do-op sub2 5 6))))
+
+(comment
+  (function-test))

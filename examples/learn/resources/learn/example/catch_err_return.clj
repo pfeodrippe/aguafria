@@ -9,3 +9,7 @@
   (let [number (az/catch-capture [error] (parsing/parseU64 text 10)
                  (ak/return error))]
     (set! _ number)))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

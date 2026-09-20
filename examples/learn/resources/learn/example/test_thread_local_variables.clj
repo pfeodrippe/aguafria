@@ -20,3 +20,6 @@
   (debug/assert (== value 1234))
   (ak/+= value 1)
   (debug/assert (== value 1235)))
+
+(comment
+  (thread-local-storage-test))

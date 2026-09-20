@@ -10,3 +10,6 @@
     (try (testing/expectEqual (math/minInt :i32) min-val))
     (let [max-val (ak/-% min-val 1)]
       (try (testing/expectEqual (math/maxInt :i32) max-val)))))
+
+(comment
+  (wraparound-test))

@@ -4,3 +4,7 @@
 (az/defn- perform-fn :i32 [[start-value :i32]]
   (let [after-two (two start-value)]
     (three after-two)))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

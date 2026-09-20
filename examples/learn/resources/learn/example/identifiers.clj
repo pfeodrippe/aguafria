@@ -25,3 +25,7 @@
     (az/enum-field-decl :really-red {:zig/name "@\"really red\""})))
 
 (az/defconst color Color (az/enum-literal ".@\"really red\""))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

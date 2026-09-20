@@ -35,3 +35,7 @@
     ;; the exact comptime-unreachable form that permits this prong.
     (case [(az/error-value :OutOfMemory)] (ak/comptime (ak/unreachable)))
     (case [(az/error-value :SystemResources)] (az/block))))
+
+(comment
+  (unreachable-else-prong-test)
+  (comptime-unreachable-error-test))

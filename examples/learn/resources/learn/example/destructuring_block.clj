@@ -16,3 +16,6 @@
           [smallest largest])]
     (debug/print "min = {}\n" [minimum])
     (debug/print "max = {}\n" [maximum])))
+
+(comment
+  (main))

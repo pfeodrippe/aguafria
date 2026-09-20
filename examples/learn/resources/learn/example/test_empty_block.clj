@@ -9,3 +9,6 @@
     (try (testing/expectEqual :void (ak/TypeOf a)))
     (try (testing/expectEqual :void (ak/TypeOf b)))
     (try (testing/expectEqual a b))))
+
+(comment
+  (empty-block-test))

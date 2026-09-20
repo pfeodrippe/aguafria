@@ -18,3 +18,7 @@
       :- Timestamp
       []
       (az/init Timestamp {:seconds 0 :nanos 0}))))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

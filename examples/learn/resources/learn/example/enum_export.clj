@@ -11,3 +11,6 @@
   {:attrs #{:export}}
   [[foo Foo]]
   (set! _ foo))
+
+(comment
+  (entry :a))

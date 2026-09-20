@@ -22,3 +22,8 @@
         ^{:zig/type :f64} c b
         ^{:zig/type :f128} d c]
     (try (testing/expectEqual d a))))
+
+(comment
+  (integer-widening-test)
+  (unsigned-to-signed-test)
+  (float-widening-test))

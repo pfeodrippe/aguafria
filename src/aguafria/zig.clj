@@ -510,7 +510,11 @@
   through concrete callers. Non-void functions implicitly return their final
   expression. Use `:!void` or `:!u32` for inferred error-union returns;
   composite payloads use `[:! payload-type]` or `[:error-union payload-type]`.
-  Optional docstrings and attributes follow the return type."
+  Optional docstrings and attributes follow the return type. A public `:!void`
+  main taking std.process.Init or Init.Minimal can also be called as `(main)`
+  or `(main [\"arg\"])`; native initialization and execution happen inside the
+  calling JVM. This entry-point convenience does not relax ordinary function
+  arity or C-exported main signatures."
   [name & declaration]
   (defn-expansion &form name declaration false))
 
@@ -885,9 +889,10 @@
 
   The name must be an unqualified symbol and also supplies the Zig test label.
   An optional docstring and attributes follow it. Calling the Var runs that
-  native test with embedded Zig, prints its output, and returns an execution
-  result or throws with compiler/test diagnostics. The body is never evaluated
-  as Clojure."
+  native test inside the JVM through Panama, prints its output, and returns an
+  execution result or throws with compiler/test diagnostics. The embedded Zig
+  compiler builds the code; no child test process is executed. The body is never
+  evaluated as Clojure. Native panics/exit can terminate the JVM."
   [name & declaration]
   (when-not (and (symbol? name) (nil? (namespace name)))
     (throw (ex-info "az/deftest requires an unqualified symbol name"

@@ -11,3 +11,7 @@
         (set! @pointer replacement)
         nil)
       previous)))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

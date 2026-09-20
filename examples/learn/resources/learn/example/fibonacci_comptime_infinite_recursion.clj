@@ -9,3 +9,6 @@
 
 (az/deftest fibonacci-infinite-recursion-test
   (try (ak/comptime (debug/assert (== (fibonacci 7) 13)))))
+
+(comment
+  (fibonacci-infinite-recursion-test))

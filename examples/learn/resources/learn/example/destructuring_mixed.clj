@@ -18,3 +18,6 @@
     (set! y 100)
     (set! [_ x _] tuple)
     (debug/print "x = {}" [x])))
+
+(comment
+  (main))

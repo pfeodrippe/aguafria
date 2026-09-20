@@ -34,3 +34,6 @@
   (try (testing/expectEqual (ak/as :c_int 1) (add 1 (ak/as :c_int 1))))
   (try (testing/expectEqual (ak/as :c_int 3)
                             (add 2 (ak/as :c_int 1) (ak/as :c_int 2)))))
+
+(comment
+  (defining-variadic-function-test))

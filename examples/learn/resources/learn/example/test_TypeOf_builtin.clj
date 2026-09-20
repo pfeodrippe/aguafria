@@ -13,3 +13,6 @@
   [[T {:zig/prefix "comptime"} :type] [pointer [:* T]]]
   (ak/+= @pointer 1)
   @pointer)
+
+(comment
+  (no-runtime-side-effects-test))

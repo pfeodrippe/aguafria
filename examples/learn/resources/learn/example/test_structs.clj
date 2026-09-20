@@ -72,3 +72,9 @@
                          {:first (& node) :last (& node) :len 1})]
       ;; Pointer field access dereferences automatically.
       (try (testing/expectEqual 1234 (az/field (az/unwrap (az/field list :first)) :data))))))
+
+(comment
+  (dot-product-test)
+  (namespaced-constant-test)
+  (field-parent-pointer-test)
+  (linked-list-test))

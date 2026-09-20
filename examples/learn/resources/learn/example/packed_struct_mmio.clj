@@ -16,3 +16,7 @@
 ;; Write the entire packed register, not an individual bit field.
 (az/defn write-to-gpio :void [[new-states GpioRegister]]
   (set! @gpio new-states))
+
+(comment
+  ;; Hardware-only MMIO: do not call write-to-gpio in a desktop JVM.
+  )

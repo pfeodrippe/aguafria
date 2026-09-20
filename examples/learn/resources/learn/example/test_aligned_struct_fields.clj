@@ -14,3 +14,6 @@
                               (ak/TypeOf (& (az/field fields :a)))))
     (try (testing/expectEqual (az/type [:pointer {:size :one :align 64} :u32])
                               (ak/TypeOf (& (az/field fields :b)))))))
+
+(comment
+  (aligned-struct-fields-test))

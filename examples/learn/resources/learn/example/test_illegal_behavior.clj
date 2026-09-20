@@ -5,3 +5,7 @@
 ;; Intentional safety failure: this path reaches unreachable code.
 (az/deftest safety-check-test
   (ak/unreachable))
+
+(comment
+  ;; This deliberately panics and can terminate this JVM.
+  (safety-check-test))

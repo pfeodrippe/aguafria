@@ -11,3 +11,6 @@
     ;; Zero represents null, so optional pointers need no extra storage.
     (try (testing/expectEqual (ak/sizeOf (az/type [:optional [:* :i32]]))
                               (ak/sizeOf (az/type [:* :i32]))))))
+
+(comment
+  (optional-pointer-test))

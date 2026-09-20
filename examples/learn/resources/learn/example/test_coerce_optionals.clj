@@ -7,3 +7,6 @@
         ^{:zig/type [:optional :i32]} absent nil]
     (try (testing/expectEqual 1234 (az/unwrap present)))
     (try (testing/expectEqual nil absent))))
+
+(comment
+  (optional-coercion-test))

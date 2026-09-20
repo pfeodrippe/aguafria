@@ -10,3 +10,6 @@
                    ((az/field (az/field init :arena) :allocator))))]
     (for [[index (az/op ".." 0)] [argument args]]
       (debug/print "{d}: {s}\n" [index argument]))))
+
+(comment
+  (main))

@@ -123,3 +123,14 @@
                          (case [(az/error-value :B)] 1)
                          (case [(az/error-value :C)] nil)))]
       (try (testing/expectEqual (az/type [:optional :u32]) (ak/TypeOf from-catch))))))
+
+(comment
+  (integer-widening-peers-test)
+  (small-integer-and-float-peers-test)
+  (differently-sized-array-peers-test)
+  (array-and-const-slice-peers-test)
+  (value-and-optional-peers-test)
+  (empty-array-and-slice-peers-test)
+  (empty-array-slice-and-error-peers-test)
+  (const-pointer-and-optional-pointer-peers-test)
+  (error-union-switch-peers-test))

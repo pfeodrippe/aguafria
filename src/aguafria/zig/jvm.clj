@@ -65,7 +65,8 @@
   during capture; long-running native application hosts should inherit their
   process streams instead. No nREPL middleware is involved."
   [invoke]
-  (if (or *capturing-output?* (not (thread-bound? #'*out*)))
+  (if (or *capturing-output?*
+          (not (or (thread-bound? #'*out*) (thread-bound? #'*err*))))
     (invoke)
     (locking output-lock
       (binding [*capturing-output?* true]

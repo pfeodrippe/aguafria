@@ -7,3 +7,7 @@
     (set! _ (& wide))
     (let [^{:zig/type :u8} narrow (ak/intCast wide)]
       (set! _ narrow))))
+
+(comment
+  ;; This deliberately panics and can terminate this JVM.
+  (integer-cast-panic-test))

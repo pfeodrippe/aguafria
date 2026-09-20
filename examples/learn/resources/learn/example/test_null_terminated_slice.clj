@@ -8,3 +8,6 @@
     (try (testing/expectEqual 5 (az/field slice :len)))
     ;; A sentinel slice permits reading its terminator at index len.
     (try (testing/expectEqual 0 (az/index slice 5)))))
+
+(comment
+  (sentinel-slice-test))

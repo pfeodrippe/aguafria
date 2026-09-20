@@ -8,3 +8,6 @@
   (let [^{:var :i32} value 5678]
     (ak/+= value 1)
     (debug/print "{d}" [value])))
+
+(comment
+  (main))

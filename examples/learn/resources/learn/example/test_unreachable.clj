@@ -9,3 +9,6 @@
         y 2]
     (when (ak/!= (+ x y) 3)
       (ak/unreachable))))
+
+(comment
+  (basic-math-test))

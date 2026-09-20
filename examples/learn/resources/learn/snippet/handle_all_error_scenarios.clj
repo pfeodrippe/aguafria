@@ -11,3 +11,7 @@
       (case [(az/error-value :Overflow)] (az/block))
       ;; InvalidChar is promised impossible; safety checks trap if it occurs.
       (case [(az/error-value :InvalidChar)] (ak/unreachable)))))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

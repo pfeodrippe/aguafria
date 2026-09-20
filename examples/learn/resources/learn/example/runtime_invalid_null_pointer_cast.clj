@@ -8,3 +8,7 @@
     ;; The same invalid conversion is diagnosed by a runtime safety check.
     (let [^{:zig/type [:* :i32]} pointer (ak/ptrCast optional-pointer)]
       (set! _ pointer))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

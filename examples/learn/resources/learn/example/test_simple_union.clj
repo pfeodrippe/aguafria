@@ -14,3 +14,6 @@
     ;; Assigning the whole union changes its active field.
     (set! payload (az/init Payload {:float 12.34}))
     (try (testing/expectEqual 12.34 (az/field payload :float)))))
+
+(comment
+  (simple-union-test))

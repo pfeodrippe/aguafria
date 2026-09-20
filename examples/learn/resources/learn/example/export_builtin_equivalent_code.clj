@@ -4,3 +4,6 @@
 (az/defn foo :void
   {:attrs #{:export}}
   [])
+
+(comment
+  (foo))

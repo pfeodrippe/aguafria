@@ -8,3 +8,7 @@
   ;; Zig also permits top-level documentation inside non-module containers.
   ;; Its package documentation currently ignores those comments.
   [])
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

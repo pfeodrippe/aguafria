@@ -10,3 +10,7 @@
       (set! @pointer replacement)
       (ak/return nil))
     previous))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

@@ -63,3 +63,13 @@
         slice "hello"
         ^{:zig/type [:sentinel-const :u8 0]} pointer slice]
     (try (testing/expectEqual \o (az/index pointer 4)))))
+
+(comment
+  (constant-array-to-slice-test)
+  (constant-array-to-error-slice-test)
+  (constant-array-to-optional-slice-test)
+  (array-to-slice-test)
+  (array-to-many-pointer-test)
+  (array-to-optional-many-pointer-test)
+  (single-item-to-array-pointer-test)
+  (sentinel-slice-to-pointer-test))

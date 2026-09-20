@@ -24,3 +24,6 @@
       (case [(az/error-value :OutOfMemory)] (ak/panic "unexpected"))
       (case [(az/error-value :PathNotFound)] (ak/panic "unexpected"))
       (case [(az/error-value :NotDir)] (az/block)))))
+
+(comment
+  (merge-error-sets-test))

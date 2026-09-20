@@ -5,3 +5,6 @@
   {:attrs #{:export}
    :zig/name "@\"A function name that is a complete sentence.\""}
   [])
+
+(comment
+  (sentence-function))

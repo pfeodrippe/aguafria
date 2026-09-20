@@ -14,3 +14,7 @@
       (when something
         (ak/cUndef "_GNU_SOURCE"))
       (ak/cInclude "soundio.h"))))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

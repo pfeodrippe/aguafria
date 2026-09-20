@@ -10,3 +10,6 @@
         ^{:zig/type Nibbles} reversed {:b 2 :a 1}]
     ;; Literal field order does not affect the packed representation.
     (try (testing/expectEqual forward reversed))))
+
+(comment
+  (packed-struct-equality-test))

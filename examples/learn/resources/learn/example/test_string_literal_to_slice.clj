@@ -8,3 +8,6 @@
 (az/deftest string-to-mutable-slice-test
   ;; Intentionally invalid: a string literal cannot become mutable storage.
   (accept-mutable-string "hello"))
+
+(comment
+  (string-to-mutable-slice-test))

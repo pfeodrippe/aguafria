@@ -19,3 +19,7 @@
     ;; Intentionally panics: offsetting aligned storage by one byte breaks
     ;; the four-byte alignment promised by read-misaligned-word's cast.
     (try (testing/expectEqual 0x11111111 (read-misaligned-word bytes)))))
+
+(comment
+  ;; This deliberately panics and can terminate this JVM.
+  (pointer-alignment-safety-test))

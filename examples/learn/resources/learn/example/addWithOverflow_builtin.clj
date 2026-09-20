@@ -10,3 +10,6 @@
     (if (!= (az/index result 1) 0)
       (debug/print "overflowed result: {}\n" [(az/index result 0)])
       (debug/print "result: {}\n" [(az/index result 0)]))))
+
+(comment
+  (main))

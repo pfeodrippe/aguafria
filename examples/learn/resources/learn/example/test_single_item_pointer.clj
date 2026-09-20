@@ -32,3 +32,8 @@
                               (ak/TypeOf array-pointer)))
     (let [^{:zig/type [:many :i32]} many-pointer array-pointer]
       (try (testing/expectEqual 1234 (az/index many-pointer 0))))))
+
+(comment
+  (address-of-test)
+  (pointer-array-access-test)
+  (single-item-slice-test))

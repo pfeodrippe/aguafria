@@ -17,3 +17,7 @@
       :flags (& ["-std=c99"])})
     ((az/field (az/field executable :root_module) :addObject) object)
     ((az/field builder :installArtifact) executable)))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

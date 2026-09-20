@@ -31,3 +31,7 @@
       [[self [:* Writer]] [value :anytype]]
       (set! _ self)
       (set! _ value))))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

@@ -17,3 +17,7 @@
                               (ak/TypeOf bytes)))
     (try (testing/expectEqual 4 (az/field bytes :len)))
     (try (testing/expectEqual 0 (az/index bytes 4)))))
+
+(comment
+  (sentinel-array-test)
+  (embedded-zeroes-test))

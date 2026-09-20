@@ -12,3 +12,6 @@
 
 (az/defn main :void []
   (debug/print "{s}\n" [(ak/typeName (az/field json :JsonValue))]))
+
+(comment
+  (main))

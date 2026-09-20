@@ -126,10 +126,23 @@ test("Aguafria is the default; explicit Zig links and per-example controls still
   function page(hash) {
     const elements = new Map();
     function example(id) {
-      const tabs = ["z", "a"].map(language => {
+      const panels = ["z", "a"].map(language => {
+        const panelId = `${id}-${language}`;
+        const panel = {
+          id: panelId,
+          hidden: language === "a",
+          getAttribute: () => `${panelId}t`,
+          closest() { return this; },
+          scrollIntoView() { this.scrolled = true; }
+        };
+        elements.set(panelId, panel);
+        return panel;
+      });
+      const tabs = ["z", "a", "b"].map(language => {
         const panelId = `${id}-${language}`;
         const tabId = `${panelId}t`;
-        const attributes = new Map([["role", "tab"], ["aria-controls", panelId]]);
+        const controls = language === "b" ? `${id}-z ${id}-a` : panelId;
+        const attributes = new Map([["role", "tab"], ["aria-controls", controls]]);
         const listeners = {};
         const tab = {
           getAttribute: key => attributes.get(key),
@@ -139,19 +152,15 @@ test("Aguafria is the default; explicit Zig links and per-example controls still
           keydown: key => listeners.keydown({key, preventDefault() {}}),
           focus() { this.focused = true; }
         };
-        const panel = {
-          hidden: language === "a",
-          getAttribute: () => tabId,
-          closest() { return this; },
-          scrollIntoView() { this.scrolled = true; }
-        };
-        elements.set(panelId, panel);
         elements.set(tabId, tab);
         return tab;
       });
+      const classes = new Set();
+      elements.set(id, classes);
       return {
+        classList: {toggle(name, active) { active ? classes.add(name) : classes.delete(name); }},
         querySelector: () => ({querySelectorAll: () => tabs}),
-        querySelectorAll: () => []
+        querySelectorAll: selector => selector === '[role="tabpanel"]' ? panels : []
       };
     }
     const examples = [example("first"), example("second")];
@@ -192,4 +201,21 @@ test("Aguafria is the default; explicit Zig links and per-example controls still
   assert.equal(get("first-a").hidden, false);
   assert.equal(get("first-at").focused, true);
   assert.equal(get("second-z").hidden, false);
+  get("first-bt").click();
+  assert.equal(get("first-z").hidden, false);
+  assert.equal(get("first-a").hidden, false);
+  assert.equal(get("first-bt").getAttribute("aria-selected"), "true");
+  assert.equal(get("first-at").getAttribute("aria-selected"), "false");
+  assert.equal(get("first").has("learn-side-by-side"), true);
+  assert.equal(get("second").has("learn-side-by-side"), false);
+  get("first-bt").keydown("Home");
+  assert.equal(get("first-a").hidden, true);
+  assert.equal(get("first").has("learn-side-by-side"), false);
+  get("first-zt").keydown("End");
+  assert.equal(get("first-z").hidden, false);
+  assert.equal(get("first-a").hidden, false);
+  assert.equal(get("first-bt").focused, true);
+  get("first-bt").keydown("ArrowRight");
+  assert.equal(get("first-zt").focused, true);
+  assert.equal(get("first-a").hidden, true);
 });

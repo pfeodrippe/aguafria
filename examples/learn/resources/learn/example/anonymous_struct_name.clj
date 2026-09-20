@@ -8,3 +8,7 @@
 
 (az/defvar node-a (Node {:next nil :name "Node A"}))
 (az/defvar node-b (Node {:next (& node-a) :name "Node B"}))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

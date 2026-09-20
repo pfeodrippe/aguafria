@@ -12,3 +12,6 @@
 
 ;; Uncommenting this would suppress std.start's usual logic and ignore main.
 ;; (az/defconst _start {})
+
+(comment
+  (main))

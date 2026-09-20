@@ -18,3 +18,6 @@
     (debug/print "array: x = {}, y = {}, z = {}\n" [x y z])
     (set! [x y z] lanes)
     (debug/print "vector: x = {}, y = {}, z = {}\n" [x y z])))
+
+(comment
+  (main))

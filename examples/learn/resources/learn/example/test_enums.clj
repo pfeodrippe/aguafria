@@ -94,3 +94,13 @@
 
 (az/deftest enum-tag-name-test
   (try (testing/expectEqualStrings (ak/tagName (az/field Small :three)) "three")))
+
+(comment
+  (ordinal-values-test)
+  (explicit-ordinal-values-test)
+  (mixed-ordinal-values-test)
+  (enum-method-test)
+  (enum-switch-test)
+  (enum-tag-type-test)
+  (enum-type-information-test)
+  (enum-tag-name-test))

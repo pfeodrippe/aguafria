@@ -8,3 +8,7 @@
   (let [memory (orelse (malloc 1234) (ak/return nil))]
     ;; The successful allocation path is intentionally left unfinished.
     (set! _ memory)))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

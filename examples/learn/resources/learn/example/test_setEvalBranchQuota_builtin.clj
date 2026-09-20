@@ -8,3 +8,6 @@
       (ak/setEvalBranchQuota 1001)
       (az/while-loop {:continue (az/assign-expr "+=" index 1)}
         (< index 1001)))))
+
+(comment
+  (increased-branch-quota-test))

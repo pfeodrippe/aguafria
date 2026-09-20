@@ -10,3 +10,6 @@
 (az/defn init TopLevelFields [[value :u32]]
   (az/object [[:foo value]
               [:bar (* value 10)]]))
+
+(comment
+  (init 42))

@@ -22,3 +22,7 @@
   "The function `addOne` adds one to the number given as its argument."
   [[number :i32]]
   (+ number 1))
+
+(comment
+  (add-one-expectation-test)
+  (add-one-doctest))

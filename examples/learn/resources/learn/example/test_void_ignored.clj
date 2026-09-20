@@ -12,3 +12,7 @@
 (az/defn- returns-integer :i32
   []
   1234)
+
+(comment
+  (void-ignored-test)
+  (explicit-discard-test))

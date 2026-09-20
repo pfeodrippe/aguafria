@@ -18,3 +18,6 @@
 (az/deftest inline-union-tag-test
   (let [value (az/init NumericValue {:b 42})]
     (try (testing/expectEqual 42 (as-integer value)))))
+
+(comment
+  (inline-union-tag-test))

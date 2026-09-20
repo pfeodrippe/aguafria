@@ -16,3 +16,6 @@
         (try (testing/expectEqual (az/error-value :GeneralFailure)
                                  (az/unwrap captured)))
         (try (testing/expectEqual (az/error-value :GeneralFailure) error))))))
+
+(comment
+  (errdefer-capture-test))

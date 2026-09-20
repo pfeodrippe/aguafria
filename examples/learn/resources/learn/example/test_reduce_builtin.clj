@@ -14,3 +14,6 @@
     (try (ak/comptime
            (testing/expectEqual (az/type :bool) (ak/TypeOf all-positive))))
     (try (testing/expectEqual false all-positive))))
+
+(comment
+  (vector-reduction-test))

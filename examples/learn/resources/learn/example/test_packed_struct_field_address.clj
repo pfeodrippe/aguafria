@@ -13,3 +13,6 @@
     ;; The bit offset belongs to the pointer type, not to its integer address.
     (try (testing/expectEqual first-address (ak/intFromPtr (& (az/field bits :b)))))
     (try (testing/expectEqual first-address (ak/intFromPtr (& (az/field bits :c)))))))
+
+(comment
+  (pointers-of-sub-byte-aligned-fields-share-addresses-test))

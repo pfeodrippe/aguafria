@@ -8,3 +8,6 @@
   (try (testing/expectEqual 2 (ak/round 1.5)))
   (try (testing/expectEqual -1 (ak/round -1.4)))
   (try (testing/expectEqual -3 (ak/round -2.5))))
+
+(comment
+  (round-test))

@@ -9,3 +9,6 @@
 (az/defn- add :i32
   [[a :i32] [b :i32]]
   (+ a b))
+
+(comment
+  (call-builtin-test))

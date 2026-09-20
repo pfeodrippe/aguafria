@@ -9,3 +9,7 @@
 (az/defn main :void []
   (let [number (catch (number-or-error) (ak/unreachable))]
     (debug/print "value: {}\n" [number])))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

@@ -7,3 +7,6 @@
   []
   (let [^{:var :i32} x]
     (set! x 1)))
+
+(comment
+  (main))

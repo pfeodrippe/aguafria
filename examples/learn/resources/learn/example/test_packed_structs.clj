@@ -39,3 +39,6 @@
 (az/deftest bit-cast-between-packed-structs-test
   (try (check-packed-bits))
   (try (ak/comptime (check-packed-bits))))
+
+(comment
+  (bit-cast-between-packed-structs-test))

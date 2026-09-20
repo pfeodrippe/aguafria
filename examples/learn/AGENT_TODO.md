@@ -1,8 +1,49 @@
 # Learn reference implementation
 
-Goal: the whole Zig 0.16.0 reference, not a selected tutorial. Completed for the
-requested scope: original document unchanged, Aguafria alternatives and real
-REPL output added, required comparisons passing. Compiler gaps are not `ZIG_ONLY`.
+Goal: the whole Zig 0.16.0 reference, not a selected tutorial. Keep the original
+document unchanged, add Aguafria alternatives and real REPL output, and verify
+the comparisons. The direct-call/side-by-side follow-up is complete and the
+served page has been rebuilt and checked. Compiler gaps are not `ZIG_ONLY`.
+
+Current verification (2026-09-19): all 292 file outcomes pass (161 output,
+78 diagnostic, 50 compile-only comparisons and 3 reviewed special cases).
+The page records 264 actual comment evaluations across 202 in-process lessons.
+49 context-only, 32 deliberately fatal and 7 target-specific cases do not receive
+fabricated REPL output. These direct-call recordings replace the older file-runner
+transcripts mentioned in the implementation history below.
+All 50 Learn tests / 8,763 assertions and six JavaScript tests pass. The served
+HTML matches the built file and recovers the upstream HTML byte-for-byte.
+Browser interaction and screenshot checks confirm default Aguafria selection,
+307 Side by side controls, paired Shell/REPL panels, highlighting, direct `(main)`
+and named-test calls, and the repaired compiler diagnostic. All outcome
+fingerprints match the final compiler and verifier.
+
+- [x] Recognize public `:!void` main with `std.process.Init` / `Init.Minimal`
+      for `(main)` and `(main ["arg"])`, initializing and calling it in the JVM.
+      Keep ordinary function arity and C-exported entry arguments explicit.
+      Live tests cover full Init output, Minimal argv, and ordinary arity.
+      Minimal startup no longer initializes unused full-process resources.
+      Focused native-call suite: 21 tests / 108 assertions passing, plus six
+      actual Learn comment recipes including the process-init Hello World.
+      Compiler/runtime/API regressions: 64 tests / 347 assertions passing.
+
+- [x] Add a per-example Side by side tab, keeping Zig/Shell and Aguafria/REPL
+      together, with keyboard controls and a usable narrow-screen layout.
+- [x] End every authored example with a direct in-process `comment` recipe:
+      call its own main/test/function Var, never a reference/file runner.
+      Compile-only and incomplete illustrations must not pretend to be runnable.
+      Record exact evaluations, including genuine failures, and rebuild the page.
+- [x] Make named test calls execute native code inside the JVM via Panama;
+      launching a Zig test executable is not a direct in-process call.
+- [x] Fix native hot-reload inline constant folding so `inline_call.clj`'s
+      direct `(main)` retains the original Zig compile-time behavior.
+- [x] Resolve the remaining direct-comment verification failures (top-level
+      @This result transport, enum arguments, quoted exports, external float-mode
+      linking, and intentional compile-time errors); rerun the complete sweep
+      against the final compiler fingerprint before rebuilding the served page.
+- [x] Preserve native diagnostics wrapped by Clojure's evaluator, while still
+      rejecting JVM arity/resolution errors as failed recipes. Check both the
+      wrapped-error path and the real default branch-quota test call.
 
 - [x] Move std entry points from `src/` to ignored `generated/`, using the existing
       catalogs and standard source-dependency prep. Name aliases `:prepare`.

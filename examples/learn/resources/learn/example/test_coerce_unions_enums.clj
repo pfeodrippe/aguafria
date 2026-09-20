@@ -36,3 +36,6 @@
     (try (testing/expectEqual (az/field Tag :three) from-literal))
     ;; A bare .b would be invalid: that variant requires an f32 payload.
     (try (testing/expectEqual 1 ((az/field inferred :tag))))))
+
+(comment
+  (union-enum-coercion-test))

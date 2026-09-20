@@ -6,3 +6,6 @@
   (let [^{:var :i32} x 1]
     (set! _ (& x)))
   (ak/+= x 1))
+
+(comment
+  (variable-outside-block-test))

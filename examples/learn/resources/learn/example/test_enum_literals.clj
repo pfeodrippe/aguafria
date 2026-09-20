@@ -21,3 +21,7 @@
                   (case [:.on] true)
                   (case [:.off] false))]
     (try (testing/expect enabled))))
+
+(comment
+  (enum-literals-test)
+  (enum-literal-switch-test))

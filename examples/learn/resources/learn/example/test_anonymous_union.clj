@@ -15,3 +15,6 @@
         floating (make-number)]
     (try (testing/expectEqual 42 (az/field integer :int)))
     (try (testing/expectEqual 12.34 (az/field floating :float)))))
+
+(comment
+  (anonymous-union-literal-test))

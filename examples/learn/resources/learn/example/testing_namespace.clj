@@ -16,3 +16,7 @@
         actual-error-union (az/error-value :DemoError)]
     ;; `expectError` fails when the actual error differs from the expected error.
     (try (testing/expectError expected-error actual-error-union))))
+
+(comment
+  (expect-equal-test)
+  (expect-error-test))

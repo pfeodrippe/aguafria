@@ -15,3 +15,6 @@
 
 (az/deftest defer-basics-test
   (try (testing/expectEqual 5 (try (defer-example)))))
+
+(comment
+  (defer-basics-test))

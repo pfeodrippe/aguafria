@@ -14,3 +14,6 @@
     ;; The tag's integer value is independent of the payload's value.
     (try (testing/expectEqual 123 (ak/intFromEnum integer)))
     (try (testing/expectEqual 67 (ak/intFromEnum boolean)))))
+
+(comment
+  (explicit-tag-values-test))

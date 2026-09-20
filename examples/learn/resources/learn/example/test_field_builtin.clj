@@ -21,3 +21,7 @@
   (try (testing/expectEqual 1 (ak/field Point "z")))
   (set! (ak/field Point "z") 2)
   (try (testing/expectEqual 2 (ak/field Point "z"))))
+
+(comment
+  (string-field-access-test)
+  (string-declaration-access-test))

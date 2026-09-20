@@ -23,3 +23,6 @@
                  (case [(az/field Item :d)] 8))]
     (try (testing/expectEqual 6 result))
     (try (testing/expectEqual 2 (az/field (az/field item :c) :x)))))
+
+(comment
+  (tagged-union-payload-capture-test))

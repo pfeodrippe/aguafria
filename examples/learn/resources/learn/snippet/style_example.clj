@@ -40,3 +40,7 @@
 (az/defstruct XmlParser [[:field :i32]])
 
 (az/defn- read-u32-be :u32 [])
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

@@ -14,3 +14,7 @@
   [[x :f64]]
   (ak/setFloatMode :.optimized)
   (- (+ x big) big))
+
+(comment
+  (foo_strict 0.001)
+  (foo_optimized 0.001))

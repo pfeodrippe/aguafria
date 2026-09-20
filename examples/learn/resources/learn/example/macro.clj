@@ -13,3 +13,6 @@
 
 (az/defconst MAKELOCAL
   (ak/compileError "unable to translate C expr: unexpected token .Equal")) ; macro.c:1:9
+
+(comment
+  (foo))

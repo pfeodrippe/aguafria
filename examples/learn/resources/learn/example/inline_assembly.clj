@@ -32,3 +32,6 @@
                       (ak/intFromPtr message) (az/field message :len)))
     (set! _ (syscall1 sys-exit 0))
     (ak/unreachable)))
+
+(comment
+  (main))

@@ -7,3 +7,6 @@
         ^{:zig/type [:error-union :anyerror :i32]} failure (az/error-value :Failure)]
     (try (testing/expectEqual 1234 (try success)))
     (try (testing/expectError (az/error-value :Failure) failure))))
+
+(comment
+  (error-union-coercion-test))

@@ -12,3 +12,6 @@
   (try (testing/expectEqual 14 (printf "Hello, world!\n")))
   (try (testing/expect
          (az/field (az/field (ak/typeInfo (ak/TypeOf printf)) :fn) :is_var_args))))
+
+(comment
+  (variadic-function-test))

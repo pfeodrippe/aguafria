@@ -24,3 +24,7 @@
     (let [run-command ((az/field executable :run))
           test-step ((az/field builder :step) "test" "Test the program")]
       ((az/field test-step :dependOn) (& (az/field run-command :step))))))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

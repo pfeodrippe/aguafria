@@ -41,3 +41,7 @@
   (try (testing/expectEqual
          (az/type [:pointer {:size :one :const? true :align 4} [:fn {} [] :void]])
          (ak/TypeOf (& noop-four)))))
+
+(comment
+  (global-variable-alignment-test)
+  (function-alignment-test))

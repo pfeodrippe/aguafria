@@ -88,6 +88,8 @@
     (is (str/includes? output "code class=\"language-clojure\""))
     (is (str/includes? output "window.Prism = {manual: true}"))
     (is (str/includes? output "aria-controls=\"learn-example-1-a\""))
+    (is (str/includes? output "aria-controls=\"learn-example-1-z learn-example-1-a\""))
+    (is (str/includes? output ">Side by side</button>"))
     (is (str/includes? output "id=\"learn-example-1-a\" aria-labelledby=\"learn-example-1-at\" hidden"))))
 
 (deftest original-document-check-detects-rewritten-prose-and-shell-output
@@ -398,11 +400,12 @@
            ["value=42\n" "" :failed]]]
     (with-redefs [ref/run-doctest! (constantly {:exit 0})
                   ref/capture-example-repl! (constantly {:value {:exit 0}})
+                  ref/capture-comment-repl! (constantly {:evaluations [{:printed-value "nil"}]})
                   ref/compare-doctest-output
                   (fn [_ _] (ref/compare-observations "exe=succeed" original converted))
                   ref/write-text! (fn [& _])
                   ref/sha256 (constantly "test-hash")
-                  clojure.core/slurp (constantly "")]
+                  clojure.core/slurp (constantly "(ns example) (comment (main))")]
       (let [result (ref/verify-example! {}
                                       {:file "example.zig" :manifest {:kind "exe=succeed"}}
                                       {:status :translated :clojure-path "example.clj"})]
@@ -497,6 +500,129 @@
     (is (= 0 (get-in compilation [:value :exit])))
     (is (str/includes? (get-in failure [:exception :message])
                        "let expects an even Clojure binding vector"))))
+
+(deftest authored-recipes-are-complete-and-call-their-own-example
+  (doseq [[file {:keys [source]}] (ref/read-edn "resources/learn/overrides.edn")
+          :when source
+          :let [code (slurp (io/resource source))
+                forms (inline/read-forms code)
+                calls (ref/comment-calls code)
+                tests (mapv #(list (second %)) (filter #(= 'az/deftest (first %)) forms))]]
+    (testing file
+      (is (= 'comment (first (last forms))))
+      (is (not (str/includes? code "reference/run-example!")))
+      (when (seq tests) (is (= tests calls)))
+      (when (some #(and (#{'az/defn 'az/defn-} (first %)) (= 'main (second %))) forms)
+        (is (some #{'main} (tree-seq coll? seq calls))))))
+  (doseq [[id {:keys [source]}] (ref/read-edn "resources/learn/fragment-overrides.edn")]
+    (is (not (str/includes? (slurp (io/resource source)) "reference/check-snippet!")) id))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"final comment"
+                       (ref/comment-calls "(ns example)")))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not a file runner"
+                       (ref/comment-calls "(ns example) (comment (reference/run-example! \"x.zig\"))"))))
+
+(deftest recipe-capture-executes-the-exact-direct-calls
+  (let [hello (ref/capture-comment-repl!
+               (slurp (io/resource "learn/example/hello_again.clj")) nil)
+        test (ref/capture-comment-repl!
+              (slurp (io/resource "learn/example/test_comptime_max_with_bool.clj")) nil)
+        main-call (first (:evaluations hello))
+        test-call (first (:evaluations test))]
+    (is (= "(main)" (:form main-call)))
+    (is (= "nil" (:printed-value main-call)))
+    (is (= "Hello, World!\n" (:stderr main-call)))
+    (is (= "(boolean-maximum-test)" (:form test-call)))
+    (is (str/includes? (:stderr test-call) "All 1 tests passed."))
+    (is (str/includes? (:printed-value test-call) ":status :passed"))
+    (is (nil? (find-ns 'learn.example.hello-again)))
+    (is (nil? (find-ns 'learn.example.test-comptime-max-with-bool)))))
+
+(deftest recipe-capture-does-not-invent-success-for-a-bad-call
+  (let [result (ref/capture-comment-repl!
+                "(ns learn.example.bad-recipe)\n(comment (missing-call))" nil)]
+    (is (get-in result [:evaluations 0 :exception]))
+    (is (= "(missing-call)" (get-in result [:evaluations 0 :form])))))
+
+(deftest matching-native-code-does-not-hide-a-broken-recipe
+  (with-redefs [ref/run-doctest! (constantly {:exit 0})
+                ref/capture-example-repl! (constantly {:value {:exit 0}})
+                ref/capture-comment-repl!
+                (constantly {:evaluations [{:exception {:message "bad call"}}]})
+                ref/compare-doctest-output (constantly {:status :output-matched})
+                ref/write-text! (fn [& _])
+                ref/sha256 (constantly "test-hash")
+                clojure.core/slurp (constantly "(ns example) (comment (main))")]
+    (is (= :failed
+           (:status (ref/verify-example! {}
+                                        {:file "example.zig" :manifest {:kind "exe=succeed"}}
+                                        {:status :translated :clojure-path "example.clj"}))))))
+
+(deftest native-diagnostics-are-not-confused-with-jvm-recipe-errors
+  (doseq [kind ["syntax" "test_error=error: expected failure" "obj=error"]]
+    (is (ref/verified-comment?
+         {:kind kind}
+         {:evaluations [{:exception {:phase :zig-compile :message "native diagnostic"}}]}))
+    (doseq [phase [nil :load :zig-test-selection]]
+      (is (not (ref/verified-comment?
+                {:kind kind}
+                {:evaluations [{:exception {:phase phase :message "broken recipe"}}]})))))
+  (is (not (ref/verified-comment?
+            {:kind "exe=succeed"}
+            {:evaluations [{:exception {:phase :zig-compile :message "must run"}}]}))))
+
+(deftest compiler-wrappers-retain-the-native-diagnostic
+  (doseq [phase [:zig-test nil]]
+    (let [source (str "(ns learn.example.wrapped-diagnostic)\n"
+                      "(comment (throw (clojure.lang.Compiler$CompilerException.\n"
+                      "  \"wrapped.clj\" 1 1\n"
+                      "  (ex-info \"branch quota exceeded\" "
+                      (pr-str {:aguafria/phase phase}) "))))")
+          result (ref/capture-comment-repl! source nil)]
+      (is (= phase (get-in result [:evaluations 0 :exception :phase])))
+      (is (= (some? phase)
+             (boolean (ref/verified-comment?
+                       {:kind "test_error=error: branch quota exceeded"} result))))
+      (when phase
+        (is (= "branch quota exceeded"
+               (get-in result [:evaluations 0 :exception :message])))))))
+
+(deftest external-object-recipe-runs-main-in-process
+  (let [result (ref/capture-comment-repl!
+                (slurp (io/resource "learn/example/float_mode_exe.clj")) nil)
+        output (last (:evaluations result))]
+    (is (not-any? :exception (:evaluations result)))
+    (is (nil? (find-ns 'learn.example.float-mode-obj)))
+    (is (str/includes? (:form output) "(main)"))
+    (is (= "optimized = 0.001\nstrict = 0.0009765625\n" (:stderr output)))
+    (is (= "nil" (:printed-value output)))))
+
+(deftest direct-branch-quota-test-records-the-native-error
+  (let [result (ref/capture-comment-repl!
+                (slurp (io/resource "learn/example/test_without_setEvalBranchQuota_builtin.clj"))
+                nil)
+        diagnostic (get-in result [:evaluations 0 :exception])]
+    (is (= :zig-test (:phase diagnostic)))
+    (is (str/includes? (:message diagnostic) "evaluation exceeded 1000 backwards branches"))
+    (is (ref/verified-comment?
+         {:kind "test_error=error: evaluation exceeded 1000 backwards branches"} result))))
+
+(deftest inspection-preserves-the-open-lesson-namespace
+  (let [namespace-symbol 'learn.example.open-lesson
+        namespace (create-ns namespace-symbol)
+        original (intern namespace 'main :unsaved-user-value)]
+    (try
+      (let [emitted (ref/emit-clojure
+                     "(ns learn.example.open-lesson (:require [aguafria.zig :as az]))
+                      (az/defn main :i32 [] 42)
+                      (comment (main))"
+                     namespace-symbol {})]
+        (is (str/includes? emitted "return 42;"))
+        (is (identical? original (ns-resolve namespace-symbol 'main)))
+        (is (= :unsaved-user-value @original))
+        (is (empty? (filter #(str/starts-with? (str (ns-name %))
+                                             "learn.example.open-lesson.inspection-")
+                            (all-ns)))))
+      (finally (remove-ns namespace-symbol)))))
 
 (deftest repl-and-shell-belong-to-their-own-language-panels
   (let [original (str "<figure><figcaption class=\"zig-cap\">"

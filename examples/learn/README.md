@@ -12,6 +12,23 @@ output stay verbatim. Only Aguafria alternatives, their recorded REPL output and
 language-switching controls are added. Removing these additions must recover the
 complete original HTML byte-for-byte; a regression test enforces this.
 
+Choose **Side by side** on any example to see Zig with its Shell output beside
+Aguafria with its REPL output. Each authored file ends in a `comment` containing
+its reproducible calls. Load the namespace, then evaluate the forms inside that
+comment individually (evaluating the whole `comment` intentionally does nothing).
+Examples call their own `main`, named test, or helper Vars directly in the JVM.
+The comment includes any required argument/memory setup. A public `:!void` main
+taking `std.process.Init` or `Init.Minimal` can be called as `(main)` or
+`(main ["arg"])`; Aguafria supplies the native startup context inside the same
+JVM. Ordinary functions and C-exported main still need their declared arguments.
+Named tests also execute in-process through Panama, not a child runner.
+REPL panels record those exact comment forms, their output and return values.
+Addresses and execution timings naturally vary between runs.
+
+Context-only declarations do not invent an entry point. Platform-specific and
+deliberate panic/exit examples need care: a native panic can terminate the JVM.
+Their original Shell results are not copied into a pretend REPL transcript.
+
 From this directory:
 
 ```sh
@@ -107,7 +124,7 @@ To run a complete reference case, including its upstream outcome checks:
 
 This evaluates the displayed Aguafria namespace and invokes the pinned native
 harness using embedded Zig. It is not a JVM interpreter for Zig. The **REPL**
-panel records this real evaluation's output, result or exception; it never copies
+panel records the file's actual comment calls, output, result or exception; it never copies
 the original Zig **Shell** output. Each output stays with its language tab.
 The result distinguishes native execution, compilation-only checks, cross-target
 builds and expected failures. Explanatory fragments are not presented as runnable

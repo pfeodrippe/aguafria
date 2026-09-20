@@ -17,3 +17,6 @@
       :- :usize
       [[self Self]]
       (az/field (az/field self :items) :len))))
+
+(comment
+  (this-type-test))

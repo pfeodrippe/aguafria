@@ -7,3 +7,6 @@
                     (az/field-decl :a :u16)
                     (az/field-decl :b :u8))]
     (set! _ (az/init WrongSize {:a 4 :b 2}))))
+
+(comment
+  (missized-packed-struct-test))

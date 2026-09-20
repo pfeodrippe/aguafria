@@ -15,3 +15,6 @@
         ^{:zig/type [:array 4 :u8]} orange [255 165 0 255]]
     (debug/print "x = {}, y = {}\n" [x y])
     (debug/print "{any}\n" [(swizzle-rgba-to-bgra orange)])))
+
+(comment
+  (main))

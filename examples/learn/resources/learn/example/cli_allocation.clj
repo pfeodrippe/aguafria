@@ -10,3 +10,6 @@
     (let [allocator ((az/field arena :allocator))
           pointer (try ((az/field allocator :create) :i32))]
       (debug/print "ptr={*}\n" [pointer]))))
+
+(comment
+  (main))

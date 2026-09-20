@@ -34,3 +34,6 @@
 
 (az/deftest compile-time-variable-values-test
   (try (testing/expectEqual 1060 sum-of-first-25-primes)))
+
+(comment
+  (compile-time-variable-values-test))

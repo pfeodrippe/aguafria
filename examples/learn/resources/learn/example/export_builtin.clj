@@ -8,3 +8,6 @@
 (az/defn- internalName :void
   {:zig/qualifiers "callconv(.c)"}
   [])
+
+(comment
+  (internalName))

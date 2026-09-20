@@ -13,3 +13,6 @@
       ;; A slice shares the original array's storage.
       (ak/+= (az/index slice 1) 1)
       (try (testing/expectEqual 5 (az/index numbers 3))))))
+
+(comment
+  (pointer-slicing-test))

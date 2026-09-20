@@ -10,3 +10,6 @@
   ;; (debug/print "Hello?" [])
 
   (debug/print "Hello, world!\n" [])) ; another comment
+
+(comment
+  (main))

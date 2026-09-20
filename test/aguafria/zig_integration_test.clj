@@ -1674,7 +1674,7 @@
           (remove-ns a-symbol))))))
 
 (deftest inline-function-hot-dispatch-test
-  (testing "a forced-inline Zig wrapper keeps existing callers on a live cell"
+  (testing "forced-inline edits rebuild callers without losing constant folding"
     (let [old-config (az/configuration)
           module-symbol (symbol (str "aguafria.inline-live-" fixture-suffix))
           module-ns (create-ns module-symbol)]
@@ -1706,12 +1706,10 @@
                 [x :- :i32]
                 (+ x 2))))
           (is (= 7 ((ns-resolve module-ns 'inline-caller) 5)))
-          (is (= caller-generation-before
+          (is (not= caller-generation-before
                  (->> (:declarations (az/stats module-symbol))
                       (some #(when (= "inline-caller" (:name %))
                                (:implementation-generation %))))))
-          (is (= 1 (count (az/function-versions
-                           (ns-resolve module-ns 'inline-base)))))
           (is (str/includes? (az/source module-symbol)
                              "pub inline fn inline_base")))
         (finally

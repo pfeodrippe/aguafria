@@ -32,3 +32,7 @@
 
 (az/defn- bang2 [:error-union :void] []
   (ak/return (az/error-value :PermissionDenied)))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

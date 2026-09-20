@@ -102,3 +102,9 @@
   (try (testing/expectEqual 3 (az/field (az/index more-points 4) :x)))
   (try (testing/expectEqual 6 (az/field (az/index more-points 4) :y)))
   (try (testing/expectEqual 10 (az/field more-points :len))))
+
+(comment
+  (array-iteration-test)
+  (array-mutation-test)
+  (compile-time-array-test)
+  (function-array-test))

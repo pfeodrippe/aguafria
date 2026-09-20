@@ -9,3 +9,6 @@
         register (ak/ptrFromInt 0x12345678)]
     (try (testing/expectEqual (az/type [:pointer {:size :one :volatile? true} :u8])
                               (ak/TypeOf register)))))
+
+(comment
+  (volatile-test))

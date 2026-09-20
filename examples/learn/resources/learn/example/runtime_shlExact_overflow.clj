@@ -9,3 +9,7 @@
     ;; Shifting by two would need more than eight bits.
     (let [shifted-bits (ak/shlExact alternating-bits 2)]
       (debug/print "value: {}\n" [shifted-bits]))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

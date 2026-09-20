@@ -16,3 +16,7 @@
       "Require inlining, or produce a compile error.")
     (az/enum-field-decl :compile_time
       "Require compile-time evaluation, or produce a compile error.")))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

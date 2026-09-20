@@ -11,3 +11,6 @@
     ;; So this fails!
     (try (testing/expectEqual 2 (az/index array 0))) ; succeeds
     (try (testing/expectEqual 1 (az/index array 1))))) ; fails
+
+(comment
+  (array-initializer-swap-test))

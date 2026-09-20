@@ -19,3 +19,6 @@
     (ak/memcpy (az/slice result 0 left-length) left)
     (ak/memcpy (az/slice result left-length) right)
     result))
+
+(comment
+  (fixed-buffer-allocation-test))

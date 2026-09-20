@@ -7,3 +7,6 @@
 
 (az/defn main :void []
   (debug/print "here is a string: '{s}' here is a number: {}\n" [text number]))
+
+(comment
+  (main))

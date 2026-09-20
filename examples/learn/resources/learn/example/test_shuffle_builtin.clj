@@ -15,3 +15,6 @@
            "hello" (& (ak/as (az/type [:array 5 :u8]) hello))))
     (try (testing/expectEqualStrings
            "world!" (& (ak/as (az/type [:array 6 :u8]) world))))))
+
+(comment
+  (vector-shuffle-test))

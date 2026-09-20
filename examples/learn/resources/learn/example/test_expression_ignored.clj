@@ -7,3 +7,6 @@
 (az/defn- returns-integer :i32
   []
   1234)
+
+(comment
+  (ignored-value-test))

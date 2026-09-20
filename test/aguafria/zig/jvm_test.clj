@@ -88,6 +88,100 @@
       (is (nil? ((ns-resolve namespace 'main)))))
     (is (= "native main\n" (str err)))))
 
+(deftest forced-inline-runtime-result-still-folds-at-the-callsite
+  (let [namespace (fixture)
+        err (StringWriter.)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defn- inline-add :i32 {:zig/prefix "inline"}
+                 [[left :i32] [right :i32]]
+                 (debug/print "inside inline call\n" [])
+                 (+ left right)))
+        (eval '(az/defn main :void []
+                 (when (!= (inline-add 1200 34) 1234)
+                   (ak/compileError "inline result no longer folds")))))
+      (binding [*err* err]
+        (is (nil? ((ns-resolve namespace 'main)))))
+      (is (= "inside inline call\n" (str err)))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest process-init-main-is-directly-callable
+  (let [namespace (fixture)
+        out (StringWriter.)]
+    (try
+      (binding [*ns* namespace]
+        (require '[aguafria.std.process :as process]
+                 '[aguafria.std.Io.File :as std-file])
+        (eval '(az/defn main :!void [[init process/Init]]
+                 (try (std-file/writeStreamingAll (std-file/stdout)
+                                                  (az/field init :io)
+                                                  "main in this JVM\n"))))
+        (eval '(az/defn ordinary :i32 [[value :i32]] value)))
+      (binding [*out* out]
+        (is (nil? ((ns-resolve namespace 'main)))))
+      (is (= "main in this JVM\n" (str out)))
+      (is (= 42 ((ns-resolve namespace 'ordinary) 42)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"(?i)(arity|arguments)"
+                           ((ns-resolve namespace 'ordinary))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest minimal-process-main-receives-argv
+  (let [namespace (fixture)
+        err (StringWriter.)]
+    (try
+      (binding [*ns* namespace]
+        (require '[aguafria.std.process.Init :as process-init])
+        (eval '(az/defn main :!void [[init process-init/Minimal]]
+                 (let [arguments (az/field (az/field init :args) :vector)]
+                   (debug/print "argc={d}; argv0={s}\n"
+                                [(az/field arguments :len) (az/index arguments 0)])))))
+      (binding [*err* err]
+        (is (nil? ((ns-resolve namespace 'main))))
+        (is (nil? ((ns-resolve namespace 'main) ["hello" "world"]))))
+      (is (= "argc=1; argv0=main\nargc=3; argv0=main\n" (str err)))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest module-struct-results-retain-field-names
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/deffield first-value :u32))
+        (eval '(az/deffield second-value :u64))
+        (eval '(az/defconst Record (ak/This)))
+        (eval '(az/defn make-record Record [[value :u32]]
+                 (az/object [[:first-value value] [:second-value (* value 10)]]))))
+      (let [result ((ns-resolve namespace 'make-record) 42)]
+        (try
+          (is (= {:first-value 42 :second-value 420} (az/value result)))
+          (finally (az/close! result))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest keyword-enum-members-are-callable-values
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defconst Mode
+                 (az/container {:kind :enum :argument :c_int}
+                   (az/enum-field-decl :idle)
+                   (az/enum-field-decl :running))))
+        (eval '(az/defn running? :bool [[mode Mode]] (== mode :.running))))
+      (let [running? (ns-resolve namespace 'running?)]
+        (is (false? (running? :idle)))
+        (is (true? (running? :running)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown Zig enum member"
+                             (running? :missing))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest quoted-native-export-is-looked-up-without-zig-syntax
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defn sentence :i32
+                 {:attrs #{:export} :zig/name "@\"A complete sentence.\""}
+                 [] 42)))
+      (is (= 42 ((ns-resolve namespace 'sentence))))
+      (finally (remove-ns (ns-name namespace))))))
+
 (deftest ordinary-java-program-calls-the-same-native-vars
   (let [source (io/file (io/resource "fixtures/jvm/NativeCallSmoke.java"))
         process (.start

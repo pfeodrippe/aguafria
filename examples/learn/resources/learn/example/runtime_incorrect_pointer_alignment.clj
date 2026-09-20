@@ -16,3 +16,7 @@
         bytes (mem/sliceAsBytes (az/slice words 0))]
     (when (ak/!= (read-misaligned-word bytes) 0x11111111)
       (ak/return (az/error-value :Wrong)))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

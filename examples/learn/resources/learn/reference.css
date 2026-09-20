@@ -7,6 +7,13 @@
 .learn-tabs [aria-selected="true"] { border-color: #888; border-bottom: 3px solid #b67a00; }
 .learn-tabs button:focus-visible { outline: 2px solid #b67a00; outline-offset: 2px; }
 .learn-example [role="tabpanel"] pre { overflow-x: auto; }
+.learn-side-by-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1em; }
+.learn-side-by-side .learn-tabs { grid-column: 1 / -1; }
+.learn-side-by-side [role="tabpanel"] { min-width: 0; }
+.learn-side-by-side [role="tabpanel"] > figure:first-child { margin-top: 0; }
+@media (max-width: 760px) {
+  .learn-side-by-side { grid-template-columns: minmax(0, 1fr); }
+}
 .learn-copy { display: block; margin-left: auto; padding: .35em .6em; font: inherit; }
 /* Scoped to Aguafria: the original reference's Zig token colors stay intact. */
 .language-clojure .token.comment { color: #526b46; font-style: italic; }

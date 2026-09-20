@@ -9,3 +9,7 @@
     (set! _ (ak/& error-code))
     (let [invalid-error (ak/errorFromInt error-code)]
       (debug/print "value: {}\n" [invalid-error]))))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

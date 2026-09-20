@@ -7,3 +7,6 @@
 
 (az/deftest cannot-order-booleans-test
   (set! _ (maximum :bool true false)))
+
+(comment
+  (cannot-order-booleans-test))

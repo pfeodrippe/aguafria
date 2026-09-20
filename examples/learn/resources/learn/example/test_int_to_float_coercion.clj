@@ -10,3 +10,6 @@
     (let [^{:zig/type :f32} floating integer
           ^{:zig/type :u8} restored (ak/intFromFloat floating)]
       (try (testing/expectEqual integer restored)))))
+
+(comment
+  (integer-to-float-test))

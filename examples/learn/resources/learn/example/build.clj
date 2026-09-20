@@ -12,3 +12,7 @@
                                      :optimize optimize})})]
     ((az/field (az/field builder :default_step) :dependOn)
      (& (az/field executable :step)))))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

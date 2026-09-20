@@ -13,3 +13,7 @@
 (az/defconst binary-mask (az/number-literal "0b1_1111_1111"))
 (az/defconst permissions (az/number-literal "0o7_5_5"))
 (az/defconst big-address (az/number-literal "0xFF80_0000_0000_0000"))
+
+(comment
+  ;; This excerpt has no standalone entry point; evaluate its declarations above in their documented context.
+  )

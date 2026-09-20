@@ -13,3 +13,6 @@
     (try (testing/expect (ak/! ((az/field members :contains) 3))))
     (set! _ ((az/field members :remove) 2))
     (try (testing/expect (ak/! ((az/field members :contains) 2))))))
+
+(comment
+  (hashmap-as-set-test))

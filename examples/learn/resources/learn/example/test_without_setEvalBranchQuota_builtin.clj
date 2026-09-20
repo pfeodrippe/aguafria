@@ -6,3 +6,6 @@
     (let [^:var index 0]
       (az/while-loop {:continue (az/assign-expr "+=" index 1)}
         (< index 1001)))))
+
+(comment
+  (default-branch-quota-test))

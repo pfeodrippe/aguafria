@@ -16,3 +16,6 @@
       (try (testing/expectEqual 0 (ak/offsetOf BitField "a")))
       (try (testing/expectEqual 0 (ak/offsetOf BitField "b")))
       (try (testing/expectEqual 0 (ak/offsetOf BitField "c"))))))
+
+(comment
+  (offsets-of-non-byte-aligned-fields-test))

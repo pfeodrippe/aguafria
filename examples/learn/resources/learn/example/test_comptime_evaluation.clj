@@ -41,3 +41,6 @@
   (try (testing/expectEqual 6 (perform-fn \t 1)))
   (try (testing/expectEqual 1 (perform-fn \o 0)))
   (try (testing/expectEqual 99 (perform-fn \w 99))))
+
+(comment
+  (perform-functions-test))

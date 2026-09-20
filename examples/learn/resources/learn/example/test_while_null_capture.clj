@@ -35,3 +35,6 @@
       (next-number)
       (ak/+= sum number))
     (try (testing/expectEqual 3 iterations))))
+
+(comment
+  (while-null-capture-test))

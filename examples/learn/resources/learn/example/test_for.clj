@@ -70,3 +70,9 @@
                        (try (testing/expectEqual 12 sum))
                        (ak/break blk sum))))]
       (try (testing/expectEqual 12 result)))))
+
+(comment
+  (for-basics-test)
+  (multi-object-for-test)
+  (for-reference-test)
+  (for-else-test))

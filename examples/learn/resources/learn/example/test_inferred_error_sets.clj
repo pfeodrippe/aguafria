@@ -23,3 +23,6 @@
     (ak/unreachable)
     (az/switch-stmt error
       (case [(az/error-value :Overflow)] (az/block)))))
+
+(comment
+  (inferred-error-set-test))

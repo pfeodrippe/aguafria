@@ -20,3 +20,6 @@
 (az/defn- type-name-length :usize
   [[T {:zig/prefix "comptime"} :type]]
   (az/field (ak/typeName T) :len))
+
+(comment
+  (inline-while-test))

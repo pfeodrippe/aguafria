@@ -42,3 +42,7 @@
             ^{:zig/type [:slice :u8]} empty-slice (& (az/object []))]
         (try (testing/expectEqual 0 (az/field empty-array :len)))
         (try (testing/expectEqual 0 (az/field empty-slice :len)))))))
+
+(comment
+  ;; This deliberately panics and can terminate this JVM.
+  (basic-slices-test))

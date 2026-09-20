@@ -11,3 +11,6 @@
 
 (az/defvar values
   (az/init (ListOf :i32) {:items (ak/& buffer) :len 0}))
+
+(comment
+  (ListOf :i32))

@@ -7,3 +7,6 @@
     ;; Intentionally invalid: f32 cannot exactly represent every runtime u25.
     (let [^{:zig/type :f32} floating integer]
       (set! _ floating))))
+
+(comment
+  (lossy-integer-to-float-test))

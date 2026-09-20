@@ -29,3 +29,7 @@
 
 (az/defn- bang2 :void []
   (ak/panic "PermissionDenied"))
+
+(comment
+  ;; This deliberately triggers native safety failure; it can terminate this JVM.
+  (main))

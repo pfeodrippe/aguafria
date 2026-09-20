@@ -179,11 +179,13 @@
           (let [details (:aguafria/test-result (meta result))]
             (is (= "foo" (:test-name details)))
             (is (= (runtime/zig-executable) (first (:command details))))
-            (is (= ["test" "--test-filter" "native_test.test.foo"]
-                   (subvec (:command details) 1 4)))
+            (is (= ["test" "--test-filter"] (subvec (:command details) 1 3)))
+            (is (some #{"--test-no-exec"} (:command details)))
+            (is (some #{"-fno-emit-bin"} (:command details)))
+            (is (= :in-process (:execution details)))
             (is (= printed-out (:stdout details)))
             (is (= printed-err (:stderr details)))
-            (is (str/includes? (str printed-out printed-err) "native_test.test.foo"))
+            (is (str/includes? (str printed-out printed-err) ".test.foo"))
             (is (not (str/includes? (str printed-out printed-err) "foo-extra")))
             (is (some #{(str (ns-name dependency))} (:dependencies details)))
             (let [source (slurp (:source-path details))]
@@ -227,3 +229,33 @@
           (is (.isFile (io/file (:source-path details))))))
       (finally
         (remove-ns (ns-name namespace))))))
+
+(deftest ^:integration native-test-runs-in-the-jvm-process
+  (let [namespace (scratch-namespace)
+        pid (.pid (java.lang.ProcessHandle/current))]
+    (try
+      (binding [*ns* namespace runtime/*source-only-registration?* true]
+        (require '[aguafria.std.testing :as testing])
+        (eval '(az/defextern getpid {:zig/prefix "extern"} :- :c_int []))
+        (eval (list 'az/deftest 'same-process-test
+                    (list 'try (list 'testing/expectEqual
+                                     (list 'ak/as :c_int pid) '(getpid))))))
+      (let [{:keys [result failure]} (capture-execution (ns-resolve namespace 'same-process-test))]
+        (is (nil? failure) (some-> failure ex-message))
+        (is (= :passed (:status result)))
+        (is (= :in-process (get-in (meta result) [:aguafria/test-result :execution]))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest ^:integration native-tests-report-skips-and-allocator-leaks
+  (let [namespace (scratch-namespace)]
+    (try
+      (binding [*ns* namespace runtime/*source-only-registration?* true]
+        (require '[aguafria.std.testing :as testing])
+        (eval '(az/deftest skipped-test (ak/return (az/error-value :SkipZigTest))))
+        (eval '(az/deftest leak-test
+                 (set! _ (try ((az/field testing/allocator :alloc) :u8 10))))))
+      (is (= :skipped (:status (:result (capture-execution (ns-resolve namespace 'skipped-test))))))
+      (let [{:keys [failure printed-err]} (capture-execution (ns-resolve namespace 'leak-test))]
+        (is (= :failed (:status (ex-data failure))))
+        (is (str/includes? printed-err "leaked memory")))
+      (finally (remove-ns (ns-name namespace))))))

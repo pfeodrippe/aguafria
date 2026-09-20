@@ -15,3 +15,6 @@
       ;; This compile error never triggers: y is a comptime variable, so
       ;; y != 2 is a comptime value and the condition is statically evaluated.
       (ak/compileError "wrong y value"))))
+
+(comment
+  (comptime-variables-test))

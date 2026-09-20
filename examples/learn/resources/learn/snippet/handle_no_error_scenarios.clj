@@ -7,3 +7,7 @@
     (do-something-with-number number)
     ;; The caller chooses to ignore the error.
     (az/block)))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

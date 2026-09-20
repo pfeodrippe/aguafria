@@ -6,3 +6,6 @@
 (az/deftest unreachable-type-test
   (ak/comptime
     (debug/assert (== (ak/TypeOf (ak/unreachable)) :noreturn))))
+
+(comment
+  (unreachable-type-test))

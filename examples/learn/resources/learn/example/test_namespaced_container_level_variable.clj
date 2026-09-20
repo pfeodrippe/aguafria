@@ -15,3 +15,6 @@
   []
   (ak/+= (az/field State :value) 1)
   (az/field State :value))
+
+(comment
+  (namespaced-state-test))

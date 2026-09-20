@@ -18,3 +18,7 @@
         (ak/+= count 1)
         (ak/continue outer)))
     (try (testing/expectEqual 8 count))))
+
+(comment
+  (nested-break-test)
+  (nested-continue-test))

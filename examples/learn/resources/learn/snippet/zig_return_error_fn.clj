@@ -9,3 +9,7 @@
         (ak/returnAddress))
   (set! (az/field trace :index)
         (ak/% (+ (az/field trace :index) 1) N)))
+
+(comment
+  ;; Contextual excerpt: evaluate the declarations above with the surrounding definitions.
+  )

@@ -13,3 +13,6 @@
                 (az/var-decl value :i32 1234))]
     (ak/+= (az/field State :value) 1)
     (az/field State :value)))
+
+(comment
+  (static-local-state-test))

@@ -58,3 +58,8 @@
     (az/if-capture-stmt {:payload [value] :error [_]} result
       (try (testing/expectEqual value 9))
       (ak/unreachable))))
+
+(comment
+  (if-expression-test)
+  (if-boolean-test)
+  (if-error-union-test))

@@ -8,3 +8,6 @@
 
 (az/defn- accept-const-pointer :void
   [[_ [:*const :i32]]])
+
+(comment
+  (const-qualification-test))
