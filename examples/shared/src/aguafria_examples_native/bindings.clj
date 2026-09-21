@@ -10,10 +10,10 @@
 (defn ensure-loaded!
   []
   (when-not @loaded?
-    (let [specs (generate/binding-specs)
-          missing (remove #(.isFile ^java.io.File (:output %)) specs)]
-      (when (seq missing)
-        (generate/generate!))
+    (let [specs (generate/binding-specs)]
+      ;; The translator's cache includes the compiler format version. File
+      ;; existence alone would keep incompatible bindings after an upgrade.
+      (generate/generate!)
       (build/prepare-shared!)
       (doseq [{:keys [output]} specs]
         (ac/load-bindings! output))

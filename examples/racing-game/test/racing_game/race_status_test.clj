@@ -10,7 +10,7 @@
   [[up :f32] [speed :f32] [ticks :u32] [finished :bool]]
   (let [^:var entry (mem/zeroes (az/type status/Entry))]
     (dotimes [i ticks]
-      (set! entry (status/observe entry up speed (+ 1000 i) 2 0.4 finished)))
+      (ak/= entry (status/observe entry up speed (+ 1000 i) 2 0.4 finished)))
     entry))
 
 (deftest sustained-physical-retirement-test

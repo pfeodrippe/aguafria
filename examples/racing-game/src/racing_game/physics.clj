@@ -42,13 +42,13 @@
   (let [^:var definition (b3/b3DefaultWorldDef)
         state (catch ((az/field heap/page_allocator create) WorldState)
                 (debug/panic "Unable to allocate the physics world's tire registry" []))]
-    (set! (az/deref state) (mem/zeroes (az/type WorldState)))
-    (set! (az/field definition gravity) (b3/b3Vec3 {:x 0.0 :y 0.0 :z gravity}))
-    (set! (az/field definition maximumLinearSpeed) 130.0)
-    (set! (az/field definition enableContinuous) true)
-    (set! (az/field definition contactHertz) 120.0)
-    (set! (az/field definition workerCount) 1)
-    (set! (az/field definition userData) state)
+    (ak/= (az/deref state) (mem/zeroes (az/type WorldState)))
+    (ak/= (az/field definition gravity) (b3/b3Vec3 {:x 0.0 :y 0.0 :z gravity}))
+    (ak/= (az/field definition maximumLinearSpeed) 130.0)
+    (ak/= (az/field definition enableContinuous) true)
+    (ak/= (az/field definition contactHertz) 120.0)
+    (ak/= (az/field definition workerCount) 1)
+    (ak/= (az/field definition userData) state)
     (b3/b3CreateWorld (ak/& definition))))
 
 (az/defn destroy-world! :void [[world b3/b3WorldId]]
@@ -64,13 +64,13 @@
         ^:var slot (ak/usize (az/field state count))]
     (dotimes [i (az/field state count)]
       (when (ak/! (b3/b3Body_IsValid (az/field (az/index (az/field state tires) i) body)))
-        (set! slot i)
+        (ak/= slot i)
         (ak/break)))
     (when (>= slot max-world-tires)
       (debug/panic "Physics world tire registry exhausted (maximum {d} tires)" [max-world-tires]))
     (when (ak/== slot (az/field state count))
       (ak/+= (az/field state count) 1))
-    (set! (az/index (az/field state tires) slot)
+    (ak/= (az/index (az/field state tires) slot)
       (TireContact {:body body :radius radius :half-width half-width :enabled true :wear_loss 0.0}))))
 
 (az/defn set-tire-contact-enabled! :void
@@ -84,7 +84,7 @@
                 candidate (az/field tire body)]
             (when (and (ak/== (az/field candidate index1) (az/field body index1))
                        (ak/== (az/field candidate generation) (az/field body generation)))
-              (set! (az/field tire enabled) enabled)
+              (ak/= (az/field tire enabled) enabled)
               (ak/return))))))))
 
 (az/defconst step-rate :usize 3840)
@@ -125,18 +125,18 @@
         ^:var shape (b3/b3DefaultShapeDef)
         hull (b3/b3MakeBoxHull (az/field half-size x) (az/field half-size y)
                               (az/field half-size z))]
-    (set! (az/field definition type) (if (> mass 0.0) b3/b3_dynamicBody b3/b3_staticBody))
-    (set! (az/field definition position) position)
-    (set! (az/field definition rotation)
+    (ak/= (az/field definition type) (if (> mass 0.0) b3/b3_dynamicBody b3/b3_staticBody))
+    (ak/= (az/field definition position) position)
+    (ak/= (az/field definition rotation)
           (b3/b3MakeQuatFromAxisAngle (b3/b3Vec3 {:x 0.0 :y 0.0 :z 1.0}) heading))
-    (set! (az/field shape density)
+    (ak/= (az/field shape density)
           (/ mass (* 8.0 (az/field half-size x) (az/field half-size y) (az/field half-size z))))
-    (set! (az/field (az/field shape baseMaterial) friction) 0.8)
-    (set! (az/field (az/field shape baseMaterial) restitution) 0.05)
-    (set! (az/field shape enableHitEvents) true)
-    (set! (az/field (az/field shape filter) categoryBits) solid-category)
+    (ak/= (az/field (az/field shape baseMaterial) friction) 0.8)
+    (ak/= (az/field (az/field shape baseMaterial) restitution) 0.05)
+    (ak/= (az/field shape enableHitEvents) true)
+    (ak/= (az/field (az/field shape filter) categoryBits) solid-category)
     (let [body (b3/b3CreateBody world (ak/& definition))]
-      (set! _ (b3/b3CreateHullShape body (ak/& shape) (ak/& (az/field hull base))))
+      (ak/= :_ (b3/b3CreateHullShape body (ak/& shape) (ak/& (az/field hull base))))
       body)))
 
 (az/defn mark-tire-surface! :void
@@ -151,7 +151,7 @@
     (dotimes [i count]
       (let [shape (az/index shapes i)
             ^:var filter (b3/b3Shape_GetFilter shape)]
-        (set! (az/field filter categoryBits) tire-surface-category)
+        (ak/= (az/field filter categoryBits) tire-surface-category)
         (b3/b3Shape_SetFilter shape filter true)))))
 
 (az/defn create-ground b3/b3BodyId
@@ -168,7 +168,7 @@
   (let [chassis (create-box world position (b3/b3Vec3 {:x 2.5 :y 0.75 :z 0.20}) heading chassis-mass-kg)
         rotation (b3/b3Body_GetRotation chassis)
         ^:var vehicle (mem/zeroes (az/type Vehicle))]
-    (set! (az/field vehicle chassis) chassis)
+    (ak/= (az/field vehicle chassis) chassis)
     (dotimes [i 4]
       (let [front (< i 2)
             dimensions (az/index vehicle-spec/wheel-geometry i)
@@ -184,48 +184,48 @@
             ^:var shape (b3/b3DefaultShapeDef)
             ^:var joint (b3/b3DefaultWheelJointDef)]
         (ak/defer (b3/b3DestroyHull tire))
-        (set! (az/field body-definition type) b3/b3_dynamicBody)
-        (set! (az/field body-definition position)
+        (ak/= (az/field body-definition type) b3/b3_dynamicBody)
+        (ak/= (az/field body-definition position)
               (b3/b3Pos {:x (+ (az/field position x) (az/field translated x))
                          :y (+ (az/field position y) (az/field translated y))
                          :z (+ (az/field position z) (az/field translated z))}))
-        (set! (az/field body-definition rotation) rotation)
-        (set! (az/field body-definition allowFastRotation) true)
-        (set! (az/field shape density) (/ wheel-mass-kg (* 3.1415927 radius radius width)))
-        (set! (az/field (az/field shape baseMaterial) friction) tire-friction)
-        (set! (az/field (az/field shape baseMaterial) restitution) 0.0)
-        (set! (az/field shape enableHitEvents) true)
-        (set! (az/field (az/field shape filter) categoryBits) tire-category)
-        (set! (az/field (az/field shape filter) maskBits) (ak/bit-not tire-surface-category))
+        (ak/= (az/field body-definition rotation) rotation)
+        (ak/= (az/field body-definition allowFastRotation) true)
+        (ak/= (az/field shape density) (/ wheel-mass-kg (* 3.1415927 radius radius width)))
+        (ak/= (az/field (az/field shape baseMaterial) friction) tire-friction)
+        (ak/= (az/field (az/field shape baseMaterial) restitution) 0.0)
+        (ak/= (az/field shape enableHitEvents) true)
+        (ak/= (az/field (az/field shape filter) categoryBits) tire-category)
+        (ak/= (az/field (az/field shape filter) maskBits) (ak/bit-not tire-surface-category))
         (let [wheel (b3/b3CreateBody world (ak/& body-definition))]
-          (set! _ (b3/b3CreateHullShape wheel (ak/& shape) tire))
-          (set! (az/index (az/field vehicle wheels) i) wheel)
-          (set! (az/field (az/field joint base) bodyIdA) chassis)
-          (set! (az/field (az/field joint base) bodyIdB) wheel)
-          (set! (az/field (az/field (az/field joint base) localFrameA) p) offset)
+          (ak/= :_ (b3/b3CreateHullShape wheel (ak/& shape) tire))
+          (ak/= (az/index (az/field vehicle wheels) i) wheel)
+          (ak/= (az/field (az/field joint base) bodyIdA) chassis)
+          (ak/= (az/field (az/field joint base) bodyIdB) wheel)
+          (ak/= (az/field (az/field (az/field joint base) localFrameA) p) offset)
           ;; Box3D: A.X is suspension, B.Z is spin, and A.Z/B.Z must
           ;; coincide at zero steering. Both bodies use the same rotation.
           ;; This cyclic frame maps X->Z, Y->X, Z->Y for our Z-up vehicle.
-          (set! (az/field (az/field (az/field joint base) localFrameA) q)
+          (ak/= (az/field (az/field (az/field joint base) localFrameA) q)
                 (b3/b3Quat {:v {:x -0.5 :y -0.5 :z -0.5} :s 0.5}))
-          (set! (az/field (az/field (az/field joint base) localFrameB) q)
+          (ak/= (az/field (az/field (az/field joint base) localFrameB) q)
                 (b3/b3Quat {:v {:x -0.5 :y -0.5 :z -0.5} :s 0.5}))
-          (set! (az/field joint enableSuspensionSpring) true)
-          (set! (az/field joint suspensionHertz) 9.0)
-          (set! (az/field joint suspensionDampingRatio) 1.0)
-          (set! (az/field joint enableSuspensionLimit) true)
-          (set! (az/field joint lowerSuspensionLimit) -0.12)
-          (set! (az/field joint upperSuspensionLimit) 0.12)
-          (set! (az/field joint enableSteering) front)
-          (set! (az/field joint steeringHertz) 30.0)
-          (set! (az/field joint steeringDampingRatio) 1.0)
-          (set! (az/field joint maxSteeringTorque) 6000.0)
-          (set! (az/field joint enableSteeringLimit) true)
-          (set! (az/field joint lowerSteeringLimit) (if front -0.45 0.0))
-          (set! (az/field joint upperSteeringLimit) (if front 0.45 0.0))
-          (set! (az/field joint enableSpinMotor) true)
-          (set! (az/field joint maxSpinTorque) 0.0)
-          (set! (az/index (az/field vehicle joints) i)
+          (ak/= (az/field joint enableSuspensionSpring) true)
+          (ak/= (az/field joint suspensionHertz) 9.0)
+          (ak/= (az/field joint suspensionDampingRatio) 1.0)
+          (ak/= (az/field joint enableSuspensionLimit) true)
+          (ak/= (az/field joint lowerSuspensionLimit) -0.12)
+          (ak/= (az/field joint upperSuspensionLimit) 0.12)
+          (ak/= (az/field joint enableSteering) front)
+          (ak/= (az/field joint steeringHertz) 30.0)
+          (ak/= (az/field joint steeringDampingRatio) 1.0)
+          (ak/= (az/field joint maxSteeringTorque) 6000.0)
+          (ak/= (az/field joint enableSteeringLimit) true)
+          (ak/= (az/field joint lowerSteeringLimit) (if front -0.45 0.0))
+          (ak/= (az/field joint upperSteeringLimit) (if front 0.45 0.0))
+          (ak/= (az/field joint enableSpinMotor) true)
+          (ak/= (az/field joint maxSpinTorque) 0.0)
+          (ak/= (az/index (az/field vehicle joints) i)
                 (b3/b3CreateWheelJoint world (ak/& joint)))
           (register-tire! world wheel radius (* 0.5 width)))))
     vehicle))
@@ -377,7 +377,7 @@
 (az/defn apply-tire-plane! :void
   "Explicit contact experiment; production contacts also retain tread loss." [[tire TireContact] [surface-normal b3/b3Vec3]
             [surface-point b3/b3Pos] [surface-friction :f32]]
-  (set! _ (tire-plane-step! tire surface-normal surface-point surface-friction)))
+  (ak/= :_ (tire-plane-step! tire surface-normal surface-point surface-friction)))
 
 (az/defn take-vehicle-tread-loss! :f32
   "Consume measured contact work once for this vehicle. A pit call does not
@@ -395,7 +395,7 @@
                 (when (and (ak/== (az/field body index1) (az/field wheel index1))
                            (ak/== (az/field body generation) (az/field wheel generation)))
                   (ak/+= loss (az/field tire wear_loss))
-                  (set! (az/field tire wear_loss) 0.0))))))))
+                  (ak/= (az/field tire wear_loss) 0.0))))))))
     (ak/floatCast (/ loss 4.0))))
 
 (az/defn apply-tire-contacts! :void
@@ -408,7 +408,7 @@
     (when (ak/!= raw ak/null)
       (let [state (az/cast raw [:* WorldState])
             ^:var query (b3/b3DefaultQueryFilter)]
-        (set! (az/field query maskBits) tire-surface-category)
+        (ak/= (az/field query maskBits) tire-surface-category)
         (dotimes [i (az/field state count)]
           (let [tire (az/index (az/field state tires) i)
                 wheel (az/field tire body)]
@@ -431,7 +431,7 @@
                           (let [mesh (b3/b3Shape_GetMesh shape)
                                 indices (b3/b3GetMeshMaterialIndices (az/field mesh data))]
                             (when (ak/!= indices ak/null)
-                              (set! material (b3/b3Shape_GetMeshSurfaceMaterial shape
+                              (ak/= material (b3/b3Shape_GetMeshSurfaceMaterial shape
                                 (az/index indices (ak/as (ak/intCast (az/field hit triangleIndex)) :usize)))))))
                         (ak/+= (az/field (az/index (az/field state tires) i) wear_loss)
                           (tire-plane-step! tire (az/field hit normal) (az/field hit point)

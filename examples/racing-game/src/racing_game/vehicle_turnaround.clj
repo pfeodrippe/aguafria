@@ -31,7 +31,7 @@
   "Read-only Box3D query callback. Dynamic cars are checked separately."
   {:attrs #{:export}} [[shape b3/b3ShapeId] [context [:optional [:* :anyopaque]]]]
   (if (ak/== (b3/b3Body_GetType (b3/b3Shape_GetBody shape)) b3/b3_staticBody)
-    (do (set! (az/deref (az/cast context [:* :bool])) true) false)
+    (do (ak/= (az/deref (az/cast context [:* :bool])) true) false)
     true))
 
 (az/defn static-clearance :bool
@@ -42,12 +42,12 @@
     (dotimes [i 8]
       (let [local-x (if (ak/== (ak/& i 1) 0) (ak/as -2.55 :f32) 2.55)
             local-y (if (ak/== (ak/& i 2) 0) (ak/as -1.47 :f32) 1.47)]
-        (set! (az/index points i)
+        (ak/= (az/index points i)
           (b3/b3Vec3 {:x (- (* local-x (math/cos yaw)) (* local-y (math/sin yaw)))
                       :y (+ (* local-x (math/sin yaw)) (* local-y (math/cos yaw)))
                       :z (if (ak/== (ak/& i 4) 0) (ak/as -0.25 :f32) 0.25)}))))
     (let [proxy (b3/b3ShapeProxy {:points (ak/& points) :count 8 :radius 0.05})]
-      (set! _ (b3/b3World_OverlapShape world (b3/b3Pos {:x x :y y :z z})
+      (ak/= :_ (b3/b3World_OverlapShape world (b3/b3Pos {:x x :y y :z z})
                  (ak/& proxy) (b3/b3DefaultQueryFilter) (ak/& static-overlap) (ak/& blocked))))
     (ak/! blocked)))
 
@@ -165,20 +165,20 @@
         ;; the real static mesh, not approximated by an arbitrary road margin.
         (let [envelope (+ (ak/abs (* 50.0 (az/field projection lane))) half-width)]
           (when (> envelope 33.0)
-            (set! reasons (ak/| reasons 1)))
+            (ak/= reasons (ak/| reasons 1)))
           (when (ak/! (corridor-step-safe? current-lane
                          (* 50.0 (az/field projection lane)) lane-limit))
-            (set! reasons (ak/| reasons 2)))
+            (ak/= reasons (ak/| reasons 2)))
           (when (ak/! (static-clearance world x y (+ (az/field road z) 0.76) predicted-yaw))
-            (set! reasons (ak/| reasons 4))))
+            (ak/= reasons (ak/| reasons 4))))
         (dotimes [j count]
           (when (ak/!= j self)
             (let [other (az/index others j)
                   seconds (/ (ak/abs distance) 0.8)
                   ^:var anticipated other]
               ;; Predict nearby traffic, never change its actual physics pose.
-              (set! (az/field anticipated x) (+ (az/field other x) (* (az/field other vx) seconds)))
-              (set! (az/field anticipated y) (+ (az/field other y) (* (az/field other vy) seconds)))
+              (ak/= (az/field anticipated x) (+ (az/field other x) (* (az/field other vx) seconds)))
+              (ak/= (az/field anticipated y) (+ (az/field other y) (* (az/field other vy) seconds)))
               (let [gap (footprint-separation x y predicted-yaw anticipated)
                     current-gap (footprint-separation (az/field body x) (az/field body y) yaw other)
                     traffic-speed-squared (+ (* (az/field other vx) (az/field other vx))
@@ -186,10 +186,10 @@
                 ;; Existing close contact may only be separated, never approached.
                 (when (< (ak/abs (- (az/field other z) (az/field body z))) 3.0)
                   (when (ak/! (separation-safe? current-gap gap))
-                    (set! reasons (ak/| reasons 8)))
+                    (ak/= reasons (ak/| reasons 8)))
                   (when (and (> traffic-speed-squared 4.0)
                              (ak/! (moving-traffic-clear? body other x y seconds)))
-                    (set! reasons (ak/| reasons 16))))))))))
+                    (ak/= reasons (ak/| reasons 16))))))))))
     reasons))
 
 (az/defn clearance-reasons :u8
@@ -212,8 +212,8 @@
   (let [^:var safe control]
     (when (ak/!= (motion-clearance-reasons body others count self gear
                     (az/field control steering) world lane-limit) 0)
-      (set! (az/field safe throttle) 0.0)
-      (set! (az/field safe brake) 1.0))
+      (ak/= (az/field safe throttle) 0.0)
+      (ak/= (az/field safe brake) 1.0))
     safe))
 
 (az/defn clearance :bool
@@ -239,16 +239,16 @@
                             (* (az/field body qy) (az/field body qy)))))
         safe (and enabled (> up 0.8))]
     (when (and safe (ak/! (az/field state active)) (> (ak/abs heading-error) 1.3))
-      (set! (az/field state active) true)
-      (set! (az/field state gear) 0)
+      (ak/= (az/field state active) true)
+      (ak/= (az/field state gear) 0)
       ;; Fix the corridor at entry so successive replans cannot ratchet the
       ;; vehicle farther into runoff. Allow limited room around a shoulder
       ;; starting point; the actual wall query remains an independent gate.
-      (set! (az/field state lane_limit)
+      (ak/= (az/field state lane_limit)
         (if (> (ak/abs (az/field normal lane)) 7.0)
           (+ (ak/abs (az/field normal lane)) 1.5)
           (ak/as 7.2 :f32)))
-      (set! (az/field state turn_sign) (if (> heading-error 0.0) (ak/as 1.0 :f32) -1.0)))
+      (ak/= (az/field state turn_sign) (if (> heading-error 0.0) (ak/as 1.0 :f32) -1.0)))
     (when (az/field state active)
       (let [^:var forward (and safe (clearance body others count self 1 (az/field state turn_sign) world (az/field state lane_limit)))
             ^:var backward (and safe (clearance body others count self -1 (az/field state turn_sign) world (az/field state lane_limit)))
@@ -261,27 +261,27 @@
                 other-forward (clearance body others count self 1 other-sign world (az/field state lane_limit))
                 other-backward (clearance body others count self -1 other-sign world (az/field state lane_limit))]
             (when (or other-forward other-backward)
-              (set! (az/field state turn_sign) other-sign)
-              (set! forward other-forward)
-              (set! backward other-backward))))
-        (set! (az/field control throttle) 0.0)
-        (set! (az/field control brake) 1.0)
-        (set! (az/field control steering) 0.0)
+              (ak/= (az/field state turn_sign) other-sign)
+              (ak/= forward other-forward)
+              (ak/= backward other-backward))))
+        (ak/= (az/field control throttle) 0.0)
+        (ak/= (az/field control brake) 1.0)
+        (ak/= (az/field control steering) 0.0)
         (when (< speed 0.05)
           (cond
             (or (ak/! safe) (< (ak/abs heading-error) 0.20))
-            (do (set! (az/field state active) false)
-                (set! (az/field state gear) 0))
+            (do (ak/= (az/field state active) false)
+                (ak/= (az/field state gear) 0))
 
             (or (ak/== (az/field state gear) 0) (ak/! current-clear))
-            (set! (az/field state gear)
+            (ak/= (az/field state gear)
                   (if forward (ak/as 1 :i8) (if backward (ak/as -1 :i8) 0)))))
         (when (and (az/field state active) safe
                    (ak/!= (az/field state gear) 0)
                    (> (ak/abs heading-error) 0.20)
                    (if (> (az/field state gear) 0) forward backward))
-          (set! (az/field control steering)
+          (ak/= (az/field control steering)
                 (* 0.45 (az/field state turn_sign) (ak/as (ak/floatFromInt (az/field state gear)) :f32)))
-          (set! (az/field control throttle) (driver/clamp-unit (* (- 0.8 speed) 0.3)))
-          (set! (az/field control brake) (driver/clamp-unit (* (- speed 0.8) 0.5))))))
+          (ak/= (az/field control throttle) (driver/clamp-unit (* (- 0.8 speed) 0.3)))
+          (ak/= (az/field control brake) (driver/clamp-unit (* (- speed 0.8) 0.5))))))
     (Output {:state state :control control})))

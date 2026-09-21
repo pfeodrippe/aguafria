@@ -68,19 +68,19 @@
 
 (az/defvar frame-count :u64 0)
 
-(az/defvar instance vk/VkInstance null)
+(az/defvar instance vk/VkInstance ak/null)
 
-(az/defvar surface vk/VkSurfaceKHR null)
+(az/defvar surface vk/VkSurfaceKHR ak/null)
 
-(az/defvar physical-device vk/VkPhysicalDevice null)
+(az/defvar physical-device vk/VkPhysicalDevice ak/null)
 
-(az/defvar device vk/VkDevice null)
+(az/defvar device vk/VkDevice ak/null)
 
-(az/defvar graphics-queue vk/VkQueue null)
+(az/defvar graphics-queue vk/VkQueue ak/null)
 
 (az/defvar queue-family :u32 0)
 
-(az/defvar swapchain vk/VkSwapchainKHR null)
+(az/defvar swapchain vk/VkSwapchainKHR ak/null)
 
 (az/defvar swapchain-readable false)
 
@@ -106,18 +106,18 @@
 (az/defvar image-views [:array 8 vk/VkImageView]
   (std-mem/zeroes (az/type [:array 8 vk/VkImageView])))
 
-(az/defvar depth-image vk/VkImage null)
+(az/defvar depth-image vk/VkImage ak/null)
 
-(az/defvar depth-memory vk/VkDeviceMemory null)
+(az/defvar depth-memory vk/VkDeviceMemory ak/null)
 
-(az/defvar depth-view vk/VkImageView null)
+(az/defvar depth-view vk/VkImageView ak/null)
 
-(az/defvar render-pass vk/VkRenderPass null)
+(az/defvar render-pass vk/VkRenderPass ak/null)
 
 (az/defvar framebuffers [:array 8 vk/VkFramebuffer]
   (std-mem/zeroes (az/type [:array 8 vk/VkFramebuffer])))
 
-(az/defvar command-pool vk/VkCommandPool null)
+(az/defvar command-pool vk/VkCommandPool ak/null)
 
 (az/defvar command-buffers [:array 8 vk/VkCommandBuffer]
   (std-mem/zeroes (az/type [:array 8 vk/VkCommandBuffer])))
@@ -128,19 +128,19 @@
 (az/defvar present-finished [:array 8 vk/VkSemaphore]
   (std-mem/zeroes (az/type [:array 8 vk/VkSemaphore])))
 
-(az/defvar in-flight vk/VkFence null)
+(az/defvar in-flight vk/VkFence ak/null)
 
 (az/defvar synchronization-slot :usize 0)
 
-(az/defvar active-command-buffer vk/VkCommandBuffer null)
+(az/defvar active-command-buffer vk/VkCommandBuffer ak/null)
 
-(az/defvar mesh-pipeline vk/VkPipeline null)
+(az/defvar mesh-pipeline vk/VkPipeline ak/null)
 
-(az/defvar mesh-pipeline-layout vk/VkPipelineLayout null)
+(az/defvar mesh-pipeline-layout vk/VkPipelineLayout ak/null)
 
-(az/defvar instance-pipeline vk/VkPipeline null)
+(az/defvar instance-pipeline vk/VkPipeline ak/null)
 
-(az/defvar instance-pipeline-layout vk/VkPipelineLayout null)
+(az/defvar instance-pipeline-layout vk/VkPipelineLayout ak/null)
 
 (az/defstruct MappedVertexBuffer
   [[:buffer vk/VkBuffer] [:memory vk/VkDeviceMemory]
@@ -151,11 +151,11 @@
 
 (az/defvar scene-storage-requested :usize 0)
 
-(az/defvar scene-storage-layout vk/VkDescriptorSetLayout null)
+(az/defvar scene-storage-layout vk/VkDescriptorSetLayout ak/null)
 
-(az/defvar scene-storage-pool vk/VkDescriptorPool null)
+(az/defvar scene-storage-pool vk/VkDescriptorPool ak/null)
 
-(az/defvar scene-storage-set vk/VkDescriptorSet null)
+(az/defvar scene-storage-set vk/VkDescriptorSet ak/null)
 
 (az/defstruct InstanceMesh
   [[:storage MappedVertexBuffer] [:revision :u64] [:vertices :u32] [:draw_frame :u64]])
@@ -174,15 +174,15 @@
 
 (az/defvar instance-upload-bytes :u64 0)
 
-(az/defvar mesh-vertex-buffer vk/VkBuffer null)
+(az/defvar mesh-vertex-buffer vk/VkBuffer ak/null)
 
-(az/defvar mesh-vertex-memory vk/VkDeviceMemory null)
+(az/defvar mesh-vertex-memory vk/VkDeviceMemory ak/null)
 
-(az/defvar mapped-mesh-vertices [:optional [:* :anyopaque]] null)
+(az/defvar mapped-mesh-vertices [:optional [:* :anyopaque]] ak/null)
 
 (az/defvar mesh-vertex-count :u32 0)
 
-(az/defvar overlay-renderer [:optional OverlayRenderer] null)
+(az/defvar overlay-renderer [:optional OverlayRenderer] ak/null)
 
 (az/defvar shader-module-words [:array 65536 :u32]
   (std-mem/zeroes (az/type [:array 65536 :u32])))
@@ -191,9 +191,9 @@
 
 (az/defvar render-tile-edge :u32 0)
 
-(az/defvar tiled-clear-pass vk/VkRenderPass null)
+(az/defvar tiled-clear-pass vk/VkRenderPass ak/null)
 
-(az/defvar tiled-load-pass vk/VkRenderPass null)
+(az/defvar tiled-load-pass vk/VkRenderPass ak/null)
 
 (az/defvar saved-frame-data [:array 32 :u32] (std-mem/zeroes (az/type [:array 32 :u32])))
 
@@ -233,7 +233,7 @@
   [[result vk/VkResult] [operation [:slice-const :u8]]]
   (when (ak/== result vk/VK_ERROR_DEVICE_LOST)
     (ak/atomicStore :u8 (ak/& device-lost-state) 1 :.release)
-    (set! active-command-buffer null)
+    (ak/= active-command-buffer ak/null)
     (when (or (ak/== (readback/status) 2) (ak/== (readback/status) 3))
       (readback/reject!))
     (std-debug/print "{s}: device lost; rendering stopped, CPU cache retained (frame {d}, tile {d})\n"
@@ -255,10 +255,10 @@
         ^:var extensions
         (std-mem/zeroes
          (az/type [:array 8 [:pointer {:size :c :const? true} :u8]]))]
-    (std-debug/assert (ak/!= glfw-extensions null))
+    (std-debug/assert (ak/!= glfw-extensions ak/null))
     (std-debug/assert (<= extension-count 6))
     (dotimes [index extension-count]
-      (set! (az/index extensions index) (az/index glfw-extensions index)))
+      (ak/= (az/index extensions index) (az/index glfw-extensions index)))
     (az/set-many!
       (az/index extensions extension-count) vk/VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
       (az/index extensions (+ extension-count 1)) "VK_KHR_get_physical_device_properties2")
@@ -277,29 +277,29 @@
             :pApplicationInfo (ak/& application-info)
             :enabledExtensionCount (+ extension-count 2)
             :ppEnabledExtensionNames (ak/& (az/index extensions 0))})]
-      (check (vk/vkCreateInstance (ak/& create-info) null (ak/& instance))))))
+      (check (vk/vkCreateInstance (ak/& create-info) ak/null (ak/& instance))))))
 
 (az/defn select-device-and-queue! :void
   []
   (let [^:var device-count (ak/u32 0)
         ^:var devices (std-mem/zeroes (az/type [:array 8 vk/VkPhysicalDevice]))]
-    (check (vk/vkEnumeratePhysicalDevices instance (ak/& device-count) null))
+    (check (vk/vkEnumeratePhysicalDevices instance (ak/& device-count) ak/null))
     (std-debug/assert (and (> device-count 0) (<= device-count 8)))
     (check (vk/vkEnumeratePhysicalDevices
             instance (ak/& device-count) (ak/& (az/index devices 0))))
-    (set! physical-device (az/index devices 0))
+    (ak/= physical-device (az/index devices 0))
     (let [^:var family-count (ak/u32 0)
           ^:var families
           (std-mem/zeroes (az/type [:array 32 vk/VkQueueFamilyProperties]))]
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
-       physical-device (ak/& family-count) null)
+       physical-device (ak/& family-count) ak/null)
       (std-debug/assert (and (> family-count 0) (<= family-count 32)))
       (vk/vkGetPhysicalDeviceQueueFamilyProperties
        physical-device (ak/& family-count) (ak/& (az/index families 0)))
       (let [^:var family-index (ak/u32 0)
             ^:var present-supported vk/VK_FALSE]
         (ak/while (< family-index family-count)
-          (set! present-supported vk/VK_FALSE)
+          (ak/= present-supported vk/VK_FALSE)
           (check (vk/vkGetPhysicalDeviceSurfaceSupportKHR
                   physical-device family-index surface (ak/& present-supported)))
           (when (and
@@ -308,9 +308,9 @@
                       vk/VK_QUEUE_GRAPHICS_BIT)
                      0)
                  (ak/== present-supported vk/VK_TRUE))
-            (set! queue-family family-index)
+            (ak/= queue-family family-index)
             (ak/break))
-          (set! family-index (+ family-index 1)))
+          (ak/= family-index (+ family-index 1)))
         (std-debug/assert (< family-index family-count))))))
 
 (az/defn create-device! :void
@@ -331,7 +331,7 @@
           :pQueueCreateInfos (ak/& queue-info)
           :enabledExtensionCount 2
           :ppEnabledExtensionNames (ak/& (az/index extensions 0))})]
-    (check (vk/vkCreateDevice physical-device (ak/& create-info) null (ak/& device)))
+    (check (vk/vkCreateDevice physical-device (ak/& create-info) ak/null (ak/& device)))
     (vk/vkGetDeviceQueue device queue-family 0 (ak/& graphics-queue))))
 
 (az/defn create-swapchain! :void
@@ -344,13 +344,13 @@
     (check (vk/vkGetPhysicalDeviceSurfaceCapabilitiesKHR
             physical-device surface (ak/& capabilities)))
     (check (vk/vkGetPhysicalDeviceSurfaceFormatsKHR
-            physical-device surface (ak/& format-count) null))
+            physical-device surface (ak/& format-count) ak/null))
     (std-debug/assert (and (> format-count 0) (<= format-count 128)))
     (check (vk/vkGetPhysicalDeviceSurfaceFormatsKHR
             physical-device surface (ak/& format-count) (ak/& (az/index formats 0))))
-    (set! swapchain-format (az/field (az/index formats 0) format))
-    (set! swapchain-extent (az/field capabilities currentExtent))
-    (set! swapchain-readable
+    (ak/= swapchain-format (az/field (az/index formats 0) format))
+    (ak/= swapchain-extent (az/field capabilities currentExtent))
+    (ak/= swapchain-readable
           (and (readback/supported-format? swapchain-format)
                (ak/!= (ak/& (az/field capabilities supportedUsageFlags)
                             vk/VK_IMAGE_USAGE_TRANSFER_SRC_BIT) 0)))
@@ -377,8 +377,8 @@
             :clipped (ak/intCast (if swapchain-readable vk/VK_FALSE vk/VK_TRUE))
             :oldSwapchain swapchain})]
       (check (vk/vkCreateSwapchainKHR
-              device (ak/& create-info) null (ak/& swapchain)))
-      (check (vk/vkGetSwapchainImagesKHR device swapchain (ak/& image-count) null))
+              device (ak/& create-info) ak/null (ak/& swapchain)))
+      (check (vk/vkGetSwapchainImagesKHR device swapchain (ak/& image-count) ak/null))
       (std-debug/assert (and (> image-count 0) (<= image-count 8)))
       (check (vk/vkGetSwapchainImagesKHR
               device swapchain (ak/& image-count) (ak/& (az/index swapchain-images 0)))))))
@@ -406,7 +406,7 @@
               :baseArrayLayer 0
               :layerCount 1})})]
       (check (vk/vkCreateImageView
-              device (ak/& create-info) null (ak/& (az/index image-views index)))))))
+              device (ak/& create-info) ak/null (ak/& (az/index image-views index)))))))
 
 (az/defn make-render-pass! vk/VkRenderPass
   [[preserve :bool] [store-depth :bool]]
@@ -472,13 +472,13 @@
           :pSubpasses (ak/& subpass)
           :dependencyCount 1
           :pDependencies (ak/& dependency)})]
-    (let [^:var result (ak/as null vk/VkRenderPass)]
-      (check (vk/vkCreateRenderPass device (ak/& create-info) null (ak/& result)))
+    (let [^:var result (ak/as ak/null vk/VkRenderPass)]
+      (check (vk/vkCreateRenderPass device (ak/& create-info) ak/null (ak/& result)))
       result)))
 
 (az/defn create-render-pass! :void
   []
-  (set! render-pass (make-render-pass! false false)))
+  (ak/= render-pass (make-render-pass! false false)))
 
 (az/defn create-framebuffers! :void
   []
@@ -495,7 +495,7 @@
             :height (az/field swapchain-extent height)
             :layers 1})]
       (check (vk/vkCreateFramebuffer
-              device (ak/& create-info) null (ak/& (az/index framebuffers index)))))))
+              device (ak/& create-info) ak/null (ak/& (az/index framebuffers index)))))))
 
 (az/defn create-present-semaphores! :void
   "One completion semaphore per acquired swapchain image, never per CPU frame.
@@ -503,11 +503,11 @@
   []
   (let [info (vk/VkSemaphoreCreateInfo {:sType vk/VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO})]
     (dotimes [index 8]
-      (when (ak/!= (az/index present-finished index) null)
-        (vk/vkDestroySemaphore device (az/index present-finished index) null)
-        (set! (az/index present-finished index) null)))
+      (when (ak/!= (az/index present-finished index) ak/null)
+        (vk/vkDestroySemaphore device (az/index present-finished index) ak/null)
+        (ak/= (az/index present-finished index) ak/null)))
     (dotimes [index image-count]
-      (check (vk/vkCreateSemaphore device (ak/& info) null (ak/& (az/index present-finished index)))))))
+      (check (vk/vkCreateSemaphore device (ak/& info) ak/null (ak/& (az/index present-finished index)))))))
 
 (az/defn create-commands-and-sync! :void
   []
@@ -516,7 +516,7 @@
          {:sType vk/VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO
           :flags vk/VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
           :queueFamilyIndex queue-family})]
-    (check (vk/vkCreateCommandPool device (ak/& pool-info) null (ak/& command-pool))))
+    (check (vk/vkCreateCommandPool device (ak/& pool-info) ak/null (ak/& command-pool))))
   (let [allocate-info
         (vk/VkCommandBufferAllocateInfo
          {:sType vk/VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO
@@ -534,10 +534,10 @@
     ;; Acquisition semaphores follow the in-flight frame; presentation completion
     ;; follows the acquired image. A submit fence does not complete presentation.
     (dotimes [slot 2]
-      (check (vk/vkCreateSemaphore device (ak/& semaphore-info) null
+      (check (vk/vkCreateSemaphore device (ak/& semaphore-info) ak/null
                                   (ak/& (az/index image-available slot)))))
     (create-present-semaphores!)
-    (check (vk/vkCreateFence device (ak/& fence-info) null (ak/& in-flight)))))
+    (check (vk/vkCreateFence device (ak/& fence-info) ak/null (ak/& in-flight)))))
 
 (az/defn find-memory-type :u32
   "Select a physical-device memory type satisfying a Vulkan property mask."
@@ -556,7 +556,7 @@
         (when (and (ak/== selected 0xffffffff)
                    (ak/!= (ak/& type-bits bit) 0)
                    (ak/== (ak/& flags required) required))
-          (set! selected (ak/intCast index)))))
+          (ak/= selected (ak/intCast index)))))
     selected))
 
 (az/defn create-depth-resources! :void
@@ -581,7 +581,7 @@
           :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED})
         ^{:var true}
         requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))]
-    (check (vk/vkCreateImage device (ak/& image-info) null (ak/& depth-image)))
+    (check (vk/vkCreateImage device (ak/& image-info) ak/null (ak/& depth-image)))
     (vk/vkGetImageMemoryRequirements device depth-image (ak/& requirements))
     (let [memory-type
           (find-memory-type
@@ -593,7 +593,7 @@
             :allocationSize (az/field requirements size)
             :memoryTypeIndex memory-type})]
       (std-debug/assert (ak/!= memory-type 0xffffffff))
-      (check (vk/vkAllocateMemory device (ak/& allocation) null
+      (check (vk/vkAllocateMemory device (ak/& allocation) ak/null
                                   (ak/& depth-memory)))
       (check (vk/vkBindImageMemory device depth-image depth-memory 0)))
     (let [view-info
@@ -609,7 +609,7 @@
               :levelCount 1
               :baseArrayLayer 0
               :layerCount 1})})]
-      (check (vk/vkCreateImageView device (ak/& view-info) null
+      (check (vk/vkCreateImageView device (ak/& view-info) ak/null
                                   (ak/& depth-view))))))
 
 (az/defn create-mesh-buffer! :void
@@ -625,7 +625,7 @@
           :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})
         ^{:var true}
         requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))]
-    (check (vk/vkCreateBuffer device (ak/& buffer-info) null
+    (check (vk/vkCreateBuffer device (ak/& buffer-info) ak/null
                               (ak/& mesh-vertex-buffer)))
     (vk/vkGetBufferMemoryRequirements device mesh-vertex-buffer
                                       (ak/& requirements))
@@ -639,7 +639,7 @@
             :allocationSize (az/field requirements size)
             :memoryTypeIndex memory-type})]
       (std-debug/assert (ak/!= memory-type 0xffffffff))
-      (check (vk/vkAllocateMemory device (ak/& allocate-info) null
+      (check (vk/vkAllocateMemory device (ak/& allocate-info) ak/null
                                   (ak/& mesh-vertex-memory)))
       (check (vk/vkBindBufferMemory device mesh-vertex-buffer
                                     mesh-vertex-memory 0))
@@ -650,21 +650,21 @@
   "Load one checked-in SPIR-V shader and create its Vulkan module."
   [[path [:pointer {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
-        ^{:var true} module (ak/as null vk/VkShaderModule)]
-    (std-debug/assert (ak/!= file null))
+        ^{:var true} module (ak/as ak/null vk/VkShaderModule)]
+    (std-debug/assert (ak/!= file ak/null))
     (let [bytes (stdio/fread (ak/& (az/index shader-module-words 0))
                               1 (* 65536 (ak/sizeOf :u32)) file)]
       (let [^:var trailing (ak/u8 0)
             extra (stdio/fread (ak/& trailing) 1 1 file)]
         (std-debug/assert (ak/== extra 0)))
-      (set! _ (stdio/fclose file))
+      (ak/= :_ (stdio/fclose file))
       (std-debug/assert (and (> bytes 0) (ak/== (mod bytes 4) 0)))
       (let [create-info
             (vk/VkShaderModuleCreateInfo
              {:sType vk/VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
               :codeSize bytes
               :pCode (ak/& (az/index shader-module-words 0))})]
-        (check (vk/vkCreateShaderModule device (ak/& create-info) null
+        (check (vk/vkCreateShaderModule device (ak/& create-info) ak/null
                                         (ak/& module)))))
     module))
 
@@ -798,12 +798,12 @@
         layout-info
         (vk/VkPipelineLayoutCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
-          :setLayoutCount (if (and (ak/! instanced) (ak/!= scene-storage-layout null)) 1 0)
-          :pSetLayouts (if (and (ak/! instanced) (ak/!= scene-storage-layout null))
-                        (ak/& scene-storage-layout) null)
+          :setLayoutCount (if (and (ak/! instanced) (ak/!= scene-storage-layout ak/null)) 1 0)
+          :pSetLayouts (if (and (ak/! instanced) (ak/!= scene-storage-layout ak/null))
+                        (ak/& scene-storage-layout) ak/null)
           :pushConstantRangeCount 1
           :pPushConstantRanges (ak/& push-range)})]
-    (check (vk/vkCreatePipelineLayout device (ak/& layout-info) null
+    (check (vk/vkCreatePipelineLayout device (ak/& layout-info) ak/null
                                       layout-out))
     (let [pipeline-info
           (vk/VkGraphicsPipelineCreateInfo
@@ -813,7 +813,7 @@
             :pVertexInputState (ak/& vertex-input)
             :pInputAssemblyState (ak/& input-assembly)
             :pViewportState (ak/& viewport-state)
-            :pDynamicState (if instanced null (ak/& dynamic-state))
+            :pDynamicState (if instanced ak/null (ak/& dynamic-state))
             :pRasterizationState (ak/& rasterization)
             :pMultisampleState (ak/& multisample)
             :pDepthStencilState (ak/& depth-stencil)
@@ -821,10 +821,10 @@
             :layout (az/deref layout-out)
             :renderPass render-pass
             :subpass 0})]
-      (check (vk/vkCreateGraphicsPipelines device null 1 (ak/& pipeline-info)
-                                           null pipeline-out)))
-    (vk/vkDestroyShaderModule device fragment-module null)
-    (vk/vkDestroyShaderModule device vertex-module null)))
+      (check (vk/vkCreateGraphicsPipelines device ak/null 1 (ak/& pipeline-info)
+                                           ak/null pipeline-out)))
+    (vk/vkDestroyShaderModule device fragment-module ak/null)
+    (vk/vkDestroyShaderModule device vertex-module ak/null)))
 
 (az/defn create-mesh-pipeline! :void []
   (create-triangle-pipeline! false))
@@ -836,11 +836,11 @@
   [[data [:*const :anyopaque]] [byte-count :u32]]
   (std-debug/assert (and (> byte-count 0) (<= byte-count 128)
                          (ak/== (mod byte-count 4) 0)))
-  (std-debug/assert (ak/!= active-command-buffer null))
+  (std-debug/assert (ak/!= active-command-buffer ak/null))
   (let [source (ak/as (ak/ptrCast data) [:pointer {:size :c, :const? true} :u8])
         target (ak/as (ak/ptrCast (ak/& (az/index saved-frame-data 0))) [:c-pointer :u8])]
-    (dotimes [i byte-count] (set! (az/index target i) (az/index source i))))
-  (set! saved-frame-data-bytes byte-count)
+    (dotimes [i byte-count] (ak/= (az/index target i) (az/index source i))))
+  (ak/= saved-frame-data-bytes byte-count)
   (vk/vkCmdPushConstants active-command-buffer mesh-pipeline-layout
                          vk/VK_SHADER_STAGE_FRAGMENT_BIT 0 byte-count data))
 
@@ -851,7 +851,7 @@
                 :usage usage
                 :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})
         ^:var requirements (std-mem/zeroes (az/type vk/VkMemoryRequirements))]
-    (check (vk/vkCreateBuffer device (ak/& info) null (ak/& (az/field storage buffer))))
+    (check (vk/vkCreateBuffer device (ak/& info) ak/null (ak/& (az/field storage buffer))))
     (vk/vkGetBufferMemoryRequirements device (az/field storage buffer) (ak/& requirements))
     (let [allocation (vk/VkMemoryAllocateInfo
                        {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
@@ -860,10 +860,10 @@
                         (find-memory-type (az/field requirements memoryTypeBits)
                           (ak/| vk/VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
                                 vk/VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))})]
-      (check (vk/vkAllocateMemory device (ak/& allocation) null (ak/& (az/field storage memory))))
+      (check (vk/vkAllocateMemory device (ak/& allocation) ak/null (ak/& (az/field storage memory))))
       (check (vk/vkBindBufferMemory device (az/field storage buffer) (az/field storage memory) 0))
       (check (vk/vkMapMemory device (az/field storage memory) 0 bytes 0 (ak/& (az/field storage mapped)))))
-    (set! (az/field storage bytes) bytes)
+    (ak/= (az/field storage bytes) bytes)
     storage))
 
 (az/defn create-mapped-vertex-buffer MappedVertexBuffer [[bytes :usize]]
@@ -873,19 +873,19 @@
   "Optional set 0 / binding 0 fragment storage, configured before initialization."
   [[bytes :usize]]
   (std-debug/assert (and (ak/! initialized) (>= bytes 16) (<= bytes 8388608)))
-  (set! scene-storage-requested bytes))
+  (ak/= scene-storage-requested bytes))
 
 (az/defn initialize-scene-storage! :void
   "Render-thread initialization after the previous frame fence. Pipeline creation
   must follow this call before a shader reads set 0 / binding 0. Fixed capacity."
   [[bytes :usize]]
-  (std-debug/assert (and (ak/!= device null) (>= bytes 16) (<= bytes 8388608)))
-  (when (ak/!= (az/field scene-storage buffer) null)
+  (std-debug/assert (and (ak/!= device ak/null) (>= bytes 16) (<= bytes 8388608)))
+  (when (ak/!= (az/field scene-storage buffer) ak/null)
     (std-debug/assert (ak/== bytes (az/field scene-storage bytes)))
     (ak/return))
-  (set! scene-storage (create-mapped-buffer bytes vk/VK_BUFFER_USAGE_STORAGE_BUFFER_BIT))
+  (ak/= scene-storage (create-mapped-buffer bytes vk/VK_BUFFER_USAGE_STORAGE_BUFFER_BIT))
   (let [pointer (az/cast (az/field scene-storage mapped) [:c-pointer :u8])]
-    (dotimes [index bytes] (set! (az/index pointer index) 0)))
+    (dotimes [index bytes] (ak/= (az/index pointer index) 0)))
   (let [binding-info (vk/VkDescriptorSetLayoutBinding
                       {:binding 0 :descriptorType vk/VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
                        :descriptorCount 1 :stageFlags vk/VK_SHADER_STAGE_FRAGMENT_BIT})
@@ -897,8 +897,8 @@
         pool-info (vk/VkDescriptorPoolCreateInfo
                    {:sType vk/VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
                     :maxSets 1 :poolSizeCount 1 :pPoolSizes (ak/& pool-size)})]
-    (check (vk/vkCreateDescriptorSetLayout device (ak/& layout-info) null (ak/& scene-storage-layout)))
-    (check (vk/vkCreateDescriptorPool device (ak/& pool-info) null (ak/& scene-storage-pool))))
+    (check (vk/vkCreateDescriptorSetLayout device (ak/& layout-info) ak/null (ak/& scene-storage-layout)))
+    (check (vk/vkCreateDescriptorPool device (ak/& pool-info) ak/null (ak/& scene-storage-pool))))
   (let [allocate-info (vk/VkDescriptorSetAllocateInfo
                        {:sType vk/VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
                         :descriptorPool scene-storage-pool :descriptorSetCount 1
@@ -911,22 +911,22 @@
                 :dstSet scene-storage-set :dstBinding 0 :descriptorCount 1
                 :descriptorType vk/VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
                 :pBufferInfo (ak/& buffer-info)})]
-    (vk/vkUpdateDescriptorSets device 1 (ak/& write) 0 null)))
+    (vk/vkUpdateDescriptorSets device 1 (ak/& write) 0 ak/null)))
 
 (az/defn scene-storage-words [:c-pointer :u32]
   "Mapped coherent storage. Write only in the frame builder: render! waits the
   previous submission fence, and the following submit makes host writes visible."
   []
-  (std-debug/assert (and (ak/!= active-command-buffer null)
-                         (ak/!= (az/field scene-storage mapped) null)))
+  (std-debug/assert (and (ak/!= active-command-buffer ak/null)
+                         (ak/!= (az/field scene-storage mapped) ak/null)))
   (az/cast (az/field scene-storage mapped) [:c-pointer :u32]))
 
 (az/defn destroy-mapped-vertex-buffer! :void [[storage [:* MappedVertexBuffer]]]
-  (when (ak/!= (az/field storage buffer) null)
+  (when (ak/!= (az/field storage buffer) ak/null)
     (vk/vkUnmapMemory device (az/field storage memory))
-    (vk/vkDestroyBuffer device (az/field storage buffer) null)
-    (vk/vkFreeMemory device (az/field storage memory) null)
-    (set! (az/deref storage) (std-mem/zeroes (az/type MappedVertexBuffer)))))
+    (vk/vkDestroyBuffer device (az/field storage buffer) ak/null)
+    (vk/vkFreeMemory device (az/field storage memory) ak/null)
+    (ak/= (az/deref storage) (std-mem/zeroes (az/type MappedVertexBuffer)))))
 
 (az/defn draw-instances! :bool
   "Call from a FrameBuilder, after the frame fence and inside the render pass.
@@ -936,42 +936,42 @@
   [[slot :usize] [revision :u64]
    [vertices [:slice-const [:array 10 :f32]]]
    [instances [:slice-const mesh/GpuInstance]] [camera mesh/InstanceCamera]]
-  (when (or (ak/! initialized) (ak/== active-command-buffer null)
+  (when (or (ak/! initialized) (ak/== active-command-buffer ak/null)
             (>= slot 16) (ak/== (az/field vertices len) 0)
             (ak/!= (mod (az/field vertices len) 3) 0)
             (> (az/field vertices len) 1048576))
     (ak/return false))
   (when (ak/!= instance-stream-frame frame-count)
-    (set! instance-stream-frame frame-count)
-    (set! instance-stream-used 0)
-    (set! instance-draws 0))
+    (ak/= instance-stream-frame frame-count)
+    (ak/= instance-stream-used 0)
+    (ak/= instance-draws 0))
   (when (> (+ instance-stream-used (az/field instances len)) mesh/instance-capacity)
     (ak/return false))
   (when (ak/== (az/field instances len) 0) (ak/return true))
-  (when (ak/== instance-pipeline null)
+  (when (ak/== instance-pipeline ak/null)
     (create-triangle-pipeline! true))
-  (when (ak/== (az/field instance-stream buffer) null)
-    (set! instance-stream
+  (when (ak/== (az/field instance-stream buffer) ak/null)
+    (ak/= instance-stream
           (create-mapped-vertex-buffer (* mesh/instance-capacity (ak/sizeOf mesh/GpuInstance)))))
   (let [entry (ak/& (az/index instance-meshes slot))
         bytes (* (az/field vertices len) (ak/sizeOf (az/type [:array 10 :f32])))]
-    (when (or (ak/== (az/field (az/field entry storage) buffer) null)
+    (when (or (ak/== (az/field (az/field entry storage) buffer) ak/null)
               (ak/!= (az/field entry revision) revision)
               (ak/!= (az/field entry vertices) (az/field vertices len)))
       ;; Never replace storage already referenced by this command buffer.
       ;; A caller must use one asset revision consistently for a whole frame.
-      (when (and (ak/!= (az/field (az/field entry storage) buffer) null)
+      (when (and (ak/!= (az/field (az/field entry storage) buffer) ak/null)
                  (ak/== (az/field entry draw_frame) frame-count))
         (ak/return false))
       (when (> bytes (az/field (az/field entry storage) bytes))
         (destroy-mapped-vertex-buffer! (ak/& (az/field entry storage)))
-        (set! (az/field entry storage) (create-mapped-vertex-buffer bytes)))
+        (ak/= (az/field entry storage) (create-mapped-vertex-buffer bytes)))
       (ak/memcpy
         (az/slice (az/cast (az/field (az/field entry storage) mapped) [:c-pointer :u8]) 0 bytes)
         (std-mem/sliceAsBytes vertices))
-      (set! (az/field entry revision) revision)
-      (set! (az/field entry vertices) (ak/intCast (az/field vertices len)))
-      (set! instance-upload-bytes (+ instance-upload-bytes (ak/as (ak/intCast bytes) :u64))))
+      (ak/= (az/field entry revision) revision)
+      (ak/= (az/field entry vertices) (ak/intCast (az/field vertices len)))
+      (ak/= instance-upload-bytes (+ instance-upload-bytes (ak/as (ak/intCast bytes) :u64))))
     (let [output (az/cast (az/field instance-stream mapped) [:c-pointer mesh/GpuInstance])
           buffers (az/array-init [(az/field (az/field entry storage) buffer) (az/field instance-stream buffer)] [:array 2 vk/VkBuffer])
           offsets (az/array-init [0 (* instance-stream-used (ak/sizeOf mesh/GpuInstance))] [:array 2 vk/VkDeviceSize])]
@@ -981,31 +981,31 @@
       (vk/vkCmdPushConstants active-command-buffer instance-pipeline-layout
         vk/VK_SHADER_STAGE_VERTEX_BIT 0 (ak/intCast (ak/sizeOf mesh/InstanceCamera)) (ak/& camera))
       (vk/vkCmdDraw active-command-buffer (az/field entry vertices) (ak/intCast (az/field instances len)) 0 0)
-      (set! (az/field entry draw_frame) frame-count)
-      (set! instance-stream-used (+ instance-stream-used (az/field instances len)))
-      (set! instance-draws (+ instance-draws 1))))
+      (ak/= (az/field entry draw_frame) frame-count)
+      (ak/= instance-stream-used (+ instance-stream-used (az/field instances len)))
+      (ak/= instance-draws (+ instance-draws 1))))
   true)
 
 (az/defn destroy-instance-resources! :void []
   (dotimes [slot 16]
     (destroy-mapped-vertex-buffer! (ak/& (az/field (az/index instance-meshes slot) storage))))
   (destroy-mapped-vertex-buffer! (ak/& instance-stream))
-  (when (ak/!= instance-pipeline null)
-    (vk/vkDestroyPipeline device instance-pipeline null)
-    (vk/vkDestroyPipelineLayout device instance-pipeline-layout null))
-  (set! instance-pipeline null)
-  (set! instance-pipeline-layout null)
-  (set! instance-stream-frame 0xffffffffffffffff)
-  (set! instance-stream-used 0)
-  (set! instance-draws 0)
-  (set! instance-upload-bytes 0))
+  (when (ak/!= instance-pipeline ak/null)
+    (vk/vkDestroyPipeline device instance-pipeline ak/null)
+    (vk/vkDestroyPipelineLayout device instance-pipeline-layout ak/null))
+  (ak/= instance-pipeline ak/null)
+  (ak/= instance-pipeline-layout ak/null)
+  (ak/= instance-stream-frame 0xffffffffffffffff)
+  (ak/= instance-stream-used 0)
+  (ak/= instance-draws 0)
+  (ak/= instance-upload-bytes 0))
 
 (az/defn initialize-renderer! :bool
   "Initialize Vulkan against an existing GLFW window."
   [[window [:optional [:* vk/GLFWwindow]]]]
   (when (ak/! initialized)
     (initialize-instance!)
-    (check (vk/glfwCreateWindowSurface instance window null (ak/& surface)))
+    (check (vk/glfwCreateWindowSurface instance window ak/null (ak/& surface)))
     (select-device-and-queue!)
     (create-device!)
     (create-swapchain!)
@@ -1018,7 +1018,7 @@
     (create-framebuffers!)
     (create-commands-and-sync!)
     (ak/atomicStore :u8 (ak/& device-lost-state) 0 :.release)
-    (set! initialized true))
+    (ak/= initialized true))
   initialized)
 
 (az/defn clear-value vk/VkClearValue
@@ -1035,12 +1035,12 @@
 (az/defn set-overlay-renderer! :void
   "Install or clear a development-only render-pass callback."
   [[callback [:optional OverlayRenderer]]]
-  (set! overlay-renderer callback))
+  (ak/= overlay-renderer callback))
 
 (az/defn overlay-installed? :bool
   "Whether a development overlay callback is attached to the render pass."
   []
-  (ak/!= overlay-renderer null))
+  (ak/!= overlay-renderer ak/null))
 
 (az/defn renderer-interop RendererInterop
   "Expose opaque renderer handles without giving overlays ownership of them."
@@ -1115,8 +1115,8 @@
 (az/defn prepare-render-tiles! :void
   []
   (let [request (ak/atomicRmw :u32 (ak/& render-tile-request) :.Xchg 0 :.acq_rel)]
-    (when (> request 0) (set! render-tile-edge (- request 1))))
-  (when (and (> render-tile-edge 0) (ak/== tiled-clear-pass null))
+    (when (> request 0) (ak/= render-tile-edge (- request 1))))
+  (when (and (> render-tile-edge 0) (ak/== tiled-clear-pass ak/null))
     (az/set-many! tiled-clear-pass (make-render-pass! false true)
                   tiled-load-pass (make-render-pass! true true))))
 
@@ -1155,13 +1155,13 @@
                  vk/VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT vk/VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)
           (ak/| vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT vk/VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
                  vk/VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)
-          0 1 (ak/& barrier) 0 null 0 null)))
+          0 1 (ak/& barrier) 0 ak/null 0 ak/null)))
     (vk/vkCmdBeginRenderPass command-buffer (ak/& pass-info) vk/VK_SUBPASS_CONTENTS_INLINE)
-    (set! active-command-buffer command-buffer)
+    (ak/= active-command-buffer command-buffer)
     (if first
       (do
-        (set! saved-frame-data-bytes 0)
-        (set! mesh-vertex-count
+        (ak/= saved-frame-data-bytes 0)
+        (ak/= mesh-vertex-count
           (build-frame (az/cast mapped-mesh-vertices [:c-pointer mesh/GpuVertex])
                        (ak/intCast (az/field swapchain-extent width))
                        (ak/intCast (az/field swapchain-extent height)))))
@@ -1174,17 +1174,17 @@
         (vk/vkCmdBindPipeline command-buffer vk/VK_PIPELINE_BIND_POINT_GRAPHICS mesh-pipeline)
         (vk/vkCmdSetScissor command-buffer 0 1 (ak/& rectangle))
         (vk/vkCmdBindVertexBuffers command-buffer 0 1 (ak/& mesh-vertex-buffer) (ak/& offset))
-        (when (ak/!= scene-storage-set null)
+        (when (ak/!= scene-storage-set ak/null)
           (vk/vkCmdBindDescriptorSets command-buffer vk/VK_PIPELINE_BIND_POINT_GRAPHICS
-                                     mesh-pipeline-layout 0 1 (ak/& scene-storage-set) 0 null))
+                                     mesh-pipeline-layout 0 1 (ak/& scene-storage-set) 0 ak/null))
         (vk/vkCmdDraw command-buffer mesh-vertex-count 1 0 0)))
-    (when (and last development-overlays-enabled (ak/!= overlay-renderer null))
+    (when (and last development-overlays-enabled (ak/!= overlay-renderer ak/null))
       ((az/unwrap overlay-renderer) (ak/intCast (ak/intFromPtr (az/unwrap command-buffer)))))
     (vk/vkCmdEndRenderPass command-buffer)
     (when (and last (ak/== (readback/status) 3))
       (readback/record! command-buffer (az/index swapchain-images image-index)))
     (frame-check (vk/vkEndCommandBuffer command-buffer))
-    (set! active-command-buffer null)
+    (ak/= active-command-buffer ak/null)
     true))
 
 (az/defn record-frame :bool
@@ -1221,8 +1221,8 @@
     (let [old-swapchain swapchain]
       (vk/vkFreeCommandBuffers device command-pool image-count (ak/& (az/index command-buffers 0)))
       (dotimes [index image-count]
-        (vk/vkDestroyFramebuffer device (az/index framebuffers index) null)
-        (vk/vkDestroyImageView device (az/index image-views index) null))
+        (vk/vkDestroyFramebuffer device (az/index framebuffers index) ak/null)
+        (vk/vkDestroyImageView device (az/index image-views index) ak/null))
       (create-swapchain!)
       (create-image-views!)
       (create-framebuffers!)
@@ -1233,7 +1233,7 @@
         (check (vk/vkAllocateCommandBuffers device (ak/& allocation)
                                             (ak/& (az/index command-buffers 0)))))
       (create-present-semaphores!)
-      (vk/vkDestroySwapchainKHR device old-swapchain null)))
+      (vk/vkDestroySwapchainKHR device old-swapchain ak/null)))
   swapchain-readable)
 
 (az/defn render! :bool
@@ -1253,7 +1253,7 @@
                        (readback/prepare! device physical-device swapchain-extent)))
         (readback/reject!)))
     (frame-check (vk/vkAcquireNextImageKHR
-            device swapchain vk/VK_WHOLE_SIZE image-ready null (ak/& image-index)))
+            device swapchain vk/VK_WHOLE_SIZE image-ready ak/null (ak/& image-index)))
     (let [rendering-done (az/index present-finished image-index)
           width (az/field swapchain-extent width)
           height (az/field swapchain-extent height)
@@ -1262,7 +1262,7 @@
           ^:var peak-seconds (ak/f64 0.0)
           ^:var tile (ak/u32 0)]
       (while (< tile tiles)
-        (set! active-render-tile tile)
+        (ak/= active-render-tile tile)
         (let [first (ak/== tile 0)
               last (ak/== (+ tile 1) tiles)
               wait-stage (ak/as vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT :u32)
@@ -1276,17 +1276,17 @@
           (let [submit-info (vk/VkSubmitInfo
                               {:sType vk/VK_STRUCTURE_TYPE_SUBMIT_INFO
                                :waitSemaphoreCount (if first 1 0)
-                               :pWaitSemaphores (if first (ak/& image-ready) null)
-                               :pWaitDstStageMask (if first (ak/& wait-stage) null)
+                               :pWaitSemaphores (if first (ak/& image-ready) ak/null)
+                               :pWaitDstStageMask (if first (ak/& wait-stage) ak/null)
                                :commandBufferCount 1 :pCommandBuffers (ak/& command-buffer)
                                :signalSemaphoreCount (if last 1 0)
-                               :pSignalSemaphores (if last (ak/& rendering-done) null)})]
+                               :pSignalSemaphores (if last (ak/& rendering-done) ak/null)})]
             (let [started (vk/glfwGetTime)]
               (frame-check (vk/vkQueueSubmit graphics-queue 1 (ak/& submit-info) in-flight))
               (frame-check (vk/vkWaitForFences device 1 (ak/& in-flight) vk/VK_TRUE vk/VK_WHOLE_SIZE))
-              (set! peak-seconds (ak/max peak-seconds (- (vk/glfwGetTime) started))))))
+              (ak/= peak-seconds (ak/max peak-seconds (- (vk/glfwGetTime) started))))))
         (ak/+= tile 1))
-      (set! last-frame-submissions tiles)
+      (ak/= last-frame-submissions tiles)
       (let [microseconds (ak/as (ak/intFromFloat
                                       (ak/min 4294967295.0 (ak/ceil (* peak-seconds 1000000.0)))) :u64)]
         (ak/atomicStore :u64 (ak/& render-work-summary)
@@ -1317,72 +1317,72 @@
 (az/defn renderer-wait-idle! :void
   []
   (when (and initialized (ak/! (device-lost?)))
-    (set! _ (frame-result! (vk/vkDeviceWaitIdle device) "vk/vkDeviceWaitIdle"))))
+    (ak/= :_ (frame-result! (vk/vkDeviceWaitIdle device) "vk/vkDeviceWaitIdle"))))
 
 (az/defn shutdown-renderer! :void
   "Destroy desktop Vulkan resources in dependency order."
   []
   (when initialized
-    (set! overlay-renderer null)
+    (ak/= overlay-renderer ak/null)
     (renderer-wait-idle!)
     (destroy-instance-resources!)
-    (vk/vkDestroyPipeline device mesh-pipeline null)
-    (vk/vkDestroyPipelineLayout device mesh-pipeline-layout null)
-    (when (ak/!= scene-storage-pool null)
-      (vk/vkDestroyDescriptorPool device scene-storage-pool null)
-      (vk/vkDestroyDescriptorSetLayout device scene-storage-layout null)
+    (vk/vkDestroyPipeline device mesh-pipeline ak/null)
+    (vk/vkDestroyPipelineLayout device mesh-pipeline-layout ak/null)
+    (when (ak/!= scene-storage-pool ak/null)
+      (vk/vkDestroyDescriptorPool device scene-storage-pool ak/null)
+      (vk/vkDestroyDescriptorSetLayout device scene-storage-layout ak/null)
       (destroy-mapped-vertex-buffer! (ak/& scene-storage)))
-    (az/set-many! scene-storage-pool null scene-storage-layout null scene-storage-set null
+    (az/set-many! scene-storage-pool ak/null scene-storage-layout ak/null scene-storage-set ak/null
                   scene-storage-requested 0)
     (vk/vkUnmapMemory device mesh-vertex-memory)
-    (vk/vkDestroyBuffer device mesh-vertex-buffer null)
-    (vk/vkFreeMemory device mesh-vertex-memory null)
-    (vk/vkDestroyFence device in-flight null)
+    (vk/vkDestroyBuffer device mesh-vertex-buffer ak/null)
+    (vk/vkFreeMemory device mesh-vertex-memory ak/null)
+    (vk/vkDestroyFence device in-flight ak/null)
     (dotimes [index image-count]
-      (vk/vkDestroySemaphore device (az/index present-finished index) null))
+      (vk/vkDestroySemaphore device (az/index present-finished index) ak/null))
     (dotimes [slot 2]
-      (vk/vkDestroySemaphore device (az/index image-available slot) null))
-    (vk/vkDestroyCommandPool device command-pool null)
+      (vk/vkDestroySemaphore device (az/index image-available slot) ak/null))
+    (vk/vkDestroyCommandPool device command-pool ak/null)
     (dotimes [index image-count]
-      (vk/vkDestroyFramebuffer device (az/index framebuffers index) null)
-      (vk/vkDestroyImageView device (az/index image-views index) null))
-    (vk/vkDestroyImageView device depth-view null)
-    (vk/vkDestroyImage device depth-image null)
-    (vk/vkFreeMemory device depth-memory null)
-    (when (ak/!= tiled-clear-pass null)
-      (vk/vkDestroyRenderPass device tiled-clear-pass null)
-      (vk/vkDestroyRenderPass device tiled-load-pass null))
-    (az/set-many! tiled-clear-pass null tiled-load-pass null render-tile-edge 0 render-tile-request 0)
-    (vk/vkDestroyRenderPass device render-pass null)
-    (vk/vkDestroySwapchainKHR device swapchain null)
-    (vk/vkDestroyDevice device null)
-    (vk/vkDestroySurfaceKHR instance surface null)
-    (vk/vkDestroyInstance instance null)
-    (set! initialized false)
-    (set! frame-count 0)
-    (set! image-count 0)
-    (set! instance null)
-    (set! surface null)
-    (set! physical-device null)
-    (set! device null)
-    (set! graphics-queue null)
-    (set! swapchain null)
-    (set! swapchain-readable false)
-    (set! depth-image null)
-    (set! depth-memory null)
-    (set! depth-view null)
-    (set! render-pass null)
-    (set! mesh-pipeline null)
-    (set! mesh-pipeline-layout null)
-    (set! mesh-vertex-buffer null)
-    (set! mesh-vertex-memory null)
-    (set! mapped-mesh-vertices null)
-    (set! mesh-vertex-count 0)
-    (set! active-command-buffer null)
-    (set! command-pool null)
-    (set! image-available
+      (vk/vkDestroyFramebuffer device (az/index framebuffers index) ak/null)
+      (vk/vkDestroyImageView device (az/index image-views index) ak/null))
+    (vk/vkDestroyImageView device depth-view ak/null)
+    (vk/vkDestroyImage device depth-image ak/null)
+    (vk/vkFreeMemory device depth-memory ak/null)
+    (when (ak/!= tiled-clear-pass ak/null)
+      (vk/vkDestroyRenderPass device tiled-clear-pass ak/null)
+      (vk/vkDestroyRenderPass device tiled-load-pass ak/null))
+    (az/set-many! tiled-clear-pass ak/null tiled-load-pass ak/null render-tile-edge 0 render-tile-request 0)
+    (vk/vkDestroyRenderPass device render-pass ak/null)
+    (vk/vkDestroySwapchainKHR device swapchain ak/null)
+    (vk/vkDestroyDevice device ak/null)
+    (vk/vkDestroySurfaceKHR instance surface ak/null)
+    (vk/vkDestroyInstance instance ak/null)
+    (ak/= initialized false)
+    (ak/= frame-count 0)
+    (ak/= image-count 0)
+    (ak/= instance ak/null)
+    (ak/= surface ak/null)
+    (ak/= physical-device ak/null)
+    (ak/= device ak/null)
+    (ak/= graphics-queue ak/null)
+    (ak/= swapchain ak/null)
+    (ak/= swapchain-readable false)
+    (ak/= depth-image ak/null)
+    (ak/= depth-memory ak/null)
+    (ak/= depth-view ak/null)
+    (ak/= render-pass ak/null)
+    (ak/= mesh-pipeline ak/null)
+    (ak/= mesh-pipeline-layout ak/null)
+    (ak/= mesh-vertex-buffer ak/null)
+    (ak/= mesh-vertex-memory ak/null)
+    (ak/= mapped-mesh-vertices ak/null)
+    (ak/= mesh-vertex-count 0)
+    (ak/= active-command-buffer ak/null)
+    (ak/= command-pool ak/null)
+    (ak/= image-available
           (std-mem/zeroes (az/type [:array 2 vk/VkSemaphore])))
-    (set! present-finished
+    (ak/= present-finished
           (std-mem/zeroes (az/type [:array 8 vk/VkSemaphore])))
-    (set! synchronization-slot 0)
-    (set! in-flight null)))
+    (ak/= synchronization-slot 0)
+    (ak/= in-flight ak/null)))

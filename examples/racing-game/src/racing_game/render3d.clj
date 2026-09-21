@@ -32,8 +32,8 @@
 
 (az/defn reset-presentation! :void
   "Discard displayed history on the frame thread when starting a new world." []
-  (set! presentation-ready false)
-  (set! presentation-alpha 1.0))
+  (ak/= presentation-ready false)
+  (ak/= presentation-alpha 1.0))
 
 (az/defn interpolate-pose physics/BodyState
   "Presentation only: linear position and shortest-arc normalized quaternion.
@@ -51,13 +51,13 @@
         qw (+ (* b (az/field previous qw)) (* signed-a (az/field current qw)))
         length (ak/max 0.00000001 (ak/sqrt (+ (* qx qx) (* qy qy) (* qz qz) (* qw qw))))
         ^:var result current]
-    (set! (az/field result x) (+ (* b (az/field previous x)) (* a (az/field current x))))
-    (set! (az/field result y) (+ (* b (az/field previous y)) (* a (az/field current y))))
-    (set! (az/field result z) (+ (* b (az/field previous z)) (* a (az/field current z))))
-    (set! (az/field result qx) (/ qx length))
-    (set! (az/field result qy) (/ qy length))
-    (set! (az/field result qz) (/ qz length))
-    (set! (az/field result qw) (/ qw length))
+    (ak/= (az/field result x) (+ (* b (az/field previous x)) (* a (az/field current x))))
+    (ak/= (az/field result y) (+ (* b (az/field previous y)) (* a (az/field current y))))
+    (ak/= (az/field result z) (+ (* b (az/field previous z)) (* a (az/field current z))))
+    (ak/= (az/field result qx) (/ qx length))
+    (ak/= (az/field result qy) (/ qy length))
+    (ak/= (az/field result qz) (/ qz length))
+    (ak/= (az/field result qw) (/ qw length))
     result))
 
 (az/defn capture-presentation! :void
@@ -65,16 +65,16 @@
   Reset/cold attachment initializes both sides, never blends an old race in." []
   (let [tick (az/field (sim/snapshot) tick)
         reset (or (ak/! presentation-ready) (< tick presentation-tick))]
-    (when presentation-ready (set! previous-poses current-poses))
+    (when presentation-ready (ak/= previous-poses current-poses))
     (dotimes [i sim/racer-count]
       (dotimes [part 5]
-        (set! (az/index (az/index current-poses i) part) (sim/vehicle-pose i part))))
-    (when reset (set! previous-poses current-poses))
-    (set! presentation-tick tick)
-    (set! presentation-ready true)))
+        (ak/= (az/index (az/index current-poses i) part) (sim/vehicle-pose i part))))
+    (when reset (ak/= previous-poses current-poses))
+    (ak/= presentation-tick tick)
+    (ak/= presentation-ready true)))
 
 (az/defn set-presentation-phase! :void [[phase :f32]]
-  (set! presentation-alpha (ak/max 0.0 (ak/min 1.0 phase))))
+  (ak/= presentation-alpha (ak/max 0.0 (ak/min 1.0 phase))))
 
 (az/defn presentation-pose physics/BodyState [[racer :usize] [part :usize]]
   (if presentation-ready
@@ -86,9 +86,9 @@
   "Measured race metadata, with only displayed position/heading interpolated." [[racer :u8]]
   (let [pose (presentation-pose racer 0)
         ^:var result (sim/racer-view racer)]
-    (set! (az/field result x) (* 0.001 (az/field pose x)))
-    (set! (az/field result y) (* 0.001 (az/field pose y)))
-    (set! (az/field result heading)
+    (ak/= (az/field result x) (* 0.001 (az/field pose x)))
+    (ak/= (az/field result y) (* 0.001 (az/field pose y)))
+    (ak/= (az/field result heading)
           (math/atan2 (* 2.0 (+ (* (az/field pose qw) (az/field pose qz))
                                 (* (az/field pose qx) (az/field pose qy))))
                      (- 1.0 (* 2.0 (+ (* (az/field pose qy) (az/field pose qy))
@@ -127,30 +127,30 @@
 (az/defvar camera-initialized false)
 
 (az/defn reset-camera! :void []
-  (set! camera-initialized false))
+  (ak/= camera-initialized false))
 
 (az/defn select-camera! :void [[racer :u8] [follow :bool]]
   (when (or (ak/!= camera-racer (mod racer (ak/as (ak/intCast sim/racer-count) :u8)))
             (ak/!= camera-mode (if follow (ak/as 1 :u8) (ak/as 4 :u8))))
     (reset-camera!))
-  (set! camera-racer (mod racer (ak/as (ak/intCast sim/racer-count) :u8)))
-  (set! follow-front-pack false)
-  (set! follow-camera follow)
-  (set! camera-mode (if follow 1 4)))
+  (ak/= camera-racer (mod racer (ak/as (ak/intCast sim/racer-count) :u8)))
+  (ak/= follow-front-pack false)
+  (ak/= follow-camera follow)
+  (ak/= camera-mode (if follow 1 4)))
 
 (az/defn follow-leaders! :void []
   (when (ak/!= camera-mode 0) (reset-camera!))
-  (set! camera-mode 0)
-  (set! follow-front-pack true)
-  (set! follow-camera true))
+  (ak/= camera-mode 0)
+  (ak/= follow-front-pack true)
+  (ak/= follow-camera true))
 
 (az/defn camera-preset! :void
   "Broadcast pack, low driver chase, panning trackside, fixed pit, or overview." [[mode :u8]]
   (reset-camera!)
-  (set! camera-mode (mod mode 5))
-  (set! follow-camera (< camera-mode 3))
-  (set! follow-front-pack (ak/== camera-mode 0))
-  (set! zoom-multiplier (cond (ak/== camera-mode 4) 1.0
+  (ak/= camera-mode (mod mode 5))
+  (ak/= follow-camera (< camera-mode 3))
+  (ak/= follow-front-pack (ak/== camera-mode 0))
+  (ak/= zoom-multiplier (cond (ak/== camera-mode 4) 1.0
                                (ak/== camera-mode 3) 16.0
                                (ak/== camera-mode 1) 40.0
                                (ak/== camera-mode 2) 32.0
@@ -159,7 +159,7 @@
 (az/defn zoom-by! :void
   "Multiply view magnification; 1x is the complete circuit, 32x the default.
   Wheel/trackpad and +/- cover 1x to 80x without changing physical scale." [[factor :f32]]
-  (set! zoom-multiplier (ak/max 1.0 (ak/min 80.0 (* zoom-multiplier factor)))))
+  (ak/= zoom-multiplier (ak/max 1.0 (ak/min 80.0 (* zoom-multiplier factor)))))
 
 (az/defn update-camera! :void
   "Track the leader and nearby front runners, including across the lap seam." []
@@ -181,37 +181,37 @@
                      ;; A close broadcast frame follows the actual nearby
                      ;; battle, not cars 120m away that pull it off the leader.
                      (< (+ (* dx dx) (* dy dy)) 0.0009))
-            (set! sx (+ sx (az/field racer x)))
-            (set! sy (+ sy (az/field racer y)))
-            (set! sz (+ sz (* 0.001 (az/field (presentation-pose i 0) z))))
-            (set! count (+ count 1.0))))))
-    (set! camera-x (if follow-camera (/ sx count) 0.0))
-    (set! camera-y (if follow-camera (/ sy count) 0.0))
-    (set! camera-z (if follow-camera (/ sz count) 0.0))
-    (set! camera-yaw 0.15)
-    (set! camera-pitch 0.85)
+            (ak/= sx (+ sx (az/field racer x)))
+            (ak/= sy (+ sy (az/field racer y)))
+            (ak/= sz (+ sz (* 0.001 (az/field (presentation-pose i 0) z))))
+            (ak/= count (+ count 1.0))))))
+    (ak/= camera-x (if follow-camera (/ sx count) 0.0))
+    (ak/= camera-y (if follow-camera (/ sy count) 0.0))
+    (ak/= camera-z (if follow-camera (/ sz count) 0.0))
+    (ak/= camera-yaw 0.15)
+    (ak/= camera-pitch 0.85)
     (when (ak/== camera-mode 1)
-      (set! camera-yaw (- 1.5707963 (az/field target heading)))
-      (set! camera-pitch 0.40))
+      (ak/= camera-yaw (- 1.5707963 (az/field target heading)))
+      (ak/= camera-pitch 0.40))
     (when (ak/== camera-mode 2)
       ;; Fixed camera stations every eighth lap pan towards the leading car.
       (let [p (/ (ak/floor (* (az/field leader progress) 8.0)) 8.0)
             station (track/pose (+ p 0.035) 0.65)
             heading (math/atan2 (- (az/field leader y) (az/field station y))
                                 (- (az/field leader x) (az/field station x)))]
-        (set! camera-x (az/field leader x))
-        (set! camera-y (az/field leader y))
-        (set! camera-z (* 0.001 (az/field (presentation-pose (az/field leader id) 0) z)))
-        (set! camera-yaw (- 1.5707963 heading))
-        (set! camera-pitch 0.22)))
+        (ak/= camera-x (az/field leader x))
+        (ak/= camera-y (az/field leader y))
+        (ak/= camera-z (* 0.001 (az/field (presentation-pose (az/field leader id) 0) z)))
+        (ak/= camera-yaw (- 1.5707963 heading))
+        (ak/= camera-pitch 0.22)))
     (when (ak/== camera-mode 3)
       (let [pit (track/pit-pose 0.971 0.19)]
-        (set! camera-x (az/field pit x))
-        (set! camera-y (az/field pit y))
-        (set! camera-z (track/elevation 0.971))
-        (set! camera-yaw (- (az/field pit heading)))
-        (set! camera-pitch 0.38)))
-    (set! camera-zoom (* 1.30 zoom-multiplier))))
+        (ak/= camera-x (az/field pit x))
+        (ak/= camera-y (az/field pit y))
+        (ak/= camera-z (track/elevation 0.971))
+        (ak/= camera-yaw (- (az/field pit heading)))
+        (ak/= camera-pitch 0.38)))
+    (ak/= camera-zoom (* 1.30 zoom-multiplier))))
 
 (az/defn damp :f32
   "Exponential tracking with a time-based response, independent of frame rate." [[current :f32] [target :f32] [rate :f32] [seconds :f32]]
@@ -232,13 +232,13 @@
     (update-camera!)
     (if camera-initialized
       (do
-        (set! camera-x (damp x camera-x 14.0 seconds))
-        (set! camera-y (damp y camera-y 14.0 seconds))
-        (set! camera-z (damp z camera-z 14.0 seconds))
-        (set! camera-yaw (damp-angle yaw camera-yaw 8.0 seconds))
-        (set! camera-pitch (damp pitch camera-pitch 8.0 seconds))
-        (set! camera-zoom (damp zoom camera-zoom 12.0 seconds)))
-      (set! camera-initialized true))))
+        (ak/= camera-x (damp x camera-x 14.0 seconds))
+        (ak/= camera-y (damp y camera-y 14.0 seconds))
+        (ak/= camera-z (damp z camera-z 14.0 seconds))
+        (ak/= camera-yaw (damp-angle yaw camera-yaw 8.0 seconds))
+        (ak/= camera-pitch (damp pitch camera-pitch 8.0 seconds))
+        (ak/= camera-zoom (damp zoom camera-zoom 12.0 seconds)))
+      (ak/= camera-initialized true))))
 
 (az/defvar fit-x :f32 1.0)
 
@@ -265,13 +265,13 @@
   "Share camera trigonometry across every vertex. Lazy angle checks also keep
   direct REPL projection calls correct after camera edits, outside a frame." []
   (when (ak/!= projection-yaw camera-yaw)
-    (set! projection-cos-yaw (math/cos camera-yaw))
-    (set! projection-sin-yaw (math/sin camera-yaw))
-    (set! projection-yaw camera-yaw))
+    (ak/= projection-cos-yaw (math/cos camera-yaw))
+    (ak/= projection-sin-yaw (math/sin camera-yaw))
+    (ak/= projection-yaw camera-yaw))
   (when (ak/!= projection-pitch camera-pitch)
-    (set! projection-cos-pitch (math/cos camera-pitch))
-    (set! projection-sin-pitch (math/sin camera-pitch))
-    (set! projection-pitch camera-pitch)))
+    (ak/= projection-cos-pitch (math/cos camera-pitch))
+    (ak/= projection-sin-pitch (math/sin camera-pitch))
+    (ak/= projection-pitch camera-pitch)))
 
 (az/defn project Vec3
   "Project a real world point to Vulkan NDC, including monotonic depth." [[x :f32] [y :f32] [z :f32]]
@@ -290,7 +290,7 @@
   [[out [:c-pointer mesh/GpuVertex]] [i :usize] [point Vec3] [color Vec3]
    [normal Vec3] [roughness :f32]]
   (let [p (project (az/field point x) (az/field point y) (az/field point z))]
-    (set! (az/index out i)
+    (ak/= (az/index out i)
           (mesh/GpuVertex {:x (az/field p x) :y (az/field p y) :z (az/field p z)
                            :r (az/field color x) :g (az/field color y)
                            :b (az/field color z)
@@ -389,30 +389,30 @@
                         (Vec3 {:x 0.13 :y 0.16 :z 0.19})
                         (Vec3 {:x 0.12 :y 0.22 :z 0.085}))]
             (when (> (- (track/surface-boundary pb (+ strip 1)) (track/surface-boundary pb strip)) 0.001)
-              (set! next (triangle! out next a b c color)))
+              (ak/= next (triangle! out next a b c color)))
             (when (> (- (track/surface-boundary pa (+ strip 1)) (track/surface-boundary pa strip)) 0.001)
-              (set! next (triangle! out next a c d color)))))
+              (ak/= next (triangle! out next a c d color)))))
         (let [white (Vec3 {:x 0.8 :y 0.84 :z 0.80})]
-          (set! next (ribbon! out next pa pb -0.13 -0.126 0.00003 white))
+          (ak/= next (ribbon! out next pa pb -0.13 -0.126 0.00003 white))
           ;; No kerb across the merge where pit asphalt meets main asphalt.
           (when (and (or (> (track/surface-boundary pa 3) 6.501) (<= (track/surface-boundary pa 4) 6.501))
                      (or (> (track/surface-boundary pb 3) 6.501) (<= (track/surface-boundary pb 4) 6.501)))
-            (set! next (ribbon! out next pa pb 0.126 0.13 0.00003 white))))))
+            (ak/= next (ribbon! out next pa pb 0.126 0.13 0.00003 white))))))
     (dotimes [team sim/team-count]
       (let [p (sim/pit-box-progress (ak/intCast team))
             white (Vec3 {:x 0.88 :y 0.9 :z 0.92})]
-        (set! next (pit-ribbon! out next (- p 0.0012) (+ p 0.0012)
+        (ak/= next (pit-ribbon! out next (- p 0.0012) (+ p 0.0012)
                                0.197 0.198 0.00005 white))
-        (set! next (pit-ribbon! out next (- p 0.0012) (+ p 0.0012)
+        (ak/= next (pit-ribbon! out next (- p 0.0012) (+ p 0.0012)
                                0.233 0.234 0.00005 white))
-        (set! next (pit-ribbon! out next (- p 0.0012) (- p 0.00115)
+        (ak/= next (pit-ribbon! out next (- p 0.0012) (- p 0.00115)
                                0.197 0.234 0.00005 white))
-        (set! next (pit-ribbon! out next (+ p 0.00115) (+ p 0.0012)
+        (ak/= next (pit-ribbon! out next (+ p 0.00115) (+ p 0.0012)
                                0.197 0.234 0.00005 white))))
     (dotimes [i 12]
       (let [lane (+ -0.13 (* (ak/as (ak/floatFromInt i) :f32) (/ 0.26 12.0)))
             light (ak/f32 (if (ak/== (mod i 2) 0) 0.90 0.02))]
-        (set! next (ribbon! out next 0.0 0.0004 lane (+ lane (/ 0.26 12.0)) 0.00003
+        (ak/= next (ribbon! out next 0.0 0.0004 lane (+ lane (/ 0.26 12.0)) 0.00003
                            (Vec3 {:x light :y light :z light})))))
     next))
 
@@ -535,7 +535,7 @@
                                     (* height 0.46189))
                               :z (+ z 0.00006)})
                        (Vec3 {:x 0.035 :y 0.045 :z 0.060}))))
-          (set! next (+ next 3)))))
+          (ak/= next (+ next 3)))))
     next))
 
 (az/defn racer-tint Vec3 [[id :usize]]
@@ -560,7 +560,7 @@
     (dotimes [i 24]
       (let [a (* (ak/as (ak/floatFromInt i) :f32) (/ 6.2831855 24.0))
             b (+ a (/ 6.2831855 24.0))]
-        (set! next (line! out next (+ x (* radius (math/cos a)))
+        (ak/= next (line! out next (+ x (* radius (math/cos a)))
                          (+ y (* radius (math/sin a)))
                          (+ x (* radius (math/cos b))) (+ y (* radius (math/sin b)))
                          z 0.00008 color))))
@@ -578,8 +578,8 @@
                      :y (+ y (* radius (math/sin a))) :z z})
             q (Vec3 {:x (+ x (* radius (math/cos b)))
                      :y (+ y (* radius (math/sin b))) :z z})]
-        (set! next (triangle! out next p q (Vec3 {:x x :y y :z (+ z radius)}) color))
-        (set! next (triangle! out next q p (Vec3 {:x x :y y :z (- z radius)})
+        (ak/= next (triangle! out next p q (Vec3 {:x x :y y :z (+ z radius)}) color))
+        (ak/= next (triangle! out next q p (Vec3 {:x x :y y :z (- z radius)})
                              (Vec3 {:x (* (az/field color x) 0.5)
                                     :y (* (az/field color y) 0.5)
                                     :z (* (az/field color z) 0.5)})))))
@@ -590,7 +590,7 @@
     (dotimes [i 4]
       (let [progress (* (ak/as (ak/floatFromInt i) :f32) 0.25)
             p (track/pose progress 0.0)]
-        (set! next (diamond! out next (az/field p x) (az/field p y)
+        (ak/= next (diamond! out next (az/field p x) (az/field p y)
                             (+ (track/elevation progress) 0.0015) 0.0008
                             (Vec3 {:x 1.0 :y 0.78 :z 0.08})))))
     (dotimes [i sim/hazard-capacity]
@@ -600,11 +600,11 @@
                 z (+ (track/elevation (az/field hazard progress)) 0.0003)
                 color (Vec3 {:x 1.0 :y 0.25 :z 0.05})]
             (if (ak/== (az/field hazard kind) sim/item-bolt)
-              (set! next (diamond! out next x y z 0.0005 color))
+              (ak/= next (diamond! out next x y z 0.0005 color))
               (do
-                (set! next (line! out next (- x 0.0008) (- y 0.0008)
+                (ak/= next (line! out next (- x 0.0008) (- y 0.0008)
                                  (+ x 0.0008) (+ y 0.0008) z 0.0001 color))
-                (set! next (line! out next (- x 0.0008) (+ y 0.0008)
+                (ak/= next (line! out next (- x 0.0008) (+ y 0.0008)
                                  (+ x 0.0008) (- y 0.0008) z 0.0001 color))))))))
     next))
 
@@ -615,7 +615,7 @@
             goal (track/pose (mod (+ (az/field racer progress) 0.0045) 1.0)
                              (az/field racer lane_target))]
         (when (and (ak/! (az/field racer finished)) (ak/! (sim/retired? i)))
-          (set! next (line! out next (az/field racer x) (az/field racer y)
+          (ak/= next (line! out next (az/field racer x) (az/field racer y)
                            (az/field goal x) (az/field goal y)
                            (+ (track/elevation (az/field racer progress)) 0.001) 0.00006 (racer-tint i))))))
     next))
@@ -629,7 +629,7 @@
             a (az/index barriers/vertices (ak/intCast (az/index indices 0)))
             b (az/index barriers/vertices (ak/intCast (az/index indices 1)))
             c (az/index barriers/vertices (ak/intCast (az/index indices 2)))]
-        (set! next (oriented-triangle! out next
+        (ak/= next (oriented-triangle! out next
           (Vec3 {:x (* 0.001 (az/index a 0)) :y (* 0.001 (az/index a 1)) :z (* 0.001 (az/index a 2))})
           (Vec3 {:x (* 0.001 (az/index b 0)) :y (* 0.001 (az/index b 1)) :z (* 0.001 (az/index b 2))})
           (Vec3 {:x (* 0.001 (az/index c 0)) :y (* 0.001 (az/index c 1)) :z (* 0.001 (az/index c 2))})
@@ -654,11 +654,11 @@
              [part :usize] [origin Vec3] [camera mesh/InstanceCamera]]
   (let [^:var instances (ak/as ak/undefined [:array sim/racer-count mesh/GpuInstance])]
     (dotimes [i sim/racer-count]
-      (set! (az/index instances i) (gpu-instance i part origin)))
+      (ak/= (az/index instances i) (gpu-instance i part origin)))
     (when (ak/! (renderer/draw-instances! slot revision vertices (ak/& instances) camera))
       (ak/return false))
     (dotimes [i sim/racer-count]
-      (set! (az/field (az/index instances i) mode) 1.0))
+      (ak/= (az/field (az/index instances i) mode) 1.0))
     (renderer/draw-instances! slot revision vertices (ak/& instances) camera)))
 
 (az/defn draw-racers! :bool
@@ -692,24 +692,24 @@
   no longer consume or overflow this CPU vertex buffer." [[out [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (let [w (ak/as (ak/floatFromInt (ak/max width 1)) :f32)
         h (ak/as (ak/floatFromInt (ak/max height 1)) :f32)]
-    (set! fit-x (ak/min 1.0 (/ h w)))
-    (set! fit-y (ak/min 1.0 (/ w h))))
+    (ak/= fit-x (ak/min 1.0 (/ h w)))
+    (ak/= fit-y (ak/min 1.0 (/ w h))))
   (let [human (sim/human-control-snapshot)
         ^:var next (ak/usize (containment! out (road! out 0)))]
     (dotimes [team sim/team-count]
       (let [p (track/pit-pose (sim/pit-box-progress (ak/intCast team)) 0.285)]
-        (set! next (model! out next (ak/& geometry/garage-vertices)
+        (ak/= next (model! out next (ak/& geometry/garage-vertices)
                           (az/field p x) (az/field p y) (+ (track/elevation (sim/pit-box-progress (ak/intCast team))) 0.00003)
                           (az/field p heading) 0.003 (racer-tint (* team 2))))))
-    (set! next (effects! out next))
+    (ak/= next (effects! out next))
     (dotimes [i sim/racer-count]
       (let [racer (presentation-view (ak/intCast i))
             x (az/field racer x) y (az/field racer y)
             z (+ (track/elevation (az/field racer progress)) 0.00008)]
         (when (az/field racer shielded)
-          (set! next (ring! out next x y (+ z 0.0002) 0.0032 (racer-tint i))))
+          (ak/= next (ring! out next x y (+ z 0.0002) 0.0032 (racer-tint i))))
         (when (and (az/field human enabled) (ak/== i 0))
-          (set! next (ring! out next x y (+ z 0.0002) 0.0035 (Vec3 {:x 1.0 :y 1.0 :z 1.0}))))))
+          (ak/= next (ring! out next x y (+ z 0.0002) 0.0035 (Vec3 {:x 1.0 :y 1.0 :z 1.0}))))))
     (ak/intCast next)))
 
 (az/defn build-world! :u32

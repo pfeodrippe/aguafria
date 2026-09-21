@@ -192,9 +192,21 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (str/includes? clojure-source "ak/undefined"))
+    (is (str/includes? clojure-source "(type :i8)"))
+    (is (str/includes? clojure-source "(type :c_long)"))
+    (is (not (re-find #"(?<![A-Za-z0-9_./-])null(?![A-Za-z0-9_./-])"
+                      clojure-source)))
     (is (not (re-find #"(?<![A-Za-z0-9_./-])undefined(?![A-Za-z0-9_./-])"
                       clojure-source)))
     (is (:success? verification))))
+
+(deftest converted-c-types-support-forward-references-and-reloading
+  (let [output ".aguafria/test/forward-c-types.clj"]
+    (convert/convert-file! "test/fixtures/primitive_values.zig" output
+                          {:namespace 'fixture.forward-c-types :overwrite? true})
+    (dotimes [_ 2]
+      (is (= 'fixture.forward-c-types
+             (:namespace (convert/load-converted! output)))))))
 
 (deftest zig-for-and-errdefer-are-structural-test
   (let [path "test/fixtures/control_flow.zig"

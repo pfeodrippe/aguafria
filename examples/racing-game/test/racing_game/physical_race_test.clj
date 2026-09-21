@@ -29,15 +29,15 @@
     (dotimes [_ physics/step-rate]
       (physics/drive! car 0.0 1.0 0.0)
       (physics/step! sim/dynamics-world))
-    (set! _ (physics/take-vehicle-tread-loss! car))
+    (ak/= :_ (physics/take-vehicle-tread-loss! car))
     (dotimes [state 4]
-      (set! (az/field racer pit_state) (ak/intCast state))
-      (set! (az/field racer tire_condition) 1.0)
+      (ak/= (az/field racer pit_state) (ak/intCast state))
+      (ak/= (az/field racer tire_condition) 1.0)
       (dotimes [_ physics/step-rate]
         (physics/drive! car 1.0 0.0 0.0)
         (physics/step! sim/dynamics-world))
       (sim/update-tire-strategy! 0)
-      (set! (az/index losses state) (- 1.0 (az/field racer tire_condition))))
+      (ak/= (az/index losses state) (- 1.0 (az/field racer tire_condition))))
     losses))
 
 (deftest pit-call-does-not-disable-tire-wear-test
@@ -66,52 +66,52 @@
   (sim/configure-countdown! 0)
   (sim/reset!)
   (ak/defer (sim/shutdown!))
-  (set! _ (sim/set-items-enabled! false))
-  (dotimes [i sim/racer-count] (set! _ (sim/enable-language-driving! i true)))
+  (ak/= :_ (sim/set-items-enabled! false))
+  (dotimes [i sim/racer-count] (ak/= :_ (sim/enable-language-driving! i true)))
   (dotimes [i sim/team-count]
-    (set! (az/field (az/deref (sim/team-pointer i)) next_decision_tick) 1000000000))
+    (ak/= (az/field (az/deref (sim/team-pointer i)) next_decision_tick) 1000000000))
   (let [before (sim/vehicle-pose 0 0)
         hold-text "Plan: hold\nRadio: I am waiting for the track to clear."
         hold-reason (fixture-language-plan! 0 1 1200 hold-text)
         after (sim/vehicle-pose 0 0)
         event (sim/language-event-at 1)
         ^:var result (mem/zeroes (az/type LanguageControlResult))]
-    (set! (az/field result hold_reason) hold-reason)
-    (set! (az/field result install_displacement)
+    (ak/= (az/field result hold_reason) hold-reason)
+    (ak/= (az/field result install_displacement)
       (+ (ak/abs (- (az/field after x) (az/field before x)))
          (ak/abs (- (az/field after y) (az/field before y)))
          (ak/abs (- (az/field after z) (az/field before z)))))
-    (set! (az/field result fixture_not_llm) (ak/! (az/field event generated)))
-    (set! (az/field result reply_preserved)
+    (ak/= (az/field result fixture_not_llm) (ak/! (az/field event generated)))
+    (ak/= (az/field result reply_preserved)
       (mem/eql (az/type :u8)
         (az/slice (az/field event text) 0 (az/field event byte_count)) hold-text))
     ;; Simulate a recovery trying to drive: the production final gate must win.
-    (set! (az/field (az/index sim/vehicle-controls 0) throttle) 1.0)
-    (set! (az/field (az/index sim/vehicle-controls 0) brake) 0.0)
+    (ak/= (az/field (az/index sim/vehicle-controls 0) throttle) 1.0)
+    (ak/= (az/field (az/index sim/vehicle-controls 0) brake) 0.0)
     (sim/enforce-language-holds!)
-    (set! (az/field result held_throttle) (az/field (az/index sim/vehicle-controls 0) throttle))
-    (set! (az/field result held_brake) (az/field (az/index sim/vehicle-controls 0) brake))
+    (ak/= (az/field result held_throttle) (az/field (az/index sim/vehicle-controls 0) throttle))
+    (ak/= (az/field result held_brake) (az/field (az/index sim/vehicle-controls 0) brake))
     (dotimes [i sim/racer-count]
       (let [reason (fixture-language-plan! i 2 1200 "Plan: follow\nRadio: Continuing at a safe pace.")]
-        (when (ak/== i 0) (set! (az/field result follow_reason) reason))))
+        (when (ak/== i 0) (ak/= (az/field result follow_reason) reason))))
     (sim/step-many! 120)
     (let [moved (sim/vehicle-pose 0 0)
           dx (- (az/field moved x) (az/field after x))
           dy (- (az/field moved y) (az/field after y))]
-      (set! (az/field result distance) (ak/sqrt (+ (* dx dx) (* dy dy)))))
-    (set! (az/field result stale_reason)
+      (ak/= (az/field result distance) (ak/sqrt (+ (* dx dx) (* dy dy)))))
+    (ak/= (az/field result stale_reason)
       (fixture-language-plan! 0 2 1200 "Plan: hold\nRadio: This reply is old."))
-    (set! (az/field result expired_reason)
+    (ak/= (az/field result expired_reason)
       (fixture-language-plan! 0 3 120 "Plan: hold\nRadio: This reply is expired."))
-    (set! (az/field result rejected_preserves_plan)
+    (ak/= (az/field result rejected_preserves_plan)
       (ak/== (az/field (az/index sim/language-drivers 0) kind) protocol/plan-follow))
-    (set! (az/field result revision) (az/field (az/index sim/language-drivers 0) revision))
-    (set! (az/field result ticks) sim/simulation-tick)
+    (ak/= (az/field result revision) (az/field (az/index sim/language-drivers 0) revision))
+    (ak/= (az/field result ticks) sim/simulation-tick)
     ;; Expiry of the installed plan is a pedal gate, not a stopped clock.
-    (set! (az/field (az/index sim/language-drivers 0) expires_tick) sim/simulation-tick)
+    (ak/= (az/field (az/index sim/language-drivers 0) expires_tick) sim/simulation-tick)
     (sim/enforce-language-holds!)
-    (set! (az/field result expiry_throttle) (az/field (az/index sim/vehicle-controls 0) throttle))
-    (set! (az/field result expiry_brake) (az/field (az/index sim/vehicle-controls 0) brake))
+    (ak/= (az/field result expiry_throttle) (az/field (az/index sim/vehicle-controls 0) throttle))
+    (ak/= (az/field result expiry_brake) (az/field (az/index sim/vehicle-controls 0) brake))
     result))
 
 (deftest readable-plans-control-real-pedals-without-teleporting-test
@@ -152,18 +152,18 @@
             (b3/b3Pos {:x (az/field pose x) :y (az/field pose y) :z (az/field pose z)})
             (b3/b3Quat {:v {:x (az/field pose qx) :y (az/field pose qy) :z (az/field pose qz)}
                          :s (az/field pose qw)}))))
-      (set! (az/field (az/deref racer) progress) (az/field control progress))
-      (set! (az/field (az/deref racer) lane) (/ (az/field control lane) 50.0))
-      (set! (az/field (az/deref racer) speed) (* (az/field control speed) 0.001))
-      (set! (az/field (az/deref racer) heading)
+      (ak/= (az/field (az/deref racer) progress) (az/field control progress))
+      (ak/= (az/field (az/deref racer) lane) (/ (az/field control lane) 50.0))
+      (ak/= (az/field (az/deref racer) speed) (* (az/field control speed) 0.001))
+      (ak/= (az/field (az/deref racer) heading)
         ;; Measured orientation, not the road tangent.
         (turnaround/heading (az/index (az/index poses i) 0)))))
   ;; This historical capture has eight cars. Keep that fixture unchanged while
   ;; the live simulation's storage contains the complete twenty-driver field.
   (dotimes [i 8]
-    (set! (az/index sim/vehicle-controls i) (az/index controls i)))
-  (set! (az/field (az/deref (sim/recovery-pointer 0)) state) state)
-  (set! (az/field (az/deref (sim/brain-pointer 0)) lane_target) 0.075)
+    (ak/= (az/index sim/vehicle-controls i) (az/index controls i)))
+  (ak/= (az/field (az/deref (sim/recovery-pointer 0)) state) state)
+  (ak/= (az/field (az/deref (sim/brain-pointer 0)) lane_target) 0.075)
   (sim/update-recovery! sim/vehicle-controls)
   (az/array-init [(az/index sim/vehicle-controls 0) (az/field (sim/recovery-view 0) control)] [:array 2 driver/Control]))
 
@@ -190,13 +190,13 @@
   "Exercise the real simulation loop with explicit test intents, not LLM output." []
   (sim/configure-countdown! 0)
   (sim/reset!)
-  (set! _ (sim/set-items-enabled! false))
+  (ak/= :_ (sim/set-items-enabled! false))
   (dotimes [i sim/racer-count]
     (let [brain (sim/brain-pointer i)]
-      (set! (az/field (az/deref brain) next_decision_tick) 1000000000)
-      (set! (az/field (az/deref brain) target_speed) 0.035)))
+      (ak/= (az/field (az/deref brain) next_decision_tick) 1000000000)
+      (ak/= (az/field (az/deref brain) target_speed) 0.035)))
   (dotimes [i sim/team-count]
-    (set! (az/field (az/deref (sim/team-pointer i)) next_decision_tick) 1000000000))
+    (ak/= (az/field (az/deref (sim/team-pointer i)) next_decision_tick) 1000000000))
   (let [address (ak/intFromPtr (sim/vehicle-pointer 0))
         ^{:var :f32} speed 1000.0
         ^{:var :f32} up 1.0
@@ -204,10 +204,10 @@
     (sim/step-many! 1200)
     (dotimes [i sim/racer-count]
       (let [view (sim/racer-view (ak/intCast i)) state (sim/vehicle-pose i 0)]
-        (set! speed (ak/min speed (* 1000.0 (az/field view speed))))
-        (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))
+        (ak/= speed (ak/min speed (* 1000.0 (az/field view speed))))
+        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))
                                            (* (az/field state qy) (az/field state qy)))))))
-        (set! pose-error (ak/max pose-error
+        (ak/= pose-error (ak/max pose-error
           (+ (ak/abs (- (* 1000.0 (az/field view x)) (az/field state x)))
              (ak/abs (- (* 1000.0 (az/field view y)) (az/field state y))))))))
     (RacePhysicsResult {:minimum_speed speed :minimum_up up :maximum_pose_error pose-error
@@ -235,18 +235,18 @@
   (ak/defer (sim/shutdown!))
   (dotimes [i sim/racer-count]
     (let [racer (sim/racer-pointer i) brain (sim/brain-pointer i)]
-      (set! (az/field (az/deref brain) next_decision_tick) 1000000000)
-      (set! (az/field (az/deref racer) finished) (< i 6))
-      (set! (az/field (az/deref racer) lap) (if (< i 6) 3 (if (ak/== i 6) 1 0)))
-      (set! (az/field (az/deref racer) finish_tick) (if (< i 6) (+ 100 i) 0))
+      (ak/= (az/field (az/deref brain) next_decision_tick) 1000000000)
+      (ak/= (az/field (az/deref racer) finished) (< i 6))
+      (ak/= (az/field (az/deref racer) lap) (if (< i 6) 3 (if (ak/== i 6) 1 0)))
+      (ak/= (az/field (az/deref racer) finish_tick) (if (< i 6) (+ 100 i) 0))
       (when (>= i 6)
-        (set! (az/deref (sim/status-pointer i))
+        (ak/= (az/deref (sim/status-pointer i))
               (status/Entry {:retired true :reason status/reason-overturned
                              :invalid_ticks 600 :retired_tick 99
                              :lap (az/field (az/deref racer) lap) :progress 0.4})))))
   (sim/step!)
   ;; A wreck moved by later contact must not acquire classification distance.
-  (set! (az/field (az/deref (sim/racer-pointer 7)) progress) 0.99)
+  (ak/= (az/field (az/deref (sim/racer-pointer 7)) progress) 0.99)
   (sim/update-ranks!)
   (let [snapshot (sim/snapshot)
         ^:var result (ClassificationResult
@@ -259,8 +259,8 @@
                        :frozen_progress (sim/classification-progress 7)
                        :restart_clean false})]
     (sim/shutdown!)
-    (set! _ (sim/initialize!))
-    (set! (az/field result restart_clean)
+    (ak/= :_ (sim/initialize!))
+    (ak/= (az/field result restart_clean)
           (and (ak/== (sim/retired-count) 0)
                (ak/!= (ak/intFromPtr (sim/status-pointer 0)) 0)
                (ak/!= (ak/intFromPtr (sim/recovery-pointer 0)) 0)
@@ -283,18 +283,18 @@
 
 (az/defn retired-team-prompt-probe worker/PromptBuffer []
   (let [^:var request (mem/zeroes (az/type worker/InferenceRequest))]
-    (set! (az/field request team) 3)
-    (set! (az/field request driver_a) 6)
-    (set! (az/field request driver_b) 7)
-    (set! (az/field request rank_a) 8)
-    (set! (az/field request rank_b) 8)
-    (set! (az/field request tire_a) 100)
-    (set! (az/field request tire_b) 100)
-    (set! (az/field request damage_a) 100)
-    (set! (az/field request damage_b) 100)
-    (set! (az/field request pit_a) 4)
-    (set! (az/field request pit_b) 4)
-    (set! (az/field request box_occupied) true)
+    (ak/= (az/field request team) 3)
+    (ak/= (az/field request driver_a) 6)
+    (ak/= (az/field request driver_b) 7)
+    (ak/= (az/field request rank_a) 8)
+    (ak/= (az/field request rank_b) 8)
+    (ak/= (az/field request tire_a) 100)
+    (ak/= (az/field request tire_b) 100)
+    (ak/= (az/field request damage_a) 100)
+    (ak/= (az/field request damage_b) 100)
+    (ak/= (az/field request pit_a) 4)
+    (ak/= (az/field request pit_b) 4)
+    (ak/= (az/field request box_occupied) true)
     (worker/team-prompt request)))
 
 (deftest retired-team-observation-is-readable-and-bounded-test
@@ -313,13 +313,13 @@
   (ak/defer (sim/shutdown!))
   (dotimes [i sim/racer-count]
     (let [brain (sim/brain-pointer i)]
-      (set! (az/field (az/deref brain) next_decision_tick) 1000000000)
-      (set! (az/field (az/deref brain) target_speed) 0.035)))
+      (ak/= (az/field (az/deref brain) next_decision_tick) 1000000000)
+      (ak/= (az/field (az/deref brain) target_speed) 0.035)))
   (dotimes [i sim/team-count]
-    (set! (az/field (az/deref (sim/team-pointer i)) next_decision_tick) 1000000000))
+    (ak/= (az/field (az/deref (sim/team-pointer i)) next_decision_tick) 1000000000))
   (let [racer (sim/racer-pointer 0)]
-    (set! (az/field (az/deref racer) finished) true)
-    (set! (az/field (az/deref racer) finish_tick) 1234)
+    (ak/= (az/field (az/deref racer) finished) true)
+    (ak/= (az/field (az/deref racer) finish_tick) 1234)
     (sim/step-many! 360)
     (az/array-init [(* 1000.0 (az/field (sim/racer-view 0) speed))
        (ak/as (ak/floatFromInt (az/field (sim/racer-view 0) finish_tick)) :f32)
@@ -339,25 +339,25 @@
   (ak/defer (sim/shutdown!))
   (dotimes [i sim/racer-count]
     (let [racer (sim/racer-pointer i)]
-      (set! (az/field (az/deref racer) progress) (* 0.1 (ak/as (ak/floatFromInt i) :f32)))
-      (set! (az/field (az/deref racer) lane) 0.0)
-      (set! (az/field (az/deref racer) speed) 0.0)
-      (set! (az/field (az/deref racer) stun_seconds) 0.0)
-      (set! (az/field (az/deref racer) shielded) false)))
+      (ak/= (az/field (az/deref racer) progress) (* 0.1 (ak/as (ak/floatFromInt i) :f32)))
+      (ak/= (az/field (az/deref racer) lane) 0.0)
+      (ak/= (az/field (az/deref racer) speed) 0.0)
+      (ak/= (az/field (az/deref racer) stun_seconds) 0.0)
+      (ak/= (az/field (az/deref racer) shielded) false)))
   (let [self (sim/racer-pointer 0) wreck (sim/racer-pointer 1)
         ^{:var :u8} checks 0]
-    (set! (az/field (az/deref self) progress) 0.999)
-    (set! (az/field (az/deref self) lap) 2)
-    (set! (az/field (az/deref wreck) progress) 0.001)
-    (set! (az/field (az/deref (sim/status-pointer 1)) retired) true)
-    (when (ak/== (sim/choose-target 0) 1) (set! checks (+ checks 1)))
-    (when (ak/== (sim/target-distance-bin 0 1) 0) (set! checks (+ checks 2)))
+    (ak/= (az/field (az/deref self) progress) 0.999)
+    (ak/= (az/field (az/deref self) lap) 2)
+    (ak/= (az/field (az/deref wreck) progress) 0.001)
+    (ak/= (az/field (az/deref (sim/status-pointer 1)) retired) true)
+    (when (ak/== (sim/choose-target 0) 1) (ak/= checks (+ checks 1)))
+    (when (ak/== (sim/target-distance-bin 0 1) 0) (ak/= checks (+ checks 2)))
     (when (ak/== (sim/racer-tactical-status 0) sim/tactical-status-hazard)
-      (set! checks (+ checks 4)))
+      (ak/= checks (+ checks 4)))
     ;; A stationary car outside our corridor is visible but not blocking it.
-    (set! (az/field (az/deref wreck) lane) 0.2)
+    (ak/= (az/field (az/deref wreck) lane) 0.2)
     (when (ak/== (sim/racer-tactical-status 0) sim/tactical-status-clear)
-      (set! checks (+ checks 8)))
+      (ak/= checks (+ checks 8)))
     checks))
 
 (deftest graphics-loading-preserves-the-physics-link-test

@@ -6,7 +6,10 @@
                                   :exclusions [aguafria/aguafria]}}
 
  :aliases
- {:dev
+ {:jev-evaluation
+  {:extra-deps {org.clojure/data.json {:mvn/version "2.5.2"}}}
+
+  :dev
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
               "-Daguafria.optimize=ReleaseFast"]}

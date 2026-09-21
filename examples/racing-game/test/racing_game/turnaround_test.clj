@@ -63,16 +63,16 @@
     (dotimes [tick (* seconds 120)]
       (let [normal (driver/follow car 8.0 -3.75)
             body (physics/body-state (az/field car chassis))]
-        (set! (az/index bodies 0) body)
-        (set! (az/index bodies 1) (physics/body-state (az/field other chassis)))
+        (ak/= (az/index bodies 0) body)
+        (ak/= (az/index bodies 1) (physics/body-state (az/field other chassis)))
         (let [output (turnaround/step state normal body bodies 2 0 turn? world)
               gear (if (az/field (az/field output state) active)
                      (az/field (az/field output state) gear) (ak/as 1 :i8))]
-          (set! state (az/field output state))
+          (ak/= state (az/field output state))
           (when (and (< tick 14400) (ak/== (mod tick 120) 0))
             (let [sign (az/field state turn_sign)
                   limit (az/field state lane_limit)]
-              (set! (az/index recovery-trace (ak/divTrunc tick 120))
+              (ak/= (az/index recovery-trace (ak/divTrunc tick 120))
                 (az/array-init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
                    (az/field body x) (az/field body y) (turnaround/heading body)
                    (az/field normal lane) (ak/as (ak/floatFromInt (az/field state gear)) :f32)
@@ -82,11 +82,11 @@
                    (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 1 (- sign) world limit)) :f32)
                    (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 -1 (- sign) world limit)) :f32)] [:array 12 :f32]))))
           (when (and (ak/!= previous-gear 0) (ak/!= gear 0) (ak/!= gear previous-gear))
-            (set! gear-change-speed (ak/max gear-change-speed (az/field normal speed))))
-          (set! previous-gear gear)
-          (set! gears (ak/| gears (ak/<< (ak/as 1 :u8) (ak/intCast (+ gear 1)))))
-          (set! lane (ak/max lane (ak/abs (az/field normal lane))))
-          (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
+            (ak/= gear-change-speed (ak/max gear-change-speed (az/field normal speed))))
+          (ak/= previous-gear gear)
+          (ak/= gears (ak/| gears (ak/<< (ak/as 1 :u8) (ak/intCast (+ gear 1)))))
+          (ak/= lane (ak/max lane (ak/abs (az/field normal lane))))
+          (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                                               (* (az/field body qy) (az/field body qy)))))))
           (dotimes [_ (ak/divTrunc physics/step-rate 120)]
             (physics/drive-in-gear! car (az/field (az/field output control) throttle)
@@ -134,10 +134,10 @@
         normal (driver/Control {:throttle 0.7 :brake 0.0 :steering 0.1
                                  :progress 0.0 :lane 0.0 :speed speed})
         state (turnaround/State {:active active :gear -1 :turn_sign 1.0 :lane_limit 7.0})]
-    (set! (az/field body x) (az/field p x))
-    (set! (az/field body y) (az/field p y))
-    (set! (az/field body qw) (math/cos (* yaw 0.5)))
-    (set! (az/field body qz) (math/sin (* yaw 0.5)))
+    (ak/= (az/field body x) (az/field p x))
+    (ak/= (az/field body y) (az/field p y))
+    (ak/= (az/field body qw) (math/cos (* yaw 0.5)))
+    (ak/= (az/field body qz) (math/sin (* yaw 0.5)))
     (turnaround/step state normal body
       (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState])) 0 0 false
       (mem/zeroes (az/type b3/b3WorldId)))))

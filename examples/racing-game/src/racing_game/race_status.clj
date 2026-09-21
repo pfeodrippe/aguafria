@@ -22,16 +22,16 @@
             [lap :u16] [progress :f32] [finished :bool]]
   (let [^:var result entry]
     (when (and (ak/! (az/field entry retired)) (ak/! finished))
-      (set! (az/field result invalid_ticks)
+      (ak/= (az/field result invalid_ticks)
             (if (and (< up 0.2) (< speed 5.0))
               (+ (az/field entry invalid_ticks) 1)
               0))
       (when (>= (az/field result invalid_ticks) retirement-delay-ticks)
-        (set! (az/field result retired) true)
-        (set! (az/field result reason) reason-overturned)
-        (set! (az/field result retired_tick) tick)
-        (set! (az/field result lap) lap)
-        (set! (az/field result progress) progress)))
+        (ak/= (az/field result retired) true)
+        (ak/= (az/field result reason) reason-overturned)
+        (ak/= (az/field result retired_tick) tick)
+        (ak/= (az/field result lap) lap)
+        (ak/= (az/field result progress) progress)))
     result))
 
 (az/defn observe-world-position Entry
@@ -42,9 +42,9 @@
   (let [^:var result (observe entry up speed tick lap progress finished)]
     (when (and (ak/! finished) (ak/! (az/field result retired))
                (< z (- minimum-elevation 50.0)))
-      (set! (az/field result retired) true)
-      (set! (az/field result reason) reason-outside-world)
-      (set! (az/field result retired_tick) tick)
-      (set! (az/field result lap) lap)
-      (set! (az/field result progress) progress))
+      (ak/= (az/field result retired) true)
+      (ak/= (az/field result reason) reason-outside-world)
+      (ak/= (az/field result retired_tick) tick)
+      (ak/= (az/field result lap) lap)
+      (ak/= (az/field result progress) progress))
     result))

@@ -53,9 +53,9 @@
       (physics/step! world)
       (let [state (physics/body-state body)
             projection (track/project (* (az/field state x) 0.001) (* (az/field state y) 0.001))]
-        (set! hits (+ hits (az/field (b3/b3World_GetContactEvents world) hitCount)))
-        (set! maximum-lane (ak/max maximum-lane (* 50.0 (ak/abs (az/field projection lane)))))
-        (set! minimum-z (ak/min minimum-z (az/field state z)))))
+        (ak/= hits (+ hits (az/field (b3/b3World_GetContactEvents world) hitCount)))
+        (ak/= maximum-lane (ak/max maximum-lane (* 50.0 (ak/abs (az/field projection lane)))))
+        (ak/= minimum-z (ak/min minimum-z (az/field state z)))))
     (let [state (physics/body-state body)]
       (az/array-init [(ak/floatFromInt hits) maximum-lane minimum-z
          (ak/sqrt (+ (* (az/field state vx) (az/field state vx))

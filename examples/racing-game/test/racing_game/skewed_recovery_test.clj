@@ -83,14 +83,14 @@
             output (recovery/step state normal traffic body -3.75
                      (if close? gap 1000.0) 1000.0 0.0 enabled)
             ^:var bodies (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState]))]
-        (set! (az/index bodies 0) body)
-        (set! (az/index bodies 1) other-body)
-        (set! state (az/field output state))
-        (set! phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (az/field state phase)))))
-        (set! lane (ak/max lane (ak/abs (az/field normal lane))))
-        (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
+        (ak/= (az/index bodies 0) body)
+        (ak/= (az/index bodies 1) other-body)
+        (ak/= state (az/field output state))
+        (ak/= phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (az/field state phase)))))
+        (ak/= lane (ak/max lane (ak/abs (az/field normal lane))))
+        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                                             (* (az/field body qy) (az/field body qy)))))))
-        (set! reverse-travel (ak/max reverse-travel (* 4309.0 (- start (az/field normal progress)))))
+        (ak/= reverse-travel (ak/max reverse-travel (* 4309.0 (- start (az/field normal progress)))))
         (let [control (if (ak/!= (az/field (az/field output state) phase) 0)
                         (turnaround/guard-recovery-control (az/field output control) body
                           bodies 2 0 (az/field output gear) world road-margin)

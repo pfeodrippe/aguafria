@@ -38,7 +38,7 @@
     (dotimes [_ physics/step-rate]
       (physics/drive! car 0.0 1.0 0.0)
       (physics/step! world))
-    (set! _ (physics/take-vehicle-tread-loss! car))
+    (ak/= :_ (physics/take-vehicle-tread-loss! car))
     (let [before (physics/body-state (az/field car chassis))]
       (dotimes [_ physics/step-rate]
         (physics/drive! car (if (ak/== mode 0) 0.0 1.0) (if (ak/== mode 0) 1.0 0.0) 0.0)
@@ -81,13 +81,13 @@
         ^{:var :f32} final-position 0.0]
     (ak/defer (physics/destroy-world! world))
     (dotimes [i 4]
-      (set! initial (+ initial (* 23.0 (az/field (physics/body-state (az/index (az/field car wheels) i)) x)))))
+      (ak/= initial (+ initial (* 23.0 (az/field (physics/body-state (az/index (az/field car wheels) i)) x)))))
     (dotimes [_ (* 5 physics/step-rate)]
       (physics/drive! car 1.0 0.0 0.0)
       (physics/step! world))
-    (set! final-position (* 700.0 (az/field (physics/body-state (az/field car chassis)) x)))
+    (ak/= final-position (* 700.0 (az/field (physics/body-state (az/field car chassis)) x)))
     (dotimes [i 4]
-      (set! final-position (+ final-position (* 23.0 (az/field (physics/body-state (az/index (az/field car wheels) i)) x)))))
+      (ak/= final-position (+ final-position (* 23.0 (az/field (physics/body-state (az/index (az/field car wheels) i)) x)))))
     (az/array-init [(/ (- final-position initial) 792.0)
        (b3/b3WheelJoint_GetSpinSpeed (az/index (az/field car joints) 2))] [:array 2 :f32])))
 
@@ -105,10 +105,10 @@
   (let [world (physics/create-world -9.81)
         ^:var cars (mem/zeroes (az/type [:array 8 physics/Vehicle]))]
     (ak/defer (physics/destroy-world! world))
-    (set! _ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
                                (b3/b3Vec3 {:x 500.0 :y 500.0 :z 0.5}) 0.0))
     (dotimes [i 8]
-      (set! (az/index cars i)
+      (ak/= (az/index cars i)
             (physics/create-vehicle world
               (b3/b3Pos {:x 0.0 :y (* (ak/as (ak/floatFromInt i) :f32) 6.0) :z 0.70}) 0.0)))
     (dotimes [_ physics/step-rate] (physics/step! world))
@@ -121,8 +121,8 @@
       (let [elapsed (b3/b3GetMilliseconds started)]
         (dotimes [i 8]
           (let [state (physics/body-state (az/field (az/index cars i) chassis))]
-            (set! speed (ak/max speed (az/field state vx)))
-            (set! yaw (ak/max yaw (ak/abs (az/field state qz))))))
+            (ak/= speed (ak/max speed (az/field state vx)))
+            (ak/= yaw (ak/max yaw (ak/abs (az/field state qz))))))
         (FleetTiming {:milliseconds elapsed :maximum_speed speed :maximum_yaw yaw})))))
 
 (az/defn impact-probe ImpactResult [[offset :f32]]
@@ -146,13 +146,13 @@
             (dotimes [j (az/field contact manifoldCount)]
               (let [manifold (az/index (az/field contact manifolds) j)]
                 (dotimes [k (az/field manifold pointCount)]
-                  (set! penetration
+                  (ak/= penetration
                         (ak/max penetration
                                 (- (az/field (az/index (az/field manifold points) k) separation))))))))))
       (let [sa (physics/body-state a) sb (physics/body-state b)]
-        (set! hits (+ hits (az/field (b3/b3World_GetContactEvents world) hitCount)))
-        (set! minimum (ak/min minimum (- (az/field sb x) (az/field sa x))))
-        (set! spin (ak/max spin (ak/abs (az/field sa wz))))))
+        (ak/= hits (+ hits (az/field (b3/b3World_GetContactEvents world) hitCount)))
+        (ak/= minimum (ak/min minimum (- (az/field sb x) (az/field sa x))))
+        (ak/= spin (ak/max spin (ak/abs (az/field sa wz))))))
     (ImpactResult {:hits hits :minimum_separation minimum :max_spin spin
                    :final_speed (az/field (physics/body-state a) vx)
                    :maximum_penetration penetration})))
@@ -171,9 +171,9 @@
         car-b (physics/create-vehicle b (b3/b3Pos {:x 0.0 :y 0.0 :z 0.7}) 0.0)]
     (ak/defer (physics/destroy-world! a))
     (ak/defer (physics/destroy-world! b))
-    (set! _ (physics/create-ground a (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-ground a (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
               (b3/b3Vec3 {:x 100.0 :y 100.0 :z 0.5}) 0.0))
-    (set! _ (physics/create-ground b (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-ground b (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
               (b3/b3Vec3 {:x 100.0 :y 100.0 :z 0.5}) 0.0))
     (dotimes [_ (* 3 physics/step-rate)]
       (physics/step! a)
@@ -188,7 +188,7 @@
             wheel (az/index (az/field car-b wheels) 0)
             p (b3/b3Body_GetPosition wheel)]
         (b3/b3DestroyBody (az/index (az/field car-a wheels) 0))
-        (set! _ (physics/create-vehicle a (b3/b3Pos {:x 30.0 :y 0.0 :z 0.7}) 0.0))
+        (ak/= :_ (physics/create-vehicle a (b3/b3Pos {:x 30.0 :y 0.0 :z 0.7}) 0.0))
         ;; No chassis ownership shortcut: the four tires remain real bodies.
         (b3/b3DestroyBody (az/field car-b chassis))
         (b3/b3Body_SetTransform wheel
@@ -279,7 +279,7 @@
         ^{:var :f32} maximum-speed 0.0
         ^{:var :f32} maximum-x 0.0]
     (ak/defer (physics/destroy-world! world))
-    (set! _ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
               (b3/b3Vec3 {:x 100.0 :y 100.0 :z 0.5}) 0.0))
     (dotimes [_ physics/step-rate] (physics/step! world))
     (dotimes [_ (* 5 physics/step-rate)]
@@ -287,8 +287,8 @@
       (physics/step! world)
       (let [state (physics/body-state (az/field car chassis))
             events (b3/b3World_GetContactEvents world)]
-        (set! maximum-speed (ak/max maximum-speed (az/field state vx)))
-        (set! maximum-x (ak/max maximum-x (az/field state x)))
+        (ak/= maximum-speed (ak/max maximum-speed (az/field state vx)))
+        (ak/= maximum-x (ak/max maximum-x (az/field state x)))
         (dotimes [j (az/field events hitCount)]
           (let [hit (az/index (az/field events hitEvents) j)
                 a (b3/b3Shape_GetBody (az/field hit shapeIdA))
@@ -316,15 +316,15 @@
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)
         ^:var result (mem/zeroes (az/type [:array 5 physics/BodyState]))]
     (ak/defer (physics/destroy-world! world))
-    (set! _ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
                                (b3/b3Vec3 {:x 500.0 :y 500.0 :z 0.5}) 0.0))
     (dotimes [_ (* 2 physics/step-rate)] (physics/step! world))
     (dotimes [_ ticks]
       (physics/drive! car 1.0 0.0 0.0)
       (physics/step! world))
-    (set! (az/index result 0) (physics/body-state (az/field car chassis)))
+    (ak/= (az/index result 0) (physics/body-state (az/field car chassis)))
     (dotimes [i 4]
-      (set! (az/index result (+ i 1)) (physics/body-state (az/index (az/field car wheels) i))))
+      (ak/= (az/index result (+ i 1)) (physics/body-state (az/index (az/field car wheels) i))))
     result))
 
 (az/defn straight-line-drive-trace [:array 10 [:array 8 :f32]]
@@ -335,7 +335,7 @@
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)
         ^:var result (mem/zeroes (az/type [:array 10 [:array 8 :f32]]))]
     (ak/defer (physics/destroy-world! world))
-    (set! _ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
                                (b3/b3Vec3 {:x 500.0 :y 500.0 :z 0.5}) 0.0))
     (dotimes [_ (* 2 physics/step-rate)] (physics/step! world))
     (dotimes [second 10]
@@ -350,7 +350,7 @@
           (ak/+= right-torque (b3/b3WheelJoint_GetSpinTorque right)))
         (let [state (physics/body-state (az/field car chassis))
               count (ak/as (ak/floatFromInt physics/step-rate) :f32)]
-          (set! (az/index result second)
+          (ak/= (az/index result second)
                 (az/array-init [(ak/as (ak/floatFromInt (+ second 1)) :f32)
                    (az/field state vx) (az/field state vy)
                    (/ left-torque count) (/ right-torque count)
@@ -380,16 +380,16 @@
         ^:var joint-def (b3/b3DefaultWheelJointDef)]
     (ak/defer (physics/destroy-world! world))
     (b3/b3World_EnableWarmStarting world warm-start)
-    (set! (az/field wheel-def type) b3/b3_dynamicBody)
-    (set! (az/field wheel-def allowFastRotation) true)
+    (ak/= (az/field wheel-def type) b3/b3_dynamicBody)
+    (ak/= (az/field wheel-def allowFastRotation) true)
     (let [wheel (b3/b3CreateBody world (ak/& wheel-def))]
-      (set! _ (b3/b3CreateSphereShape wheel (ak/& shape-def) (ak/& sphere)))
-      (set! (az/field (az/field joint-def base) bodyIdA) axle)
-      (set! (az/field (az/field joint-def base) bodyIdB) wheel)
-      (set! (az/field joint-def enableSteering) steerable)
-      (set! (az/field joint-def enableSpinMotor) true)
-      (set! (az/field joint-def maxSpinTorque) 1.0)
-      (set! (az/field joint-def spinSpeed) 100.0)
+      (ak/= :_ (b3/b3CreateSphereShape wheel (ak/& shape-def) (ak/& sphere)))
+      (ak/= (az/field (az/field joint-def base) bodyIdA) axle)
+      (ak/= (az/field (az/field joint-def base) bodyIdB) wheel)
+      (ak/= (az/field joint-def enableSteering) steerable)
+      (ak/= (az/field joint-def enableSpinMotor) true)
+      (ak/= (az/field joint-def maxSpinTorque) 1.0)
+      (ak/= (az/field joint-def spinSpeed) 100.0)
       (let [joint (b3/b3CreateWheelJoint world (ak/& joint-def))]
         (dotimes [_ 384] (physics/step! world))
         (let [mass (b3/b3Body_GetMassData wheel)
@@ -476,12 +476,12 @@
             ^:var definition (b3/b3DefaultShapeDef)]
         (when (ak/== count 1)
           (b3/b3DestroyShape (az/index shapes 0) false)
-          (set! (az/field (az/field definition baseMaterial) friction) physics/tire-friction)
-          (set! (az/field (az/field definition baseMaterial) restitution) 0.0)
+          (ak/= (az/field (az/field definition baseMaterial) friction) physics/tire-friction)
+          (ak/= (az/field (az/field definition baseMaterial) restitution) 0.0)
           (cond
             (ak/== shape-kind 1)
             (let [sphere (b3/b3Sphere {:center {:x 0.0 :y 0.0 :z 0.0} :radius radius})]
-              (set! _ (b3/b3CreateSphereShape wheel (ak/& definition) (ak/& sphere))))
+              (ak/= :_ (b3/b3CreateSphereShape wheel (ak/& definition) (ak/& sphere))))
 
             (ak/== shape-kind 3)
             (let [^:var vertices (mem/zeroes (az/type [:array 84 b3/b3Vec3]))]
@@ -489,13 +489,13 @@
                 (let [angle (* 6.28318530718 (/ (ak/as (ak/floatFromInt part) :f32) 42.0))
                       x (* radius (ak/cos angle))
                       z (* radius (ak/sin angle))]
-                  (set! (az/index vertices (* 2 part))
+                  (ak/= (az/index vertices (* 2 part))
                     (b3/b3Vec3 {:x x :y (- half-width) :z z}))
-                  (set! (az/index vertices (+ (* 2 part) 1))
+                  (ak/= (az/index vertices (+ (* 2 part) 1))
                     (b3/b3Vec3 {:x x :y half-width :z z}))))
               (let [hull (b3/b3CreateHull (ak/& vertices) 84 84)]
                 (ak/defer (b3/b3DestroyHull hull))
-                (set! _ (b3/b3CreateHullShape wheel (ak/& definition) hull))))
+                (ak/= :_ (b3/b3CreateHullShape wheel (ak/& definition) hull))))
 
             (ak/== shape-kind 4)
             (let [^:var vertices (mem/zeroes (az/type [:array 72 b3/b3Vec3]))]
@@ -504,11 +504,11 @@
                   (let [angle (* 6.28318530718 (/ (ak/as (ak/floatFromInt part) :f32) 24.0))
                         r (if (ak/== ring 1) radius (- radius 0.03))
                         y (* (- (ak/as (ak/floatFromInt ring) :f32) 1.0) half-width)]
-                    (set! (az/index vertices (+ (* ring 24) part))
+                    (ak/= (az/index vertices (+ (* ring 24) part))
                       (b3/b3Vec3 {:x (* r (ak/cos angle)) :y y :z (* r (ak/sin angle))})))))
               (let [hull (b3/b3CreateHull (ak/& vertices) 72 72)]
                 (ak/defer (b3/b3DestroyHull hull))
-                (set! _ (b3/b3CreateHullShape wheel (ak/& definition) hull))))
+                (ak/= :_ (b3/b3CreateHullShape wheel (ak/& definition) hull))))
 
             :else
             (dotimes [part 32]
@@ -519,7 +519,7 @@
                                        :y 0.0
                                        :z (* centre-radius (ak/sin angle))}
                               :radius half-width})]
-                (set! _ (b3/b3CreateSphereShape wheel (ak/& definition) (ak/& sphere))))))
+                (ak/= :_ (b3/b3CreateSphereShape wheel (ak/& definition) (ak/& sphere))))))
           (b3/b3Body_SetMassData wheel mass))))))
 
 (az/defn tread-plane-contact-probe! :void
@@ -586,7 +586,7 @@
       (when (ak/== (b3/b3Body_GetShapes wheel (ak/& shapes) 1) 1)
         (let [shape (az/index shapes 0)
               ^:var filter (b3/b3Shape_GetFilter shape)]
-          (set! (az/field filter maskBits) 0)
+          (ak/= (az/field filter maskBits) 0)
           (b3/b3Shape_SetFilter shape filter true))))))
 
 (az/defn apply-flat-tires-probe! :void [[car physics/Vehicle]]
@@ -604,7 +604,7 @@
   ;; after the production category migration, silently testing faceted contacts.
   (let [p (b3/b3Body_GetPosition (az/field car chassis))
         ^:var query (b3/b3DefaultQueryFilter)]
-    (set! (az/field query maskBits) physics/tire-surface-category)
+    (ak/= (az/field query maskBits) physics/tire-surface-category)
     (let [hit (b3/b3World_CastRayClosest (b3/b3Body_GetWorld (az/field car chassis))
                 (b3/b3Pos {:x (az/field p x) :y (az/field p y) :z (+ (az/field p z) 2.0)})
                 (b3/b3Vec3 {:x 0.0 :y 0.0 :z -10.0}) query)]
@@ -614,7 +614,7 @@
           (if (and (ak/== (az/field filter categoryBits) physics/tire-surface-category)
                       (ak/== (b3/b3Body_GetType (b3/b3Shape_GetBody shape)) b3/b3_staticBody))
             (do
-              (set! (az/field filter categoryBits) 1)
+              (ak/= (az/field filter categoryBits) 1)
               (b3/b3Shape_SetFilter shape filter true))
             (ak/panic "Ray-tire comparison requires an explicitly marked static road")))
         (ak/panic "Ray-tire comparison could not find its road"))))
@@ -625,8 +625,8 @@
       (when (ak/== (b3/b3Body_GetShapes body (ak/& shapes) 1) 1)
         (let [shape (az/index shapes 0)
               ^:var filter (b3/b3Shape_GetFilter shape)]
-          (set! (az/field filter categoryBits) 2)
-          (when (< i 4) (set! (az/field filter maskBits) 2))
+          (ak/= (az/field filter categoryBits) 2)
+          (when (< i 4) (ak/= (az/field filter maskBits) 2))
           (b3/b3Shape_SetFilter shape filter true))))))
 
 (az/defn apply-ray-tires-probe! :void
@@ -634,7 +634,7 @@
   No circuit progress/height lookup. Missing ground produces no tire force." [[car physics/Vehicle]]
   (let [world (b3/b3Body_GetWorld (az/field car chassis))
         ^:var query (b3/b3DefaultQueryFilter)]
-    (set! (az/field query maskBits) 1)
+    (ak/= (az/field query maskBits) 1)
     (dotimes [i 4]
       (let [wheel (az/index (az/field car wheels) i)
             dimensions (az/index spec/wheel-geometry i)
@@ -651,7 +651,7 @@
               (let [mesh (b3/b3Shape_GetMesh shape)
                     indices (b3/b3GetMeshMaterialIndices (az/field mesh data))]
                 (when (ak/!= indices ak/null)
-                  (set! material (b3/b3Shape_GetMeshSurfaceMaterial shape
+                  (ak/= material (b3/b3Shape_GetMeshSurfaceMaterial shape
                     (az/index indices (ak/as (ak/intCast (az/field hit triangleIndex)) :usize)))))))
             (tread-plane-contact-probe! wheel radius (* 0.5 (az/index dimensions 4))
               (az/field hit normal) (az/field hit point) (az/field material friction))))))))
@@ -672,7 +672,7 @@
     (if (ak/== shape-kind 5)
       (use-flat-tire-probe! car)
       (diagnostic-tire-shape! car shape-kind))
-    (set! _ (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
               ;; Faster candidates must not drive off the measurement fixture.
               (b3/b3Vec3 {:x 2000.0 :y 2000.0 :z 0.5}) 0.0 0.0))
     (dotimes [_ (* 2 physics/step-rate)]
@@ -686,7 +686,7 @@
       (let [state (physics/body-state (az/field car chassis))
             up (b3/b3RotateVector (b3/b3Body_GetRotation (az/field car chassis))
                  (b3/b3Vec3 {:x 0.0 :y 0.0 :z 1.0}))]
-        (set! (az/index rows second)
+        (ak/= (az/index rows second)
           (az/array-init [(ak/as (ak/floatFromInt (+ second 1)) :f32)
              (az/field state vx) (az/field state vy)
              (az/field state x) (az/field state y) (az/field state z)
@@ -715,25 +715,25 @@
         ^:var rows (mem/zeroes (az/type [:array 11 [:array 8 :f32]]))]
     (ak/defer (b3/b3DestroyHull hull))
     (ak/defer (physics/destroy-world! world))
-    (set! _ (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+    (ak/= :_ (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
               (b3/b3Vec3 {:x 2000.0 :y 2000.0 :z 0.5}) 0.0 0.0))
-    (set! (az/field definition type) b3/b3_dynamicBody)
-    (set! (az/field definition position) (b3/b3Pos {:x 0.0 :y 0.0 :z radius}))
-    (set! (az/field definition allowFastRotation) true)
-    (set! (az/field shape density) (/ physics/wheel-mass-kg (* 3.1415927 radius radius width)))
-    (set! (az/field (az/field shape baseMaterial) friction) physics/tire-friction)
-    (set! (az/field (az/field shape baseMaterial) restitution) 0.0)
+    (ak/= (az/field definition type) b3/b3_dynamicBody)
+    (ak/= (az/field definition position) (b3/b3Pos {:x 0.0 :y 0.0 :z radius}))
+    (ak/= (az/field definition allowFastRotation) true)
+    (ak/= (az/field shape density) (/ physics/wheel-mass-kg (* 3.1415927 radius radius width)))
+    (ak/= (az/field (az/field shape baseMaterial) friction) physics/tire-friction)
+    (ak/= (az/field (az/field shape baseMaterial) restitution) 0.0)
     (let [wheel (b3/b3CreateBody world (ak/& definition))
           collider (b3/b3CreateHullShape wheel (ak/& shape) hull)
           mass (b3/b3Body_GetMassData wheel)]
       (when (ak/== shape-kind 1)
         (b3/b3DestroyShape collider false)
         (let [sphere (b3/b3Sphere {:center {:x 0.0 :y 0.0 :z 0.0} :radius radius})]
-          (set! _ (b3/b3CreateSphereShape wheel (ak/& shape) (ak/& sphere))))
+          (ak/= :_ (b3/b3CreateSphereShape wheel (ak/& shape) (ak/& sphere))))
         (b3/b3Body_SetMassData wheel mass))
       (when (ak/== shape-kind 2)
         (let [^:var filter (b3/b3Shape_GetFilter collider)]
-          (set! (az/field filter maskBits) 0)
+          (ak/= (az/field filter maskBits) 0)
           (b3/b3Shape_SetFilter collider filter true)))
       (dotimes [_ physics/step-rate]
         (when (ak/== shape-kind 2)
@@ -751,7 +751,7 @@
               (flat-tire-contact-probe! wheel radius (* 0.5 width)))
             (physics/step! world)))
         (let [state (physics/body-state wheel)]
-          (set! (az/index rows second)
+          (ak/= (az/index rows second)
             (az/array-init [(ak/as (ak/floatFromInt second) :f32)
                (az/field state vx) (az/field state vy) (az/field state wy)
                (az/field state z) (az/field state y)
@@ -767,7 +767,7 @@
         ground (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
                                    (b3/b3Vec3 {:x 500.0 :y 500.0 :z 0.5}) 0.0)
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)]
-    (set! _ ground)
+    (ak/= :_ ground)
     (ak/defer (physics/destroy-world! world))
     (when analytic? (use-flat-tire-probe! car))
     ;; Settle suspension, then accelerate from rest without writing velocity.
@@ -838,7 +838,7 @@
         car (physics/create-vehicle world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.70}) 0.0)]
     (ak/defer (physics/destroy-world! world))
     (when grounded
-      (set! _ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
+      (ak/= :_ (physics/create-ground world (b3/b3Pos {:x 0.0 :y 0.0 :z -0.5})
                   (b3/b3Vec3 {:x 100.0 :y 100.0 :z 0.5}) 0.0)))
     (dotimes [_ physics/step-rate]
       (physics/drive-in-gear! car 0.0 1.0 0.0 gear)

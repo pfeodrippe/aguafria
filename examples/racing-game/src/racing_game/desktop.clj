@@ -29,7 +29,7 @@
 
 (az/defvar running false)
 
-(az/defvar window [:optional [:* glfw/GLFWwindow]] null)
+(az/defvar window [:optional [:* glfw/GLFWwindow]] ak/null)
 
 (az/defvar frame-count :u64 0)
 
@@ -55,7 +55,7 @@
 
 (az/defvar scroll-installed false)
 
-(az/defvar previous-scroll glfw/GLFWscrollfun null)
+(az/defvar previous-scroll glfw/GLFWscrollfun ak/null)
 
 (az/defn camera-scroll! :void
   "GLFW wheel callback; ImGui chains this callback when installing its input."
@@ -63,14 +63,14 @@
   [[event-window [:optional [:* glfw/GLFWwindow]]] [horizontal :f64] [vertical :f64]]
   (when (ak/== (ui/aguafria_ui_captures_mouse) 0)
     (render3d/zoom-by! (ak/floatCast (ak/exp (* vertical 0.12)))))
-  (when (ak/!= previous-scroll null)
+  (when (ak/!= previous-scroll ak/null)
     ((az/unwrap previous-scroll) event-window horizontal vertical)))
 
 (az/defn install-scroll! :void
   "Install on the window thread, preserving an already installed UI callback." []
   (when (ak/! scroll-installed)
-    (set! previous-scroll (glfw/glfwSetScrollCallback window (ak/& camera-scroll!)))
-    (set! scroll-installed true)))
+    (ak/= previous-scroll (glfw/glfwSetScrollCallback window (ak/& camera-scroll!)))
+    (ak/= scroll-installed true)))
 
 (az/defn request-race-reset! :void
   "Queue a reset for the simulation thread; safe to call from the nREPL." []
@@ -78,13 +78,13 @@
 
 (az/defn request-stop! :void
   []
-  (set! running false))
+  (ak/= running false))
 
 (az/defn set-live-simulation-slowdown! :void
   "Run live AI races between real time and 20x slow motion. Rendering remains
   unconstrained, and deterministic replay always advances at normal 120 Hz."
   [[factor :f64]]
-  (set! live-simulation-slowdown (ak/min 20.0 (ak/max 1.0 factor))))
+  (ak/= live-simulation-slowdown (ak/min 20.0 (ak/max 1.0 factor))))
 
 (az/defn simulation-slowdown :f64
   "Inspect the live wall-time slowdown factor."
@@ -106,7 +106,7 @@
       (if render3d/follow-camera
         (render3d/camera-preset! 4)
         (render3d/camera-preset! 0)))
-    (set! previous-camera overview))
+    (ak/= previous-camera overview))
   (when (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_0) glfw/GLFW_PRESS)
     (render3d/follow-leaders!))
   (let [dt (ak/min 0.05 (ak/max 0.0 (- (glfw/glfwGetTime) previous-time)))]
@@ -195,24 +195,24 @@
         (ak/f32 (ak/max (if brake-down (ak/as 1.0 :f32) (ak/as 0.0 :f32))
                 gamepad-brake))]
     (when (and pause-down (ak/! previous-pause))
-      (set! _ (simulation/toggle-paused!)))
+      (ak/= :_ (simulation/toggle-paused!)))
     (when (and reset-down (ak/! previous-reset))
       (simulation/reset!)
       (render3d/reset-presentation!)
       (render3d/reset-camera!))
     (when (and debug-down (ak/! previous-debug))
-      (set! _ (race-render/toggle-debug-overlay!)))
+      (ak/= :_ (race-render/toggle-debug-overlay!)))
     (when (and human-toggle-down (ak/! previous-human-toggle))
-      (set! _
+      (ak/= :_
             (simulation/set-human-controlled!
              (ak/! (az/field (simulation/human-control-snapshot) enabled)))))
     (simulation/set-human-input!
      steering throttle brake (and item-use (ak/! previous-item-use)))
-    (set! previous-pause pause-down)
-    (set! previous-reset reset-down)
-    (set! previous-debug debug-down)
-    (set! previous-human-toggle human-toggle-down)
-    (set! previous-item-use item-use)))
+    (ak/= previous-pause pause-down)
+    (ak/= previous-reset reset-down)
+    (ak/= previous-debug debug-down)
+    (ak/= previous-human-toggle human-toggle-down)
+    (ak/= previous-item-use item-use)))
 
 (az/defn frame! :bool
   "Present one Vulkan frame. Live AI simulation defaults to normal speed;
@@ -222,8 +222,8 @@
   (poll-control-edges!)
   (let [now (glfw/glfwGetTime)
         elapsed (ak/min 0.10 (ak/max 0.0 (- now previous-time)))]
-    (set! previous-time now)
-    (set! accumulator (+ accumulator elapsed))
+    (ak/= previous-time now)
+    (ak/= accumulator (+ accumulator elapsed))
     (let [replay (simulation/replay-summary)
           step-seconds
           (if (az/field replay active)
@@ -234,11 +234,11 @@
                      (< substeps 12))
         (simulation/step!)
         (render3d/capture-presentation!)
-        (set! accumulator (- accumulator step-seconds))
-        (set! substeps (+ substeps 1)))
+        (ak/= accumulator (- accumulator step-seconds))
+        (ak/= substeps (+ substeps 1)))
       (render3d/set-presentation-phase!
        (if simulation/paused (ak/as 1.0 :f32) (ak/floatCast (/ accumulator step-seconds)))))
-    (set! frame-count (+ frame-count 1))
+    (ak/= frame-count (+ frame-count 1))
     (render3d/advance-camera! (ak/floatCast elapsed))
     (motion-qa/record! now)
     (renderer/render! (ak/& race-render/build-frame!))))
@@ -246,7 +246,7 @@
 (az/defn window-address :u64
   "Opaque GLFW window address for optional development-only tooling."
   []
-  (if (ak/== window null)
+  (if (ak/== window ak/null)
     0
     (ak/intCast (ak/intFromPtr (az/unwrap window)))))
 
@@ -254,7 +254,7 @@
   "Whether the initialized native window should render another frame."
   []
   (and running
-       (ak/!= window null)
+       (ak/!= window ak/null)
        (ak/== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE)))
 
 (az/defn initialize! :bool
@@ -268,11 +268,11 @@
   (std-debug/assert (ak/== (glfw/glfwInit) glfw/GLFW_TRUE))
   (glfw/glfwWindowHint glfw/GLFW_CLIENT_API glfw/GLFW_NO_API)
   (glfw/glfwWindowHint glfw/GLFW_RESIZABLE glfw/GLFW_FALSE)
-  (set! window
+  (ak/= window
         (glfw/glfwCreateWindow 1024 720
                                "Aguafria · 20 Driver AIs · 10 Team Strategist AIs"
-                               null null))
-  (std-debug/assert (ak/!= window null))
+                               ak/null ak/null))
+  (std-debug/assert (ak/!= window ak/null))
   ;; Present the native game as the active desktop window. Besides making the
   ;; launch predictable for players, this keeps macOS/MoltenVK from starving
   ;; the first CAMetalDrawable while the just-created window is occluded.
@@ -281,24 +281,24 @@
   (std-debug/assert (renderer/initialize-renderer! window))
   (std-debug/assert (worker/start!))
   (simulation/configure-countdown! 0)
-  (set! _ (simulation/initialize!))
+  (ak/= :_ (simulation/initialize!))
   (render3d/reset-presentation!)
-  (set! previous-time (glfw/glfwGetTime))
-  (set! accumulator 0.0)
-  (set! running true)
+  (ak/= previous-time (glfw/glfwGetTime))
+  (ak/= accumulator 0.0)
+  (ak/= running true)
   true)
 
 (az/defn shutdown! :void
   "Destroy the resources owned by `initialize!`. Safe after a normal loop."
   []
-  (when (ak/!= window null)
-    (set! running false)
+  (when (ak/!= window ak/null)
+    (ak/= running false)
     (renderer/shutdown-renderer!)
     (simulation/shutdown!)
     (worker/stop!)
     (inference/unload-model!)
     (glfw/glfwDestroyWindow window)
-    (set! window null)
+    (ak/= window ak/null)
     (glfw/glfwTerminate)))
 
 (az/defn run! :bool
@@ -307,7 +307,7 @@
   (when (ak/! (initialize!))
     (ak/return false))
   (ak/while (should-run?)
-    (set! _ (frame!)))
+    (ak/= :_ (frame!)))
   (shutdown!)
   true)
 

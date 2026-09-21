@@ -10,6 +10,7 @@
             [clojure.pprint :as pprint]
             [racing-game.inference :as inference]
             [racing-game.model :as model]
+            [racing-game.protocol :as protocol]
             [racing-game.train-action-head :as driver]
             [racing-game.train-team-head :as team]
             [racing-game.worker :as worker])
@@ -174,7 +175,8 @@
                              (driver/tactical-anchor-scenarios)))
                 team-scenarios (team/golden-scenarios)
                 driver-results (run-parallel-suite! driver-scenarios 0 8)
-                team-results (run-parallel-suite! team-scenarios 8 4)
+                team-results (run-parallel-suite! team-scenarios
+                                                  (az/value protocol/racer-count) 4)
                 profile (az/value (inference/model-profile-summary))]
             {:model :granite-350m-q4-0
              :engine :aguafria-zig-native

@@ -20,9 +20,9 @@
         control (driver/Control {:throttle 1.0 :brake 0.0 :steering 0.4
                                   :progress 0.5 :lane 0.0 :speed 0.0})
         traffic (driver/yield-to-traffic control 6.0 0.0)]
-    (set! (az/field body qw) 1.0)
+    (ak/= (az/field body qw) 1.0)
     (dotimes [_ 360]
-      (set! state (az/field (recovery/step state control traffic body lane-target
+      (ak/= state (az/field (recovery/step state control traffic body lane-target
                             6.0 rear-gap rear-closing enabled) state)))
     (recovery/step state control traffic body lane-target
                    6.0 rear-gap rear-closing enabled)))
@@ -47,8 +47,8 @@
         ^:var body (mem/zeroes (az/type physics/BodyState))
         control (driver/Control {:throttle 1.0 :brake 0.0 :steering 0.4
                                   :progress 0.5 :lane 0.0 :speed speed})]
-    (set! (az/field body qw) 1.0)
-    (set! (az/field body x) distance)
+    (ak/= (az/field body qw) 1.0)
+    (ak/= (az/field body x) distance)
     (recovery/step state control control body 3.75 6.0 rear-gap rear-closing enabled)))
 
 (deftest reverse-brakes-before-changing-direction-and-when-rear-closes-test
@@ -111,29 +111,29 @@
                       (driver/yield-to-offset-obstacle normal gap (az/field blocked speed) side) normal)
             output (recovery/step state normal traffic body 3.75 obstacle-gap 1000.0 0.0 true)
             ^:var bodies (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState]))]
-        (set! (az/index bodies 0) body)
-        (set! (az/index bodies 1) other-body)
-        (set! state (az/field output state))
-        (set! phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (az/field state phase)))))
-        (set! lane (ak/max lane (ak/abs (az/field normal lane))))
-        (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
+        (ak/= (az/index bodies 0) body)
+        (ak/= (az/index bodies 1) other-body)
+        (ak/= state (az/field output state))
+        (ak/= phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (az/field state phase)))))
+        (ak/= lane (ak/max lane (ak/abs (az/field normal lane))))
+        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
                                             (* (az/field body qy) (az/field body qy)))))))
-        (set! reverse-travel (ak/max reverse-travel (* 4309.0 (- 0.6657818 (az/field normal progress)))))
+        (ak/= reverse-travel (ak/max reverse-travel (* 4309.0 (- 0.6657818 (az/field normal progress)))))
         (let [control (if (ak/!= (az/field (az/field output state) phase) 0)
                         (turnaround/guard-recovery-control (az/field output control) body
                           bodies 2 0 (az/field output gear) world recovery/corridor-half-width)
                         (az/field output control))]
         (when (ak/== (az/field state phase) 4)
-          (set! pass-separation (ak/min pass-separation
+          (ak/= pass-separation (ak/min pass-separation
             (turnaround/footprint-separation (az/field body x) (az/field body y)
               (turnaround/heading body) (az/index bodies 1)))))
         (when (and (> (az/field (az/field output control) throttle) 0.0)
                    (ak/== (az/field control throttle) 0.0)
                    (ak/== (az/field control brake) 1.0))
-          (set! veto-count (+ veto-count 1.0))
-          (when (ak/== (az/field state phase) 3) (set! seek-veto (+ seek-veto 1.0)))
-          (when (ak/== (az/field state phase) 4) (set! pass-veto (+ pass-veto 1.0)))
-          (set! last-reason (ak/floatFromInt
+          (ak/= veto-count (+ veto-count 1.0))
+          (when (ak/== (az/field state phase) 3) (ak/= seek-veto (+ seek-veto 1.0)))
+          (when (ak/== (az/field state phase) 4) (ak/= pass-veto (+ pass-veto 1.0)))
+          (ak/= last-reason (ak/floatFromInt
             (turnaround/motion-clearance-reasons body bodies 2 0 (az/field output gear)
               (az/field control steering) world recovery/corridor-half-width))))
         (dotimes [_ (ak/divTrunc physics/step-rate 120)]

@@ -895,6 +895,47 @@
        #"Unresolved dotted Zig reference"
        (emit/emit-expr '(out_of_nowhere.member 1)))))
 
+(deftest qualified-local-declarations-and-discard-targets-validate
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :fn :name 'local-discard :return :u32 :args []
+                     :body '[(ak/var value 7 :u32)
+                             (ak/= :_ (& value))
+                             (ak/= _ value)
+                             value]}]
+    (is (map? (emit/prepare-declaration context declaration)))
+    (binding [emit/*keyword-context* context]
+      (is (= "_ = value;" (emit/emit-stmt '(ak/= :_ value))))
+      (is (= "value = 9;" (emit/emit-stmt '(ak/= value 9)))))
+    (testing "discard syntax does not permit unknown values or locals before declaration"
+      (doseq [body ['[(ak/= :_ missing)]
+                   '[(ak/= missing 7)]
+                   '[(ak/= :_ value) (ak/var value 7 :u32)]]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                             (emit/prepare-declaration context (assoc declaration :body body))))))))
+
+(deftest modulo-operands-are-validated
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :fn :name 'wrap :return :u32
+                     :args [{:name 'value :type :u32}]}]
+    (doseq [op '[mod]]
+      (is (map? (emit/prepare-declaration
+                 context (assoc declaration :body [(list op 'value 3)]))))
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+           (emit/prepare-declaration
+            context (assoc declaration :body [(list op 'missing 3)])))))))
+
+(deftest callback-type-parameter-names-are-not-value-references
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :const :name 'Callback
+                     :value '(az/type [:*const [:fn {:callconv :.c}
+                                               [{:name it :type :i32}] :bool]])}]
+    (is (map? (emit/prepare-declaration context declaration)))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+         (emit/prepare-declaration
+          context (assoc declaration :value '(az/type [:fn [{:name it :type Missing}] :void])))))))
+
 (deftest implicit-return-test
   (is (= "return (a + b);"
          (emit/emit-function-body '((+ a b)) :i32)))

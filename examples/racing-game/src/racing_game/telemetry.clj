@@ -165,21 +165,21 @@
 (az/defn reset! :void
   "Clear all actor histories without touching race or model state."
   []
-  (set! decision-logs
+  (ak/= decision-logs
         (std-mem/zeroes (az/type [:array (* racer-count entries-per-racer) DecisionLog])))
-  (set! decision-outcomes
+  (ak/= decision-outcomes
         (std-mem/zeroes (az/type [:array (* racer-count entries-per-racer) DecisionOutcome])))
-  (set! decision-counts
+  (ak/= decision-counts
         (std-mem/zeroes (az/type [:array racer-count :u64])))
-  (set! resolved-outcome-counts
+  (ak/= resolved-outcome-counts
         (std-mem/zeroes (az/type [:array racer-count :u64])))
-  (set! attributed-item-use-counts
+  (ak/= attributed-item-use-counts
         (std-mem/zeroes (az/type [:array racer-count :u64])))
-  (set! attributed-hit-counts
+  (ak/= attributed-hit-counts
         (std-mem/zeroes (az/type [:array racer-count :u64])))
-  (set! total-progress-gains
+  (ak/= total-progress-gains
         (std-mem/zeroes (az/type [:array racer-count :f32])))
-  (set! total-rank-gains
+  (ak/= total-rank-gains
         (std-mem/zeroes (az/type [:array racer-count :i64]))))
 
 (az/defn record! :void
@@ -191,8 +191,8 @@
           slot (+ (* racer-index entries-per-racer)
                   (ak/as (ak/intCast (mod sequence entries-per-racer))
                          :usize))]
-      (set! (az/index decision-logs slot) entry)
-      (set! (az/index decision-outcomes slot)
+      (ak/= (az/index decision-logs slot) entry)
+      (ak/= (az/index decision-outcomes slot)
             (DecisionOutcome
              {:valid true :resolved false :item_used false
               :racer_id (az/field entry racer_id)
@@ -203,7 +203,7 @@
               (+ (ak/as (ak/floatFromInt (az/field entry lap)) :f32)
                  (az/field entry progress))
               :progress_gain 0.0 :rank_gain 0}))
-      (set! (az/index decision-counts racer-index) (+ sequence 1)))))
+      (ak/= (az/index decision-counts racer-index) (+ sequence 1)))))
 
 (az/defn record-llm! :void
   "Attach bounded prompt, response, and token previews to an LLM decision.
@@ -219,28 +219,28 @@
         response-count (ak/min (az/field response len) response-byte-capacity)
         input-count (ak/min (az/field input-tokens len) input-token-capacity)
         output-count (ak/min (az/field output-tokens len) output-token-capacity)]
-    (set! (az/field entry source) source-llm)
-    (set! (az/field entry prompt_truncated)
+    (ak/= (az/field entry source) source-llm)
+    (ak/= (az/field entry prompt_truncated)
           (> (az/field prompt len) prompt-byte-capacity))
-    (set! (az/field entry response_truncated)
+    (ak/= (az/field entry response_truncated)
           (> (az/field response len) response-byte-capacity))
-    (set! (az/field entry prompt_byte_count) (ak/intCast prompt-count))
-    (set! (az/field entry response_byte_count) (ak/intCast response-count))
-    (set! (az/field entry input_token_count)
+    (ak/= (az/field entry prompt_byte_count) (ak/intCast prompt-count))
+    (ak/= (az/field entry response_byte_count) (ak/intCast response-count))
+    (ak/= (az/field entry input_token_count)
           (ak/intCast (az/field input-tokens len)))
-    (set! (az/field entry output_token_count)
+    (ak/= (az/field entry output_token_count)
           (ak/intCast (az/field output-tokens len)))
     (dotimes [index prompt-count]
-      (set! (az/index (az/field entry prompt_bytes) index)
+      (ak/= (az/index (az/field entry prompt_bytes) index)
             (az/index prompt index)))
     (dotimes [index response-count]
-      (set! (az/index (az/field entry response_bytes) index)
+      (ak/= (az/index (az/field entry response_bytes) index)
             (az/index response index)))
     (dotimes [index input-count]
-      (set! (az/index (az/field entry input_tokens) index)
+      (ak/= (az/index (az/field entry input_tokens) index)
             (az/index input-tokens index)))
     (dotimes [index output-count]
-      (set! (az/index (az/field entry output_tokens) index)
+      (ak/= (az/index (az/field entry output_tokens) index)
             (az/index output-tokens index)))
     (record! entry)))
 
@@ -359,10 +359,10 @@
                            revision)
                 (when (ak/! (az/field (az/index decision-outcomes slot)
                                      item_used))
-                  (set! (az/field (az/index decision-outcomes slot) item_used) true)
-                  (set! (az/index attributed-item-use-counts racer-index)
+                  (ak/= (az/field (az/index decision-outcomes slot) item_used) true)
+                  (ak/= (az/index attributed-item-use-counts racer-index)
                         (+ (az/index attributed-item-use-counts racer-index) 1)))
-                (set! found true)))))))
+                (ak/= found true)))))))
     found))
 
 (az/defn mark-hit! :bool
@@ -384,11 +384,11 @@
                                  :usize))]
               (when (ak/== (az/field (az/index decision-outcomes slot) revision)
                            revision)
-                (set! (az/field (az/index decision-outcomes slot) hits_dealt)
+                (ak/= (az/field (az/index decision-outcomes slot) hits_dealt)
                       (+ (az/field (az/index decision-outcomes slot) hits_dealt) 1))
-                (set! (az/index attributed-hit-counts racer-index)
+                (ak/= (az/index attributed-hit-counts racer-index)
                       (+ (az/index attributed-hit-counts racer-index) 1))
-                (set! found true)))))))
+                (ak/= found true)))))))
     found))
 
 (az/defn resolve-due-outcomes! :void
@@ -418,27 +418,27 @@
                              (+ (az/field (az/index decision-outcomes slot)
                                           start_tick)
                                 outcome-window-ticks))))
-            (set! (az/field (az/index decision-outcomes slot) resolved) true)
-            (set! (az/field (az/index decision-outcomes slot) end_rank) rank)
-            (set! (az/field (az/index decision-outcomes slot) resolved_tick)
+            (ak/= (az/field (az/index decision-outcomes slot) resolved) true)
+            (ak/= (az/field (az/index decision-outcomes slot) end_rank) rank)
+            (ak/= (az/field (az/index decision-outcomes slot) resolved_tick)
                   simulation-tick)
-            (set! (az/field (az/index decision-outcomes slot) progress_gain)
+            (ak/= (az/field (az/index decision-outcomes slot) progress_gain)
                   (- absolute-progress
                      (az/field (az/index decision-outcomes slot)
                                start_absolute_progress)))
-            (set! (az/field (az/index decision-outcomes slot) rank_gain)
+            (ak/= (az/field (az/index decision-outcomes slot) rank_gain)
                   (- (ak/as (ak/intCast
                              (az/field (az/index decision-outcomes slot)
                                        start_rank))
                             :i8)
                      (ak/as (ak/intCast rank) :i8)))
-            (set! (az/index resolved-outcome-counts racer-index)
+            (ak/= (az/index resolved-outcome-counts racer-index)
                   (+ (az/index resolved-outcome-counts racer-index) 1))
-            (set! (az/index total-progress-gains racer-index)
+            (ak/= (az/index total-progress-gains racer-index)
                   (+ (az/index total-progress-gains racer-index)
                      (az/field (az/index decision-outcomes slot)
                                progress_gain)))
-            (set! (az/index total-rank-gains racer-index)
+            (ak/= (az/index total-rank-gains racer-index)
                   (+ (az/index total-rank-gains racer-index)
                      (ak/as (ak/intCast
                              (az/field (az/index decision-outcomes slot)
@@ -499,34 +499,34 @@
           (let [entry (entry-at (ak/intCast racer-index) offset)
                 outcome (outcome-at (ak/intCast racer-index) offset)]
             (when (az/field entry valid)
-              (set! total (+ total 1))
+              (ak/= total (+ total 1))
               (cond
                 (ak/== (az/field entry source) source-llm)
-                (set! llm (+ llm 1))
+                (ak/= llm (+ llm 1))
 
                 (ak/== (az/field entry source) source-replay)
-                (set! replay (+ replay 1))
+                (ak/= replay (+ replay 1))
 
                 :else
-                (set! fallback (+ fallback 1)))
+                (ak/= fallback (+ fallback 1)))
               (if (az/field entry accepted)
-                (set! accepted (+ accepted 1))
-                (set! rejected (+ rejected 1)))
+                (ak/= accepted (+ accepted 1))
+                (ak/= rejected (+ rejected 1)))
               (when (az/field entry urgent)
-                (set! urgent (+ urgent 1)))
+                (ak/= urgent (+ urgent 1)))
               (when (> (az/field entry deadline_status) 0)
-                (set! deadline-misses (+ deadline-misses 1)))
-              (set! total-us (+ total-us (az/field entry total_us)))
-              (set! total-tps (+ total-tps
+                (ak/= deadline-misses (+ deadline-misses 1)))
+              (ak/= total-us (+ total-us (az/field entry total_us)))
+              (ak/= total-tps (+ total-tps
                                  (az/field entry tokens_per_second)))
               (when (az/field outcome resolved)
-                (set! resolved (+ resolved 1))
+                (ak/= resolved (+ resolved 1))
                 (when (az/field outcome item_used)
-                  (set! item-uses (+ item-uses 1)))
-                (set! hits (+ hits (az/field outcome hits_dealt)))
-                (set! total-progress-gain
+                  (ak/= item-uses (+ item-uses 1)))
+                (ak/= hits (+ hits (az/field outcome hits_dealt)))
+                (ak/= total-progress-gain
                       (+ total-progress-gain (az/field outcome progress_gain)))
-                (set! total-rank-gain
+                (ak/= total-rank-gain
                       (+ total-rank-gain
                          (ak/as (ak/floatFromInt
                                  (az/field outcome rank_gain))

@@ -624,6 +624,7 @@
       (when-let [v (resolve-context-var context-ns sym)]
         (or (:aguafria/zig-reference (meta v))
             (:aguafria/declaration (meta v))
+            (:declared (meta v))
             (and (var? v) (not (bound? v)))))))
 
 (declare validate-reference-form! validate-reference-body!)
@@ -650,6 +651,12 @@
                      'error-value} op) nil
 
         (= 'field op) (check (first args))
+
+        (or (= 'set! op) (= "=" (:zig-token token)))
+        (let [[target & values] args]
+          ;; `_ = expression` discards a value; `_` is not a reference.
+          (when-not (= '_ target) (check target))
+          (doseq [value values] (check value)))
 
         (= 'let op)
         (let [[bindings & forms] args
@@ -732,9 +739,21 @@
         :else
         (do
           (when-not (or token (structural-operator? op)
-                        (contains? '#{+ - * / < > <= >= == != and or not & | !} op))
+                        (contains? '#{+ - * / < > <= >= == != and or not & | ! mod} op))
             (check (first form)))
           (doseq [arg args] (check arg)))))
+
+    (and (vector? form) (= :fn (first form)))
+    (let [[options parameters return-type]
+          (if (map? (second form)) (rest form) (cons {} (rest form)))
+          scope (reduce (fn [scope parameter]
+                          (if (map? parameter)
+                            (do (validate-reference-form! context-ns scope (:type parameter))
+                                (cond-> scope (symbol? (:name parameter)) (conj (:name parameter))))
+                            (do (validate-reference-form! context-ns scope parameter) scope)))
+                        names parameters)]
+      (validate-reference-form! context-ns scope options)
+      (validate-reference-form! context-ns scope return-type))
 
     (map? form) (doseq [value (vals form)]
                   (validate-reference-form! context-ns names value))
@@ -746,8 +765,13 @@
   (reduce (fn [scope form]
             (validate-reference-form! context-ns scope form)
             (if (and (seq? form)
-                     (or (contains? declaration-name-operators (first form))
-                         (contains? #{'const 'var} (first form))))
+                     (let [op (first form)
+                           token (keyword/resolve-token context-ns op)
+                           op (or (resolved-syntax-operator context-ns op)
+                                  (when (= :keyword (:kind token))
+                                    (symbol (:zig-token token))) op)]
+                       (or (contains? declaration-name-operators op)
+                           (contains? #{'const 'var} op))))
               (conj scope (second form))
               scope))
           names forms))

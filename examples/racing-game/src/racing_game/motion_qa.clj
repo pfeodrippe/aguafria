@@ -41,19 +41,19 @@
 
 (az/defn record! :void [[now :f64]]
   (when (ak/== (ak/atomicLoad :u8 (ak/& capture-state) :.acquire) 1)
-    (set! frame-count 0)
-    (set! start-time now)
-    (set! capturing true)
+    (ak/= frame-count 0)
+    (ak/= start-time now)
+    (ak/= capturing true)
     (ak/atomicStore :u8 (ak/& capture-state) 2 :.release))
   (when capturing
-    (when (< start-time 0.0) (set! start-time now))
+    (when (< start-time 0.0) (ak/= start-time now))
     (if (or (>= frame-count 8192) (>= (- now start-time) 40.0))
-      (do (set! capturing false)
+      (do (ak/= capturing false)
           (ak/atomicStore :u8 (ak/& capture-state) 0 :.release))
       (let [r (sim/racer-view camera/camera-racer)
             shown (camera/presentation-view camera/camera-racer)
             screen (camera/project (az/field shown x) (az/field shown y) camera/camera-z)]
-        (set! (az/index frames frame-count)
+        (ak/= (az/index frames frame-count)
               (Frame {:time now :tick (az/field (sim/snapshot) tick)
                       :x (az/field r x) :y (az/field r y)
                       :heading (az/field r heading) :speed (az/field r speed)
@@ -65,18 +65,18 @@
               actual-screen (camera/project (* 0.001 (az/field chassis x))
                                             (* 0.001 (az/field chassis y))
                                             (* 0.001 (az/field chassis z)))]
-          (set! (az/index pose-contexts frame-count)
+          (ak/= (az/index pose-contexts frame-count)
                 (PoseContext {:world (az/field (sim/snapshot) world_address)
                               :racer camera/camera-racer :zoom camera/camera-zoom
                               :phase camera/presentation-alpha :camera_z camera/camera-z
                               :body_screen_x (az/field actual-screen x)
                               :body_screen_y (az/field actual-screen y)})))
         (dotimes [part 5]
-          (set! (az/index (az/index body-frames frame-count) part)
+          (ak/= (az/index (az/index body-frames frame-count) part)
                 (sim/vehicle-pose camera/camera-racer (ak/intCast part)))
-          (set! (az/index (az/index body-frames frame-count) (+ part 5))
+          (ak/= (az/index (az/index body-frames frame-count) (+ part 5))
                 (camera/presentation-pose camera/camera-racer (ak/intCast part))))
-        (set! frame-count (+ frame-count 1))))))
+        (ak/= frame-count (+ frame-count 1))))))
 
 (az/defn ready? :bool []
   (ak/== (ak/atomicLoad :u8 (ak/& capture-state) :.acquire) 0))

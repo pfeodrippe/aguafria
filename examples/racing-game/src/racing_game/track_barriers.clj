@@ -35,23 +35,23 @@
         ^:var shape (b3/b3DefaultShapeDef)]
     (dotimes [i vertex-count]
       (let [v (az/index vertices i)]
-        (set! (az/index points i)
+        (ak/= (az/index points i)
               (b3/b3Vec3 {:x (az/index v 0) :y (az/index v 1) :z (az/index v 2)}))))
-    (set! (az/field definition vertices) (ak/& points))
-    (set! (az/field definition indices) (ak/ptrCast (ak/& indices)))
-    (set! (az/field definition vertexCount) (ak/intCast vertex-count))
-    (set! (az/field definition triangleCount) (ak/intCast triangle-count))
-    (set! (az/field definition weldVertices) true)
-    (set! (az/field definition weldTolerance) 0.001)
-    (set! (az/field definition identifyEdges) true)
-    (set! (az/field definition useMedianSplit) true)
-    (set! (az/field (az/field shape baseMaterial) friction) 0.45)
-    (set! (az/field (az/field shape baseMaterial) restitution) 0.05)
-    (set! (az/field shape enableHitEvents) true)
-    (set! (az/field (az/field shape filter) categoryBits) physics/solid-category)
+    (ak/= (az/field definition vertices) (ak/& points))
+    (ak/= (az/field definition indices) (ak/ptrCast (ak/& indices)))
+    (ak/= (az/field definition vertexCount) (ak/intCast vertex-count))
+    (ak/= (az/field definition triangleCount) (ak/intCast triangle-count))
+    (ak/= (az/field definition weldVertices) true)
+    (ak/= (az/field definition weldTolerance) 0.001)
+    (ak/= (az/field definition identifyEdges) true)
+    (ak/= (az/field definition useMedianSplit) true)
+    (ak/= (az/field (az/field shape baseMaterial) friction) 0.45)
+    (ak/= (az/field (az/field shape baseMaterial) restitution) 0.05)
+    (ak/= (az/field shape enableHitEvents) true)
+    (ak/= (az/field (az/field shape filter) categoryBits) physics/solid-category)
     (let [data (az/unwrap (b3/b3CreateMesh (ak/& definition) ak/null 0))
           body (b3/b3CreateBody world (ak/& body-definition))]
-      (set! _ (b3/b3CreateMeshShape body (ak/& shape) data
+      (ak/= :_ (b3/b3CreateMeshShape body (ak/& shape) data
                   (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0})))
       data)))
 

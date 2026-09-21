@@ -11,6 +11,9 @@
             [aguafria-examples-native.bindings.runtime :as runtime]
             [racing-game.protocol :as protocol]))
 
+(declare free-sequences! find-tensor tensor-rms-norm! tensor-matvec!
+         tensor-element silu embedding-value-kernel empty-forward-report)
+
 (az/defconst gguf-magic :u32 0x46554747)
 
 (az/defconst gguf-max-version :u32 3)
@@ -314,7 +317,7 @@
    [:weight_count :u32]
    [:file_size :usize]])
 
-(az/defvar model-bytes [:optional [:c-pointer :u8]] null)
+(az/defvar model-bytes [:optional [:c-pointer :u8]] ak/null)
 
 (az/defvar model-byte-count :usize 0)
 
@@ -360,7 +363,7 @@
                 :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
                 :descriptor_end 0 :data_offset 0 :file_size 0}))
 
-(az/defvar sequence-memory [:optional [:c-pointer :f32]] null)
+(az/defvar sequence-memory [:optional [:c-pointer :f32]] ak/null)
 
 (az/defvar sequence-memory-floats :usize 0)
 
@@ -409,12 +412,12 @@
   (if (can-read reader 1)
     (let [value (az/index (az/field (az/deref reader) bytes)
                           (az/field (az/deref reader) cursor))]
-      (set! (az/field (az/deref reader) cursor)
+      (ak/= (az/field (az/deref reader) cursor)
             (+ (az/field (az/deref reader) cursor) 1))
       value)
     (do
       (when (ak/== (az/field (az/deref reader) error_code) parser-ok)
-        (set! (az/field (az/deref reader) error_code) parser-truncated))
+        (ak/= (az/field (az/deref reader) error_code) parser-truncated))
       0)))
 
 (az/defn read-u32! :u32
@@ -436,9 +439,9 @@
    [count :u64]]
   (if (and (<= count (ak/as (az/field (az/deref reader) length) :u64))
            (can-read reader (ak/intCast count)))
-    (set! (az/field (az/deref reader) cursor)
+    (ak/= (az/field (az/deref reader) cursor)
           (+ (az/field (az/deref reader) cursor) (ak/as (ak/intCast count) :usize)))
-    (set! (az/field (az/deref reader) error_code) parser-truncated)))
+    (ak/= (az/field (az/deref reader) error_code) parser-truncated)))
 
 (az/defn read-string-view! StringView
   [[reader [:* Reader]]]
@@ -449,7 +452,7 @@
 
 (az/defn skip-string! :void
   [[reader [:* Reader]]]
-  (set! _ (read-string-view! reader)))
+  (ak/= :_ (read-string-view! reader)))
 
 (az/defn scalar-byte-size :u8
   [[value-type :u32]]
@@ -470,18 +473,18 @@
 
     (ak/== value-type 9)
     (if (>= depth 4)
-      (set! (az/field (az/deref reader) error_code) parser-limit)
+      (ak/= (az/field (az/deref reader) error_code) parser-limit)
       (let [element-type (read-u32! reader)
             count (read-u64! reader)]
         (if (> count gguf-max-array-elements)
-          (set! (az/field (az/deref reader) error_code) parser-limit)
+          (ak/= (az/field (az/deref reader) error_code) parser-limit)
           (dotimes [_ count]
             (skip-value! reader element-type (+ depth 1))))))
 
     :else
     (let [width (scalar-byte-size value-type)]
       (if (ak/== width 0)
-        (set! (az/field (az/deref reader) error_code) parser-unsupported-type)
+        (ak/= (az/field (az/deref reader) error_code) parser-unsupported-type)
         (skip-bytes! reader width)))))
 
 (az/defn parse-gguf GgufSummary
@@ -495,17 +498,17 @@
         ^:var f32-count (ak/u32 0)
         ^:var q4-count (ak/u32 0)
         ^:var q6-count (ak/u32 0)]
-    (set! tensor-catalog-count 0)
-    (set! metadata-catalog-count 0)
+    (ak/= tensor-catalog-count 0)
+    (ak/= metadata-catalog-count 0)
     (when (ak/!= magic gguf-magic)
-      (set! (az/field reader error_code) parser-bad-magic))
+      (ak/= (az/field reader error_code) parser-bad-magic))
     (when (and (ak/== (az/field reader error_code) parser-ok)
                (or (ak/== version 0) (> version gguf-max-version)))
-      (set! (az/field reader error_code) parser-bad-version))
+      (ak/= (az/field reader error_code) parser-bad-version))
     (when (and (ak/== (az/field reader error_code) parser-ok)
                (or (> tensor-count gguf-max-tensors)
                    (> metadata-count gguf-max-metadata)))
-      (set! (az/field reader error_code) parser-limit))
+      (ak/= (az/field reader error_code) parser-limit))
     (when (ak/== (az/field reader error_code) parser-ok)
       (dotimes [metadata-index metadata-count]
         (let [key (read-string-view! (ak/& reader))
@@ -515,7 +518,7 @@
                   element-count (read-u64! (ak/& reader))
                   value-start (az/field reader cursor)]
               (when (< metadata-index metadata-not-found)
-                (set! (az/index metadata-catalog (ak/intCast metadata-index))
+                (ak/= (az/index metadata-catalog (ak/intCast metadata-index))
                       (MetadataInfo
                        {:key_start (az/field key start)
                         :key_length (az/field key length)
@@ -524,12 +527,12 @@
                         :value_start value-start
                         :element_count element-count})))
               (if (> element-count gguf-max-array-elements)
-                (set! (az/field reader error_code) parser-limit)
+                (ak/= (az/field reader error_code) parser-limit)
                 (dotimes [_ element-count]
                   (skip-value! (ak/& reader) element-type 1))))
             (let [value-start (az/field reader cursor)]
               (when (< metadata-index metadata-not-found)
-                (set! (az/index metadata-catalog (ak/intCast metadata-index))
+                (ak/= (az/index metadata-catalog (ak/intCast metadata-index))
                       (MetadataInfo
                        {:key_start (az/field key start)
                         :key_length (az/field key length)
@@ -544,20 +547,20 @@
               dimensions (read-u32! (ak/& reader))
               ^:var shape (ak/as (az/array-init [0 0 0 0] [:array 4 :u64]) [:array 4 :u64])]
           (if (> dimensions 4)
-            (set! (az/field reader error_code) parser-limit)
+            (ak/= (az/field reader error_code) parser-limit)
             (dotimes [dimension dimensions]
-              (set! (az/index shape dimension) (read-u64! (ak/& reader)))))
+              (ak/= (az/index shape dimension) (read-u64! (ak/& reader)))))
           (let [ggml-type (read-u32! (ak/& reader))
                 relative-offset (read-u64! (ak/& reader))]
-            (when (ak/== ggml-type 0) (set! f32-count (+ f32-count 1)))
-            (when (ak/== ggml-type 2) (set! q4-count (+ q4-count 1)))
-            (when (ak/== ggml-type 14) (set! q6-count (+ q6-count 1)))
+            (when (ak/== ggml-type 0) (ak/= f32-count (+ f32-count 1)))
+            (when (ak/== ggml-type 2) (ak/= q4-count (+ q4-count 1)))
+            (when (ak/== ggml-type 14) (ak/= q6-count (+ q6-count 1)))
             (when (and (ak/!= ggml-type 0)
                        (ak/!= ggml-type 2)
                        (ak/!= ggml-type 14))
-              (set! (az/field reader error_code) parser-unsupported-type))
+              (ak/= (az/field reader error_code) parser-unsupported-type))
             (when (< tensor-index gguf-max-tensors)
-              (set! (az/index tensor-catalog (ak/intCast tensor-index))
+              (ak/= (az/index tensor-catalog (ak/intCast tensor-index))
                     (TensorInfo {:name_start (az/field name start)
                                  :name_length (az/field name length)
                                  :dimension_count (ak/intCast dimensions)
@@ -570,10 +573,10 @@
           valid (and (ak/== (az/field reader error_code) parser-ok)
                      (<= data-offset length))]
       (when valid
-        (set! metadata-catalog-count (ak/intCast metadata-count))
-        (set! tensor-catalog-count (ak/intCast tensor-count))
+        (ak/= metadata-catalog-count (ak/intCast metadata-count))
+        (ak/= tensor-catalog-count (ak/intCast tensor-count))
         (dotimes [tensor-index tensor-catalog-count]
-          (set! (az/field (az/index tensor-catalog tensor-index) data_address)
+          (ak/= (az/field (az/index tensor-catalog tensor-index) data_address)
                 (+ (ak/intFromPtr bytes)
                    data-offset
                    (ak/as (ak/intCast
@@ -600,7 +603,7 @@
 (az/defn unload-action-head! :void
   "Disable the racing-specific head without touching the shared base model."
   []
-  (set! action-head-summary
+  (ak/= action-head-summary
         (ActionHeadSummary
          {:loaded false :valid false :error_code 1 :version 0
           :input_count 0 :output_count 0
@@ -610,7 +613,7 @@
 (az/defn unload-team-head! :void
   "Disable the independent three-choice team strategy head."
   []
-  (set! team-head-summary
+  (ak/= team-head-summary
         (ActionHeadSummary
          {:loaded false :valid false :error_code 1 :version 0
           :input_count 0 :output_count 0
@@ -626,14 +629,14 @@
   (do
     (unload-action-head!)
     (let [file (runtime/fopen path "rb")]
-      (if (ak/== file null)
+      (if (ak/== file ak/null)
         action-head-summary
         (do
-          (set! _ (runtime/fseek file 0 2))
+          (ak/= :_ (runtime/fseek file 0 2))
           (let [signed-size (runtime/ftell file)]
-            (set! _ (runtime/fseek file 0 0))
+            (ak/= :_ (runtime/fseek file 0 0))
             (if (<= signed-size 0)
-              (set! action-head-summary
+              (ak/= action-head-summary
                     (ActionHeadSummary
                      {:loaded true :valid false :error_code 2 :version 0
                       :input_count 0 :output_count 0
@@ -675,7 +678,7 @@
                          (ak/== action-schema protocol/action-schema-version)
                          (ak/== weight-count action-head-weight-count))]
                 (if (ak/! compatible)
-                  (set! action-head-summary
+                  (ak/= action-head-summary
                         (ActionHeadSummary
                          {:loaded true :valid false :error_code 3
                           :version version :input_count input-count
@@ -694,7 +697,7 @@
                         valid
                         (and (ak/== weights-read action-head-weight-count)
                              (ak/== biases-read action-head-output-count))]
-                    (set! action-head-summary
+                    (ak/= action-head-summary
                           (ActionHeadSummary
                            {:loaded true :valid valid
                             :error_code (if valid 0 4)
@@ -703,7 +706,7 @@
                             :observation_schema observation-schema
                             :action_schema action-schema
                             :weight_count weight-count :file_size size})))))))
-          (set! _ (runtime/fclose file))
+          (ak/= :_ (runtime/fclose file))
           action-head-summary)))))
 
 (az/defn action-head-status ActionHeadSummary
@@ -716,14 +719,14 @@
   (do
     (unload-team-head!)
     (let [file (runtime/fopen path "rb")]
-      (if (ak/== file null)
+      (if (ak/== file ak/null)
         team-head-summary
         (do
-          (set! _ (runtime/fseek file 0 2))
+          (ak/= :_ (runtime/fseek file 0 2))
           (let [signed-size (runtime/ftell file)]
-            (set! _ (runtime/fseek file 0 0))
+            (ak/= :_ (runtime/fseek file 0 0))
             (if (<= signed-size 0)
-              (set! team-head-summary
+              (ak/= team-head-summary
                     (ActionHeadSummary
                      {:loaded true :valid false :error_code 2 :version 0
                       :input_count 0 :output_count 0
@@ -765,7 +768,7 @@
                          (ak/== action-schema protocol/action-schema-version)
                          (ak/== weight-count team-head-weight-count))]
                 (if (ak/! compatible)
-                  (set! team-head-summary
+                  (ak/= team-head-summary
                         (ActionHeadSummary
                          {:loaded true :valid false :error_code 3
                           :version version :input_count input-count
@@ -784,7 +787,7 @@
                         valid
                         (and (ak/== weights-read team-head-weight-count)
                              (ak/== biases-read team-head-output-count))]
-                    (set! team-head-summary
+                    (ak/= team-head-summary
                           (ActionHeadSummary
                            {:loaded true :valid valid
                             :error_code (if valid 0 4)
@@ -793,7 +796,7 @@
                             :observation_schema observation-schema
                             :action_schema action-schema
                             :weight_count weight-count :file_size size})))))))
-          (set! _ (runtime/fclose file))
+          (ak/= :_ (runtime/fclose file))
           team-head-summary)))))
 
 (az/defn team-head-status ActionHeadSummary
@@ -805,23 +808,23 @@
   (free-sequences!)
   (unload-action-head!)
   (unload-team-head!)
-  (when (ak/!= model-bytes null)
+  (when (ak/!= model-bytes ak/null)
     (if (ak/== model-storage model-storage-mapped)
-      (set! _
+      (ak/= :_
             (runtime/munmap
              (az/cast (az/unwrap model-bytes) [:* :anyopaque])
              model-byte-count))
       (runtime/free (az/cast (az/unwrap model-bytes) [:* :anyopaque]))))
-  (set! model-bytes null)
-  (set! model-byte-count 0)
-  (set! model-storage model-storage-none)
-  (set! model-profile-id model-profile-none)
-  (set! tokenizer-valid false)
-  (set! tokenizer-token-count 0)
-  (set! tokenizer-merge-count 0)
-  (set! tensor-catalog-count 0)
-  (set! metadata-catalog-count 0)
-  (set! model-summary
+  (ak/= model-bytes ak/null)
+  (ak/= model-byte-count 0)
+  (ak/= model-storage model-storage-none)
+  (ak/= model-profile-id model-profile-none)
+  (ak/= tokenizer-valid false)
+  (ak/= tokenizer-token-count 0)
+  (ak/= tokenizer-merge-count 0)
+  (ak/= tensor-catalog-count 0)
+  (ak/= metadata-catalog-count 0)
+  (ak/= model-summary
         (GgufSummary {:loaded false :valid false :error_code parser-truncated
                       :version 0 :tensor_count 0 :metadata_count 0
                       :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
@@ -836,7 +839,7 @@
   "Compute the exact SHA-256 digest of the currently owned model bytes."
   []
   (let [^:var digest (ak/as (std-mem/zeroes (az/type [:array 32 :u8])) [:array 32 :u8])]
-    (when (ak/!= model-bytes null)
+    (when (ak/!= model-bytes ak/null)
       ((az/field std-sha2/Sha256 hash)
        (az/slice (az/unwrap model-bytes) 0 model-byte-count)
        (ak/& digest)
@@ -851,7 +854,7 @@
     (dotimes [index 32]
       (when (ak/!= (az/index actual index)
                    (az/index (az/deref expected) index))
-        (set! equal false)))
+        (ak/= equal false)))
     equal))
 
 (az/defn file-sha256-matches? :bool
@@ -859,16 +862,16 @@
   [[path [:pointer {:size :c :const? true} :u8]]
    [expected [:pointer {:size :one :const? true} [:array 32 :u8]]]]
   (let [file (runtime/fopen path "rb")]
-    (if (ak/== file null)
+    (if (ak/== file ak/null)
       false
       (let [^:var valid (ak/bool false)]
-        (set! _ (runtime/fseek file 0 2))
+        (ak/= :_ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
-          (set! _ (runtime/fseek file 0 0))
+          (ak/= :_ (runtime/fseek file 0 0))
           (when (> signed-size 0)
             (let [size (ak/as (ak/intCast signed-size) :usize)
                   allocation (runtime/malloc size)]
-              (when (ak/!= allocation null)
+              (when (ak/!= allocation ak/null)
                 (let [bytes (az/cast allocation [:c-pointer :u8])
                       count (runtime/fread bytes 1 size file)
                       ^:var actual (ak/as (std-mem/zeroes (az/type [:array 32 :u8])) [:array 32 :u8])]
@@ -877,9 +880,9 @@
                      (az/slice bytes 0 size)
                      (ak/& actual)
                      {})
-                    (set! valid (sha256-matches? actual expected)))
+                    (ak/= valid (sha256-matches? actual expected)))
                   (runtime/free allocation))))))
-        (set! _ (runtime/fclose file))
+        (ak/= :_ (runtime/fclose file))
         valid))))
 
 (az/defn tensor-info TensorInfo
@@ -903,7 +906,7 @@
   "Return one UTF-8 byte from a metadata key."
   [[metadata-index :usize]
    [byte-index :usize]]
-  (if (or (ak/== model-bytes null)
+  (if (or (ak/== model-bytes ak/null)
           (>= metadata-index metadata-catalog-count)
           (>= byte-index
               (az/field (az/index metadata-catalog metadata-index) key_length)))
@@ -915,7 +918,7 @@
 (az/defn metadata-name-equals :bool
   [[metadata-index :usize]
    [expected [:pointer {:size :c :const? true} :u8]]]
-  (if (or (ak/== model-bytes null)
+  (if (or (ak/== model-bytes ak/null)
           (>= metadata-index metadata-catalog-count))
     false
     (let [length (az/field (az/index metadata-catalog metadata-index) key_length)
@@ -923,7 +926,7 @@
       (dotimes [byte-index length]
         (when (ak/!= (metadata-name-byte metadata-index byte-index)
                      (az/index expected byte-index))
-          (set! equal false)))
+          (ak/= equal false)))
       (and equal (ak/== (az/index expected length) 0)))))
 
 (az/defn find-metadata :usize
@@ -933,12 +936,12 @@
     (dotimes [metadata-index metadata-catalog-count]
       (when (and (ak/== found metadata-not-found)
                  (metadata-name-equals metadata-index expected))
-        (set! found metadata-index)))
+        (ak/= found metadata-index)))
     found))
 
 (az/defn model-u32-at :u32
   [[offset :usize]]
-  (if (or (ak/== model-bytes null) (> (+ offset 4) model-byte-count))
+  (if (or (ak/== model-bytes ak/null) (> (+ offset 4) model-byte-count))
     0
     (+ (ak/as (az/index (az/unwrap model-bytes) offset) :u32)
        (* (ak/as (az/index (az/unwrap model-bytes) (+ offset 1)) :u32) 256)
@@ -947,7 +950,7 @@
 
 (az/defn model-u64-at :u64
   [[offset :usize]]
-  (if (or (ak/== model-bytes null) (> (+ offset 8) model-byte-count))
+  (if (or (ak/== model-bytes ak/null) (> (+ offset 8) model-byte-count))
     0
     (+ (ak/as (model-u32-at offset) :u64)
        (ak/<< (ak/as (model-u32-at (+ offset 4)) :u64) 32))))
@@ -978,9 +981,9 @@
   [[start :usize]
    [length :usize]]
   (let [^:var hash (ak/u64 1469598103934665603)]
-    (when (ak/!= model-bytes null)
+    (when (ak/!= model-bytes ak/null)
       (dotimes [index length]
-        (set! hash
+        (ak/= hash
               (ak/*% (ak/bit-xor
                       hash
                       (ak/as (az/index (az/unwrap model-bytes)
@@ -995,9 +998,9 @@
    [right-start :usize]
    [right-length :usize]]
   (let [^:var hash (ak/u64 1469598103934665603)]
-    (when (ak/!= model-bytes null)
+    (when (ak/!= model-bytes ak/null)
       (dotimes [index left-length]
-        (set! hash
+        (ak/= hash
               (ak/*% (ak/bit-xor
                       hash
                       (ak/as (az/index (az/unwrap model-bytes)
@@ -1005,7 +1008,7 @@
                              :u64))
                      1099511628211)))
       (dotimes [index right-length]
-        (set! hash
+        (ak/= hash
               (ak/*% (ak/bit-xor
                       hash
                       (ak/as (az/index (az/unwrap model-bytes)
@@ -1027,7 +1030,7 @@
       (dotimes [index length]
         (when (ak/!= (az/index (az/unwrap model-bytes) (+ token-start index))
                      (az/index (az/unwrap model-bytes) (+ start index)))
-          (set! equal false)))
+          (ak/= equal false)))
       equal)))
 
 (az/defn tokenizer-token-equals-concat :bool
@@ -1045,13 +1048,13 @@
       (dotimes [index left-length]
         (when (ak/!= (az/index (az/unwrap model-bytes) (+ token-start index))
                      (az/index (az/unwrap model-bytes) (+ left-start index)))
-          (set! equal false)))
+          (ak/= equal false)))
       (dotimes [index right-length]
         (when (ak/!=
                (az/index (az/unwrap model-bytes)
                          (+ token-start left-length index))
                (az/index (az/unwrap model-bytes) (+ right-start index)))
-          (set! equal false)))
+          (ak/= equal false)))
       equal)))
 
 (az/defn tokenizer-insert-vocabulary! :bool
@@ -1068,8 +1071,8 @@
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)]
           (when (ak/== (az/index tokenizer-vocabulary-slots slot)
                        tokenizer-empty-id)
-            (set! (az/index tokenizer-vocabulary-slots slot) token)
-            (set! inserted true)
+            (ak/= (az/index tokenizer-vocabulary-slots slot) token)
+            (ak/= inserted true)
             (ak/break)))))
     inserted))
 
@@ -1087,9 +1090,9 @@
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)
               token (az/index tokenizer-vocabulary-slots slot)]
           (cond
-            (ak/== token tokenizer-empty-id) (set! searching false)
+            (ak/== token tokenizer-empty-id) (ak/= searching false)
             (tokenizer-token-equals-range token start length)
-            (do (set! result token) (set! searching false)))
+            (do (ak/= result token) (ak/= searching false)))
           (when (ak/! searching) (ak/break)))))
     result))
 
@@ -1111,10 +1114,10 @@
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)
               token (az/index tokenizer-vocabulary-slots slot)]
           (cond
-            (ak/== token tokenizer-empty-id) (set! searching false)
+            (ak/== token tokenizer-empty-id) (ak/= searching false)
             (tokenizer-token-equals-concat
              token left-start left-length right-start right-length)
-            (do (set! result token) (set! searching false)))
+            (do (ak/= result token) (ak/= searching false)))
           (when (ak/! searching) (ak/break)))))
     result))
 
@@ -1144,10 +1147,10 @@
         (let [slot (tokenizer-pair-slot pair probe)]
           (when (ak/== (az/index tokenizer-merge-pairs slot)
                        tokenizer-empty-pair)
-            (set! (az/index tokenizer-merge-pairs slot) pair)
-            (set! (az/index tokenizer-merge-ranks slot) rank)
-            (set! (az/index tokenizer-merge-tokens slot) token)
-            (set! inserted true)
+            (ak/= (az/index tokenizer-merge-pairs slot) pair)
+            (ak/= (az/index tokenizer-merge-ranks slot) rank)
+            (ak/= (az/index tokenizer-merge-tokens slot) token)
+            (ak/= inserted true)
             (ak/break)))))
     inserted))
 
@@ -1164,13 +1167,13 @@
         (let [slot (tokenizer-pair-slot pair probe)
               candidate (az/index tokenizer-merge-pairs slot)]
           (cond
-            (ak/== candidate tokenizer-empty-pair) (set! searching false)
+            (ak/== candidate tokenizer-empty-pair) (ak/= searching false)
             (ak/== candidate pair)
             (do
-              (set! found true)
-              (set! searching false)
-              (set! rank (az/index tokenizer-merge-ranks slot))
-              (set! token (az/index tokenizer-merge-tokens slot))))
+              (ak/= found true)
+              (ak/= searching false)
+              (ak/= rank (az/index tokenizer-merge-ranks slot))
+              (ak/= token (az/index tokenizer-merge-tokens slot))))
           (when (ak/! searching) (ak/break)))))
     (TokenizerMerge {:found found :rank rank :token token})))
 
@@ -1197,12 +1200,12 @@
                    (<= (az/field merges-info element_count)
                        tokenizer-vocabulary-capacity)))
         ^:var cursor (ak/usize (if valid (az/field tokens-info value_start) 0))]
-    (set! tokenizer-valid false)
-    (set! tokenizer-token-count 0)
-    (set! tokenizer-merge-count 0)
+    (ak/= tokenizer-valid false)
+    (ak/= tokenizer-token-count 0)
+    (ak/= tokenizer-merge-count 0)
     (dotimes [slot tokenizer-hash-capacity]
-      (set! (az/index tokenizer-vocabulary-slots slot) tokenizer-empty-id)
-      (set! (az/index tokenizer-merge-pairs slot) tokenizer-empty-pair))
+      (ak/= (az/index tokenizer-vocabulary-slots slot) tokenizer-empty-id)
+      (ak/= (az/index tokenizer-merge-pairs slot) tokenizer-empty-pair))
     (when valid
       (dotimes [token tokenizer-vocabulary-capacity]
         (when valid
@@ -1211,18 +1214,18 @@
             (if (or (> length64 65535)
                     (> (+ start (ak/as (ak/intCast length64) :usize))
                        model-byte-count))
-              (set! valid false)
+              (ak/= valid false)
               (do
-                (set! (az/index tokenizer-token-starts token)
+                (ak/= (az/index tokenizer-token-starts token)
                       (ak/intCast start))
-                (set! (az/index tokenizer-token-lengths token)
+                (ak/= (az/index tokenizer-token-lengths token)
                       (ak/intCast length64))
-                (set! tokenizer-token-count (ak/intCast (+ token 1)))
-                (set! cursor (+ start (ak/as (ak/intCast length64) :usize))))))))
+                (ak/= tokenizer-token-count (ak/intCast (+ token 1)))
+                (ak/= cursor (+ start (ak/as (ak/intCast length64) :usize))))))))
       (dotimes [token tokenizer-vocabulary-capacity]
         (when valid
-          (set! valid (tokenizer-insert-vocabulary! (ak/intCast token)))))
-      (set! cursor (az/field merges-info value_start))
+          (ak/= valid (tokenizer-insert-vocabulary! (ak/intCast token)))))
+      (ak/= cursor (az/field merges-info value_start))
       (dotimes [merge-index (az/field merges-info element_count)]
         (when valid
           (let [length64 (model-u64-at cursor)
@@ -1230,16 +1233,16 @@
                 start (+ cursor 8)
                 ^:var separator (ak/usize length)]
             (when (> (+ start length) model-byte-count)
-              (set! valid false))
+              (ak/= valid false))
             (when valid
               (dotimes [index length]
                 (when (and (ak/== separator length)
                            (ak/== (az/index (az/unwrap model-bytes)
                                            (+ start index))
                                   32))
-                  (set! separator index)))
+                  (ak/= separator index)))
               (if (or (ak/== separator 0) (>= separator (- length 1)))
-                (set! valid false)
+                (ak/= valid false)
                 (let [right-start (+ start separator 1)
                       right-length (- length separator 1)
                       left (tokenizer-find-range start separator)
@@ -1251,11 +1254,11 @@
                           (ak/== merged tokenizer-empty-id)
                           (ak/! (tokenizer-insert-merge!
                                  left right (ak/intCast merge-index) merged)))
-                    (set! valid false)
-                    (set! tokenizer-merge-count
+                    (ak/= valid false)
+                    (ak/= tokenizer-merge-count
                           (ak/intCast (+ merge-index 1)))))))
-            (set! cursor (+ start length))))))
-    (set! tokenizer-valid valid)
+            (ak/= cursor (+ start length))))))
+    (ak/= tokenizer-valid valid)
     valid))
 
 (az/defn tokenizer-summary TokenizerSummary
@@ -1327,68 +1330,68 @@
 
           :else model-profile-none)
         ^:var valid (ak/bool (ak/!= profile model-profile-none))]
-    (set! model-profile-id profile)
+    (ak/= model-profile-id profile)
     (when valid
-      (set! model-hidden-size (ak/intCast hidden))
-      (set! model-ffn-size (ak/intCast ffn))
-      (set! model-layer-count (ak/intCast layers))
-      (set! model-mamba-layer-count (- model-layer-count 4))
-      (set! model-mamba-inner-size (ak/intCast inner))
-      (set! model-mamba-conv-size
+      (ak/= model-hidden-size (ak/intCast hidden))
+      (ak/= model-ffn-size (ak/intCast ffn))
+      (ak/= model-layer-count (ak/intCast layers))
+      (ak/= model-mamba-layer-count (- model-layer-count 4))
+      (ak/= model-mamba-inner-size (ak/intCast inner))
+      (ak/= model-mamba-conv-size
             (+ model-mamba-inner-size (* 2 (ak/as state :usize))))
-      (set! model-mamba-projection-size
+      (ak/= model-mamba-projection-size
             (+ (* 2 model-mamba-inner-size)
                (* 2 (ak/as state :usize))
                (ak/as heads :usize)))
-      (set! model-mamba-head-count (ak/intCast heads))
-      (set! model-mamba-head-size
+      (ak/= model-mamba-head-count (ak/intCast heads))
+      (ak/= model-mamba-head-size
             (/ model-mamba-inner-size model-mamba-head-count))
-      (set! model-mamba-state-size (ak/intCast state))
-      (set! model-mamba-recurrent-size
+      (ak/= model-mamba-state-size (ak/intCast state))
+      (ak/= model-mamba-recurrent-size
             (* model-mamba-head-count model-mamba-head-size
                model-mamba-state-size))
-      (set! model-mamba-conv-state-size (* model-mamba-conv-size 3))
-      (set! model-attention-layer-count 4)
-      (set! model-attention-head-count (ak/intCast attention-heads))
-      (set! model-attention-kv-head-count (ak/intCast kv-heads))
-      (set! model-attention-head-size
+      (ak/= model-mamba-conv-state-size (* model-mamba-conv-size 3))
+      (ak/= model-attention-layer-count 4)
+      (ak/= model-attention-head-count (ak/intCast attention-heads))
+      (ak/= model-attention-kv-head-count (ak/intCast kv-heads))
+      (ak/= model-attention-head-size
             (/ model-hidden-size model-attention-head-count))
-      (set! model-attention-kv-size
+      (ak/= model-attention-kv-size
             (* model-attention-kv-head-count model-attention-head-size))
-      (set! model-attention-scale
+      (ak/= model-attention-scale
             (metadata-f32
              (find-metadata "granitehybrid.attention.scale")
              (if (ak/== profile model-profile-granite-h-1b)
                0.0078125
                0.015625)))
-      (set! model-residual-multiplier
+      (ak/= model-residual-multiplier
             (metadata-f32
              (find-metadata "granitehybrid.residual_scale")
              (if (ak/== profile model-profile-granite-h-350m) 0.246 0.22)))
-      (set! action-head-input-count
+      (ak/= action-head-input-count
             (* action-head-token-count model-hidden-size))
-      (set! action-head-weight-count
+      (ak/= action-head-weight-count
             (* action-head-output-count action-head-input-count))
-      (set! team-head-weight-count
+      (ak/= team-head-weight-count
             (* team-head-output-count action-head-input-count))
-      (set! sequence-mamba-floats
+      (ak/= sequence-mamba-floats
             (* sequence-racer-count model-mamba-layer-count
                model-mamba-recurrent-size))
-      (set! sequence-conv-floats
+      (ak/= sequence-conv-floats
             (* sequence-racer-count model-mamba-layer-count
                model-mamba-conv-state-size))
-      (set! sequence-kv-floats
+      (ak/= sequence-kv-floats
             (* sequence-racer-count model-attention-layer-count
                sequence-capacity model-attention-kv-size))
-      (set! sequence-total-floats
+      (ak/= sequence-total-floats
             (+ sequence-mamba-floats sequence-conv-floats
                (* 2 sequence-kv-floats)))
-      (set! sequence-total-bytes
+      (ak/= sequence-total-bytes
             (* sequence-total-floats (ak/sizeOf :f32))))
     (when valid
-      (set! valid (initialize-tokenizer!)))
+      (ak/= valid (initialize-tokenizer!)))
     (when (ak/! valid)
-      (set! model-profile-id model-profile-none))
+      (ak/= model-profile-id model-profile-none))
     valid))
 
 (az/defn model-profile-summary ModelProfileSummary
@@ -1437,10 +1440,10 @@
     (dotimes [index count]
       (let [byte (az/index bytes index)
             token (ascii-byte-token byte)]
-        (set! (az/index tokens index) token)
+        (ak/= (az/index tokens index) token)
         (when (and valid (ak/== token 100269))
-          (set! valid false)
-          (set! unsupported (ak/intCast index)))))
+          (ak/= valid false)
+          (ak/= unsupported (ak/intCast index)))))
     (dotimes [_ count]
       (when (and valid tokenizer-valid (> token-count 1))
         (let [^:var found (ak/bool false)
@@ -1454,11 +1457,11 @@
                   merge (tokenizer-find-merge left right)]
               (when (and (az/field merge found)
                          (< (az/field merge rank) best-rank))
-                (set! found true)
-                (set! best-rank (az/field merge rank))
-                (set! best-left left)
-                (set! best-right right)
-                (set! best-token (az/field merge token)))))
+                (ak/= found true)
+                (ak/= best-rank (az/field merge rank))
+                (ak/= best-left left)
+                (ak/= best-right right)
+                (ak/= best-token (az/field merge token)))))
           (when found
             (let [^:var input-index (ak/usize 0)
                   ^:var output-index (ak/usize 0)]
@@ -1467,14 +1470,14 @@
                          (ak/== (az/index tokens input-index) best-left)
                          (ak/== (az/index tokens (+ input-index 1)) best-right))
                   (do
-                    (set! (az/index tokens output-index) best-token)
-                    (set! input-index (+ input-index 2)))
+                    (ak/= (az/index tokens output-index) best-token)
+                    (ak/= input-index (+ input-index 2)))
                   (do
-                    (set! (az/index tokens output-index)
+                    (ak/= (az/index tokens output-index)
                           (az/index tokens input-index))
-                    (set! input-index (+ input-index 1))))
-                (set! output-index (+ output-index 1)))
-              (set! token-count output-index))))))
+                    (ak/= input-index (+ input-index 1))))
+                (ak/= output-index (+ output-index 1)))
+              (ak/= token-count output-index))))))
     (TokenizationReport
      {:valid valid
       :truncated (> length tokenizer-capacity)
@@ -1488,7 +1491,7 @@
   "Return one UTF-8 byte from a tensor name for JVM/native inspection."
   [[tensor-index :usize]
    [byte-index :usize]]
-  (if (or (ak/== model-bytes null)
+  (if (or (ak/== model-bytes ak/null)
           (>= tensor-index tensor-catalog-count)
           (>= byte-index
               (az/field (az/index tensor-catalog tensor-index) name_length)))
@@ -1500,7 +1503,7 @@
 (az/defn tensor-name-equals :bool
   [[tensor-index :usize]
    [expected [:pointer {:size :c :const? true} :u8]]]
-  (if (or (ak/== model-bytes null)
+  (if (or (ak/== model-bytes ak/null)
           (>= tensor-index tensor-catalog-count))
     false
     (let [length (az/field (az/index tensor-catalog tensor-index) name_length)
@@ -1508,7 +1511,7 @@
       (dotimes [byte-index length]
         (when (ak/!= (tensor-name-byte tensor-index byte-index)
                      (az/index expected byte-index))
-          (set! equal false)))
+          (ak/= equal false)))
       (and equal (ak/== (az/index expected length) 0)))))
 
 (az/defn find-tensor :usize
@@ -1518,7 +1521,7 @@
     (dotimes [tensor-index tensor-catalog-count]
       (when (and (ak/== found tensor-not-found)
                  (tensor-name-equals tensor-index expected))
-        (set! found tensor-index)))
+        (ak/= found tensor-index)))
     found))
 
 (az/defn load-model! GgufSummary
@@ -1526,9 +1529,9 @@
   [[path [:pointer {:size :c :const? true} :u8]]]
   (unload-model!)
   (let [file (runtime/fopen path "rb")]
-    (if (ak/== file null)
+    (if (ak/== file ak/null)
       (do
-        (set! model-summary
+        (ak/= model-summary
               (GgufSummary
                {:loaded false :valid false :error_code model-file-not-found
                 :version 0 :tensor_count 0 :metadata_count 0
@@ -1536,11 +1539,11 @@
                 :descriptor_end 0 :data_offset 0 :file_size 0}))
         model-summary)
       (do
-        (set! _ (runtime/fseek file 0 2))
+        (ak/= :_ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
-          (set! _ (runtime/fseek file 0 0))
+          (ak/= :_ (runtime/fseek file 0 0))
           (if (<= signed-size 0)
-            (set! model-summary
+            (ak/= model-summary
                   (GgufSummary
                    {:loaded true :valid false :error_code model-file-empty
                     :version 0 :tensor_count 0 :metadata_count 0
@@ -1550,24 +1553,24 @@
                   mapping
                   (catch
                    (std-posix/mmap
-                    null size
+                    ak/null size
                     {:READ true}
                     {:TYPE :.PRIVATE}
                     (runtime/fileno file)
                     0)
-                   null)]
-              (if (ak/!= mapping null)
+                   ak/null)]
+              (if (ak/!= mapping ak/null)
                 (let [bytes
                       (ak/as (ak/ptrCast
                               (az/field (az/unwrap mapping) ptr))
                              (az/type [:c-pointer :u8]))]
-                  (set! model-bytes bytes)
-                  (set! model-byte-count size)
-                  (set! model-storage model-storage-mapped)
-                  (set! model-summary (parse-gguf bytes size)))
+                  (ak/= model-bytes bytes)
+                  (ak/= model-byte-count size)
+                  (ak/= model-storage model-storage-mapped)
+                  (ak/= model-summary (parse-gguf bytes size)))
                 (let [allocation (runtime/malloc size)]
-                  (if (ak/== allocation null)
-                    (set! model-summary
+                  (if (ak/== allocation ak/null)
+                    (ak/= model-summary
                           (GgufSummary
                            {:loaded true :valid false
                             :error_code model-allocation-failed
@@ -1578,13 +1581,13 @@
                           count (runtime/fread bytes 1 size file)]
                       (if (ak/== count size)
                         (do
-                          (set! model-bytes bytes)
-                          (set! model-byte-count size)
-                          (set! model-storage model-storage-owned)
-                          (set! model-summary (parse-gguf bytes size)))
+                          (ak/= model-bytes bytes)
+                          (ak/= model-byte-count size)
+                          (ak/= model-storage model-storage-owned)
+                          (ak/= model-summary (parse-gguf bytes size)))
                         (do
                           (runtime/free allocation)
-                          (set! model-summary
+                          (ak/= model-summary
                                 (GgufSummary
                                  {:loaded true :valid false
                                   :error_code model-file-read-failed
@@ -1594,9 +1597,9 @@
                                   :data_offset 0 :file_size size})))))))))))
         (when (and (az/field model-summary valid)
                    (ak/! (configure-model-profile!)))
-          (set! (az/field model-summary valid) false)
-          (set! (az/field model-summary error_code) model-profile-unsupported))
-        (set! _ (runtime/fclose file))
+          (ak/= (az/field model-summary valid) false)
+          (ak/= (az/field model-summary error_code) model-profile-unsupported))
+        (ak/= :_ (runtime/fclose file))
         model-summary))))
 
 (az/defn inference-summary GgufSummary
@@ -1679,13 +1682,13 @@
    [epsilon :f32]]
   (let [^:var square-sum (ak/f32 0.0)]
     (dotimes [index length]
-      (set! square-sum (+ square-sum (* (az/index input index)
+      (ak/= square-sum (+ square-sum (* (az/index input index)
                                        (az/index input index)))))
     (let [inverse-rms (/ 1.0 (std-math/sqrt (+ (/ square-sum
                                                    (ak/as (ak/floatFromInt length) :f32))
                                                 epsilon)))]
       (dotimes [index length]
-        (set! (az/index output index)
+        (ak/= (az/index output index)
               (* (az/index input index) inverse-rms (az/index weights index)))))))
 
 (az/defn softmax! :void
@@ -1696,13 +1699,13 @@
     (let [^:var maximum (ak/f32 (az/index values 0))
           ^:var total (ak/f32 0.0)]
       (dotimes [index length]
-        (set! maximum (ak/max maximum (az/index values index))))
+        (ak/= maximum (ak/max maximum (az/index values index))))
       (dotimes [index length]
         (let [value (std-math/exp (- (az/index values index) maximum))]
-          (set! (az/index values index) value)
-          (set! total (+ total value))))
+          (ak/= (az/index values index) value)
+          (ak/= total (+ total value))))
       (dotimes [index length]
-        (set! (az/index values index) (/ (az/index values index) total))))))
+        (ak/= (az/index values index) (/ (az/index values index) total))))))
 
 (az/defn- softplus :f32
   [[value :f32]]
@@ -1737,10 +1740,10 @@
                   next-state (+ (* (az/index state state-index) decay)
                                 (* delta (az/index b state-component)
                                    hidden-value))]
-              (set! (az/index state state-index) next-state)
-              (set! total (+ total
+              (ak/= (az/index state state-index) next-state)
+              (ak/= total (+ total
                              (* next-state (az/index c state-component))))))
-          (set! (az/index output hidden-index)
+          (ak/= (az/index output hidden-index)
                 (+ total (* hidden-value (az/index d head)))))))))
 
 (az/defn tensor-rms-norm-gated! :bool
@@ -1758,15 +1761,15 @@
       (dotimes [index length]
         (let [value (* (az/index hidden index)
                        (silu (az/index gate index)))]
-          (set! (az/index output index) value)
-          (set! square-sum (+ square-sum (* value value)))))
+          (ak/= (az/index output index) value)
+          (ak/= square-sum (+ square-sum (* value value)))))
       (let [inverse-rms (/ 1.0
                            (std-math/sqrt
                             (+ (/ square-sum
                                   (ak/as (ak/floatFromInt length) :f32))
                                epsilon)))]
         (dotimes [index length]
-          (set! (az/index output index)
+          (ak/= (az/index output index)
                 (* (az/index output index) inverse-rms
                    (tensor-element weights-index index)))))
       true)))
@@ -1793,7 +1796,7 @@
     (let [^:var slot (ak/usize 0)]
       (dotimes [candidate layer]
         (when (attention-layer? candidate)
-          (set! slot (+ slot 1))))
+          (ak/= slot (+ slot 1))))
       slot)))
 
 (az/defn attention-layers-before :usize
@@ -1801,7 +1804,7 @@
   (let [^:var count (ak/usize 0)]
     (dotimes [candidate layer]
       (when (attention-layer? candidate)
-        (set! count (+ count 1))))
+        (ak/= count (+ count 1))))
     count))
 
 (az/defn layer-base-index :usize
@@ -1859,23 +1862,23 @@
 (az/defn free-sequences! :void
   "Release all native racer cognition state while leaving shared weights loaded."
   []
-  (when (ak/!= sequence-memory null)
+  (when (ak/!= sequence-memory ak/null)
     (runtime/free
      (az/cast (az/unwrap sequence-memory) [:* :anyopaque])))
-  (set! sequence-memory null)
-  (set! sequence-memory-floats 0)
+  (ak/= sequence-memory ak/null)
+  (ak/= sequence-memory-floats 0)
   (dotimes [racer sequence-racer-count]
-    (set! (az/index sequence-positions racer) 0)))
+    (ak/= (az/index sequence-positions racer) 0)))
 
 (az/defn reset-all-sequences! :bool
   "Clear every recurrent, convolution, and KV state in-place."
   []
-  (let [initialized (ak/!= sequence-memory null)]
+  (let [initialized (ak/!= sequence-memory ak/null)]
     (when initialized
       (let [memory (az/unwrap sequence-memory)]
         (ak/memset (az/slice memory 0 sequence-memory-floats) 0.0))
       (dotimes [racer sequence-racer-count]
-        (set! (az/index sequence-positions racer) 0))
+        (ak/= (az/index sequence-positions racer) 0))
       (ak/memset (az/slice action-head-inputs 0 (* sequence-racer-count action-head-input-count)) 0.0))
     initialized))
 
@@ -1886,17 +1889,17 @@
   (free-sequences!)
   (let [allocation (runtime/malloc sequence-total-bytes)
         ^:var initialized (ak/bool false)]
-    (when (ak/!= allocation null)
-      (set! sequence-memory (az/cast allocation [:c-pointer :f32]))
-      (set! sequence-memory-floats sequence-total-floats)
-      (set! initialized (reset-all-sequences!)))
+    (when (ak/!= allocation ak/null)
+      (ak/= sequence-memory (az/cast allocation [:c-pointer :f32]))
+      (ak/= sequence-memory-floats sequence-total-floats)
+      (ak/= initialized (reset-all-sequences!)))
     initialized))
 
 (az/defn reset-sequence! :bool
   "Clear one racer's independent recurrent and KV history."
   [[racer :usize]]
   (let [valid (and (< racer sequence-racer-count)
-                   (ak/!= sequence-memory null))]
+                   (ak/!= sequence-memory ak/null))]
     (when valid
       (let [memory (az/unwrap sequence-memory)
             mamba-count (* model-mamba-layer-count
@@ -1917,7 +1920,7 @@
         (ak/memset (az/slice memory value-start (+ value-start kv-count)) 0.0)
         (ak/memset (az/slice action-head-inputs (* racer action-head-input-count)
                     (* (+ racer 1) action-head-input-count)) 0.0)
-        (set! (az/index sequence-positions racer) 0)))
+        (ak/= (az/index sequence-positions racer) 0)))
     valid))
 
 (az/defn copy-last-hidden! :bool
@@ -1930,7 +1933,7 @@
                    (> (az/index sequence-positions racer) 0))]
     (when valid
       (dotimes [index model-hidden-size]
-        (set! (az/index output index)
+        (ak/= (az/index output index)
               (az/index action-head-inputs
                         (+ (* racer action-head-input-count)
                            (* (ak/as (ak/min
@@ -1950,7 +1953,7 @@
                    (> (az/index sequence-positions racer) 0))]
     (when valid
       (dotimes [index action-head-input-count]
-        (set! (az/index output index)
+        (ak/= (az/index output index)
               (az/index action-head-inputs
                         (+ (* racer action-head-input-count) index)))))
     valid))
@@ -1959,20 +1962,20 @@
   "Return allocation size and each racer's independent token position."
   []
   (SequenceSummary
-   {:initialized (ak/!= sequence-memory null)
+   {:initialized (ak/!= sequence-memory ak/null)
     :racer_count (ak/intCast sequence-racer-count)
     :capacity (ak/intCast sequence-capacity)
-    :state_bytes (if (ak/== sequence-memory null) 0 sequence-total-bytes)
+    :state_bytes (if (ak/== sequence-memory ak/null) 0 sequence-total-bytes)
     :positions sequence-positions}))
 
 (az/defn sequence-mamba-state [:optional [:c-pointer :f32]]
   [[racer :usize]
    [layer :usize]]
-  (if (or (ak/== sequence-memory null)
+  (if (or (ak/== sequence-memory ak/null)
           (>= racer sequence-racer-count)
           (>= layer model-layer-count)
           (attention-layer? layer))
-    null
+    ak/null
     (+ (az/unwrap sequence-memory)
        (* racer model-mamba-layer-count model-mamba-recurrent-size)
        (* (- layer (attention-layers-before layer))
@@ -1981,11 +1984,11 @@
 (az/defn sequence-conv-state [:optional [:c-pointer :f32]]
   [[racer :usize]
    [layer :usize]]
-  (if (or (ak/== sequence-memory null)
+  (if (or (ak/== sequence-memory ak/null)
           (>= racer sequence-racer-count)
           (>= layer model-layer-count)
           (attention-layer? layer))
-    null
+    ak/null
     (+ (az/unwrap sequence-memory)
        sequence-mamba-floats
        (* racer model-mamba-layer-count model-mamba-conv-state-size)
@@ -1996,10 +1999,10 @@
   [[racer :usize]
    [layer :usize]]
   (let [slot (attention-layer-slot layer)]
-    (if (or (ak/== sequence-memory null)
+    (if (or (ak/== sequence-memory ak/null)
             (>= racer sequence-racer-count)
             (>= slot model-attention-layer-count))
-      null
+      ak/null
       (+ (az/unwrap sequence-memory)
          sequence-mamba-floats sequence-conv-floats
          (* racer model-attention-layer-count sequence-capacity
@@ -2010,10 +2013,10 @@
   [[racer :usize]
    [layer :usize]]
   (let [slot (attention-layer-slot layer)]
-    (if (or (ak/== sequence-memory null)
+    (if (or (ak/== sequence-memory ak/null)
             (>= racer sequence-racer-count)
             (>= slot model-attention-layer-count))
-      null
+      ak/null
       (+ (az/unwrap sequence-memory)
          sequence-mamba-floats sequence-conv-floats sequence-kv-floats
          (* racer model-attention-layer-count sequence-capacity
@@ -2038,22 +2041,22 @@
                         (ak/== up-index tensor-not-found)
                         (ak/== down-index tensor-not-found))))]
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-rms-norm! normalized hidden norm-index
                               model-hidden-size model-rms-epsilon)))
     (when valid
-      (set! valid (tensor-matvec! gate model-ffn-size gate-index normalized)))
+      (ak/= valid (tensor-matvec! gate model-ffn-size gate-index normalized)))
     (when valid
-      (set! valid (tensor-matvec! up model-ffn-size up-index normalized)))
+      (ak/= valid (tensor-matvec! up model-ffn-size up-index normalized)))
     (when valid
       (dotimes [index model-ffn-size]
-        (set! (az/index activated index)
+        (ak/= (az/index activated index)
               (* (silu (az/index gate index)) (az/index up index))))
-      (set! valid
+      (ak/= valid
             (tensor-matvec! output model-hidden-size down-index activated)))
     (when valid
       (dotimes [index model-hidden-size]
-        (set! (az/index hidden index)
+        (ak/= (az/index hidden index)
               (+ (az/index hidden index)
                  (* model-residual-multiplier (az/index output index))))))
     valid))
@@ -2088,11 +2091,11 @@
                    (ak/! (attention-layer? layer))
                    (ak/!= base tensor-not-found)))]
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-rms-norm! normalized hidden norm-index
                               model-hidden-size model-rms-epsilon)))
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-matvec! projected model-mamba-projection-size
                             in-index normalized)))
     (when valid
@@ -2102,28 +2105,28 @@
               current (az/index projected (+ model-mamba-inner-size channel))
               ^:var total (ak/f32 (tensor-element conv-bias-index channel))]
           (dotimes [tap 3]
-            (set! total
+            (ak/= total
                   (+ total
                      (* (az/index conv-state (+ state-start tap))
                         (tensor-element conv-weight-index
                                         (+ weight-start tap))))))
-          (set! total
+          (ak/= total
                 (+ total
                    (* current
                       (tensor-element conv-weight-index (+ weight-start 3)))))
-          (set! (az/index conv-state state-start)
+          (ak/= (az/index conv-state state-start)
                 (az/index conv-state (+ state-start 1)))
-          (set! (az/index conv-state (+ state-start 1))
+          (ak/= (az/index conv-state (+ state-start 1))
                 (az/index conv-state (+ state-start 2)))
-          (set! (az/index conv-state (+ state-start 2)) current)
-          (set! (az/index convolved channel) (silu total))))
+          (ak/= (az/index conv-state (+ state-start 2)) current)
+          (ak/= (az/index convolved channel) (silu total))))
       (dotimes [head model-mamba-head-count]
         ;; GGUF conversion already transforms HF A_log into -exp(A_log).
         ;; Applying that transform twice changes the recurrent dynamics.
-        (set! (az/index a head)
+        (ak/= (az/index a head)
               (tensor-element a-index head))
-        (set! (az/index d head) (tensor-element d-index head))
-        (set! (az/index dt-bias head) (tensor-element dt-bias-index head)))
+        (ak/= (az/index d head) (tensor-element d-index head))
+        (ak/= (az/index dt-bias head) (tensor-element dt-bias-index head)))
       (mamba-selective-step!
        scan-output recurrent-state convolved
        (+ projected
@@ -2136,17 +2139,17 @@
        (ak/& (az/index dt-bias 0))
        model-mamba-head-count model-mamba-head-size
        model-mamba-state-size)
-      (set! valid
+      (ak/= valid
             (tensor-rms-norm-gated!
              gated-output scan-output projected mamba-norm-index
              model-mamba-inner-size model-rms-epsilon)))
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-matvec! branch-output model-hidden-size out-index
                             gated-output)))
     (when valid
       (dotimes [index model-hidden-size]
-        (set! (az/index hidden index)
+        (ak/= (az/index hidden index)
               (+ (az/index hidden index)
                  (* model-residual-multiplier
                     (az/index branch-output index))))))
@@ -2198,24 +2201,24 @@
                    (attention-layer? layer)
                    (ak/!= base tensor-not-found)))]
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-rms-norm! normalized hidden norm-index
                               model-hidden-size model-rms-epsilon)))
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-matvec! query model-hidden-size query-index normalized)))
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-matvec! key model-attention-kv-size key-index normalized)))
     (when valid
-      (set! valid
+      (ak/= valid
             (tensor-matvec! value model-attention-kv-size value-index normalized)))
     (when valid
       (dotimes [component model-attention-kv-size]
-        (set! (az/index key-cache
+        (ak/= (az/index key-cache
                         (+ (* position model-attention-kv-size) component))
               (az/index key component))
-        (set! (az/index value-cache
+        (ak/= (az/index value-cache
                         (+ (* position model-attention-kv-size) component))
               (az/index value component)))
       (dotimes [query-head model-attention-head-count]
@@ -2229,30 +2232,30 @@
             (let [cache-start (+ (* token model-attention-kv-size) kv-start)
                   ^:var score (ak/f32 0.0)]
               (dotimes [component model-attention-head-size]
-                (set! score
+                (ak/= score
                       (+ score
                          (* (az/index query (+ query-start component))
                             (az/index key-cache
                                       (+ cache-start component))))))
-              (set! (az/index scores token) (* score model-attention-scale))))
+              (ak/= (az/index scores token) (* score model-attention-scale))))
           (softmax! scores (+ position 1))
           (dotimes [component model-attention-head-size]
             (let [^:var total (ak/f32 0.0)]
               (dotimes [token (+ position 1)]
-                (set! total
+                (ak/= total
                       (+ total
                          (* (az/index scores token)
                             (az/index value-cache
                                       (+ (* token model-attention-kv-size)
                                          kv-start component))))))
-              (set! (az/index attention-output (+ query-start component))
+              (ak/= (az/index attention-output (+ query-start component))
                     total)))))
-      (set! valid
+      (ak/= valid
             (tensor-matvec! branch-output model-hidden-size out-index
                             attention-output)))
     (when valid
       (dotimes [index model-hidden-size]
-        (set! (az/index hidden index)
+        (ak/= (az/index hidden index)
               (+ (az/index hidden index)
                  (* model-residual-multiplier
                     (az/index branch-output index))))))
@@ -2309,16 +2312,16 @@
           cache-elements (* sequence-capacity model-attention-kv-size)
           cache-allocation
           (runtime/malloc (* 2 cache-elements (ak/sizeOf :f32)))]
-      (if (ak/== cache-allocation null)
+      (if (ak/== cache-allocation ak/null)
         0.0
         (do
           (defer (runtime/free cache-allocation))
           (let [key-cache (az/cast cache-allocation [:c-pointer :f32])
                 value-cache (+ key-cache cache-elements)]
             (dotimes [index (* 2 cache-elements)]
-              (set! (az/index key-cache index) 0.0))
+              (ak/= (az/index key-cache index) 0.0))
             (dotimes [index model-hidden-size]
-              (set! (az/index hidden index)
+              (ak/= (az/index hidden index)
                     (* 12.0 (embedding-value-kernel token index))))
             (if (attention-ffn-layer!
                  layer 0
@@ -2376,33 +2379,33 @@
             (ak/== out-index tensor-not-found))
       0.0
       (let [state-allocation (runtime/malloc (* 196608 (ak/sizeOf :f32)))]
-        (if (ak/== state-allocation null)
+        (if (ak/== state-allocation ak/null)
           0.0
           (do
             (defer (runtime/free state-allocation))
             (let [recurrent-state (az/cast state-allocation [:c-pointer :f32])]
               (dotimes [index 196608]
-                (set! (az/index recurrent-state index) 0.0))
+                (ak/= (az/index recurrent-state index) 0.0))
               (dotimes [index 768]
-                (set! (az/index residual index)
+                (ak/= (az/index residual index)
                       (* 12.0 (embedding-value-kernel token index))))
-              (set! _ (tensor-rms-norm!
+              (ak/= :_ (tensor-rms-norm!
                        (ak/& (az/index normalized 0))
                        (ak/& (az/index residual 0)) norm-index 768 0.00001))
-              (set! _ (tensor-matvec!
+              (ak/= :_ (tensor-matvec!
                        (ak/& (az/index projected 0)) 3376 in-index
                        (ak/& (az/index normalized 0))))
               (dotimes [channel 1792]
-                (set! (az/index convolved channel)
+                (ak/= (az/index convolved channel)
                       (silu (+ (* (az/index projected (+ 1536 channel))
                                   (tensor-element conv-weight-index
                                                   (+ (* channel 4) 3)))
                                (tensor-element conv-bias-index channel)))))
               (dotimes [head 48]
-                (set! (az/index a head)
+                (ak/= (az/index a head)
                       (tensor-element a-index head))
-                (set! (az/index d head) (tensor-element d-index head))
-                (set! (az/index dt-bias head)
+                (ak/= (az/index d head) (tensor-element d-index head))
+                (ak/= (az/index dt-bias head)
                       (tensor-element dt-bias-index head)))
               (mamba-selective-step!
                (ak/& (az/index scan-output 0))
@@ -2415,12 +2418,12 @@
                (ak/& (az/index d 0))
                (ak/& (az/index dt-bias 0))
                48 32 128)
-              (set! _ (tensor-rms-norm-gated!
+              (ak/= :_ (tensor-rms-norm-gated!
                        (ak/& (az/index gated-output 0))
                        (ak/& (az/index scan-output 0))
                        (ak/& (az/index projected 0))
                        mamba-norm-index 1536 0.00001))
-              (set! _ (tensor-matvec!
+              (ak/= :_ (tensor-matvec!
                        (ak/& (az/index branch-output 0)) 768 out-index
                        (ak/& (az/index gated-output 0))))
               (+ (az/index residual component)
@@ -2450,15 +2453,15 @@
           ^:var conv-state (ak/as (std-mem/zeroes (az/type [:array 5376 :f32])) [:array 5376 :f32])
           state-allocation
           (runtime/malloc (* model-mamba-recurrent-size (ak/sizeOf :f32)))]
-      (if (ak/== state-allocation null)
+      (if (ak/== state-allocation ak/null)
         0.0
         (do
           (defer (runtime/free state-allocation))
           (let [recurrent-state (az/cast state-allocation [:c-pointer :f32])]
             (dotimes [index model-mamba-recurrent-size]
-              (set! (az/index recurrent-state index) 0.0))
+              (ak/= (az/index recurrent-state index) 0.0))
             (dotimes [index model-hidden-size]
-              (set! (az/index hidden index)
+              (ak/= (az/index hidden index)
                     (* 12.0 (embedding-value-kernel token index))))
             (if (mamba-ffn-layer!
                  0
@@ -2538,7 +2541,7 @@
             values (* scaled-delta (ak/as (ak/floatFromInt quantized) (az/type [:vector 16 :f32])))
             inputs (ak/as (ak/bitCast (az/deref (az/cast (+ input (* group 16))
                                          [:pointer {:size :one :const? true} [:array 16 :f32]]))) [:vector 16 :f32])]
-        (set! total (+ total (* values inputs)))))
+        (ak/= total (+ total (* values inputs)))))
     (ak/reduce :.Add total)))
 
 (az/defn- embedding-value-kernel :f32
@@ -2572,7 +2575,7 @@
           row-offset (* token 630)
           ^:var total (ak/f32 0.0)]
       (dotimes [block 3]
-        (set! total
+        (ak/= total
               (+ total
                  (q6-k-dot (+ bytes row-offset (* block 210))
                            (+ input (* block 256))))))
@@ -2628,7 +2631,7 @@
             (let [values (ak/as (ak/ptrFromInt (az/field tensor data_address)) [:c-pointer :f32])
                   row-start (* row input-size)]
               (dotimes [index input-size]
-                (set! total (+ total
+                (ak/= total (+ total
                                (* (az/index values (+ row-start index))
                                   (az/index input index))))))
 
@@ -2636,7 +2639,7 @@
             (let [block-count (/ input-size 32)
                   row-start (* row block-count 18)]
               (dotimes [block-index block-count]
-                (set! total (+ total
+                (ak/= total (+ total
                                (q4-0-dot (+ bytes row-start (* block-index 18))
                                          (+ input (* block-index 32)))))))
 
@@ -2644,7 +2647,7 @@
             (let [block-count (/ input-size 256)
                   row-start (* row block-count 210)]
               (dotimes [block-index block-count]
-                (set! total (+ total
+                (ak/= total (+ total
                                (q6-k-dot (+ bytes row-start (* block-index 210))
                                          (+ input (* block-index 256))))))))
           total)))))
@@ -2673,7 +2676,7 @@
     false
     (do
       (dotimes [row output-count]
-        (set! (az/index output row)
+        (ak/= (az/index output row)
               (tensor-row-dot-kernel tensor-index row input)))
       true)))
 
@@ -2692,7 +2695,7 @@
     false
     (let [^:var square-sum (ak/f32 0.0)]
       (dotimes [index length]
-        (set! square-sum (+ square-sum
+        (ak/= square-sum (+ square-sum
                             (* (az/index input index)
                                (az/index input index)))))
       (let [inverse-rms (/ 1.0
@@ -2701,7 +2704,7 @@
                                   (ak/as (ak/floatFromInt length) :f32))
                                epsilon)))]
         (dotimes [index length]
-          (set! (az/index output index)
+          (ak/= (az/index output index)
                 (* (az/index input index)
                    inverse-rms
                    (tensor-element weights-index index)))))
@@ -2729,7 +2732,7 @@
         up-index (find-tensor "blk.0.ffn_up.weight")
         down-index (find-tensor "blk.0.ffn_down.weight")]
     (dotimes [index 768]
-      (set! (az/index hidden index)
+      (ak/= (az/index hidden index)
             (* 12.0 (embedding-value-kernel token index))))
     (if (or (ak/== norm-index tensor-not-found)
             (ak/== gate-index tensor-not-found)
@@ -2737,17 +2740,17 @@
             (ak/== down-index tensor-not-found))
       0.0
       (do
-        (set! _ (tensor-rms-norm! (ak/& (az/index normalized 0))
+        (ak/= :_ (tensor-rms-norm! (ak/& (az/index normalized 0))
                                    (ak/& (az/index hidden 0))
                                    norm-index 768 0.00001))
-        (set! _ (tensor-matvec! (ak/& (az/index gate 0)) 2048 gate-index
+        (ak/= :_ (tensor-matvec! (ak/& (az/index gate 0)) 2048 gate-index
                                 (ak/& (az/index normalized 0))))
-        (set! _ (tensor-matvec! (ak/& (az/index up 0)) 2048 up-index
+        (ak/= :_ (tensor-matvec! (ak/& (az/index up 0)) 2048 up-index
                                 (ak/& (az/index normalized 0))))
         (dotimes [index 2048]
-          (set! (az/index activated index)
+          (ak/= (az/index activated index)
                 (* (silu (az/index gate index)) (az/index up index))))
-        (set! _ (tensor-matvec! (ak/& (az/index output 0)) 768 down-index
+        (ak/= :_ (tensor-matvec! (ak/& (az/index output 0)) 768 down-index
                                 (ak/& (az/index activated 0))))
         (az/index output 0)))))
 
@@ -2761,7 +2764,7 @@
     (let [row-start (* action action-head-input-count)
           ^:var total (ak/f32 (az/index action-head-biases action))]
       (dotimes [index action-head-input-count]
-        (set! total
+        (ak/= total
               (+ total
                  (* (az/index action-head-weights (+ row-start index))
                     (az/index hidden index)))))
@@ -2777,7 +2780,7 @@
     (let [row-start (* action action-head-input-count)
           ^:var total (ak/f32 (az/index team-head-biases action))]
       (dotimes [index action-head-input-count]
-        (set! total
+        (ak/= total
               (+ total
                  (* (az/index team-head-weights (+ row-start index))
                     (az/index hidden index)))))
@@ -2812,19 +2815,19 @@
                    (ak/as (az/index sequence-positions racer) :usize)
                    sequence-capacity))
         ^:var valid (ak/bool (and (az/field model-summary valid)
-                   (ak/!= sequence-memory null)
+                   (ak/!= sequence-memory ak/null)
                    (< racer sequence-racer-count)
                    (< position sequence-capacity)
                    (<= token model-vocabulary-size)))
         ^:var checksum (ak/f32 0.0)
-        team-actor (>= racer 8)
+        team-actor (>= racer protocol/racer-count)
         candidate-count (if team-actor team-head-output-count
                             action-head-output-count)
         ^:var best-token (ak/u32 32)
         ^:var best-logit (ak/f32 -3.4e38)]
     (when valid
       (dotimes [index model-hidden-size]
-        (set! (az/index hidden index)
+        (ak/= (az/index hidden index)
               (if (ak/== token model-vocabulary-size)
                 (az/index fused-observation-inputs
                           (+ (* racer model-hidden-size) index))
@@ -2834,9 +2837,9 @@
           (if (attention-layer? layer)
             (let [key-cache (sequence-key-cache racer layer)
                   value-cache (sequence-value-cache racer layer)]
-              (if (or (ak/== key-cache null) (ak/== value-cache null))
-                (set! valid false)
-                (set! valid
+              (if (or (ak/== key-cache ak/null) (ak/== value-cache ak/null))
+                (ak/= valid false)
+                (ak/= valid
                       (attention-ffn-layer!
                        layer position
                        (ak/& (az/index hidden 0))
@@ -2854,9 +2857,9 @@
                        (ak/& (az/index ffn-output 0))))))
             (let [recurrent-state (sequence-mamba-state racer layer)
                   conv-state (sequence-conv-state racer layer)]
-              (if (or (ak/== recurrent-state null) (ak/== conv-state null))
-                (set! valid false)
-                (set! valid
+              (if (or (ak/== recurrent-state ak/null) (ak/== conv-state ak/null))
+                (ak/= valid false)
+                (ak/= valid
                       (mamba-ffn-layer!
                        layer
                        (ak/& (az/index hidden 0))
@@ -2872,7 +2875,7 @@
                        (ak/& (az/index ffn-activated 0))
                        (ak/& (az/index ffn-output 0)))))))))
       (when valid
-        (set! valid
+        (ak/= valid
               (tensor-rms-norm! (ak/& (az/index normalized 0))
                                 (ak/& (az/index hidden 0))
                                 0 model-hidden-size model-rms-epsilon)))
@@ -2883,7 +2886,7 @@
         (when (>= position action-head-token-count)
           (dotimes [slot (- action-head-token-count 1)]
             (dotimes [index model-hidden-size]
-              (set! (az/index action-head-inputs
+              (ak/= (az/index action-head-inputs
                               (+ (* racer action-head-input-count)
                                  (* slot model-hidden-size)
                                  index))
@@ -2894,8 +2897,8 @@
         (dotimes [index model-hidden-size]
           (let [hidden-value (az/index normalized index)
                 feature-slot (ak/min position (- action-head-token-count 1))]
-            (set! checksum (+ checksum hidden-value))
-            (set! (az/index action-head-inputs
+            (ak/= checksum (+ checksum hidden-value))
+            (ak/= (az/index action-head-inputs
                             (+ (* racer action-head-input-count)
                                (* feature-slot model-hidden-size)
                                index))
@@ -2922,11 +2925,11 @@
                       (ak/as candidate-token :usize)
                       (ak/& (az/index normalized 0)))
                      3.0))]
-            (set! (az/index candidate-logits candidate) logit)
+            (ak/= (az/index candidate-logits candidate) logit)
             (when (> logit best-logit)
-              (set! best-logit logit)
-              (set! best-token candidate-token))))
-        (set! (az/index sequence-positions racer) (ak/intCast (+ position 1)))))
+              (ak/= best-logit logit)
+              (ak/= best-token candidate-token))))
+        (ak/= (az/index sequence-positions racer) (ak/intCast (+ position 1)))))
     (ForwardReport
      {:valid valid
       :racer (ak/intCast racer)
@@ -2958,7 +2961,7 @@
                           action-head-token-count)
                    (< racer sequence-racer-count)))]
     (when (and valid reset)
-      (set! valid (reset-sequence! racer)))
+      (ak/= valid (reset-sequence! racer)))
     (when valid
       ;; Two ordered four-field groups preserve the complete observation while
       ;; reducing eight sequential model passes to two. Position binding keeps
@@ -2975,17 +2978,17 @@
                       position-value
                       (embedding-value-kernel (+ 32 position) dimension)
                       position-sign (ak/f32 (if (>= position-value 0.0) 1.0 -1.0))]
-                  (set! total
+                  (ak/= total
                         (+ total
                            (* position-sign
                               (embedding-value-kernel token dimension))))))
-              (set! (az/index fused-observation-inputs
+              (ak/= (az/index fused-observation-inputs
                               (+ (* racer model-hidden-size) dimension))
                     (* total 6.0))))
-          (set! report (forward-token! racer model-vocabulary-size))
-          (set! valid (az/field report valid)))))
+          (ak/= report (forward-token! racer model-vocabulary-size))
+          (ak/= valid (az/field report valid)))))
     (when (ak/! valid)
-      (set! (az/field report valid) false))
+      (ak/= (az/field report valid) false))
     report))
 
 (az/defn empty-forward-report ForwardReport
@@ -3010,18 +3013,18 @@
                    (ak/! (az/field tokenized truncated))
                    (> (az/field tokenized token_count) 0)))]
     (when (and valid reset)
-      (set! valid (reset-sequence! racer)))
+      (ak/= valid (reset-sequence! racer)))
     (when valid
       (dotimes [index (az/field tokenized token_count)]
         (when valid
-          (set! report
+          (ak/= report
                 (forward-token!
                  racer
                  (ak/as (az/index (az/field tokenized tokens) index)
                         :usize)))
-          (set! valid (az/field report valid)))))
+          (ak/= valid (az/field report valid)))))
     (when (ak/! valid)
-      (set! (az/field report valid) false))
+      (ak/= (az/field report valid) false))
     report))
 
 (az/defstruct LanguageGeneration
@@ -3057,21 +3060,21 @@
     (ak/while (< offset length)
       (let [first-byte (az/index (az/unwrap model-bytes) (+ start offset))
             ^:var code (ak/u32 first-byte)]
-        (set! offset (+ offset 1))
+        (ak/= offset (+ offset 1))
         (when (>= first-byte 128)
           (when (or (< first-byte 194) (> first-byte 197) (>= offset length))
             (ak/return (ak/as 65535 :u16)))
           (let [second-byte (az/index (az/unwrap model-bytes) (+ start offset))]
             (when (or (< second-byte 128) (> second-byte 191))
               (ak/return (ak/as 65535 :u16)))
-            (set! code (+ (* (ak/as (- first-byte 192) :u32) 64)
+            (ak/= code (+ (* (ak/as (- first-byte 192) :u32) 64)
                          (ak/as (- second-byte 128) :u32)))
-            (set! offset (+ offset 1))))
+            (ak/= offset (+ offset 1))))
         (let [byte (gpt2-codepoint-byte code)]
           (when (or (< byte 0) (>= written capacity))
             (ak/return (ak/as 65535 :u16)))
-          (set! (az/index output written) (ak/intCast byte))
-          (set! written (+ written 1)))))
+          (ak/= (az/index output written) (ak/intCast byte))
+          (ak/= written (+ written 1)))))
     written))
 
 (az/defn next-language-token :u32
@@ -3102,8 +3105,8 @@
         (when (ak/! (std-math/isFinite score))
           (ak/return (ak/as 0xffffffff :u32)))
         (when (> score best-score)
-          (set! best-score score)
-          (set! best (ak/intCast token)))))
+          (ak/= best-score score)
+          (ak/= best (ak/intCast token)))))
     best))
 
 (az/defn vocabulary-token-id :u32
@@ -3118,7 +3121,7 @@
           (dotimes [i length]
             (when (ak/!= (az/index (az/unwrap model-bytes) (+ start i))
                         (az/index spelling i))
-              (set! same false)))
+              (ak/= same false)))
           (when same (ak/return (ak/as (ak/intCast token) :u32)))))))
   (ak/as 0xffffffff :u32))
 
@@ -3156,12 +3159,12 @@
                  (ak/! (language-digit? first-byte)))
         (let [^:var end (+ prefix 1)]
           (ak/while (and (< end length) (language-letter? (az/index bytes end)))
-            (set! end (+ end 1)))
+            (ak/= end (+ end 1)))
           (ak/return end))))
     (when (language-digit? first-byte)
       (let [^:var end (ak/usize 1)]
         (ak/while (and (< end (ak/min length 3)) (language-digit? (az/index bytes end)))
-          (set! end (+ end 1)))
+          (ak/= end (+ end 1)))
         (ak/return end)))
     (let [prefix (if (ak/== first-byte 32) (ak/as 1 :usize) (ak/as 0 :usize))
           ^:var end prefix]
@@ -3169,20 +3172,20 @@
                      (ak/! (language-space? (az/index bytes end)))
                      (ak/! (language-letter? (az/index bytes end)))
                      (ak/! (language-digit? (az/index bytes end))))
-        (set! end (+ end 1)))
+        (ak/= end (+ end 1)))
       (when (> end prefix)
         (ak/while (and (< end length)
                        (or (ak/== (az/index bytes end) 10) (ak/== (az/index bytes end) 13)))
-          (set! end (+ end 1)))
+          (ak/= end (+ end 1)))
         (ak/return end)))
     (when (language-space? first-byte)
       (let [^:var end (ak/usize 0)
             ^:var last-newline (ak/usize 0)]
         (ak/while (and (< end length) (language-space? (az/index bytes end)))
-          (set! end (+ end 1))
+          (ak/= end (+ end 1))
           (when (or (ak/== (az/index bytes (- end 1)) 10)
                     (ak/== (az/index bytes (- end 1)) 13))
-            (set! last-newline end)))
+            (ak/= last-newline end)))
         (ak/return (cond (> last-newline 0) last-newline
                          (ak/== end length) end
                          (> end 1) (- end 1)
@@ -3196,21 +3199,21 @@
   (let [^:var result (std-mem/zeroes (az/type TokenizationReport))
         ^:var offset (ak/usize 0)
         bound (ak/min length tokenizer-capacity)]
-    (set! (az/field result byte_count) (ak/intCast bound))
-    (set! (az/field result truncated) (> length tokenizer-capacity))
-    (set! (az/field result valid) tokenizer-valid)
+    (ak/= (az/field result byte_count) (ak/intCast bound))
+    (ak/= (az/field result truncated) (> length tokenizer-capacity))
+    (ak/= (az/field result valid) tokenizer-valid)
     (ak/while (and (< offset bound) (az/field result valid))
       (let [size (language-piece-length (+ bytes offset) (- bound offset))
             piece (tokenize-compact-ascii (+ bytes offset) size)]
         (when (ak/! (az/field piece valid))
-          (set! (az/field result valid) false)
-          (set! (az/field result unsupported_index)
+          (ak/= (az/field result valid) false)
+          (ak/= (az/field result unsupported_index)
                 (ak/intCast (+ offset (az/field piece unsupported_index)))))
         (dotimes [i (az/field piece token_count)]
-          (set! (az/index (az/field result tokens) (az/field result token_count))
+          (ak/= (az/index (az/field result tokens) (az/field result token_count))
                 (az/index (az/field piece tokens) i))
-          (set! (az/field result token_count) (+ (az/field result token_count) 1)))
-        (set! offset (+ offset size))))
+          (ak/= (az/field result token_count) (+ (az/field result token_count) 1)))
+        (ak/= offset (+ offset size))))
     result))
 
 (az/defn tokenize-language-chat-with-system TokenizationReport
@@ -3232,8 +3235,8 @@
                    (az/field user-role token_count) (az/field assistant-role token_count))
         ^:var result (std-mem/zeroes (az/type TokenizationReport))
         ^:var cursor (ak/usize 0)]
-    (set! (az/field result byte_count) (az/field content byte_count))
-    (set! (az/field result truncated)
+    (ak/= (az/field result byte_count) (az/field content byte_count))
+    (ak/= (az/field result truncated)
           (or (az/field content truncated) (az/field system-content truncated)
               (> total tokenizer-capacity)))
     (when (or (ak/! tokenizer-valid) (ak/! (az/field content valid))
@@ -3241,42 +3244,42 @@
               (az/field result truncated) (>= start-role tokenizer-token-count)
               (>= end-role tokenizer-token-count) (>= eos tokenizer-token-count))
       (ak/return result))
-    (set! (az/index (az/field result tokens) cursor) start-role)
-    (set! cursor (+ cursor 1))
+    (ak/= (az/index (az/field result tokens) cursor) start-role)
+    (ak/= cursor (+ cursor 1))
     (dotimes [i (az/field system-role token_count)]
-      (set! (az/index (az/field result tokens) cursor) (az/index (az/field system-role tokens) i))
-      (set! cursor (+ cursor 1)))
-    (set! (az/index (az/field result tokens) cursor) end-role)
-    (set! cursor (+ cursor 1))
+      (ak/= (az/index (az/field result tokens) cursor) (az/index (az/field system-role tokens) i))
+      (ak/= cursor (+ cursor 1)))
+    (ak/= (az/index (az/field result tokens) cursor) end-role)
+    (ak/= cursor (+ cursor 1))
     (dotimes [i (az/field system-content token_count)]
-      (set! (az/index (az/field result tokens) cursor) (az/index (az/field system-content tokens) i))
-      (set! cursor (+ cursor 1)))
-    (set! (az/index (az/field result tokens) cursor) eos)
-    (set! cursor (+ cursor 1))
-    (set! (az/index (az/field result tokens) cursor) (ascii-byte-token 10))
-    (set! cursor (+ cursor 1))
-    (set! (az/index (az/field result tokens) cursor) start-role)
-    (set! cursor (+ cursor 1))
+      (ak/= (az/index (az/field result tokens) cursor) (az/index (az/field system-content tokens) i))
+      (ak/= cursor (+ cursor 1)))
+    (ak/= (az/index (az/field result tokens) cursor) eos)
+    (ak/= cursor (+ cursor 1))
+    (ak/= (az/index (az/field result tokens) cursor) (ascii-byte-token 10))
+    (ak/= cursor (+ cursor 1))
+    (ak/= (az/index (az/field result tokens) cursor) start-role)
+    (ak/= cursor (+ cursor 1))
     (dotimes [i (az/field user-role token_count)]
-      (set! (az/index (az/field result tokens) cursor) (az/index (az/field user-role tokens) i))
-      (set! cursor (+ cursor 1)))
-    (set! (az/index (az/field result tokens) cursor) end-role)
-    (set! cursor (+ cursor 1))
+      (ak/= (az/index (az/field result tokens) cursor) (az/index (az/field user-role tokens) i))
+      (ak/= cursor (+ cursor 1)))
+    (ak/= (az/index (az/field result tokens) cursor) end-role)
+    (ak/= cursor (+ cursor 1))
     (dotimes [i (az/field content token_count)]
-      (set! (az/index (az/field result tokens) cursor) (az/index (az/field content tokens) i))
-      (set! cursor (+ cursor 1)))
-    (set! (az/index (az/field result tokens) cursor) eos)
-    (set! cursor (+ cursor 1))
-    (set! (az/index (az/field result tokens) cursor) (ascii-byte-token 10))
-    (set! cursor (+ cursor 1))
-    (set! (az/index (az/field result tokens) cursor) start-role)
-    (set! cursor (+ cursor 1))
+      (ak/= (az/index (az/field result tokens) cursor) (az/index (az/field content tokens) i))
+      (ak/= cursor (+ cursor 1)))
+    (ak/= (az/index (az/field result tokens) cursor) eos)
+    (ak/= cursor (+ cursor 1))
+    (ak/= (az/index (az/field result tokens) cursor) (ascii-byte-token 10))
+    (ak/= cursor (+ cursor 1))
+    (ak/= (az/index (az/field result tokens) cursor) start-role)
+    (ak/= cursor (+ cursor 1))
     (dotimes [i (az/field assistant-role token_count)]
-      (set! (az/index (az/field result tokens) cursor) (az/index (az/field assistant-role tokens) i))
-      (set! cursor (+ cursor 1)))
-    (set! (az/index (az/field result tokens) cursor) end-role)
-    (set! (az/field result token_count) (ak/intCast (+ cursor 1)))
-    (set! (az/field result valid) true)
+      (ak/= (az/index (az/field result tokens) cursor) (az/index (az/field assistant-role tokens) i))
+      (ak/= cursor (+ cursor 1)))
+    (ak/= (az/index (az/field result tokens) cursor) end-role)
+    (ak/= (az/field result token_count) (ak/intCast (+ cursor 1)))
+    (ak/= (az/field result valid) true)
     result))
 
 (az/defn tokenize-language-chat TokenizationReport
@@ -3297,7 +3300,7 @@
   (let [^:var result (std-mem/zeroes (az/type LanguageGeneration))
         tokenized (tokenize-language-chat-with-system system system-length prompt length)
         eos (metadata-u32 (find-metadata "tokenizer.ggml.eos_token_id") 0xffffffff)]
-    (set! (az/field result stop) 4)
+    (ak/= (az/field result stop) 4)
     (when (or (ak/! tokenizer-valid) (ak/! (az/field tokenized valid))
               (az/field tokenized truncated) (ak/== (az/field tokenized token_count) 0)
               (>= eos tokenizer-token-count) (ak/! (reset-sequence! racer)))
@@ -3305,36 +3308,36 @@
     (dotimes [i (az/field tokenized token_count)]
       (when (ak/! (az/field (forward-token! racer (az/index (az/field tokenized tokens) i)) valid))
         (ak/return result))
-      (set! (az/field result input_tokens) (+ (az/field result input_tokens) 1)))
-    (set! (az/field result valid) true)
-    (set! (az/field result stop) 2)
+      (ak/= (az/field result input_tokens) (+ (az/field result input_tokens) 1)))
+    (ak/= (az/field result valid) true)
+    (ak/= (az/field result stop) 2)
     (dotimes [_ (ak/min max-new-tokens 64)]
       (let [token (next-language-token racer)]
         (when (ak/== token eos)
-          (set! (az/field result stop) 1)
+          (ak/= (az/field result stop) 1)
           (ak/return result))
         (when (>= (az/field result byte_count) 2048)
-          (set! (az/field result valid) false)
-          (set! (az/field result stop) 4)
+          (ak/= (az/field result valid) false)
+          (ak/= (az/field result stop) 4)
           (ak/return result))
         (let [size (decode-language-token! token
                      (ak/& (az/index (az/field result bytes) (az/field result byte_count)))
                      (- 2048 (az/field result byte_count)))]
           (when (ak/== size 65535)
-            (set! (az/field result valid) false)
-            (set! (az/field result stop) 4)
+            (ak/= (az/field result valid) false)
+            (ak/= (az/field result stop) 4)
             (ak/return result))
-          (set! (az/field result byte_count) (+ (az/field result byte_count) size)))
-        (set! (az/index (az/field result tokens) (az/field result output_tokens)) token)
-        (set! (az/field result output_tokens) (+ (az/field result output_tokens) 1))
+          (ak/= (az/field result byte_count) (+ (az/field result byte_count) size)))
+        (ak/= (az/index (az/field result tokens) (az/field result output_tokens)) token)
+        (ak/= (az/field result output_tokens) (+ (az/field result output_tokens) 1))
         (when (>= (az/field result output_tokens) (ak/min max-new-tokens 64))
           (ak/return result))
         (when (>= (az/index sequence-positions racer) sequence-capacity)
-          (set! (az/field result stop) 3)
+          (ak/= (az/field result stop) 3)
           (ak/return result))
         (when (ak/! (az/field (forward-token! racer token) valid))
-          (set! (az/field result valid) false)
-          (set! (az/field result stop) 4)
+          (ak/= (az/field result valid) false)
+          (ak/= (az/field result stop) 4)
           (ak/return result))))
     result))
 

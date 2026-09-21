@@ -13,14 +13,14 @@
   (sim/reset!)
   (ak/defer (sim/shutdown!))
   (sim/update-lap-timing!)
-  (set! sim/simulation-tick 10800)
+  (ak/= sim/simulation-tick 10800)
   (sim/complete-lap! (sim/racer-pointer 0))
   (sim/update-lap-timing!)
   (let [first-lap (sim/lap-timing-view 0)]
     (sim/reset!)
     (let [fresh (sim/lap-timing-view 0)]
       ;; A normal paused frame must leave the timer unstarted and unchanged.
-      (set! sim/paused true)
+      (ak/= sim/paused true)
       (sim/step!)
       (let [paused (sim/lap-timing-view 0)]
         (az/array-init [(az/field first-lap last_ticks) (az/field first-lap samples)

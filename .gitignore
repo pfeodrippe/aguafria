@@ -5,6 +5,7 @@ resources/clj-kondo.exports/**/.cache/
 .m2/
 .cpcache/
 .nrepl-port
+.jev
 target/
 **/.zig-cache/
 **/zig-out/

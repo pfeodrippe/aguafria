@@ -56,7 +56,7 @@
         after (/ (+ distance 1.0) circuit/length-metres)
         a (circuit/at-distance (- distance 1.0) (pit-offset before work-offset))
         b (circuit/at-distance (+ distance 1.0) (pit-offset after work-offset))]
-    (set! (az/field p heading) (std-math/atan2 (- (az/field b y) (az/field a y))
+    (ak/= (az/field p heading) (std-math/atan2 (- (az/field b y) (az/field a y))
                                              (- (az/field b x) (az/field a x))))
     p))
 
@@ -109,7 +109,7 @@
       (let [distance (* (ak/as (ak/floatFromInt (+ i 1)) :f32) 25.0)
             corner (* 1000.0 (corner-speed (+ progress (/ distance 4309.0)) grip))
             approaching (* 0.001 (std-math/sqrt (+ (* corner corner) (* 60.0 distance))))]
-        (set! limit (ak/min limit approaching))))
+        (ak/= limit (ak/min limit approaching))))
     limit))
 
 (az/defn pit-pose Pose
@@ -136,7 +136,7 @@
       (let [progress (/ (ak/as (ak/floatFromInt index) :f32)
                         (ak/as (ak/floatFromInt projection-samples) :f32))
             center (pose progress 0.0)]
-        (set! (az/index points index)
+        (ak/= (az/index points index)
               (az/array-init [(az/field center x) (az/field center y)] [:array 2 :f32]))))
     points))
 
@@ -161,8 +161,8 @@
             dy (- y (az/index center 1))
             distance (+ (* dx dx) (* dy dy))]
         (when (< distance best-distance)
-          (set! best-progress progress)
-          (set! best-distance distance))))
+          (ak/= best-progress progress)
+          (ak/= best-distance distance))))
     (let [^:var step (ak/f32 (/ 1.0 sample-count))]
       (dotimes [_ 10]
         (let [left (wrap-progress (- best-progress step))
@@ -170,12 +170,12 @@
               left-distance (center-distance-squared x y left)
               right-distance (center-distance-squared x y right)]
           (when (< left-distance best-distance)
-            (set! best-progress left)
-            (set! best-distance left-distance))
+            (ak/= best-progress left)
+            (ak/= best-distance left-distance))
           (when (< right-distance best-distance)
-            (set! best-progress right)
-            (set! best-distance right))
-          (set! step (* step 0.5)))))
+            (ak/= best-progress right)
+            (ak/= best-distance right))
+          (ak/= step (* step 0.5)))))
     (let [center (pose best-progress 0.0)
           dx (- x (az/field center x))
           dy (- y (az/field center y))

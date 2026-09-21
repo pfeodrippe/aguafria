@@ -29,9 +29,9 @@
   its ordinary controls; the next tick can resume after a physical recovery." [[control Control] [body physics/BodyState]]
   (let [^:var result control]
     (when (overturned? body)
-      (set! (az/field result throttle) 0.0)
-      (set! (az/field result brake) 1.0)
-      (set! (az/field result steering) 0.0))
+      (ak/= (az/field result throttle) 0.0)
+      (ak/= (az/field result brake) 1.0)
+      (ak/= (az/field result steering) 0.0))
     result))
 
 (az/defn braking-envelope :f32
@@ -58,7 +58,7 @@
             corner-speed-squared (/ (* grip 9.81)
                                       (ak/max 0.00001
                                         (- curvature (/ (* grip physics/downforce-coefficient) mass))))]
-        (set! limit (ak/min limit (ak/sqrt (+ corner-speed-squared (* 28.0 ahead)))))))
+        (ak/= limit (ak/min limit (ak/sqrt (+ corner-speed-squared (* 28.0 ahead)))))))
     limit))
 
 (az/defn follow-route Control
@@ -127,14 +127,14 @@
   The 3m/s² lane-change budget is driver planning, not an applied force." [[plan [:* LanePlan]] [distance :f32] [measured-lane :f32]
             [speed :f32] [requested-lane :f32]]
   (when (ak/! (az/field plan initialized))
-    (set! (az/field plan initialized) true)
-    (set! (az/field plan active) false)
-    (set! (az/field plan target) measured-lane))
+    (ak/= (az/field plan initialized) true)
+    (ak/= (az/field plan active) false)
+    (ak/= (az/field plan target) measured-lane))
   (when (az/field plan active)
     (let [delta (- distance (az/field plan origin))
           travelled (if (< delta -2154.5) (+ delta 4309.0) delta)]
       (when (>= travelled (az/field plan length))
-        (set! (az/field plan active) false))))
+        (ak/= (az/field plan active) false))))
   (let [target (ak/max -4.5 (ak/min 4.5 requested-lane))]
     (when (> (ak/abs (- target (az/field plan target))) 0.0001)
       (let [previous (lane-plan-state plan distance)
@@ -143,15 +143,15 @@
             length (ak/max 12.0 (* (ak/max speed 5.0) duration))
             slope (* (az/index previous 1) length)
             curvature (* 0.5 (az/index previous 2) length length)]
-        (set! (az/field plan coefficients)
+        (ak/= (az/field plan coefficients)
           (az/array-init [(az/index previous 0) slope curvature
              (- (* 10.0 displacement) (* 6.0 slope) (* 3.0 curvature))
              (+ (* -15.0 displacement) (* 8.0 slope) (* 3.0 curvature))
              (- (* 6.0 displacement) (* 3.0 slope) curvature)] [:array 6 :f32]))
-        (set! (az/field plan origin) distance)
-        (set! (az/field plan length) length)
-        (set! (az/field plan target) target)
-        (set! (az/field plan active) true)))))
+        (ak/= (az/field plan origin) distance)
+        (ak/= (az/field plan length) length)
+        (ak/= (az/field plan target) target)
+        (ak/= (az/field plan active) true)))))
 
 (az/defn follow-lane-plan Control
   "Opt-in controller candidate: follow a committed, continuous lateral path
@@ -173,7 +173,7 @@
           steering (math/atan2 (* 2.0 wheelbase (az/field delta y))
                      (ak/max 1.0 (+ (* (az/field delta x) (az/field delta x))
                                    (* (az/field delta y) (az/field delta y)))))]
-      (set! (az/field control steering) (ak/max -0.45 (ak/min 0.45 steering))))
+      (ak/= (az/field control steering) (ak/max -0.45 (ak/min 0.45 steering))))
     control))
 
 (az/defn follow-pit Control
@@ -190,8 +190,8 @@
         safe-speed (ak/sqrt (+ (* front-speed front-speed) (* 20.0 space)))
         excess (- speed safe-speed)]
     (when (or (> excess 0.0) (<= space 0.01))
-      (set! (az/field result throttle) 0.0)
-      (set! (az/field result brake)
+      (ak/= (az/field result throttle) 0.0)
+      (ak/= (az/field result brake)
             (ak/max (az/field result brake)
                     (if (and (< gap 6.0) (< front-speed 0.2))
                       (ak/as 1.0 :f32)
@@ -211,10 +211,10 @@
            (> gap 0.0) (> (ak/abs side-distance) 2.0)
            (< (* (az/field control steering) side-distance) -0.08))
     (let [^:var result control]
-      (set! (az/field result throttle)
+      (ak/= (az/field result throttle)
             (if (< (az/field control speed) 1.5)
               (ak/min (az/field control throttle) 0.15) 0.0))
-      (set! (az/field result brake)
+      (ak/= (az/field result brake)
             (clamp-unit (* (- (az/field control speed) 1.5) 0.5)))
       result)
     (yield-to-traffic control gap front-speed)))

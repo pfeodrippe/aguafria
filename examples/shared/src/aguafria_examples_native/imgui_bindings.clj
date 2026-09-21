@@ -16,24 +16,18 @@
      :namespace 'aguafria-examples-native.bindings.imgui
      :include-dirs [(.getParentFile ^java.io.File imgui-header)]}))
 
-(defn- current-binding?
-  [{:keys [^java.io.File header ^java.io.File output]}]
-  (and (.isFile output)
-       (>= (.lastModified output) (.lastModified header))))
-
 (defn ensure-loaded!
   []
   (when-not @loaded?
-    (let [{:keys [header output namespace include-dirs] :as spec}
+    (let [{:keys [header output namespace include-dirs]}
           (binding-spec)]
-      (when-not (current-binding? spec)
-        (ac/translate-header!
-         header output
-         {:namespace namespace
-          :include-dirs include-dirs
-          :cache-dir (str (io/file (:root (build/paths))
-                                   ".aguafria/c-bindings"))
-          :overwrite? true}))
+      (ac/translate-header!
+       header output
+       {:namespace namespace
+        :include-dirs include-dirs
+        :cache-dir (str (io/file (:root (build/paths))
+                                 ".aguafria/c-bindings"))
+        :overwrite? true})
       (build/prepare-imgui-shared!)
       (ac/load-bindings! output)
       (let [current (or (:zig-args (az/configuration)) [])

@@ -57,8 +57,8 @@
     (while (> (- high low) 1)
       (let [middle (ak/divTrunc (+ low high) 2)]
         (if (> (az/index (az/index centerline middle) 3) d)
-          (set! high middle)
-          (set! low middle))))
+          (ak/= high middle)
+          (ak/= low middle))))
     (let [a (az/index centerline low) b (az/index centerline high)
           span (- (az/index b 3) (az/index a 3))
           t (/ (- d (az/index a 3)) span)

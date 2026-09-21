@@ -35,7 +35,7 @@
                         (ak/as (ak/floatFromInt track/projection-samples) :f32))
             original (track/pose progress 0.0)
             cached (az/index track/projection-centers i)]
-        (set! maximum (ak/max maximum
+        (ak/= maximum (ak/max maximum
                        (ak/max (ak/abs (- (az/field original x) (az/index cached 0)))
                                (ak/abs (- (az/field original y) (az/index cached 1))))))))
     maximum))

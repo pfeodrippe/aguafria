@@ -1210,8 +1210,12 @@
         (case text
           "true" true
           "false" false
+          "null" nil
           "undefined" (symbol "ak" (keyword/token-name text))
           (cond
+            (primitive-type? text)
+            (list 'type (keyword text))
+
             (contains? (:builtin-imports context) text)
             (compiler-builtin-alias context)
 
@@ -3155,6 +3159,10 @@
                                            project-require-modes
                                            core-exclusions))
               "\n\n"
+              (when-let [names (seq (filter symbol? (keep second forms)))]
+                ;; Zig/C declarations may refer forward, including recursive
+                ;; structs. Make those references explicit Clojure Vars.
+                (str (pprint-code (cons 'declare names)) "\n\n"))
               (str/join "\n\n" (map pprint-code forms))
               (when (seq forms) "\n")
               "")
@@ -3234,6 +3242,10 @@
         (doseq [require-spec (require-specs std-aliases project-aliases
                                             project-require-modes)]
           (require require-spec))
+        (doseq [name (filter symbol? (keep second forms))]
+          (when (contains? (ns-refers scratch) name)
+            (ns-unmap scratch name))
+          (intern scratch name))
         ;; Each declaration is evaluated as its own top-level form. Besides
         ;; matching REPL behavior, this avoids the JVM method-size limit for a
         ;; very large raw Zig declaration.
@@ -4739,7 +4751,7 @@
                     (str/replace "-" "_"))
                 ".clj")))
 
-(def ^:private rendered-conversion-cache-version 14)
+(def ^:private rendered-conversion-cache-version 16)
 
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]

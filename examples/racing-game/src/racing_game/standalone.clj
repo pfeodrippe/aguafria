@@ -1,6 +1,7 @@
 (ns racing-game.standalone
   "JVM-free ReleaseFast entry point generated from the same Aguafria graph."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]
             [racing-game.monitor :as monitor]))
 
 (az/defconst aguafria-development-overlays
@@ -9,4 +10,4 @@
 
 (az/defn main :void
   []
-  (set! _ (monitor/run!)))
+  (ak/= :_ (monitor/run!)))

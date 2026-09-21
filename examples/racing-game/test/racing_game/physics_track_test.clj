@@ -26,7 +26,7 @@
     (ak/defer (physics/destroy-world! world))
     (dotimes [i 12]
       (let [p (circuit/at-distance (* (ak/as (ak/floatFromInt i) :f32) (/ 4309.0 12.0)) 0.0)]
-        (set! (az/index cars i)
+        (ak/= (az/index cars i)
               (physics/create-vehicle world
                 (b3/b3Pos {:x (az/field p x) :y (az/field p y) :z (+ (az/field p z) 0.76)})
                 (az/field p heading)))))
@@ -40,9 +40,9 @@
         (let [p (circuit/at-distance (* (ak/as (ak/floatFromInt i) :f32) (/ 4309.0 12.0)) 0.0)
               state (physics/body-state (az/field (az/index cars i) chassis))
               clearance (- (az/field state z) (az/field p z))]
-          (set! low (ak/min low clearance))
-          (set! high (ak/max high clearance))
-          (set! speed (ak/max speed
+          (ak/= low (ak/min low clearance))
+          (ak/= high (ak/max high clearance))
+          (ak/= speed (ak/max speed
             (ak/sqrt (+ (* (az/field state vx) (az/field state vx))
                         (* (az/field state vy) (az/field state vy))
                         (* (az/field state vz) (az/field state vz))))))))
@@ -68,7 +68,7 @@
             a (circuit/at-distance (- d 0.5) 0.0) b (circuit/at-distance (+ d 0.5) 0.0)
             delta (- (az/field b heading) (az/field a heading))
             k (ak/abs (math/atan2 (math/sin delta) (math/cos delta)))]
-        (when (> k curvature) (set! curvature k) (set! location d))))
+        (when (> k curvature) (ak/= curvature k) (ak/= location d))))
     (az/array-init [location curvature] [:array 2 :f32])))
 
 (az/defvar lap-trace [:array 360 [:array 11 :f32]] ak/undefined)
@@ -107,8 +107,8 @@
   (let [^:var body (mem/zeroes (az/type physics/BodyState))
         control (driver/Control {:throttle gas :brake 0.25 :steering 0.12
                                   :progress 0.5 :lane -1.5 :speed 8.0})]
-    (set! (az/field body qx) (math/sin (* roll 0.5)))
-    (set! (az/field body qw) (math/cos (* roll 0.5)))
+    (ak/= (az/field body qx) (math/sin (* roll 0.5)))
+    (ak/= (az/field body qw) (math/cos (* roll 0.5)))
     (driver/stop-if-overturned control body)))
 
 (deftest overturning-cuts-pedals-without-changing-measured-state-test
@@ -170,15 +170,15 @@
           (let [dx (- (az/field state x) (az/field previous-body x))
                 dy (- (az/field state y) (az/field previous-body y))
                 dz (- (az/field state z) (az/field previous-body z))]
-            (set! physical-distance (+ physical-distance (ak/sqrt (+ (* dx dx) (* dy dy) (* dz dz)))))
-            (set! previous-body state)
-            (set! maximum-projection-step
+            (ak/= physical-distance (+ physical-distance (ak/sqrt (+ (* dx dx) (* dy dy) (* dz dz)))))
+            (ak/= previous-body state)
+            (ak/= maximum-projection-step
                   (ak/max maximum-projection-step
                     (* 4309.0 (ak/abs (cond (> delta 0.5) (- delta 1.0)
                                             (< delta -0.5) (+ delta 1.0)
                                             :else delta))))))
           (when (and (< tick 43200) (ak/== (mod tick 120) 0))
-            (set! (az/index lap-trace (ak/divTrunc tick 120))
+            (ak/= (az/index lap-trace (ak/divTrunc tick 120))
                   (az/array-init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
                     progress (az/field control lane) (az/field control speed)
                     (az/field control throttle) (az/field control brake) (az/field control steering)
@@ -187,23 +187,23 @@
                     (b3/b3WheelJoint_GetSteeringAngle (az/index (az/field car joints) 0))
                     (b3/b3WheelJoint_GetSteeringAngle (az/index (az/field car joints) 1))
                     (az/field state wz)] [:array 11 :f32])))
-          (set! distance (+ distance (* 4309.0 (cond (> delta 0.5) (- delta 1.0)
+          (ak/= distance (+ distance (* 4309.0 (cond (> delta 0.5) (- delta 1.0)
                                                     (< delta -0.5) (+ delta 1.0)
                                                     :else delta))))
-          (set! previous progress)
+          (ak/= previous progress)
           ;; Crossing times come from body-derived distance at fixed 120Hz,
           ;; not a distance/average-speed estimate or a wall-clock speedup.
           (when (and (>= distance 4309.0) (ak/== first-lap 0.0))
-            (set! first-lap (/ (ak/as (ak/floatFromInt tick) :f32) 120.0))
-            (set! first-lap-metres physical-distance))
+            (ak/= first-lap (/ (ak/as (ak/floatFromInt tick) :f32) 120.0))
+            (ak/= first-lap-metres physical-distance))
           (when (and (>= distance 8618.0) (ak/== flying-lap 0.0))
-            (set! flying-lap (- (/ (ak/as (ak/floatFromInt tick) :f32) 120.0) first-lap)))
+            (ak/= flying-lap (- (/ (ak/as (ak/floatFromInt tick) :f32) 120.0) first-lap)))
           (when (> (ak/abs (az/field control lane)) lane)
-            (set! lane (ak/abs (az/field control lane)))
-            (set! worst-distance (* progress 4309.0))
-            (set! worst-time (/ (ak/as (ak/floatFromInt tick) :f32) 120.0)))
-          (set! speed (ak/max speed (az/field control speed)))
-          (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))
+            (ak/= lane (ak/abs (az/field control lane)))
+            (ak/= worst-distance (* progress 4309.0))
+            (ak/= worst-time (/ (ak/as (ak/floatFromInt tick) :f32) 120.0)))
+          (ak/= speed (ak/max speed (az/field control speed)))
+          (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))
                                              (* (az/field state qy) (az/field state qy)))))))
           (dotimes [_ (ak/divTrunc physics/step-rate 120)]
             (driver/apply! car control)
@@ -367,24 +367,24 @@
                          (ak/sqrt (* 6.0 (ak/max 0.0 (- remaining 0.5)))))
             ^:var control (driver/follow-pit car requested 6.0)
             state (physics/body-state (az/field car chassis))]
-        (set! progress unwrapped)
-        (set! speed (az/field control speed))
+        (ak/= progress unwrapped)
+        (ak/= speed (az/field control speed))
         (when (and (ak/! released) (< (ak/abs remaining) 2.0) (< speed 0.02))
           (when (ak/== stopped 0.0)
-            (set! stop-x (az/field state x))
-            (set! stop-y (az/field state y)))
-          (set! stopped (+ stopped (/ 1.0 120.0)))
-          (set! stop-error (ak/abs remaining)))
+            (ak/= stop-x (az/field state x))
+            (ak/= stop-y (az/field state y)))
+          (ak/= stopped (+ stopped (/ 1.0 120.0)))
+          (ak/= stop-error (ak/abs remaining)))
         (when (and (ak/! released) (> stopped 0.0))
           (let [dx (- (az/field state x) stop-x)
                 dy (- (az/field state y) stop-y)]
-            (set! service-speed (ak/max service-speed speed))
-            (set! service-drift (ak/max service-drift (ak/sqrt (+ (* dx dx) (* dy dy))))))
-          (set! (az/field control throttle) 0.0)
-          (set! (az/field control brake) 1.0))
-        (set! error-max (ak/max error-max
+            (ak/= service-speed (ak/max service-speed speed))
+            (ak/= service-drift (ak/max service-drift (ak/sqrt (+ (* dx dx) (* dy dy))))))
+          (ak/= (az/field control throttle) 0.0)
+          (ak/= (az/field control brake) 1.0))
+        (ak/= error-max (ak/max error-max
           (ak/abs (- (az/field control lane) (track/pit-offset q 6.0)))))
-        (set! up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))
+        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))
                                            (* (az/field state qy) (az/field state qy)))))))
         (when (> progress 1.075) (ak/break))
         (dotimes [_ (ak/divTrunc physics/step-rate 120)]

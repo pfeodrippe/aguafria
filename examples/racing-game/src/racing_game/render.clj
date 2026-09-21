@@ -43,7 +43,7 @@
   "Show or hide native racer intent and cognition geometry at runtime."
   [[visible :bool]]
   (do
-    (set! debug-overlay-visible visible)
+    (ak/= debug-overlay-visible visible)
     debug-overlay-visible))
 
 (az/defn toggle-debug-overlay! :bool
@@ -57,8 +57,8 @@
    [frame-height :i32]]
   (let [width (ak/as (ak/floatFromInt (ak/max frame-width 1)) :f32)
         height (ak/as (ak/floatFromInt (ak/max frame-height 1)) :f32)]
-    (set! world-x-scale (if (> width height) (/ height width) 1.0))
-    (set! world-y-scale (if (> height width) (/ width height) 1.0))
+    (ak/= world-x-scale (if (> width height) (/ height width) 1.0))
+    (ak/= world-y-scale (if (> height width) (/ width height) 1.0))
     (WorldScale {:x world-x-scale :y world-y-scale})))
 
 (az/defn write-vertex! :void
@@ -70,7 +70,7 @@
    [r :f32]
    [g :f32]
    [b :f32]]
-  (set! (az/index output index)
+  (ak/= (az/index output index)
         (mesh/GpuVertex {:x x :y y :z z :r r :g g :b b
                          :nx 0.0 :ny 0.0 :nz 0.0 :wx 0.0 :wy 0.0 :wz 0.0
                          :roughness -1.0 :vx 0.0 :vy 0.0 :vz 1.0})))
@@ -164,7 +164,7 @@
             angle-b (* (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
                            (ak/as (ak/floatFromInt circle-segments) :f32))
                         6.2831855)]
-        (set! next
+        (ak/= next
               (append-world-line!
                output next
                (+ center-x (* (std-math/cos angle-a) radius))
@@ -191,7 +191,7 @@
             angle-b (* (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
                            (ak/as (ak/floatFromInt circle-segments) :f32))
                         6.2831855)]
-        (set! next
+        (ak/= next
               (append-line!
                output next
                (+ center-x (* (std-math/cos angle-a) radius world-x-scale))
@@ -214,7 +214,7 @@
         (dotimes [slot 3]
           (let [active (< slot remaining)
                 brightness (ak/f32 (if active 1.0 0.28))]
-            (set! next
+            (ak/= next
                   (append-screen-circle!
                    output next
                    (+ -0.08 (* (ak/as (ak/floatFromInt slot) :f32) 0.08))
@@ -236,18 +236,18 @@
             inner-b (track/pose progress-b -0.13)
             center-a (track/pose progress-a 0.0)
             center-b (track/pose progress-b 0.0)]
-        (set! next
+        (ak/= next
               (append-world-line! output next
                             (az/field outer-a x) (az/field outer-a y)
                             (az/field outer-b x) (az/field outer-b y)
                             0.0045 0.69 1.0 0.78 0.0))
-        (set! next
+        (ak/= next
               (append-world-line! output next
                             (az/field inner-a x) (az/field inner-a y)
                             (az/field inner-b x) (az/field inner-b y)
                             0.0045 0.69 1.0 0.78 0.0))
         (when (ak/== (mod segment 4) 0)
-          (set! next
+          (ak/= next
                 (append-world-line! output next
                               (az/field center-a x) (az/field center-a y)
                               (az/field center-b x) (az/field center-b y)
@@ -269,7 +269,7 @@
                              0.18))
             a (track/pose progress-a 0.19)
             b (track/pose progress-b 0.19)]
-        (set! next
+        (ak/= next
               (append-world-line! output next
                                   (az/field a x) (az/field a y)
                                   (az/field b x) (az/field b y)
@@ -278,12 +278,12 @@
           entry-pit (track/pose 0.80 0.19)
           exit-track (track/pose 0.98 0.13)
           exit-pit (track/pose 0.98 0.19)]
-      (set! next
+      (ak/= next
             (append-world-line! output next
                                 (az/field entry-track x) (az/field entry-track y)
                                 (az/field entry-pit x) (az/field entry-pit y)
                                 0.0025 0.61 0.72 0.56 0.0))
-      (set! next
+      (ak/= next
             (append-world-line! output next
                                 (az/field exit-pit x) (az/field exit-pit y)
                                 (az/field exit-track x) (az/field exit-track y)
@@ -312,13 +312,13 @@
             brightness (if occupied
                          (ak/as 1.0 :f32)
                          (ak/as 0.55 :f32))]
-        (set! next (append-world-line! output next ax ay bx by 0.003 0.64
+        (ak/= next (append-world-line! output next ax ay bx by 0.003 0.64
                                        brightness (* brightness 0.78) 0.0))
-        (set! next (append-world-line! output next bx by cx cy 0.003 0.64
+        (ak/= next (append-world-line! output next bx by cx cy 0.003 0.64
                                        brightness (* brightness 0.78) 0.0))
-        (set! next (append-world-line! output next cx cy dx dy 0.003 0.64
+        (ak/= next (append-world-line! output next cx cy dx dy 0.003 0.64
                                        brightness (* brightness 0.78) 0.0))
-        (set! next (append-world-line! output next dx dy ax ay 0.003 0.64
+        (ak/= next (append-world-line! output next dx dy ax ay 0.003 0.64
                                        brightness (* brightness 0.78) 0.0))))
     next))
 
@@ -331,13 +331,13 @@
             x (az/field sample x)
             y (az/field sample y)
             radius 0.025]
-        (set! next (append-world-line! output next x (+ y radius) (+ x radius) y
+        (ak/= next (append-world-line! output next x (+ y radius) (+ x radius) y
                                  0.003 0.50 1.0 0.78 0.0))
-        (set! next (append-world-line! output next (+ x radius) y x (- y radius)
+        (ak/= next (append-world-line! output next (+ x radius) y x (- y radius)
                                  0.003 0.50 1.0 0.78 0.0))
-        (set! next (append-world-line! output next x (- y radius) (- x radius) y
+        (ak/= next (append-world-line! output next x (- y radius) (- x radius) y
                                  0.003 0.50 1.0 0.78 0.0))
-        (set! next (append-world-line! output next (- x radius) y x (+ y radius)
+        (ak/= next (append-world-line! output next (- x radius) y x (+ y radius)
                                  0.003 0.50 1.0 0.78 0.0))))
     next))
 
@@ -357,24 +357,24 @@
                          0.022))]
             (if (ak/== (az/field hazard kind) simulation/item-bolt)
               (do
-                (set! next (append-world-line! output next x (+ y radius)
+                (ak/= next (append-world-line! output next x (+ y radius)
                                          (+ x radius) y
                                          0.003 0.38 1.0 0.78 0.0))
-                (set! next (append-world-line! output next (+ x radius) y
+                (ak/= next (append-world-line! output next (+ x radius) y
                                          x (- y radius)
                                          0.003 0.38 1.0 0.78 0.0))
-                (set! next (append-world-line! output next x (- y radius)
+                (ak/= next (append-world-line! output next x (- y radius)
                                          (- x radius) y
                                          0.003 0.38 1.0 0.78 0.0))
-                (set! next (append-world-line! output next (- x radius) y
+                (ak/= next (append-world-line! output next (- x radius) y
                                          x (+ y radius)
                                          0.003 0.38 1.0 0.78 0.0)))
               (do
-                (set! next (append-world-line! output next
+                (ak/= next (append-world-line! output next
                                          (- x radius) (- y radius)
                                          (+ x radius) (+ y radius)
                                          0.004 0.38 1.0 0.78 0.0))
-                (set! next (append-world-line! output next
+                (ak/= next (append-world-line! output next
                                          (- x radius) (+ y radius)
                                          (+ x radius) (- y radius)
                                          0.004 0.38 1.0 0.78 0.0))))))))
@@ -404,25 +404,25 @@
             heading (ak/f32 (if finished 0.0 (az/field view heading)))
             radius (ak/f32 (if (az/field view shielded) 0.035 0.028))]
         (when (az/field view shielded)
-          (set! next
+          (ak/= next
                 (append-circle! output next x y 0.043 0.40
                                 (* (az/field color r) 0.55)
                                 (* (az/field color g) 0.55)
                                 (* (az/field color b) 0.55))))
         (when (and (az/field human enabled) (ak/== identifier 0))
-          (set! next (append-circle! output next x y 0.050 0.39 1.0 1.0 1.0)))
-        (set! next
+          (ak/= next (append-circle! output next x y 0.050 0.39 1.0 1.0 1.0)))
+        (ak/= next
               (append-circle! output next x y radius 0.35
                               (az/field color r)
                               (az/field color g)
                               (az/field color b)))
         (when (ak/== (mod identifier 2) 0)
-          (set! next
+          (ak/= next
                 (append-circle! output next x y 0.015 0.34
                                 (* (az/field color r) 0.80)
                                 (* (az/field color g) 0.80)
                                 (* (az/field color b) 0.80))))
-        (set! next
+        (ak/= next
               (append-world-line! output next x y
                             (+ x (* (std-math/cos heading)
                                     (+ 0.046 (* (ak/as (ak/floatFromInt identifier) :f32) 0.002))))
@@ -445,16 +445,16 @@
           (when (ak/== (az/field view rank) (+ rank-index 1))
             (let [y (- 0.82 (* (ak/as (ak/floatFromInt rank-index) :f32) 0.105))
                   length (+ 0.055 (* (az/field view progress) 0.11))]
-              (set! next (append-line! output next 0.80 (+ y 0.030)
+              (ak/= next (append-line! output next 0.80 (+ y 0.030)
                                        (+ 0.80 length) (+ y 0.030)
                                        0.0025 0.25 1.0 0.78 0.0))
-              (set! next (append-line! output next (+ 0.80 length) (+ y 0.030)
+              (ak/= next (append-line! output next (+ 0.80 length) (+ y 0.030)
                                        (+ 0.80 length) (- y 0.030)
                                        0.0025 0.25 1.0 0.78 0.0))
-              (set! next (append-line! output next (+ 0.80 length) (- y 0.030)
+              (ak/= next (append-line! output next (+ 0.80 length) (- y 0.030)
                                        0.80 (- y 0.030)
                                        0.0025 0.25 1.0 0.78 0.0))
-              (set! next (append-line! output next 0.80 (- y 0.030)
+              (ak/= next (append-line! output next 0.80 (- y 0.030)
                                        0.80 (+ y 0.030)
                                        0.0025 0.25 1.0 0.78 0.0)))))))
     next))
@@ -471,7 +471,7 @@
             (track/pose
              (mod (+ (az/field view progress) 0.045) 1.0)
              (az/field view lane_target))]
-        (set! next
+        (ak/= next
               (append-world-line! output next
                             (az/field view x) (az/field view y)
                             (az/field lane-goal x) (az/field lane-goal y)
@@ -479,7 +479,7 @@
         (when (and (< target-id simulation/racer-count)
                    (ak/!= target-id (az/field view id)))
           (let [target (simulation/racer-view target-id)]
-            (set! next
+            (ak/= next
                   (append-world-line! output next
                                 (az/field view x) (az/field view y)
                                 (az/field target x) (az/field target y)
@@ -518,24 +518,24 @@
 
               :else
               (ak/as 0.48 :f32)))]
-        (set! next
+        (ak/= next
               (append-screen-circle! output next -0.935 y 0.018 0.24
                               source-brightness
                               (* source-brightness 0.78) 0.0))
         (when (az/field view pending)
-          (set! next
+          (ak/= next
                 (append-screen-circle! output next -0.935 y 0.025 0.23
                                 1.0 0.78 0.0)))
-        (set! next
+        (ak/= next
               (append-line! output next -0.895 (+ y 0.010)
                             (+ -0.895 speed-width) (+ y 0.010)
                             0.003 0.23 1.0 0.78 0.0))
-        (set! next
+        (ak/= next
               (append-line! output next -0.895 (- y 0.010)
                             (+ -0.895 latency-width) (- y 0.010)
                             0.002 0.23 0.56 0.44 0.0))
         (when (ak/== (az/field view item_action) simulation/action-use)
-          (set! next
+          (ak/= next
                 (append-line! output next -0.705 (- y 0.017)
                               -0.685 (+ y 0.017)
                               0.003 0.23 1.0 0.78 0.0)))))
@@ -553,21 +553,21 @@
         sx (/ size w) sy (/ size h)
         cx (- 1.0 sx 0.03) cy (+ -1.0 sy 0.03)
         ^:var next (ak/usize count)]
-    (set! next (append-quad! output next
+    (ak/= next (append-quad! output next
                             (- cx sx) (- cy sy) (+ cx sx) (- cy sy)
                             (+ cx sx) (+ cy sy) (- cx sx) (+ cy sy)
                             0.06 0.035 0.045 0.055))
     (dotimes [i 192]
       (let [a (track/pose (/ (ak/as (ak/floatFromInt i) :f32) 192.0) 0.0)
             b (track/pose (/ (ak/as (ak/floatFromInt (+ i 1)) :f32) 192.0) 0.0)]
-        (set! next (append-line! output next
+        (ak/= next (append-line! output next
                                 (+ cx (* (az/field a x) sx 1.5))
                                 (- cy (* (az/field a y) sy 1.5))
                                 (+ cx (* (az/field b x) sx 1.5))
                                 (- cy (* (az/field b y) sy 1.5))
                                 0.002 0.04 0.70 0.74 0.76))))
     (let [pit (track/pit-pose 0.98 0.215)]
-      (set! next (append-screen-circle! output next
+      (ak/= next (append-screen-circle! output next
                                         (+ cx (* (az/field pit x) sx 1.5))
                                         (- cy (* (az/field pit y) sy 1.5))
                                         0.014 0.025 1.0 1.0 1.0)))
@@ -576,10 +576,10 @@
             color (racer-color (ak/intCast i))
             x (+ cx (* (az/field racer x) sx 1.5))
             y (- cy (* (az/field racer y) sy 1.5))]
-        (set! next (append-screen-circle! output next x y 0.007 0.02
+        (ak/= next (append-screen-circle! output next x y 0.007 0.02
                                           (az/field color r) (az/field color g) (az/field color b)))
         (when (ak/== (az/field racer rank) 1)
-          (set! next (append-screen-circle! output next x y 0.014 0.015 1.0 1.0 1.0)))))
+          (ak/= next (append-screen-circle! output next x y 0.014 0.015 1.0 1.0 1.0)))))
     next))
 
 (az/defn build-frame! :u32
@@ -588,7 +588,7 @@
   [[output [:c-pointer mesh/GpuVertex]]
    [frame-width :i32]
    [frame-height :i32]]
-  (set! _ (configure-world-scale! frame-width frame-height))
+  (ak/= :_ (configure-world-scale! frame-width frame-height))
   (let [world-count (render3d/build-world! output frame-width frame-height)
         intent-count (if debug-overlay-visible
                        (render3d/intents! output world-count)

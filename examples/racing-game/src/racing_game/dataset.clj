@@ -5,12 +5,12 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
-            [racing-game.core :as core]
             [racing-game.inference :as inference]
             [racing-game.model :as model]
             [racing-game.protocol :as protocol]
             [racing-game.simulation :as simulation]
-            [racing-game.train-action-head :as train-action-head])
+            [racing-game.train-action-head :as train-action-head]
+            [racing-game.worker :as worker])
   (:import [java.lang.foreign Arena]
            [java.math BigInteger]
            [java.nio.charset StandardCharsets]
@@ -23,6 +23,15 @@
    :limit 5000
    :include-item-anchors? true
    :require-complete-coverage? true})
+
+(defn- observation [racer]
+  (az/value (simulation/current-observation racer)))
+
+(defn- observations []
+  (mapv observation (range (az/value simulation/racer-count))))
+
+(defn- worker-status []
+  (az/value (worker/summary)))
 
 (def observation-fields
   [:valid :racer :rank :target :persona :item :target_distance :target_lane
@@ -212,7 +221,7 @@
         (simulation/step-many! ticks)
         (let [tick (:tick (az/value (simulation/snapshot)))
               room (- limit (count rows))
-              samples (->> (core/observations)
+              samples (->> (observations)
                            (filter :valid)
                            (take room)
                            (mapv #(decision-row :native-race seed tick %)))]
@@ -229,7 +238,7 @@
           (when-not (simulation/configure-racer-state!
                      0 0.20 0.0 0.07 item false)
             (throw (ex-info "Native item anchor mutation failed" {:item item})))
-          (decision-row :native-item-anchor 0 0 (core/observation 0))))
+          (decision-row :native-item-anchor 0 0 (observation 0))))
        (take limit)
        vec))
 
@@ -243,7 +252,7 @@
    (let [{:keys [seeds limit include-item-anchors?
                  require-complete-coverage?] :as options}
          (merge default-options options)
-         worker (core/worker-status)]
+         worker (worker-status)]
      (when (:started worker)
        (throw (ex-info "Dataset generation requires stopped inference workers"
                        {:worker worker})))
@@ -367,7 +376,7 @@
   The predictor accepts one semantic observation and returns its deterministic
   best A-H action code. It is valid only for the dynamic extent of `f`."
   [f]
-  (let [worker (core/worker-status)]
+  (let [worker (worker-status)]
     (when (:started worker)
       (throw (ex-info "Offline model evaluation requires stopped workers"
                       {:worker worker})))
@@ -455,7 +464,7 @@
   (simulation/set-race-seed! (:seed row))
   (simulation/reset!)
   (simulation/step-many! (:tick row))
-  (let [actual (core/observation (:racer row))
+  (let [actual (observation (:racer row))
         expected (:observation row)
         fields [:racer :rank :target :persona :item :target_distance
                 :target_lane :tactical_status :urgent :lap]

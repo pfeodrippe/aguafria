@@ -20,11 +20,11 @@
 
 (az/defvar filename [:array 1024 :u8] (mem/zeroes (az/type [:array 1024 :u8])))
 
-(az/defvar buffer vk/VkBuffer null)
+(az/defvar buffer vk/VkBuffer ak/null)
 
-(az/defvar memory vk/VkDeviceMemory null)
+(az/defvar memory vk/VkDeviceMemory ak/null)
 
-(az/defvar mapped [:optional [:* :anyopaque]] null)
+(az/defvar mapped [:optional [:* :anyopaque]] ak/null)
 
 (az/defvar width :u32 0)
 
@@ -36,20 +36,20 @@
 (az/defn acknowledge! :bool []
   (let [current (status)]
     (and (>= current 4)
-         (ak/== (ak/cmpxchgStrong :u8 (ak/& state) current 0 :.acq_rel :.acquire) null))))
+         (ak/== (ak/cmpxchgStrong :u8 (ak/& state) current 0 :.acq_rel :.acquire) ak/null))))
 
 (az/defn request! :bool
   "Copy a NUL-terminated path; reject empty/oversized paths and an occupied slot."
   [[path [:pointer {:size :c :const? true} :u8]]]
-  (when (ak/== path null) (ak/return false))
+  (when (ak/== path ak/null) (ak/return false))
   (let [^:var length (ak/usize 0)]
     (while (and (< length 1024) (ak/!= (az/index path length) 0))
-      (set! length (+ length 1)))
+      (ak/= length (+ length 1)))
     (when (or (ak/== length 0) (>= length 1024)) (ak/return false))
-    (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& state) 0 1 :.acq_rel :.acquire) null)
+    (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& state) 0 1 :.acq_rel :.acquire) ak/null)
       (ak/return false))
     (dotimes [index (+ length 1)]
-      (set! (az/index filename index) (az/index path index)))
+      (ak/= (az/index filename index) (az/index path index)))
     (ak/atomicStore :u8 (ak/& state) 2 :.release)
     true))
 
@@ -63,10 +63,10 @@
   (ak/atomicStore :u8 (ak/& state) 5 :.release))
 
 (az/defn release! :void [[device vk/VkDevice]]
-  (when (ak/!= mapped null) (vk/vkUnmapMemory device memory))
-  (when (ak/!= buffer null) (vk/vkDestroyBuffer device buffer null))
-  (when (ak/!= memory null) (vk/vkFreeMemory device memory null))
-  (az/set-many! mapped null buffer null memory null))
+  (when (ak/!= mapped ak/null) (vk/vkUnmapMemory device memory))
+  (when (ak/!= buffer ak/null) (vk/vkDestroyBuffer device buffer ak/null))
+  (when (ak/!= memory ak/null) (vk/vkFreeMemory device memory ak/null))
+  (az/set-many! mapped ak/null buffer ak/null memory ak/null))
 
 (az/defn prepare! :bool
   "Render-thread only. Allocate at most 64 MiB; require coherent host memory."
@@ -81,7 +81,7 @@
         ^:var properties (mem/zeroes (az/type vk/VkPhysicalDeviceMemoryProperties))
         ^:var selected (ak/u32 0xffffffff)]
     (when (or (ak/== bytes 0) (> bytes (* 64 1024 1024))) (ak/return false))
-    (when (ak/!= (vk/vkCreateBuffer device (ak/& info) null (ak/& buffer)) vk/VK_SUCCESS)
+    (when (ak/!= (vk/vkCreateBuffer device (ak/& info) ak/null (ak/& buffer)) vk/VK_SUCCESS)
       (ak/return false))
     (vk/vkGetBufferMemoryRequirements device buffer (ak/& requirements))
     (vk/vkGetPhysicalDeviceMemoryProperties physical (ak/& properties))
@@ -92,12 +92,12 @@
                    (ak/!= (ak/& (az/field requirements memoryTypeBits)
                                 (ak/<< (ak/as 1 :u32) (ak/as (ak/intCast index) :u5))) 0)
                    (ak/== (ak/& flags required) required))
-          (set! selected (ak/intCast index)))))
+          (ak/= selected (ak/intCast index)))))
     (when (ak/== selected 0xffffffff) (release! device) (ak/return false))
     (let [allocation (vk/VkMemoryAllocateInfo
                        {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
                         :allocationSize (az/field requirements size) :memoryTypeIndex selected})]
-      (when (or (ak/!= (vk/vkAllocateMemory device (ak/& allocation) null (ak/& memory)) vk/VK_SUCCESS)
+      (when (or (ak/!= (vk/vkAllocateMemory device (ak/& allocation) ak/null (ak/& memory)) vk/VK_SUCCESS)
                 (ak/!= (vk/vkBindBufferMemory device buffer memory 0) vk/VK_SUCCESS)
                 (ak/!= (vk/vkMapMemory device memory 0 bytes 0 (ak/& mapped)) vk/VK_SUCCESS))
         (release! device)
@@ -132,7 +132,7 @@
                         :dstQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
                         :buffer buffer :size vk/VK_WHOLE_SIZE})]
     (vk/vkCmdPipelineBarrier command vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-                             vk/VK_PIPELINE_STAGE_TRANSFER_BIT 0 0 null 0 null 1 (ak/& barrier))
+                             vk/VK_PIPELINE_STAGE_TRANSFER_BIT 0 0 ak/null 0 ak/null 1 (ak/& barrier))
     (vk/vkCmdCopyImageToBuffer command source vk/VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
                                buffer 1 (ak/& region))
     (az/set-many!
@@ -142,7 +142,7 @@
       (az/field barrier newLayout) vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
     (vk/vkCmdPipelineBarrier command vk/VK_PIPELINE_STAGE_TRANSFER_BIT
                              (ak/| vk/VK_PIPELINE_STAGE_HOST_BIT vk/VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
-                             0 0 null 1 (ak/& host-barrier) 1 (ak/& barrier))))
+                             0 0 ak/null 1 (ak/& host-barrier) 1 (ak/& barrier))))
 
 (az/defn write-frame! :bool
   "After the submission fence: PPM RGB bytes, with the actual mesh frame tag in its header."
@@ -156,7 +156,7 @@
         bgra (or (ak/== format vk/VK_FORMAT_B8G8R8A8_UNORM)
                  (ak/== format vk/VK_FORMAT_B8G8R8A8_SRGB))
         file (stdio/fopen (ak/& (az/index filename 0)) "wb")]
-    (when (ak/== file null) (ak/return false))
+    (when (ak/== file ak/null) (ak/return false))
     ;; Compact forward only after all four source bytes have been read.
     (dotimes [index (* (ak/as width :usize) height)]
       (let [source (* index 4)

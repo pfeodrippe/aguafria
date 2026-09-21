@@ -259,26 +259,26 @@
                     (ak/as (ak/intCast (az/field entry prompt_byte_count))
                            :usize))]
         (dotimes [position prompt-count]
-          (set! (az/index (az/field row prompt) position)
+          (ak/= (az/index (az/field row prompt) position)
                 (az/index (az/field entry prompt_bytes) position)))))
     (when (and include-raw detailed)
       (let [input-count
             (ak/min (ak/as (ak/intCast (az/field entry input_token_count)) :usize)
                     8)]
         (when (> (az/field entry response_byte_count) 0)
-          (set! (az/index (az/field row response) 0)
+          (ak/= (az/index (az/field row response) 0)
                 (az/index (az/field entry response_bytes) 0)))
         (dotimes [position input-count]
-          (set! (az/index (az/field row input_tokens) position)
+          (ak/= (az/index (az/field row input_tokens) position)
                 (az/index (az/field entry input_tokens) position)))
-        (set! (az/field row input_token_count)
+        (ak/= (az/field row input_token_count)
               (az/field entry input_token_count))
         (when (> (az/field entry output_token_count) 0)
-          (set! (az/field row output_token)
+          (ak/= (az/field row output_token)
                 (az/index (az/field entry output_tokens) 0)))))
     (if history-row
-      (set! (az/index (az/field snapshot history) destination) row)
-      (set! (az/index (az/field snapshot racers) index) row))))
+      (ak/= (az/index (az/field snapshot history) destination) row)
+      (ak/= (az/index (az/field snapshot racers) index) row))))
 
 (az/defn refresh-radio! :void
   "Copy one semantic newest-first team exchange into the stable C ABI."
@@ -313,9 +313,9 @@
           :damage (az/field entry damage)
           :prompt (std-mem/zeroes (az/type [:array 161 :u8]))})]
     (dotimes [position prompt-count]
-      (set! (az/index (az/field row prompt) position)
+      (ak/= (az/index (az/field row prompt) position)
             (az/index (az/field entry prompt_bytes) position)))
-    (set! (az/index (az/field snapshot radio) destination) row)))
+    (ak/= (az/index (az/field snapshot radio) destination) row)))
 
 (az/defn refresh! :void
   "Refresh the allocation-free native snapshot consumed by Dear ImGui."
@@ -339,25 +339,25 @@
             (ak/!= (az/field snapshot resolved_outcomes)
                    (az/field cognition resolved_outcomes))
             (ak/!= history-raw-visible include-raw))]
-    (set! (az/field snapshot tick) (az/field race tick))
-    (set! (az/field snapshot total_decisions)
+    (ak/= (az/field snapshot tick) (az/field race tick))
+    (ak/= (az/field snapshot total_decisions)
           (az/field cognition total_entries))
-    (set! (az/field snapshot llm_decisions) (az/field cognition llm_entries))
-    (set! (az/field snapshot fallback_decisions)
+    (ak/= (az/field snapshot llm_decisions) (az/field cognition llm_entries))
+    (ak/= (az/field snapshot fallback_decisions)
           (az/field cognition fallback_entries))
-    (set! (az/field snapshot rejected_decisions)
+    (ak/= (az/field snapshot rejected_decisions)
           (az/field cognition rejected_entries))
-    (set! (az/field snapshot deadline_misses)
+    (ak/= (az/field snapshot deadline_misses)
           (az/field cognition deadline_misses))
-    (set! (az/field snapshot resolved_outcomes)
+    (ak/= (az/field snapshot resolved_outcomes)
           (az/field cognition resolved_outcomes))
-    (set! (az/field snapshot worker_requests) (az/field workers requests))
-    (set! (az/field snapshot worker_results) (az/field workers results))
-    (set! (az/field snapshot worker_state_bytes)
+    (ak/= (az/field snapshot worker_requests) (az/field workers requests))
+    (ak/= (az/field snapshot worker_results) (az/field workers results))
+    (ak/= (az/field snapshot worker_state_bytes)
           (ak/intCast (az/field workers state_bytes)))
-    (set! (az/field snapshot pending_requests)
+    (ak/= (az/field snapshot pending_requests)
           (ak/intCast (az/field workers pending)))
-    (set! (az/field snapshot average_steps_per_second)
+    (ak/= (az/field snapshot average_steps_per_second)
           (az/field cognition average_tokens_per_second))
     (dotimes [identifier simulation/racer-count]
       (refresh-racer! (ak/intCast identifier) 0 identifier false include-raw))
@@ -367,13 +367,13 @@
                     (simulation/team-radio-history-count
                      (ak/intCast team-id)))
                    :usize)]
-        (set! (az/index (az/field snapshot radio_counts) team-id)
+        (ak/= (az/index (az/field snapshot radio_counts) team-id)
               (ak/intCast radio-count))
         (dotimes [offset 32]
           (let [destination (+ (* team-id 32) offset)]
             (if (< offset radio-count)
               (refresh-radio! (ak/intCast team-id) offset destination)
-              (set! (az/index (az/field snapshot radio) destination)
+              (ak/= (az/index (az/field snapshot radio) destination)
                     (std-mem/zeroes (az/type MonitorRadio))))))))
     (when history-changed
       (dotimes [identifier simulation/racer-count]
@@ -382,16 +382,16 @@
                       (ak/min (telemetry/decision-count (ak/intCast identifier))
                               telemetry/entries-per-racer))
                      :usize)]
-          (set! (az/index (az/field snapshot history_counts) identifier)
+          (ak/= (az/index (az/field snapshot history_counts) identifier)
                 (ak/intCast history-count))
           (dotimes [offset 64]
             (let [destination (+ (* identifier 64) offset)]
               (if (< offset history-count)
                 (refresh-racer! (ak/intCast identifier) offset destination
                                 true include-raw)
-                (set! (az/index (az/field snapshot history) destination)
+                (ak/= (az/index (az/field snapshot history) destination)
                       (std-mem/zeroes (az/type MonitorRacer))))))))
-      (set! history-raw-visible include-raw))
+      (ak/= history-raw-visible include-raw))
     (imgui/aguafria_imgui_update (ak/ptrCast (ak/& snapshot)))))
 
 (az/defn monitor-snapshot MonitorSnapshot
@@ -543,17 +543,17 @@
                           [simulation/race-epoch]) (ak/return))]
       (history-text! status 0.85 0.85 0.85))
     (when (ak/!= (ui/aguafria_ui_button "All racers") 0)
-      (set! language-history-racer -1))
+      (ak/= language-history-racer -1))
     (dotimes [identifier simulation/racer-count]
       (let [^:var buffer (ak/as ak/undefined [:array 12 :u8])
             label (catch (std-fmt/bufPrintZ (ak/& buffer) "R{d}" [identifier]) (ak/return))]
         (when (ak/!= (mod identifier 10) 0)
           (ui/aguafria_ui_same_line))
         (when (ak/!= (ui/aguafria_ui_button (az/field label ptr)) 0)
-          (set! language-history-racer (ak/intCast identifier)))))
-    (set! _ (ui/aguafria_ui_checkbox "Follow newest (uncheck to read older replies)" (ak/& language-history-follow)))
-    (set! _ (ui/aguafria_ui_checkbox "Show exact instructions too" (ak/& language-history-instructions)))
-    (set! _ (ui/aguafria_ui_checkbox "Show every call (including unchanged replies)" (ak/& language-history-every-call)))
+          (ak/= language-history-racer (ak/intCast identifier)))))
+    (ak/= :_ (ui/aguafria_ui_checkbox "Follow newest (uncheck to read older replies)" (ak/& language-history-follow)))
+    (ak/= :_ (ui/aguafria_ui_checkbox "Show exact instructions too" (ak/& language-history-instructions)))
+    (ak/= :_ (ui/aguafria_ui_checkbox "Show every call (including unchanged replies)" (ak/& language-history-every-call)))
     (when (>= language-history-racer 0)
       (let [identifier (ak/as (ak/intCast language-history-racer) :usize)
             enabled (az/field (az/index simulation/language-drivers identifier) enabled)
@@ -562,9 +562,9 @@
                             [identifier (if enabled "enabled" "disabled")]) (ak/return))]
         (history-text! status 1.0 1.0 1.0)
         (when (ak/!= (ui/aguafria_ui_button (if enabled "Disable text driver" "Enable text driver")) 0)
-          (set! _ (simulation/request-language-mode! identifier (ak/! enabled))))))
+          (ak/= :_ (simulation/request-language-mode! identifier (ak/! enabled))))))
     (when (ak/!= language-history-follow 0)
-      (set! language-history-end (simulation/language-exchange-count)))
+      (ak/= language-history-end (simulation/language-exchange-count)))
     ;; Keep selection/follow controls available while only the entries scroll.
     ;; EndChild is required even when BeginChild reports a clipped region.
     (let [entries-visible (ui/aguafria_ui_scroll_begin "driver-exchanges" language-history-follow)]
@@ -582,12 +582,12 @@
                                   language-history-racer)))
               (if (and (> count 0) (ak/== language-history-every-call 0)
                        (same-language-exchange? pending entry))
-                (set! count (+ count 1))
+                (ak/= count (+ count 1))
                 (do
                   (when (> count 0) (draw-language-group! pending oldest count))
-                  (set! pending entry)
-                  (set! count 1)))
-              (set! oldest (az/field entry sequence)))))
+                  (ak/= pending entry)
+                  (ak/= count 1)))
+              (ak/= oldest (az/field entry sequence)))))
         (when (> count 0) (draw-language-group! pending oldest count))
         (when (ak/== count 0)
           (history-text! "No retained text exchanges for this selection. Select a racer and enable its text driver. First reply may take several seconds. Frozen entries eventually expire from the 128-entry history." 0.85 0.85 0.85))))))
@@ -621,12 +621,12 @@
   (let [now (glfw/glfwGetTime)]
     (when (> frame-previous-time 0.0)
       (let [interval (- now frame-previous-time)]
-        (set! frame-interval-sum
+        (ak/= frame-interval-sum
               (+ (- frame-interval-sum (az/index frame-intervals frame-interval-index)) interval))
-        (set! (az/index frame-intervals frame-interval-index) interval)
-        (set! frame-interval-index (mod (+ frame-interval-index 1) 120))
-        (set! frame-interval-count (ak/min 120 (+ frame-interval-count 1)))))
-    (set! frame-previous-time now))
+        (ak/= (az/index frame-intervals frame-interval-index) interval)
+        (ak/= frame-interval-index (mod (+ frame-interval-index 1) 120))
+        (ak/= frame-interval-count (ak/min 120 (+ frame-interval-count 1)))))
+    (ak/= frame-previous-time now))
   ;; Optional console mirror allows measuring the exact standalone executable
   ;; without a REPL, debugger or a screenshot-derived FPS estimate.
   (when (and frame-report-enabled (>= (- frame-previous-time frame-report-time) 5.0))
@@ -638,8 +638,8 @@
         [fps (if (> fps 0.0) (/ 1000.0 fps) 0.0)
          (/ (ak/as (ak/floatFromInt (- tick (ak/min tick frame-report-tick))) :f64) elapsed)
          renderer/instance-draws renderer/instance-stream-used renderer/instance-upload-bytes])
-      (set! frame-report-time frame-previous-time)
-      (set! frame-report-tick tick)))
+      (ak/= frame-report-time frame-previous-time)
+      (ak/= frame-report-tick tick)))
   (let [fps (measured-fps)
         ^:var buffer (ak/as ak/undefined [:array 128 :u8])
         label (catch (std-fmt/bufPrintZ (ak/& buffer)
@@ -722,7 +722,7 @@
     (renderer/set-overlay-renderer!
      (ak/& imgui/aguafria_imgui_render))
     (imgui/aguafria_imgui_set_draw_callback (ak/& draw-driving-telemetry!))
-    (set! initialized true)
+    (ak/= initialized true)
     (refresh!)
     true))
 
@@ -759,10 +759,10 @@
   []
   (when initialized
     (imgui/aguafria_imgui_set_draw_callback ak/null)
-    (renderer/set-overlay-renderer! null)
+    (renderer/set-overlay-renderer! ak/null)
     (renderer/renderer-wait-idle!)
     (imgui/aguafria_imgui_shutdown)
-    (set! initialized false)))
+    (ak/= initialized false)))
 
 (az/defn run! :bool
   "Native desktop loop with the human-readable cognition monitor."
@@ -772,7 +772,7 @@
   (defer (desktop/shutdown!))
   (when (ak/! (initialize!))
     (ak/return false))
-  (set! frame-report-enabled
+  (ak/= frame-report-enabled
     (let [value (std-c/getenv "RACING_FPS_LOG")]
       (if (ak/!= value ak/null)
         (std-mem/eql :u8 (std-mem/span (az/unwrap value)) "1")
@@ -780,7 +780,7 @@
   (defer (shutdown!))
   (ak/while (desktop/should-run?)
     (refresh!)
-    (set! _ (desktop/frame!)))
+    (ak/= :_ (desktop/frame!)))
   true)
 
 (clojure.core/defn status

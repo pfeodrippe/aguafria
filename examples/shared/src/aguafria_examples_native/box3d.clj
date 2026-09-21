@@ -85,17 +85,14 @@
 (defn ensure-loaded! []
   (when-not @loaded?
     (build! :shared)
-    (let [{:keys [root header include bindings shared]} (paths)
-          stamp (io/file (str bindings ".upstream"))
-          commit (get-in vendor/dependencies [:box3d :commit])]
-      (when-not (and (.isFile bindings) (.isFile stamp) (= commit (slurp stamp)))
-        (ac/translate-header!
-         header bindings
-         {:namespace 'aguafria-examples-native.bindings.box3d
-          :include-dirs [include]
-          :cache-dir (str (io/file root ".aguafria/c-bindings"))
-          :overwrite? true})
-        (spit stamp commit))
+    (let [{:keys [root header include bindings shared]} (paths)]
+      ;; Let the translator invalidate generated source on compiler upgrades.
+      (ac/translate-header!
+       header bindings
+       {:namespace 'aguafria-examples-native.bindings.box3d
+        :include-dirs [include]
+        :cache-dir (str (io/file root ".aguafria/c-bindings"))
+        :overwrite? true})
       (ac/load-bindings! bindings)
       (az/configure! {:zig-args (vec (distinct (concat (:zig-args (az/configuration))
                                                      [(str shared) "-lc"])))})

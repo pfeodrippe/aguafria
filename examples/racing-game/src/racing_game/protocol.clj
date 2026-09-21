@@ -181,20 +181,20 @@
   (let [^:var result (DrivingPlan {:valid false :kind plan-invalid
                                   :rejection plan-malformed :radio_start 0 :radio_length 0})]
     (when (or (ak/! complete) (> length 2048))
-      (set! (az/field result rejection) plan-incomplete)
+      (ak/= (az/field result rejection) plan-incomplete)
       (ak/return result))
     (when (ak/== length 0) (ak/return result))
     (let [text (mem/trim (az/type :u8) (az/slice bytes 0 length) " \t\r\n")
           ^:var end (az/field text len)]
       (dotimes [i (az/field text len)]
         (when (and (ak/== end (az/field text len)) (ak/== (az/index text i) 10))
-          (set! end i)))
+          (ak/= end i)))
       (let [labelled (and (>= end 5) (same-plan-word? (az/slice text 0 5) "plan:"))
             word (mem/trim (az/type :u8) (az/slice text (if labelled (ak/as 5 :usize) 0) end) " \t\r.")
             ^:var kind (ak/u8 plan-invalid)]
         (dotimes [candidate 6]
           (let [code (ak/as (ak/intCast (+ candidate 1)) :u8)]
-            (when (same-plan-word? word (driving-plan-name code)) (set! kind code))))
+            (when (same-plan-word? word (driving-plan-name code)) (ak/= kind code))))
         (when (ak/== kind plan-invalid) (ak/return result))
         (when (ak/== end (az/field text len))
           (ak/return (DrivingPlan {:valid true :kind kind :rejection plan-ok
@@ -205,12 +205,12 @@
             (ak/return result))
           (let [radio (mem/trim (az/type :u8) (az/slice tail 6) " \t\r\n")]
             (when (ak/== (az/field radio len) 0) (ak/return result))
-            (set! (az/field result valid) true)
-            (set! (az/field result kind) kind)
-            (set! (az/field result rejection) plan-ok)
-            (set! (az/field result radio_start)
+            (ak/= (az/field result valid) true)
+            (ak/= (az/field result kind) kind)
+            (ak/= (az/field result rejection) plan-ok)
+            (ak/= (az/field result radio_start)
                   (ak/intCast (- (ak/intFromPtr (az/field radio ptr)) (ak/intFromPtr bytes))))
-            (set! (az/field result radio_length) (ak/intCast (az/field radio len)))))))
+            (ak/= (az/field result radio_length) (ak/intCast (az/field radio len)))))))
     result))
 
 (az/defn validate-driving-plan :u8
