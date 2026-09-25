@@ -1,5 +1,6 @@
 (ns learn.example.test-misaligned-pointer
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defstruct BitField {:layout :packed}
@@ -13,7 +14,7 @@
 (az/deftest pointer-to-non-byte-aligned-field-test
   ;; Intentionally rejected: a packed-field pointer carries bit-offset metadata
   ;; that an ordinary *const u3 parameter cannot represent.
-  (try (testing/expectEqual 2 (bar (& (az/field bits :b))))))
+  (try (testing/expectEqual 2 (bar (k/& (az/field bits :b))))))
 
 (comment
   (pointer-to-non-byte-aligned-field-test))

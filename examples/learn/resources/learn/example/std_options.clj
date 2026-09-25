@@ -1,19 +1,20 @@
 (ns learn.example.std-options
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std :as std]
             [aguafria.std.log :as log]
             [aguafria.zig :as az]))
 
 (az/defn- myLogFn :void
-  [[level {:attrs #{ak/comptime}} log/Level]
-   [scope {:attrs #{ak/comptime}} (ak/EnumLiteral)]
-   [format {:attrs #{ak/comptime}} [:slice-const :u8]]
+  [[level {:attrs #{k/comptime}} log/Level]
+   [scope {:attrs #{k/comptime}} (k/EnumLiteral)]
+   [format {:attrs #{k/comptime}} [:slice-const :u8]]
    [arguments :anytype]]
   ;; A custom logger can replace this delegation to the default implementation.
   (log/defaultLog level scope format arguments))
 
 (az/defconst std-options
   "Override standard-library behavior through std.Options."
-  {:attrs #{ak/pub}}
-  aguafria.std/Options
+  {:attrs #{k/pub}}
+  std/Options
   {:enable_segfault_handler true
    :logFn myLogFn})

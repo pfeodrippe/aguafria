@@ -1,13 +1,13 @@
 (ns learn.example.test-labeled-break
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest labeled-break-test
-  (let [y (ak/var 123 :i32)
+  (let [y (k/var 123 :i32)
         x (az/labeled-block blk
-            (ak/+= y 1)
-            (ak/break blk y))]
+            (k/+= y 1)
+            (k/break blk y))]
     (try (testing/expectEqual 124 x))
     (try (testing/expectEqual 124 y))))
 

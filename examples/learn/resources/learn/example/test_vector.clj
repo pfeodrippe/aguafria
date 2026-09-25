@@ -1,14 +1,14 @@
 (ns learn.example.test-vector
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest basic-vector-test
   ;; Vectors have a compile-time-known length and base type.
-  (let [a (az/array-init [1 2 3 4] (ak/Vector 4 :i32))
-        b (az/array-init [5 6 7 8] (ak/Vector 4 :i32))
+  (let [a (az/array-init [1 2 3 4] (k/Vector 4 :i32))
+        b (az/array-init [5 6 7 8] (k/Vector 4 :i32))
         ;; Math operations take place element-wise.
-        sum (+ a b)]
+        sum (k/+ a b)]
     ;; Individual vector elements use the same indexing syntax as arrays.
     (try (testing/expectEqual 6 (az/index sum 0)))
     (try (testing/expectEqual 8 (az/index sum 1)))
@@ -17,21 +17,21 @@
 
 (az/deftest vector-array-slice-conversion-test
   ;; Vectors can be coerced to arrays, and vice versa.
-  (let [original (ak/as (az/array-init [1.1 3.2 4.5 5.6] [:array :_ :f32]) [:array 4 :f32])
-        vector (ak/as original (ak/Vector 4 :f32))
-        roundtrip (ak/as vector [:array 4 :f32])]
+  (let [original (k/as (az/array-init [1.1 3.2 4.5 5.6] [:array :_ :f32]) [:array 4 :f32])
+        vector (k/as original (k/Vector 4 :f32))
+        roundtrip (k/as vector [:array 4 :f32])]
     (try (testing/expectEqual original roundtrip))
 
     ;; Dereference a slice with compile-time-known length to assign a vector.
-    (let [fixed-vector (ak/as @(az/slice original 1 3) (ak/Vector 2 :f32))
-          slice (ak/as (& original) [:slice-const :f32])
-          offset (ak/var 1 :u32)] ; mutable to make it runtime-known
-      (ak/= :_ (& offset)) ; suppress the never-mutated error
+    (let [fixed-vector (k/as @(az/slice original 1 3) (k/Vector 2 :f32))
+          slice (k/as (k/& original) [:slice-const :f32])
+          offset (k/var 1 :u32)] ; mutable to make it runtime-known
+      (k/= :_ (k/& offset)) ; suppress the never-mutated error
       ;; Starting at a runtime-known offset, first take a new slice, then an
       ;; array of compile-time-known length.
-      (let [offset-vector (ak/as @(az/slice (az/slice slice offset) 0 2) (ak/Vector 2 :f32))]
+      (let [offset-vector (k/as @(az/slice (az/slice slice offset) 0 2) (k/Vector 2 :f32))]
         (try (testing/expectEqual (az/index slice offset) (az/index fixed-vector 0)))
-        (try (testing/expectEqual (az/index slice (+ offset 1)) (az/index fixed-vector 1)))
+        (try (testing/expectEqual (az/index slice (k/+ offset 1)) (az/index fixed-vector 1)))
         (try (testing/expectEqual fixed-vector offset-vector))))))
 
 (comment

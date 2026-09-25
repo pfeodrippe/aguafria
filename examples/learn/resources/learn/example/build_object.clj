@@ -1,5 +1,6 @@
 (ns learn.example.build-object
-  (:require [aguafria.std :as std]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std :as std]
             [aguafria.std.Build.Step.Compile :as compile-step]
             [aguafria.zig :as az]))
 
@@ -15,6 +16,6 @@
                                    {:link_libc true})})]
     ((az/field (compile-step/-root_module executable) :addCSourceFile)
      {:file ((az/field builder :path) "test.c")
-      :flags (& ["-std=c99"])})
+      :flags (k/& ["-std=c99"])})
     ((az/field (compile-step/-root_module executable) :addObject) object)
     ((az/field builder :installArtifact) executable)))

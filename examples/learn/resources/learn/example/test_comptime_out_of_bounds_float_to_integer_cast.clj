@@ -1,8 +1,8 @@
 (ns learn.example.test-comptime-out-of-bounds-float-to-integer-cast
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-out-of-range-float
-  (let [float-value (ak/f32 4294967296)
-        integer-value (ak/i32 (ak/intFromFloat float-value))]
-    (ak/= :_ integer-value)))
+  (let [float-value (k/f32 4294967296)
+        integer-value (k/i32 (k/intFromFloat float-value))]
+    (k/= :_ integer-value)))

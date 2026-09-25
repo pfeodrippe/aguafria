@@ -1,5 +1,5 @@
 (ns learn.example.test-hasDecl-builtin
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -9,15 +9,15 @@
    [:hi {:const 1 :private true} :_]])
 
 (az/deftest declaration-presence-test
-  (try (testing/expect (ak/hasDecl Foo "blah")))
+  (try (testing/expect (k/hasDecl Foo "blah")))
 
   ;; Although hi is private, @hasDecl returns true in the same file as Foo.
   ;; It would return false if Foo were declared in a different file.
-  (try (testing/expect (ak/hasDecl Foo "hi")))
+  (try (testing/expect (k/hasDecl Foo "hi")))
 
   ;; @hasDecl is for declarations, not fields.
-  (try (testing/expect (ak/! (ak/hasDecl Foo "nope"))))
-  (try (testing/expect (ak/! (ak/hasDecl Foo "nope1234")))))
+  (try (testing/expect (k/! (k/hasDecl Foo "nope"))))
+  (try (testing/expect (k/! (k/hasDecl Foo "nope1234")))))
 
 (comment
   (declaration-presence-test))

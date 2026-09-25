@@ -1,16 +1,16 @@
 (ns learn.example.test-defer
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defn- defer-example :!usize
   []
-  (let [a (ak/var 1 :usize)]
+  (let [a (k/var 1 :usize)]
     (az/block
-      (ak/defer (ak/= a 2))
-      (ak/= a 1))
+      (k/defer (k/= a 2))
+      (k/= a 1))
     (try (testing/expectEqual 2 a))
-    (ak/= a 5)
+    (k/= a 5)
     a))
 
 (az/deftest defer-basics-test

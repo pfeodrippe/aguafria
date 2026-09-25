@@ -1,14 +1,14 @@
 (ns learn.example.test-int-to-float-coercion
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest integer-to-float-test
-  (let [integer (ak/var 123 :u8)]
-    (ak/= :_ (& integer))
+  (let [integer (k/var 123 :u8)]
+    (k/= :_ (k/& integer))
     ;; Every u8 value is exactly representable by f32.
-    (let [floating (ak/f32 integer)
-          restored (ak/u8 (ak/intFromFloat floating))]
+    (let [floating (k/f32 integer)
+          restored (k/u8 (k/intFromFloat floating))]
       (try (testing/expectEqual integer restored)))))
 
 (comment

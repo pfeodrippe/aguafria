@@ -1,28 +1,28 @@
 (ns learn.example.test-switch-continue-equivalent
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/deftest switch-continue-loop-test
-  (let [state (ak/var 5 :i32)]
-    (while true
+  (let [state (k/var 5 :i32)]
+    (k/while true
       (az/switch-stmt state
         (case [5]
           (az/block
-            (ak/= state 4)
-            (ak/continue)))
+            (k/= state 4)
+            (k/continue)))
         (case [(az/op "..." 2 4)] [value]
           (az/block
-            (if (> value 3)
+            (if (k/> value 3)
               (az/block
-                (ak/= state 2)
-                (ak/continue))
-              (when (ak/== value 3)
-                (ak/break)))
-            (ak/= state 1)
-            (ak/continue)))
+                (k/= state 2)
+                (k/continue))
+              (when (k/== value 3)
+                (k/break)))
+            (k/= state 1)
+            (k/continue)))
         (case [1]
-          (ak/return))
-        (az/case-else (ak/unreachable))))))
+          (k/return))
+        (az/case-else (k/unreachable))))))
 
 (comment
   (switch-continue-loop-test))

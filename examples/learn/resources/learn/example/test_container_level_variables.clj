@@ -1,10 +1,11 @@
 (ns learn.example.test-container-level-variables
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defn- add :i32
   [[a :i32] [b :i32]]
-  (+ a b))
+  (k/+ a b))
 
 (az/defconst x :i32 (add 12 34))
 (az/defvar y :i32 (add 10 x))

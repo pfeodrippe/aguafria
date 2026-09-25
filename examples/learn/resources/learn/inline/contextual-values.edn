@@ -1,12 +1,12 @@
 {"const number = parseU64(\"1234\", 10) catch unreachable;"
- {:clojure-source "(let [number (ak/catch (parseU64 \"1234\" 10) (ak/unreachable))]\n  number)"
+ {:clojure-source "(let [number (k/catch (parseU64 \"1234\" 10) (k/unreachable))]\n  number)"
   :kind :expr
   :note "Bind the successfully parsed number; an unexpected error reaches unreachable. The surrounding example supplies parseU64."}
 
  "catch unreachable"
  {:clojure-source ""
   :kind :syntax-note
-  :note "An error-union expression can be unwrapped with (ak/catch value (ak/unreachable)). This asserts success rather than silently ignoring an error."}
+  :note "An error-union expression can be unwrapped with (k/catch value (k/unreachable)). This asserts success rather than silently ignoring an error."}
 
  "||"
  {:clojure-source "az/op"
@@ -55,13 +55,13 @@
   :note "A floating-point literal from the ambiguous numeric-coercion example."}
 
  "@as(comptime_int, 10)"
- {:clojure-source "(ak/as 10 :comptime_int)"
+ {:clojure-source "(k/as 10 :comptime_int)"
   :kind :expr
   :standalone? true
   :note "Make the comptime integer result explicit."}
 
  "@as(f32, 10)"
- {:clojure-source "(ak/as 10 :f32)"
+ {:clojure-source "(k/as 10 :f32)"
   :kind :expr
   :standalone? true
   :note "Coerce the exact integer value ten to f32."}
@@ -73,13 +73,13 @@
   :note "An integer literal from the ambiguous numeric-coercion example."}
 
  "@as(comptime_float, 10.8)"
- {:clojure-source "(ak/as 10.8 :comptime_float)"
+ {:clojure-source "(k/as 10.8 :comptime_float)"
   :kind :expr
   :standalone? true
   :note "Make the comptime floating-point result explicit."}
 
  "@as(f32, 10.8)"
- {:clojure-source "(ak/as 10.8 :f32)"
+ {:clojure-source "(k/as 10.8 :f32)"
   :kind :expr
   :standalone? true
   :note "Coerce the floating-point literal to f32."}
@@ -90,7 +90,7 @@
   :note "Instantiate a generic map type; choosing void for Value removes stored value data."}
 
  "const x: u32 = 42;"
- {:clojure-source "(let [x (ak/as 42 :u32)]\n  x)"
+ {:clojure-source "(let [x (k/as 42 :u32)]\n  x)"
   :kind :expr
   :note "The typed binding coerces 42 to u32. The scoped form returns x to show its resulting value."}
 
@@ -101,7 +101,7 @@
   :note "This comptime integer receives its result type from the surrounding typed binding."}
 
  "&e"
- {:clojure-source "(ak/& e)"
+ {:clojure-source "(k/& e)"
   :kind :expr
   :note "A pointer result type can supply an element result type to e before its address is taken."}
 
@@ -111,27 +111,27 @@
   :note "A single-item pointer to u32."}
 
  "const val: T = x"
- {:clojure-source "(let [val (ak/as x T)]\n  val)"
+ {:clojure-source "(let [val (k/as x T)]\n  val)"
   :kind :expr
   :note "An immutable typed binding gives x result type T and the storage location of val; this scoped form returns val."}
 
  "var val: T = x"
- {:clojure-source "(let [val (ak/var x T)]\n  val)"
+ {:clojure-source "(let [val (k/var x T)]\n  val)"
   :kind :expr
   :note "The mutable constructor gives x result type T and the storage location of val; mutations belong inside this scope."}
 
  "val = x"
- {:clojure-source "(ak/= val x)"
+ {:clojure-source "(k/= val x)"
   :kind :statements
   :note "Assignment supplies x with val's type and storage location."}
 
  "@TypeOf(val)"
- {:clojure-source "(ak/TypeOf val)"
+ {:clojure-source "(k/TypeOf val)"
   :kind :expr
   :note "Reflect the type that assignment to val requires."}
 
  "@as(T, x)"
- {:clojure-source "(ak/as x T)"
+ {:clojure-source "(k/as x T)"
   :kind :expr
   :note "Provide result type T to x without propagating the enclosing result location."}
 
@@ -146,7 +146,7 @@
   :note "A positional aggregate literal propagates its first field's result type and result location to x."}
 
  "@FieldType(T, \"0\")"
- {:clojure-source "(ak/FieldType T \"0\")"
+ {:clojure-source "(k/FieldType T \"0\")"
   :kind :expr
   :note "Reflect the type of the first positional field."}
 
@@ -156,7 +156,7 @@
   :note "An inferred aggregate initializer passes field a's result type and result location to x."}
 
  "@FieldType(T, \"a\")"
- {:clojure-source "(ak/FieldType T \"a\")"
+ {:clojure-source "(k/FieldType T \"a\")"
   :kind :expr
   :note "Reflect the type of named field a."}
 
@@ -171,22 +171,22 @@
   :note "A typed named-field initializer supplies field a's type but does not propagate its result location to x."}
 
  "@Int(x, y)"
- {:clojure-source "(ak/Int x y)"
+ {:clojure-source "(k/Int x y)"
   :kind :expr
   :note "Construct an integer type from signedness x and u16 bit count y; neither argument receives a result location."}
 
  "@typeInfo(x)"
- {:clojure-source "(ak/typeInfo x)"
+ {:clojure-source "(k/typeInfo x)"
   :kind :expr
   :note "The reflected argument x must be a type and receives no result location."}
 
  "x << y"
- {:clojure-source "(ak/<< x y)"
+ {:clojure-source "(k/<< x y)"
   :kind :expr
   :note "The left operand's type determines the shift-count type; neither operand receives a result location."}
 
  "x = e"
- {:clojure-source "(ak/= x e)"
+ {:clojure-source "(k/= x e)"
   :kind :statements
   :note "The destination x supplies e with both a result type and a result location."}
 
@@ -196,32 +196,32 @@
   :note "An inferred aggregate initializer writes x and y directly into the destination fields when a result location is available."}
 
  "&ptr.a"
- {:clojure-source "(ak/& (az/field ptr :a))"
+ {:clojure-source "(k/& (az/field ptr :a))"
   :kind :expr
   :note "The storage location of field a in the pointed-to aggregate."}
 
  "&ptr.b"
- {:clojure-source "(ak/& (az/field ptr :b))"
+ {:clojure-source "(k/& (az/field ptr :b))"
   :kind :expr
   :note "The storage location of field b in the pointed-to aggregate."}
 
  "foo = .{ .a = x, .b = y }"
- {:clojure-source "(ak/= foo {:a x :b y})"
+ {:clojure-source "(k/= foo {:a x :b y})"
   :kind :statements
   :note "Result locations make this aggregate assignment write the fields directly, rather than construct an independent temporary copy."}
 
  "foo.a = x; foo.b = y;"
- {:clojure-source "(ak/= (az/field foo :a) x)\n(ak/= (az/field foo :b) y)"
+ {:clojure-source "(k/= (az/field foo :a) x)\n(k/= (az/field foo :b) y)"
   :kind :statements
   :note "These are sequential field writes, not alternatives; the second expression can observe the first write."}
 
  "&val"
- {:clojure-source "(ak/& val)"
+ {:clojure-source "(k/& val)"
   :kind :expr
   :note "The storage location supplied by a binding or assignment to val."}
 
  "&ptr[0]"
- {:clojure-source "(ak/& (az/index ptr 0))"
+ {:clojure-source "(k/& (az/index ptr 0))"
   :kind :expr
   :note "The first element's storage location receives the first positional initializer's result."}
 

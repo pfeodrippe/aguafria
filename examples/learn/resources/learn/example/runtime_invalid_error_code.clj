@@ -1,13 +1,13 @@
 (ns learn.example.runtime-invalid-error-code
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn main :void []
   (let [error (az/error-value :AnError)
-        error-code (ak/var (+ (ak/intFromError error) 500))]
-    (ak/= :_ (ak/& error-code))
-    (let [invalid-error (ak/errorFromInt error-code)]
+        error-code (k/var (k/+ (k/intFromError error) 500))]
+    (k/= :_ (k/& error-code))
+    (let [invalid-error (k/errorFromInt error-code)]
       (debug/print "value: {}\n" [invalid-error]))))
 
 (comment

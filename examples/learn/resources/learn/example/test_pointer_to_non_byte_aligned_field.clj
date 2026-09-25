@@ -1,5 +1,6 @@
 (ns learn.example.test-pointer-to-non-byte-aligned-field
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defstruct BitField {:layout :packed}
@@ -9,7 +10,7 @@
 
 (az/deftest pointer-to-non-byte-aligned-field-test
   ;; Keeping the inferred pointer type retains the sub-byte offset.
-  (let [pointer (& (az/field bits :b))]
+  (let [pointer (k/& (az/field bits :b))]
     (try (testing/expectEqual 2 @pointer))))
 
 (comment

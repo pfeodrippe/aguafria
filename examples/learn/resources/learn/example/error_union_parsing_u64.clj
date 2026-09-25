@@ -1,30 +1,30 @@
 (ns learn.example.error-union-parsing-u64
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.math :as math]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defn- char-to-digit :u8 [[character :u8]]
   (switch character
-    (case [(az/op "..." \0 \9)] (- character \0))
-    (case [(az/op "..." \A \Z)] (+ (- character \A) 10))
-    (case [(az/op "..." \a \z)] (+ (- character \a) 10))
+    (case [(az/op "..." \0 \9)] (k/- character \0))
+    (case [(az/op "..." \A \Z)] (k/+ (k/- character \A) 10))
+    (case [(az/op "..." \a \z)] (k/+ (k/- character \a) 10))
     (az/case-else (math/maxInt :u8))))
 
 (az/defn parseU64 [:error-union :u64]
   [[text [:slice-const :u8]] [radix :u8]]
-  (let [accumulated (ak/var 0 :u64)]
-    (for [character text]
+  (let [accumulated (k/var 0 :u64)]
+    (k/for [character text]
       (let [digit (char-to-digit character)]
-        (when (>= digit radix)
-          (ak/return (az/error-value :InvalidChar)))
-        (let [product (ak/mulWithOverflow accumulated radix)]
-          (when (ak/!= (az/index product 1) 0)
-            (ak/return (az/error-value :OverFlow)))
-          (let [sum (ak/addWithOverflow (az/index product 0) digit)]
-            (when (ak/!= (az/index sum 1) 0)
-              (ak/return (az/error-value :OverFlow)))
-            (ak/= accumulated (az/index sum 0))))))
+        (when (k/>= digit radix)
+          (k/return (az/error-value :InvalidChar)))
+        (let [product (k/mulWithOverflow accumulated radix)]
+          (when (k/!= (az/index product 1) 0)
+            (k/return (az/error-value :OverFlow)))
+          (let [sum (k/addWithOverflow (az/index product 0) digit)]
+            (when (k/!= (az/index sum 1) 0)
+              (k/return (az/error-value :OverFlow)))
+            (k/= accumulated (az/index sum 0))))))
     accumulated))
 
 (az/deftest parse-u64-test

@@ -87,7 +87,11 @@
   - [x] float_mode_exe.clj
     - [x] error: undefined symbol: _foo_optimized and error: undefined symbol: _foo_strict
     - [x] and the output is expected ?
+  - [ ] test_arrays.clj
+  - [ ] test_multidimensional_arrays.clj
+  - [ ] test_null_terminated_array.clj
 
+- [ ] test check-like generators
 - [ ] show tree structure of a running program
   - [ ] call tree and what's in the middle of the invocations
   - [ ] mode (debug, fast etc)

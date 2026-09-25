@@ -3,7 +3,7 @@
 
   These are syntax references, not invented standalone execution tests. Keep
   expressions requiring their surrounding example pending until translated."
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std]
             [aguafria.std.builtin]
             [aguafria.std.crypto]
@@ -41,24 +41,24 @@
 
 (defn- catalog-var [entry]
   (let [expected (or (:zig-name entry) (:zig-token entry) (:tag entry))
-        var-name (if (:zig-name entry) (:name entry) (ak/token-name expected))
+        var-name (if (:zig-name entry) (:name entry) (k/token-name expected))
         resolved (when var-name
                    (ns-resolve 'aguafria.keyword (symbol var-name)))]
     (when-not (and (var? resolved)
                    (= expected (:zig/name (meta resolved))))
       (throw (ex-info "The documented keyword must resolve to its actual Var"
                       {:entry entry})))
-    (str "ak/" var-name)))
+    (str "k/" var-name)))
 
 (defn references
   "Build mappings from the installed compiler catalog, checking real Vars.
   Function signatures remain references: no fictitious argument bindings."
   []
-  {:builtins (into {} (map (juxt :zig-name identity)) (ak/entries))
+  {:builtins (into {} (map (juxt :zig-name identity)) (k/entries))
    :tokens (into {}
                  (map (fn [entry]
                         [(or (:zig-token entry) (:tag entry)) entry]))
-                 (concat (ak/primitives) (ak/language-keywords)))})
+                 (concat (k/primitives) (k/language-keywords)))})
 
 (defn equivalent
   "Return a checked reference mapping, or nil if context-aware work remains.
@@ -71,7 +71,7 @@
       (or (re-matches #"[iu][0-9]+" source)
           (and token
                (not (contains? #{"true" "false" "null" "undefined"} source))
-               (some #(= source (:zig-token %)) (ak/primitives))))
+               (some #(= source (:zig-token %)) (k/primitives))))
       (let [type-form (keyword source)]
         (when-not (= source (emitter/emit-type type-form))
           (throw (ex-info "Primitive type spelling changed" {:source source})))
@@ -88,8 +88,8 @@
       {:clojure-source (catalog-var token)
        :verification :catalog-var-matched
        :note (if (contains? #{"null" "undefined"} source)
-               "Primitive value inside an Aguafria declaration. Require [aguafria.keyword :as ak]."
-               "Syntax reference, not a complete form. This real Var names the Zig keyword; surrounding forms supply its arguments. Require [aguafria.keyword :as ak].")}
+               "Primitive value inside an Aguafria declaration. Require [aguafria.keyword :as k]."
+               "Syntax reference, not a complete form. This real Var names the Zig keyword; surrounding forms supply its arguments. Require [aguafria.keyword :as k].")}
 
       (and builtin
            (or (= source builtin-name)
@@ -97,7 +97,7 @@
                   (normalized-signature (:signature builtin)))))
       {:clojure-source (catalog-var builtin)
        :verification :catalog-var-matched
-       :note "Built-in reference, not a call. Require [aguafria.keyword :as ak]; invoke this Var inside an Aguafria declaration with the arguments described by the original signature."}
+       :note "Built-in reference, not a call. Require [aguafria.keyword :as k]; invoke this Var inside an Aguafria declaration with the arguments described by the original signature."}
 
       (re-matches #"[A-Za-z_][A-Za-z0-9_]*" source)
       (let [form (symbol source)]
@@ -162,7 +162,7 @@
                 runtime/*registration-batch* declarations
                 project/*catalog-namespace* namespace-symbol]
         (eval (list 'ns namespace-symbol
-                    '(:require [aguafria.keyword :as ak]
+                    '(:require [aguafria.keyword :as k]
                                [aguafria.zig :as az])))
         (doseq [form forms]
           (eval form)))

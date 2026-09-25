@@ -1,14 +1,14 @@
 (ns learn.example.test-sentinel-mismatch
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/deftest sentinel-mismatch-test
-  (let [bytes (ak/var (az/array-init [3 2 1 0] [:array :_ :u8]))
-        length (ak/var 2 :usize)]
-    (ak/= :_ (& length))
+  (let [bytes (k/var (az/array-init [3 2 1 0] [:array :_ :u8]))
+        length (k/var 2 :usize)]
+    (k/= :_ (k/& length))
     ;; Intentionally panics: bytes[length] is 1, not the promised zero sentinel.
     (let [slice (az/slice-sentinel bytes 0 length 0)]
-      (ak/= :_ slice))))
+      (k/= :_ slice))))
 
 (comment
   ;; This deliberately panics and can terminate this JVM.

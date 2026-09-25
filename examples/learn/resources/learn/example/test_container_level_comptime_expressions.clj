@@ -1,36 +1,36 @@
 (ns learn.example.test-container-level-comptime-expressions
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defn- firstNPrimes [:array amount :i32]
-  [[amount {:attrs #{ak/comptime}} :usize]]
-  (let [prime-list (ak/var ak/undefined [:array amount :i32])
-        next-index (ak/var 0 :usize)
-        candidate (ak/var 2 :i32)]
+  [[amount {:attrs #{k/comptime}} :usize]]
+  (let [prime-list (k/var k/undefined [:array amount :i32])
+        next-index (k/var 0 :usize)
+        candidate (k/var 2 :i32)]
     (az/while-loop {:continue (az/assign-expr "+=" candidate 1)}
-      (< next-index (az/field prime-list :len))
-      (let [divisor-index (ak/var 0 :usize)
-            prime? (ak/var true)]
+      (k/< next-index (az/field prime-list :len))
+      (let [divisor-index (k/var 0 :usize)
+            prime? (k/var true)]
         (az/while-loop {:continue (az/assign-expr "+=" divisor-index 1)}
-          (< divisor-index next-index)
-          (when (ak/== (ak/% candidate (az/index prime-list divisor-index)) 0)
-            (ak/= prime? false)
-            (ak/break)))
+          (k/< divisor-index next-index)
+          (when (k/== (k/% candidate (az/index prime-list divisor-index)) 0)
+            (k/= prime? false)
+            (k/break)))
         (when prime?
-          (ak/= (az/index prime-list next-index) candidate)
-          (ak/+= next-index 1))))
+          (k/= (az/index prime-list next-index) candidate)
+          (k/+= next-index 1))))
     prime-list))
 
 (az/defn- sum :i32
   [[numbers [:slice-const :i32]]]
-  (let [result (ak/var 0 :i32)]
-    (for [number numbers]
-      (ak/+= result number))
+  (let [result (k/var 0 :i32)]
+    (k/for [number numbers]
+      (k/+= result number))
     result))
 
 (az/defconst first-25-primes (firstNPrimes 25))
-(az/defconst sum-of-first-25-primes (sum (& first-25-primes)))
+(az/defconst sum-of-first-25-primes (sum (k/& first-25-primes)))
 
 (az/deftest compile-time-variable-values-test
   (try (testing/expectEqual 1060 sum-of-first-25-primes)))

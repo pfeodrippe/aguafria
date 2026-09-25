@@ -1,5 +1,32 @@
 # Learn reference implementation
 
+- [ ] Add a source-driven JVM audit of every Learn declaration, including
+      private Vars, value realization/printing, native tests, and inner forms
+      with their lexical setup. Report every unexecuted or failing case; entry
+      point output equivalence is not evidence that individual JVM forms work.
+      Start with test-arrays, then audit the complete corpus. Preserve expected
+      Zig failures and isolate unsafe/target-specific cases explicitly.
+      Use bounded virtual threads for independent source inventory/build work;
+      serialize shared native state and output capture. Write a new investigation
+      Markdown report with timings, coverage, failures and explicit exclusions.
+      Progress: `test/learn/jvm_audit.clj` and `JVM_INVESTIGATION.md` added.
+      Full declaration baseline inventories 290 examples; focused arrays now
+      pass 119 executed checks with no failures (four explicit context/argument
+      exclusions). Values/literals/destructuring add 131 passing checks and one
+      threading-context exclusion. Five of eight baseline declaration-inspection failures pass
+      after generic fixes; expected upstream errors remain errors. Broader safe
+      expression coverage and the remaining comptime-value issues are not done.
+
+- [x] Prefer the `k` alias throughout Learn and the converter, retaining the
+      user-owned experimental hello.clj unchanged. Use callable native arithmetic,
+      comparison and eager scoped loop forms where Clojure behavior differs.
+      Verify the native code/output equivalence after migration; do not claim
+      every scoped form or every example independently JVM-safe yet.
+      Verified: 98 regression tests / 1,320 assertions; converter 3 / 18;
+      292 documentation comparisons, 202 real transcripts, 10 browser checks.
+      Remaining known JVM-only issues: explicit comptime-only aggregate
+      inspection (std.Options) and native function-table calling conventions.
+
 - [x] Verify inferred numeric constants from an ordinary REPL: Zig radix and
       underscore literals, integers wider than signed 64-bit, and math/inf and
       math/nan (including f128). Do not request storage for comptime-only values

@@ -1,5 +1,5 @@
 (ns learn.example.runtime-invalid-error-set-cast
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
@@ -7,7 +7,7 @@
 (az/defconst Set2 (az/type [:error-set [:A :C]]))
 
 (az/defn- foo :void [[error Set1]]
-  (let [casted-error (ak/as (ak/errorCast error) Set2)]
+  (let [casted-error (k/as (k/errorCast error) Set2)]
     (debug/print "value: {}\n" [casted-error])))
 
 (az/defn main :void []

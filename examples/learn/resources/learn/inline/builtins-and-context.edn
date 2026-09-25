@@ -4,7 +4,7 @@
 
  "\"builtin\""
  {:clojure-source "\"builtin\"" :kind :expr :standalone? true
-  :note "The module name supplied to ak/import."}
+  :note "The module name supplied to k/import."}
 
  "\"hello\""
  {:clojure-source "\"hello\"" :kind :expr :standalone? true
@@ -72,10 +72,10 @@
 
  "comptime var"
  {:clojure-source "" :kind :syntax-note
-  :note "A mutable compile-time local uses ak/var with {:attrs #{ak/comptime}}. Its loads and stores are checked at compile time."}
+  :note "A mutable compile-time local uses k/var with {:attrs #{k/comptime}}. Its loads and stores are checked at compile time."}
 
  "*%"
- {:clojure-source "ak/*%" :kind :reference
+ {:clojure-source "k/*%" :kind :reference
   :note "Wrapping multiplication; overflow keeps the low bits of the result."}
 
  "->"
@@ -139,75 +139,75 @@
   :note "An explicitly quoted Zig identifier, not a string value."}
 
  "@Int(.unsigned, 18)"
- {:clojure-source "(ak/Int :.unsigned 18)" :kind :expr :standalone? true
+ {:clojure-source "(k/Int :.unsigned 18)" :kind :expr :standalone? true
   :note "Construct the unsigned 18-bit integer type."}
 
  "@This()"
- {:clojure-source "(ak/This)" :kind :expr
+ {:clojure-source "(k/This)" :kind :expr
   :note "The type of the innermost enclosing container."}
 
  "@TypeOf(anytype)"
  {:clojure-source "" :kind :syntax-note
-  :note "Here anytype is prose shorthand for the operand, not a value. Use (ak/TypeOf operand) with the actual argument from the surrounding call."}
+  :note "Here anytype is prose shorthand for the operand, not a value. Use (k/TypeOf operand) with the actual argument from the surrounding call."}
 
  "@TypeOf(operand)"
- {:clojure-source "(ak/TypeOf operand)" :kind :expr
+ {:clojure-source "(k/TypeOf operand)" :kind :expr
   :note "The type of the surrounding operand."}
 
  "@as(u1, 0)"
- {:clojure-source "(ak/as 0 :u1)" :kind :expr :standalone? true
+ {:clojure-source "(k/as 0 :u1)" :kind :expr :standalone? true
   :note "Zero with the explicit unsigned one-bit type."}
 
  "@as(u1, 1)"
- {:clojure-source "(ak/as 1 :u1)" :kind :expr :standalone? true
+ {:clojure-source "(k/as 1 :u1)" :kind :expr :standalone? true
   :note "One with the explicit unsigned one-bit type."}
 
  "@breakpoint()"
- {:clojure-source "(ak/breakpoint)" :kind :expr
+ {:clojure-source "(k/breakpoint)" :kind :expr
   :note "Insert a debugger breakpoint. Syntax checked but intentionally not executed by the reference verifier."}
 
  "@trap()"
- {:clojure-source "(ak/trap)" :kind :expr
+ {:clojure-source "(k/trap)" :kind :expr
   :note "Unconditionally trap. Syntax checked but intentionally not executed by the short-expression verifier."}
 
  "@cDefine(\"_GNU_SOURCE\", {})"
- {:clojure-source "(ak/cDefine \"_GNU_SOURCE\" (az/block))" :kind :expr
-  :note "Inside ak/cImport, define the C preprocessor macro with no replacement text."}
+ {:clojure-source "(k/cDefine \"_GNU_SOURCE\" (az/block))" :kind :expr
+  :note "Inside k/cImport, define the C preprocessor macro with no replacement text."}
 
  "@divExact(6, 3) == 2"
- {:clojure-source "(ak/== (ak/divExact 6 3) 2)" :kind :expr :standalone? true
+ {:clojure-source "(k/== (k/divExact 6 3) 2)" :kind :expr :standalone? true
   :note "Exact division has no remainder."}
 
  "@divExact(a, b) * b == a"
- {:clojure-source "(ak/== (* (ak/divExact a b) b) a)" :kind :expr
+ {:clojure-source "(k/== (* (k/divExact a b) b) a)" :kind :expr
   :note "The exact-division identity, subject to the builtin's preconditions."}
 
  "@divFloor(-5, 3) == -2"
- {:clojure-source "(ak/== (ak/divFloor -5 3) -2)" :kind :expr :standalone? true
+ {:clojure-source "(k/== (k/divFloor -5 3) -2)" :kind :expr :standalone? true
   :note "Floor division rounds negative quotients toward negative infinity."}
 
  "@divTrunc(-5, 3) == -1"
- {:clojure-source "(ak/== (ak/divTrunc -5 3) -1)" :kind :expr :standalone? true
+ {:clojure-source "(k/== (k/divTrunc -5 3) -1)" :kind :expr :standalone? true
   :note "Truncating division rounds toward zero."}
 
  "@divTrunc(numerator, denominator) * denominator == numerator"
- {:clojure-source "(ak/== (* (ak/divTrunc numerator denominator) denominator)\n    numerator)" :kind :expr
+ {:clojure-source "(k/== (* (k/divTrunc numerator denominator) denominator)\n    numerator)" :kind :expr
   :note "The surrounding exact-division precondition; numerator and denominator are local parameters."}
 
  "@mod(-5, 3) == 1"
- {:clojure-source "(ak/== (ak/mod -5 3) 1)" :kind :expr :standalone? true
+ {:clojure-source "(k/== (k/mod -5 3) 1)" :kind :expr :standalone? true
   :note "Modulo pairs with floor division."}
 
  "@rem(-5, 3) == -2"
- {:clojure-source "(ak/== (ak/rem -5 3) -2)" :kind :expr :standalone? true
+ {:clojure-source "(k/== (k/rem -5 3) -2)" :kind :expr :standalone? true
   :note "Remainder pairs with truncating division."}
 
  "(@divFloor(a, b) * b) + @mod(a, b) == a"
- {:clojure-source "(ak/== (+ (* (ak/divFloor a b) b) (ak/mod a b)) a)" :kind :expr
+ {:clojure-source "(k/== (+ (* (k/divFloor a b) b) (k/mod a b)) a)" :kind :expr
   :note "Reconstruct the dividend from floor quotient and modulo."}
 
  "(@divTrunc(a, b) * b) + @rem(a, b) == a"
- {:clojure-source "(ak/== (+ (* (ak/divTrunc a b) b) (ak/rem a b)) a)" :kind :expr
+ {:clojure-source "(k/== (+ (* (k/divTrunc a b) b) (k/rem a b)) a)" :kind :expr
   :note "Reconstruct the dividend from truncated quotient and remainder."}
 
  "(a * b) + c"
@@ -215,40 +215,40 @@
   :note "Separate multiplication and addition, unlike a fused multiply-add."}
 
  "@sizeOf(@TypeOf(value)) == @sizeOf(DestType)"
- {:clojure-source "(ak/== (ak/sizeOf (ak/TypeOf value)) (ak/sizeOf DestType))" :kind :expr
+ {:clojure-source "(k/== (k/sizeOf (k/TypeOf value)) (k/sizeOf DestType))" :kind :expr
   :note "A bit cast requires equal source and destination sizes."}
 
  "@sizeOf(T)"
- {:clojure-source "(ak/sizeOf T)" :kind :expr
+ {:clojure-source "(k/sizeOf T)" :kind :expr
   :note "The target-dependent storage size of T, in bytes."}
 
  "@sizeOf(u24) == 4"
- {:clojure-source "(ak/== (ak/sizeOf :u24) 4)" :kind :expr :standalone? true
+ {:clojure-source "(k/== (k/sizeOf :u24) 4)" :kind :expr :standalone? true
   :note "The reference's storage-size example; the comparison runs on both sides with the same target."}
 
  "@typeInfo(@TypeOf(ptr)).pointer.alignment"
- {:clojure-source "(az/field (az/field (ak/typeInfo (ak/TypeOf ptr)) :pointer)\n          :alignment)" :kind :expr
+ {:clojure-source "(az/field (az/field (k/typeInfo (k/TypeOf ptr)) :pointer)\n          :alignment)" :kind :expr
   :note "The alignment recorded in the surrounding pointer's type information."}
 
  ">= @sizeOf(T)."
  {:clojure-source "" :kind :syntax-note
-  :note "The period ends the sentence, not an expression. Compare the preceding alignment with (>= alignment (ak/sizeOf T))."}
+  :note "The period ends the sentence, not an expression. Compare the preceding alignment with (>= alignment (k/sizeOf T))."}
 
  "@typeInfo(DestType) != .pointer"
- {:clojure-source "(ak/!= (ak/typeInfo DestType) :.pointer)" :kind :expr
+ {:clojure-source "(k/!= (k/typeInfo DestType) :.pointer)" :kind :expr
   :note "Reject pointer destination types; pointer casts have dedicated builtins."}
 
  "@typeInfo(T).int.bits"
- {:clojure-source "(az/field (az/field (ak/typeInfo T) :int) :bits)" :kind :expr
+ {:clojure-source "(az/field (az/field (k/typeInfo T) :int) :bits)" :kind :expr
   :note "The integer type's bit width."}
 
  "@workGroupSize(dimension)"
- {:clojure-source "(ak/workGroupSize dimension)" :kind :expr
+ {:clojure-source "(k/workGroupSize dimension)" :kind :expr
   :note "GPU work-group size for the selected dimension; requires a GPU execution context."}
 
  "!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1)"
- {:clojure-source "(not (and (ak/== (ak/typeInfo T) :.int)\n          (az/field T :is_signed)\n          (ak/== numerator (aguafria.std.math/minInt T))\n          (ak/== denominator -1)))" :kind :expr
-  :note "The upstream division-overflow condition, preserved as written. T.is_signed is historical prose syntax, not a valid field on current integer types; current code reads signedness through ak/typeInfo. This contextual fragment is not claimed to execute."}
+ {:clojure-source "(not (and (k/== (k/typeInfo T) :.int)\n          (az/field T :is_signed)\n          (k/== numerator (aguafria.std.math/minInt T))\n          (k/== denominator -1)))" :kind :expr
+  :note "The upstream division-overflow condition, preserved as written. T.is_signed is historical prose syntax, not a valid field on current integer types; current code reads signedness through k/typeInfo. This contextual fragment is not claimed to execute."}
 
  "a * b"
  {:clojure-source "(* a b)" :kind :expr
@@ -259,7 +259,7 @@
   :note "Subtract the surrounding operands."}
 
  "a << b"
- {:clojure-source "(ak/<< a b)" :kind :expr
+ {:clojure-source "(k/<< a b)" :kind :expr
   :note "Shift a left by b bits."}
 
  "a[i]"
@@ -287,11 +287,11 @@
   :note "Release all allocations owned by the surrounding arena."}
 
  "denominator != 0"
- {:clojure-source "(ak/!= denominator 0)" :kind :expr
+ {:clojure-source "(k/!= denominator 0)" :kind :expr
   :note "Division requires a nonzero denominator."}
 
  "numerator % denominator"
- {:clojure-source "(ak/% numerator denominator)" :kind :expr
+ {:clojure-source "(k/% numerator denominator)" :kind :expr
   :note "The remainder operator; its permitted operand types follow Zig's rules."}
 
  "numerator / denominator"
@@ -315,27 +315,27 @@
   :note "Add {:export true} after the return type to export a function through the C ABI. Public alone does not mean C-exported."}
 
  "i8 = -74"
- {:clojure-source "(ak/as -74 :i8)" :kind :expr
+ {:clojure-source "(k/as -74 :i8)" :kind :expr
   :note "This is a typed-value annotation in prose, not a Zig assignment: the bit pattern interpreted as signed i8."}
 
  "i8 = 109"
- {:clojure-source "(ak/as 109 :i8)" :kind :expr
+ {:clojure-source "(k/as 109 :i8)" :kind :expr
   :note "The reversed bit pattern interpreted as signed i8."}
 
  "u8 = 109"
- {:clojure-source "(ak/as 109 :u8)" :kind :expr
+ {:clojure-source "(k/as 109 :u8)" :kind :expr
   :note "The reversed bit pattern interpreted as unsigned u8."}
 
  "u8 = 182"
- {:clojure-source "(ak/as 182 :u8)" :kind :expr
+ {:clojure-source "(k/as 182 :u8)" :kind :expr
   :note "The original bit pattern interpreted as unsigned u8."}
 
  "log2(@typeInfo(@TypeOf(a)).int.bits)"
- {:clojure-source "(log2 (az/field (az/field (ak/typeInfo (ak/TypeOf a)) :int)\n                :bits))" :kind :expr
+ {:clojure-source "(log2 (az/field (az/field (k/typeInfo (k/TypeOf a)) :int)\n                :bits))" :kind :expr
   :note "A mathematical bound on the shift count's bit width. log2 names the operation in prose, not a newly provided function."}
 
  "log2(@typeInfo(T).int.bits)"
- {:clojure-source "(log2 (az/field (az/field (ak/typeInfo T) :int) :bits))" :kind :expr
+ {:clojure-source "(log2 (az/field (az/field (k/typeInfo T) :int) :bits))" :kind :expr
   :note "A mathematical bound in the surrounding shift discussion; log2 is contextual notation."}
 
  "options.linkage"
@@ -351,15 +351,15 @@
   :note "Index a pointer to structs, then read the selected struct's member."}
 
  "shift_amt >= @typeInfo(@TypeOf(a)).int.bits"
- {:clojure-source "(>= shift-amt\n    (az/field (az/field (ak/typeInfo (ak/TypeOf a)) :int) :bits))" :kind :expr
+ {:clojure-source "(>= shift-amt\n    (az/field (az/field (k/typeInfo (k/TypeOf a)) :int) :bits))" :kind :expr
   :note "Check whether the shift amount reaches the operand's bit width."}
 
  "shift_amt >= @typeInfo(T).int.bits"
- {:clojure-source "(>= shift-amt (az/field (az/field (ak/typeInfo T) :int) :bits))" :kind :expr
+ {:clojure-source "(>= shift-amt (az/field (az/field (k/typeInfo T) :int) :bits))" :kind :expr
   :note "Check whether the shift amount reaches T's bit width."}
 
  "~@as(i32, 0)"
- {:clojure-source "(ak/bit-not (ak/as 0 :i32))" :kind :expr :standalone? true
+ {:clojure-source "(k/bit-not (k/as 0 :i32))" :kind :expr :standalone? true
   :note "Complementing all bits of signed i32 zero produces negative one."}
 
  "lib/std/start.zig"
@@ -383,7 +383,7 @@
   :note "A public top-level _start declaration disables Zig's default startup routine; it is not a function body."}
 
  "const assert = @import(\"std\").debug.assert;\ncomptime {\n    assert(*u32 == *align(@alignOf(u32)) u32);\n}"
- {:clojure-source "(az/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (ak/== (az/type [:* :u32])\n        (az/type [:pointer {:size :one :align (ak/alignOf :u32)} :u32]))))"
+ {:clojure-source "(az/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (k/== (az/type [:* :u32])\n        (az/type [:pointer {:size :one :align (k/alignOf :u32)} :u32]))))"
   :kind :declarations
   :expected-compile-error "reached unreachable code"
   :note "A module-level pointer-alignment assertion, preserved from the reference. The original and translated assertion both fail with the pinned 0.16.0 compiler on this target; it is not a successful compilation example."}}

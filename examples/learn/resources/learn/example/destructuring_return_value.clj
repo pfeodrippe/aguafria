@@ -1,12 +1,12 @@
 (ns learn.example.destructuring-return-value
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn- divmod (az/struct [(az/tuple-field-decl :u32)
                             (az/tuple-field-decl :u32)])
   [[numerator :u32] [denominator :u32]]
-  [(/ numerator denominator) (ak/% numerator denominator)])
+  [(k// numerator denominator) (k/% numerator denominator)])
 
 (az/defn main :void
   []

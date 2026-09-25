@@ -1,9 +1,9 @@
 (ns learn.example.export-any-symbol-name
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn sentence-function :void
-  {:attrs #{ak/export}
+  {:attrs #{k/export}
    :zig/name "@\"A function name that is a complete sentence.\""}
   [])
 

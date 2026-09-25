@@ -1,5 +1,5 @@
 (ns learn.snippet.handle-some-error-scenarios
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn- do-another-thing [:error-union [:error-set [:InvalidChar]] :void]
@@ -10,4 +10,4 @@
                       (az/switch-stmt error
       ;; Handle overflow here.
                         (case [(az/error-value :Overflow)] (az/block))
-                        (az/case-else [remaining-error] (ak/return remaining-error)))))
+                        (az/case-else [remaining-error] (k/return remaining-error)))))

@@ -1,16 +1,16 @@
 (ns learn.snippet.cImport-expression
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defimport builtin "builtin" [mode])
 
 (az/defconst c
-  (ak/cImport
+  (k/cImport
    (az/block
-     (ak/cDefine "NDEBUG" (ak/== builtin/mode :.ReleaseFast))
+     (k/cDefine "NDEBUG" (k/== builtin/mode :.ReleaseFast))
      (when something
-       (ak/cDefine "_GNU_SOURCE" (az/block)))
-     (ak/cInclude "stdlib.h")
+       (k/cDefine "_GNU_SOURCE" (az/block)))
+     (k/cInclude "stdlib.h")
      (when something
-       (ak/cUndef "_GNU_SOURCE"))
-     (ak/cInclude "soundio.h"))))
+       (k/cUndef "_GNU_SOURCE"))
+     (k/cInclude "soundio.h"))))

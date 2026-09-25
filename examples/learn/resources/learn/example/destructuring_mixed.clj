@@ -1,5 +1,5 @@
 (ns learn.example.destructuring-mixed
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
@@ -7,11 +7,11 @@
   []
   (let [tuple [1 2 3]
         [x y z] tuple
-        x (ak/var x :u32)
-        y (ak/var y :u32)]
+        x (k/var x :u32)
+        y (k/var y :u32)]
     (debug/print "x = {}, y = {}, z = {}\n" [x y z])
-    (ak/= y 100)
-    (ak/= [:_ x :_] tuple)
+    (k/= y 100)
+    (k/= [:_ x :_] tuple)
     (debug/print "x = {}" [x])))
 
 (comment

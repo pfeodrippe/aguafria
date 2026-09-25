@@ -1,5 +1,5 @@
 (ns learn.example.error-return-trace
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 ;; Retain the original function names so the propagated-error trace is legible
@@ -26,7 +26,7 @@
                         (case [(az/error-value :FileNotFound)] (try (hello))))))
 
 (az/defn- foo [:error-union :void] [[value :i32]]
-  (if (>= value 5)
+  (if (k/>= value 5)
     (try (bar))
     (try (bang2))))
 

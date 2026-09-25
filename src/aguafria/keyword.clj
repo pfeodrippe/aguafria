@@ -1,7 +1,7 @@
 (ns aguafria.keyword
   "Reader-safe names for Zig syntax that Clojure cannot spell directly.
 
-  Require this namespace as `ak`. Every Zig `@` function is exposed as a real,
+  Require this namespace as `k`. Every Zig `@` function is exposed as a real,
   documented Var, generated from the installed Zig compiler and matching ZLS
   language-reference data. Ordinary readable Zig forms such as `if`, `while`,
   and `try` stay unqualified."
@@ -25,7 +25,7 @@
   (load-catalog))
 
 ;; Remove generated Vars before compiling the rest of this namespace on
-;; `require :reload`. In particular, a previous `ak/fn` or `ak/if` Var must
+;; `require :reload`. In particular, a previous `k/fn` or `k/if` Var must
 ;; not shadow Clojure's own special-form spelling while this file is read.
 (let [removed (->> (ns-interns *ns*)
                    (keep #(when (:aguafria/token (meta (val %))) (key %)))
@@ -55,7 +55,7 @@
 (defn language-keywords
   "Return Zig's mechanically discovered ordinary keyword catalog.
 
-  Every entry is backed by a documented `ak/...` Var. Source may still use an
+  Every entry is backed by a documented `k/...` Var. Source may still use an
   ordinary Clojure form such as `if` when it has the same clear meaning, but
   spellings such as Zig `try`, `defer`, and `while` can always be explicit."
   []
@@ -65,7 +65,7 @@
   "Return Zig's mechanically discovered primitive type/value catalog.
 
   Primitive values that have no Clojure literal, notably `undefined`, are
-  exposed as qualified atom Vars such as `ak/undefined`."
+  exposed as qualified atom Vars such as `k/undefined`."
   []
   (:primitives generated-catalog))
 
@@ -101,8 +101,8 @@
   [{:keys [documentation documentation-source signature zig-name]}]
   (str signature "\n\n"
        documentation "\n\n"
-       "Require this namespace as `ak`; inside an Aguafria declaration, "
-       "`(ak/" (subs zig-name 1) " ...)` emits `" zig-name "(...)`. The Var is generated "
+       "Require this namespace as `k`; inside an Aguafria declaration, "
+       "`(k/" (subs zig-name 1) " ...)` emits `" zig-name "(...)`. The Var is generated "
        "for Zig " (:zig-version generated-catalog) " from `"
        (get-in generated-catalog [:sources :builtin-table :path]) "`"
        (when (= :zls-langref documentation-source)
@@ -114,7 +114,7 @@
 (defn- reader-token-doc
   [{:keys [documentation name zig-token]}]
   (str documentation "\n\n"
-       "Inside an Aguafria declaration, `(ak/" name " ...)` emits Zig `"
+       "Inside an Aguafria declaration, `(k/" name " ...)` emits Zig `"
        zig-token "`. Generated against Zig " (:zig-version generated-catalog)
        " `" (get-in generated-catalog [:sources :tokenizer :path]) "`."))
 
@@ -127,7 +127,7 @@
            "` is Zig syntax and can only be used inside an Aguafria form")
       {:arguments arguments
        :token token
-       :example (str "(az/defn example :i32 [[x :i64]] (ak/"
+       :example (str "(az/defn example :i32 [[x :i64]] (k/"
                      (:name token) " x))")}))))
 
 (defn- call-token
@@ -221,6 +221,14 @@
       (alter-meta! v merge metadata)
       v)))
 
+(defn- scoped-token-expansion
+  [form environment]
+  (let [referenced (set (filter symbol? (tree-seq coll? seq form)))
+        locals (filter referenced (keys environment))]
+    `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
+      '~(ns-name *ns*) '~form
+      (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals)))))
+
 (defn- resolve-qualified-var
   [context-ns sym]
   (when (and (symbol? sym) (namespace sym))
@@ -253,7 +261,7 @@
 
 (defn normalize-attributes
   "Normalize an attribute set for native declaration emission.
-  Accepts keyword flags, required ak/... symbols, and their evaluated JVM values."
+  Accepts keyword flags, required k/... symbols, and their evaluated JVM values."
   [context attributes]
   (if-not (contains? attributes :attrs)
     attributes
@@ -290,7 +298,7 @@
                             (str (when (seq existing) (str existing " ")) prefix))))))
 
 (defn token-name
-  "Return the generated `ak/...` Var name for a Zig keyword/operator token."
+  "Return the generated `k/...` Var name for a Zig keyword/operator token."
   [zig-token]
   (let [builtin-names (set (map :name (:builtins generated-catalog)))]
     (or (some (fn [entry]
@@ -333,7 +341,7 @@
                   '([value type])
                   (parameter-arglists builtin))
       :doc (if (= "@as" (:zig-name builtin))
-             (str "Coerce value to a Zig type: (ak/as value type).\n\n"
+             (str "Coerce value to a Zig type: (k/as value type).\n\n"
                   "Accepts the same type keywords and vectors as signatures. "
                   "Inside Aguafria emits @as(type, value); from the JVM returns "
                   "a checked scalar or an owning native value. Supports ->.\n\n"
@@ -358,7 +366,7 @@
        {:aguafria/token token
         :arglists '([& forms])
         :doc (str (when (= "var" (:zig-token token))
-                    "JVM: (ak/var value) or (ak/var value type) creates owned mutable native storage. Assign with (ak/= handle value). In an Aguafria let initializer, declares a Zig var.\n\n")
+                    "JVM: (k/var value) or (k/var value type) creates owned mutable native storage. Assign with (k/= handle value). In an Aguafria let initializer, declares a Zig var.\n\n")
                   "Zig `" (:zig-token token) "` keyword, mechanically discovered "
                   "from Zig " (:zig-version generated-catalog) " `"
                   (get-in generated-catalog [:sources :tokenizer :path]) "`. "
@@ -366,7 +374,13 @@
                     "This Var is syntax and is only valid inside an Aguafria declaration."))
         :zig/name (:zig-token token)
         :zig/source (get-in generated-catalog [:sources :tokenizer :path])
-        :zig/version (:zig-version generated-catalog)}))))
+        :zig/version (:zig-version generated-catalog)})
+      (when (contains? #{"for" "while"} (:zig-token token))
+        (let [v (ns-resolve *ns* (symbol (:name token)))]
+          (alter-var-root v (constantly (fn [form environment & _]
+                                         (scoped-token-expansion form environment))))
+          (alter-meta! v assoc :macro true
+                       :doc "Native scoped loop. Executes eagerly both inside Aguafria declarations and from the JVM; captures lexical values and preserves mutable native storage."))))))
 
 (doseq [entry (:reader-tokens generated-catalog)]
   (let [token (reader-token entry)]
@@ -386,7 +400,7 @@
 (doseq [entry (concat (:primitives generated-catalog)
                      ;; Zig recognizes iN/uN algorithmically, outside its static
                      ;; primitive table. Expose widths through 128 as Vars;
-                     ;; larger widths use the same API via (ak/as value :u256).
+                     ;; larger widths use the same API via (k/as value :u256).
                      (clojure.core/for [prefix ["i" "u"] bits (range 129)
                            :let [name (str prefix bits)]]
                        {:name name :zig-token name}))]
@@ -399,11 +413,11 @@
                 "`, mechanically discovered from Zig "
                 (:zig-version generated-catalog) " `"
                 (get-in generated-catalog [:sources :primitives :path])
-                "`. Use `ak/" (:name token)
+                "`. Use `k/" (:name token)
                 "` as an atom inside an Aguafria declaration."
                 (when (:constructor? token)
-                  (str " Call (ak/" (:name token) " value) to coerce a value. "
-                       "Equivalent to (ak/as value :" (:name token) "). "
+                  (str " Call (k/" (:name token) " value) to coerce a value. "
+                       "Equivalent to (k/as value :" (:name token) "). "
                        "Also callable from Clojure/Java through native Zig.")))
       :zig/name (:zig-token token)
       :zig/source (get-in generated-catalog [:sources :primitives :path])

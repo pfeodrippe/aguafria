@@ -9,22 +9,22 @@
   :note "Ordinary subtraction or unary negation."}
 
  "+%"
- {:clojure-source "ak/+%"
+ {:clojure-source "k/+%"
   :kind :reference
   :note "Wrapping integer addition."}
 
  "-%"
- {:clojure-source "ak/-%"
+ {:clojure-source "k/-%"
   :kind :reference
   :note "Wrapping subtraction; use az/op with \"-%\" for unary wrapping negation."}
 
  "+|"
- {:clojure-source "ak/+|"
+ {:clojure-source "k/+|"
   :kind :reference
   :note "Saturating integer addition."}
 
  "-|"
- {:clojure-source "ak/-|"
+ {:clojure-source "k/-|"
   :kind :reference
   :note "Saturating integer subtraction."}
 
@@ -45,73 +45,73 @@
   :note "The optimized floating-point mode enum literal."}
 
  "a + b\na += b"
- {:clojure-source "(+ a b)\n(ak/+= a b)"
+ {:clojure-source "(+ a b)\n(k/+= a b)"
   :kind :statements
   :alternatives? true
   :note "Addition expression and assignment alternatives; the assignment requires mutable a."}
 
  "2 + 5 == 7"
- {:clojure-source "(ak/== (+ 2 5) 7)"
+ {:clojure-source "(k/== (+ 2 5) 7)"
   :kind :expr
   :standalone? true
   :note "Addition is evaluated before equality."}
 
  "a +% b\na +%= b"
- {:clojure-source "(ak/+% a b)\n(ak/+%= a b)"
+ {:clojure-source "(k/+% a b)\n(k/+%= a b)"
   :kind :statements
   :alternatives? true
   :note "Wrapping addition expression and assignment alternatives."}
 
  "@as(u32, 0xffffffff) +% 1 == 0"
- {:clojure-source "(ak/== (ak/+% (ak/as 0xffffffff :u32) 1) 0)"
+ {:clojure-source "(k/== (k/+% (k/as 0xffffffff :u32) 1) 0)"
   :kind :expr
   :standalone? true
   :note "Adding one wraps the largest u32 to zero."}
 
  "a +| b\na +|= b"
- {:clojure-source "(ak/+| a b)\n(ak/+|= a b)"
+ {:clojure-source "(k/+| a b)\n(k/+|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating addition expression and assignment alternatives."}
 
  "@as(u8, 255) +| 1 == @as(u8, 255)"
- {:clojure-source "(ak/== (ak/+| (ak/as 255 :u8) 1) (ak/as 255 :u8))"
+ {:clojure-source "(k/== (k/+| (k/as 255 :u8) 1) (k/as 255 :u8))"
   :kind :expr
   :standalone? true
   :note "Saturating addition clamps at the largest u8."}
 
  "a - b\na -= b"
- {:clojure-source "(- a b)\n(ak/-= a b)"
+ {:clojure-source "(- a b)\n(k/-= a b)"
   :kind :statements
   :alternatives? true
   :note "Subtraction expression and assignment alternatives."}
 
  "2 - 5 == -3"
- {:clojure-source "(ak/== (- 2 5) -3)"
+ {:clojure-source "(k/== (- 2 5) -3)"
   :kind :expr
   :standalone? true
   :note "Comptime integer subtraction can produce a negative result."}
 
  "a -% b\na -%= b"
- {:clojure-source "(ak/-% a b)\n(ak/-%= a b)"
+ {:clojure-source "(k/-% a b)\n(k/-%= a b)"
   :kind :statements
   :alternatives? true
   :note "Wrapping subtraction expression and assignment alternatives."}
 
  "@as(u8, 0) -% 1 == 255"
- {:clojure-source "(ak/== (ak/-% (ak/as 0 :u8) 1) 255)"
+ {:clojure-source "(k/== (k/-% (k/as 0 :u8) 1) 255)"
   :kind :expr
   :standalone? true
   :note "Subtracting one wraps zero to the largest u8."}
 
  "a -| b\na -|= b"
- {:clojure-source "(ak/-| a b)\n(ak/-|= a b)"
+ {:clojure-source "(k/-| a b)\n(k/-|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating subtraction expression and assignment alternatives."}
 
  "@as(u32, 0) -| 1 == 0"
- {:clojure-source "(ak/== (ak/-| (ak/as 0 :u32) 1) 0)"
+ {:clojure-source "(k/== (k/-| (k/as 0 :u32) 1) 0)"
   :kind :expr
   :standalone? true
   :note "Unsigned saturating subtraction stops at zero."}
@@ -122,7 +122,7 @@
   :note "Unary negation can overflow a signed integer's minimum value."}
 
  "-1 == 0 - 1"
- {:clojure-source "(ak/== -1 (- 0 1))"
+ {:clojure-source "(k/== -1 (- 0 1))"
   :kind :expr
   :standalone? true
   :note "A negative literal equals subtraction from zero."}
@@ -133,161 +133,161 @@
   :note "Unary wrapping negation uses the operator form."}
 
  "-%@as(i8, -128) == -128"
- {:clojure-source "(ak/== (az/op \"-%\" (ak/as -128 :i8)) -128)"
+ {:clojure-source "(k/== (az/op \"-%\" (k/as -128 :i8)) -128)"
   :kind :expr
   :standalone? true
   :note "Wrapping negation leaves the minimum i8 unchanged."}
 
  "a * b\na *= b"
- {:clojure-source "(* a b)\n(ak/*= a b)"
+ {:clojure-source "(* a b)\n(k/*= a b)"
   :kind :statements
   :alternatives? true
   :note "Multiplication expression and assignment alternatives."}
 
  "2 * 5 == 10"
- {:clojure-source "(ak/== (* 2 5) 10)"
+ {:clojure-source "(k/== (* 2 5) 10)"
   :kind :expr
   :standalone? true
   :note "Multiply two comptime integers."}
 
  "a *% b\na *%= b"
- {:clojure-source "(ak/*% a b)\n(ak/*%= a b)"
+ {:clojure-source "(k/*% a b)\n(k/*%= a b)"
   :kind :statements
   :alternatives? true
   :note "Wrapping multiplication expression and assignment alternatives."}
 
  "@as(u8, 200) *% 2 == 144"
- {:clojure-source "(ak/== (ak/*% (ak/as 200 :u8) 2) 144)"
+ {:clojure-source "(k/== (k/*% (k/as 200 :u8) 2) 144)"
   :kind :expr
   :standalone? true
   :note "The product wraps modulo 256 for u8."}
 
  "a *| b\na *|= b"
- {:clojure-source "(ak/*| a b)\n(ak/*|= a b)"
+ {:clojure-source "(k/*| a b)\n(k/*|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating multiplication expression and assignment alternatives."}
 
  "@as(u8, 200) *| 2 == 255"
- {:clojure-source "(ak/== (ak/*| (ak/as 200 :u8) 2) 255)"
+ {:clojure-source "(k/== (k/*| (k/as 200 :u8) 2) 255)"
   :kind :expr
   :standalone? true
   :note "The product saturates at the largest u8."}
 
  "a / b\na /= b"
- {:clojure-source "(/ a b)\n(ak/div-assign a b)"
+ {:clojure-source "(/ a b)\n(k/div-assign a b)"
   :kind :statements
   :alternatives? true
   :note "Division expression and assignment alternatives; div-assign is reader-safe spelling."}
 
  "10 / 5 == 2"
- {:clojure-source "(ak/== (/ 10 5) 2)"
+ {:clojure-source "(k/== (/ 10 5) 2)"
   :kind :expr
   :standalone? true
   :note "Exact division of positive comptime integers."}
 
  "a % b\na %= b"
- {:clojure-source "(ak/% a b)\n(ak/%= a b)"
+ {:clojure-source "(k/% a b)\n(k/%= a b)"
   :kind :statements
   :alternatives? true
   :note "Remainder expression and assignment alternatives."}
 
  "10 % 3 == 1"
- {:clojure-source "(ak/== (ak/% 10 3) 1)"
+ {:clojure-source "(k/== (k/% 10 3) 1)"
   :kind :expr
   :standalone? true
   :note "Positive integer division leaves a remainder of one."}
 
  "a << b\na <<= b"
- {:clojure-source "(ak/<< a b)\n(ak/<<= a b)"
+ {:clojure-source "(k/<< a b)\n(k/<<= a b)"
   :kind :statements
   :alternatives? true
   :note "Left-shift expression and assignment alternatives."}
 
  "0b1 << 8 == 0b100000000"
- {:clojure-source "(ak/== (ak/<< 2r1 8) 2r100000000)"
+ {:clojure-source "(k/== (k/<< 2r1 8) 2r100000000)"
   :kind :expr
   :standalone? true
   :note "Clojure's 2r prefix writes binary integer literals."}
 
  "a <<| b\na <<|= b"
- {:clojure-source "(az/op \"<<|\" a b)\n(ak/<<|= a b)"
+ {:clojure-source "(az/op \"<<|\" a b)\n(k/<<|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating left-shift expression and assignment alternatives."}
 
  "@as(u8, 1) <<| 8 == 255"
- {:clojure-source "(ak/== (az/op \"<<|\" (ak/as 1 :u8) 8) 255)"
+ {:clojure-source "(k/== (az/op \"<<|\" (k/as 1 :u8) 8) 255)"
   :kind :expr
   :standalone? true
   :note "A saturating left shift clamps the u8 result to 255."}
 
  "a >> b\na >>= b"
- {:clojure-source "(ak/>> a b)\n(ak/>>= a b)"
+ {:clojure-source "(k/>> a b)\n(k/>>= a b)"
   :kind :statements
   :alternatives? true
   :note "Right-shift expression and assignment alternatives."}
 
  "0b1010 >> 1 == 0b101"
- {:clojure-source "(ak/== (ak/>> 2r1010 1) 2r101)"
+ {:clojure-source "(k/== (k/>> 2r1010 1) 2r101)"
   :kind :expr
   :standalone? true
   :note "Shift the binary integer right by one bit."}
 
  "a & b\na &= b"
- {:clojure-source "(ak/& a b)\n(ak/&= a b)"
+ {:clojure-source "(k/& a b)\n(k/&= a b)"
   :kind :statements
   :alternatives? true
   :note "Binary bitwise AND expression and assignment alternatives."}
 
  "0b011 & 0b101 == 0b001"
- {:clojure-source "(ak/== (ak/& 2r011 2r101) 2r001)"
+ {:clojure-source "(k/== (k/& 2r011 2r101) 2r001)"
   :kind :expr
   :standalone? true
   :note "Bitwise AND retains bits set in both operands."}
 
  "a | b\na |= b"
- {:clojure-source "(ak/| a b)\n(ak/|= a b)"
+ {:clojure-source "(k/| a b)\n(k/|= a b)"
   :kind :statements
   :alternatives? true
   :note "Bitwise OR expression and assignment alternatives."}
 
  "0b010 | 0b100 == 0b110"
- {:clojure-source "(ak/== (ak/| 2r010 2r100) 2r110)"
+ {:clojure-source "(k/== (k/| 2r010 2r100) 2r110)"
   :kind :expr
   :standalone? true
   :note "Bitwise OR retains bits set in either operand."}
 
  "a ^ b\na ^= b"
- {:clojure-source "(ak/bit-xor a b)\n(az/assign-expr \"^=\" a b)"
+ {:clojure-source "(k/bit-xor a b)\n(az/assign-expr \"^=\" a b)"
   :kind :statements
   :alternatives? true
   :note "XOR expression and assignment alternatives use reader-safe forms."}
 
  "0b011 ^ 0b101 == 0b110"
- {:clojure-source "(ak/== (ak/bit-xor 2r011 2r101) 2r110)"
+ {:clojure-source "(k/== (k/bit-xor 2r011 2r101) 2r110)"
   :kind :expr
   :standalone? true
   :note "XOR retains bits set in exactly one operand."}
 
  "~a"
- {:clojure-source "(ak/bit-not a)"
+ {:clojure-source "(k/bit-not a)"
   :kind :expr
   :note "Bitwise complement requires an integer with a known bit width."}
 
  "~@as(u8, 0b10101111) == 0b01010000"
- {:clojure-source "(ak/== (ak/bit-not (ak/as 2r10101111 :u8)) 2r01010000)"
+ {:clojure-source "(k/== (k/bit-not (k/as 2r10101111 :u8)) 2r01010000)"
   :kind :expr
   :standalone? true
   :note "Complement all eight bits of the u8 value."}
 
  "a orelse b"
- {:clojure-source "(ak/orelse a b)"
+ {:clojure-source "(k/orelse a b)"
   :kind :expr
   :note "Evaluate b only when optional a is null."}
 
  "const value: ?u32 = null;\nconst unwrapped = value orelse 1234;\nunwrapped == 1234"
- {:clojure-source "(let [value (ak/as nil [:optional :u32])\n      unwrapped (ak/orelse value 1234)]\n  (ak/== unwrapped 1234))"
+ {:clojure-source "(let [value (k/as nil [:optional :u32])\n      unwrapped (k/orelse value 1234)]\n  (k/== unwrapped 1234))"
   :kind :expr
   :standalone? true
   :note "A typed optional binding selects the fallback when null."}
@@ -298,24 +298,24 @@
   :note "Unwrap an optional; null is illegal behavior."}
 
  "a orelse unreachable"
- {:clojure-source "(ak/orelse a (ak/unreachable))"
+ {:clojure-source "(k/orelse a (k/unreachable))"
   :kind :expr
   :note "Explicitly assert that the optional is not null."}
 
  "const value: ?u32 = 5678;\nvalue.? == 5678"
- {:clojure-source "(let [value (ak/as 5678 [:optional :u32])]\n  (ak/== (az/unwrap value) 5678))"
+ {:clojure-source "(let [value (k/as 5678 [:optional :u32])]\n  (k/== (az/unwrap value) 5678))"
   :kind :expr
   :standalone? true
   :note "Unwrap the non-null u32 payload."}
 
  "a catch b\na catch |err| b"
- {:clojure-source "(ak/catch a b)\n(az/catch-capture [err] a b)"
+ {:clojure-source "(k/catch a b)\n(az/catch-capture [err] a b)"
   :kind :statements
   :alternatives? true
   :note "Alternative error handlers; the second makes err available to b."}
 
  "const value: anyerror!u32 = error.Broken;\nconst unwrapped = value catch 1234;\nunwrapped == 1234"
- {:clojure-source "(let [value (ak/as (az/error-value :Broken) [:error-union :anyerror :u32])\n      unwrapped (ak/catch value 1234)]\n  (ak/== unwrapped 1234))"
+ {:clojure-source "(let [value (k/as (az/error-value :Broken) [:error-union :anyerror :u32])\n      unwrapped (k/catch value 1234)]\n  (k/== unwrapped 1234))"
   :kind :expr
   :standalone? true
   :note "Catch replaces the error with a successful fallback value."}
@@ -326,7 +326,7 @@
   :note "Boolean AND evaluates b only when a is true."}
 
  "(false and true) == false"
- {:clojure-source "(ak/== (and false true) false)"
+ {:clojure-source "(k/== (and false true) false)"
   :kind :expr
   :standalone? true
   :note "A false left operand short-circuits boolean AND."}
@@ -337,62 +337,62 @@
   :note "Boolean OR evaluates b only when a is false."}
 
  "(false or true) == true"
- {:clojure-source "(ak/== (or false true) true)"
+ {:clojure-source "(k/== (or false true) true)"
   :kind :expr
   :standalone? true
   :note "A false left operand causes boolean OR to evaluate the right operand."}
 
  "!a"
- {:clojure-source "(ak/! a)"
+ {:clojure-source "(k/! a)"
   :kind :expr
   :note "Logical negation of a boolean."}
 
  "!false == true"
- {:clojure-source "(ak/== (ak/! false) true)"
+ {:clojure-source "(k/== (k/! false) true)"
   :kind :expr
   :standalone? true
   :note "Negating false produces true."}
 
  "a == b"
- {:clojure-source "(ak/== a b)"
+ {:clojure-source "(k/== a b)"
   :kind :expr
   :note "Equality compares peer-resolved operands."}
 
  "(1 == 1) == true"
- {:clojure-source "(ak/== (ak/== 1 1) true)"
+ {:clojure-source "(k/== (k/== 1 1) true)"
   :kind :expr
   :standalone? true
   :note "Equal integer values produce true."}
 
  "a == null"
- {:clojure-source "(ak/== a nil)"
+ {:clojure-source "(k/== a nil)"
   :kind :expr
   :note "Compare an optional with null, written nil in Aguafria."}
 
  "const value: ?u32 = null;\n(value == null) == true"
- {:clojure-source "(let [value (ak/as nil [:optional :u32])]\n  (ak/== (ak/== value nil) true))"
+ {:clojure-source "(let [value (k/as nil [:optional :u32])]\n  (k/== (k/== value nil) true))"
   :kind :expr
   :standalone? true
   :note "A null optional compares equal to nil."}
 
  "a != b"
- {:clojure-source "(ak/!= a b)"
+ {:clojure-source "(k/!= a b)"
   :kind :expr
   :note "Inequality compares peer-resolved operands."}
 
  "(1 != 1) == false"
- {:clojure-source "(ak/== (ak/!= 1 1) false)"
+ {:clojure-source "(k/== (k/!= 1 1) false)"
   :kind :expr
   :standalone? true
   :note "Equal integers do not satisfy inequality."}
 
  "a != null"
- {:clojure-source "(ak/!= a nil)"
+ {:clojure-source "(k/!= a nil)"
   :kind :expr
   :note "Check whether an optional has a non-null payload."}
 
  "const value: ?u32 = null;\n(value != null) == false"
- {:clojure-source "(let [value (ak/as nil [:optional :u32])]\n  (ak/== (ak/!= value nil) false))"
+ {:clojure-source "(let [value (k/as nil [:optional :u32])]\n  (k/== (k/!= value nil) false))"
   :kind :expr
   :standalone? true
   :note "A null optional fails the non-null check."}
@@ -403,7 +403,7 @@
   :note "Strict greater-than comparison."}
 
  "(2 > 1) == true"
- {:clojure-source "(ak/== (> 2 1) true)"
+ {:clojure-source "(k/== (> 2 1) true)"
   :kind :expr
   :standalone? true
   :note "Two is strictly greater than one."}}

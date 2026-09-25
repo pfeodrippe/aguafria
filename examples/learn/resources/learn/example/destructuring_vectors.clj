@@ -1,5 +1,5 @@
 (ns learn.example.destructuring-vectors
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
@@ -12,8 +12,8 @@
 
 (az/defn main :void
   []
-  (let [left (ak/as [1.0 2.0 3.0 4.0] [:vector 4 :f32])
-        right (ak/as [5.0 6.0 7.0 8.0] [:vector 4 :f32])]
+  (let [left (k/as [1.0 2.0 3.0 4.0] [:vector 4 :f32])
+        right (k/as [5.0 6.0 7.0 8.0] [:vector 4 :f32])]
     (debug/print "{}" [(unpack left right)])))
 
 (comment

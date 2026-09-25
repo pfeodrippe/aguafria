@@ -1,5 +1,5 @@
 (ns learn.example.string-literals
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.std.mem :as mem] ; used to compare bytes
             [aguafria.zig :as az]))
@@ -7,11 +7,11 @@
 (az/defn main :void
   []
   (let [bytes "hello"]
-    (debug/print "{}\n" [(ak/TypeOf bytes)]) ; *const [5:0]u8
+    (debug/print "{}\n" [(k/TypeOf bytes)]) ; *const [5:0]u8
     (debug/print "{d}\n" [(az/field bytes :len)]) ; 5
     (debug/print "{c}\n" [(az/index bytes 1)]) ; e
     (debug/print "{d}\n" [(az/index bytes 5)]) ; 0
-    (debug/print "{}\n" [(ak/== \e (az/char-literal "'\\x65'"))]) ; true
+    (debug/print "{}\n" [(k/== \e (az/char-literal "'\\x65'"))]) ; true
     (debug/print "{d}\n" [(az/char-literal "'\\u{1f4a9}'")]) ; 128169
     (debug/print "{d}\n" [(az/char-literal "'💯'")]) ; 128175
     (debug/print "{u}\n" [\⚡])

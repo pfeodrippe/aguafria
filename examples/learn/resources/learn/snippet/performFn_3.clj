@@ -1,8 +1,8 @@
 (ns learn.snippet.performFn-3
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn- perform-fn :i32 [[start-value :i32]]
-  (let [result (ak/var start-value :i32)]
-    (ak/= :_ (ak/& result))
+  (let [result (k/var start-value :i32)]
+    (k/= :_ (k/& result))
     result))

@@ -1,15 +1,15 @@
 (ns learn.example.test-variable-alignment
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest variable-alignment-test
-  (let [value (ak/var 1234 :i32)]
-    (try (testing/expectEqual (az/type [:* :i32]) (ak/TypeOf (& value))))
+  (let [value (k/var 1234 :i32)]
+    (try (testing/expectEqual (az/type [:* :i32]) (k/TypeOf (k/& value))))
     (try (testing/expect
-          (ak/== (az/op "%" (ak/intFromPtr (& value)) (ak/alignOf (az/type :i32))) 0)))
+          (k/== (az/op "%" (k/intFromPtr (k/& value)) (k/alignOf (az/type :i32))) 0)))
     ;; An explicit alignment equal to the natural alignment is the same guarantee.
-    (let [pointer (ak/as (& value) [:pointer {:align (ak/alignOf (az/type :i32)), :size :one} :i32])]
+    (let [pointer (k/as (k/& value) [:pointer {:align (k/alignOf (az/type :i32)), :size :one} :i32])]
       (try (testing/expectEqual 1234 @pointer)))))
 
 (comment

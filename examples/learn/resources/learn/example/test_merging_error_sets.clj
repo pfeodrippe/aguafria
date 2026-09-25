@@ -1,5 +1,5 @@
 (ns learn.example.test-merging-error-sets
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defconst A
@@ -19,10 +19,10 @@
 
 (az/deftest merge-error-sets-test
   (az/if-capture-stmt {:error [error]} (foo)
-                      (ak/panic "unexpected")
+                      (k/panic "unexpected")
                       (az/switch-stmt error
-                        (case [(az/error-value :OutOfMemory)] (ak/panic "unexpected"))
-                        (case [(az/error-value :PathNotFound)] (ak/panic "unexpected"))
+                        (case [(az/error-value :OutOfMemory)] (k/panic "unexpected"))
+                        (case [(az/error-value :PathNotFound)] (k/panic "unexpected"))
                         (case [(az/error-value :NotDir)] (az/block)))))
 
 (comment

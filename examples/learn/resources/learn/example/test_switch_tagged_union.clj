@@ -1,5 +1,5 @@
 (ns learn.example.test-switch-tagged-union
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -7,19 +7,19 @@
   (let [Point (az/struct
                 [[:x :u8]
                  [:y :u8]])
-        Item (az/union {:attrs #{ak/enum}}
+        Item (az/union {:attrs #{k/enum}}
                [[:a :u32]
                 [:c Point]
                 [:d :void]
                 [:e :u32]])
-        item (ak/var (Item {:c (Point {:x 1 :y 2})}))
-        result (ak/switch item
+        item (k/var (Item {:c (Point {:x 1 :y 2})}))
+        result (k/switch item
                  ;; Matching fields with the same payload type can share a prong.
                  (case [(az/field Item :a) (az/field Item :e)] [value] value)
                  (case [(az/field Item :c)] [(az/pointer-capture point)]
                    (az/labeled-block updated
-                     (ak/+= (az/field @point :x) 1)
-                     (ak/break updated 6)))
+                     (k/+= (az/field @point :x) 1)
+                     (k/break updated 6)))
                  (case [(az/field Item :d)] 8))]
     (try (testing/expectEqual 6 result))
     (try (testing/expectEqual 2 (az/field (az/field item :c) :x)))))

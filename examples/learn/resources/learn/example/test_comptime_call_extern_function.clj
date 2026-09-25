@@ -1,5 +1,5 @@
 (ns learn.example.test-comptime-call-extern-function
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defextern exit :noreturn

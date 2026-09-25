@@ -1,9 +1,9 @@
 (ns learn.example.testing-skip
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/deftest skipped-test
-  (ak/return (az/error-value :SkipZigTest)))
+  (k/return (az/error-value :SkipZigTest)))
 
 (comment
   (skipped-test))

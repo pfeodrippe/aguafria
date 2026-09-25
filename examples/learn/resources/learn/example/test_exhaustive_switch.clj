@@ -1,5 +1,5 @@
 (ns learn.example.test-exhaustive-switch
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -10,7 +10,7 @@
 
 (az/deftest exhaustive-enum-switch-test
   (let [color (az/field Color :off)
-        disabled (ak/switch color
+        disabled (k/switch color
                    (case [:.auto] false)
                    (case [:.on] false)
                    (case [:.off] true))]

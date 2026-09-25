@@ -1641,7 +1641,56 @@
   {:name "usize", :zig-token "usize"}
   {:name "void", :zig-token "void"}],
  :reader-tokens
- [{:documentation "Boolean NOT.",
+ [{:documentation "Native Zig addition.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "+",
+   :zig-tag "plus",
+   :zig-token "+"}
+  {:documentation "Native Zig subtraction or negation.",
+   :kind :operator,
+   :minimum-param-count 1,
+   :name "-",
+   :zig-tag "minus",
+   :zig-token "-"}
+  {:documentation "Native Zig multiplication.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "*",
+   :zig-tag "asterisk",
+   :zig-token "*"}
+  {:documentation
+   "Native Zig division; signed integers require an explicit rounding builtin.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "/",
+   :zig-tag "slash",
+   :zig-token "/"}
+  {:documentation "Native Zig less-than comparison.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "<",
+   :zig-tag "angle_bracket_left",
+   :zig-token "<"}
+  {:documentation "Native Zig greater-than comparison.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name ">",
+   :zig-tag "angle_bracket_right",
+   :zig-token ">"}
+  {:documentation "Native Zig less-than-or-equal comparison.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "<=",
+   :zig-tag "angle_bracket_left_equal",
+   :zig-token "<="}
+  {:documentation "Native Zig greater-than-or-equal comparison.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name ">=",
+   :zig-tag "angle_bracket_right_equal",
+   :zig-token ">="}
+  {:documentation "Boolean NOT.",
    :kind :operator,
    :name "!",
    :param-count 1,

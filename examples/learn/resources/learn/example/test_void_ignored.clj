@@ -1,5 +1,5 @@
 (ns learn.example.test-void-ignored
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn- returns-void :void [])
@@ -12,7 +12,7 @@
   (returns-void))
 
 (az/deftest explicit-discard-test
-  (ak/= :_ (foo)))
+  (k/= :_ (foo)))
 
 (comment
   (void-ignored-test)

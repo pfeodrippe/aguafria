@@ -1,6 +1,6 @@
 (ns learn.example.test-packed-structs
   (:require [aguafria.builtin :as builtin]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as k]
             [aguafria.std.Target :as target]
             [aguafria.std.Target.Cpu :as cpu]
             [aguafria.std.testing :as testing]
@@ -19,11 +19,11 @@
   [[:half1 :u8] [:quarter3 :u4] [:quarter4 :u4]])
 
 (az/defn doTheTest [:error-union :void] []
-  (try (testing/expectEqual 2 (ak/sizeOf Full)))
-  (try (testing/expectEqual 2 (ak/sizeOf Divided)))
+  (try (testing/expectEqual 2 (k/sizeOf Full)))
+  (try (testing/expectEqual 2 (k/sizeOf Divided)))
   (let [full (Full {:number 0x1234})
-        divided (ak/as (ak/bitCast full) Divided)
-        ordered (ak/as (ak/bitCast full) [:array 2 :u8])]
+        divided (k/as (k/bitCast full) Divided)
+        ordered (k/as (k/bitCast full) [:array 2 :u8])]
     ;; Packed fields follow bit positions; array elements follow native byte order.
     (try (testing/expectEqual 0x34 (az/field divided :half1)))
     (try (testing/expectEqual 0x2 (az/field divided :quarter3)))
@@ -40,7 +40,7 @@
 
 (az/deftest bit-cast-between-packed-structs-test
   (try (doTheTest))
-  (try (ak/comptime (doTheTest))))
+  (try (k/comptime (doTheTest))))
 
 (comment
   (bit-cast-between-packed-structs-test))

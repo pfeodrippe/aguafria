@@ -1,11 +1,11 @@
 (ns learn.example.test-global-assembly
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 ;; x86-64 Linux, LLVM backend. The assembler supplies this external symbol.
 (az/defcomptime install-addition
-  (ak/asm
+  (k/asm
    (az/multiline-string
     [".global my_func;"
      ".type my_func, @function;"

@@ -1,11 +1,11 @@
 (ns learn.example.mathtest
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn add :i32
-  {:attrs #{ak/export}}
+  {:attrs #{k/export}}
   [[a :i32] [b :i32]]
-  (+ a b))
+  (k/+ a b))
 
 (comment
   (add 12 34))

@@ -599,6 +599,63 @@
              (ak/as @(ns-resolve namespace 'big-address) :u64)))
       (is (str/includes? (pr-str @(ns-resolve namespace 'inf)) "##Inf")))))
 
+(deftest inferred-aggregate-constants-retain-their-native-type
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defstruct Point [[:x :i32] [:y :i32]]))
+        (eval '(az/defconst letters (az/array-init [\h \i] [:array :_ :u8])))
+        (eval '(az/defconst numbers (az/array-init [7 9] [:array :_ :i32])))
+        (eval '(az/defconst points
+                 (az/array-init [(Point {:x 2 :y 3})] [:array :_ Point])))
+        (eval '(az/defconst text "hi")))
+      (let [letters @(ns-resolve namespace 'letters)
+            numbers @(ns-resolve namespace 'numbers)
+            points @(ns-resolve namespace 'points)
+            text @(ns-resolve namespace 'text)]
+        (doseq [v [letters numbers points text]]
+          (is (some? (value/type v)))
+          (is (str/includes? (pr-str v) "ZigValue")))
+        (is (= [104 105] @letters))
+        (is (= [7 9] (vec (seq numbers))))
+        (is (= [{:x 2 :y 3}] @points))
+        (is (= 9 (az/index numbers 1)))
+        (is (nil? (debug/assert (mem/eql :u8 text "hi"))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable"
+                             (value/set-value! numbers [1 2]))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest array-construction-accepts-characters-with-range-checking
+  (with-open [letters (az/array-init [\h \i] [:array :_ :u8])
+              unicode (az/array-init [\☔] [:array :_ :u21])]
+    (is (= [104 105] @letters))
+    (is (= [9748] @unicode))
+    (is (= 209 (reduce + 0 letters))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
+                       (az/array-init [\☔] [:array :_ :u8]))))
+
+(deftest native-loop-captures-are-eager-and-mutable
+  (with-open [sum (ak/var 0 :i32)
+              numbers (az/array-init [1 2 3] [:array :_ :i32])]
+    (ak/for [item numbers]
+      (ak/+= sum item))
+    (is (= 6 @sum))
+    (ak/while (ak/< sum 9)
+      (ak/+= sum 1))
+    (is (= 9 @sum)))
+  (is (= 209 (ak/+ \h \i)))
+  (is (= 6 (ak/* 2 3))))
+
+(deftest untyped-jvm-integers-remain-lossless-beside-native-unsigned-values
+  (with-open [unsigned (ak/var 532 :usize)]
+    (is (= {:ok nil} (zig-testing/expectEqual 532 unsigned)))
+    (is (true? (ak/== 532 unsigned)))
+    (is (false? (ak/== -1 unsigned)))
+    (is (true? (ak/< -1 unsigned))))
+  (with-open [unsigned (ak/var 18446744073709551615N :u64)]
+    (is (false? (ak/== -1 unsigned)))
+    (is (true? (ak/> unsigned Long/MAX_VALUE)))))
+
 (deftest extern-linking-is-lazy-but-native-body-validation-is-not
   (doseq [already-running? [false true]]
    (let [namespace (fixture)]

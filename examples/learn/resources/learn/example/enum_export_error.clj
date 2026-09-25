@@ -1,5 +1,5 @@
 (ns learn.example.enum-export-error
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defenum Foo
@@ -8,9 +8,9 @@
    :c])
 
 (az/defn entry :void
-  {:attrs #{ak/export}}
+  {:attrs #{k/export}}
   [[foo Foo]]
-  (ak/= :_ foo))
+  (k/= :_ foo))
 
 (comment
   (entry :a))

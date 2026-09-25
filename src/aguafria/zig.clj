@@ -1206,6 +1206,19 @@
                             "`. Value expressions also execute through the native JVM "
                             "bridge; scope-dependent forms need an enclosing declaration.")})))
 
+(let [v (ns-resolve *ns* 'labeled-block)]
+  (alter-var-root
+   v
+   (constantly
+    (fn [form environment & _]
+      (let [referenced (set (filter symbol? (tree-seq coll? seq form)))
+            locals (filter referenced (keys environment))]
+        `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
+          '~(ns-name *ns*) '~form
+          (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals)) true)))))
+  (alter-meta! v assoc :macro true
+               :doc "A labeled native value block. Its lexical bindings and break targets stay Zig syntax; JVM calls execute the block in process."))
+
 (clojure.core/defn- container-function-form
   [form name return declaration public?]
   (let [[doc attributes tail] (leading-doc-and-attributes declaration)

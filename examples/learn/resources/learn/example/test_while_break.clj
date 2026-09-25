@@ -1,14 +1,14 @@
 (ns learn.example.test-while-break
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest while-break-test
-  (let [i (ak/var 0 :usize)]
-    (while true
-      (if (ak/== i 10)
-        (ak/break))
-      (ak/+= i 1))
+  (let [i (k/var 0 :usize)]
+    (k/while true
+      (if (k/== i 10)
+        (k/break))
+      (k/+= i 1))
     (try (testing/expectEqual 10 i))))
 
 (comment

@@ -1,5 +1,5 @@
 (ns learn.example.packed-struct-mmio
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defstruct GpioRegister
@@ -11,8 +11,8 @@
    [:reserved {:default 0} :u4]])
 
 (az/defconst gpio [:pointer {:size :one :volatile? true} GpioRegister]
-  (ak/ptrFromInt 0x0123))
+  (k/ptrFromInt 0x0123))
 
 ;; Write the entire packed register, not an individual bit field.
 (az/defn write-to-gpio :void [[new-states GpioRegister]]
-  (ak/= @gpio new-states))
+  (k/= @gpio new-states))

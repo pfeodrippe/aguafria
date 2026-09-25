@@ -1,14 +1,14 @@
 (ns learn.example.fibonacci-comptime-infinite-recursion
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn- fibonacci :i32 [[index :i32]]
-  (+ (fibonacci (- index 1))
-     (fibonacci (- index 2))))
+  (k/+ (fibonacci (k/- index 1))
+     (fibonacci (k/- index 2))))
 
 (az/deftest fibonacci-infinite-recursion-test
-  (try (ak/comptime (debug/assert (ak/== (fibonacci 7) 13)))))
+  (try (k/comptime (debug/assert (k/== (fibonacci 7) 13)))))
 
 (comment
   (fibonacci-infinite-recursion-test))

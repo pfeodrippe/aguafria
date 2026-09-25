@@ -105,6 +105,10 @@
   (deref [this]
     (decoded this))
 
+  clojure.lang.Seqable
+  (seq [this]
+    (seq (decoded this)))
+
   java.lang.AutoCloseable
   (close [this]
     (let [state (value-state this)]
@@ -397,6 +401,7 @@
   [{:keys [signed? bits] :as integer-type} value context]
   (let [integer (cond
                   (instance? java.math.BigInteger value) value
+                  (char? value) (biginteger (int value))
                   (integer? value) (biginteger value)
                   :else (throw (ex-info "Zig integer requires a Clojure integer"
                                         (assoc context

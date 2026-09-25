@@ -42,13 +42,20 @@
                    "test/fixtures/qualified_equality.zig"
                    {:namespace 'fixture.qualified-equality})
         source (:clojure-source converted)]
-    (is (str/includes? source "(ak/== a b)"))
-    (is (str/includes? source "(ak/!= a b)"))
-    (is (str/includes? source "[aguafria.keyword :as ak]"))))
+    (is (str/includes? source "(k/== a b)"))
+    (is (str/includes? source "(k/!= a b)"))
+    (is (str/includes? source "[aguafria.keyword :as k]"))))
 
 (deftest saturating-left-shift-has-a-readable-assignment-operator
   (is (= "<<|=" (get @#'convert/assignment-tokens :assign_shl_sat)))
   (is (= '<<|= (get @#'convert/simple-assignment-symbols "<<|="))))
+
+(deftest arithmetic-and-comparison-operators-use-the-native-jvm-bridge
+  (doseq [[tag operator] {:add 'k/+ :sub 'k/- :mul 'k/* :div 'k//
+                         :less_than 'k/< :greater_than 'k/>
+                         :less_or_equal 'k/<= :greater_or_equal 'k/>=
+                         :bit_and 'k/&}]
+    (is (= operator (get @#'convert/binary-operators tag)))))
 
 (deftest unreachable-expressions-remain-native-keywords
   (let [result (convert/verify-file "test/fixtures/for_else_unreachable.zig"
@@ -102,8 +109,8 @@
                       ":export false" ":public false"
                       ":implicit-return false" ":source-comment false"]]
       (is (not (str/includes? container-source obsolete)) obsolete))
-    (is (str/includes? container-source ":attrs #{ak/pub}"))
-    (is (str/includes? container-source ":attrs #{ak/enum}"))
+    (is (str/includes? container-source ":attrs #{k/pub}"))
+    (is (str/includes? container-source ":attrs #{k/enum}"))
     (is (not (str/includes? container-source ":explicit-return")))
     (is (not (str/includes? container-source "Generated from")))
     (is (not (str/includes? container-source "Edit and reevaluate")))
@@ -205,7 +212,7 @@
                       path {:namespace 'fixture.primitive-values
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
-    (is (str/includes? clojure-source "ak/undefined"))
+    (is (str/includes? clojure-source "k/undefined"))
     (is (str/includes? clojure-source "(type :i8)"))
     (is (str/includes? clojure-source "(type :c_long)"))
     (is (not (re-find #"(?<![A-Za-z0-9_./-])null(?![A-Za-z0-9_./-])"
@@ -237,7 +244,7 @@
     (is (str/includes? clojure-source "(az/inline-for"))
     (is (str/includes? clojure-source "(az/for-loop"))
     (is (str/includes? clojure-source "(az/while-loop"))
-    (is (re-find #"\(ak/errdefer \(az/block\)\)\n\n  \(ak/var total"
+    (is (re-find #"\(k/errdefer \(az/block\)\)\n\n  \(k/var total"
                  clojure-source))
     (is (re-find #"\)\n\n  \(for\n" clojure-source))
     (is (str/includes? clojure-source ":inline? true"))
@@ -252,7 +259,7 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "(ak/switch"))
+    (is (str/includes? clojure-source "(k/switch"))
     (is (str/includes? clojure-source "(az/inline-case"))
     (is (str/includes? clojure-source "(az/case-else"))
     (is (:success? verification))))
@@ -266,8 +273,8 @@
                             :mode :ast-check})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "(ak/asm"))
-    (is (str/includes? clojure-source "(ak/nosuspend"))
+    (is (str/includes? clojure-source "(k/asm"))
+    (is (str/includes? clojure-source "(k/nosuspend"))
     (is (str/includes? clojure-source "exactIdentifier"))
     (is (str/includes? clojure-source "nestedExternValue"))
     (is (:success? verification))))
@@ -322,7 +329,7 @@
                        (str "[" namespace-prefix ".math :as math_module]")))
     (is (re-find #"\(az/defconst\s+math_module\s+math_module\)"
                  bare-source))
-    (is (not (str/includes? bare-source "(ak/import \"math\")")))
+    (is (not (str/includes? bare-source "(k/import \"math\")")))
     ;; `main.clj` sorts before `math.clj`, so this proves a freshly generated
     ;; root outside deps.edn is visible to eager dependency requires.
     (let [loaded (convert/load-tree! output)]
@@ -402,8 +409,8 @@
         (is (re-find
              #"\(if \(az/field build_options use_optional\) module-optional-[^)]+\)"
              root-source))
-        (is (not (str/includes? root-source "(ak/This)")))
-        (is (not (str/includes? root-source "(ak/import \"optional\")")))
+        (is (not (str/includes? root-source "(k/This)")))
+        (is (not (str/includes? root-source "(k/import \"optional\")")))
         (is (= 2 (:generated-module-path-value-count report)))
         (is (= 2 (:generated-module-bundled-path-count report)))
         (is (= 2 (:generated-module-bundled-file-count report)))
@@ -485,7 +492,7 @@
     (is (not (str/includes? clojure-source "az/defimport")))
     (is (str/includes? clojure-source "[aguafria.builtin :as builtin]"))
     (is (str/includes? clojure-source "builtin/is_test"))
-    (is (not (str/includes? clojure-source "(ak/import \"builtin\")")))
+    (is (not (str/includes? clojure-source "(k/import \"builtin\")")))
     (is (= 'az/defconst (ffirst forms)))
     (is (= 1 (count forms)))
     (is (:success? verification))))
@@ -596,7 +603,7 @@
     (is (str/includes? clojure-source ":callconv"))
     (is (str/includes? clojure-source ":array-sentinel"))
     (is (str/includes? clojure-source "(az/slice-sentinel"))
-    (is (str/includes? clojure-source "ak/bit-xor"))
+    (is (str/includes? clojure-source "k/bit-xor"))
     (is (str/includes? clojure-source "(az/op \"-%\""))
     (is (:success? verification))))
 

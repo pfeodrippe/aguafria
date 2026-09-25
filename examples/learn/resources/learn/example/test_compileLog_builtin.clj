@@ -1,16 +1,16 @@
 (ns learn.example.test-compileLog-builtin
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defconst number
-  (let [value (ak/var 99 :i32)]
-    (ak/compileLog "comptime val1 = " value)
-    (ak/= value (+ value 1))
+  (let [value (k/var 99 :i32)]
+    (k/compileLog "comptime val1 = " value)
+    (k/= value (k/+ value 1))
     value))
 
 (az/deftest compile-log-test
-  (ak/compileLog "comptime in main")
+  (k/compileLog "comptime in main")
   (debug/print "Runtime in main, num1 = {}.\n" [number]))
 
 (comment

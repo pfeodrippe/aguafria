@@ -1,11 +1,11 @@
 (ns learn.example.test-blocks
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/deftest variable-outside-block-test
-  (let [x (ak/var 1 :i32)]
-    (ak/= :_ (& x)))
-  (ak/+= x 1))
+  (let [x (k/var 1 :i32)]
+    (k/= :_ (k/& x)))
+  (k/+= x 1))
 
 (comment
   (variable-outside-block-test))

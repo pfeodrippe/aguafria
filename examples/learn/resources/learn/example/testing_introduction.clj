@@ -1,19 +1,19 @@
 (ns learn.example.testing-introduction
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/defn- addOne :i32
   "The function `addOne` adds one to the number given as its argument."
   [[number :i32]]
-  (+ number 1))
+  (k/+ number 1))
 
 (az/deftest add-one-expectation-test
   ;; The Standard Library contains useful functions to help create tests.
   ;; `expect` is a function that verifies its argument is true.
   ;; It returns an error when false to indicate a failure.
   ;; `try` returns that error to the test runner to report the failed test.
-  (try (testing/expect (ak/== (addOne 41) 42)))
+  (try (testing/expect (k/== (addOne 41) 42)))
 
   ;; A more specific function such as `expectEqual` is usually more convenient.
   ;; It gives clearer and more helpful error messages when a test fails.

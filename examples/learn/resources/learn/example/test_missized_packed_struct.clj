@@ -1,5 +1,5 @@
 (ns learn.example.test-missized-packed-struct
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/deftest missized-packed-struct-test
@@ -7,7 +7,7 @@
   (let [WrongSize (az/struct {:layout :packed, :argument :u32}
                     [[:a :u16]
                      [:b :u8]])]
-    (ak/= :_ (WrongSize {:a 4 :b 2}))))
+    (k/= :_ (WrongSize {:a 4 :b 2}))))
 
 (comment
   (missized-packed-struct-test))

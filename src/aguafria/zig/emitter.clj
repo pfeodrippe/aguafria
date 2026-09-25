@@ -247,7 +247,9 @@
 
 (defn- contextual-reference
   [context-ns original-symbol reference]
-  (let [reference (if (= :namespace-member (:kind reference))
+  (let [reference (if (and (not= :import-member (:kind reference))
+                           (:import-alias reference)
+                           (:import-namespace reference))
                     ;; A stored type/expression can move between namespaces.
                     ;; Rebase its member, not an already qualified Zig path.
                     (let [prefix (str (:import-alias reference) ".")]

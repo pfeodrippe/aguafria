@@ -1,6 +1,6 @@
 // Value transport for specialized Clojure/Java calls into native Zig.
 // The call runs in the live library; no child process or simulated evaluation.
-const __aguafria_jvm = struct {
+pub const __aguafria_jvm = struct {
     const std = @import("std");
     const allocator = std.heap.page_allocator;
 
@@ -21,7 +21,7 @@ const __aguafria_jvm = struct {
         return @TypeOf(@field(@as(T, undefined), name));
     }
 
-    fn lookupField(value: anytype, comptime name: []const u8) FieldValue(@TypeOf(value), name) {
+    pub fn lookupField(value: anytype, comptime name: []const u8) FieldValue(@TypeOf(value), name) {
         if (comptime isMethod(@TypeOf(value), name)) {
             return .{};
         } else {
@@ -257,7 +257,7 @@ const __aguafria_jvm = struct {
         }
     }
 
-    fn inspectResult(value: anytype) usize {
+    pub fn inspectResult(value: anytype) usize {
         var writer: std.Io.Writer.Allocating = .init(allocator);
         defer writer.deinit();
         inspect(&writer.writer, value) catch @panic("Cannot inspect JVM value");
@@ -265,7 +265,7 @@ const __aguafria_jvm = struct {
         return @intFromPtr(encoded.ptr);
     }
 
-    fn result(value: anytype) usize {
+    pub fn result(value: anytype) usize {
         var writer: std.Io.Writer.Allocating = .init(allocator);
         defer writer.deinit();
         write(&writer.writer, value) catch @panic("Cannot encode JVM result");
@@ -273,7 +273,7 @@ const __aguafria_jvm = struct {
         return @intFromPtr(encoded.ptr);
     }
 
-    fn fieldResult(value: anytype) usize {
+    pub fn fieldResult(value: anytype) usize {
         // A field may itself be an unbounded pointer. Return a typed borrowed
         // address, as inspection does; never read an unknown number of elements.
         if (@typeInfo(@TypeOf(value)) == .pointer) {
@@ -285,19 +285,19 @@ const __aguafria_jvm = struct {
         return result(value);
     }
 
-    fn release(address: usize) void {
+    pub fn release(address: usize) void {
         const text = std.mem.span(@as([*:0]const u8, @ptrFromInt(address)));
         allocator.free(text[0 .. text.len + 1]);
     }
 
-    fn releaseNative(address: usize, size: usize, alignment: usize) void {
+    pub fn releaseNative(address: usize, size: usize, alignment: usize) void {
         const bytes: [*]u8 = @ptrFromInt(address);
         allocator.rawFree(bytes[0..@max(1, size)], .fromByteUnits(alignment), @returnAddress());
     }
 
-    fn comptimeResult(comptime value: anytype) usize {
+    pub fn comptimeResult(comptime value: anytype) usize {
         return switch (@typeInfo(@TypeOf(value))) {
-            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null => result(.{ .comptime_value = value }),
+            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => result(.{ .comptime_value = value }),
             else => result(null),
         };
     }

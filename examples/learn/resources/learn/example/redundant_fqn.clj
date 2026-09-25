@@ -1,10 +1,10 @@
 (ns learn.example.redundant-fqn
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defstruct json
-  {:attrs #{ak/pub}}
+  {:attrs #{k/pub}}
   [[:JsonValue
     {:const (az/union {:enum? true}
               [[:number :f64]
@@ -12,7 +12,7 @@
     :type]])
 
 (az/defn main :void []
-  (debug/print "{s}\n" [(ak/typeName (az/field json :JsonValue))]))
+  (debug/print "{s}\n" [(k/typeName (az/field json :JsonValue))]))
 
 (comment
   (main))

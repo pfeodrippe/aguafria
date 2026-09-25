@@ -30,7 +30,23 @@
   "dev/aguafria/extract_std.mjs")
 
 (def ^:private reader-token-specs
-  [{:name "!"
+  [{:name "+" :zig-token "+" :zig-tag "plus"
+    :kind :operator :minimum-param-count 2 :documentation "Native Zig addition."}
+   {:name "-" :zig-token "-" :zig-tag "minus"
+    :kind :operator :minimum-param-count 1 :documentation "Native Zig subtraction or negation."}
+   {:name "*" :zig-token "*" :zig-tag "asterisk"
+    :kind :operator :minimum-param-count 2 :documentation "Native Zig multiplication."}
+   {:name "/" :zig-token "/" :zig-tag "slash"
+    :kind :operator :minimum-param-count 2 :documentation "Native Zig division; signed integers require an explicit rounding builtin."}
+   {:name "<" :zig-token "<" :zig-tag "angle_bracket_left"
+    :kind :operator :minimum-param-count 2 :documentation "Native Zig less-than comparison."}
+   {:name ">" :zig-token ">" :zig-tag "angle_bracket_right"
+    :kind :operator :minimum-param-count 2 :documentation "Native Zig greater-than comparison."}
+   {:name "<=" :zig-token "<=" :zig-tag "angle_bracket_left_equal"
+    :kind :operator :minimum-param-count 2 :documentation "Native Zig less-than-or-equal comparison."}
+   {:name ">=" :zig-token ">=" :zig-tag "angle_bracket_right_equal"
+    :kind :operator :minimum-param-count 2 :documentation "Native Zig greater-than-or-equal comparison."}
+   {:name "!"
     :zig-token "!"
     :zig-tag "bang"
     :kind :operator

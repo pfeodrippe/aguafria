@@ -298,7 +298,10 @@
 
       :else
       (zig-value/native-value
-       (select-keys declaration [:module :name :kind :type :logical-id])
+       (assoc (select-keys declaration [:module :name :kind :type :logical-id])
+              :type (or declaration-type
+                        (list 'aguafria.keyword/TypeOf
+                              (symbol (:module declaration) (str (:name declaration))))))
        #(materialize-constant! declaration)))))
 
 (defn- container-type-info
@@ -12451,10 +12454,12 @@
 (defn materialize-constant!
   "Use value transport for inferred comptime constants, native storage otherwise."
   [declaration]
-  (if-let [result (when (nil? (:type declaration))
-                    ((requiring-resolve 'aguafria.zig.jvm/comptime-constant-value!) declaration))]
-    {:representation :scalar :value (get result "comptime_value")}
-    (materialize-stored-constant! declaration)))
+  (if (:type declaration)
+    (materialize-stored-constant! declaration)
+    (if-let [result ((requiring-resolve 'aguafria.zig.jvm/comptime-constant-value!) declaration)]
+      {:representation :scalar :value (get result "comptime_value")}
+      (let [view ((requiring-resolve 'aguafria.zig.jvm/constant-view!) declaration)]
+        (assoc (zig-value/realize! view) :owners [view])))))
 
 (defn materialize-state!
   "Materialize the active native storage for a Zig defvar as a live ZigValue."

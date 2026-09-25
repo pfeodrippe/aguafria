@@ -31,8 +31,8 @@
           :let [source (slurp file)]]
     (is (not (re-find #"\((==|!=)\s" source)) (.getPath file))
     (when (and (str/ends-with? (.getName file) ".clj")
-               (re-find #"\(ak/(!=|==)\s" source))
-      (is (str/includes? source "[aguafria.keyword :as ak]") (.getPath file)))))
+               (re-find #"\(k/(!=|==)\s" source))
+      (is (str/includes? source "[aguafria.keyword :as k]") (.getPath file)))))
 
 (deftest authored-declarations-follow-their-dependencies
   (doseq [file (file-seq (io/file "resources/learn"))
@@ -73,10 +73,10 @@
 (deftest inline-references-use-real-catalog-and-emitter
   (let [catalog (inline/references)]
     (doseq [[zig aguafria] [["u8" ":u8"] ["i114" ":i114"]
-                           ["undefined" "ak/undefined"] ["null" "ak/null"]
-                           ["@memcpy" "ak/memcpy"] ["a_len" "a_len"]]]
+                           ["undefined" "k/undefined"] ["null" "k/null"]
+                           ["@memcpy" "k/memcpy"] ["a_len" "a_len"]]]
       (is (= aguafria (:clojure-source (inline/equivalent catalog zig)))))
-    (is (= "ak/memcpy"
+    (is (= "k/memcpy"
            (:clojure-source
             (inline/equivalent catalog "@memcpy(noalias dest, noalias source) void"))))
     (testing "Keyword/builtin name collisions must not resolve to the wrong Var"
@@ -106,11 +106,11 @@
 
 (deftest inline-html-does-not-guess-or-interpret-markup
   (let [snippet {:id "test" :source "<x>" :status :reference-mapped
-                 :clojure-source "(ak/< x 1)" :note "Syntax only"}
+                 :clojure-source "(k/< x 1)" :note "Syntax only"}
         html "<figure><code>&lt;x&gt;</code></figure><code>&lt;x&gt;</code>"
         annotated (inline/annotate html [snippet] ref/decode-html ref/escape-html)]
     (is (= ["test"] (:matched-ids annotated)))
-    (is (str/includes? (:html annotated) "(ak/&lt; x 1)"))
+    (is (str/includes? (:html annotated) "(k/&lt; x 1)"))
     (is (str/includes? (:html annotated) "data-language=\"aguafria\" hidden"))
     (is (str/includes? (:html annotated) "aria-describedby=\"learn-test-note\""))
     (is (= [snippet]
@@ -210,7 +210,7 @@
           :let [code (slurp (clojure.java.io/resource source))]]
     (testing file
       (is (nil? (re-find #"zig-[a-z-]+-[0-9a-f]{12,}" code)))
-      (is (nil? (re-find #"\(ak/const\s" code)))
+      (is (nil? (re-find #"\(k/const\s" code)))
       (is (nil? (re-find #"\^:var|\^\{[^\n]*(?:var|zig/type)" code)))
       (is (not (str/includes? code "(set! ")))
       (is (not (str/includes? code ":zig/test-name")))
@@ -769,7 +769,7 @@
         message (get-in result [:evaluations 0 :exception :message])]
     (is (= :zig-compile (get-in result [:evaluations 0 :exception :phase])))
     (is (str/includes? message (str path ":12:5")))
-    (is (str/includes? message "12 |     (ak/+= y 1)))"))
+    (is (str/includes? message "12 |     (k/+= y 1)))"))
     (is (str/includes? message "^^^^^^^^^^^ this Aguafria form"))
     (is (str/includes? message "cannot assign to constant"))))
 
@@ -980,7 +980,7 @@
     (doseq [snippet translated]
       (is (not (str/blank? (:note snippet))) (:id snippet)))
     (doseq [[source mapping] (inline/authored-mappings)]
-      (is (not (re-find #"\(ak/const\s" (:clojure-source mapping))) source)
+      (is (not (re-find #"\(k/const\s" (:clojure-source mapping))) source)
       (when (:standalone? mapping)
         (is (= :expr (:kind mapping)) source)))))
 

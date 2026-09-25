@@ -1,18 +1,18 @@
 (ns learn.example.macro
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn foo :c_int
-  {:attrs #{ak/export}}
+  {:attrs #{k/export}}
   []
-  (let [a (ak/var 1 :c_int)]
-    (ak/= :_ (& a))
-    (let [b (ak/var 2 :c_int)]
-      (ak/= :_ (& b))
-      (+ a b))))
+  (let [a (k/var 1 :c_int)]
+    (k/= :_ (k/& a))
+    (let [b (k/var 2 :c_int)]
+      (k/= :_ (k/& b))
+      (k/+ a b))))
 
 (az/defconst MAKELOCAL
-  (ak/compileError "unable to translate C expr: unexpected token .Equal")) ; macro.c:1:9
+  (k/compileError "unable to translate C expr: unexpected token .Equal")) ; macro.c:1:9
 
 (comment
   (foo))

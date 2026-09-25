@@ -1,5 +1,5 @@
 (ns learn.example.Assembly-Syntax-Explained
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 ;; x86-64 Linux: syscall number in rax, first argument in rdi, result in rax.
@@ -8,8 +8,8 @@
   ;; Volatile keeps the syscall even when its result is unused.
   ;; The comptime template can refer to %[result], %[number] or %[argument].
   ;; A literal percent sign is escaped as %%; this template needs neither.
-  (ak/asm (az/multiline-string ["syscall"])
-          {:attrs #{ak/volatile}
+  (k/asm (az/multiline-string ["syscall"])
+          {:attrs #{k/volatile}
      ;; The output name identifies a template operand; ={rax} selects rax.
      ;; {:type :usize} returns the register instead of assigning a local binding.
      ;; Register constraints follow LLVM/GCC's inline-assembly conventions.

@@ -1,5 +1,6 @@
 (ns learn.example.build
-  (:require [aguafria.std :as std]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std :as std]
             [aguafria.std.Build :as build]
             [aguafria.std.Build.Step.Compile :as compile-step]
             [aguafria.zig :as az]))
@@ -13,4 +14,4 @@
                                    {:root_source_file ((az/field builder :path) "example.zig")
                                     :optimize optimize})})]
     ((az/field (build/-default_step builder) :dependOn)
-     (& (compile-step/-step executable)))))
+     (k/& (compile-step/-step executable)))))

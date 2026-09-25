@@ -1,22 +1,22 @@
 (ns learn.example.test-for-nested-break
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest nested-break-test
-  (let [count (ak/var 0 :usize)]
+  (let [count (k/var 0 :usize)]
     (az/for-loop {:label outer} [_ (az/op ".." 1 6)]
-      (for [_ (az/op ".." 1 6)]
-        (ak/+= count 1)
+      (k/for [_ (az/op ".." 1 6)]
+        (k/+= count 1)
         (az/break-label outer)))
     (try (testing/expectEqual 1 count))))
 
 (az/deftest nested-continue-test
-  (let [count (ak/var 0 :usize)]
+  (let [count (k/var 0 :usize)]
     (az/for-loop {:label outer} [_ (az/op ".." 1 9)]
-      (for [_ (az/op ".." 1 6)]
-        (ak/+= count 1)
-        (ak/continue outer)))
+      (k/for [_ (az/op ".." 1 6)]
+        (k/+= count 1)
+        (k/continue outer)))
     (try (testing/expectEqual 8 count))))
 
 (comment

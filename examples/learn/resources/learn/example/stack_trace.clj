@@ -1,12 +1,12 @@
 (ns learn.example.stack-trace
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn- bang1 :bool []
   false)
 
 (az/defn- bang2 :void []
-  (ak/panic "PermissionDenied"))
+  (k/panic "PermissionDenied"))
 
 (az/defn- baz :bool []
   (bang1))
@@ -23,7 +23,7 @@
     (hello)))
 
 (az/defn- foo :void [[value :i32]]
-  (if (>= value 5)
+  (if (k/>= value 5)
     (bar)
     (bang2)))
 

@@ -1,5 +1,5 @@
 (ns learn.example.test-anonymous-struct
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -12,8 +12,8 @@
   (try (testing/expectEqual \i (az/index (az/field value :s) 1))))
 
 (az/deftest fully-anonymous-struct-test
-  (try (check {:int (ak/as 1234 (az/type :u32))
-                      :float (ak/as 12.34 (az/type :f64))
+  (try (check {:int (k/as 1234 (az/type :u32))
+                      :float (k/as 12.34 (az/type :f64))
                       :b true
                       :s "hi"})))
 

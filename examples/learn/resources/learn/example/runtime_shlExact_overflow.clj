@@ -1,13 +1,13 @@
 (ns learn.example.runtime-shlExact-overflow
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [alternating-bits (ak/var 2r01010101 :u8)]
-    (ak/= :_ (ak/& alternating-bits))
+  (let [alternating-bits (k/var 2r01010101 :u8)]
+    (k/= :_ (k/& alternating-bits))
     ;; Shifting by two would need more than eight bits.
-    (let [shifted-bits (ak/shlExact alternating-bits 2)]
+    (let [shifted-bits (k/shlExact alternating-bits 2)]
       (debug/print "value: {}\n" [shifted-bits]))))
 
 (comment

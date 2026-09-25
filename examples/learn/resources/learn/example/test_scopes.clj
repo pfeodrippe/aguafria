@@ -1,12 +1,12 @@
 (ns learn.example.test-scopes
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/deftest separate-scopes-test
   (let [pi 3.14]
-    (ak/= :_ pi))
-  (let [pi (ak/var true :bool)]
-    (ak/= :_ (& pi))))
+    (k/= :_ pi))
+  (let [pi (k/var true :bool)]
+    (k/= :_ (k/& pi))))
 
 (comment
   (separate-scopes-test))

@@ -25,6 +25,12 @@
         (is (= (str (:import-alias reference) ".worker") (:zig-name reference)))
         (is (= "worker" (:zig-name (:aguafria/zig-reference
                                     (meta (emit/qualify-form source twice)))))))
+      (let [qualified (emit/qualify-form consumer 'source/worker)
+            typed (vary-meta qualified assoc-in [:aguafria/zig-reference :kind] :struct)
+            repeated (emit/qualify-form consumer typed)
+            reference (:aguafria/zig-reference (meta repeated))]
+        (is (= (str (:import-alias reference) ".worker") (:zig-name reference))
+            "typed return descriptors may retain their container kind"))
       (finally
         (remove-ns (ns-name consumer))
         (remove-ns (ns-name source))))))

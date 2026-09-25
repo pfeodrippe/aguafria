@@ -1,5 +1,5 @@
 (ns learn.example.test-tagged-union
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.std.meta :as meta]
             [aguafria.std.testing :as testing]
@@ -16,15 +16,15 @@
 
 (az/deftest tagged-union-switch-test
   (let [result (ComplexType {:ok 42})]
-    (try (testing/expectEqual (az/field ComplexTypeTag :ok) (ak/as result ComplexTypeTag)))
+    (try (testing/expectEqual (az/field ComplexTypeTag :ok) (k/as result ComplexTypeTag)))
     (az/switch-stmt result
       (case [:.ok] [value] (try (testing/expectEqual 42 value)))
-      (case [:.not_ok] (ak/unreachable)))
+      (case [:.not_ok] (k/unreachable)))
     (az/switch-stmt result
       ;; A tag captured by a single prong is known at compile time.
       (case [:.ok] [_ tag]
-        (ak/comptime (debug/assert (ak/== tag :.ok))))
-      (case [:.not_ok] (ak/unreachable)))))
+        (k/comptime (debug/assert (k/== tag :.ok))))
+      (case [:.not_ok] (k/unreachable)))))
 
 (az/deftest tag-type-test
   (try (testing/expectEqual ComplexTypeTag (meta/Tag ComplexType))))

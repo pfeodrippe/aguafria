@@ -1,5 +1,5 @@
 (ns learn.snippet.handle-all-error-scenarios
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 (az/defn- do-a-thing :void [[text [:slice :u8]]]
@@ -10,4 +10,4 @@
       ;; Handle overflow here.
                         (case [(az/error-value :Overflow)] (az/block))
       ;; InvalidChar is promised impossible; safety checks trap if it occurs.
-                        (case [(az/error-value :InvalidChar)] (ak/unreachable)))))
+                        (case [(az/error-value :InvalidChar)] (k/unreachable)))))

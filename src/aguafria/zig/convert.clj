@@ -591,13 +591,13 @@
          (boolean (re-matches #"[iuf][0-9]+" %)))))
 
 (def ^:private binary-operators
-  {:equal_equal 'ak/== :bang_equal 'ak/!= :less_than '< :greater_than '>
-   :less_or_equal '<= :greater_or_equal '>=
-   :mul '* :div '/ :mod '% :add '+ :sub '-
+  {:equal_equal 'k/== :bang_equal 'k/!= :less_than 'k/< :greater_than 'k/>
+   :less_or_equal 'k/<= :greater_or_equal 'k/>=
+   :mul 'k/* :div 'k// :mod '% :add 'k/+ :sub 'k/-
    :mul_wrap '*% :add_wrap '+% :sub_wrap '-%
    :mul_sat '*| :add_sat '+| :sub_sat '-|
    :shl '<< :shl_sat (symbol "op") :shr '>>
-   :bit_and '& :bit_or '| :bit_xor 'ak/bit-xor
+   :bit_and 'k/& :bit_or '| :bit_xor 'k/bit-xor
    :bool_and 'and :bool_or 'or
    :array_cat (symbol "op") :array_mult (symbol "op")
    :merge_error_sets (symbol "op") :orelse 'orelse :catch 'catch
@@ -625,7 +625,7 @@
   (delay
     (into {}
           (map (fn [{:keys [name zig-name]}]
-                 [zig-name (symbol "ak" name)]))
+                 [zig-name (symbol "k" name)]))
           (keyword/entries))))
 
 (def ^:private std-members
@@ -990,7 +990,7 @@
     (if-let [{:keys [alias namespace self?]}
              (get (:project-imports-by-node context) node-index)]
       (if self?
-        (list 'ak/This)
+        (list 'k/This)
         (do
           (swap! (:project-aliases context) assoc alias namespace)
           alias))
@@ -1147,7 +1147,7 @@
                          (mapv #(translate-asm-input context %) input-nodes))
                   clobbers-node
                   (assoc :clobbers (translate-expr context clobbers-node)))]
-    (apply list 'ak/asm (translate-expr context template-node)
+    (apply list 'k/asm (translate-expr context template-node)
            (when (seq options) [options]))))
 
 (defn- translate-expr*
@@ -1211,7 +1211,7 @@
           "true" true
           "false" false
           "null" nil
-          "undefined" (symbol "ak" (keyword/token-name text))
+          "undefined" (symbol "k" (keyword/token-name text))
           (cond
             (primitive-type? text)
             (list 'type (keyword text))
@@ -1278,11 +1278,11 @@
           (apply list operator operands)))
 
       (= :bool_not tag) (list '! (translate-expr context a))
-      (= :negation tag) (list '- (translate-expr context a))
+      (= :negation tag) (list 'k/- (translate-expr context a))
       (= :negation_wrap tag)
       (list 'op "-%" (translate-expr context a))
-      (= :bit_not tag) (list 'ak/bit-not (translate-expr context a))
-      (= :address_of tag) (list '& (translate-expr context a))
+      (= :bit_not tag) (list 'k/bit-not (translate-expr context a))
+      (= :address_of tag) (list 'k/& (translate-expr context a))
       (= :try tag) (list 'try (translate-expr context a))
       (= :comptime tag) (list 'comptime (translate-expr context a))
       (= :nosuspend tag) (list 'nosuspend (translate-expr context a))
@@ -1826,7 +1826,7 @@
                              [capture (translate-expr context input)])
                            captures inputs)
             operator (if (or label body-label) 'for-loop
-                         (if inline? 'inline-for 'for))
+                         (if inline? 'inline-for 'k/for))
             prefix-arguments
             (when (or label body-label)
               [(cond-> {:inline? inline?}
@@ -2590,7 +2590,7 @@
               (get project-require-modes namespace-symbol :as-alias)
               alias])
            (sort-by (comp str key) project-aliases))
-      [['aguafria.keyword :as 'ak]
+      [['aguafria.keyword :as 'k]
        ['aguafria.zig :as 'az]]))))
 
 (defn- namespace-form
@@ -2743,10 +2743,10 @@
     operator
     (cond
       ;; Clojure's `(var x)` is a Var-literal special form. Zig's local
-      ;; mutable declaration deliberately resolves through the real `ak/var`
+      ;; mutable declaration deliberately resolves through the real `k/var`
       ;; Var so generated source never relies on that misleading spelling.
       (= 'var operator)
-      (symbol "ak" (keyword/token-name "var"))
+      (symbol "k" (keyword/token-name "var"))
 
       ;; These spellings already name a Clojure special form or real core Var,
       ;; so they have an ordinary, inspectable source without an Aguafria alias.
@@ -2755,7 +2755,7 @@
       operator
 
       (keyword/token-name (name operator))
-      (symbol "ak" (keyword/token-name (name operator)))
+      (symbol "k" (keyword/token-name (name operator)))
 
       (emitter/structural-operator? operator)
       (symbol "az" (name operator))
@@ -2784,7 +2784,7 @@
                                      (map (fn [flag]
                                             (let [spelling (if (= :public flag) "pub" (name flag))]
                                               (if-let [token (keyword/token-name spelling)]
-                                                (symbol "ak" (if (= :export flag) "export" token))
+                                                (symbol "k" (if (= :export flag) "export" token))
                                                 flag))))
                                      value)
                                (qualify-generated-source-form value))]))
@@ -3229,7 +3229,7 @@
                        {:path (str path)
                         :namespace namespace-symbol
                         :operators (:unresolved-syntax-heads report)
-                        :hint "Every syntax list head must resolve through az, ak, or Clojure."})))
+                        :hint "Every syntax list head must resolve through az, k, or Clojure."})))
      (when (pos? (:fallback-count report))
        (throw
         (ex-info

@@ -1,5 +1,5 @@
 (ns learn.example.test-unreachable
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
 ;; unreachable is used to assert that control flow will never reach a
@@ -7,8 +7,8 @@
 (az/deftest basic-math-test
   (let [x 1
         y 2]
-    (when (ak/!= (+ x y) 3)
-      (ak/unreachable))))
+    (when (k/!= (k/+ x y) 3)
+      (k/unreachable))))
 
 (comment
   (basic-math-test))

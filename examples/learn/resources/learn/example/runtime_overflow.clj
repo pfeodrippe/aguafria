@@ -1,12 +1,12 @@
 (ns learn.example.runtime-overflow
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [byte (ak/var 255 :u8)]
+  (let [byte (k/var 255 :u8)]
     ;; Runtime safety traps instead of silently wrapping to zero.
-    (ak/+= byte 1)
+    (k/+= byte 1)
     (debug/print "value: {}\n" [byte])))
 
 (comment

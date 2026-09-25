@@ -1,14 +1,14 @@
 (ns learn.example.test-wraparound-semantics
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.math :as math]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
 (az/deftest wraparound-test
-  (let [x (ak/i32 (math/maxInt :i32))
-        min-val (ak/+% x 1)]
+  (let [x (k/i32 (math/maxInt :i32))
+        min-val (k/+% x 1)]
     (try (testing/expectEqual (math/minInt :i32) min-val))
-    (let [max-val (ak/-% min-val 1)]
+    (let [max-val (k/-% min-val 1)]
       (try (testing/expectEqual (math/maxInt :i32) max-val)))))
 
 (comment

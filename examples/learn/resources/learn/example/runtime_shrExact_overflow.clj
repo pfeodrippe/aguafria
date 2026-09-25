@@ -1,5 +1,5 @@
 (ns learn.example.runtime-shrExact-overflow
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
@@ -7,16 +7,16 @@
   [[native-arch "cpu.arch"] [zig-backend "zig_backend"]])
 
 (az/defn main :void []
-  (let [alternating-bits (ak/var 2r10101010 :u8)]
-    (ak/= :_ (ak/& alternating-bits))
-    (let [shifted-bits (ak/shrExact alternating-bits 2)]
+  (let [alternating-bits (k/var 2r10101010 :u8)]
+    (k/= :_ (k/& alternating-bits))
+    (let [shifted-bits (k/shrExact alternating-bits 2)]
       (debug/print "value: {}\n" [shifted-bits]))
     (when (and (or ((az/field target/native-arch :isPowerPC))
                    ((az/field target/native-arch :isRISCV))
                    ((az/field target/native-arch :isLoongArch))
-                   (ak/== target/native-arch :.s390x))
-               (ak/== target/zig-backend :.stage2_llvm))
-      (ak/panic "https://github.com/ziglang/zig/issues/24304"))))
+                   (k/== target/native-arch :.s390x))
+               (k/== target/zig-backend :.stage2_llvm))
+      (k/panic "https://github.com/ziglang/zig/issues/24304"))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

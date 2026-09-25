@@ -1,6 +1,6 @@
 (ns learn.example.test-wasmMemoryGrow-builtin
   (:require [aguafria.builtin :as builtin]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as k]
             [aguafria.std.Target :as target]
             [aguafria.std.Target.Cpu :as cpu]
             [aguafria.std.testing :as testing]
@@ -12,11 +12,11 @@
       cpu/-arch))
 
 (az/deftest wasm-memory-growth-test
-  (when (ak/!= native-architecture :.wasm32)
-    (ak/return (az/error-value :SkipZigTest)))
-  (let [previous-pages (ak/wasmMemorySize 0)]
-    (try (testing/expectEqual (ak/wasmMemoryGrow 0 1) previous-pages))
-    (try (testing/expectEqual (ak/wasmMemorySize 0) (+ previous-pages 1)))))
+  (when (k/!= native-architecture :.wasm32)
+    (k/return (az/error-value :SkipZigTest)))
+  (let [previous-pages (k/wasmMemorySize 0)]
+    (try (testing/expectEqual (k/wasmMemoryGrow 0 1) previous-pages))
+    (try (testing/expectEqual (k/wasmMemorySize 0) (k/+ previous-pages 1)))))
 
 (comment
   (wasm-memory-growth-test))

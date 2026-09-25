@@ -4,7 +4,7 @@
   :note "Greater-than-or-equal comparison."}
 
  "(2 >= 1) == true"
- {:clojure-source "(ak/== (>= 2 1) true)"
+ {:clojure-source "(k/== (>= 2 1) true)"
   :kind :expr
   :standalone? true
   :note "Two is greater than or equal to one."}
@@ -15,7 +15,7 @@
   :note "Strict less-than comparison."}
 
  "(1 < 2) == true"
- {:clojure-source "(ak/== (< 1 2) true)"
+ {:clojure-source "(k/== (< 1 2) true)"
   :kind :expr
   :standalone? true
   :note "One is strictly less than two."}
@@ -26,7 +26,7 @@
   :note "Less-than-or-equal comparison."}
 
  "(1 <= 2) == true"
- {:clojure-source "(ak/== (<= 1 2) true)"
+ {:clojure-source "(k/== (<= 1 2) true)"
   :kind :expr
   :standalone? true
   :note "One is less than or equal to two."}
@@ -37,7 +37,7 @@
   :note "Concatenate arrays whose lengths are known at compile time."}
 
  "const mem = @import(\"std\").mem;\nconst array1 = [_]u32{1,2};\nconst array2 = [_]u32{3,4};\nconst together = array1 ++ array2;\nmem.eql(u32, &together, &[_]u32{1,2,3,4})"
- {:clojure-source "(let [mem (az/field (ak/import \"std\") :mem)\n      array1 (az/array-init [1 2] [:array :_ :u32])\n      array2 (az/array-init [3 4] [:array :_ :u32])\n      together (az/op \"++\" array1 array2)]\n  ((az/field mem :eql) :u32\n    (ak/& together)\n    (ak/& (az/array-init [1 2 3 4] [:array :_ :u32]))))"
+ {:clojure-source "(let [mem (az/field (k/import \"std\") :mem)\n      array1 (az/array-init [1 2] [:array :_ :u32])\n      array2 (az/array-init [3 4] [:array :_ :u32])\n      together (az/op \"++\" array1 array2)]\n  ((az/field mem :eql) :u32\n    (k/& together)\n    (k/& (az/array-init [1 2 3 4] [:array :_ :u32]))))"
   :kind :expr
   :standalone? true
   :note "Import std.mem locally and compare the concatenated array element by element."}
@@ -48,7 +48,7 @@
   :note "Repeat an array; its length and the repetition count must be comptime-known."}
 
  "const mem = @import(\"std\").mem;\nconst pattern = \"ab\" ** 3;\nmem.eql(u8, pattern, \"ababab\")"
- {:clojure-source "(let [mem (az/field (ak/import \"std\") :mem)\n      pattern (az/op \"**\" \"ab\" 3)]\n  ((az/field mem :eql) :u8 pattern \"ababab\"))"
+ {:clojure-source "(let [mem (az/field (k/import \"std\") :mem)\n      pattern (az/op \"**\" \"ab\" 3)]\n  ((az/field mem :eql) :u8 pattern \"ababab\"))"
   :kind :expr
   :standalone? true
   :note "Repeat the string three times and check its bytes with std.mem.eql."}
@@ -59,13 +59,13 @@
   :note "Reader dereference syntax accesses the pointed-to value."}
 
  "const x: u32 = 1234;\nconst ptr = &x;\nptr.* == 1234"
- {:clojure-source "(let [x (ak/as 1234 :u32)\n      ptr (ak/& x)]\n  (ak/== @ptr 1234))"
+ {:clojure-source "(let [x (k/as 1234 :u32)\n      ptr (k/& x)]\n  (k/== @ptr 1234))"
   :kind :expr
   :standalone? true
   :note "Take the address of a typed local and read it through the pointer."}
 
  "&a"
- {:clojure-source "(ak/& a)"
+ {:clojure-source "(k/& a)"
   :kind :expr
   :note "Obtain a single-item pointer to a."}
 
@@ -75,7 +75,7 @@
   :note "Merge two error set types."}
 
  "const A = error{One};\nconst B = error{Two};\n(A || B) == error{One, Two}"
- {:clojure-source "(let [A (az/type [:error-set [:One]])\n      B (az/type [:error-set [:Two]])]\n  (ak/== (az/op \"||\" A B)\n      (az/type [:error-set [:One :Two]])))"
+ {:clojure-source "(let [A (az/type [:error-set [:One]])\n      B (az/type [:error-set [:Two]])]\n  (k/== (az/op \"||\" A B)\n      (az/type [:error-set [:One :Two]])))"
   :kind :expr
   :standalone? true
   :note "Merging error sets produces the set containing both error names."}
@@ -102,27 +102,27 @@
   :note "The arithmetic operator is clojure.core/*. In switch captures, Zig's leading * instead corresponds to az/pointer-capture."}
 
  ">>"
- {:clojure-source "ak/>>"
+ {:clojure-source "k/>>"
   :kind :reference
   :note "Right-shift operator; vectors shift element by element."}
 
  "<<"
- {:clojure-source "ak/<<"
+ {:clojure-source "k/<<"
   :kind :reference
   :note "Left-shift operator; vectors shift element by element."}
 
  "&"
- {:clojure-source "ak/&"
+ {:clojure-source "k/&"
   :kind :reference
   :note "Two operands mean bitwise AND; one operand takes an address."}
 
  "|"
- {:clojure-source "ak/|"
+ {:clojure-source "k/|"
   :kind :reference
   :note "Bitwise OR; vector operands are combined element by element."}
 
  "~"
- {:clojure-source "ak/bit-not"
+ {:clojure-source "k/bit-not"
   :kind :reference
   :note "Reader-safe name for bitwise complement."}
 
@@ -144,7 +144,7 @@
  "!"
  {:clojure-source ""
   :kind :syntax-note
-  :note "Zig's ! has two meanings: logical negation is (ak/! x), while a function return type with an inferred error set is [:error-union T]. An explicit error set uses [:error-union ErrorSet T]."}
+  :note "Zig's ! has two meanings: logical negation is (k/! x), while a function return type with an inferred error set is [:error-union T]. An explicit error set uses [:error-union ErrorSet T]."}
 
  "*T"
  {:clojure-source "[:* T]"
@@ -242,12 +242,12 @@
   :note "Read the number of elements in a slice."}
 
  "&x"
- {:clojure-source "(ak/& x)"
+ {:clojure-source "(k/& x)"
   :kind :expr
   :note "Take the address of x."}
 
  "1 << 29"
- {:clojure-source "(ak/<< 1 29)"
+ {:clojure-source "(k/<< 1 29)"
   :kind :expr
   :standalone? true
   :note "The documentation uses this power of two as the exclusive upper bound on alignment."}
@@ -288,7 +288,7 @@
   :note "Use container options {:kind :struct :layout :packed}; the fields occupy bits in the backing integer."}
 
  "!="
- {:clojure-source "ak/!="
+ {:clojure-source "k/!="
   :kind :reference
   :note "Inequality of packed structs or unions compares their backing integers."}
 
@@ -329,7 +329,7 @@
   :note "The sole void value is equivalent to an empty block."}
 
  "continue :sw .next_state"
- {:clojure-source "(ak/continue sw :.next_state)"
+ {:clojure-source "(k/continue sw :.next_state)"
   :kind :statements
   :note "Redispatch the enclosing switch labeled sw using the next_state enum literal."}
 

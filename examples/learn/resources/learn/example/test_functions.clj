@@ -1,6 +1,6 @@
 (ns learn.example.test-functions
   (:require [aguafria.builtin :as builtin]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as k]
             [aguafria.std.Target.Cpu :as cpu]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
@@ -10,16 +10,16 @@
 ;; Functions are declared like this.
 (az/defn- add :i8
   [[a :i8] [b :i8]]
-  (when (ak/== a 0)
-    (ak/return b))
-  (+ a b))
+  (when (k/== a 0)
+    (k/return b))
+  (k/+ a b))
 
 ;; Export makes a function externally visible in the generated object file
 ;; and makes it use the C ABI.
 (az/defn sub :i8
-  {:attrs #{ak/export}}
+  {:attrs #{k/export}}
   [[a :i8] [b :i8]]
-  (- a b))
+  (k/- a b))
 
 ;; Extern declares a function resolved at link time when linking statically,
 ;; or at runtime when linking dynamically. The quoted library name identifies
@@ -36,7 +36,7 @@
 ;; @branchHint tells the optimizer that a function is rarely called ("cold").
 (az/defn- abort :noreturn
   []
-  (ak/branchHint :.cold)
+  (k/branchHint :.cold)
   (az/while-loop {} true))
 
 ;; The naked calling convention omits the function prologue and epilogue.
@@ -49,14 +49,14 @@
 ;; Inline forces a function to be inlined at every call site.
 ;; If it cannot be inlined, that is a compile-time error.
 (az/defn- shift-left-one :u32
-  {:attrs #{ak/inline}}
+  {:attrs #{k/inline}}
   [[value :u32]]
   (az/op "<<" value 1))
 
 ;; Public visibility allows another file to import and call this function.
 (az/defn sub2 :i8
   [[a :i8] [b :i8]]
-  (- a b))
+  (k/- a b))
 
 ;; Function pointers have a *const prefix.
 (az/defconst Call2Op

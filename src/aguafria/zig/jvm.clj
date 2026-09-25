@@ -110,7 +110,7 @@
               :implicit-return? true}
              descriptor)))))
 
-(declare coerce!)
+(declare coerce! call-inputs)
 
 (def ^:dynamic ^:private *retain-result-generation* nil)
 
@@ -183,6 +183,25 @@
 
     :else result))
 
+(defn- result-helper-reference! [source]
+  ;; A separate Zig file gives the transport its own lexical scope. Inlining
+  ;; it in a user's container makes ordinary names such as `text` shadow its
+  ;; locals, and Zig correctly rejects that even inside a nested struct.
+  (let [module (symbol (str "aguafria.jvm.transport-" (token source)))
+        context (or (find-ns module) (create-ns module))
+        name '__aguafria_jvm
+        reference {:kind :const :module (str module) :name name
+                   :zig-name (str name) :declaration-kind :const
+                   :symbol (symbol (str module) (str name)) :public? true}]
+    (locking context
+      (when-not (ns-resolve context name)
+        (binding [runtime/*source-only-registration?* true]
+          (register! context {:kind :raw :name name
+                              :declaration-key [:raw name] :code source})))
+      (alter-meta! (or (ns-resolve context name) (intern context name nil))
+                   assoc :aguafria/zig-reference reference))
+    (with-meta (:symbol reference) {:aguafria/zig-reference reference})))
+
 (defn- invoke-expression!
   ([namespace expression parameters arguments]
    (invoke-expression! namespace expression parameters arguments 'result))
@@ -196,19 +215,17 @@
           helper-source (slurp (io/resource "aguafria/jvm_result.zig"))
           call-name (symbol (str "__jvm_call_" (token [expression parameters helper-source result-writer])))
           release-name '__jvm_release
-          helper-name '__aguafria_jvm
+          helper-name (result-helper-reference! helper-source)
+          expression (walk/postwalk-replace {'__aguafria_jvm helper-name} expression)
           adapter-key [module call-name expression parameters helper-source result-writer]]
       (when-not (contains? @prepared-adapters adapter-key)
         (binding [runtime/*source-only-registration?* true]
-          (register! namespace
-                     {:kind :raw :name helper-name
-                      :declaration-key [:raw helper-name] :code helper-source})
           (register! namespace
                      {:kind :fn :name release-name
                       :qualified-name (symbol module (str release-name))
                       :declaration-key [:fn release-name]
                       :return :void :args [{:name 'address :type :usize}]
-                      :body ['((field __aguafria_jvm :release) address)]})
+                      :body [(list (list 'field helper-name :release) 'address)]})
           (register! namespace
                      {:kind :fn :name '__jvm_release_native
                       :qualified-name (symbol module "__jvm_release_native")
@@ -217,7 +234,7 @@
                       :args [{:name 'address :type :usize}
                              {:name 'size :type :usize}
                              {:name 'alignment :type :usize}]
-                      :body ['((field __aguafria_jvm :releaseNative) address size alignment)]})
+                      :body [(list (list 'field helper-name :releaseNative) 'address 'size 'alignment)]})
           (register! namespace
                      {:kind :fn :name call-name
                       :qualified-name (symbol module (str call-name))
@@ -410,6 +427,25 @@
     ;; A coercion to the same type does not copy a borrowed pointer or detach
     ;; its owner. Return the original owning value rather than a dangling view.
     (cond
+      (and (coll? argument)
+           (some value/zig-value? (tree-seq coll? seq argument)))
+      ;; Embedded native values need Zig's typed construction, not a field
+      ;; encoder that expects every struct element to be a Clojure map.
+      (let [{:keys [expression-arguments parameters arguments]}
+            (call-inputs [{:type :anytype :properties {:jvm/literal? true}}] [argument])
+            expression (list 'aguafria.keyword/as (first expression-arguments) type)
+            module (symbol (str "aguafria.jvm.construction-" (token [expression parameters])))
+            context (or (find-ns module) (create-ns module))
+            name (symbol (str module) "construct")]
+        (locking context
+          (when-not (contains? @prepared-coercions name)
+            (binding [runtime/*source-only-registration?* true]
+              (register! context {:kind :fn :name 'construct :qualified-name name
+                                  :declaration-key [:fn 'construct] :return type
+                                  :args parameters :body [expression]}))
+            (swap! prepared-coercions conj name))
+          (runtime/invoke! name arguments)))
+
       (or error? literal?)
       (do
         (binding [runtime/*source-only-registration?* true]
@@ -526,6 +562,20 @@
                     {:expected (count argument-declarations) :actual (count arguments)})))
   (let [parameters (atom [])
         values (atom [])
+        ;; A plain JVM integer has no user-selected Zig signedness. Keep a
+        ;; lossless signed carrier when an anytype call also contains native
+        ;; unsigned values. Never coerce explicitly typed native operands, and
+        ;; never narrow/wrap negative values merely to make their types match.
+        unsigned-width (reduce max 0
+                               (keep (fn [argument]
+                                       (when (value/zig-value? argument)
+                                         (let [type (value/type argument)]
+                                           (cond
+                                             (= :usize type) (* 8 (.byteSize ValueLayout/ADDRESS))
+                                             (keyword? type)
+                                             (some-> (re-matches #"u([0-9]+)" (name type))
+                                                     second Long/parseLong)))))
+                                     arguments))
         type-arguments (into {}
                              (keep (fn [[declaration argument]]
                                      (when (#{:type 'type} (:type declaration))
@@ -542,7 +592,11 @@
                                (instance? Short argument) :i16
                                (instance? Integer argument) :i32
                                (instance? Float argument) :f32
-                               (integer? argument) :i64
+                               (integer? argument)
+                               (if (and (#{:anytype 'anytype} expected)
+                                        (>= unsigned-width 64))
+                                 (clojure.core/keyword (str "i" (inc unsigned-width)))
+                                 :i64)
                                (float? argument) :f64
                                (string? argument) [:slice-const :u8])
                     zig-type (if (or (#{:bool :f16 :f32 :f64 :f80 :f128 :isize :usize} expected)
@@ -593,6 +647,52 @@
 
 (declare signature-arguments)
 
+(defn invoke-scoped!
+  "Execute native scoped syntax with JVM lexical captures in the same process.
+  Mutable captures are passed by address, not silently copied into parameters."
+  ([caller form locals] (invoke-scoped! caller form locals false))
+  ([caller form locals result?]
+  (let [entries (sort-by (comp str key) locals)
+        mutable? #(and (value/zig-value? %) (= :var (:kind (value/info %))))
+        operands (mapv (fn [[_ v]]
+                         (if (mutable? v) (.address ^MemorySegment (value/segment v)) v))
+                       entries)
+        {:keys [parameters arguments expression-arguments]}
+        (call-inputs (mapv (fn [[_ v]]
+                            (if (mutable? v)
+                              {:type :usize}
+                              {:type :anytype :properties {:jvm/literal? true}})) entries)
+                     operands)
+        replacements (into {}
+                           (map (fn [[[name v] argument]]
+                                  [name (if (mutable? v)
+                                          (list 'aguafria.zig/deref
+                                                (list 'aguafria.keyword/as
+                                                      (list 'aguafria.keyword/ptrFromInt argument)
+                                                      [:* (value/qualified-type v)]))
+                                          argument)]))
+                           (map vector entries expression-arguments))
+        expression (binding [emitter/*local-type-bindings* (zipmap (keys locals) (repeat false))
+                             emitter/*local-name-bindings* replacements]
+                     (emitter/qualify-form (the-ns caller) form))
+        context (the-ns caller)
+        name (symbol (str "__jvm_scope_" (token [expression parameters])))
+        qualified-name (symbol (str caller) (str name))]
+    (if result?
+      (try
+        (invoke-expression! context expression parameters arguments)
+        (finally (java.lang.ref.Reference/reachabilityFence locals)))
+      (locking context
+      (when-not (contains? @prepared-adapters qualified-name)
+        (binding [runtime/*source-only-registration?* true]
+          (register! context {:kind :fn :name name :qualified-name qualified-name
+                              :declaration-key [:fn name] :return :void
+                              :args parameters :body [expression]}))
+        (swap! prepared-adapters conj qualified-name))
+      (try
+        (runtime/invoke! qualified-name arguments)
+        (finally (java.lang.ref.Reference/reachabilityFence locals))))))))
+
 (defn- bound-method [receiver member]
   (fn [& arguments]
     (let [native? (value/zig-value? receiver)
@@ -633,25 +733,35 @@
           (:members (value/type-info receiver)))))
 
 (defn- variable-storage-view!
-  [namespace-name field field-type]
+  ([namespace-name field field-type]
+   (variable-storage-view! namespace-name field field-type true))
+  ([namespace-name field field-type mutable?]
   (let [namespace-name (clojure.core/symbol namespace-name)
         context (or (find-ns namespace-name) (create-ns namespace-name))
-        accessor (clojure.core/symbol (str "__jvm_member_" (token [field field-type])))
+        accessor (clojure.core/symbol (str "__jvm_member_" (token [field field-type mutable?])))
         qualified-name (clojure.core/symbol (str namespace-name) (str accessor))
         pointer (list 'aguafria.keyword/as
                       (list 'aguafria.keyword/ptrCast (list 'aguafria.keyword/& field))
-                      [:* [:array 1 field-type]])]
+                      [(if mutable? :* :*const) [:array 1 field-type]])]
     (locking context
       (when-not (contains? @prepared-adapters qualified-name)
         (binding [runtime/*source-only-registration?* true]
           (register! context
                      {:kind :fn :name accessor :qualified-name qualified-name
-                      :declaration-key [:fn accessor] :return [:slice field-type]
+                      :declaration-key [:fn accessor]
+                      :return [(if mutable? :slice :slice-const) field-type]
                       :args [] :body [(list 'aguafria.zig/slice pointer 0 1)]}))
         (swap! prepared-adapters conj qualified-name))
       ;; The native slice return pins its library generation. Its element view
       ;; points to the actual container variable, not a detached JVM copy.
-      (value/slice-element-view (runtime/invoke! qualified-name []) 0 true))))
+      (value/slice-element-view (runtime/invoke! qualified-name []) 0 mutable?)))))
+
+(defn constant-view!
+  "Borrow immutable constant storage with its Zig-inferred type and owner."
+  [{:keys [module name type]}]
+  (let [field (symbol module (str name))]
+    (variable-storage-view! module field
+                          (or type (list 'aguafria.keyword/TypeOf field)) false)))
 
 (defn variable-view!
   "Borrow a top-level variable, letting Zig resolve its inferred storage type."
