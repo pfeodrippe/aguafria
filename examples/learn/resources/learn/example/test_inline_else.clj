@@ -45,7 +45,7 @@
       (az/field slice :len))))
 
 (az/deftest inline-for-and-else-test
-  (let [any-slice (az/init {:c "hello"} AnySlice)]
+  (let [any-slice (AnySlice {:c "hello"})]
     (try (testing/expectEqual 5 (with-for any-slice)))
     (try (testing/expectEqual 5 (with-switch any-slice)))))
 

@@ -1,5 +1,76 @@
 # Learn reference implementation
 
+- [x] Verify inferred numeric constants from an ordinary REPL: Zig radix and
+      underscore literals, integers wider than signed 64-bit, and math/inf and
+      math/nan (including f128). Do not request storage for comptime-only values
+      or emit a missing source-level type after Zig has inferred it.
+- [x] Use ak attribute Vars throughout Learn (`ak/export`, `ak/pub`, `ak/enum`,
+      `ak/volatile`); update the converter and test quoted/evaluated attributes.
+- [x] Make extern implicit in az/defextern; validate extern-dependent native
+      bodies without linking before their first invocation. Keep the object
+      build/link recipe in float-mode-exe's comment, not at namespace load.
+      The recipe prints optimized = 0.001 and strict = 0.0009765625; missing
+      symbols fail on invocation, invalid native bodies still fail on definition.
+- [x] Regenerate all affected documentation transcripts with ordinary namespace
+      loading after the compiler fixes stabilize; retain real declaration-load
+      failures instead of bypassing them during output capture.
+      Verification: 292 comparisons pass (288 upstream, four reviewed cases),
+      202 transcripts retained (176 in-process calls and 26 actual load errors).
+      API/emitter/JVM suite: 92 tests / 613 assertions; preparation suite:
+      10 tests / 42 assertions, all passing. Converter attribute and native
+      reference-requalification regressions pass separately.
+      Rebuild in a fresh verification JVM when native examples have already
+      mutated globals; retain one JVM for the batch, not one per example.
+      Original Zig float-mode files independently tested in Debug and
+      ReleaseFast: both return 0.0009765625 in Debug; ReleaseFast's optimized
+      function returns 0.001 while strict remains 0.0009765625.
+
+- [x] Preserve native function identity on ordinary JVM function values so
+      `(thread/spawn {} testTls [])` and generic higher-order calls accept them;
+      verify real thread creation/join without a special REPL wrapper.
+
+- [x] Fix prepared imports for `aguafria.std.builtin.Type` and its nested Union,
+      Enum, and EnumField namespaces; verify test-inline-else loads from a fresh JVM.
+
+- [x] Capture native panic frames before the JVM guard jumps, symbolicate them,
+      and map generated Zig locations to authored Clojure forms. Preserve the
+      original panic and cleanup warning; verify assertions, explicit panics,
+      arithmetic traps, and native tests without editor-specific integration.
+
+- [x] Restore omitted-type inference for `az/defvar`; explicit types still
+      precede attributes. Remove inserted `:_` placeholders, preserve converter
+      inference, and verify native/JVM behavior and the rebuilt reference.
+- [x] Fix anonymous container evaluation on the JVM: member declaration names
+      such as `:value` must remain native names, not unresolved Clojure symbols.
+      Verify static member reads and mutations on the resulting type.
+      Both native/JVM paths verified, including inferred booleans and thread-local
+      state, anonymous static member mutation, locally bound field types, enums,
+      and unions. Declaration/emitter/JVM suites: 88 tests / 595 assertions pass;
+      converter inference regression passes. Rebuilt full reference in a fresh
+      owned REPL: 292 comparisons passed, 200 in-process transcripts retained.
+
+- [x] Enforce type-first az/defvar across the repository with no legacy parser;
+      use set-valued ak keyword attributes for threadlocal/comptime and other
+      plain prefixes. Make native thread-local values inspectable/mutable per
+      JVM thread; verify thread isolation.
+      `:attrs` rejects every non-set value, including singleton flags. Native
+      TLS accessors resolve storage on the calling platform thread; JVM/native
+      mutation shares that storage without sharing values across threads.
+
+- [x] Add public container `:var` / `:const` member vectors, preserving instance
+      `:default` semantics. Migrate all Learn members, and test standalone JVM
+      field access and compound mutation against the same native state.
+- [x] Remove redundant terminal `ak/return` from Learn functions and methods;
+      retain genuine early exits and verify unchanged behavior.
+      Fixed implicit returns of error values in error-union/void functions and
+      while/else expressions. All 292 outcomes match (288 upstream, four
+      reviewed special cases); 200 genuine in-process transcripts regenerated.
+      API/JVM checks: 38 tests / 294 assertions; expanded API/emitter/kondo/reload
+      checks: 59 tests / 420 assertions, all passing. Learn: 64 tests / 11,367
+      assertions, all passing. Full HTML acceptance, snippets, and 10 browser/
+      highlighting checks pass. Existing baseline converter failures remain
+      recorded separately below; this is not a claim that the entire repo is green.
+
 Goal: the whole Zig 0.16.0 reference, not a selected tutorial. Keep the original
 document unchanged, add Aguafria alternatives and real REPL output, and verify
 the comparisons. The direct-call/side-by-side follow-up is complete and the
@@ -506,6 +577,34 @@ comparisons and one has explicit test-discovery verification. File-example succe
 does not establish coverage of all Zig.
 # JVM expression interoperability follow-up
 
+- [ ] Separate baseline converter-suite failures observed on 2026-09-25:
+      five fixtures still contain references rejected by current declaration-order
+      checks (`Replica`, `Missing`, `left`, `Finished`, `Ready`), reproduced with
+      the unchanged HEAD emitter/API/converter; TigerBeetle subprocess tests omit
+      the prepared std catalog and its corpus loading also fails. Not caused by
+      the method-syntax or output-parallelism changes; do not weaken validation.
+- [x] Replace stale flat `a :- type` function metadata with the authored typed
+      binding vectors; include return types in ordinary Var docs for public,
+      private, generic and external functions without editor-specific code.
+- [x] Measure fresh versus cached output regeneration; add bounded virtual-thread
+      parallelism for independent native builds without racing JVM namespace
+      evaluation or stdout capture. Rebuild and verify the published outputs.
+      Fresh four-worker output regeneration: 114 seconds after the final
+      compiler changes; warm cache checked without permitting native execution.
+- [x] Add public `az/fn` and private `az/fn-` container methods; reuse existing
+      named-type constructors instead of redundant `az/init` forms throughout
+      applicable Learn lessons, preserving documentation and native semantics.
+- [x] Restore missing REPL output after the 2026-09-25 server restart. Do not
+      rebuild an existing HTML snapshot merely to serve it; regenerate actual
+      comment-form transcripts and verify the served Hello World output.
+      All 292 reference cases verified; 200 in-process transcripts restored.
+      Served Hello World inspected visually; all 10 browser/highlighting checks pass.
+- [x] Reuse unchanged translations and outcomes; invalidate edited lessons and
+      transitive local dependencies, damaged artifacts, failures, and common
+      compiler/verifier changes. Test a warm build without native execution.
+      62 Learn tests / 11,356 assertions pass. Full warm translation/verification
+      completes in about 8 seconds with native execution paths forced to throw;
+      the retry pass reran only four failed stateful cases in a fresh JVM.
 - [x] Remove the committed std metadata EDN. Generate it and namespace stubs
       under ignored `generated/` through `:prepare`; verify clean-cache and
       cached preparation, direct imports, docs, and the rebuilt Learn reference.

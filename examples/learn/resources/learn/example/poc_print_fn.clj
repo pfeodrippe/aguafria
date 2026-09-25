@@ -3,19 +3,18 @@
             [aguafria.zig :as az]))
 
 (az/defstruct Writer
-  [(az/fn-decl print [:error-union :anyerror :void]
+  [(az/fn print [:error-union :anyerror :void]
      "Print the formatted arguments, then flush the buffer."
-     {:attrs #{:public}}
      [[self [:* Writer]]
-      [format {:zig/prefix "comptime"} [:slice-const :u8]]
+      [format {:attrs #{ak/comptime}} [:slice-const :u8]]
       [arguments :anytype]]
      (let [State (az/enum
                    [:start
                     :open-brace
                     :close-brace])
-           start-index (ak/var 0 :usize {:zig/prefix "comptime"})
-           state (ak/var (az/field State :start) nil {:zig/prefix "comptime"})
-           next-argument (ak/var 0 :usize {:zig/prefix "comptime"})]
+           start-index (ak/var 0 :usize {:attrs #{ak/comptime}})
+           state (ak/var (az/field State :start) nil {:attrs #{ak/comptime}})
+           next-argument (ak/var 0 :usize {:attrs #{ak/comptime}})]
        (az/inline-for [[character format] [index (az/op ".." 0)]]
          (az/switch-stmt state
            (case [(az/field State :start)]
@@ -65,16 +64,16 @@
          (try ((az/field self :write) (az/slice format start-index (az/field format :len)))))
        (try ((az/field self :flush)))))
 
-   (az/fn-decl write [:error-union :void]
+   (az/fn- write [:error-union :void]
      [[self [:* Writer]] [value [:slice-const :u8]]]
      (ak/= :_ self)
      (ak/= :_ value))
 
-   (az/fn-decl print-value [:error-union :void] {:attrs #{:public}}
+   (az/fn print-value [:error-union :void]
      [[self [:* Writer]] [value :anytype]]
      (ak/= :_ self)
      (ak/= :_ value))
 
-   (az/fn-decl flush [:error-union :void]
+   (az/fn- flush [:error-union :void]
      [[self [:* Writer]]]
      (ak/= :_ self))])

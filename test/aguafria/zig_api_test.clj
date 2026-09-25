@@ -1,8 +1,51 @@
 (ns aguafria.zig-api-test
-  (:require [aguafria.zig.runtime :as runtime]
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig.runtime :as runtime]
             [aguafria.zig.emitter :as emitter]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
+
+(deftest attributes-require-sets-in-every-declaration-context
+  (doseq [attributes [:comptime 'ak/comptime ak/comptime [:comptime]
+                     '(:comptime) nil {:comptime true}]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #":attrs must be a set"
+                          (ak/normalize-attributes *ns* {:attrs attributes}))))
+  (is (= {:attrs #{:comptime} :zig/prefix "comptime"}
+         (ak/normalize-attributes *ns* {:attrs #{ak/comptime}})))
+  (doseq [attributes [#{ak/export} '#{ak/export} '#{aguafria.keyword/export}]]
+    (is (= {:attrs #{:export}}
+           (ak/normalize-attributes *ns* {:attrs attributes}))))
+  (let [namespace-symbol (gensym "aguafria.zig-api-test.attributes-")
+        scratch (create-ns namespace-symbol)]
+    (try
+      (binding [*ns* scratch runtime/*registration-batch* (atom [])]
+        (refer 'clojure.core)
+        (require '[aguafria.zig :as az] '[aguafria.keyword :as ak])
+        (doseq [form '[(az/defn invalid :void {:attrs [:public]} [])
+                      (az/defvar invalid :i32 {:attrs ak/threadlocal} 0)
+                      (az/defstruct Invalid {:attrs :public} [])
+                      (az/defstruct Invalid
+                        [(az/fn method :void {:attrs [:public]} [])])]]
+          (is (thrown? Exception (eval form)) (pr-str form))))
+      (finally (remove-ns namespace-symbol)))))
+
+(deftest inferred-variable-initializers-are-not-mistaken-for-options-or-types
+  (let [scratch (create-ns (gensym "aguafria.zig-api-test.inferred-"))
+        declarations (atom [])]
+    (try
+      (binding [*ns* scratch runtime/*registration-batch* declarations]
+        (refer 'clojure.core)
+        (require '[aguafria.zig :as az])
+        (doseq [[name initializer] [['flag false] ['text "hello"] ['empty nil]
+                                   ['record {:x 1}] ['tuple [1 2]]]]
+          (eval (list 'az/defvar name initializer))
+          (is (nil? (:type (last @declarations))))
+          (is (= initializer (:value (last @declarations)))))
+        (doseq [form '[(az/defvar missing)
+                      (az/defvar misplaced {:public true} :bool false)
+                      (az/defvar misplaced "doc" :bool false)]]
+          (is (thrown? Exception (eval form)) (pr-str form))))
+      (finally (remove-ns (ns-name scratch))))))
 
 (deftest declaration-doc-attributes-and-inferred-types-test
   (let [namespace-symbol (gensym "aguafria.zig-api-test.scratch-")
@@ -17,7 +60,7 @@
                  "Inspectable constant."
                  {:export false :public false :source-comment false}
                  42))
-        (eval '(az/defvar clean-variable {:public false} :u32 1))
+        (eval '(az/defvar clean-variable :u32 {:public false}  1))
         (eval '(az/defn clean-function :u32
                  "Inspectable function."
                  {:export false :public true} [[x :u32]]
@@ -26,6 +69,10 @@
                  "Inspectable struct."
                  {:public false}
                  [[:x :f32] [:y {:doc "Vertical"} :f32]])))
+      (let [metadata (meta (ns-resolve scratch 'clean-function))]
+        (is (= '([[x :u32]]) (:arglists metadata)))
+        (is (= :u32 (:aguafria/return-type metadata)))
+        (is (= "Inspectable function.\n\nReturns: :u32" (:doc metadata))))
       (let [by-name (into {} (map (juxt :name identity)) @declarations)]
         (is (= 4 (count @declarations)))
         (is (nil? (:type (get by-name 'clean-constant))))
@@ -36,7 +83,7 @@
         (is (= "Inspectable constant."
                (:doc (meta (ns-resolve scratch 'clean-constant)))))
         (is (= 42 (var-get (ns-resolve scratch 'clean-constant))))
-        (is (= "Inspectable function."
+        (is (= "Inspectable function.\n\nReturns: :u32"
                (:doc (meta (ns-resolve scratch 'clean-function)))))
         (is (str/starts-with? (:doc (meta (ns-resolve scratch 'CleanPoint)))
                              "Inspectable struct.")))
@@ -85,6 +132,37 @@
         (is (= [] (:body (by-name 'answer-test)))))
       (finally (remove-ns namespace-symbol)))))
 
+(deftest container-member-vector-semantics
+  (let [namespace-symbol (gensym "aguafria.zig-api-test.members-")
+        scratch (create-ns namespace-symbol)
+        declarations (atom [])]
+    (try
+      (binding [*ns* scratch runtime/*registration-batch* declarations]
+        (refer 'clojure.core)
+        (require '[aguafria.zig :as az])
+        (eval '(az/defstruct State
+                 [[:counter {:var 1234} :i32]
+                  [:limit {:const 99 :doc "A limit."} :i32]
+                  [:hidden {:const 8 :private true} :_]
+                  [:value {:default 7} :i32]]))
+        (eval '(az/defenum Tag
+                 [:one [:limit {:const 2} :u8]]))
+        (doseq [form '[(az/defstruct Bad [[:value {:var 1 :const 2} :i32]])
+                       (az/defstruct Bad [[:value {:var 1 :default 2} :i32]])
+                       (az/defstruct Bad [[:value {:const 1 :default 2} :i32]])]]
+          (is (thrown? Exception (eval form)))))
+      (is (= [:value] (mapv :name (:fields (first @declarations)))))
+      (let [source (emitter/emit-module (str namespace-symbol) @declarations)]
+        (doseq [expected ["pub var counter: i32 = 1234;"
+                          "pub const limit: i32 = 99;"
+                          "/// A limit."
+                          "const hidden = 8;"
+                          "value: i32 = 7,"
+                          "pub const limit: u8 = 2;"]]
+          (is (str/includes? source expected) expected))
+        (is (not (str/includes? source "pub const hidden"))))
+      (finally (remove-ns namespace-symbol)))))
+
 (deftest vector-types-retain-fields-docs-names-defaults-and-methods
   (let [namespace-symbol (gensym "aguafria.zig-api-test.types-")
         scratch (create-ns namespace-symbol)
@@ -102,11 +180,11 @@
                  "Documented timestamp."
                  [[:seconds {:doc "Seconds since the epoch." :default 0} :i64]
                   [:nanos {:doc "Nanoseconds."} :u32]
-                  (az/fn-decl unix-epoch Timestamp
+                  (az/fn- epoch-seconds :i64 [] 0)
+                  (az/fn unix-epoch Timestamp
                     "Returns the epoch."
-                    {:attrs #{:public}}
                     []
-                    (az/init {:seconds 0 :nanos 0} Timestamp))]))
+                    (Timestamp {:seconds (epoch-seconds) :nanos 0}))]))
         (eval '(az/defextern sample :void "Extern docs." {:zig/prefix "extern \"c\""} []))
         (doseq [form '[(az/defextern old :- :void [])
                        (az/defextern old {:zig/prefix "extern"} :- :void [])
@@ -120,8 +198,10 @@
         (doseq [expected ["enum(u8)" "red = 1" "/// Quoted tag." "@\"really red\" = 7"
                           "/// Seconds since the epoch." "seconds: i64 = 0"
                           "/// Nanoseconds." "/// Returns the epoch."
-                          "pub fn unix_epoch() Timestamp" "extern \"c\" fn sample() void;"]]
+                          "pub fn unix_epoch() Timestamp" "fn epoch_seconds() i64"
+                          "return Timestamp{" "extern \"c\" fn sample() void;"]]
           (is (str/includes? source expected) expected))
+        (is (not (str/includes? source "pub fn epoch_seconds")))
         (is (str/starts-with? (:doc (meta (ns-resolve scratch 'Color))) "A documented enum."))
         (let [timestamp (ns-resolve scratch 'Timestamp)
               color (ns-resolve scratch 'Color)
@@ -142,7 +222,7 @@
   (let [namespace-symbol (gensym "aguafria.zig-api-test.extern-")
         scratch (create-ns namespace-symbol)]
     (try
-      (binding [*ns* scratch runtime/*source-only-registration?* true]
+      (binding [*ns* scratch]
         (refer 'clojure.core)
         (require '[aguafria.zig :as az])
         (eval '(az/defextern absolute :c_int
@@ -154,7 +234,8 @@
       (let [absolute (ns-resolve scratch 'absolute)]
         (is (= 42 (absolute -42)))
         (is (= 7 (absolute 7)))
-        (is (= '([n]) (:arglists (meta absolute))))
+        (is (= '([[n :c_int]]) (:arglists (meta absolute))))
+        (is (= "Returns: :c_int" (:doc (meta absolute))))
         (is (thrown? clojure.lang.ExceptionInfo (absolute))))
       (let [error (try ((ns-resolve scratch 'missing))
                        nil

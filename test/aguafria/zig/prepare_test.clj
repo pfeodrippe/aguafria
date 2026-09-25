@@ -120,6 +120,54 @@
         output (slurp (.getInputStream process))]
     {:exit (.waitFor process) :output output}))
 
+(deftest prepared-members-can-shadow-automatic-java-imports
+  (doseq [[kind namespace-name catalog-name]
+          [[:std 'aguafria.std.collision-fixture "zig-std.edn"]
+           [:packages 'aguafria.pkg.collision-fixture "zig-packages.edn"]]]
+    (let [root (directory)
+          members (mapv (fn [member-name]
+                          {:category :constant :clojure-name member-name
+                           :package "fixture" :source "root.zig"
+                           :symbol (symbol (str namespace-name) member-name)
+                           :zig-alias "fixture_pkg" :zig-name member-name
+                           :signature (str "pub const " member-name " = 42;")})
+                        ["Enum" "Error" "String" "Thread"])
+          namespaces [{:name namespace-name :members members}]]
+      (prepare/write-entrypoints! {:kind kind :namespaces namespaces
+                                  :generated-dir (.getPath root)})
+      (spit (io/file root "aguafria" catalog-name)
+            (pr-str {:schema-version 1 :packages {} :namespaces namespaces}))
+      (let [{:keys [exit output]}
+            (fresh-clojure root
+              (str "(require '" namespace-name ")"
+                   "(assert (nil? (find-ns 'aguafria.std)))"
+                   "(doseq [member '[Enum Error String Thread]]"
+                   " (assert (var? (ns-resolve '" namespace-name " member))))"
+                   "(def original (ns-resolve '" namespace-name " 'Enum))"
+                   "(require '" namespace-name " :reload)"
+                   "(assert (identical? original (ns-resolve '" namespace-name " 'Enum)))"
+                   "(print :collision-free)"))]
+        (is (zero? exit) output)
+        (is (re-find #":collision-free" output))))))
+
+(deftest builtin-type-direct-requires-in-a-fresh-jvm
+  (let [{:keys [exit output]}
+        (fresh-clojure (directory)
+          (str "(require '[aguafria.std.builtin.Type :as t]"
+               " '[aguafria.std.builtin.Type.Union :as u]"
+               " '[aguafria.std.builtin.Type.Enum :as e]"
+               " '[aguafria.std.builtin.Type.EnumField :as f])"
+               "(assert (nil? (find-ns 'aguafria.std)))"
+               "(assert (var? #'t/-union))"
+               "(assert (var? #'u/-tag_type))"
+               "(assert (var? #'e/-fields))"
+               "(assert (var? #'f/-value))"
+               "(doseq [n (remove #{'aguafria.std} (aguafria.zig.std/namespaces))] (require n))"
+               "(assert (nil? (find-ns 'aguafria.std)))"
+               "(print :direct-builtin-types-ok)"))]
+    (is (zero? exit) output)
+    (is (re-find #":direct-builtin-types-ok" output))))
+
 (deftest prepared-package-direct-require-and-catalog-update-test
   (let [root (directory)
         catalog-file (io/file root "aguafria/zig-packages.edn")

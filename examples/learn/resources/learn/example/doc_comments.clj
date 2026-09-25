@@ -10,9 +10,8 @@
    [:nanos
     {:doc "The number of nanoseconds past the second (documentation again)."}
     :u32]
-   (az/fn-decl unix-epoch Timestamp
+   (az/fn unix-epoch Timestamp
      "Returns a Timestamp representing the Unix epoch:
       1970 Jan 1 00:00:00 UTC (this is documentation too)."
-     {:attrs #{:public}}
      []
-     (az/init {:seconds 0 :nanos 0} Timestamp))])
+     (Timestamp {:seconds 0 :nanos 0}))])

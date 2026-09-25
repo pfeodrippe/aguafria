@@ -8,7 +8,7 @@
    :c])
 
 (az/defn entry :void
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   [[foo Foo]]
   (ak/= :_ foo))
 

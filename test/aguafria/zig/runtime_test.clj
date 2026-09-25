@@ -133,17 +133,17 @@
 (deftest development-debug-information-configuration-test
   (let [old-config (runtime/configuration)]
     (try
-      (testing "ephemeral development libraries are stripped by default"
-        (is (= :none (:development-debug-info old-config)))
+      (testing "development libraries retain source locations for native panics"
+        (is (= :full (:development-debug-info old-config)))
         (is (= :shared (:development-panic old-config)))
-        (is (= ["-fstrip"]
+        (is (= []
                ((var-get #'aguafria.zig.runtime/development-compiler-arguments)
                 old-config))))
-      (testing "full native debug information remains an explicit option"
-        (is (= :full
+      (testing "stripped libraries remain an explicit option"
+        (is (= :none
                (:development-debug-info
-                (runtime/configure! {:development-debug-info :full}))))
-        (is (= []
+                (runtime/configure! {:development-debug-info :none}))))
+        (is (= ["-fstrip"]
                ((var-get #'aguafria.zig.runtime/development-compiler-arguments)
                 (runtime/configuration)))))
       (testing "invalid profiles fail before a build can be scheduled"

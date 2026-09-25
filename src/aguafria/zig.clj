@@ -16,11 +16,12 @@
 ;; names that are ordinary Clojure forms. Restore those core mappings before
 ;; compiling this namespace again; the declaration bodies themselves remain
 ;; quoted data and are interpreted by the Zig emitter.
-(clojure.core/doseq [operator '[let when when-not for dotimes case]]
+(clojure.core/doseq [operator '[let when when-not for dotimes case fn]]
   (clojure.core/when
-   (:aguafria/syntax (meta (get (ns-interns *ns*) operator)))
+   (or (:aguafria/syntax (meta (get (ns-interns *ns*) operator)))
+       (:aguafria/container-function (meta (get (ns-interns *ns*) operator))))
     (ns-unmap *ns* operator)))
-(refer 'clojure.core :only '[let when when-not for dotimes case])
+(refer 'clojure.core :only '[let when when-not for dotimes case fn])
 
 (clojure.core/defn emit-expr "Emit one Zig expression." [form]
   (emitter/emit-expr *ns* form))
@@ -369,7 +370,7 @@
   ([name] (declaration-options name nil))
   ([name attributes]
    (project/ensure-source-catalog! *file*)
-   (let [m (merge (meta name) attributes)
+   (let [m (keyword/normalize-attributes *ns* (merge (meta name) attributes))
          context (or project/*catalog-namespace* (ns-name *ns*))
          converted? (project/converted-module? context)
          compact? (or (contains? m :attrs)
@@ -439,7 +440,7 @@
       implementation-fingerprint
       (assoc :implementation-fingerprint implementation-fingerprint)
       schema-fingerprint (assoc :schema-fingerprint schema-fingerprint)
-      (= :var kind)
+      (runtime/state-reference declaration)
       (assoc :state-accessor (:accessor (runtime/state-reference declaration)))
       (or (= :struct kind)
           (and (= :const kind)
@@ -478,6 +479,7 @@
   [form name declaration private?]
   (let [[return & tail] declaration
         [docstring attributes tail] (leading-doc-and-attributes tail)
+        attributes (keyword/normalize-attributes *ns* attributes)
         [bindings & body] tail]
     (when-not (and (symbol? name)
                    return
@@ -554,17 +556,18 @@
                :source (source-location form)}
               options)))))
 
+(clojure.core/defn- function-documentation [docstring return]
+  (str (when (seq docstring) (str docstring "\n\n"))
+       "Returns: " (pr-str return)))
+
 (clojure.core/defn- defn-expansion
   [form name declaration private?]
   (let [descriptor (parse-defn-declaration form name declaration private?)
         qualified-name (:qualified-name descriptor)
-        docstring (:doc descriptor)
+        docstring (function-documentation (:doc descriptor) (first declaration))
         clojure-name (cond-> name
                        private? (vary-meta assoc :private true))
-        arglist (->> (:args descriptor)
-                     (mapcat (fn [{:keys [name type]}]
-                               [name ':- type]))
-                     vec)
+        arglist (first (nth (leading-doc-and-attributes (rest declaration)) 2))
         descriptor-form (descriptor-expression descriptor)
         quoted-reference (list 'quote (declaration-reference descriptor))]
     `(let [descriptor# ~descriptor-form]
@@ -575,6 +578,7 @@
        (alter-meta! (var ~clojure-name) merge
                     {:doc ~docstring
                      :arglists '~(list arglist)
+                     :aguafria/return-type '~(first declaration)
                      :aguafria/declaration descriptor#
                      :aguafria/zig-reference ~quoted-reference})
        (runtime/refresh-declaration-var! descriptor#)
@@ -589,7 +593,7 @@
 
   The Zig declaration is public to its module and remains directly callable
   from Clojure through Aguafria's generated development bridge. Add
-  `{:attrs #{:export}}` only when an external C-ABI symbol is intentionally
+  `{:attrs #{ak/export}}` only when an external C-ABI symbol is intentionally
   required. Generic/comptime functions retain Zig's native ABI and are reached
   through concrete callers. Non-void functions implicitly return their final
   expression. Use `:!void` or `:!u32` for inferred error-union returns;
@@ -655,17 +659,22 @@
        (var ~name))))
 
 (defmacro defvar
-  "Define a Zig top-level variable with optional docstring, attr-map, and type."
+  "Define a Zig variable with an optional type, documentation, and attributes.
+  `(az/defvar mouse-down false)` infers its type. An explicit type immediately
+  follows the name: `(az/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`."
   [name & declaration]
-  (let [[docstring attributes declaration]
-        (leading-doc-and-attributes declaration)
-        [type value]
-        (case (count declaration)
-          1 [nil (first declaration)]
-          2 [(first declaration) (second declaration)]
-          (throw (ex-info
-                  "az/defvar expects name, optional doc/attr-map, optional type, and value"
-                  {:form &form :name name :declaration declaration})))
+  (let [typed? (and (next declaration)
+                    (not (or (map? (first declaration))
+                             (string? (first declaration)))))
+        type (when typed? (first declaration))
+        [docstring attributes tail]
+        (leading-doc-and-attributes (if typed? (next declaration) declaration))
+        _ (when-not (and (or (not typed?)
+                            (and (some? type) (not (contains? #{':- '_} type))))
+                         (= 1 (count tail)))
+            (throw (ex-info "az/defvar expects name [type] [docstring] [attributes] value; an explicit type must precede attributes"
+                            {:form &form :name name})))
+        value (first tail)
         descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :var
@@ -673,7 +682,7 @@
                             :declaration-key [:var name]
                             :module (str *ns*)
                             :doc docstring
-                            :type (when-not (or (nil? type) (= '_ type)) type)
+                            :type (when-not (= :_ type) type)
                             :value value
                             :clojure-form &form
                             :source (source-location &form)}
@@ -699,7 +708,9 @@
   Each entry is `[field type]` or `[field properties type]`; properties remain
   inspectable in declaration metadata. All members belong in one vector;
   nested declarations can be interleaved with fields inside that vector.
-  Use `:default` in field properties for an initializer.
+  Use `:default` for an instance-field initializer. `{:var value}` and
+  `{:const value}` declare public container members without instance storage;
+  `:private true` makes one private and `:_` permits inferred declaration types.
   The default is an ordinary Zig
   `struct`; pass `{:layout :extern}` or `{:layout :packed}` to change it. A
   known struct Var is also a constructor form inside Zig code, so
@@ -716,7 +727,7 @@
                             :declaration-key [:struct name]
                             :module (str *ns*)
                             :doc docstring
-                            :fields (emitter/parse-struct-fields fields)
+                            :fields (emitter/storage-fields fields)
                             :layout layout
                             :value (emitter/struct-container-form
                                     (assoc (select-keys attributes [:argument :zig/trailing])
@@ -754,29 +765,40 @@
              (concat (when doc [doc]) [attributes value]))
       (meta &form))))
 
+(clojure.core/defn- anonymous-container-expansion
+  [kind declaration environment form]
+  (let [container (with-meta (emitter/anonymous-container-form kind declaration) (meta form))]
+    (if emitter/*native-macro-expansion?*
+      container
+      (let [referenced (set (filter symbol? (tree-seq coll? seq declaration)))
+            locals (filter referenced (keys environment))]
+        `((requiring-resolve 'aguafria.zig.jvm/anonymous-type!)
+          '~(ns-name *ns*) '~container
+          (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals)))))))
+
 (defmacro struct
   "An anonymous Zig struct: (az/struct [[:x :f32] [:y :f32]]).
   Accepts an optional options map; nested declarations share the member vector."
   [& declaration]
-  (with-meta (emitter/anonymous-container-form :struct declaration) (meta &form)))
+  (anonymous-container-expansion :struct declaration &env &form))
 
 (defmacro enum
   "An anonymous Zig enum: (az/enum [:red [:green {:doc \"Green\"}] :blue]).
   Pass {:argument :u8} before the member vector for an explicit tag type."
   [& declaration]
-  (with-meta (emitter/anonymous-container-form :enum declaration) (meta &form)))
+  (anonymous-container-expansion :enum declaration &env &form))
 
 (defmacro union
   "An anonymous Zig union: (az/union {:enum? true} [[:value :i32] [:empty :void]]).
   Fields and nested declarations share one member vector."
   [& declaration]
-  (with-meta (emitter/anonymous-container-form :union declaration) (meta &form)))
+  (anonymous-container-expansion :union declaration &env &form))
 
 (defmacro opaque
   "An anonymous Zig opaque type: (az/opaque []).
   Optional nested declarations belong in the member vector."
   [& declaration]
-  (with-meta (emitter/anonymous-container-form :opaque declaration) (meta &form)))
+  (anonymous-container-expansion :opaque declaration &env &form))
 
 (defmacro defimport
   "Import a Zig module and expose its named members as real Clojure Vars.
@@ -935,13 +957,17 @@
       (az/defextern GetCommandLineW windows/LPWSTR [])
 
   Prefix/library/calling-convention spelling is retained in the optional
-  attr-map. Calls from Clojure/Java use the same native bridge as az/defn.
+  attr-map. The extern prefix is implicit. Calls from Clojure/Java use the same
+  native bridge as az/defn; native symbol linking is deferred until invocation.
   The external library must supply the symbol with the declared ABI on the
   current platform; declaring a prototype does not implement the function."
   [name & declaration]
   (let [[return & declaration] declaration
         [docstring attributes declaration]
         (leading-doc-and-attributes declaration)
+        attributes (if (seq (:zig/prefix attributes))
+                     attributes
+                     (assoc attributes :zig/prefix "extern"))
         [bindings] declaration]
   (when-not (and (symbol? name) return
                  (not (or (= return ':-) (map? return) (string? return)))
@@ -969,8 +995,9 @@
          [& arguments#]
          (runtime/invoke! '~qualified-name arguments#))
        (alter-meta! (var ~name) merge
-                    {:doc ~docstring
-                     :arglists '~(list (mapv :name (:args descriptor)))
+                    {:doc ~(function-documentation docstring return)
+                     :arglists '~(list bindings)
+                     :aguafria/return-type '~return
                      :aguafria/declaration descriptor#
                      :aguafria/zig-reference '~(declaration-reference descriptor)})
        (runtime/refresh-declaration-var! descriptor#)
@@ -1178,3 +1205,37 @@
                   :doc (str "Aguafria structural Zig form `" operator
                             "`. Value expressions also execute through the native JVM "
                             "bridge; scope-dependent forms need an enclosing declaration.")})))
+
+(clojure.core/defn- container-function-form
+  [form name return declaration public?]
+  (let [[doc attributes tail] (leading-doc-and-attributes declaration)
+        attributes (keyword/normalize-attributes *ns* attributes)
+        [bindings & body] tail]
+    (when-not (and (symbol? name) return (not= ':- return)
+                   (not (or (map? return) (string? return))) (vector? bindings))
+      (throw (ex-info "Container function expects name, return type, optional doc/attributes, typed args, and body"
+                      {:form form})))
+    (with-meta
+      (apply list 'aguafria.zig/fn-decl name return
+             (concat (when doc [doc])
+                     [(update attributes :attrs
+                              #(cond-> (set %) public? (conj :public)
+                                       (not public?) (disj :public)))
+                      bindings]
+                     body))
+      (meta form))))
+
+(ns-unmap *ns* 'fn)
+
+(defmacro ^{:aguafria/container-function true} fn
+  "Declare a public container method: (az/fn name return-type [typed-args] body...).
+  An optional docstring and attributes follow the return type. Like az/defn,
+  non-void methods return their final expression. Use inside a container's
+  member vector; use az/fn- for a private method."
+  [name return & declaration]
+  (container-function-form &form name return declaration true))
+
+(defmacro fn-
+  "Declare a private container method, with the same signature as az/fn."
+  [name return & declaration]
+  (container-function-form &form name return declaration false))

@@ -46,6 +46,8 @@ test("fixed tabs and equal-width pairs fit the viewport without scrolling the co
       await page.goto(`${reference}?view=clj#Hello-World`);
       const example = page.getByRole("region", {name: "hello_again.zig", exact: true});
       const other = page.getByRole("region", {name: "hello.zig", exact: true});
+      assert.equal(await example.locator('.learn-repl').isVisible(), true);
+      assert.match(await example.locator('.learn-repl').innerText(), /Hello, World!/);
       const initial = await geometry(page);
       await example.getByRole("tab", {name: "Zig", exact: true}).click();
       const zigOnly = await geometry(page);

@@ -23,6 +23,20 @@
           forms
           (recur (conj forms form)))))))
 
+(deftest inferred-variables-do-not-acquire-placeholder-types
+  (let [{:keys [forms clojure-source]}
+        (convert/convert-file "test/fixtures/inferred_variables.zig"
+                              {:namespace 'fixture.inferred-variables})
+        variables (filter #(= 'az/defvar (first %)) forms)]
+    (is (= 2 (count variables)))
+    (is (map? (nth (first variables) 2)))
+    (is (= :bool (nth (second variables) 2)))
+    (is (not (str/includes? clojure-source ":_"))))
+  (is (= '(var-decl flag false)
+         (convert/nested-declaration-form '(az/defvar flag false))))
+  (is (= '(var-decl flag {:public false} :bool false)
+         (convert/nested-declaration-form '(az/defvar flag :bool {:public false} false)))))
+
 (deftest equality-operators-use-callable-keyword-vars
   (let [converted (convert/convert-file
                    "test/fixtures/qualified_equality.zig"
@@ -88,8 +102,8 @@
                       ":export false" ":public false"
                       ":implicit-return false" ":source-comment false"]]
       (is (not (str/includes? container-source obsolete)) obsolete))
-    (is (str/includes? container-source ":attrs #{:public}"))
-    (is (str/includes? container-source ":attrs #{:enum}"))
+    (is (str/includes? container-source ":attrs #{ak/pub}"))
+    (is (str/includes? container-source ":attrs #{ak/enum}"))
     (is (not (str/includes? container-source ":explicit-return")))
     (is (not (str/includes? container-source "Generated from")))
     (is (not (str/includes? container-source "Edit and reevaluate")))
@@ -548,12 +562,23 @@
     (is (not (str/includes? clojure-source "(raw")))
     (is (str/includes? clojure-source "(az/container"))
     (is (str/includes? clojure-source "(az/enum-field-decl"))
-    (is (str/includes? clojure-source "(az/fn-decl"))
+    (is (str/includes? clojure-source "(az/fn"))
+    (is (not (str/includes? clojure-source "(az/fn-decl")))
     (is (str/includes? clojure-source ":zig/name \"@\\\"127.0.0.1\\\"\""))
     (is (str/includes? clojure-source ":zig/name \"@\\\"null-device\\\"\""))
     (is (str/includes? clojure-source "^{:zig/name \"init\"} zig-init-"))
     (is (not-any? nil? (tree-seq coll? seq forms)))
     (is (:success? verification))))
+
+(deftest public-and-private-container-functions-use-the-idiomatic-api
+  (let [path "test/fixtures/container_functions.zig"
+        options {:namespace 'fixture.container-functions :mode :test}
+        source (:clojure-source (convert/convert-file path options))
+        verification (convert/verify-file path options)]
+    (is (str/includes? source "(az/fn reference Timestamp"))
+    (is (str/includes? source "(az/fn- base :i64"))
+    (is (not (str/includes? source "az/fn-decl")))
+    (is (:success? verification) (pr-str verification))))
 
 (deftest error-sets-unions-and-qualified-pointers-are-structural-test
   (let [path "test/fixtures/types.zig"

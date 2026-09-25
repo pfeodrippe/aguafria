@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defconst Tagged
-  (az/union {:argument :u32, :attrs #{:enum}}
+  (az/union {:argument :u32, :attrs #{ak/enum}}
     [[:int {:default 123} :i64]
      [:boolean {:default 67} :bool]]))
 

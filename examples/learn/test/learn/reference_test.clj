@@ -5,6 +5,26 @@
             [learn.inline :as inline]
             [learn.reference :as ref]))
 
+(deftest serving-an-existing-snapshot-does-not-rebuild-it
+  (ref/build!)
+  (let [expected (slurp "build/site/index.html")]
+    (with-redefs [ref/build! (fn [] (throw (ex-info "Unexpected rebuild" {})))]
+      (let [server (ref/serve! 0)]
+        (try
+          (is (= expected
+                 (slurp (str "http://127.0.0.1:"
+                             (.getPort (.getAddress server)) "/"))))
+          (finally (.stop server 0)))))))
+
+(deftest first-require-does-not-emit-imported-declarations-in-the-lesson
+  (let [source (str "(ns learn.cache.import-isolation (:require [aguafria.zig :as az]))\n"
+                    "(az/defconst answer :u32 42)\n"
+                    "(swap! aguafria.zig.runtime/*registration-batch* conj "
+                    "{:kind :const :module \"dependency\" :name 'os :value 99})")
+        emitted (ref/emit-clojure source 'learn.cache.import-isolation {})]
+    (is (str/includes? emitted "answer: u32 = 42"))
+    (is (not (str/includes? emitted "const os")))))
+
 (deftest authored-equality-operators-are-jvm-callable
   (doseq [file (file-seq (io/file "resources/learn"))
           :when (and (.isFile file) (re-find #"\.(clj|edn)$" (.getName file)))
@@ -516,15 +536,114 @@
         failure {:file "example.zig" :status :failed
                  :comparison {:status :observation-mismatch}}]
     (with-redefs [ref/prepare-example-context! (constantly {:tool {} :translations {}})
+                  ref/example-source-inputs (constantly {})
                   ref/verify-example! (fn [& _] failure)
                   ref/write-edn! (fn [path value] (swap! writes conj [path value]))]
       (with-out-str
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #"Reference outcome comparison failed"
                               (ref/verify-outcomes! [{:file "example.zig"}])))))
-    (is (= [["build/outcomes/example.edn" failure]
-            ["build/outcomes.edn" [failure]]]
-           @writes))))
+    (let [failure (assoc failure :inputs {:compiler nil :sources {}} :artifacts {})]
+      (is (= [["build/outcomes/example.edn" failure]
+              ["build/outcomes.edn" [failure]]]
+             @writes)))))
+
+(deftest incremental-outcomes-rerun-only-invalidated-examples
+  (let [reports (atom {})
+        executions (atom [])
+        compiler (atom :version-1)
+        inputs (atom {"a.zig" :a1 "b.zig" :b1})
+        examples [{:file "a.zig"} {:file "b.zig"}]
+        existing (java.io.File/createTempFile "learn-cache-" ".edn")]
+    (with-redefs [ref/prepare-example-context!
+                  (fn [] {:tool {:fingerprint @compiler} :translations {}})
+                  ref/example-source-inputs (fn [file _] (get @inputs file))
+                  ref/translation-artifacts (constantly {})
+                  io/file (constantly existing)
+                  ref/read-edn (fn [path] (get @reports path {}))
+                  ref/write-edn! (fn [path value] (swap! reports assoc path value))
+                  ref/verify-example!
+                  (fn [_ {:keys [file]} _]
+                    (swap! executions conj file)
+                    {:file file :status :upstream-outcome-passed})]
+      (with-out-str
+        (ref/verify-outcomes! examples)
+        (is (= ["a.zig" "b.zig"] (sort @executions)))
+        (reset! executions [])
+        (ref/verify-outcomes! examples)
+        (is (empty? @executions))
+        (swap! inputs assoc "a.zig" :a2)
+        (ref/verify-outcomes! examples)
+        (is (= ["a.zig"] @executions))
+        (reset! executions [])
+        (reset! compiler :version-2)
+        (ref/verify-outcomes! examples)
+        (is (= ["a.zig" "b.zig"] (sort @executions)))))))
+
+(deftest native-build-workers-are-bounded-virtual-and-binding-conveying
+  (let [active (atom 0)
+        maximum (atom 0)
+        barrier (java.util.concurrent.CyclicBarrier. 2)
+        output (java.io.StringWriter.)]
+    (binding [*out* output]
+      (is (= [0 1 2 3]
+             (ref/parallel-builds
+               2
+               (fn [n]
+                 (is (.isVirtual (Thread/currentThread)))
+                 (swap! maximum max (swap! active inc))
+                 (try
+                   (.await barrier 10 java.util.concurrent.TimeUnit/SECONDS)
+                   (print n)
+                   n
+                   (finally (swap! active dec))))
+               (range 4)))))
+    (is (= 2 @maximum))
+    (is (= #{\0 \1 \2 \3} (set (str output))))
+    (is (thrown-with-msg? Exception #"worker failed"
+                         (ref/parallel-builds 2 (fn [_] (throw (ex-info "worker failed" {}))) [1])))
+    (is (thrown? Exception (ref/parallel-builds 0 identity [])))))
+
+(deftest example-cache-checks-artifacts-and-never-reuses-failure
+  (let [file (java.io.File/createTempFile "learn-artifact-" ".clj")
+        translation {:status :translated-front-end-error :clojure-path (str file)}
+        inputs {:compiler :current :sources :current}
+        cached (assoc translation :inputs inputs :artifacts (ref/translation-artifacts translation))
+        accepted #{:translated-front-end-error}]
+    (is (ref/reusable-example? cached inputs translation accepted))
+    (is (not (ref/reusable-example? (assoc cached :status :failed) inputs translation accepted)))
+    (is (not (ref/reusable-example? cached (assoc inputs :compiler :changed) translation accepted)))
+    (is (not (ref/reusable-example? cached (assoc inputs :sources :changed) translation accepted)))
+    (spit file "changed artifact")
+    (is (not (ref/reusable-example? cached inputs translation accepted)))
+    (is (not (ref/reusable-example? cached inputs
+                                    (assoc translation :clojure-path (str file ".missing")) accepted)))))
+
+(deftest example-inputs-include-transitive-local-dependencies
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "learn-inputs-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        parent (io/file root "doc/langref/parent.zig")
+        leaf (io/file root "doc/langref/leaf.zig")
+        data (io/file root "doc/langref/data.txt")
+        parent-clj (io/file root "parent.clj")
+        leaf-clj (io/file root "leaf.clj")
+        overrides {"parent.zig" {:source "learn/cache/parent.clj"}
+                   "leaf.zig" {:source "learn/cache/leaf.clj"}}
+        resources {"learn/cache/parent.clj" parent-clj "learn/cache/leaf.clj" leaf-clj}]
+    (io/make-parents parent)
+    (spit parent "const leaf = @import(\"leaf.zig\");")
+    (spit leaf "const parent = @import(\"parent.zig\"); const data = @embedFile(\"data.txt\");")
+    (spit data "payload")
+    (spit parent-clj "(ns learn.cache.parent (:require [learn.cache.leaf :as leaf]))")
+    (spit leaf-clj "(ns learn.cache.leaf)")
+    (with-redefs [ref/upstream-dir (str root)
+                  io/resource (fn [path] (some-> (resources path) .toURI .toURL))]
+      (let [before (ref/example-source-inputs "parent.zig" overrides)]
+        (is (= 5 (count before)))
+        (spit (io/file root "unrelated.clj") "unrelated change")
+        (is (= before (ref/example-source-inputs "parent.zig" overrides)))
+        (spit leaf-clj "(ns learn.cache.leaf) (def value 1)")
+        (is (not= before (ref/example-source-inputs "parent.zig" overrides)))))))
 
 (deftest diagnostic-comparison-checks-the-reason-for-failure
   (is (= :diagnostics-matched
@@ -714,10 +833,11 @@
     (is (= "nil" (:printed-value output)))))
 
 (deftest direct-branch-quota-test-records-the-native-error
-  (let [result (ref/capture-comment-repl!
-                (slurp (io/resource "learn/example/test_without_setEvalBranchQuota_builtin.clj"))
-                nil)
+  (let [path (.getCanonicalPath (io/file (io/resource "learn/example/test_without_setEvalBranchQuota_builtin.clj")))
+        result (ref/capture-comment-repl! (slurp path) nil path)
         diagnostic (get-in result [:evaluations 0 :exception])]
+    (is (= :load-error (:scope result)))
+    (is (str/starts-with? (get-in result [:evaluations 0 :form]) "(load-file "))
     (is (= :zig-test (:phase diagnostic)))
     (is (str/includes? (:message diagnostic) "evaluation exceeded 1000 backwards branches"))
     (is (ref/verified-comment?

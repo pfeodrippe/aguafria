@@ -55,8 +55,9 @@
    :spades
    :diamonds
    :hearts
-   (az/fn-decl is-clubs :bool {:attrs #{:public}} [[self Suit]]
-     (ak/return (ak/== self (az/field Suit :clubs))))])
+   (az/fn is-clubs :bool
+     [[self Suit]]
+     (ak/== self (az/field Suit :clubs)))])
 
 (az/deftest enum-method-test
   (let [suit (az/field Suit :spades)]

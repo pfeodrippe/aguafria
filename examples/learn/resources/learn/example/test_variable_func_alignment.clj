@@ -5,7 +5,7 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defvar aligned-byte {:zig/qualifiers "align(4)"} :u8 100)
+(az/defvar aligned-byte :u8 {:zig/qualifiers "align(4)"}  100)
 
 (az/deftest global-variable-alignment-test
   (let [information (type-info/-pointer (ak/typeInfo (ak/TypeOf (& aligned-byte))))]

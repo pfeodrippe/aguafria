@@ -5,8 +5,7 @@
 
 (az/defn- foo :i32
   []
-  (let [State (az/struct
-                [(az/var-decl value :i32 1234)])]
+  (let [State (az/struct [[:value {:var 1234} :i32]])]
     (ak/+= (az/field State :value) 1)
     (az/field State :value)))
 

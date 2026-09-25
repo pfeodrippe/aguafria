@@ -147,7 +147,20 @@
   "Share alias/type-field discovery and qualified tooltip signatures across std
   and package catalogs. Resolution is lexical and cycle-safe, never evaluation."
   [namespaces]
-  (let [declarations (into {} (map (juxt :symbol identity)) (mapcat :members namespaces))
+  (let [namespaces
+        (mapv (fn [ns-entry]
+                (update ns-entry :members
+                        (fn [members]
+                          (mapv (fn [member]
+                                  ;; Signed numeric prefixes are number tokens to
+                                  ;; Clojure's reader, even on field accessors.
+                                  (let [member-name (:clojure-name member)
+                                        readable-name (str/replace member-name #"^([+-])(?=[0-9])" "$1zig-")]
+                                    (assoc member :clojure-name readable-name
+                                                  :symbol (symbol (str (:name ns-entry)) readable-name))))
+                                members))))
+              namespaces)
+        declarations (into {} (map (juxt :symbol identity)) (mapcat :members namespaces))
         known (set (map :name namespaces))
         builtins (keep (partial builtin-field-namespace declarations) (vals declarations))
         base (into (vec namespaces) (remove #(contains? known (:name %))) builtins)
@@ -198,7 +211,9 @@
           (when (#{:std :packages} kind)
             (apply str
                    (for [{:keys [clojure-name signature display-signature documentation parameters]} members]
-                     (str "(clojure.core/declare ^"
+                     (str "(clojure.core/when (clojure.core/class? (clojure.core/ns-resolve clojure.core/*ns* '" clojure-name "))\n"
+                          "  (clojure.core/ns-unmap clojure.core/*ns* '" clojure-name "))\n"
+                          "(clojure.core/declare ^"
                           (pr-str
                            (cond-> {(if (= kind :std) :aguafria/std :aguafria/package) true
                                     :doc (str (or display-signature signature) "\n\n" documentation)}

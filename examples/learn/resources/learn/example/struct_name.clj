@@ -3,7 +3,7 @@
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defn List :type [[T {:zig/prefix "comptime"} :type]]
+(az/defn List :type [[T {:attrs #{ak/comptime}} :type]]
   (az/struct
     [[:x T]]))
 

@@ -1,8 +1,9 @@
 (ns learn.example.compile-time-duck-typing
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defn- max T
-  [[T {:zig/prefix "comptime"} :type] [a T] [b T]]
+  [[T {:attrs #{ak/comptime}} :type] [a T] [b T]]
   (if (> a b) a b))
 
 (az/defn- gimmeTheBiggerFloat :f32 [[a :f32] [b :f32]]

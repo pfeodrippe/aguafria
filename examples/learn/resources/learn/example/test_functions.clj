@@ -17,7 +17,7 @@
 ;; Export makes a function externally visible in the generated object file
 ;; and makes it use the C ABI.
 (az/defn sub :i8
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   [[a :i8] [b :i8]]
   (- a b))
 
@@ -49,7 +49,7 @@
 ;; Inline forces a function to be inlined at every call site.
 ;; If it cannot be inlined, that is a compile-time error.
 (az/defn- shift-left-one :u32
-  {:zig/prefix "inline"}
+  {:attrs #{ak/inline}}
   [[value :u32]]
   (az/op "<<" value 1))
 

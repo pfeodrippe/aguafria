@@ -4,7 +4,7 @@
 
 ;; This describes compare/exchange's result, but provides no atomicity.
 (az/defn cmpxchgStrongButNotAtomic [:optional T]
-  [[T {:zig/prefix "comptime"} :type]
+  [[T {:attrs #{ak/comptime}} :type]
    [pointer [:* T]] [expected T] [replacement T]]
   (let [previous @pointer]
     (if (ak/== previous expected)

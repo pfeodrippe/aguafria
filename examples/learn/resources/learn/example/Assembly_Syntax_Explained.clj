@@ -9,7 +9,7 @@
   ;; The comptime template can refer to %[result], %[number] or %[argument].
   ;; A literal percent sign is escaped as %%; this template needs neither.
   (ak/asm (az/multiline-string ["syscall"])
-          {:attrs #{:volatile}
+          {:attrs #{ak/volatile}
      ;; The output name identifies a template operand; ={rax} selects rax.
      ;; {:type :usize} returns the register instead of assigning a local binding.
      ;; Register constraints follow LLVM/GCC's inline-assembly conventions.

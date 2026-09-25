@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defstruct S
-  [(az/var-decl value :i32 1234)])
+  [[:value {:var 1234} :i32]])
 
 (az/defn- foo :i32
   []

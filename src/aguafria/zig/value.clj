@@ -8,7 +8,7 @@
            [java.lang.foreign Arena MemorySegment]
            [java.nio.charset StandardCharsets]))
 
-(declare decoded info realize! type type-info qualified-type
+(declare decoded info realize! type type-info qualified-type value-state
          decode-packed-backing decode-struct decode-value-segment
          encode-packed-backing
          write-struct! write-value-segment!)
@@ -107,6 +107,7 @@
 
   java.lang.AutoCloseable
   (close [this]
+    (let [state (value-state this)]
     (when-not (= :closed (:status @state))
       (let [{:keys [close! cleanable]} (realize! this)]
         (if cleanable
@@ -114,7 +115,7 @@
           (do
             (when close! (close!))
             (swap! state assoc :status :closed)))))
-    nil)
+    nil))
 
   Object
   (toString [this]
@@ -125,10 +126,20 @@
   [value]
   (instance? ZigValue value))
 
+(defn- value-state
+  [^ZigValue value]
+  (if-let [^ThreadLocal states (:thread-states (.-descriptor value))]
+    (do
+      (when (.isVirtual (Thread/currentThread))
+        (throw (ex-info "Native thread-local storage requires a platform thread"
+                        {:type :native-thread-local-storage})))
+      (.get states))
+    (.-state value)))
+
 (defn info
   "Return a small, printable view without forcing native compilation."
   [^ZigValue value]
-  (let [state-map @(.-state value)]
+  (let [state-map @(value-state value)]
     (merge
      (select-keys (.-descriptor value)
                   [:module :name :kind :type :logical-id :execution-context])
@@ -138,7 +149,7 @@
 (defn realize!
   "Materialize a Zig value once and return its internal representation map."
   [^ZigValue value]
-  (let [state (.-state value)]
+  (let [state (value-state value)]
     (locking state
       (case (:status @state)
         :ready @state
@@ -906,7 +917,7 @@
             (throw (ex-info "Native assignment requires the target's Zig type"
                             {:expected (type zig-value) :actual (type new-value)})))
           (.copyFrom ^MemorySegment segment (aguafria.zig.value/segment new-value))
-          (swap! (.-state zig-value) update :owners (fnil conj []) new-value))
+          (swap! (value-state zig-value) update :owners (fnil conj []) new-value))
         (binding [*allocation-arena* (:allocation-arena schema)]
           (write-value-segment! segment (:type descriptor) schema new-value
                                 {:module (:module descriptor)
@@ -915,7 +926,7 @@
                  (not (:tagged? schema))
                  (map? new-value)
                  (= 1 (count new-value)))
-        (swap! (.-state zig-value) assoc-in [:schema :active-field]
+        (swap! (value-state zig-value) assoc-in [:schema :active-field]
                (field-key (ffirst new-value))))
       (decoded zig-value))))
 
@@ -950,7 +961,12 @@
   "Create a lazy Zig value. Public for tooling; normal users receive these
   from `az/defconst` and function results."
   [descriptor materialize]
-  (ZigValue. descriptor (atom {:status :pending}) materialize))
+  (let [descriptor (cond-> descriptor
+                     (:threadlocal? descriptor)
+                     (assoc :thread-states
+                            (proxy [ThreadLocal] []
+                              (initialValue [] (atom {:status :pending})))))]
+    (ZigValue. descriptor (atom {:status :pending}) materialize)))
 
 (defn mutable-copy
   "Copy owned native storage into an independently mutable JVM handle.
@@ -976,6 +992,25 @@
       (catch Throwable failure
         (.close arena)
         (throw failure))))))
+
+(defn slice-element-view
+  "Borrow an element's native storage, retaining the slice and its library owner."
+  [slice-value index mutable?]
+  (let [{:keys [schema generation]} (realize! slice-value)
+        {:keys [element-type element-schema element-size element-alignment read-fn]} schema
+        {:keys [address length]} (read-fn (segment slice-value))]
+    (when-not (and (integer? index) (<= 0 index) (< index length))
+      (throw (ex-info "Slice element index is out of bounds" {:index index :length length})))
+    (native-value
+     {:module (:module (info slice-value))
+      :kind (if mutable? :var :const)
+      :type element-type}
+     (constantly {:representation :native
+                  :segment (.reinterpret (MemorySegment/ofAddress
+                                          (+ address (* index element-size))) element-size)
+                  :size element-size :alignment element-alignment
+                  :schema element-schema :generation generation
+                  :owners [slice-value]}))))
 
 (defmethod print-method ZigValue
   [value ^java.io.Writer writer]

@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defstruct Writer
-  [(az/fn-decl print-value [:error-union :void] {:attrs #{:public}}
+  [(az/fn print-value [:error-union :void]
      [[self [:* Writer]] [value :anytype]]
      (az/switch-stmt (ak/typeInfo (ak/TypeOf value))
        (case [:.int]
@@ -16,17 +16,17 @@
          (ak/compileError
           (az/op "++" "Unable to print type '" (ak/typeName (ak/TypeOf value)) "'")))))
 
-   (az/fn-decl write [:error-union :void]
+   (az/fn- write [:error-union :void]
      [[self [:* Writer]] [value [:slice-const :u8]]]
      (ak/= :_ self)
      (ak/= :_ value))
 
-   (az/fn-decl write-int [:error-union :void]
+   (az/fn- write-int [:error-union :void]
      [[self [:* Writer]] [value :anytype]]
      (ak/= :_ self)
      (ak/= :_ value))
 
-   (az/fn-decl write-float [:error-union :void]
+   (az/fn- write-float [:error-union :void]
      [[self [:* Writer]] [value :anytype]]
      (ak/= :_ self)
      (ak/= :_ value))])

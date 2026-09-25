@@ -78,6 +78,7 @@
   "Namespace used to resolve aliases such as `ak/intCast` during emission."
   nil)
 
+(def ^:dynamic *native-macro-expansion?* false)
 (def ^:dynamic *reloadable-state-references?* false)
 (def ^:dynamic *reloadable-state-accessors* nil)
 (def ^:dynamic *lexical-bindings* #{})
@@ -246,7 +247,18 @@
 
 (defn- contextual-reference
   [context-ns original-symbol reference]
-  (let [actual-module (str (ns-name context-ns))
+  (let [reference (if (= :namespace-member (:kind reference))
+                    ;; A stored type/expression can move between namespaces.
+                    ;; Rebase its member, not an already qualified Zig path.
+                    (let [prefix (str (:import-alias reference) ".")]
+                      (-> reference
+                          (assoc :kind :declaration
+                                 :zig-name (if (str/starts-with? (:zig-name reference) prefix)
+                                             (subs (:zig-name reference) (count prefix))
+                                             (:zig-name reference)))
+                          (dissoc :import-alias :import-name :import-namespace)))
+                    reference)
+        actual-module (str (ns-name context-ns))
         current-module (str (or project/*catalog-namespace*
                                 (ns-name context-ns)))
         target-module (:module reference)]
@@ -353,7 +365,8 @@
                                (when (symbol? op) (name op))))
                (:macro (meta macro-var)))
       (try
-        (binding [*ns* context-ns]
+        (binding [*ns* context-ns
+                  *native-macro-expansion?* true]
           (let [expanded (macroexpand-1 form)]
             ;; Macroexpansion may legitimately produce nil or false (the
             ;; terminating `(cond)`, for example). Wrap the value so those
@@ -808,7 +821,12 @@
     (update :return #(qualify-type context-ns %))
 
     (contains? declaration :value)
-    (update :value #(qualify-form context-ns %))
+    (update :value
+            #(binding [*local-type-bindings*
+                       (cond-> *local-type-bindings*
+                         (= :struct (:kind declaration))
+                         (assoc (:name declaration) true))]
+               (qualify-form context-ns %)))
 
     (contains? declaration :body)
     (update :body
@@ -1306,7 +1324,7 @@
 (defn- emit-asm
   [args form]
   (let [[template options :as all] args
-        options (or options {})]
+        options (keyword/normalize-attributes (or *keyword-context* *ns*) (or options {}))]
     (when-not (and (<= 1 (count all) 2)
                    (map? options))
       (fail! "asm expects a template and an optional options map" form))
@@ -1734,8 +1752,18 @@
 
         (= op 'field)
         (if (= 2 (count args))
-          (str (postfix-source (first args)) "."
-               (identifier-fragment (second args)))
+          (let [target (first args)
+                target (if (and (seq? target) (= 'type (first target)))
+                         (second target) target)
+                reference (when (symbol? target) (current-zig-reference target))
+                accessor (get (:container-state-accessors reference) (name (second args)))]
+            (if (and *reloadable-state-references?* accessor
+                     (or (:import-alias reference)
+                         (contains? *reloadable-state-accessors* accessor)))
+              (str (when-let [alias (:import-alias reference)] (str alias "."))
+                   accessor "().*")
+              (str (postfix-source (first args)) "."
+                   (identifier-fragment (second args)))))
           (fail! "field expects a target and field name" form))
 
         (= op 'deref)
@@ -1914,7 +1942,8 @@
 
 (defn- local-binding
   [binding]
-  (let [{:keys [var] :as metadata} (meta binding)
+  (let [{:keys [var] :as metadata}
+        (keyword/normalize-attributes (or *keyword-context* *ns*) (meta binding))
         type (or (:zig/type metadata)
                  (when-not (boolean? var) var)
                  (:tag metadata))]
@@ -2498,6 +2527,9 @@
                          " else "
                          (returning-braced (branch-forms else) level)))))
 
+              (and (= op 'while-loop) (contains? (first args) :else-expression))
+              (str "return " (emit-expr form) ";")
+
               (contains? non-value-statement-ops (operator-name op))
               ;; Keep incomplete native bodies incomplete. Zig owns return-path
               ;; validation; a statement tail must not acquire a made-up value.
@@ -2541,10 +2573,6 @@
          :else (fail! "invalid raw statement boundary" (first forms))))
 
      (or (contains? #{:void :noreturn} return-type)
-         (= :void (inferred-error-payload return-type))
-         (and (vector? return-type)
-              (= :error-union (first return-type))
-              (= :void (last return-type)))
          (false? implicit-return?))
      (emit-statements forms 0)
 
@@ -2565,7 +2593,8 @@
               3 (if (map? (second entry))
                   {:name (first entry)
                    :type (nth entry 2)
-                   :properties (second entry)}
+                   :properties (keyword/normalize-attributes
+                                (or *keyword-context* *ns*) (second entry))}
                   (fail! "The middle typed-binding value must be a properties map"
                          entry))
               (fail! "Typed binding expects [name type] or [name properties type]"
@@ -2619,6 +2648,12 @@
         :type type
         :properties (merge (meta field) (meta entry) properties)}))
    fields))
+
+(defn storage-fields
+  "Parse only instance fields; container vars/consts do not occupy instance storage."
+  [members]
+  (filterv #(not-any? (partial contains? (:properties %)) [:var :const])
+           (parse-struct-fields (vec (filter vector? members)))))
 
 (defn- source-comment
   [{:keys [file line column]}]
@@ -3110,7 +3145,9 @@
 (defn- emit-reloadable-state
   [declaration {:keys [accessor getter setter size-getter align-getter
                        linkable? emit-native-helpers?]}]
-  (let [name (identifier (or (:zig-name declaration) (:name declaration)))
+  (let [name (if-let [path (:state-path declaration)]
+               (str/join "." (map identifier path))
+               (identifier (or (:zig-name declaration) (:name declaration))))
         ;; Zig deliberately analyzes many declarations lazily. A typed global
         ;; may therefore use an initializer which is valid only for the
         ;; non-void arm of a comptime-selected type, while remaining perfectly
@@ -3128,7 +3165,7 @@
                             ") == .void) {} else "
                             (emit-expr (:value declaration)))))
           declaration)]
-    (str (emit-declaration declaration) "\n\n"
+    (str (when-not (:state-path declaration) (emit-declaration declaration)) "\n\n"
          "var " accessor "_pointer: @TypeOf(&" name ") = &" name ";\n\n"
          "pub fn " accessor "() @TypeOf(&" name ") {\n"
          "    return @atomicLoad(@TypeOf(&" name "), &" accessor
@@ -3185,7 +3222,9 @@
                *keyword-context* context-ns
                *reloadable-state-references?* true
                *reloadable-state-accessors*
-               (set (map :accessor (vals state-specs)))
+               (into (set (map :accessor (vals state-specs)))
+                     (keep #(some-> % :declaration :name str))
+                     (vals dispatch-specs))
                ;; Development dylibs use a named container so their root can
                ;; import the logical module without colliding with wrappers.
                ;; A generated development application replaces the original
@@ -3278,6 +3317,27 @@
                                                    [logical-type-name-helper
                                                     helper-source
                                                     declarations-source
+                                                    (str/join "\n\n"
+                                                      (for [[key spec] dispatch-specs
+                                                            :let [declaration (:declaration spec)]
+                                                            :when (:owner-declaration-key declaration)]
+                                                        (emit-reloadable-function
+                                                         declaration
+                                                         (assoc spec
+                                                                :emit-getter? (not dependency?)
+                                                                :linkable? (or (not dependency?)
+                                                                               (contains? linkable-declaration-keys key))))))
+                                                    (str/join "\n\n"
+                                                      (for [[key spec] state-specs
+                                                            :let [declaration (:declaration spec)]
+                                                            :when (:state-path declaration)]
+                                                        (emit-reloadable-state
+                                                         declaration
+                                                         (assoc spec
+                                                                :linkable? (contains? linkable-declaration-keys key)
+                                                                :emit-native-helpers?
+                                                                (or (not dependency?)
+                                                                    (contains? linkable-declaration-keys key))))))
                                                     extra-body-source]))
              module-source
              (str (when-not (str/blank? imports-source)
@@ -3325,12 +3385,35 @@
                                [{} declaration])]
     [(or doc (:doc attributes)) attributes members]))
 
+(defn- vector-container-declaration
+  [member]
+  (when (and (vector? member) (map? (second member)))
+    (let [properties (second member)
+          kinds (filter #(contains? properties %) [:var :const :default])]
+      (when (> (count kinds) 1)
+        (fail! "A member cannot combine :var, :const, or :default" member))
+      (when-let [kind (first (filter #{:var :const} kinds))]
+        (let [{:keys [name type properties]} (first (parse-struct-fields [member]))
+              attributes (dissoc properties kind)
+              attributes (if (contains? attributes :attrs)
+                           attributes
+                           (assoc attributes :attrs
+                                  (if (:private attributes) #{} #{:public})))]
+          (with-meta
+            (apply list
+                   (if (= :var kind) 'aguafria.zig/var-decl 'aguafria.zig/const-decl)
+                   (symbol (clojure.core/name name)) attributes
+                   (concat (when-not (= :_ type) [type]) [(get properties kind)]))
+            (meta member)))))))
+
 (defn struct-container-form
   "Lower vector fields and nested declarations through the regular container emitter."
   [options members]
   (list 'aguafria.zig/container (merge {:kind :struct} options)
          (mapv (fn [member]
-                (if (vector? member)
+                (if-let [declaration (vector-container-declaration member)]
+                  declaration
+                  (if (vector? member)
                   (let [{:keys [name type properties]} (first (parse-struct-fields [member]))]
                     (with-meta
                       (apply list 'aguafria.zig/field-decl name
@@ -3340,7 +3423,7 @@
                   (if (seq? member)
                     member
                     (fail! "Struct/union members must be field vectors or nested declarations"
-                           member))))
+                           member)))))
               members)))
 
 (defn enum-container-form
@@ -3348,7 +3431,9 @@
   [options members]
   (list 'aguafria.zig/container (assoc options :kind :enum)
          (mapv (fn [member]
-                (if (or (keyword? member) (vector? member))
+                (if-let [declaration (vector-container-declaration member)]
+                  declaration
+                  (if (or (keyword? member) (vector? member))
                   (let [[tag & tail] (if (keyword? member) [member] member)
                         [properties values] (if (map? (first tail))
                                               [(first tail) (next tail)]
@@ -3364,7 +3449,7 @@
                   (if (seq? member)
                     member
                     (fail! "Enum members must be keywords, tag vectors, or nested declarations"
-                           member))))
+                           member)))))
               members)))
 
 (defn type-declaration-members
@@ -3383,11 +3468,13 @@
     (case kind
       :enum (enum-container-form options members)
       (:struct :union) (struct-container-form (assoc options :kind kind) members)
-      :opaque (list 'aguafria.zig/container (assoc options :kind kind) members))))
+      :opaque (list 'aguafria.zig/container (assoc options :kind kind)
+                    (mapv #(or (vector-container-declaration %) %) members)))))
 
 (defn- nested-base
   [kind name attributes]
-  (let [attributes (merge (meta name) attributes)
+  (let [attributes (keyword/normalize-attributes
+                    (or *keyword-context* *ns*) (merge (meta name) attributes))
         context (or project/*catalog-namespace*
                     (when *keyword-context*
                       (if (instance? clojure.lang.Namespace *keyword-context*)
@@ -3495,7 +3582,7 @@
             [doc attributes members] (type-declaration-members declaration)]
         (merge (nested-base :struct name attributes)
                {:doc doc :layout (or (:layout attributes) :normal)
-                :fields (parse-struct-fields (vec (filter vector? members)))
+                :fields (storage-fields members)
                 :value (struct-container-form
                         (select-keys attributes [:layout :argument :zig/trailing]) members)}))
 
@@ -3610,7 +3697,8 @@
     (when-not (and (= 3 (count form)) (map? options)
                    (keyword? (:kind options)) (vector? members))
       (fail! "container expects an option map with :kind and one member vector" form))
-    (let [{:keys [kind layout enum? argument zig/trailing attrs]} options
+    (let [{:keys [kind layout enum? argument zig/trailing attrs]}
+          (keyword/normalize-attributes *ns* options)
           enum? (or enum? (contains? (set attrs) :enum))
           layout-source (case layout
                           :extern "extern "

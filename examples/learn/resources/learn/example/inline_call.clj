@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- foo :i32
-  {:zig/prefix "inline"}
+  {:attrs #{ak/inline}}
   [[a :i32] [b :i32]]
   (debug/print "runtime a = {} b = {}" [a b])
   (+ a b))

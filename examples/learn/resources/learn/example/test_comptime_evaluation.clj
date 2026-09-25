@@ -25,9 +25,9 @@
                   (CmdFn {:name "three" :func three})] [:array :_ CmdFn]))
 
 (az/defn- perform-fn :i32
-  [[prefix-char {:zig/prefix "comptime"} :u8] [start-value :i32]]
+  [[prefix-char {:attrs #{ak/comptime}} :u8] [start-value :i32]]
   (let [result (ak/var start-value :i32)
-        i (ak/var 0 nil {:zig/prefix "comptime"})]
+        i (ak/var 0 nil {:attrs #{ak/comptime}})]
     (az/while-loop {:inline? true
                     :continue (az/assign-expr "+=" i 1)}
       (< i (az/field cmd-fns :len))

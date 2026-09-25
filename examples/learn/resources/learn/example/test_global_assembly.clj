@@ -13,7 +13,7 @@
      "  lea (%rdi,%rsi,1),%eax"
      "  retq"])))
 
-(az/defextern my-func :i32 {:zig/prefix "extern"}
+(az/defextern my-func :i32
   [[first-value :i32] [second-value :i32]])
 
 (az/deftest global-assembly-test

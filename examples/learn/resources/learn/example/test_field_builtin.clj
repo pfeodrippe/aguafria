@@ -6,10 +6,10 @@
 (az/defstruct Point
   [[:x :u32]
    [:y :u32]
-   (az/var-decl z {:attrs #{:public}} :u32 1)])
+   [:z {:var 1} :u32]])
 
 (az/deftest string-field-access-test
-  (let [point (ak/var (az/init {:x 0 :y 0} Point))]
+  (let [point (ak/var (Point {:x 0 :y 0}))]
     (ak/= (ak/field point "x") 4)
     (ak/= (ak/field point "y") (+ (ak/field point "x") 1))
 

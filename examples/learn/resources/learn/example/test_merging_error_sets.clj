@@ -15,7 +15,7 @@
 (az/defconst C (az/op "||" A B))
 
 (az/defn- foo [:error-union C :void] []
-  (ak/return (az/error-value :NotDir)))
+  (az/error-value :NotDir))
 
 (az/deftest merge-error-sets-test
   (az/if-capture-stmt {:error [error]} (foo)

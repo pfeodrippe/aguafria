@@ -15,7 +15,7 @@
   (debug/print "Panic! {s}\n" [message])
   (process/exit 1))
 
-(az/defconst panic {:attrs #{:public}} (debug/FullPanic myPanic))
+(az/defconst panic {:attrs #{ak/pub}} (debug/FullPanic myPanic))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

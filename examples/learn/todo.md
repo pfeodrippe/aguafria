@@ -60,8 +60,33 @@
     - [x] (ak/as (az/error-value :DemoError) [:error-union :anyerror :void]) returns an error
   - [x] test_container_level_variables.clj
     - [x] out of order
-  - [ ] test_namespaced_container_level_variable.clj
-  - [ ] test_static_local_variable.clj
+  - [x] test_namespaced_container_level_variable.clj
+    - [x] (az/field S :value) and (ak/+= (az/field S :value) 1) doesn't work on their own
+    - [x] (az/var-decl value :i32 1234) syntax
+  - [x] test_static_local_variable.clj
+    - [x] in the jvm, (az/struct [[:value {:var 1234} :i32]]) returns Unable to resolve symbol: value in this context
+    - [x] test it works well from the REPL
+  - [x] test_thread_local_variables.clj
+    - [x] instead of {:zig/prefix "threadlocal"}, it should be {:attrs {ak/threadlocal}}
+    - [x] from the JVM, when evaluating `value`, we have the error `Zig state has no active native storage`
+    - [x] and wth do we still have the type after the metadata, instead of (az/defvar value {:zig/prefix "threadlocal"} :i32 1234), it should be (az/defvar value :i32 {:attrs {ak/threadlocal}} 1234), we should fix in all places and reject otherwise, no fallbacks
+    - [x] when calling testTls from the JVM, I have "The JVM is alive, but native defers were not unwound. Reinitialize affected native state before reusing it."}
+    - [x] (try (thread/spawn {} testTls [])) returns `Cannot emit Zig expression`
+  - [x] test_comptime_variables.clj
+    - [x] (ak/var 1 :i32 {:zig/prefix "comptime"}) should be (ak/var 1 :i32 {:attrs ak/comptime}), also see all :zig/prefix where we could do better
+  - [x] integer_literals.clj
+    - [x] fix jvm (az/defconst octal-int (az/number-literal "0o755")) error
+  - [x] runtime_vs_comptime.clj
+    - [x] clojure.lang.ExceptionInfo: Zig compilation failed for learn.example.runtime-vs-comptime
+  - [x] float_literals.clj
+    - [x] (az/defconst hex-floating-point (az/number-literal "0x103.70p-5"))
+  - [x] float_special_values.clj
+    - [x] (az/defconst inf (math/inf :f32))
+  - [x] float_mode_obj.clj
+    - [x] {:attrs #{:export}}
+  - [x] float_mode_exe.clj
+    - [x] error: undefined symbol: _foo_optimized and error: undefined symbol: _foo_strict
+    - [x] and the output is expected ?
 
 - [ ] show tree structure of a running program
   - [ ] call tree and what's in the middle of the invocations

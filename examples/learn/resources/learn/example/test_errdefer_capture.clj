@@ -6,7 +6,7 @@
 (az/defn- capture-error [:error-union :void]
   [[captured [:* [:optional :anyerror]]]]
   (errdefer [error] (ak/= @captured error))
-  (ak/return (az/error-value :GeneralFailure)))
+  (az/error-value :GeneralFailure))
 
 (az/deftest errdefer-capture-test
   (let [captured (ak/var nil [:optional :anyerror])]

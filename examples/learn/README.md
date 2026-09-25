@@ -47,6 +47,7 @@ clojure -M:translate       # regenerate displayed namespaces and emitted Zig
 clojure -M:blocks          # handwritten blocks; check syntax and shared native fixtures
 clojure -M:inlines         # check short forms; compare closed expression outputs
 clojure -M:outcomes        # compare original + Aguafria outcomes; fail on mismatch
+clojure -M:outcomes 1      # sequential verification (default: 4 virtual build workers)
 clojure -M:build           # offline build/site/index.html, inventory and coverage
 clojure -M:serve           # http://127.0.0.1:8096/
 clojure -M:test            # snapshot/build/evaluation regressions
@@ -55,6 +56,29 @@ node --test test/layout_test.cjs    # browser layout regressions (Playwright + C
 clojure -M:verify          # fail for missing, stale or mismatching evidence
 clojure -M:dev:nrepl       # dedicated local development REPL
 ```
+
+`serve` reuses the existing HTML snapshot; restarting it does not invalidate
+recorded REPL output. After compiler or example changes, rerun the verification
+steps above before rebuilding the page. A first start without HTML builds it.
+
+Translation and outcome verification are incremental: unchanged lessons reuse
+their emitted code and captured REPL output. Editing a lesson, an imported local
+helper, or an embedded input invalidates that lesson and its dependants. Missing
+or changed generated artifacts and previous failures are retried. Compiler,
+toolchain, dependency configuration, or shared verifier changes invalidate the
+cache. Unchanged blocks and the batched inline-expression check are reused too;
+assembling the HTML remains a separate, inexpensive step.
+
+Independent native compiler/harness processes run on a bounded pool of virtual
+threads (1–32 workers). Actual comment forms still execute in-process; namespace
+loading and native output capture are serialized so one lesson cannot consume
+another lesson's output. Results retain documentation order regardless of finish
+order. `verify-outcomes!` also accepts `examples` and `{:jobs n}` from the REPL.
+
+Container methods use `(az/fn name return-type ... [args] body...)`, public by
+default, or `az/fn-` for private methods. Named container values use ordinary
+constructor calls such as `(Timestamp {:seconds 0 :nanos 0})`; explicit `az/init`
+remains useful for anonymous/computed type expressions and non-container schemas.
 
 The example uses the library checkout so compiler fixes can be tested immediately.
 All native builds use **Aguafria’s embedded Zig**, never a `zig` found on PATH.

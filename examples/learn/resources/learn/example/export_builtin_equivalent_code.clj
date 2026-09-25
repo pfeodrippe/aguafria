@@ -1,8 +1,9 @@
 (ns learn.example.export-builtin-equivalent-code
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]))
 
 (az/defn foo :void
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   [])
 
 (comment

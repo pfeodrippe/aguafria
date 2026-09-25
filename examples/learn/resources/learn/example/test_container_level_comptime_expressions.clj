@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- firstNPrimes [:array amount :i32]
-  [[amount {:zig/prefix "comptime"} :usize]]
+  [[amount {:attrs #{ak/comptime}} :usize]]
   (let [prime-list (ak/var ak/undefined [:array amount :i32])
         next-index (ak/var 0 :usize)
         candidate (ak/var 2 :i32)]

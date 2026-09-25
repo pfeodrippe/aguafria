@@ -4,11 +4,11 @@
             [aguafria.zig :as az]))
 
 (az/defn- List :type
-  [[T {:zig/prefix "comptime"} :type]]
+  [[T {:attrs #{ak/comptime}} :type]]
   (az/struct
-    [(az/const-decl Self (ak/This))
+    [[:Self {:const (ak/This)} :type]
      [:items [:slice T]]
-     (az/fn-decl length :usize
+     (az/fn- length :usize
        [[self Self]]
        (az/field (az/field self :items) :len))]))
 

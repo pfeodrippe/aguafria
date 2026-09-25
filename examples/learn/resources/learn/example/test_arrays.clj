@@ -77,8 +77,7 @@
    [:y :i32]])
 
 ;; Use compile-time code to initialize an array.
-(az/defvar fancy-array
-  (az/labeled-block init
+(az/defvar fancy-array (az/labeled-block init
     (let [initial-value (ak/var ak/undefined [:array 10 Point])]
       (for [[(az/pointer-capture point) (& initial-value)]
             [index (az/op ".." 0)]]
@@ -95,8 +94,7 @@
   (Point {:x x :y (* x 2)}))
 
 ;; Call a function to initialize an array.
-(az/defvar more-points
-  (az/op "**" (az/array-init [(make-point 3)] [:array :_ Point]) 10))
+(az/defvar more-points (az/op "**" (az/array-init [(make-point 3)] [:array :_ Point]) 10))
 
 (az/deftest function-array-test
   (try (testing/expectEqual 3 (az/field (az/index more-points 4) :x)))

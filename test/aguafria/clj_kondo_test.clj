@@ -37,7 +37,8 @@
                             (az/deftest native-test (try (f)))
                             (az/defcomptime startup (try (f)))
                             (az/defstruct S
-                              [(az/fn-decl method :!void [] (try (f)))])
+                              [(az/fn- helper :!void [] (try (f)))
+                               (az/fn method :!void [] (try (f)))])
                             (defn host [] (try (inc 1)))"))]
     (is (= 1 (count (findings-of :missing-clause-in-try findings))))
     (is (empty? (filter #(= :error (:level %)) findings)))))

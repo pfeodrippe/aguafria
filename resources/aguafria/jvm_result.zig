@@ -29,8 +29,49 @@ const __aguafria_jvm = struct {
         }
     }
 
+    fn needsNativeStorage(comptime T: type) bool {
+        return switch (@typeInfo(T)) {
+            .pointer => |p| p.size != .slice and
+                !(p.size == .one and @typeInfo(p.child) == .array and @typeInfo(p.child).array.child == u8),
+            .@"struct" => |info| blk: {
+                inline for (info.fields) |field| {
+                    if (containsNativeStorage(field.type)) break :blk true;
+                }
+                break :blk false;
+            },
+            .@"union" => true,
+            else => false,
+        };
+    }
+
+    fn containsNativeStorage(comptime T: type) bool {
+        return switch (@typeInfo(T)) {
+            .optional => |info| containsNativeStorage(info.child),
+            .error_union => |info| containsNativeStorage(info.payload),
+            .array, .vector => |info| containsNativeStorage(info.child),
+            .pointer => |info| if (info.size == .slice) containsNativeStorage(info.child) else needsNativeStorage(T),
+            else => needsNativeStorage(T),
+        };
+    }
+
     fn write(writer: *std.Io.Writer, value: anytype) !void {
+        return writeAt(writer, value, &.{});
+    }
+
+    fn writeAt(writer: *std.Io.Writer, value: anytype, comptime path: []const []const u8) !void {
         const T = @TypeOf(value);
+        if (comptime needsNativeStorage(T)) {
+            const size = @sizeOf(T);
+            const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
+            const bytes = allocator.rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
+            errdefer allocator.rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
+            @memcpy(bytes[0..size], std.mem.asBytes(&value));
+            try writer.writeAll("{:aguafria.jvm/native {:address ");
+            try writer.print("{d} :size {d} :alignment {d} :path ", .{@intFromPtr(bytes), size, @alignOf(T)});
+            try write(writer, path);
+            try writer.writeAll("}}");
+            return;
+        }
         switch (@typeInfo(T)) {
             .void, .null => try writer.writeAll("nil"),
             .bool => try writer.writeAll(if (value) "true" else "false"),
@@ -48,11 +89,11 @@ const __aguafria_jvm = struct {
                     try writer.print("{e}", .{value});
                 }
             },
-            .optional => if (value) |payload| try write(writer, payload) else try writer.writeAll("nil"),
+            .optional => if (value) |payload| try writeAt(writer, payload, path ++ .{"optional", "child"}) else try writer.writeAll("nil"),
             .error_union => {
                 if (value) |payload| {
                     try writer.writeAll("{:ok ");
-                    try write(writer, payload);
+                    try writeAt(writer, payload, path ++ .{"error_union", "payload"});
                     try writer.writeByte('}');
                 } else |err| {
                     try writer.writeAll("{:error {:name ");
@@ -76,7 +117,7 @@ const __aguafria_jvm = struct {
                 }
                 try writer.writeAll("}}");
             },
-            .@"enum" => try write(writer, @tagName(value)),
+            .@"enum", .enum_literal => try write(writer, @tagName(value)),
             .type => {
                 try writer.writeAll("{:aguafria.jvm/type ");
                 try write(writer, @as([]const u8, @typeName(value)));
@@ -90,7 +131,7 @@ const __aguafria_jvm = struct {
                     } else {
                         try writer.writeByte('[');
                         for (value) |item| {
-                            try write(writer, item);
+                            try writeAt(writer, item, path ++ .{"pointer", "child"});
                             try writer.writeByte(' ');
                         }
                         try writer.writeByte(']');
@@ -109,7 +150,7 @@ const __aguafria_jvm = struct {
                 try writer.writeByte('[');
                 const length = if (@typeInfo(T) == .array) @typeInfo(T).array.len else @typeInfo(T).vector.len;
                 inline for (0..length) |index| {
-                    try write(writer, value[index]);
+                    try writeAt(writer, value[index], path ++ .{if (@typeInfo(T) == .array) "array" else "vector", "child"});
                     try writer.writeByte(' ');
                 }
                 try writer.writeByte(']');
@@ -247,5 +288,17 @@ const __aguafria_jvm = struct {
     fn release(address: usize) void {
         const text = std.mem.span(@as([*:0]const u8, @ptrFromInt(address)));
         allocator.free(text[0 .. text.len + 1]);
+    }
+
+    fn releaseNative(address: usize, size: usize, alignment: usize) void {
+        const bytes: [*]u8 = @ptrFromInt(address);
+        allocator.rawFree(bytes[0..@max(1, size)], .fromByteUnits(alignment), @returnAddress());
+    }
+
+    fn comptimeResult(comptime value: anytype) usize {
+        return switch (@typeInfo(@TypeOf(value))) {
+            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null => result(.{ .comptime_value = value }),
+            else => result(null),
+        };
     }
 };

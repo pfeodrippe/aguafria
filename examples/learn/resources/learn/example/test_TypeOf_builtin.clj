@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- foo T
-  [[T {:zig/prefix "comptime"} :type] [pointer [:* T]]]
+  [[T {:attrs #{ak/comptime}} :type] [pointer [:* T]]]
   (ak/+= @pointer 1)
   @pointer)
 

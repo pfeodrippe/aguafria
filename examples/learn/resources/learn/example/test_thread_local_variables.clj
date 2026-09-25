@@ -4,9 +4,9 @@
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defvar value
-  {:zig/prefix "threadlocal"}
-  :i32 1234)
+(az/defvar value :i32
+  {:attrs #{ak/threadlocal}}
+  1234)
 
 (az/defn- testTls :void
   []

@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- type-name-length :usize
-  [[T {:zig/prefix "comptime"} :type]]
+  [[T {:attrs #{ak/comptime}} :type]]
   (az/field (ak/typeName T) :len))
 
 (az/deftest inline-for-test

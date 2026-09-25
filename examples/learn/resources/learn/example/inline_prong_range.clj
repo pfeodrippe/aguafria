@@ -6,7 +6,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- isFieldOptional [:error-union :bool]
-  [[T {:zig/prefix "comptime"} :type] [field-index :usize]]
+  [[T {:attrs #{ak/comptime}} :type] [field-index :usize]]
   (let [fields (-> (ak/typeInfo T) type-info/-struct struct-info/-fields)]
     (switch field-index
       (az/inline-case [(az/op "..." 0 (- (az/field fields :len) 1))] [index]

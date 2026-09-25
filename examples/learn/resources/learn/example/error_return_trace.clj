@@ -5,10 +5,10 @@
 ;; Retain the original function names so the propagated-error trace is legible
 ;; beside the Zig version: FileNotFound is handled, PermissionDenied escapes.
 (az/defn- bang1 [:error-union :void] []
-  (ak/return (az/error-value :FileNotFound)))
+  (az/error-value :FileNotFound))
 
 (az/defn- bang2 [:error-union :void] []
-  (ak/return (az/error-value :PermissionDenied)))
+  (az/error-value :PermissionDenied))
 
 (az/defn- baz [:error-union :void] []
   (try (bang1)))

@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn decode-base-64 :usize
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   [[destination [:many :u8]] [destination-length :usize]
    [source [:many-const :u8]] [source-length :usize]]
   (let [input (az/slice source 0 source-length)

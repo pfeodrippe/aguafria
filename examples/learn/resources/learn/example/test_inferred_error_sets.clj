@@ -7,14 +7,14 @@
 (az/defconst Error (az/type [:error-set [:Overflow]]))
 
 (az/defn add-inferred [:error-union T]
-  [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
+  [[T {:attrs #{ak/comptime}} :type] [left T] [right T]]
   (let [sum (ak/addWithOverflow left right)]
     (when (ak/!= (az/index sum 1) 0)
       (ak/return (az/error-value :Overflow)))
     (az/index sum 0)))
 
 (az/defn add-explicit [:error-union Error T]
-  [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
+  [[T {:attrs #{ak/comptime}} :type] [left T] [right T]]
   (let [sum (ak/addWithOverflow left right)]
     (when (ak/!= (az/index sum 1) 0)
       (ak/return (az/error-value :Overflow)))

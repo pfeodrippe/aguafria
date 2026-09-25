@@ -46,6 +46,8 @@
   {"defn" :function
    "defn-" :function
    "fn-decl" :function
+   "fn" :function
+   "fn-" :function
    "defextern" :function
    "fn-proto-decl" :function
    "defconst" :constant

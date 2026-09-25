@@ -4,11 +4,12 @@
             [aguafria.zig :as az]))
 
 (az/defstruct json
-  {:attrs #{:public}}
-  [(az/const-decl JsonValue {:attrs #{:public}}
-     (az/union {:enum? true}
-       [[:number :f64]
-        [:boolean :bool]]))])
+  {:attrs #{ak/pub}}
+  [[:JsonValue
+    {:const (az/union {:enum? true}
+              [[:number :f64]
+               [:boolean :bool]])}
+    :type]])
 
 (az/defn main :void []
   (debug/print "{s}\n" [(ak/typeName (az/field json :JsonValue))]))

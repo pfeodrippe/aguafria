@@ -7,7 +7,8 @@
   and `try` stay unqualified."
   (:require [aguafria.zig.value :as value]
             [clojure.edn :as edn]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.string :as str]))
 
 (def ^:private catalog-resource
   "aguafria/zig-keyword.edn")
@@ -212,7 +213,11 @@
     ;; `min`, and `abs`, which Clojure happens to refer from clojure.core.
     (when (contains? (ns-map *ns*) sym)
       (ns-unmap *ns* sym))
-    (let [v (intern *ns* sym (token-root token))]
+    (let [root (token-root token)
+          root (if (instance? clojure.lang.IObj root)
+                 (with-meta root (assoc (meta root) :aguafria/token token))
+                 root)
+          v (intern *ns* sym root)]
       (alter-meta! v merge metadata)
       v)))
 
@@ -245,6 +250,44 @@
   (some-> (resolve-qualified-var context-ns op)
           meta
           :aguafria/token))
+
+(defn normalize-attributes
+  "Normalize an attribute set for native declaration emission.
+  Accepts keyword flags, required ak/... symbols, and their evaluated JVM values."
+  [context attributes]
+  (if-not (contains? attributes :attrs)
+    attributes
+    (let [raw (:attrs attributes)
+          _ (when-not (set? raw)
+              (throw (ex-info ":attrs must be a set" {:attrs raw})))
+          flags (into #{}
+                      (map (fn [flag]
+                             (if (keyword? flag)
+                               flag
+                               (let [token (if (symbol? flag)
+                                             (resolve-token context flag)
+                                             (:aguafria/token (meta flag)))
+                                     spelling (or (when (= :keyword (:kind token))
+                                                    (:zig-token token))
+                                                  (when (and (= :call (:kind token))
+                                                             (some #(= (:name token) (:name %))
+                                                                   (:keywords generated-catalog)))
+                                                    (:name token)))]
+                                 (when-not spelling
+                                   (throw (ex-info "Attribute must be a Zig keyword token"
+                                                   {:attribute flag})))
+                                 (if (= "pub" spelling)
+                                   :public
+                                   (keyword spelling))))))
+                      raw)
+          existing (:zig/prefix attributes)
+          existing-words (set (str/split (or existing "") #"\s+"))
+          prefixes (remove #(contains? existing-words (name %))
+                           (filter flags [:extern :inline :noinline :threadlocal :comptime :noalias]))
+          prefix (str/join " " (map name prefixes))]
+      (cond-> (assoc attributes :attrs flags)
+        (seq prefix) (assoc :zig/prefix
+                            (str (when (seq existing) (str existing " ")) prefix))))))
 
 (defn token-name
   "Return the generated `ak/...` Var name for a Zig keyword/operator token."

@@ -10,10 +10,10 @@
      [:boolean :bool]]))
 
 (az/deftest simple-union-test
-  (let [payload (ak/var (az/init {:int 1234} Payload))]
+  (let [payload (ak/var (Payload {:int 1234}))]
     (try (testing/expectEqual 1234 (az/field payload :int)))
     ;; Assigning the whole union changes its active field.
-    (ak/= payload (az/init {:float 12.34} Payload))
+    (ak/= payload (Payload {:float 12.34}))
     (try (testing/expectEqual 12.34 (az/field payload :float)))))
 
 (comment

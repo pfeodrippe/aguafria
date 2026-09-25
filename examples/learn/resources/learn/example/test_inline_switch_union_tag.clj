@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defconst U
-  (az/union {:attrs #{:enum}}
+  (az/union {:attrs #{ak/enum}}
     [[:a :u32]
      [:b :f32]]))
 
@@ -16,7 +16,7 @@
         number))))
 
 (az/deftest inline-union-tag-test
-  (let [value (az/init {:b 42} U)]
+  (let [value (U {:b 42})]
     (try (testing/expectEqual 42 (getNum value)))))
 
 (comment

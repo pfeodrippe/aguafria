@@ -7,7 +7,7 @@
   (let [WrongSize (az/struct {:layout :packed, :argument :u32}
                     [[:a :u16]
                      [:b :u8]])]
-    (ak/= :_ (az/init {:a 4 :b 2} WrongSize))))
+    (ak/= :_ (WrongSize {:a 4 :b 2}))))
 
 (comment
   (missized-packed-struct-test))

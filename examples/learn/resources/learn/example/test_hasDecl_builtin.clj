@@ -5,8 +5,8 @@
 
 (az/defstruct Foo
   [[:nope :i32]
-   (az/var-decl blah {:attrs #{:public}} "xxx")
-   (az/const-decl hi 1)])
+   [:blah {:var "xxx"} :_]
+   [:hi {:const 1 :private true} :_]])
 
 (az/deftest declaration-presence-test
   (try (testing/expect (ak/hasDecl Foo "blah")))

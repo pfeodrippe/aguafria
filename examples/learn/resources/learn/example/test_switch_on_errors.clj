@@ -24,7 +24,7 @@
 
 (az/defn- open-file-generic
   (switch kind (case [0] FileOpenError0) (case [1] FileOpenError1))
-  [[kind {:zig/prefix "comptime"} :u1]]
+  [[kind {:attrs #{ak/comptime}} :u1]]
   (switch kind (case [0] (open-file-0)) (case [1] (open-file-1))))
 
 (az/deftest comptime-unreachable-error-test

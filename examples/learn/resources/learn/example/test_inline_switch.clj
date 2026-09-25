@@ -7,7 +7,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- isFieldOptional :!bool
-  [[T {:zig/prefix "comptime"} :type] [field-index :usize]]
+  [[T {:attrs #{ak/comptime}} :type] [field-index :usize]]
   (let [fields (-> (ak/typeInfo T) type-info/-struct struct-info/-fields)]
     (ak/switch field-index
       ;; This prong is analyzed twice, with a compile-time-known index each time.

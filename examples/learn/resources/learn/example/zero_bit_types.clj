@@ -2,7 +2,7 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]))
 
-(az/defn entry :void {:attrs #{:export}} []
+(az/defn entry :void {:attrs #{ak/export}} []
   (let [first-value (ak/var (az/block) :void)
         second-value (ak/var (az/block) :void)]
     (ak/= first-value second-value)

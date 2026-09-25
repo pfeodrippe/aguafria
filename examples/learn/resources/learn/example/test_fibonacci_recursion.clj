@@ -7,9 +7,8 @@
   [[index :u32]]
   (if (< index 2)
     (ak/return index))
-  (ak/return
-   (+ (fibonacci (- index 1))
-      (fibonacci (- index 2)))))
+  (+ (fibonacci (- index 1))
+     (fibonacci (- index 2))))
 
 (az/deftest fibonacci-test
   ;; test fibonacci at run-time

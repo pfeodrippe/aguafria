@@ -7,12 +7,12 @@
   (let [Point (az/struct
                 [[:x :u8]
                  [:y :u8]])
-        Item (az/union {:attrs #{:enum}}
+        Item (az/union {:attrs #{ak/enum}}
                [[:a :u32]
                 [:c Point]
                 [:d :void]
                 [:e :u32]])
-        item (ak/var (az/init {:c (az/init {:x 1 :y 2} Point)} Item))
+        item (ak/var (Item {:c (Point {:x 1 :y 2})}))
         result (ak/switch item
                  ;; Matching fields with the same payload type can share a prong.
                  (case [(az/field Item :a) (az/field Item :e)] [value] value)

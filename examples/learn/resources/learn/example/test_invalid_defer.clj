@@ -5,7 +5,7 @@
 (az/defn- deferInvalidExample [:error-union :void] []
   ;; Returning from deferred cleanup is forbidden, regardless of the error.
   (defer (ak/return (az/error-value :DeferError)))
-  (ak/return (az/error-value :DeferError)))
+  (az/error-value :DeferError))
 
 (comment
   (deferInvalidExample))

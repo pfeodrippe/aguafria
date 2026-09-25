@@ -5,12 +5,12 @@
 (az/defconst big (ak/as (az/op "<<" 1 40) :f64))
 
 (az/defn foo_strict :f64
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   [[x :f64]]
   (- (+ x big) big))
 
 (az/defn foo_optimized :f64
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   [[x :f64]]
   (ak/setFloatMode :.optimized)
   (- (+ x big) big))

@@ -366,10 +366,22 @@
   "Return a live, inspectable Clojure view of an `az/defvar`. Dereferencing or
   printing it reads the actual native state bytes, never a declaration map."
   [declaration]
-  (let [declaration (declaration-info declaration)]
+  (let [declaration (declaration-info declaration)
+        threadlocal? (str/includes? (or (:zig-prefix declaration) "") "threadlocal")
+        inferred? (nil? (:type declaration))
+        variable (symbol (:module declaration) (str (:name declaration)))
+        type (or (:type declaration) (list 'aguafria.keyword/TypeOf variable))]
     (zig-value/native-value
-     (select-keys declaration [:module :name :kind :type :logical-id])
-     #(materialize-state! declaration))))
+     (assoc (select-keys declaration [:module :name :kind :type :logical-id])
+            :type type
+            :threadlocal? threadlocal?)
+     #(cond
+        inferred?
+        (let [view ((requiring-resolve 'aguafria.zig.jvm/variable-view!) declaration)]
+          (assoc (zig-value/realize! view) :owners [view]))
+
+        threadlocal? (materialize-constant! declaration)
+        :else (materialize-state! declaration)))))
 
 (defn- env-true?
   [value]
@@ -384,7 +396,7 @@
          (keyword
          (or (System/getProperty "aguafria.development-debug-info")
               (System/getenv "AGUAFRIA_DEVELOPMENT_DEBUG_INFO")
-              "none"))
+              "full"))
          :development-panic
          (keyword
           (or (System/getProperty "aguafria.development-panic")
@@ -801,7 +813,7 @@
 
 (def ^:private source-reference-fingerprint-keys
   [:kind :module :zig-name :import-name :import-alias :import-namespace
-   :source-order :logical-id :type-reference? :state-accessor
+   :source-order :logical-id :type-reference? :state-accessor :container-state-accessors
    :constant-fingerprint])
 
 (def ^:private emission-symbol-fingerprint-keys
@@ -1626,14 +1638,34 @@
      :publication-epoch-setter (str "__aguafria_" module-token
                                     "_set_publication_epoch")}))
 
+(defn- threadlocal-accessor-declaration
+  [declaration]
+  (when (and (= :var (:kind declaration))
+             (str/includes? (or (:zig-prefix declaration) "") "threadlocal"))
+    (let [variable (emit/identifier (or (:zig-name declaration) (:name declaration)))
+          accessor (symbol (str "__aguafria_tls_" (subs (sha256 (pr-str (:logical-id declaration))) 0 24)))]
+      (declaration-info
+       {:kind :fn :module (:module declaration) :name accessor
+        :qualified-name (symbol (:module declaration) (str accessor))
+        :declaration-key [:threadlocal-accessor (:name declaration)]
+        :public? true :export? false :implicit-return? true
+        :return [:* (or (:type declaration) (list 'raw (str "@TypeOf(" variable ")")))]
+        :args [] :body [(list 'raw (str "&" variable))]
+        :owner-declaration-key (:declaration-key declaration)
+        :owner-logical-id (:logical-id declaration)}))))
+
 (defn- reloadable-dispatch-specs
   [declarations]
   (into {}
         (comp (filter dispatchable-declaration?)
               (map (fn [declaration]
                      [(:declaration-key declaration)
-                      (declaration-dispatch-spec declaration)])))
-        declarations))
+                      (cond-> (declaration-dispatch-spec declaration)
+                        (:owner-declaration-key declaration)
+                        (assoc :declaration declaration))])))
+        (mapcat #(cond-> [%]
+                   (threadlocal-accessor-declaration %)
+                   (conj (threadlocal-accessor-declaration %))) declarations)))
 
 (defn- declaration-state-spec
   [{:keys [logical-id schema-fingerprint] :as declaration}]
@@ -1650,13 +1682,35 @@
      :size-getter (str prefix "_size")
      :align-getter (str prefix "_alignment")}))
 
+(defn- container-state-declarations
+  [declaration]
+  (let [container (when (container-type-form declaration)
+                    (container-type-description declaration))]
+    (mapv
+     (fn [member]
+       (let [path [(or (:zig-name declaration) (:name declaration))
+                   (or (:zig-name member) (:name member))]]
+         (declaration-info
+          (merge member
+                 {:module (:module declaration)
+                  :name (symbol (str/join "." (map name path)))
+                  :declaration-key [:container-state (:name declaration) (:name member)]
+                  :state-path path
+                  :state-container-key (:declaration-key declaration)
+                  :state-container-id (:logical-id declaration)}))))
+     (filter #(and (= :var (:kind %))
+                   (not (str/includes? (or (:zig-prefix %) "") "threadlocal")))
+             (:members container)))))
+
 (defn state-reference
   "Return deterministic development state-reference metadata for a defvar."
   [declaration]
   (let [declaration (declaration-info declaration)]
-    (when (= :var (:kind declaration))
-      (select-keys (declaration-state-spec declaration)
-                   [:version-key :logical-id :schema-fingerprint :accessor]))))
+    (if-let [accessor (threadlocal-accessor-declaration declaration)]
+      {:accessor (str (:name accessor))}
+      (when (= :var (:kind declaration))
+        (select-keys (declaration-state-spec declaration)
+                     [:version-key :logical-id :schema-fingerprint :accessor])))))
 
 (defn- reloadable-state-specs
   [declarations]
@@ -1670,8 +1724,11 @@
                        ;; cell would be incorrect as well as invalid Zig.
                        (not (str/includes? (or (:zig-prefix %) "")
                                            "threadlocal"))))
-         (map (juxt :declaration-key declaration-state-spec)))
-        declarations))
+         (map (fn [declaration]
+                [(:declaration-key declaration)
+                 (cond-> (declaration-state-spec declaration)
+                   (:state-path declaration) (assoc :declaration declaration))])))
+        (mapcat #(cons % (container-state-declarations %)) declarations)))
 
 (defn- emit-reload-source!
   ([module declarations dispatch-specs state-specs]
@@ -2051,7 +2108,7 @@
                 (->> specs
                      (keep (fn [[declaration-key spec]]
                              (when-let [declaration
-                                        (get definitions declaration-key)]
+                                        (or (:declaration spec) (get definitions declaration-key))]
                                {:declaration declaration
                                 :spec spec
                                 :owned? false})))
@@ -2060,7 +2117,7 @@
                 (->> state-specs
                      (keep (fn [[declaration-key spec]]
                              (when-let [declaration
-                                        (get definitions declaration-key)]
+                                        (or (:declaration spec) (get definitions declaration-key))]
                                {:declaration declaration
                                 :spec spec
                                 :owned? false})))
@@ -2654,7 +2711,8 @@
 
 (defn- linkage-entry?
   [logical-ids {:keys [declaration]}]
-  (contains? logical-ids (:logical-id declaration)))
+  (contains? logical-ids (or (:owner-logical-id declaration)
+                            (:state-container-id declaration) (:logical-id declaration))))
 
 (defn- development-linkage-modules
   "Return exact transitive modules whose embedded dispatch/state hooks must
@@ -2801,7 +2859,9 @@
            selected?
            (fn [{:keys [declaration]}]
              (or (nil? slice-keys)
-                 (contains? slice-keys (:declaration-key declaration))))
+                 (contains? slice-keys (or (:owner-declaration-key declaration)
+                                          (:state-container-key declaration)
+                                          (:declaration-key declaration)))))
            linkable-dispatch-entries
            (vec (filter #(linkage-entry? logical-ids %) dispatch-entries))
            linkable-dispatch-entries
@@ -3372,6 +3432,8 @@
                                         "-lc" (str "-femit-bin=" output)] libraries))]
           (assoc (run-command link-command directory) :command link-command))))))
 
+(def ^:dynamic ^:private *validate-without-linking?* false)
+
 (defn- compile-source!
   ([module-name source declarations]
    (compile-source! module-name source declarations nil))
@@ -3584,7 +3646,11 @@
         (let [cache-safe? (:cache-safe? compiler-options)
               cached? (and cache-safe? (usable-artifact? library-file))
               result
-              (when-not cached?
+              (if *validate-without-linking?*
+                (let [validation-command (assoc command 3 "-fno-emit-bin")]
+                  (assoc (run-command validation-command (.getAbsolutePath module-dir))
+                         :command validation-command))
+                (when-not cached?
                 (let [temporary-file
                       (io/file module-dir
                                (str "." (java.util.UUID/randomUUID) "-" library-name))
@@ -3607,7 +3673,7 @@
                         (move-replacing! temporary-file library-file))
                       result)
                     (finally
-                      (Files/deleteIfExists (.toPath temporary-file))))))]
+                      (Files/deleteIfExists (.toPath temporary-file)))))))]
           (when (and result (not (zero? (:exit result))))
             (let [command (or (:command result) command)
                   {:keys [message diagnostics report location]}
@@ -3738,19 +3804,31 @@
          :error-payload-size-handle
          (bind-long (:error-payload-size spec)))))))
 
+(defn- bind-panic-context
+  [^Linker linker ^SymbolLookup lookup]
+  (into {}
+        (map (fn [[key symbol layout]]
+               [key (.downcallHandle linker
+                                     (.orElseThrow (.find lookup symbol))
+                                     (FunctionDescriptor/of layout (make-array MemoryLayout 0))
+                                     (make-array Linker$Option 0))]))
+        [[:frames "aguafria_guard_frames" ValueLayout/ADDRESS]
+         [:frame-count "aguafria_guard_frame_count" ValueLayout/JAVA_LONG]]))
+
 (defn- bind-jvm-callable
   [^Linker linker ^SymbolLookup lookup qualified-name
    {:keys [declaration symbol mode argument-modes return-mode
            native-argument-specs result-size-getter
            result-align-getter] :as spec}]
-  (let [panic-handle
+  (let [panic-context (bind-panic-context linker lookup)
+        panic-handle
         (.downcallHandle linker
                          (.orElseThrow (.find lookup (str symbol "_panic_message")))
                          (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
                          (make-array Linker$Option 0))]
   (if (= :direct mode)
     (assoc (bind-function linker lookup declaration symbol)
-           :bridge-spec spec :panic-handle panic-handle)
+           :bridge-spec spec :panic-handle panic-handle :panic-context panic-context)
     (let [find-required
           (fn [symbol-name]
             (-> (.find lookup symbol-name)
@@ -3885,6 +3963,7 @@
                :descriptor descriptor
                :handle handle
                :panic-handle panic-handle
+               :panic-context panic-context
                :bridge-spec spec
                :native-argument-bindings
                (mapv (fn [argument-spec]
@@ -4443,7 +4522,7 @@
           dispatch-entries
           (concat
            (keep (fn [[declaration-key spec]]
-                   (when-let [declaration (get declarations-by-key declaration-key)]
+                   (when-let [declaration (or (:declaration spec) (get declarations-by-key declaration-key))]
                      {:declaration declaration :spec spec :owned? true}))
                  dispatch-specs)
            dependency-entries)
@@ -4459,7 +4538,7 @@
           state-entries
           (concat
            (map (fn [[declaration-key spec]]
-                  {:declaration (get declarations-by-key declaration-key)
+                  {:declaration (or (:declaration spec) (get declarations-by-key declaration-key))
                    :spec spec
                    :owned? true})
                 state-specs)
@@ -4758,13 +4837,18 @@
     (assoc :implementation-fingerprint implementation-fingerprint)
     schema-fingerprint (assoc :schema-fingerprint schema-fingerprint)
     shape-fingerprint (assoc :shape-fingerprint shape-fingerprint)
-    (= :var kind)
-    (assoc :state-accessor (:accessor (declaration-state-spec declaration)))
+    (state-reference declaration)
+    (assoc :state-accessor (:accessor (state-reference declaration)))
     ;; `:type-reference?` means the Var itself is usable with Zig's
     ;; `Type{...}` constructor syntax. A function returning `type` is invoked
     ;; normally and must not be rewritten to `function{...}`.
     (constructor-type-reference? declaration)
-    (assoc :type-reference? true)))
+    (assoc :type-reference? true
+           :container-state-accessors
+           (into {} (map (fn [member]
+                           [(clojure.core/name (last (:state-path member)))
+                            (:accessor (declaration-state-spec member))]))
+                 (container-state-declarations declaration)))))
 
 (defn- publish-clojure-declaration-metadata!
   "Keep ordinary Clojure Vars aligned with declarations refreshed internally
@@ -4787,6 +4871,16 @@
                                 (:kind declaration))
                      (assoc :aguafria/zig-reference
                             (declaration-reference-view declaration)))))
+    (when (#{:fn :fn-proto} (:kind declaration))
+      ;; Passing `f` evaluates the Var to its ordinary JVM function. Carry the
+      ;; same native identity on that value, not just on #'f, so imported and
+      ;; generic Zig calls can accept it as a comptime function argument.
+      (alter-var-root v
+        (fn [root]
+          (if (instance? clojure.lang.IObj root)
+            (vary-meta root assoc :aguafria/zig-reference
+                       (declaration-reference-view declaration))
+            root))))
   nil))
 
 (defn refresh-declaration-var!
@@ -5559,7 +5653,8 @@
                           (= "error-union" (some-> type first name)))]
                  [qualified-name
                   {:declaration declaration
-                   :mode (if (contains? scalar-layouts (scalar-key type))
+                   :mode (if (and (contains? scalar-layouts (scalar-key type))
+                                  (not (str/includes? (or (:zig-prefix declaration) "") "threadlocal")))
                            :scalar
                            :native)
                    :getter (str prefix "_get")
@@ -6015,7 +6110,10 @@
               slice-element-type error-union? error-payload-type
               nested-storage-spec] :as spec}]]
   (let [constant-name (emit/identifier (or (:zig-name declaration)
-                                           (:name declaration)))]
+                                           (:name declaration)))
+        constant-name (if-let [tls (and (:reloadable? @config)
+                                       (threadlocal-accessor-declaration declaration))]
+                        (str (:name tls) "().*") constant-name)]
     (if (= :scalar mode)
       (str "export fn " getter "() callconv(.c) "
            (emit/emit-type (:type declaration)) " {\n"
@@ -6798,7 +6896,7 @@
                                              (:schema-fingerprint current)
                                              :state-accessor
                                              (:accessor
-                                              (declaration-state-spec current)))]
+                                              (state-reference current)))]
                                   (when (not=
                                          (select-keys
                                           (:aguafria/zig-reference (meta value))
@@ -9930,6 +10028,22 @@
                 (= "load" (.getMethodName frame))))
          (.getStackTrace (Thread/currentThread)))))
 
+(defn- register-unlinked-declaration!
+  "Check native semantics now, but resolve extern symbols only on invocation.
+  This is a compiler validation pass, not a linked library or a fallback after
+  ignoring a linker failure. Invalid function bodies still fail at definition."
+  [{:keys [module declaration-key] :as declaration}]
+  (let [current (get @registry module)
+        declarations (vec (vals (assoc (:definitions current) declaration-key declaration)))]
+    (ensure-converted-dependency-sources! module declarations)
+    (locking compile-lock
+      (let [current (get @registry module)
+            old-declaration (get-in current [:definitions declaration-key])
+            plan (compilation-plan module current declarations old-declaration declaration)]
+        (binding [*validate-without-linking?* true]
+          (compile-plan! module (refresh-plan-dependency-snapshots plan)))
+        (register-source-only-declaration! module declaration-key declaration)))))
+
 (defn- validate-registration-references!
   [declaration preceding]
   (let [context (or (find-ns (symbol (:module declaration))) *ns*)
@@ -10014,6 +10128,16 @@
                  (native-declaration-equivalent? old-declaration declaration))
             (register-unchanged-declaration!
              module declaration-key declaration)
+
+            ;; Extern prototypes are declarations, not requests to load a
+            ;; library. Before the first call, check dependent bodies without
+            ;; linking so callers can supply object/library inputs afterwards.
+            (or (= :fn-proto (:kind declaration))
+                (and (some #(= :fn-proto (:kind %)) (vals (:definitions current)))
+                     (or (nil? (:published-generation current))
+                         (and (= :fn (:kind declaration))
+                              (nil? (get-in current [:functions (:qualified-name declaration)]))))))
+            (register-unlinked-declaration! declaration)
 
             (project/converted-module? module)
             (binding [*file-load-registration?* file-load-registration?]
@@ -10522,6 +10646,7 @@
                                          (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
                                          (make-array Linker$Option 0))]
                        (check-native-panic! {:panic-handle panic-handle
+                                            :panic-context (bind-panic-context (Linker/nativeLinker) lookup)
                                             :declaration {:qualified-name (symbol module (str test-name))}})))
                    result))))))
         diagnostics (when (= 1 status)
@@ -11310,17 +11435,113 @@
                        :argument argument
                        :argument-type (type argument)})))))
 
+(defn- captured-panic-frames
+  [{:keys [frames frame-count]}]
+  (when (and frames frame-count)
+    (let [count (min 64 (long (.invokeWithArguments ^MethodHandle frame-count (ArrayList.))))
+          pointer (.invokeWithArguments ^MethodHandle frames (ArrayList.))
+          width (.byteSize ValueLayout/ADDRESS)
+          storage (.reinterpret ^MemorySegment pointer (* count 3 width))]
+      (mapv (fn [index]
+              (let [offset (* index 3 width)
+                    address (.get storage ValueLayout/ADDRESS offset)
+                    base (.get storage ValueLayout/ADDRESS (+ offset width))
+                    image (.get storage ValueLayout/ADDRESS (+ offset (* 2 width)))]
+                {:index index :address (.address address) :image-base (.address base)
+                 :image (.getString (.reinterpret image 4096) 0)}))
+            (range count)))))
+
+(defn- symbolize-panic-image
+  [[image frames]]
+  (let [mac? (str/includes? (str/lower-case (System/getProperty "os.name")) "mac")
+        hex #(str "0x" (Long/toHexString (long %)))
+        command (if mac?
+                  (into ["atos" "-fullPath" "-o" image "-l" (hex (:image-base (first frames)))]
+                        (map (comp hex :address)) frames)
+                  (into ["addr2line" "-e" image "-f" "-C"]
+                        (map #(hex (- (:address %) (:image-base %)))) frames))]
+    (try
+      (let [{:keys [exit out err]} (apply shell/sh command)
+            lines (str/split-lines out)
+            locations (if mac?
+                        (map (fn [line]
+                               (when-let [[_ function file row]
+                                          (re-matches #"^(.*?) \(in .*\) \((.*):(\d+)\)$" line)]
+                                 {:frame function :file file :line (parse-long row) :column 1})) lines)
+                        (map (fn [[function location]]
+                               (when-let [[_ file row] (re-matches #"^(.*):(\d+).*$" (or location ""))]
+                                 (when (pos? (parse-long row))
+                                   {:frame function :file file :line (parse-long row) :column 1})))
+                             (partition-all 2 lines)))]
+        (if (zero? exit)
+          (mapv merge frames (take (count frames) (concat locations (repeat nil))))
+          (mapv #(assoc % :symbolication-error (str/trim err)) frames)))
+      (catch Exception error
+        (mapv #(assoc % :symbolication-error (ex-message error)) frames)))))
+
+(defn- panic-diagnostics
+  [context]
+  (let [frames (->> (captured-panic-frames context)
+                    (group-by :image)
+                    (mapcat symbolize-panic-image)
+                    (sort-by :index)
+                    vec)
+        mapped (->> frames
+                    (keep (fn [{:keys [file line] :as frame}]
+                            (when (and file (.isFile (io/file file)))
+                              (let [source (slurp file)
+                                    generated-line (line-at source line)
+                                    bridge? (or (str/includes? (or (:frame frame) "") "__aguafria_jvm")
+                                                (and (str/includes? (or generated-line "") "__aguafria_")
+                                                     (not (str/includes? (or (:frame frame) "") "_implementation"))))
+                                    diagnostic (enrich-zig-diagnostic source file frame)]
+                                (when (and (get-in diagnostic [:aguafria/source :file])
+                                           (get-in diagnostic [:aguafria/source :line])
+                                           (not bridge?))
+                                  (dissoc diagnostic :generated-source))))))
+                    (reduce (fn [result diagnostic]
+                              (if (some #(= (:aguafria/source %) (:aguafria/source diagnostic)) result)
+                                result
+                                (conj result diagnostic))) []))]
+    {:native-frames frames :diagnostics mapped}))
+
 (defn- check-native-panic! [function-binding]
   (when-let [handle (:panic-handle function-binding)]
     (let [address (.invokeWithArguments ^MethodHandle handle (ArrayList.))]
       (when-not (= MemorySegment/NULL address)
-        (let [message (.getString (.reinterpret ^MemorySegment address 4096) 0)]
-          (throw (ex-info (str "Native Zig panic: " message)
-                          {:aguafria/phase :native-panic
+        (let [message (.getString (.reinterpret ^MemorySegment address 4096) 0)
+              {:keys [diagnostics native-frames symbolication-error]}
+              (try (panic-diagnostics (:panic-context function-binding))
+                   (catch Exception error
+                     {:diagnostics [] :native-frames [] :symbolication-error (ex-message error)}))
+              location (:aguafria/source (first diagnostics))
+              report (str "Native Zig panic: " message (native-stack-source-report diagnostics))
+              details (cond-> {:aguafria/phase :native-panic
                            :function (get-in function-binding [:declaration :qualified-name])
                            :panic-message message
+                           :native-frames native-frames :diagnostics diagnostics
+                           :aguafria/report report
                            :native-state :potentially-inconsistent
-                           :hint "The JVM is alive, but native defers were not unwound. Reinitialize affected native state before reusing it."})))))))
+                           :hint "The JVM is alive, but native defers were not unwound. Reinitialize affected native state before reusing it."}
+                        symbolication-error (assoc :symbolication-error symbolication-error)
+                        location (merge {:clojure.error/phase :execution
+                                         :clojure.error/source (:file location)
+                                         :clojure.error/line (:line location)
+                                         :clojure.error/column (:column location)
+                                         :clojure.error/symbol (some-> (:declaration location) symbol)}))
+              exception (ex-info report details)]
+          (when (seq diagnostics)
+            (.setStackTrace exception
+              (into-array StackTraceElement
+                (concat
+                  (map (fn [diagnostic]
+                         (let [{:keys [file line declaration]} (:aguafria/source diagnostic)
+                               name (when declaration (symbol declaration))]
+                           (StackTraceElement. (or (some-> name namespace) "aguafria.native")
+                                               (or (some-> name clojure.core/name) "invoke")
+                                               file (int line)))) diagnostics)
+                  (.getStackTrace exception)))))
+          (throw exception))))))
 
 (defn- invoke-indirect-binding!
   [module function-binding arguments]
@@ -11423,11 +11644,24 @@
         (when-not @retained-call-arena?
           (.close call-arena))))))
 
+(def ^:dynamic ^:private *consume-native-result* nil)
+
+(defn- retain-result-generation!
+  [module function-binding]
+  (let [references (:native-value-refs function-binding)
+        closed? (atom false)]
+    (.incrementAndGet ^AtomicLong references)
+    (fn []
+      (when (compare-and-set! closed? false true)
+        (.decrementAndGet ^AtomicLong references)
+        (locking compile-lock
+          (retire-module-quiescent-generations! module))))))
+
 (defn- invoke-binding!
   [module function-binding arguments]
   (let [declaration (:declaration function-binding)]
     (try
-      (if (= :indirect (get-in function-binding [:bridge-spec :mode]))
+      (let [result (if (= :indirect (get-in function-binding [:bridge-spec :mode]))
         (invoke-indirect-binding! module function-binding arguments)
         (let [coerced (mapv (fn [{:keys [type]} value]
                               (coerce-argument type value))
@@ -11436,7 +11670,11 @@
               result (.invokeWithArguments ^MethodHandle
                                            (:handle function-binding) values)
               _ (check-native-panic! function-binding)]
-          (coerce-result (:return declaration) result)))
+          (coerce-result (:return declaration) result)))]
+        (if-let [consume *consume-native-result*]
+          (binding [*consume-native-result* nil]
+            (consume result #(retain-result-generation! module function-binding)))
+          result))
       (finally
         (.decrementAndGet ^AtomicLong (:jvm-active-calls function-binding))
         (locking compile-lock
@@ -12141,7 +12379,7 @@
           (.close arena)
           (throw error))))))
 
-(defn materialize-constant!
+(defn- materialize-stored-constant!
   "Materialize the latest value of a non-literal Zig constant for a ZigValue.
   Scalar accessors return an exact JVM value. Other values retain their exact
   native byte representation and pin the owning dylib generation."
@@ -12209,6 +12447,14 @@
            :schema schema
            :generation wrapper-generation
            :close! close!})))))
+
+(defn materialize-constant!
+  "Use value transport for inferred comptime constants, native storage otherwise."
+  [declaration]
+  (if-let [result (when (nil? (:type declaration))
+                    ((requiring-resolve 'aguafria.zig.jvm/comptime-constant-value!) declaration))]
+    {:representation :scalar :value (get result "comptime_value")}
+    (materialize-stored-constant! declaration)))
 
 (defn materialize-state!
   "Materialize the active native storage for a Zig defvar as a live ZigValue."
@@ -12351,6 +12597,14 @@
   [function arguments]
   ((requiring-resolve 'aguafria.zig.jvm/call-with-output)
    #(invoke-uncaptured! function arguments)))
+
+(defn invoke-with-result!
+  "Consume a scalar adapter result before releasing its native call lease.
+  The consumer receives the result and a zero-argument generation-retention
+  function. Each retained owner must call its returned release function."
+  [function arguments consume]
+  (binding [*consume-native-result* consume]
+    (invoke! function arguments)))
 
 (defn invoke-version!
   "Invoke a retained scalar ABI version of an exported Zig function. Obtain
@@ -12747,7 +13001,8 @@
                            :argv-pointer argv-pointer
                            :environment-count (count environment)
                            :environment-pointer environment-pointer
-                           :run-handle run-handle :panic-handle panic-handle}]
+                           :run-handle run-handle :panic-handle panic-handle
+                           :panic-context (bind-panic-context linker lookup)}]
                ;; The process entry receives `std.process.Init` by value and
                ;; establishes process-scoped dependency state. Keep that one
                ;; already-entered root in the host image so it observes the
@@ -12790,6 +13045,7 @@
                      result (.invokeWithArguments
                              ^MethodHandle (:run-handle prepared) values)
                      _ (check-native-panic! {:panic-handle (:panic-handle prepared)
+                                            :panic-context (:panic-context prepared)
                                             :declaration {:qualified-name qualified-name}})
                      exit-code (bit-and 0xff (long result))
                      finished-at (System/currentTimeMillis)]

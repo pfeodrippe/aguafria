@@ -9,7 +9,7 @@
 
 (az/defn syscall1 :usize [[number :usize] [argument :usize]]
   (ak/asm "syscall"
-          {:attrs #{:volatile}
+          {:attrs #{ak/volatile}
            :outputs [[:result "={rax}" {:type :usize}]]
            :inputs [[:number "{rax}" number] [:argument "{rdi}" argument]]
            :clobbers {:rcx true :r11 true}}))
@@ -18,7 +18,7 @@
   [[number :usize] [first-argument :usize] [second-argument :usize]
    [third-argument :usize]]
   (ak/asm "syscall"
-          {:attrs #{:volatile}
+          {:attrs #{ak/volatile}
            :outputs [[:result "={rax}" {:type :usize}]]
            :inputs [[:number "{rax}" number]
                     [:first "{rdi}" first-argument]

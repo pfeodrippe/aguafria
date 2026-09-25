@@ -5,7 +5,7 @@
 
 (az/deftest comptime-variables-test
   (let [x (ak/var 1 :i32)
-        y (ak/var 1 :i32 {:zig/prefix "comptime"})]
+        y (ak/var 1 :i32 {:attrs #{ak/comptime}})]
     (ak/+= x 1)
     (ak/+= y 1)
     (try (testing/expectEqual 2 x))

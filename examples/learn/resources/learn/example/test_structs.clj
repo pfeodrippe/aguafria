@@ -11,14 +11,14 @@
   [[:x :f32]
    [:y :f32]
    [:z :f32]
-   (az/fn-decl init Vec3 {:attrs #{:public}}
+   (az/fn init Vec3
      [[x :f32] [y :f32] [z :f32]]
-     (ak/return (az/init {:x x :y y :z z} Vec3)))
-   (az/fn-decl dot :f32 {:attrs #{:public}}
+     (Vec3 {:x x :y y :z z}))
+   (az/fn dot :f32
      [[self Vec3] [other Vec3]]
-     (ak/return (+ (* (az/field self :x) (az/field other :x))
-                   (* (az/field self :y) (az/field other :y))
-                   (* (az/field self :z) (az/field other :z)))))])
+     (+ (* (az/field self :x) (az/field other :x))
+        (* (az/field self :y) (az/field other :y))
+        (* (az/field self :z) (az/field other :z))))])
 
 (az/deftest dot-product-test
   (let [horizontal ((az/field Vec3 :init) 1.0 0.0 0.0)
@@ -28,7 +28,7 @@
     (try (testing/expectEqual 0.0 ((az/field Vec3 :dot) horizontal vertical)))))
 
 (az/defstruct Empty
-  [(az/const-decl PI {:attrs #{:public}} 3.14)])
+  [[:PI {:const 3.14} :_]])
 
 (az/deftest namespaced-constant-test
   (try (testing/expectEqual 3.14 (az/field Empty :PI)))
@@ -46,9 +46,9 @@
     (setYBasedOnX (& (az/field point :x)) 0.9)
     (try (testing/expectEqual 0.9 (az/field point :y)))))
 
-(az/defn LinkedList :type [[T {:zig/prefix "comptime"} :type]]
+(az/defn LinkedList :type [[T {:attrs #{ak/comptime}} :type]]
   (az/struct
-    [(az/struct-decl Node {:attrs #{:public}}
+    [(az/struct-decl Node {:attrs #{ak/pub}}
        [[:prev [:optional [:* Node]]]
         [:next [:optional [:* Node]]]
         [:data T]])

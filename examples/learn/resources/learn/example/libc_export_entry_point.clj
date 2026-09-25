@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn main :c_int
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   [[argc :c_int] [argv [:many-const [:sentinel-const :u8 0]]]]
   (let [args (az/slice argv 0 (ak/intCast argc))]
     (debug/print "Hello! argv[0] is '{s}'\n" [(az/index args 0)])

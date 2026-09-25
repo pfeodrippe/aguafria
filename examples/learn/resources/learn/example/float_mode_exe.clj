@@ -3,11 +3,9 @@
             [aguafria.zig :as az]))
 
 (az/defextern foo_strict :f64
-  {:zig/prefix "extern"}
   [[x :f64]])
 
 (az/defextern foo_optimized :f64
-  {:zig/prefix "extern"}
   [[x :f64]])
 
 (az/defn main :void

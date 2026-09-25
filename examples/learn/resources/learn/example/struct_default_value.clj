@@ -5,4 +5,4 @@
   [[:minimum :f32]
    [:maximum :f32]
   ;; A namespaced default value is an ordinary instance of the enclosing type.
-   (az/const-decl default Threshold {:minimum 0.25 :maximum 0.75})])
+   [:default {:const (Threshold {:minimum 0.25 :maximum 0.75})} Threshold]])

@@ -15,16 +15,16 @@
      [:three :void]]))
 
 (az/defconst U2
-  (az/union {:attrs #{:enum}}
+  (az/union {:attrs #{ak/enum}}
     [[:a :void]
      [:b :f32]
-     (az/fn-decl tag :usize [[self U2]]
+     (az/fn- tag :usize [[self U2]]
        (switch self
          (case [:.a] 1)
          (case [:.b] 2)))]))
 
 (az/deftest union-enum-coercion-test
-  (let [value (az/init {:two 12.34} U)
+  (let [value (U {:two 12.34})
         tag (ak/as value E)]
     (try (testing/expectEqual (az/field E :two) tag)))
   (let [empty-tag (az/field E :three)

@@ -125,15 +125,47 @@ bare tags or detailed tag vectors:
   [:red [:blue {:doc "Blue channel"} 4]])
 
 (az/defn ShortList :type
-  [[T {:zig/prefix "comptime"} :type]
-   [length {:zig/prefix "comptime"} :usize]]
+  [[T {:attrs #{ak/comptime}} :type]
+   [length {:attrs #{ak/comptime}} :usize]]
   (az/struct
     [[:items [:array length T]]
-     (az/fn-decl capacity :usize [] length)]))
+     (az/fn- capacity :usize [] length)]))
 ```
 
 Anonymous `az/struct`, `az/enum`, `az/union`, and `az/opaque` use the same member
 vector, optionally preceded by a container options map.
+Evaluating them on the JVM returns an inspectable native type. For example,
+`(az/struct [[:value {:var 1234} :i32]])` retains its static member, which can
+be accessed with `az/field` and mutated with `ak/+=`.
+
+Use `az/fn` for public container methods and `az/fn-` for private ones. Their
+signature is name, return type, optional documentation/attributes, typed arguments,
+then body—just like `az/defn`. Named constructors also work inside their own
+struct methods, e.g. `(Point {:x 0.0 :y 0.0})`.
+
+Container state uses `[:count {:var 0} :u32]`; container constants use
+`[:limit {:const 100} :u32]`. Both are public by default. `:default` still
+specifies an instance-field default, not a container constant.
+
+Variable declarations put the type immediately after the name:
+`(az/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`. Omit the type when it can
+be inferred, e.g. `(az/defvar mouse-down false)`. `:attrs` always takes a set,
+even for one attribute; both native
+declarations and JVM calls reject single values. Local compile-time variables
+use `(ak/var 1 :i32 {:attrs #{ak/comptime}})`. Thread-local native storage is
+resolved on each calling JVM platform thread; virtual threads are rejected
+because they can migrate between OS threads.
+
+Function Var metadata exposes the authored typed argument vectors and documents
+the return type, including private and external functions, using ordinary Clojure
+`doc` and editor documentation.
+
+`(az/defextern external-function :i32 [[x :i32]])` already implies `extern`.
+Declaring an external function does not load its native library. Newly defined
+callers are checked by Zig without linking; provide their library/object inputs
+before invoking them. Native type errors still fail during definition, while
+missing external symbols fail when linking the call. Keep optional build/link
+recipes in runnable `comment` forms, not as namespace-loading side effects.
 
 Normal layout is the default. Use declaration options only for behavior that
 differs from that default.
@@ -298,6 +330,16 @@ This is not a memory sandbox: native `defer` cleanup is skipped, so affected
 native state may need reinitialization. Explicit process exits, traps, custom
 abort handlers, background-thread panics and memory corruption can still
 terminate the process. Standalone executables retain Zig's normal behavior.
+
+Development libraries keep debug information by default. Contained panics
+capture the native stack before returning to Java, then map available source
+locations back to Clojure forms. The exception preserves the Zig panic message,
+native frames, and standard `:clojure.error/source`, `:line`, and `:column`
+metadata; no editor-specific mode is needed. Symbolication uses `atos` on macOS
+or `addr2line` on glibc Linux. If symbols or those tools are unavailable, the
+original panic and captured addresses remain available rather than inventing
+a source location. Explicitly stripped builds can use
+`{:development-debug-info :none}`.
 
 Directly representable results return as ordinary Clojure values. Zig values
 with native-only representation use typed Aguafria values backed by FFM

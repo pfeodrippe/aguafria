@@ -10,6 +10,8 @@
    aguafria.zig/struct-decl hooks.aguafria/top-level-declaration
    aguafria.zig/const-decl hooks.aguafria/top-level-declaration
    aguafria.zig/fn-decl hooks.aguafria/function-declaration
+   aguafria.zig/fn hooks.aguafria/function-declaration
+   aguafria.zig/fn- hooks.aguafria/function-declaration
    aguafria.zig/fn-proto-decl hooks.aguafria/function-declaration
    aguafria.zig/defimport hooks.aguafria/import-declaration
    aguafria.zig/defraw hooks.aguafria/top-level-declaration

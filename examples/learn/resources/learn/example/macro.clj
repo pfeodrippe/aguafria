@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defn foo :c_int
-  {:attrs #{:export}}
+  {:attrs #{ak/export}}
   []
   (let [a (ak/var 1 :c_int)]
     (ak/= :_ (& a))

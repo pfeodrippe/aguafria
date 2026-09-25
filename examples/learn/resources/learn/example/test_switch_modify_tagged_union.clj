@@ -13,7 +13,7 @@
      [:not_ok :void]]))
 
 (az/deftest mutate-tagged-payload-test
-  (let [result (ak/var (az/init {:ok 42} ComplexType))]
+  (let [result (ak/var (ComplexType {:ok 42}))]
     (az/switch-stmt result
       (case [(az/field ComplexTypeTag :ok)] [(az/pointer-capture value)]
         (az/block

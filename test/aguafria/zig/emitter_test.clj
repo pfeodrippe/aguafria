@@ -6,6 +6,29 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest stored-references-are-not-qualified-twice
+  (let [source (create-ns (gensym "reference-source-"))
+        consumer (create-ns (gensym "reference-consumer-"))
+        target (intern source 'worker (fn []))]
+    (try
+      (alter-meta! target assoc :aguafria/zig-reference
+                   {:kind :declaration :module (str (ns-name source))
+                    :symbol (symbol (str (ns-name source)) "worker")
+                    :zig-name "worker"})
+      (binding [*ns* consumer]
+        (alias 'source (ns-name source)))
+      (let [once (emit/qualify-form consumer 'source/worker)
+            twice (emit/qualify-form consumer once)
+            reference (:aguafria/zig-reference (meta twice))]
+        (is (= reference (:aguafria/zig-reference
+                           (meta (emit/qualify-form consumer twice)))))
+        (is (= (str (:import-alias reference) ".worker") (:zig-name reference)))
+        (is (= "worker" (:zig-name (:aguafria/zig-reference
+                                    (meta (emit/qualify-form source twice)))))))
+      (finally
+        (remove-ns (ns-name consumer))
+        (remove-ns (ns-name source))))))
+
 (deftest lexical-bindings-shadow-namespace-aliases
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [body ['(ak/var az :u32)
@@ -1027,3 +1050,14 @@
          (emit/emit-function-body '((while-loop {} true)) :noreturn)))
   (is (= "abort();"
          (emit/emit-function-body '((abort)) :noreturn))))
+
+(deftest implicit-error-and-loop-expression-returns
+  (doseq [return-type [:!void [:! :void] [:error-union :void]
+                      [:error-union :anyerror :void]]]
+    (is (= "return error.Failed;"
+           (emit/emit-function-body '((error-value :Failed)) return-type)))
+    (is (= "return try work();"
+           (emit/emit-function-body '((try (work))) return-type))))
+  (is (= "return while (ready) {\n    advance();\n} else 42;"
+         (emit/emit-function-body
+           '((while-loop {:else-expression 42} ready (advance))) :usize))))

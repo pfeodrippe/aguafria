@@ -20,16 +20,16 @@
 (az/defconst function-alias function-name)
 
 (az/defn- ListTemplateFunction :type
-  [[ChildType {:zig/prefix "comptime"} :type]
-   [fixed-size {:zig/prefix "comptime"} :usize]]
+  [[ChildType {:attrs #{ak/comptime}} :type]
+   [fixed-size {:attrs #{ak/comptime}} :usize]]
   (List ChildType fixed-size))
 
 (az/defn- ShortList :type
-  [[T {:zig/prefix "comptime"} :type]
-   [length {:zig/prefix "comptime"} :usize]]
+  [[T {:attrs #{ak/comptime}} :type]
+   [length {:attrs #{ak/comptime}} :usize]]
   (az/struct
     [[:field_name [:array length T]]
-     (az/fn-decl method-name :void [])]))
+     (az/fn- method-name :void [])]))
 
 (az/defconst xml-document
   (az/multiline-string

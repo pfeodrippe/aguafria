@@ -7,18 +7,13 @@
 (az/defstruct Threshold
   [[:minimum {:default 0.25} :f32]
    [:maximum {:default 0.75} :f32]
-   (az/const-decl Category
-     (az/enum
-       [:low
-        :medium
-        :high]))
-   (az/fn-decl categorize Category [[threshold Threshold] [value :f32]]
+   [:Category {:const (az/enum [:low :medium :high])} :type]
+   (az/fn- categorize Category [[threshold Threshold] [value :f32]]
      (debug/assert (>= (az/field threshold :maximum)
                        (az/field threshold :minimum)))
-     (ak/return
-      (if (< value (az/field threshold :minimum))
-        :.low
-        (if (> value (az/field threshold :maximum)) :.high :.medium))))])
+     (if (< value (az/field threshold :minimum))
+       :.low
+       (if (> value (az/field threshold :maximum)) :.high :.medium)))])
 
 (az/defn main [:error-union :void] []
   (let [threshold (ak/var (Threshold {:maximum 0.20}))

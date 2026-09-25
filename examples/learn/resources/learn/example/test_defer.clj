@@ -11,7 +11,7 @@
       (ak/= a 1))
     (try (testing/expectEqual 2 a))
     (ak/= a 5)
-    (ak/return a)))
+    a))
 
 (az/deftest defer-basics-test
   (try (testing/expectEqual 5 (try (defer-example)))))

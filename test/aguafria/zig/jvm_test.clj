@@ -185,7 +185,7 @@
       (binding [*ns* namespace]
         (eval '(az/defstruct Counter
                  [[:value :i32]
-                  (az/fn-decl increment :void {:attrs #{:public}}
+                  (az/fn increment :void
                     [[self [:* Counter]] [amount :i32]]
                     (ak/+= (az/field self :value) amount))])))
       (let [Counter @(ns-resolve namespace 'Counter)]
@@ -194,6 +194,146 @@
             (is (nil? (increment 4)))
             (is (nil? (increment 6)))
             (is (= 11 (az/field counter :value))))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest container-functions-construct-their-own-type
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defstruct Timestamp
+                 [[:seconds :i64] [:nanos :u32]
+                  (az/fn- epoch-seconds :i64 [] 0)
+                  (az/fn unix-epoch Timestamp "The Unix epoch." []
+                    (Timestamp {:seconds (epoch-seconds) :nanos 0}))]))
+        (eval '(az/defn read-epoch-seconds :i64 []
+                 (az/field ((az/field Timestamp :unix-epoch)) :seconds))))
+      (is (= 0 ((ns-resolve namespace 'read-epoch-seconds))))
+      (let [Timestamp @(ns-resolve namespace 'Timestamp)]
+        (with-open [timestamp (Timestamp {:seconds 123 :nanos 456})]
+          (is (= 123 (az/field timestamp :seconds)))
+          (is (= 456 (az/field timestamp :nanos)))))
+      (is (str/includes? (:doc (meta (ns-resolve namespace 'Timestamp))) "The Unix epoch."))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest container-state-is-shared-by-jvm-and-native-calls
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defstruct S
+                 [[:value {:var 1234 :doc "Shared counter."} :i32]
+                  [:other {:var 7} :i32]
+                  [:limit {:const 9000} :i32]
+                  [:instance {:default 12} :i32]]))
+        (eval '(az/defn bump :i32 []
+                 (ak/+= (az/field S :value) 1)
+                 (az/field S :value))))
+      (let [S @(ns-resolve namespace 'S)
+            bump (ns-resolve namespace 'bump)]
+        (with-open [counter (az/field S :value)]
+          (is (= 1234 @counter))
+          (is (nil? (ak/+= (az/field S :value) 1)))
+          (is (= 1235 @counter))
+          (is (= 1236 (bump)))
+          (is (= 1236 @counter))
+          (with-open [other (az/field S :other)]
+            (is (= 7 @other)))
+          (is (= 1237 (bump)) "another member adapter must not reset state")
+          (is (= 1237 @counter))
+          (ak/= counter 42)
+          (is (= 43 (bump)))
+          (is (= 43 @(az/field S :value)))
+          (binding [*ns* namespace]
+            (eval '(az/defn bump :i32 []
+                     (ak/+= (az/field S :value) 2)
+                     (az/field S :value))))
+          (is (= 45 (bump)) "hot reload retains the existing container state")
+          (is (= 45 @counter)))
+        (is (= 9000 (az/field S :limit)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable native value"
+                              (ak/+= (az/field S :limit) 1)))
+        (is (= 4 (ak/sizeOf S)) "only instance fields occupy struct storage")
+        (with-open [instance (S {})]
+          (is (= 12 (az/field instance :instance)))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest thread-local-values-resolve-on-the-calling-platform-thread
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defvar counter :i32 {:attrs #{ak/threadlocal}} 1234))
+        (eval '(az/defn bump-tls :i32 [] (ak/+= counter 1) counter)))
+      (let [counter @(ns-resolve namespace 'counter)
+            bump (ns-resolve namespace 'bump-tls)]
+        (is (= 1234 @counter))
+        (ak/+= counter 1)
+        (is (= 1236 (bump)))
+        (is (= 1236 @counter))
+        (let [other (future
+                      (let [before @counter]
+                        (ak/+= counter 10)
+                        [before (bump) @counter]))]
+          (is (= [1234 1245 1245] @other)))
+        (is (= 1236 @counter)))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest anonymous-container-members-work-from-the-jvm
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (let [type (eval '(az/struct [[:value {:var 1234} :i32]]))
+              field (az/field type :value)]
+          (is (= :struct (:kind (value/type-info type))))
+          (is (= 'value (-> type value/type-info :members first :name)))
+          (is (= 1234 @field))
+          (ak/+= field 1)
+          (is (= 1235 @(az/field type :value))))
+        (let [type (eval '(let [T :i32]
+                           (az/struct [[:x T]])))
+              instance (type {:x 7})]
+          (is (= 7 (az/field instance :x))))
+        (is (= :enum (:kind (value/type-info (eval '(az/enum [:red :blue]))))))
+        (is (= :union (:kind (value/type-info (eval '(az/union [[:number :i32]])))))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest variable-types-can-be-inferred-without-a-placeholder
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defvar mouse-down false))
+        (eval '(az/defvar documented "An inferred flag." {:public false} true))
+        (eval '(az/defvar local-flag {:attrs #{ak/threadlocal}} false))
+        (eval '(az/defvar count :u32 {:public false} 12))
+        (eval '(az/defn pressed :bool [] mouse-down)))
+      (let [mouse-down @(ns-resolve namespace 'mouse-down)
+            pressed (ns-resolve namespace 'pressed)]
+        (is (false? @mouse-down))
+        (is (false? (pressed)))
+        (ak/= mouse-down true)
+        (is (true? (pressed)))
+        (is (true? @@(ns-resolve namespace 'documented)))
+        (is (false? @@(ns-resolve namespace 'local-flag)))
+        (is (= 12 @@(ns-resolve namespace 'count)))
+        (is (nil? (:type (:aguafria/declaration (meta (ns-resolve namespace 'mouse-down)))))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest attribute-sets-work-in-native-and-jvm-declarations
+  (with-open [number (ak/var 1 :i32 {:attrs #{ak/comptime}})]
+    (ak/+= number 1)
+    (is (= 2 @number)))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":attrs must be a set"
+                        (ak/var 1 :i32 {:attrs ak/comptime})))
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (is (thrown? Exception
+                      (eval '(az/defvar bad {:attrs #{ak/threadlocal}} :i32 1))))
+        (is (thrown? Exception
+                      (eval '(az/defvar bad :i32 {:attrs ak/threadlocal} 1))))
+        (eval '(az/defn compile-counter :i32 []
+                 (let [counter (ak/var 1 :i32 {:attrs #{ak/comptime}})]
+                   (ak/+= counter 1)
+                   counter))))
+      (is (= 2 ((ns-resolve namespace 'compile-counter))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest generic-method-vars-have-real-completion-metadata
@@ -432,6 +572,65 @@
         (is (= [:array 8 :u8]
                (:type (value/type-info @(ns-resolve namespace 'Buffer))))))
       (finally (remove-ns (ns-name namespace))))))
+
+(deftest inferred-number-constants-are-readable-from-ordinary-clojure
+  (let [namespace (fixture)]
+    (binding [*ns* namespace]
+      (require '[aguafria.std.math :as math])
+      (doseq [form '[(az/defconst octal-int (az/number-literal "0o755"))
+                    (az/defconst binary-int (az/number-literal "0b11110000"))
+                    (az/defconst one-billion (az/number-literal "1_000_000_000"))
+                    (az/defconst binary-mask (az/number-literal "0b1_1111_1111"))
+                    (az/defconst permissions (az/number-literal "0o7_5_5"))
+                    (az/defconst big-address (az/number-literal "0xFF80_0000_0000_0000"))
+                    (az/defconst inf (math/inf :f32))
+                    (az/defconst negative-inf (- (math/inf :f64)))
+                    (az/defconst nan (math/nan :f128))
+                    (az/defconst computed (+ 40 2))]]
+        (eval form)))
+    (let [read-constant #(value/value @(ns-resolve namespace %))]
+      (is (= [493 240 1000000000 511 493 18410715276690587648N 42]
+             (mapv read-constant '[octal-int binary-int one-billion binary-mask
+                                  permissions big-address computed])))
+      (is (= Double/POSITIVE_INFINITY (read-constant 'inf)))
+      (is (= Double/NEGATIVE_INFINITY (read-constant 'negative-inf)))
+      (is (Double/isNaN (read-constant 'nan)))
+      (is (= 18410715276690587648N
+             (ak/as @(ns-resolve namespace 'big-address) :u64)))
+      (is (str/includes? (pr-str @(ns-resolve namespace 'inf)) "##Inf")))))
+
+(deftest extern-linking-is-lazy-but-native-body-validation-is-not
+  (doseq [already-running? [false true]]
+   (let [namespace (fixture)]
+    (binding [*ns* namespace]
+      (when already-running?
+        (eval '(az/defn running :i32 [] 42))
+        (is (= 42 ((ns-resolve namespace 'running)))))
+      (eval '(az/defextern aguafria_missing_test_symbol :i32 [[x :i32]]))
+      (eval '(az/defn use-external :i32 [[x :i32]]
+               (aguafria_missing_test_symbol x)))
+      (is (:source-only? (runtime/module-info (ns-name namespace))))
+      (let [failure (try
+                      (eval '(az/defn invalid :i32 [[a :i32] [b :i32]] (/ a b)))
+                      (catch Throwable failure failure))]
+        (is (str/includes? (:aguafria/report (runtime/error-data failure))
+                           "signed integers must use")))
+      (let [failure (try
+                      ((ns-resolve namespace 'use-external) 1)
+                      (catch Throwable failure failure))]
+        (is (str/includes? (:aguafria/report (runtime/error-data failure))
+                           "aguafria_missing_test_symbol")))))))
+
+(deftest ordinary-function-values-can-spawn-and-join-native-threads
+  (let [namespace (fixture)]
+    (binding [*ns* namespace]
+      (require '[aguafria.std.Thread :as thread])
+      (eval '(az/defn worker :void [] (debug/assert true)))
+      (let [result (eval '(try (thread/spawn {} worker [])))]
+        (is (value/zig-value? (:ok result)))
+        (with-open [thread (:ok result)]
+          (is (str/includes? (pr-str thread) "ZigValue"))
+          (is (nil? ((az/field thread :join)))))))))
 
 (deftest generic-private-functions-are-ordinary-callable-vars
   (let [namespace (fixture)]

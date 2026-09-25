@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- max T
-  [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
+  [[T {:attrs #{ak/comptime}} :type] [left T] [right T]]
   (if (> left right) left right))
 
 (az/defn- foo :void [[condition :bool]]

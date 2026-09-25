@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- getNumberOrFail [:error-union :i32] []
-  (ak/return (az/error-value :UnableToReturnNumber)))
+  (az/error-value :UnableToReturnNumber))
 
 (az/defn main :void []
   (let [number (catch (getNumberOrFail) (ak/unreachable))]

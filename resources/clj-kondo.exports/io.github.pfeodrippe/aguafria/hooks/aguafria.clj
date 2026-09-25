@@ -94,8 +94,8 @@
   [{:keys [node]}]
   (let [[operator definition-name & raw-declaration] (:children node)
         operator-name (some-> operator sexpr name)
-        private? (= "defn-" operator-name)
-        nested? (contains? #{"fn-decl" "fn-proto-decl"} operator-name)
+        private? (contains? #{"defn-" "fn-"} operator-name)
+        nested? (contains? #{"fn" "fn-" "fn-decl" "fn-proto-decl"} operator-name)
         extern? (contains? #{"defextern" "fn-proto-decl"} operator-name)
         {:keys [declaration docstring options]}
         (declaration-prefix (rest raw-declaration))

@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defconst Small2
-  (az/union {:attrs #{:enum}}
+  (az/union {:attrs #{ak/enum}}
     [[:a :i32]
      [:b :bool]
      [:c :u8]]))

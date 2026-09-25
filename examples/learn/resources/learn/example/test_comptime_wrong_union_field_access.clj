@@ -8,5 +8,5 @@
      [:int :u32]]))
 
 (az/defcomptime reject-inactive-field
-  (let [value (ak/var (az/init {:int 42} Foo))]
+  (let [value (ak/var (Foo {:int 42}))]
     (ak/= (az/field value :float) 12.34)))
