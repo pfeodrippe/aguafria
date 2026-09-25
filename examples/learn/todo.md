@@ -88,6 +88,10 @@
     - [x] error: undefined symbol: _foo_optimized and error: undefined symbol: _foo_strict
     - [x] and the output is expected ?
   - [ ] test_arrays.clj
+    - [-] why do need az/defcomptime matching-initializers or az/defcomptime message-length if they aren't labeled in the original? we could use just `(ak/comptime ...)`
+    - [x] when we modify message, it complains about `26 |   (debug/assert (mem/eql :u8 (k/& message) same-message)))`
+    - [ ] add one assertions from the JVM as alternative to comptime assertions
+    - [ ] add az/clj!
   - [ ] test_multidimensional_arrays.clj
   - [ ] test_null_terminated_array.clj
 

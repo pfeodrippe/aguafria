@@ -1,5 +1,6 @@
 (ns aguafria.zig.constant-reload-test
   (:require [aguafria.zig :as az]
+            [aguafria.zig.runtime :as runtime]
             [aguafria.keyword]
             [clojure.test :refer [deftest is testing]]))
 
@@ -99,3 +100,87 @@
             (az/configure! old-config)
             (remove-ns (ns-name consumer))
             (remove-ns (ns-name provider))))))))
+
+(deftest failed-comptime-edit-is-retained-until-constants-match-test
+  (doseq [async? [false true]
+          assertion-first? [true false]]
+    (testing (str "async compilation: " async?
+                  ", assertion first: " assertion-first?)
+      (let [old-config (az/configuration)
+            context (create-ns (symbol (str "aguafria.pending-array-" (random-uuid))))
+            module (ns-name context)
+            consumer (create-ns (symbol (str "aguafria.array-consumer-" (random-uuid))))
+            assertion-edit
+            '(az/defcomptime concatenated-array
+               (debug/assert
+                (mem/eql :i32 (k/& all-of-it)
+                         (k/& (az/array-init [1 2 3 4 5 6 7 8 10]
+                                            [:array :_ :i32])))))
+            constant-edit
+            '(az/defconst part-two
+               (az/array-init [5 6 7 8 10] [:array :_ :i32]))
+            [first-edit second-edit]
+            (if assertion-first?
+              [assertion-edit constant-edit]
+              [constant-edit assertion-edit])
+            evaluate! #(binding [*ns* context] (eval %))]
+        (try
+          (az/configure! {:async? async? :reloadable? true})
+          (binding [*ns* context]
+            (refer 'clojure.core)
+            (require '[aguafria.zig :as az]
+                     '[aguafria.keyword :as k]
+                     '[aguafria.std.debug :as debug]
+                     '[aguafria.std.mem :as mem]))
+          (doseq [form
+                  '[(az/defconst part-one
+                      (az/array-init [1 2 3 4] [:array :_ :i32]))
+                    (az/defconst part-two
+                      (az/array-init [5 6 7 8] [:array :_ :i32]))
+                    (az/defconst all-of-it (az/op "++" part-one part-two))
+                    (az/defcomptime concatenated-array
+                      (debug/assert
+                       (mem/eql :i32 (k/& all-of-it)
+                                (k/& (az/array-init [1 2 3 4 5 6 7 8]
+                                                   [:array :_ :i32])))))
+                    (az/defn array-length :usize [] (az/field all-of-it :len))
+                    (az/defn last-item :i32 []
+                      (az/index all-of-it (k/- (az/field all-of-it :len) 1)))]]
+            (evaluate! form))
+          (az/await! module)
+          (binding [*ns* consumer]
+            (refer 'clojure.core)
+            (alias 'az 'aguafria.zig)
+            (alias 'p module)
+            (eval '(az/defn embedded-length :usize [] (az/field p/all-of-it :len))))
+          (az/await! (ns-name consumer))
+          (let [length (ns-resolve context 'array-length)
+                last-item (ns-resolve context 'last-item)
+                embedded-length (ns-resolve consumer 'embedded-length)
+                _ (is (= [8 8] [(length) (last-item)]))
+                _ (is (= 8 (embedded-length)))
+                published (:published-generation (az/module-info module))
+                failure (try
+                          (evaluate! first-edit)
+                          (az/await! module)
+                          nil
+                          (catch Throwable error error))]
+            (is (= [8 8] [(length) (last-item)]))
+            (is (some? failure) "The inconsistent intermediate edit must fail")
+            (is (= :zig-compile (:aguafria/phase (runtime/error-data failure))))
+            (is (= 8 (embedded-length)))
+            (is (= published (:published-generation (az/module-info module))))
+            (is (some #(= first-edit (:clojure-form %))
+                      (:definitions (az/module-info module))))
+            ;; Neither reevaluate the failed form nor reload the namespace.
+            (evaluate! second-edit)
+            (az/await! module)
+            (az/await! (ns-name consumer))
+            (is (= [9 10] [(length) (last-item)]))
+            (is (= 9 (embedded-length)))
+            (is (empty? (:pending-declaration-keys (az/module-info module))))
+            (is (nil? (:error (az/module-info module)))))
+          (finally
+            (az/configure! old-config)
+            (remove-ns (ns-name consumer))
+            (remove-ns module)))))))

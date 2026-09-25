@@ -1,5 +1,85 @@
 # Learn reference implementation
 
+- [x] Retain failed individual declaration edits as pending source while the
+      last working native generation stays callable. Verify the exact
+      concatenated-array assertion-first / part-two-second REPL sequence, the
+      reverse order, and synchronous/asynchronous compilation. A subsequent
+      consistent edit must publish without reloading or reevaluating the failed
+      form; this is independent of persistent-state migration. Completed
+      2026-09-25: synchronous failures retain requested definitions and pending
+      compilation roots; both paths propagate earlier pending constant changes
+      to dependent namespaces. Fresh owned nREPL verification: constant reload
+      and runtime suites, 30 tests / 208 assertions, zero failures or errors.
+
+- [ ] Investigate native-library TLS-key exhaustion during long-lived macOS
+      REPL testing. Owned root REPL (PID 23785) terminated after many repeated
+      native generations with dyld: "could not create thread local variables
+      pthread key" on 2026-09-25. Preserve generation safety while bounding
+      native-library/TLS resources; do not treat this as an assertion failure.
+- [ ] Update legacy zig_integration_test.clj syntax: requiring the namespace
+      currently fails at line 91 with unresolved `+=`, preventing its broader
+      reload/migration tests from running. Targeted constant_reload_test and
+      runtime_test remain independently runnable.
+
+- [ ] Fix and expose a reliable coordinated-edit API for live modules with
+      comptime invariants. test_arrays must support changing message,
+      alt-message and same-message from hello to jello together (and updating
+      array-iteration-test's expected character sum) without intermediate
+      assertion failures. 2026-09-25 verification found StackOverflowError in
+      runtime/source-data-fingerprint at line 889 using register-batch!, both
+      whole-file scratch reload and a three-constant live batch. Do not present
+      that low-level path as a working recipe yet. Preserve/restore Clojure and
+      native publication state on failed batches; add regression coverage.
+
+- [ ] Support anonymous top-level `(k/comptime ...)` blocks so Learn examples
+      do not invent named Vars such as matching-initializers/message-length.
+      Preserve native comptime semantics, source mapping, reliable reevaluation
+      identity, and existing `:attrs #{k/comptime}` use; do not simply drop
+      module assertions or make the token unusable as an attribute value.
+- [x] Investigate test_arrays message edits failing at matching-string.
+      Reproduced changing only hello to jello in an owned REPL: both original
+      equality assertions correctly fail at source lines 16 and 26. alt-message
+      and same-message still say hello. Restored the REPL constant; no authored
+      source edit was made. This mismatch is not a reload defect.
+
+- [x] Finish diagnosis of the complete parallel audit: classify every failed
+      and interrupted probe, every namespace-load failure, and every unexecuted
+      context across all 290 files. Match expected errors to actual diagnostics,
+      identify dependent failures by originating case, and record concrete JVM
+      gaps separately from audit artifacts. A completed run is not completed
+      classification. Write a reproducible classified report with no missing IDs.
+      Finished 2026-09-25: JVM_AUDIT_CLASSIFIED_2026-09-25.md records all 290
+      files / 9,588 case IDs. The 1,211 failed/exited probes classify as 524
+      JVM interoperability gaps, 509 dependent/repeated failures, 112 expected
+      source failures, 55 invalid-context probes, nine state-replay artifacts,
+      and two host-safety crashes. These are probe counts, not unique bugs.
+      All 866 load/target-blocked cases have reviewed causes; 4,796 remaining
+      context-dependent syntax rows are explicitly unexecuted, not passing.
+
+- [ ] Fix the classified generic gaps, prioritizing undefined-error-union
+      printing crashing the JVM, builtin result-type adapters, typed-value/
+      enum/pointer transport, native control expansion, and comptime reflection.
+      Use the classified report's family/file/case IDs as regression inputs;
+      remove audit setup/replay artifacts without suppressing genuine errors.
+
+- [x] Complete the all-file parallel JVM audit, not just the six-file sample.
+      Run all 290 authored examples through four independent persistent JVM
+      workers; checkpoint every case, bound hangs, restart after native panic,
+      and retain exact failures plus every unexecuted/context-dependent case.
+      Do not equate failed probes with distinct compiler bugs: shared state,
+      missing integration setup, and earlier failed adapters can cause cascades.
+      Write a new full file-by-file Markdown report and link raw case evidence.
+      Completed 2026-09-25: all 290 files, four isolated persistent workers,
+      9,588 reviewed cases in 623.4 seconds including two context rechecks.
+      2,715 passed; 1,208 failed probes; three worker exits; 5,662 explicitly
+      unexecuted/context/load-blocked cases. See JVM_AUDIT_FULL_2026-09-25.md.
+      Three defects independently reproduced; this audit did not fix them.
+
+- [ ] Fix and regression-test the independently reproduced JVM array
+      destructuring, union-pointer transport and enum-field type preservation
+      defects identified in JVM_AUDIT_FULL_2026-09-25.md. Triage remaining
+      failures without confusing expected errors or cascades with new defects.
+
 - [ ] Add a source-driven JVM audit of every Learn declaration, including
       private Vars, value realization/printing, native tests, and inner forms
       with their lexical setup. Report every unexecuted or failing case; entry

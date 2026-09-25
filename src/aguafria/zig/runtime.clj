@@ -129,10 +129,9 @@
   false)
 
 (def ^:dynamic *pending-declaration-keys*
-  "Declarations accepted since the last native publication. When rapid async
-  REPL evaluations supersede one another, the newest native slice must include
-  every pending edit rather than only the last form that happened to schedule
-  the compiler."
+  "Declarations accepted since the last native publication. Failed builds and
+  superseded async evaluations leave edits pending; the next native slice must
+  include every pending edit, not only the form that triggers that build."
   #{})
 
 (def ^:dynamic *materialize-declaration-key*
@@ -7872,6 +7871,27 @@
                     old-declaration declaration)))))
             declarations))))
 
+(defn- registration-dependent-propagation-impacts
+  [module-state old-declaration declaration]
+  (or *dependent-propagation-impacts*
+      (when *propagate-dependent-changes?*
+        (let [published-definitions
+              (into {} (map (juxt :declaration-key identity))
+                    (:loaded-declarations module-state))
+              pending-declarations
+              (keep (:definitions module-state)
+                    (:pending-declaration-keys module-state))
+              ;; A previously failed constant edit may only become valid when
+              ;; an assertion is changed. Compare it with native publication,
+              ;; not the already-edited source, so embedded values in other
+              ;; namespaces are refreshed as well.
+              pending-impacts
+              (batch-dependent-propagation-impacts
+               published-definitions pending-declarations)]
+          (cond-> pending-impacts
+            (compatible-dependent-propagation? old-declaration declaration)
+            (conj (dependent-propagation-impact old-declaration declaration)))))))
+
 (defn- compile-native-and-publish-async-generation!
   [{:keys [module declaration-key generation declarations source source-dirty?
            plan completion propagation-impacts]}]
@@ -8246,12 +8266,8 @@
                      :plan plan
                      :planning-duration-ms planning-duration-ms
                      :propagation-impacts
-                     (or *dependent-propagation-impacts*
-                         (when (and *propagate-dependent-changes?*
-                                    (compatible-dependent-propagation?
-                                     plan-old-declaration plan-declaration))
-                           #{(dependent-propagation-impact
-                              plan-old-declaration plan-declaration)}))
+                     (registration-dependent-propagation-impacts
+                      old-module plan-old-declaration plan-declaration)
                      :transit-only?
                      (and
                       (compatible-dependent-propagation?
@@ -8394,12 +8410,8 @@
                      :plan plan
                      :planning-duration-ms planning-duration-ms
                      :propagation-impacts
-                     (or *dependent-propagation-impacts*
-                         (when (and *propagate-dependent-changes?*
-                                    (compatible-dependent-propagation?
-                                     plan-old-declaration plan-declaration))
-                           #{(dependent-propagation-impact
-                              plan-old-declaration plan-declaration)}))
+                     (registration-dependent-propagation-impacts
+                      old-module plan-old-declaration plan-declaration)
                      :transit-only?
                      (and
                       (compatible-dependent-propagation?
@@ -8517,8 +8529,11 @@
           {:keys [old-declaration declaration definitions]}
           (replacement-declaration-state old-definitions declaration)
           declarations (vec (vals definitions))
-          plan (compilation-plan module old-module declarations
-                                 old-declaration declaration)
+          pending-declaration-keys
+          (conj (set (:pending-declaration-keys old-module)) declaration-key)
+          plan (binding [*pending-declaration-keys* pending-declaration-keys]
+                 (compilation-plan module old-module declarations
+                                   old-declaration declaration))
           plan-old-declaration (:old-declaration plan)
           plan-declaration (:declaration plan)
           _ (capture-publication-plan!
@@ -8529,12 +8544,8 @@
                                               plan-declaration))
               (freeze-active-host-dispatch! plan-declaration))
           propagation-impacts
-          (or *dependent-propagation-impacts*
-              (when (and *propagate-dependent-changes?*
-                         (compatible-dependent-propagation?
-                          plan-old-declaration plan-declaration))
-                #{(dependent-propagation-impact
-                   plan-old-declaration plan-declaration)}))
+          (registration-dependent-propagation-impacts
+           old-module plan-old-declaration plan-declaration)
           {source :source source-dirty? :source-dirty?} (:primary plan)
           generation (inc (or (:requested-generation old-module)
                               (:generation old-module) 0))
@@ -8659,12 +8670,12 @@
         (catch Throwable error
           (when (and @prepared (not @published?))
             (try (.close ^Arena (:arena @prepared)) (catch Throwable _)))
-          (when (and (not @published?)
-                     (= :zig-state-migration-required
-                        (:aguafria/phase (error-data error))))
-            ;; Keep the requested source/descriptor inspectable after a sync
-            ;; migration stop, while the prior native generation remains the
-            ;; published callable program.
+          (when-not @published?
+            ;; Compilation rejects a native generation, not the user's edit.
+            ;; Keep requested definitions for the next REPL evaluation, while
+            ;; retaining the old handles, storage, and published generation.
+            ;; Pending keys make a later sliced build include every unapplied
+            ;; edit, not only the declaration that finally fixes compilation.
             (swap! registry assoc module
                    (merge old-module
                           {:module module
@@ -8672,6 +8683,7 @@
                            :source source
                            :source-dirty? source-dirty?
                            :requested-generation generation
+                           :pending-declaration-keys pending-declaration-keys
                            :pending nil
                            :last-error error
                            :failed-generation generation})))
@@ -10055,6 +10067,9 @@
 
 (defn register-declaration!
   "Add or replace a declaration and rebuild its namespace module.
+
+  A failed compilation retains the requested definitions for the next edit;
+  the last successfully published native generation remains callable.
 
   With `:async?` configuration enabled, returns immediately after scheduling
   an immutable module snapshot. Builds may run concurrently, but only the
