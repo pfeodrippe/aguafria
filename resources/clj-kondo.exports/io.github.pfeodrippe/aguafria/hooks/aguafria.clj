@@ -20,6 +20,11 @@
                    (some-> node :children first sexpr))]
     (cond
       (or (= :quote (:tag node)) (#{'quote 'clojure.core/quote} operator)) node
+      ;; Host escapes contain ordinary Clojure, including real try/catch.
+      ;; Do not apply the surrounding native syntax rewrites inside them.
+      (and (symbol? operator)
+           (= {:ns 'aguafria.zig :name 'clj!}
+              (select-keys (api/resolve {:name operator}) [:ns :name]))) node
       (:children node)
       (assoc node :children
              (mapv native-expression

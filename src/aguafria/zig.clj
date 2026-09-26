@@ -2,7 +2,8 @@
   "Define ordinary Zig declarations with Clojure data.
 
   Require this namespace as `az`. Declaration macros capture their bodies;
-  the bodies are emitted as Zig and are never evaluated as Clojure."
+  the bodies are emitted as Zig. Explicit `clj!` escapes evaluate Clojure while
+  preparing a declaration, before native compilation."
   (:refer-clojure :exclude [cast defn defn- defstruct struct])
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.emitter :as emitter]
@@ -22,6 +23,49 @@
        (:aguafria/container-function (meta (get (ns-interns *ns*) operator))))
     (ns-unmap *ns* operator)))
 (refer 'clojure.core :only '[let when when-not for dotimes case fn])
+
+(clojure.core/defn- clj-literal
+  [value form]
+  (cond
+    (or (nil? value) (boolean? value) (number? value) (char? value)
+        (string? value) (keyword? value) (symbol? value))
+    value
+
+    (vector? value) (mapv #(clj-literal % form) value)
+    (map? value) (into {} (map (fn [[key item]]
+                                [(clj-literal key form) (clj-literal item form)])) value)
+    (set? value) (into #{} (map #(clj-literal % form)) value)
+
+    :else
+    (throw (ex-info
+            (if (seq? value)
+              "az/clj! embeds values, not code: convert lists to vectors for literal data"
+              "az/clj! requires literal data, not a live JVM object")
+            {:form form :value-type (some-> value class .getName)
+             :aguafria/phase :clojure-escape}))))
+
+(clojure.core/defn ^:no-doc host-value!
+  "Evaluate and validate one lexical host expression emitted by clj!."
+  [thunk form]
+  (try
+    (clj-literal (thunk) form)
+    (catch Throwable cause
+      (throw (ex-info (str "az/clj! evaluation failed: " (ex-message cause))
+                      {:form form :aguafria/phase :clojure-escape}
+                      cause)))))
+
+(defmacro ^{:aguafria/host-escape true} clj!
+  "Evaluate Clojure when the enclosing declaration executes.
+
+  `(az/clj! (array-n 5))` embeds the resulting literal type/value data.
+
+  Helpers run once per declaration evaluation, not during native builds or calls.
+  Reevaluate the containing declaration to observe changed Clojure helpers.
+  Namespace bindings and surrounding Clojure lexical bindings are available;
+  native locals are not. Accepts literal scalars, symbols, vectors, maps, and sets;
+  convert lists to literal vectors. Does not insert generated code."
+  [expression]
+  `(host-value! (clojure.core/fn [] ~expression) '~&form))
 
 (clojure.core/defn emit-expr "Emit one Zig expression." [form]
   (emitter/emit-expr *ns* form))
@@ -429,7 +473,9 @@
   [declaration]
   (let [{:keys [kind module name zig-name value return logical-id abi-fingerprint
                 schema-fingerprint implementation-fingerprint]}
-        (runtime/declaration-info declaration)]
+        (if (::emitter/host-expressions declaration)
+          declaration
+          (runtime/declaration-info declaration))]
     (cond-> {:kind :declaration
              :declaration-kind kind
              :module module
@@ -455,12 +501,22 @@
   "Serialize macro data so very large Zig forms do not exceed the JVM's
   per-string or per-method classfile limits."
   [descriptor]
-  (let [descriptor (runtime/declaration-info descriptor)
+  (let [host-expressions (::emitter/host-expressions descriptor)
+        descriptor (if host-expressions
+                     (dissoc descriptor ::emitter/host-expressions)
+                     (runtime/declaration-info descriptor))
         text (binding [*print-meta* true] (pr-str descriptor))
         size 12000
         chunks (->> (range 0 (count text) size)
                     (mapv #(subs text % (min (count text) (+ % size)))))]
-    `(runtime/read-declaration ~chunks)))
+    (if host-expressions
+      `(binding [*ns* (the-ns '~(ns-name *ns*))]
+         (runtime/declaration-info
+          (emitter/prepare-declaration
+           *ns*
+           (emitter/resolve-host-values (runtime/read-declaration ~chunks)
+                                        [~@host-expressions]))))
+      `(runtime/read-declaration ~chunks))))
 
 (clojure.core/defn- development-c-abi-type?
   "True only for scalar Zig types whose C ABI is guaranteed on supported

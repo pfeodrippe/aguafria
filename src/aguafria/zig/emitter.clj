@@ -1,11 +1,12 @@
 (ns aguafria.zig.emitter
   "A deliberately small data representation of Zig syntax.
 
-  Nothing in this namespace evaluates or macroexpands a Zig form as Clojure.
-  It only validates data and renders deterministic Zig source."
+  Preparation expands Clojure macros (including explicit host escapes), then
+  qualifies and validates data. Emission renders deterministic Zig source."
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.project :as project]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.walk :as walk]))
 
 (defn- fail!
   [message form & [data]]
@@ -810,10 +811,62 @@
      (validate-reference-body! context-ns scope (:body declaration)))
    declaration))
 
-(defn prepare-declaration
-  "Qualify every Zig form in a declaration using its defining Clojure ns."
+(defn- host-escape-plan
   [context-ns declaration]
-  (validate-declaration-references!
+  (let [expressions (atom [])
+        slots (java.util.IdentityHashMap.)]
+    (letfn [(visit [form]
+              (cond
+                (and (seq? form)
+                     (:aguafria/host-escape
+                      (meta (resolve-context-var context-ns (first form)))))
+                (let [index (if (.containsKey slots form)
+                              (.get slots form)
+                              (let [index (count @expressions)]
+                                (.put slots form index)
+                                (swap! expressions conj form)
+                                index))]
+                  (with-meta [::host-slot index] (meta form)))
+
+                (and (seq? form) (#{'quote 'clojure.core/quote} (first form))) form
+
+                (coll? form)
+                (let [result (walk/walk visit identity form)]
+                  (if (instance? clojure.lang.IObj result)
+                    (with-meta result (meta form))
+                    result))
+
+                :else form))]
+      (let [template (reduce (fn [descriptor key]
+                               (if (contains? descriptor key)
+                                 (update descriptor key visit)
+                                 descriptor))
+                             declaration [:type :return :value :body :args :fields :align])]
+        (when (seq @expressions)
+          (assoc template ::host-expressions @expressions))))))
+
+(defn resolve-host-values
+  "Fill a deferred declaration template with already evaluated Clojure values.
+  No evaluation or code insertion happens here."
+  [template values]
+  (walk/postwalk
+   (fn [form]
+     (if (and (vector? form) (= ::host-slot (first form)))
+       (let [value (nth values (second form))]
+         (if (instance? clojure.lang.IObj value)
+           (with-meta value (merge (meta value) (meta form)))
+           value))
+       form))
+   template))
+
+(defn prepare-declaration
+  "Qualify and validate a declaration using its defining Clojure namespace.
+  Host escapes first produce a deferred template; the declaration macro emits
+  lexical Clojure expressions to fill it, then prepares the resulting data."
+  [context-ns declaration]
+  (if-let [plan (host-escape-plan context-ns declaration)]
+    plan
+   (validate-declaration-references!
    context-ns
    (cond-> declaration
     (contains? declaration :type)
@@ -845,7 +898,7 @@
     (update :fields #(mapv (fn [field]
                              (update field :type
                                      (partial qualify-type context-ns)))
-                           %)))))
+                           %))))))
 
 (def ^:dynamic *source-mapping?*
   "When true, statement emission includes Clojure line/column marker comments.

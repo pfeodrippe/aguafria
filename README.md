@@ -234,6 +234,42 @@ thousands of generated source files:
     (az/cast [:c-pointer Circle]))
 ```
 
+### Clojure-computed types and values
+
+Use `az/clj!` to evaluate a Clojure expression in the caller's namespace and
+embed its result as literal data inside an Aguafria declaration:
+
+```clojure
+(defn array-n [n] [:array n :u8])
+(defn characters [s] (vec s))
+
+(az/defconst message
+  (az/clj! (array-n 5))
+  (az/clj! (characters "hello")))
+```
+
+This emits the same `[5]u8` constant as a handwritten type and character vector.
+Escapes also work in function signatures, bodies, and struct field types/defaults.
+They execute when the declaration executes, not during macroexpansion or in
+native code. Redefining a helper does not change an existing declaration: reevaluate that declaration
+to capture the new result and hot-reload it. Native builds and calls do not
+rerun the helper.
+
+The expression can use namespace Vars, aliases, and surrounding Clojure lexical
+bindings, but not native locals:
+
+```clojure
+(let [sss (fn [s] (vec (seq s)))]
+  (az/defconst local-message
+    (az/clj! (array-n 5))
+    (az/clj! (sss "hello"))))
+```
+
+This also works inside a Clojure function: each invocation that executes the
+declaration captures fresh host values. Results must be literal scalars, symbols,
+vectors, maps, or sets. Lists and live JVM objects are rejected; use vectors for sequence
+data. There is no generated-code mode or options argument.
+
 ## REPL and hot reload
 
 Start the project through the nREPL alias used by CIDER, Calva, or another

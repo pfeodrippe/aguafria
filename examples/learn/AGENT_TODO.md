@@ -1,5 +1,26 @@
 # Learn reference implementation
 
+- [x] Evaluate `az/clj!` at declaration execution, not macroexpansion, so
+      enclosing Clojure let/fn bindings (including local helper functions)
+      work naturally. Preserve once-only evaluation, literal validation,
+      diagnostics and native hot reload; no eval-based recovery of locals.
+      Completed 2026-09-26: declaration templates emit normal lexical Clojure
+      expressions, then prepare/validate captured values before registration.
+      Exact local sss example compared in native Zig; factory invocation and
+      macroexpansion timing tested. 69 tests / 464 assertions passed across
+      host-eval, emitter, API and editor-hook suites.
+
+- [x] Add value-only `(az/clj! expression)` host evaluation in declaration
+      type/value positions and nested expressions. Verify the three equivalent
+      alt-message definitions, caller namespace/aliases, helper redefinition,
+      once-only evaluation, cache invalidation, diagnostics, and native calls.
+      No options or code-generation mode in this first version. Implemented
+      2026-09-26, including once-only struct-field evaluation and normal Clojure
+      try/catch analysis in editor hooks. Verified native equality of all three
+      alt-message forms, computed signatures, helper redefinition and captured
+      values. Host-eval/emitter/API/editor-hook suites: 66 tests, 453 assertions,
+      zero failures or errors. Usage documented in README.md.
+
 - [x] Retain failed individual declaration edits as pending source while the
       last working native generation stays callable. Verify the exact
       concatenated-array assertion-first / part-two-second REPL sequence, the

@@ -50,6 +50,16 @@
     (is (= 1 (count (findings-of :invalid-arity findings))))
     (is (empty? (findings-of :missing-clause-in-try findings)))))
 
+(deftest host-escape-uses-clojure-not-native-try-semantics
+  (let [findings (lint
+                 (str prelude
+                      "(az/defn valid :i32 []
+                         (az/clj! (try (inc 1) (catch Exception _ 0))))
+                       (az/defn warning :i32 [] (az/clj! (try (inc 1))))
+                       (az/defn unresolved :i32 [] (az/clj! (inc missing)))"))]
+    (is (= 1 (count (findings-of :missing-clause-in-try findings))))
+    (is (= 1 (count (findings-of :unresolved-symbol findings))))))
+
 (deftest process-main-exposes-both-jvm-arities
   (doseq [[return-type argument-type]
           [[":!void" "process/Init"]
