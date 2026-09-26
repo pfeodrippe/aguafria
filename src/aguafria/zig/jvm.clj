@@ -390,7 +390,7 @@
   (let [argument (if (value/zig-value? argument) (value/value argument) argument)
         type (constructor-type type)
         type (if (and (vector? type)
-                      (contains? #{:array :array-sentinel} (first type))
+                      (= :array (first type))
                       (= :_ (second type)))
                (assoc type 1 (count argument))
                type)
@@ -840,11 +840,9 @@
                      :expected param-count :minimum minimum-param-count})))
   (cond
     (= 'array (:name syntax))
-    (let [[elements element-type] arguments]
-      (when-not (and (= 2 (count arguments)) (vector? elements))
-        (throw (ex-info "array expects an element vector followed by its element type"
-                        {:arguments arguments})))
-      (coerce! elements [:array (count elements) element-type]))
+    (let [type (emitter/array-initializer-type arguments)
+          elements (first arguments)]
+      (coerce! elements (assoc type 1 (count elements))))
 
     (= 'init (:name syntax))
     (apply coerce! arguments)

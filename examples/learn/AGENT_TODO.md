@@ -1,5 +1,59 @@
 # Learn reference implementation
 
+- [x] Regenerate all Learn outcomes and HTML after the `ZigValue` indexed-access
+      fix, verify the served page, and refresh the browser. Runtime tests alone
+      do not complete a Learn change: rebuild its real REPL outputs and HTML
+      before reporting completion. All 292 outcome checks and 351 authored
+      inline checks passed; rebuilt 202 REPL transcripts and verified the
+      destructuring example's output in the refreshed browser.
+
+- [x] Implement Clojure indexed access on `ZigValue` so JVM vector
+      destructuring works directly on native arrays; verify the example's
+      `destructuring-arrays` body and native swizzle call, bounds, rest, nested
+      arrays, mutation, and closed-value checks. Verified 11 tests / 124
+      assertions and the exact body evaluated in its Learn namespace through
+      nREPL. Existing JVMs need a restart for the changed native-handle class.
+
+- [x] Verify clj-kondo accepts both `az/array` arities from its actual source
+      definition; refresh stale two-argument analysis without a duplicate hook
+      signature or disabling invalid-arity checks. All 11 editor-hook tests /
+      45 assertions pass; sentinel example lints with zero warnings or errors.
+
+- [x] Add `(az/array elements {:sentinel value} element-type)` for native and
+      JVM construction; update the converter and sentinel examples while
+      preserving upstream comments and names. Format, test, and regenerate HTML.
+- [x] Use `[:array length {:sentinel value} element-type]` for sentinel types;
+      remove the separate legacy type tag from emission, conversion, and JVM
+      storage handling, with explicit rejection tests and no compatibility path.
+      Verified 8 focused tests / 203 assertions, 54 emitter tests / 313 assertions,
+      and 10 editor-hook tests / 42 assertions. All 292 Learn outcome checks and
+      351 inline checks passed; regenerated 202 REPL transcripts and HTML.
+- [ ] Preserve intermediate native array type information in JVM `az/get-in`:
+      an inner sentinel array currently decodes to a Clojure vector before the
+      next index, losing its sentinel slot. Native access in an enclosing
+      Aguafria form preserves it; this is separate from array construction.
+
+- [x] Restore sentinel-array test labels using only necessary Clojure-symbol
+      adaptations, original local identifiers, and verbatim explanatory comments;
+      format and verify regenerated REPL output. Do not invent replacement
+      test descriptions or paraphrase upstream comments in future translations.
+      Verified both direct comment-form test calls, upstream outcome match,
+      cljfmt check, and regenerated/served HTML (292 accepted example outcomes).
+
+- [x] Restore all four explanatory comments from the upstream multidimensional
+      array example. Preserve upstream instructional comments when editing
+      translations; adapt syntax/identifier references only when necessary.
+
+- [x] Add shared native destructuring for binding positions; verify typed
+      arguments, loops, nested patterns, aliases, and reference semantics.
+      Verified native/JVM regression coverage, including source evaluation
+      once and pointer aliases. Native fields remain strict; `:or` is rejected.
+- [x] Add cljfmt once to Learn tooling, format modified examples before the
+      build, and regenerate/verify the HTML and real REPL transcripts.
+      Modified examples pass cljfmt. All 292 outcome checks pass (288 upstream
+      matches and four reviewed special cases), with 202 REPL transcripts.
+      Served HTML includes the formatted destructuring examples and outputs.
+
 - [x] Support keyword field access (`(:x point)`) on JVM native values/types and
       in native declarations, using the same field-access implementation.
 - [x] Audit all Learn examples, snippets, and inline examples; migrate field

@@ -1352,12 +1352,15 @@
 
 (clojure.core/defn array
   "Construct a native array, inferring its length: (az/array [1 2 3] :i32).
-  The second argument is the element type, including nested type schemas.
-  Executes from the JVM too. For explicit lengths, sentinels or vectors,
+  The final argument is the element type, including nested type schemas.
+  Add a sentinel with (az/array [1 2 3] {:sentinel 0} :u8).
+  Executes from the JVM too. For explicit lengths or vectors,
   use (az/init elements type)."
   {:aguafria/syntax '{:kind :syntax :name array :symbol aguafria.zig/array}}
-  [elements element-type]
-  (invoke-syntax! 'array elements element-type))
+  ([elements element-type]
+   (invoke-syntax! 'array elements element-type))
+  ([elements options element-type]
+   (invoke-syntax! 'array elements options element-type)))
 
 (clojure.core/defn range
   "Zig iteration range: start..end, with an exclusive end; omit end for `start..`.

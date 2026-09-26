@@ -9,13 +9,19 @@
 
 (def export-path "clj-kondo.exports/io.github.pfeodrippe/aguafria")
 
-(defn- lint-with-config [config source]
-  (let [{:keys [exit out err]}
-        (shell/sh "clj-kondo" "--lint" "-" "--filename" "fixture.clj"
-                  "--cache" "false" "--config-dir" (str config)
-                  "--config" "{:output {:format :edn}}" :in source)]
-    (assert (#{0 2 3} exit) (str "clj-kondo failed: " err out))
-    (:findings (edn/read-string out))))
+(defn- lint-with-config
+  ([config source]
+   (lint-with-config config source []))
+  ([config source dependencies]
+   (let [{:keys [exit out err]}
+         (apply shell/sh
+                (concat ["clj-kondo" "--lint"] dependencies
+                        ["-" "--filename" "fixture.clj"
+                         "--cache" "false" "--config-dir" (str config)
+                         "--config" "{:output {:format :edn}}" :in source]))]
+     (assert (#{0 2 3} exit) (str "clj-kondo failed: " err out))
+     (filterv #(= "fixture.clj" (:filename %))
+              (:findings (edn/read-string out))))))
 
 (defn- lint [source]
   (lint-with-config (io/file (io/resource export-path)) source))
@@ -25,6 +31,14 @@
      (:require [aguafria.zig :as az]
                [aguafria.std.process :as process :refer [Init]]
                [aguafria.std.process.Init :as process-init]))\n")
+
+(deftest native-destructured-bindings-are-visible-to-the-linter
+  (is (empty?
+       (lint "(ns fixture (:require [aguafria.zig :as az] [aguafria.keyword :as k]))
+              (az/defn sum :i32 [[{:keys [x y]} :anytype]] (k/+ x y))
+              (az/defn points :void [[items :anytype]]
+                (k/for [{:keys [x y]} items]
+                  (k/= :_ (k/+ x y))))"))))
 
 (deftest native-block-labels-are-data-not-vars
   (let [findings (lint "(ns fixture (:require [aguafria.zig :as az] [aguafria.keyword :as k]))
@@ -53,6 +67,24 @@
 
 (defn- findings-of [kind findings]
   (filter #(= kind (:type %)) findings))
+
+(deftest array-arities-come-from-the-library-definition
+  (let [findings
+        (lint-with-config
+         (io/file (io/resource export-path))
+         "(ns fixture (:require [aguafria.zig :as az]))
+          (az/array [1 2] :u8)
+          (az/array [1 0 0 4] {:sentinel 0} :u8)
+          (az/deftest sentinel-array
+            (let [array (az/array [1 0 0 4] {:sentinel 0} :u8)]
+              (az/get array 4)))
+          (az/array [1 2])
+          (az/array [1 2] {:sentinel 0} :u8 :extra)"
+         [(str (io/file (io/resource "aguafria/zig.clj")))])]
+    (is (= [:invalid-arity :invalid-arity] (mapv :type findings))
+        (pr-str findings))
+    (is (re-find #"called with 1 arg" (:message (first findings))))
+    (is (re-find #"called with 4 args" (:message (second findings))))))
 
 (deftest flat-native-loop-captures-are-lexical-bindings
   (let [findings (lint

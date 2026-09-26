@@ -51,6 +51,32 @@
     (is (= source (emit/emit-expr *ns* form))))
   (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr *ns* '(az/array [1])))))
 
+(deftest sentinel-array-options
+  (doseq [[form expected]
+          [['(az/array [1 25 3 4] {:sentinel 0} :u8) "[_:0]u8{1, 25, 3, 4}"]
+           ['(az/array [] {:sentinel 255} :u8) "[_:255]u8{}"]
+           ['(az/array [true] {:sentinel false} :bool) "[_:false]bool{true}"]
+           ['(az/array [1] {} :u8) "[_]u8{1}"]]]
+    (is (= expected (emit/emit-expr (the-ns 'aguafria.zig.emitter-test) form))))
+  (doseq [form '[(az/array [1] {:sentinal 0} :u8)
+                (az/array [1] :sentinel :u8)
+                (az/array [1] {:sentinel 0 :length 1} :u8)]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"array options"
+                         (emit/emit-expr (the-ns 'aguafria.zig.emitter-test) form)))))
+
+(deftest array-type-options
+  (doseq [[schema expected]
+          [[[:array 4 {:sentinel 0} :u8] "[4:0]u8"]
+           [[:array 0 {:sentinel false} :bool] "[0:false]bool"]
+           [[:array 4 {} :u8] "[4]u8"]
+           [[:array 2 [:array 3 {:sentinel 0} :u8]] "[2][3:0]u8"]]]
+    (is (= expected (emit/emit-type schema))))
+  (doseq [schema [[:array-sentinel 4 0 :u8]
+                  [:array 4 {:sentinal 0} :u8]
+                  [:array 4 0 :u8]
+                  [:array 4 {:sentinel 0} :u8 :extra]]]
+    (is (thrown? clojure.lang.ExceptionInfo (emit/emit-type schema)))))
+
 (deftest flat-native-for-bindings
   (is (= "for ((&items), 0..) |*item, index| {\n    item.* = @intCast(index);\n}"
          (emit/emit-stmt-in *ns*

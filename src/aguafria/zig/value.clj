@@ -132,6 +132,14 @@
   (seq [this]
     (seq (decoded this)))
 
+  clojure.lang.Indexed
+  (nth [this index]
+    (nth (decoded this) index))
+  (nth [this index not-found]
+    (nth (decoded this) index not-found))
+  (count [this]
+    (count (decoded this)))
+
   java.lang.AutoCloseable
   (close [this]
     (let [state (value-state this)]

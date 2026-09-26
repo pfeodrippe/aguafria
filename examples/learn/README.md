@@ -41,6 +41,18 @@ Their original Shell results are not copied into a pretend REPL transcript.
 
 From this directory:
 
+Format changed example files before rebuilding with the pinned
+[cljfmt](https://github.com/weavejester/cljfmt) alias and the local Aguafria
+indentation configuration:
+
+```sh
+clojure -M:fmt fix resources/learn/example/test_structs.clj
+clojure -M:fmt check resources/learn/example/test_structs.clj
+```
+
+Pass all changed example paths to the same invocation; formatting does not
+change the original Zig documentation or its examples.
+
 ```sh
 clojure -X:prepare         # prepare local Aguafria before starting the REPL
 clojure -M:translate       # regenerate displayed namespaces and emitted Zig

@@ -36,7 +36,8 @@
     (is (seq (:doc (meta v))))
     (is (seq (:arglists (meta v)))))
   (is (true? (:macro (meta #'az/with-block))))
-  (is (= '([elements element-type]) (:arglists (meta #'az/array))))
+  (is (= '([elements element-type] [elements options element-type])
+         (:arglists (meta #'az/array))))
   (is (= '([start] [start end]) (:arglists (meta #'az/range))))
   (is (= '([label & body]) (:arglists (meta #'az/with-block)))))
 
@@ -120,6 +121,38 @@
     (is (= 1 (ak/% dividend divisor))))
   (is (thrown? clojure.lang.ArityException (az/array [1 2])))
   (is (nil? (ns-resolve 'aguafria.zig 'array-init))))
+
+(deftest sentinel-arrays-execute-on-the-jvm
+  (with-open [array (az/array [1 25 3 4] {:sentinel 0} :u8)
+              embedded (az/array [1 0 0 4] {:sentinel 0} :u8)
+              empty-array (az/array [] {:sentinel 255} :u8)
+              flags (az/array [true false] {:sentinel false} :bool)]
+    (is (= [1 25 3 4] (az/value array)))
+    (is (= 4 (:len array)))
+    (is (= 0 (az/get array 4)))
+    (is (ak/== (az/type [:array 4 {:sentinel 0} :u8]) (ak/TypeOf array)))
+    (is (= [1 0 0 4] (az/value embedded)))
+    (is (= 4 (:len embedded)))
+    (is (= 0 (az/get embedded 4)))
+    (is (= 0 (:len empty-array)))
+    (is (= 255 (az/get empty-array 0)))
+    (is (false? (az/get flags 2))))
+  (doseq [options [{:sentinal 0} :sentinel {:sentinel 0 :length 1}]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"array options"
+                         (az/array [1] options :u8)))))
+
+(deftest sentinel-array-schemas-execute-on-the-jvm
+  (with-open [array (az/init [1 2] [:array 2 {:sentinel 9} :u8])
+              inferred (az/init [3 4] [:array :_ {:sentinel 0} :u8])
+              nested (az/array [[1 2] [3 4]] [:array 2 {:sentinel 255} :u8])]
+    (is (= [1 2] (az/value array)))
+    (is (= 9 (az/get array 2)))
+    (is (= 0 (az/get inferred 2)))
+    (is (= [[1 2] [3 4]] (az/value nested)))
+    (is (= 255 (az/with-block :result
+                 (ak/break :result (az/get-in nested [1 2]))))))
+  (is (thrown? Exception
+               (az/init [1 2] [:array-sentinel 2 0 :u8]))))
 
 (deftest flat-pointer-captures-execute-on-the-jvm
   (with-open [items (ak/var (az/array [0 0 0 0] :u32))]
@@ -557,6 +590,28 @@
       (let [point-type @(ns-resolve namespace 'Point)]
         (with-open [point (az/init {:x 20 :y 22} point-type)]
           (is (= {:x 20 :y 22} @point))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest native-array-destructuring-body-runs-on-jvm-and-zig
+  (let [namespace (fixture)
+        body '(let [position (az/array [1 2] :i32)
+                    [x y] position
+                    orange (az/array [255 165 0 255] :u8)]
+                (debug/print "x = {}, y = {}\n" [x y])
+                (debug/print "{any}\n" [(swizzle-rgba-to-bgra orange)]))]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defn- swizzle-rgba-to-bgra [:array 4 :u8]
+                 [[rgba [:array 4 :u8]]]
+                 (let [[red green blue alpha] rgba]
+                   [blue green red alpha])))
+        (let [output (StringWriter.)]
+          (binding [*err* output] (eval body))
+          (is (= "x = 1, y = 2\n{ 0, 165, 255, 255 }\n" (str output))))
+        (eval (list 'az/defn 'main :void [] body)))
+      (let [output (StringWriter.)]
+        (binding [*err* output] ((ns-resolve namespace 'main)))
+        (is (= "x = 1, y = 2\n{ 0, 165, 255, 255 }\n" (str output))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest destructuring-then-mutable-rebinding-preserves-clojure-semantics

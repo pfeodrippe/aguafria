@@ -87,7 +87,7 @@
   - [x] float_mode_exe.clj
     - [x] error: undefined symbol: _foo_optimized and error: undefined symbol: _foo_strict
     - [x] and the output is expected ?
-  - [ ] test_arrays.clj
+  - [x] test_arrays.clj
     - [-] why do need az/defcomptime matching-initializers or az/defcomptime message-length if they aren't labeled in the original? we could use just `(ak/comptime ...)`
     - [x] when we modify message, it complains about `26 |   (debug/assert (mem/eql :u8 (k/& message) same-message)))`
     - [x] add az/clj!
@@ -97,10 +97,18 @@
     - [x] `modify an array` for improvements
     - [x] no need for az/array-init, it can be just az/array
     - [x] (az/defconst all-of-it (az/op "++" part-one part-two)) should be (az/defconst all-of-it (k/++ part-one part-two)), also revisit other usages of az/op where we could have an k/WHATEVER_OP_HERE
-    - [ ] labeled block should be az/with-block
-  - [ ] test_multidimensional_arrays.clj
-  - [ ] test_null_terminated_array.clj
+    - [x] labeled block should be az/with-block
+    - [x] add destructuring
+  - [x] test_multidimensional_arrays.clj
+  - [x] test_null_terminated_array.clj
+    - [x] remove :array-sentinel in favour of just :array
+  - [x] destructuring_arrays.clj
+    - [x] fix sequence destructuring
+  - [ ] test_vector.clj
+  - [ ] destructuring_vectors.clj
+  - [ ] test_single_item_pointer.clj
 
+- [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?
 - [ ] add assertions from the JVM as alternative to comptime assertions (e.g. inside test_arrays.clj)
 - [ ] test check-like generators
 - [ ] show tree structure of a running program

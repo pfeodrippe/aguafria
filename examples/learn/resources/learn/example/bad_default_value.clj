@@ -9,11 +9,11 @@
    [:maximum {:default 0.75} :f32]
    [:Category {:const (az/enum [:low :medium :high])} :type]
    (az/fn- categorize Category [[threshold Threshold] [value :f32]]
-     (debug/assert (k/>= (:maximum threshold)
-                       (:minimum threshold)))
-     (if (k/< value (:minimum threshold))
-       :.low
-       (if (k/> value (:maximum threshold)) :.high :.medium)))])
+           (let [{:keys [minimum maximum]} threshold]
+             (debug/assert (k/>= maximum minimum))
+             (if (k/< value minimum)
+               :.low
+               (if (k/> value maximum) :.high :.medium))))])
 
 (az/defn main [:error-union :void] []
   (let [threshold (k/var (Threshold {:maximum 0.20}))

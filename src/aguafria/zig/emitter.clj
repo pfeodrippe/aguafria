@@ -12,6 +12,36 @@
   [message form & [data]]
   (throw (ex-info message (merge {:form form} data))))
 
+(defn array-type-parts
+  "Validate an array schema and expose its length, options, and element type."
+  [type]
+  (let [[length options element-type]
+        (case (count type)
+          3 [(second type) {} (last type)]
+          4 (rest type)
+          (fail! "Array type expects a length, optional options map, and child type" type))]
+    (when-not (and (map? options) (every? #{:sentinel} (keys options)))
+      (fail! "array options must be a map containing only :sentinel" type))
+    {:length length :options options :element-type element-type}))
+
+(defn array-initializer-type
+  "Validate array constructor arguments and return their inferred-length type.
+  Shared by native emission and JVM construction."
+  [arguments]
+  (let [[elements options element-type]
+        (case (count arguments)
+          2 [(first arguments) {} (second arguments)]
+          3 arguments
+          (fail! "array expects elements, an optional options map, and an element type"
+                 arguments))]
+    (when-not (vector? elements)
+      (fail! "array expects an element vector" arguments))
+    (let [type (if (= 3 (count arguments))
+                 [:array :_ options element-type]
+                 [:array :_ element-type])]
+      (array-type-parts type)
+      type)))
+
 (def ^:private reserved-identifiers
   (set (map :name (keyword/language-keywords))))
 
@@ -394,9 +424,154 @@
   (or (and (symbol? value) (known-type-reference value))
       (and (seq? value) (contains? #{'container 'type} (first value)))))
 
+(defn- binding-pattern? [binding]
+  (or (map? binding) (vector? binding)))
+
+(defn- binding-temp [pattern]
+  (with-meta (gensym "__aguafria_binding_") (meta pattern)))
+
+(defn- destructure-binding
+  "Lower a binding pattern to field/index reads, evaluating its source once."
+  [pattern value]
+  (cond
+    (symbol? pattern) [pattern value]
+
+    (map? pattern)
+    (let [source (binding-temp pattern)
+          _ (when (contains? pattern :or)
+              (fail! "Native destructuring requires existing fields; :or defaults are not supported"
+                     pattern))
+          entries (concat
+                   (for [key (:keys pattern)]
+                     [(symbol (name key)) (keyword key)])
+                   (for [[binding key] (dissoc pattern :keys :as :or)]
+                     (do
+                       (when-not (or (keyword? key) (string? key))
+                         (fail! "Native destructuring field names must be keywords or strings"
+                                pattern {:key key}))
+                       [binding (keyword key)])))]
+      (into [source value]
+            (concat (when-let [alias (:as pattern)]
+                      (destructure-binding alias source))
+                    (mapcat (fn [[binding key]]
+                              (destructure-binding binding (list 'field source key)))
+                            entries))))
+
+    (vector? pattern)
+    (let [source (binding-temp pattern)]
+      (loop [bindings (seq pattern), index 0, result [source value]]
+        (if-let [binding (first bindings)]
+          (cond
+            (= :as binding)
+            (if (= 2 (count bindings))
+              (into result (destructure-binding (second bindings) source))
+              (fail! ":as must be followed by one final binding" pattern))
+
+            (= '& binding)
+            (let [[_ tail & remaining] bindings]
+              (when-not (and tail (or (empty? remaining)
+                                     (and (= :as (first remaining)) (= 2 (count remaining)))))
+                (fail! "Rest binding must be last, optionally followed by :as" pattern))
+              (into result
+                    (concat (destructure-binding tail (list 'slice source index))
+                            (when (seq remaining)
+                              (destructure-binding (second remaining) source)))))
+
+            (= '_ binding) (recur (next bindings) (inc index) result)
+            :else (recur (next bindings) (inc index)
+                         (into result (destructure-binding binding (list 'index source index)))))
+          result)))
+
+    :else (fail! "Expected a binding name, map, or vector" pattern)))
+
+(defn- expand-bindings [bindings]
+  (when-not (and (vector? bindings) (even? (count bindings)))
+    (fail! "let expects an even Clojure binding vector" bindings))
+  (vec (mapcat (fn [[pattern value]]
+                ;; Preserve Zig's native multiple-assignment form for flat tuples.
+                (if (and (vector? pattern) (seq pattern)
+                         (every? #(and (symbol? %) (not= '& %)) pattern))
+                  [pattern value]
+                  (destructure-binding pattern value)))
+              (partition 2 bindings))))
+
+(defn- lower-function-bindings [declaration]
+  (if (some #(binding-pattern? (:name %)) (:args declaration))
+    (let [[arguments bindings]
+          (reduce (fn [[arguments bindings] argument]
+                    (let [pattern (:name argument)]
+                      (if (binding-pattern? pattern)
+                        (let [temporary (binding-temp pattern)]
+                          [(conj arguments (assoc argument :name temporary))
+                           (conj bindings pattern temporary)])
+                        [(conj arguments argument) bindings])))
+                  [[] []] (:args declaration))]
+      (-> declaration
+          (assoc :args arguments)
+          (update :body #(vector (apply list 'let bindings %)))))
+    declaration))
+
+(defn- lower-captures [captures]
+  (reduce (fn [[names bindings] capture]
+            (let [pointer? (and (seq? capture)
+                                (or (= 'pointer-capture (first capture))
+                                    (= "*" (some-> capture first name))))
+                  pattern (if pointer? (second capture) capture)]
+              (if (binding-pattern? pattern)
+                (let [temporary (binding-temp pattern)]
+                  [(conj names (if pointer? (list 'pointer-capture temporary) temporary))
+                   (conj bindings pattern temporary)])
+                [(conj names capture) bindings])))
+          [[] []] captures))
+
+(defn- bind-captures [bindings body]
+  (if (seq bindings) [(apply list 'let bindings body)] body))
+
+(defn- lower-capture-form [operator form]
+  (let [[_ & args] form
+        wrap (fn [bindings expression]
+               (if (seq bindings) (list 'let bindings expression) expression))]
+    (case operator
+      (if-capture if-capture-stmt while-loop)
+      (let [[options condition & body] args
+            [payload payload-bindings] (lower-captures (:payload options))
+            [error error-bindings] (lower-captures (:error options))]
+        (when (or (seq payload-bindings) (seq error-bindings))
+          (let [options (cond-> options
+                          (:payload options) (assoc :payload payload)
+                          (:error options) (assoc :error error))]
+            (if (= operator 'while-loop)
+              (apply list operator
+                     (cond-> options
+                       (:else options) (update :else #(vec (bind-captures error-bindings %)))
+                       (:continue options) (update :continue #(vec (bind-captures payload-bindings %))))
+                     condition (bind-captures payload-bindings body))
+              (apply list operator options condition
+                     (wrap payload-bindings (first body))
+                     (when (next body) [(wrap error-bindings (second body))]))))))
+
+      (case inline-case case-else inline-case-else)
+      (let [ordinary? (contains? #{'case 'inline-case} operator)
+            [patterns tail] (if ordinary? [(first args) (rest args)] [nil args])
+            captures (first tail)]
+        (when (vector? captures)
+          (let [[names bindings] (lower-captures captures)]
+            (when (seq bindings)
+              (apply list operator (concat (when ordinary? [patterns]) [names]
+                                          (bind-captures bindings (rest tail))))))))
+
+      (catch-capture errdefer)
+      (when (vector? (first args))
+        (let [[names bindings] (lower-captures (first args))]
+          (when (seq bindings)
+            (if (= operator 'catch-capture)
+              (apply list operator names (second args) (bind-captures bindings (drop 2 args)))
+              (apply list operator names (bind-captures bindings (rest args)))))))
+      nil)))
+
 (defn- qualify-let
   [context-ns [_ bindings & body :as form]]
-  (loop [pairs (partition 2 bindings)
+  (loop [pairs (partition 2 (expand-bindings bindings))
          qualified []
          local-types *local-type-bindings*
          local-names *local-name-bindings*
@@ -449,6 +624,9 @@
                                   [(second form) (nth form 2) (drop 3 form)]
                                   [nil (second form) (drop 2 form)])
         pairs (for-bindings bindings form)
+        [names pattern-bindings] (lower-captures (map first pairs))
+        body (bind-captures pattern-bindings body)
+        pairs (mapv vector names (map second pairs))
         captures (mapv (fn [[capture _]]
                          (cond
                            (symbol? capture) capture
@@ -561,11 +739,17 @@
                                (assoc metadata key (qualify-form context-ns value))
                                metadata)))
                          (meta form) [:var :zig/type :tag :zig/align :zig/addrspace :zig/linksection]))
-               form)]
+               form)
+        captured (when (seq? form)
+                   (lower-capture-form
+                    (resolved-syntax-operator context-ns (first form)) form))]
    ;; Type-bearing binding metadata is source code too. Capture its defining
    ;; namespace before declaration emission happens in a different context.
    ;; Other metadata (docs, source spans, arbitrary user values) stays intact.
    (cond
+    captured
+    (qualify-form context-ns (with-meta captured (meta form)))
+
     (and (seq? form)
          (= 'let (resolved-syntax-operator context-ns (first form)))
          (vector? (second form))
@@ -913,41 +1097,41 @@
   Host escapes first produce a deferred template; the declaration macro emits
   lexical Clojure expressions to fill it, then prepares the resulting data."
   [context-ns declaration]
-  (if-let [plan (host-escape-plan context-ns declaration)]
-    plan
-   (validate-declaration-references!
-   context-ns
-   (cond-> declaration
-    (contains? declaration :type)
-    (update :type #(when (some? %) (qualify-type context-ns %)))
+  (let [declaration (lower-function-bindings declaration)]
+    (if-let [plan (host-escape-plan context-ns declaration)]
+      plan
+      (validate-declaration-references!
+       context-ns
+       (cond-> declaration
+         (contains? declaration :type)
+         (update :type #(when (some? %) (qualify-type context-ns %)))
 
-    (contains? declaration :return)
-    (update :return #(qualify-type context-ns %))
+         (contains? declaration :return)
+         (update :return #(qualify-type context-ns %))
 
-    (contains? declaration :value)
-    (update :value
-            #(binding [*local-type-bindings*
-                       (cond-> *local-type-bindings*
-                         (= :struct (:kind declaration))
-                         (assoc (:name declaration) true))]
-               (qualify-form context-ns %)))
+         (contains? declaration :value)
+         (update :value
+                 #(binding [*local-type-bindings*
+                            (cond-> *local-type-bindings*
+                              (= :struct (:kind declaration))
+                              (assoc (:name declaration) true))]
+                    (qualify-form context-ns %)))
 
-    (contains? declaration :body)
-    (update :body
-            #(binding [*lexical-bindings*
-                       (declaration-local-bindings context-ns declaration)]
-               (mapv (partial qualify-form context-ns) %)))
+         (contains? declaration :body)
+         (update :body
+                 #(binding [*lexical-bindings*
+                            (declaration-local-bindings context-ns declaration)]
+                    (mapv (partial qualify-form context-ns) %)))
 
-    (contains? declaration :args)
-    (update :args #(mapv (fn [arg]
-                           (update arg :type (partial qualify-type context-ns)))
-                         %))
+         (contains? declaration :args)
+         (update :args #(mapv (fn [arg]
+                               (update arg :type (partial qualify-type context-ns)))
+                             %))
 
-    (contains? declaration :fields)
-    (update :fields #(mapv (fn [field]
-                             (update field :type
-                                     (partial qualify-type context-ns)))
-                           %))))))
+         (contains? declaration :fields)
+         (update :fields #(mapv (fn [field]
+                                 (update field :type (partial qualify-type context-ns)))
+                               %)))))))
 
 (def ^:dynamic *source-mapping?*
   "When true, statement emission includes Clojure line/column marker comments.
@@ -1026,7 +1210,8 @@
 
   Supported vectors include `[:* t]`, `[:*const t]`, `[:many t]`,
   `[:many-const t]`, `[:sentinel t n]`, `[:slice t]`, `[:slice-const t]`,
-  `[:array n t]`, `[:vector n t]`, `[:c-pointer t]`, `[:optional t]`, and
+  `[:array n t]`, `[:array n {:sentinel value} t]`, `[:vector n t]`,
+  `[:c-pointer t]`, `[:optional t]`, and
   `[:error-union t]` (also `[:! t]`). Keywords such as `:!void` and `:!u32` are shorthand
   for inferred error unions. A generated keyword call may also produce a type."
   [t]
@@ -1076,14 +1261,11 @@
         :slice-const (if (= 1 (count xs))
                        (str "[]const " (emit-type (first xs)))
                        (fail! "Const slice type expects one child type" t))
-        :array (if (= 2 (count xs))
-                 (str "[" (emit-expr (first xs)) "]" (emit-type (second xs)))
-                 (fail! "Array type expects a length and child type" t))
-        :array-sentinel (if (= 3 (count xs))
-                          (str "[" (emit-expr (first xs)) ":"
-                               (emit-expr (second xs)) "]"
-                               (emit-type (nth xs 2)))
-                          (fail! "Sentinel array type expects a length, sentinel, and child type" t))
+        :array (let [{:keys [length options element-type]} (array-type-parts t)]
+                 (str "[" (emit-expr length)
+                      (when (contains? options :sentinel)
+                        (str ":" (emit-expr (:sentinel options))))
+                      "]" (emit-type element-type)))
         :vector (if (= 2 (count xs))
                   (str "@Vector(" (emit-expr (first xs)) ", "
                        (emit-type (second xs)) ")")
@@ -1726,10 +1908,8 @@
             (fail! "init expects an object/map or element vector followed by its type" form)))
 
         (= op 'array)
-        (let [[elements element-type] args]
-          (if (and (= 2 (count args)) (vector? elements))
-            (str (emit-type [:array :_ element-type]) (subs (emit-vector-literal elements) 1))
-            (fail! "array expects an element vector followed by its element type" form)))
+        (str (emit-type (array-initializer-type args))
+             (subs (emit-vector-literal (first args)) 1))
 
         (= op 'unreachable)
         (if (empty? args)
@@ -2048,7 +2228,7 @@
   (let [[bindings & body] args]
     (when-not (and (vector? bindings) (even? (count bindings)))
       (fail! "let expects an even Clojure binding vector and a body" form))
-    (let [pairs (mapv vec (partition 2 bindings))]
+    (let [pairs (mapv vec (partition 2 (expand-bindings bindings)))]
       (doseq [[binding] pairs]
         (when-not (or (symbol? binding)
                       (and (vector? binding) (seq binding)
@@ -3643,9 +3823,10 @@
                        (vector? bindings))
           (fail! "fn-decl expects name, return, optional doc/attributes, args, and body"
                  form))
-        (merge (nested-base :fn name attributes)
+        (lower-function-bindings
+         (merge (nested-base :fn name attributes)
                {:doc doc :return return
-                :args (parse-typed-bindings bindings) :body (vec body)}))
+                :args (parse-typed-bindings bindings) :body (vec body)})))
 
       fn-proto-decl
       (let [[name return & declaration] declaration

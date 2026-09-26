@@ -6,6 +6,37 @@
             [clojure.pprint :as pprint]
             [clojure.test :refer [deftest is]]))
 
+(deftest native-sequential-values-support-clojure-destructuring
+  (doseq [type [[:array 3 :i32]
+               [:array 3 {:sentinel 0} :i32]
+               [:vector 3 :i32]
+               [:slice :i32]]]
+    (with-open [native (ak/var [1 2 3] type)]
+      (let [[x y z missing :as original] native
+            [head & tail] native]
+        (is (= [1 2 3 nil] [x y z missing]))
+        (is (identical? native original))
+        (is (= 1 head))
+        (is (= [2 3] (vec tail)))
+        (is (= 3 (count native)))
+        (is (= 2 (nth native 1)))
+        (is (= :missing (nth native 3 :missing)))
+        (is (= :missing (nth native -1 :missing)))
+        (is (thrown? IndexOutOfBoundsException (nth native 3)))
+        (is (thrown? IndexOutOfBoundsException (nth native -1))))
+      (ak/= native [4 5 6])
+      (is (= 4 (nth native 0)))))
+  (with-open [grid (az/array [[1 2] [3 4]] [:array 2 :i32])
+              empty-array (az/array [] :i32)]
+    (let [[[a b] [c d]] grid
+          [missing] empty-array]
+      (is (= [1 2 3 4] [a b c d]))
+      (is (nil? missing))
+      (is (zero? (count empty-array)))))
+  (let [closed (az/array [1] :i32)]
+    (.close closed)
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"closed" (nth closed 0)))))
+
 (deftest native-handles-have-consistent-inspection-tags
   (doseq [[input type expected] [[42 :i32 42]
                                [true :bool true]

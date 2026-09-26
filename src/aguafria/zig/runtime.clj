@@ -5388,10 +5388,8 @@
            :child (nested-storage-wrapper-spec payload-type
                                                (str prefix "_payload"))})
 
-        ("array" "array-sentinel" "vector")
-        (let [element-type (if (= "array-sentinel" operator)
-                             (nth type 3)
-                             (nth type 2))
+        ("array" "vector")
+        (let [element-type (last type)
               child (nested-storage-wrapper-spec element-type
                                                   (str prefix "_element"))]
           (when child
@@ -5413,7 +5411,7 @@
         (nested-storage-wrapper-spec (second type) (str prefix "_element"))
         "error-union"
         (nested-storage-wrapper-spec (last type) (str prefix "_payload"))
-        ("array" "array-sentinel" "vector")
+        ("array" "vector")
         (nested-storage-wrapper-spec type prefix)
         nil))))
 
@@ -12150,25 +12148,21 @@
             :ownership :borrowed})
 
          (and (vector? type)
-              (contains? #{:array :array-sentinel :vector} (first type)))
-         (let [[kind & arguments] type
-               [length sentinel element-type storage-length schema-kind]
-               (case kind
-                 :array [(first arguments) nil (second arguments)
-                         (first arguments) :array]
-                 :array-sentinel [(first arguments) (second arguments)
-                                  (nth arguments 2)
-                                  (when (integer? (first arguments))
-                                    (inc (first arguments)))
-                                  :array]
-                 :vector [(first arguments) nil (second arguments)
-                          (first arguments) :vector])]
+              (contains? #{:array :vector} (first type)))
+         (let [kind (first type)
+               {:keys [length options element-type]}
+               (if (= :array kind)
+                 (emit/array-type-parts type)
+                 {:length (second type) :options {} :element-type (last type)})
+               storage-length (if (and (contains? options :sentinel) (integer? length))
+                                (inc length)
+                                length)]
            (when (and (integer? length) (not (neg? length)))
-             {:kind schema-kind
+             {:kind kind
               :type type
               :length length
               :storage-length storage-length
-              :sentinel sentinel
+              :sentinel (:sentinel options)
               :element-type element-type
               :element-schema
               (native-type-schema module element-type (conj seen identity))}))

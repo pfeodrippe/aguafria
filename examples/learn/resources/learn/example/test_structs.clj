@@ -16,9 +16,9 @@
      (Vec3 {:x x :y y :z z}))
    (az/fn dot :f32
      [[self Vec3] [other Vec3]]
-     (k/+ (k/* (:x self) (:x other))
-        (k/* (:y self) (:y other))
-        (k/* (:z self) (:z other))))])
+     (let [{:keys [x y z]} self
+           {ox :x oy :y oz :z} other]
+       (k/+ (k/* x ox) (k/* y oy) (k/* z oz))))])
 
 (az/deftest dot-product-test
   (let [horizontal ((:init Vec3) 1.0 0.0 0.0)
@@ -48,13 +48,13 @@
 
 (az/defn LinkedList :type [[T {:attrs #{k/comptime}} :type]]
   (az/struct
-    [(az/struct-decl Node {:attrs #{k/pub}}
-       [[:prev [:optional [:* Node]]]
-        [:next [:optional [:* Node]]]
-        [:data T]])
-     [:first [:optional [:* Node]]]
-     [:last [:optional [:* Node]]]
-     [:len :usize]]))
+   [(az/struct-decl Node {:attrs #{k/pub}}
+                    [[:prev [:optional [:* Node]]]
+                     [:next [:optional [:* Node]]]
+                     [:data T]])
+    [:first [:optional [:* Node]]]
+    [:last [:optional [:* Node]]]
+    [:len :usize]]))
 
 (az/deftest linked-list-test
   ;; Repeated calls at compile time return the same memoized type.

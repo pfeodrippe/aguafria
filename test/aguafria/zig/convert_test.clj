@@ -44,7 +44,7 @@
     (is (str/includes? source "(az/array [1 2] :i32)"))
     (is (str/includes? source "(k/++ left right)"))
     (is (str/includes? source "(k/** left 2)"))
-    (is (str/includes? source "(az/init [1 2] [:array-sentinel :_ 0 :u8])"))
+    (is (str/includes? source "(az/array [1 2] {:sentinel 0} :u8)"))
     (is (not (str/includes? source "array-init")))
     (is (:success? (convert/verify-file path options)))))
 
@@ -613,7 +613,7 @@
     (is (str/includes? clojure-source ":pointer"))
     (is (str/includes? clojure-source ":fn"))
     (is (str/includes? clojure-source ":callconv"))
-    (is (str/includes? clojure-source ":array-sentinel"))
+    (is (str/includes? clojure-source "{:sentinel 0}"))
     (is (str/includes? clojure-source "(az/slice-sentinel"))
     (is (str/includes? clojure-source "k/bit-xor"))
     (is (str/includes? clojure-source "(k/-%"))

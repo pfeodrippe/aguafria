@@ -935,7 +935,7 @@
     (if type-node
       (let [type (translate-type context type-node)]
         (if (and (vector? type) (= :array (first type)) (= :_ (second type)))
-          (list 'az/array elements (nth type 2))
+          (apply list 'az/array elements (drop 2 type))
           (list 'init elements type)))
       elements)))
 
@@ -1395,15 +1395,11 @@
 
       (contains? (:array-type-index context) node-index)
       (let [[_ count-node sentinel-node child-node]
-            (get (:array-type-index context) node-index)]
-        (if sentinel-node
-          [:array-sentinel (let [length (translate-expr context count-node)]
-                             (if (= '_ length) :_ length))
-           (translate-expr context sentinel-node)
-           (translate-type context child-node)]
-          [:array (let [length (translate-expr context count-node)]
-                    (if (= '_ length) :_ length))
-           (translate-type context child-node)]))
+            (get (:array-type-index context) node-index)
+            length (translate-expr context count-node)]
+        (cond-> [:array (if (= '_ length) :_ length)]
+          sentinel-node (conj {:sentinel (translate-expr context sentinel-node)})
+          true (conj (translate-type context child-node))))
 
       (contains? (:function-prototype-index context) node-index)
       (translate-function-type context node-index)

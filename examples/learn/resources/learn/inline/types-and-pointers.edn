@@ -86,7 +86,7 @@
   :note "This precedence chart is Zig-specific. Aguafria uses prefix nesting instead of operator precedence: (+ a (* b c)) explicitly multiplies before adding."}
 
  "[N:x]T"
- {:clojure-source "[:array-sentinel N x T]"
+ {:clojure-source "[:array N {:sentinel x} T]"
   :kind :type
   :note "An N-element array of T with sentinel x stored at index N."}
 

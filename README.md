@@ -191,13 +191,25 @@ introduce a second runtime abstraction:
 | `(Point {:x 1.0 :y 2.0})` | typed struct literal |
 | `(az/init {:x 1.0 :y 2.0} Point)` | explicit value-first struct initializer |
 | `(az/array [4 5 6] :u32)` | typed array initializer with inferred length |
-| `(az/init [1 2] [:array-sentinel :_ 0 :u8])` | initializer with an explicit type schema |
+| `(az/array [1 2] {:sentinel 0} :u8)` | sentinel array initializer with inferred length |
+| `(az/type [:array 4 {:sentinel 0} :u8])` | sentinel array type (`[4:0]u8`) |
+| `(az/init [1 2] [:array 2 :u8])` | initializer with an explicit type schema |
 | `(k/++ left right)` / `(k/** values 3)` | native array concatenation / repetition |
 | `(az/with-block :result (k/break :result 42))` | labeled block returning a value; keyword labels are not variables |
 | `(az/get point :x)` / `(az/get points i)` | native field or indexed element access |
 | `(az/get-in points [4 :x])` | nested native access through a literal vector of indices and fields |
 | `(:x point)` / `(-> point :x)` | keyword field access, equivalent to `az/field` in native code and on JVM native handles; no default-value argument |
+| `(let [{:keys [x y]} point] ...)` | native map destructuring; explicit renamed/nested bindings and `:as` are supported |
+| `(az/defn sum :i32 [[{:keys [x y]} Point]] (k/+ x y))` | destructuring typed function arguments without changing their native types |
+| `(k/for [{:keys [x y]} points] ...)` | destructuring loop captures; also works for optional, while and switch captures |
 | `ak/...` | Zig operators, keywords, and `@builtins`; value calls also use the native JVM bridge |
+
+Native destructuring evaluates each source once. Extracted fields are values,
+not writable aliases; an explicit pointer capture's `:as` binding keeps the
+pointer. Vector patterns support nesting, `:as`, and a trailing `&` slice.
+Fields must exist in the native type (`:or` map defaults are rejected), and
+native bounds checks still apply. Ordinary JVM Clojure keeps its own binding
+semantics.
 
 For example:
 

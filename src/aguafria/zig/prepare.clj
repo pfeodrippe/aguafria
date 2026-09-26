@@ -44,7 +44,7 @@
       :slice-const (slice-fields [:many-const (second expression)])
       :pointer (when (= :slice (:size (second expression)))
                  (slice-fields (assoc expression 1 (assoc (second expression) :size :many))))
-      (:array :array-sentinel) [{:field-name "len" :signature "len: usize" :documentation "Number of elements in the array."}]
+      :array [{:field-name "len" :signature "len: usize" :documentation "Number of elements in the array."}]
       [])
     :else []))
 
