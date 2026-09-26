@@ -114,11 +114,11 @@
             '(az/defcomptime concatenated-array
                (debug/assert
                 (mem/eql :i32 (k/& all-of-it)
-                         (k/& (az/array-init [1 2 3 4 5 6 7 8 10]
-                                            [:array :_ :i32])))))
+                         (k/& (az/array [1 2 3 4 5 6 7 8 10]
+                                            :i32)))))
             constant-edit
             '(az/defconst part-two
-               (az/array-init [5 6 7 8 10] [:array :_ :i32]))
+               (az/array [5 6 7 8 10] :i32))
             [first-edit second-edit]
             (if assertion-first?
               [assertion-edit constant-edit]
@@ -134,15 +134,15 @@
                      '[aguafria.std.mem :as mem]))
           (doseq [form
                   '[(az/defconst part-one
-                      (az/array-init [1 2 3 4] [:array :_ :i32]))
+                      (az/array [1 2 3 4] :i32))
                     (az/defconst part-two
-                      (az/array-init [5 6 7 8] [:array :_ :i32]))
-                    (az/defconst all-of-it (az/op "++" part-one part-two))
+                      (az/array [5 6 7 8] :i32))
+                    (az/defconst all-of-it (k/++ part-one part-two))
                     (az/defcomptime concatenated-array
                       (debug/assert
                        (mem/eql :i32 (k/& all-of-it)
-                                (k/& (az/array-init [1 2 3 4 5 6 7 8]
-                                                   [:array :_ :i32])))))
+                                (k/& (az/array [1 2 3 4 5 6 7 8]
+                                                   :i32)))))
                     (az/defn array-length :usize [] (az/field all-of-it :len))
                     (az/defn last-item :i32 []
                       (az/index all-of-it (k/- (az/field all-of-it :len) 1)))]]

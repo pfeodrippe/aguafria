@@ -218,7 +218,7 @@
                   (elastic/add (elastic/scale (elastic/outer (az/index cofactor-gradients left)
                                                              (az/index cofactor-gradients right)) lambda)
                                (elastic/scale determinant-block pressure)))
-                columns (az/array-init [(az/field block c0) (az/field block c1) (az/field block c2)] [:array 3 p/Vec3])]
+                columns (az/init [(az/field block c0) (az/field block c1) (az/field block c2)] [:array 3 p/Vec3])]
             (dotimes [column-axis 3]
               (dotimes [row-axis 3]
                 (let [row (+ (* 3 left) row-axis)
@@ -248,7 +248,7 @@
                 w (az/index (az/field rule nodes) k)
                 a (- 1.0 u)
                 b (- 1.0 v)
-                barycentric (az/array-init [(* a b (- 1.0 w)) u (* a v) (* a b w)] [:array 4 :f64])
+                barycentric (az/init [(* a b (- 1.0 w)) u (* a v) (* a b w)] [:array 4 :f64])
                 weight (* 6.0 volume a a b (az/index (az/field rule weights) i)
                           (az/index (az/field rule weights) j) (az/index (az/field rule weights) k))
                 sample (sample-function barycentric gradients)
@@ -379,9 +379,9 @@
                     (az/field (az/index envelope index) upper)
                     (ak/max (az/field (az/index envelope index) upper) (az/field entry upper))))))))))
     (let [bound (interval/determinant
-                  (az/array-init [(az/index envelope 0) (az/index envelope 3) (az/index envelope 6)] [:array 3 interval/Interval])
-                  (az/array-init [(az/index envelope 1) (az/index envelope 4) (az/index envelope 7)] [:array 3 interval/Interval])
-                  (az/array-init [(az/index envelope 2) (az/index envelope 5) (az/index envelope 8)] [:array 3 interval/Interval]))]
+                  (az/init [(az/index envelope 0) (az/index envelope 3) (az/index envelope 6)] [:array 3 interval/Interval])
+                  (az/init [(az/index envelope 1) (az/index envelope 4) (az/index envelope 7)] [:array 3 interval/Interval])
+                  (az/init [(az/index envelope 2) (az/index envelope 5) (az/index envelope 8)] [:array 3 interval/Interval]))]
       (if (and (math/isFinite (az/field bound lower)) (math/isFinite (az/field bound upper))) bound unknown))))
 
 (az/defn quadratic-path-bound interval/Interval
@@ -419,7 +419,7 @@
         (dotimes [a 5]
           (dotimes [b (- 5 a)]
             (dotimes [c (- 5 a b)]
-              (let [alpha (az/array-init [a b c (- 4 a b c)] [:array 4 :usize])
+              (let [alpha (az/init [a b c (- 4 a b c)] [:array 4 :usize])
                     ^:var missing (ak/usize 4)
                     ^:var doubled (ak/usize 4)
                     ^:var ones (ak/usize 0)]
@@ -479,9 +479,9 @@
                           (az/field (az/index envelope index) upper)
                           (ak/max (az/field (az/index envelope index) upper) (az/field entry upper)))))))))))))
     (let [bound (interval/determinant
-                  (az/array-init [(az/index envelope 0) (az/index envelope 3) (az/index envelope 6)] [:array 3 interval/Interval])
-                  (az/array-init [(az/index envelope 1) (az/index envelope 4) (az/index envelope 7)] [:array 3 interval/Interval])
-                  (az/array-init [(az/index envelope 2) (az/index envelope 5) (az/index envelope 8)] [:array 3 interval/Interval]))]
+                  (az/init [(az/index envelope 0) (az/index envelope 3) (az/index envelope 6)] [:array 3 interval/Interval])
+                  (az/init [(az/index envelope 1) (az/index envelope 4) (az/index envelope 7)] [:array 3 interval/Interval])
+                  (az/init [(az/index envelope 2) (az/index envelope 5) (az/index envelope 8)] [:array 3 interval/Interval]))]
       (if (and (math/isFinite (az/field bound lower)) (math/isFinite (az/field bound upper))) bound unknown))))
 
 (az/defstruct Element {:layout :extern}

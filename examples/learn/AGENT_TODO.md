@@ -1,5 +1,91 @@
 # Learn reference implementation
 
+- [x] Support keyword field access (`(:x point)`) on JVM native values/types and
+      in native declarations, using the same field-access implementation.
+- [x] Audit all Learn examples, snippets, and inline examples; migrate field
+      and index expressions to keyword lookup, `az/get`, and `az/get-in`, then
+      verify original Zig equivalence and regenerate actual REPL transcripts.
+      Migrated 94 examples, two snippets, and four inline catalogs. Explicit
+      Zig field-builtin examples and API reference mentions remain intentional.
+
+- [x] Add `az/get` and `az/get-in` for native field/index access; use paths in the array
+      examples and verify native emission, JVM access, and refreshed outputs.
+
+- [x] Remove obsolete API-name cleanup and startup namespace repairs from
+      `zig.clj`; define custom syntax functions/macros directly, preserve Var
+      identity on reload, and verify JVM calls, metadata and regenerated docs.
+      Verified 2026-09-26: emitter, keyword, and hook suites passed (64 tests /
+      1,017 assertions), plus focused JVM/value checks including keyword lookup,
+      nested access, false/nil fields, container constants, and reload identity.
+      All 292 outcome checks passed; 202 real REPL transcripts regenerated;
+      all 351 inline checks passed. Acceptance and original-document/output
+      tests passed (3 tests / 21 assertions). Reloaded the served page and
+      confirmed keyword/get/get-in syntax with passing array-test transcripts.
+
+- [x] Replace `az/labeled-block` with `az/with-block` and keyword labels,
+      migrate authored examples/converter, verify JVM/native block values and
+      lexical captures, then regenerate the HTML and real REPL outputs.
+      Verified 2026-09-26: 61 focused tests / 338 assertions passed; all 292
+      outcome checks passed, with 202 REPL transcripts regenerated. Acceptance
+      and original-document/output tests passed (3 tests / 21 assertions),
+      as did 6 highlighting tests. Reloaded the served page and confirmed the
+      keyword-labeled initializer and its real passing native test transcript.
+- [x] Fix clj-kondo's false unused-binding warning in the `fancy-array`
+      `with-block`/pointer-capture loop; retain genuine unused-local warnings.
+      Hook analysis now resolves eagerly within clj-kondo's dynamic context.
+      Verified the actual `test_arrays.clj`: zero errors and zero warnings;
+      all 9 hook tests / 41 assertions passed.
+
+- [x] Replace `az/array-init` with `(az/array elements element-type)`, inferring
+      length; preserve explicit lengths, vectors and sentinels with `az/init`.
+      Migrated source callers, Learn examples, inline examples and the converter.
+- [x] Use generated `k/++`, `k/**`, `k/||`, `k/...`, `k/<<|` and existing
+      operator Vars instead of string-based `az/op` in Learn. JVM array/string
+      operations use the shared native bridge; native handles retain their types.
+- [x] Document both `k/*` signatures: multiplication and loop-only pointer capture.
+      Verified 2026-09-26: 58 focused tests / 1,014 assertions passed, plus 20
+      native tests across 11 Learn files. Fixed the converter's unresolved error
+      names encountered during verification.
+- [x] Regenerate full HTML and invalidated REPL outputs after the array/operator
+      cleanup; verify the original Zig document is unchanged and inspect the
+      served page, including its code tabs and REPL output.
+      Completed 2026-09-26: all 292 outcomes passed (288 upstream comparisons,
+      4 reviewed special cases), 202 REPL transcripts, full acceptance passed.
+      Output verification took 94.7 seconds; HTML assembly took 3.5 seconds.
+      Original-document/output tests: 3 tests / 21 assertions passed; highlighting:
+      6 tests passed. Reloaded localhost:63979 and interacted with the Arrays tabs;
+      confirmed `az/array`, `k/++`, `k/**`, visible real test output, and no old
+      `az/array-init` in any displayed Clojure example.
+
+- [x] Make native `for` bindings flat, support `(k/* name)` pointer captures
+      and `(az/range start [end])`, migrate examples/converter, and verify native
+      declarations, direct JVM execution, zipped iteration, and editor hooks.
+      Completed 2026-09-26: 57 focused tests / 328 assertions passed plus all
+      12 native tests across arrays, multidimensional arrays, tuples, for,
+      and nested break/continue in a clean owned REPL. Eight Learn examples
+      migrated. Nested bindings rejected; multiplication remains binary/n-ary
+      outside capture positions. Restart REPLs containing old declarations
+      before loading the migrated syntax.
+
+- [x] Fix `az/describe` for private declarations by reflecting in their owner
+      module, without changing visibility. Regress both Var/function-value
+      inspection and array versus string-literal-pointer JVM representations.
+      Verified 2026-09-26: 6 tests / 53 assertions passed, and loaded the actual
+      test_arrays.clj in the owned REPL: make-point describes successfully;
+      explicit dereference/slice of same-message returns the bytes/"hello".
+      Pointer printing remains non-dereferencing; the pointer/array distinction
+      is genuine Zig typing, not a decoding failure.
+
+- [x] Add `az/describe` to discover fields and callable members for native
+      values/types, including concrete generic signatures and available
+      documentation/accessor Vars. Verify arrays, slices, own containers,
+      imported types and inspection without accessing native storage.
+      Completed 2026-09-26: native reflection with public function signatures,
+      field/accessor discovery, docs, and explicit constant/variable/nested-type
+      groups. Feature tests: 4 tests / 39 assertions; nine related JVM bridge
+      regression tests / 106 assertions also passed. No receiver memory reads
+      or discovered-function execution during inspection.
+
 - [x] Evaluate `az/clj!` at declaration execution, not macroexpansion, so
       enclosing Clojure let/fn bindings (including local helper functions)
       work naturally. Preserve once-only evaluation, literal validation,

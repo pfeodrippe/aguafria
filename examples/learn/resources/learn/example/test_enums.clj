@@ -10,7 +10,7 @@
   [:ok
    :not_ok])
 
-(az/defconst success (az/field Type :ok))
+(az/defconst success (:ok Type))
 
 (az/defenum Value
   {:argument :u2}
@@ -19,9 +19,9 @@
    :two])
 
 (az/deftest ordinal-values-test
-  (try (testing/expectEqual 0 (k/intFromEnum (az/field Value :zero))))
-  (try (testing/expectEqual 1 (k/intFromEnum (az/field Value :one))))
-  (try (testing/expectEqual 2 (k/intFromEnum (az/field Value :two)))))
+  (try (testing/expectEqual 0 (k/intFromEnum (:zero Value))))
+  (try (testing/expectEqual 1 (k/intFromEnum (:one Value))))
+  (try (testing/expectEqual 2 (k/intFromEnum (:two Value)))))
 
 (az/defenum Value2
   {:argument :u32}
@@ -30,9 +30,9 @@
    [:million 1000000]])
 
 (az/deftest explicit-ordinal-values-test
-  (try (testing/expectEqual 100 (k/intFromEnum (az/field Value2 :hundred))))
-  (try (testing/expectEqual 1000 (k/intFromEnum (az/field Value2 :thousand))))
-  (try (testing/expectEqual 1000000 (k/intFromEnum (az/field Value2 :million)))))
+  (try (testing/expectEqual 100 (k/intFromEnum (:hundred Value2))))
+  (try (testing/expectEqual 1000 (k/intFromEnum (:thousand Value2))))
+  (try (testing/expectEqual 1000000 (k/intFromEnum (:million Value2)))))
 
 (az/defenum Value3
   {:argument :u4}
@@ -44,11 +44,11 @@
 
 (az/deftest mixed-ordinal-values-test
   ;; An implicit tag continues counting from the preceding explicit value.
-  (try (testing/expectEqual 0 (k/intFromEnum (az/field Value3 :a))))
-  (try (testing/expectEqual 8 (k/intFromEnum (az/field Value3 :b))))
-  (try (testing/expectEqual 9 (k/intFromEnum (az/field Value3 :c))))
-  (try (testing/expectEqual 4 (k/intFromEnum (az/field Value3 :d))))
-  (try (testing/expectEqual 5 (k/intFromEnum (az/field Value3 :e)))))
+  (try (testing/expectEqual 0 (k/intFromEnum (:a Value3))))
+  (try (testing/expectEqual 8 (k/intFromEnum (:b Value3))))
+  (try (testing/expectEqual 9 (k/intFromEnum (:c Value3))))
+  (try (testing/expectEqual 4 (k/intFromEnum (:d Value3))))
+  (try (testing/expectEqual 5 (k/intFromEnum (:e Value3)))))
 
 (az/defenum Suit
   [:clubs
@@ -57,11 +57,11 @@
    :hearts
    (az/fn is-clubs :bool
      [[self Suit]]
-     (k/== self (az/field Suit :clubs)))])
+     (k/== self (:clubs Suit)))])
 
 (az/deftest enum-method-test
-  (let [suit (az/field Suit :spades)]
-    (try (testing/expect (k/! ((az/field suit :is-clubs)))))))
+  (let [suit (:spades Suit)]
+    (try (testing/expect (k/! ((:is-clubs suit)))))))
 
 (az/defenum Foo
   [:string
@@ -69,11 +69,11 @@
    :none])
 
 (az/deftest enum-switch-test
-  (let [kind (az/field Foo :number)
+  (let [kind (:number Foo)
         description (k/switch kind
-                      (case [(az/field Foo :string)] "this is a string")
-                      (case [(az/field Foo :number)] "this is a number")
-                      (case [(az/field Foo :none)] "this is a none"))]
+                      (case [(:string Foo)] "this is a string")
+                      (case [(:number Foo)] "this is a number")
+                      (case [(:none Foo)] "this is a none"))]
     (try (testing/expectEqualStrings description "this is a number"))))
 
 (az/defenum Small
@@ -89,11 +89,11 @@
 (az/deftest enum-type-information-test
   (let [information (type-info/-enum (k/typeInfo Small))
         fields (enum-info/-fields information)]
-    (try (testing/expectEqual 4 (az/field fields :len)))
-    (try (testing/expectEqualStrings (field-info/-name (az/index fields 1)) "two"))))
+    (try (testing/expectEqual 4 (:len fields)))
+    (try (testing/expectEqualStrings (field-info/-name (az/get fields 1)) "two"))))
 
 (az/deftest enum-tag-name-test
-  (try (testing/expectEqualStrings (k/tagName (az/field Small :three)) "three")))
+  (try (testing/expectEqualStrings (k/tagName (:three Small)) "three")))
 
 (comment
   (ordinal-values-test)

@@ -9,7 +9,7 @@
 
 (az/deftest function-reflection-test
   (let [expect-signature (type-info/-fn (k/typeInfo (k/TypeOf testing/expect)))
-        first-parameter (az/index (fn-info/-params expect-signature) 0)
+        first-parameter (az/get (fn-info/-params expect-signature) 0)
         tmp-dir-signature (type-info/-fn (k/typeInfo (k/TypeOf testing/tmpDir)))
         log2-signature (type-info/-fn (k/typeInfo (k/TypeOf math/Log2Int)))]
     (try (testing/expectEqual :bool (az/unwrap (param-info/-type first-parameter))))

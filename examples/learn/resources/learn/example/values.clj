@@ -35,7 +35,7 @@
                  [(k/TypeOf optional-value) optional-value]))
 
   ;; Error union.
-  (let [number-or-error (-> (az/field ExampleErrorSet :ExampleErrorVariant)
+  (let [number-or-error (-> (:ExampleErrorVariant ExampleErrorSet)
                             (k/as [:error-union ExampleErrorSet :i32])
                             k/var)]
     (debug/print "\nerror union 1\ntype: {}\nvalue: {!}\n"

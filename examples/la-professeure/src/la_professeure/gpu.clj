@@ -262,7 +262,7 @@
           :queueCount 1
           :pQueuePriorities (ak/& priority)})
         extensions
-        (az/array-init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:pointer {:size :c :const? true} :u8]])
+        (az/init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:pointer {:size :c :const? true} :u8]])
         features (vk/VkPhysicalDeviceVulkan12Features
                    {:sType vk/VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
                     :bufferDeviceAddress vk/VK_TRUE :scalarBlockLayout vk/VK_TRUE})
@@ -379,7 +379,7 @@
 (az/defn create-render-pass! :void
   []
   (let [attachments
-        (az/array-init [(vk/VkAttachmentDescription
+        (az/init [(vk/VkAttachmentDescription
            {:format swapchain-format
             :samples vk/VK_SAMPLE_COUNT_1_BIT
             :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
@@ -439,7 +439,7 @@
   []
   (dotimes [index image-count]
     (let [attachments
-          (az/array-init [(az/index image-views index) depth-view] [:array 2 vk/VkImageView])
+          (az/init [(az/index image-views index) depth-view] [:array 2 vk/VkImageView])
           create-info
           (vk/VkFramebufferCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
@@ -647,7 +647,7 @@
                        "resources/shaders/mesh.vert.spv")
         fragment-module (load-shader-module "resources/shaders/mesh.frag.spv")
         stages
-        (az/array-init [(vk/VkPipelineShaderStageCreateInfo
+        (az/init [(vk/VkPipelineShaderStageCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             :stage vk/VK_SHADER_STAGE_VERTEX_BIT
             :module vertex-module
@@ -679,7 +679,7 @@
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
           :viewportCount 1 :pViewports (ak/& viewport)
           :scissorCount 1 :pScissors (ak/& scissor)})
-        dynamic-states (az/array-init [vk/VK_DYNAMIC_STATE_VIEWPORT vk/VK_DYNAMIC_STATE_SCISSOR] [:array 2 vk/VkDynamicState])
+        dynamic-states (az/init [vk/VK_DYNAMIC_STATE_VIEWPORT vk/VK_DYNAMIC_STATE_SCISSOR] [:array 2 vk/VkDynamicState])
         dynamic-state
         (vk/VkPipelineDynamicStateCreateInfo
           {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
@@ -852,7 +852,7 @@
    {:color
     (vk/VkClearColorValue
      {:float32
-      (az/array-init [(az/field color r)
+      (az/init [(az/field color r)
         (az/field color g)
         (az/field color b)
         (az/field color a)] [:array 4 :f32])})}))
@@ -924,7 +924,7 @@
         (vk/VkClearValue
          {:depthStencil (vk/VkClearDepthStencilValue {:depth 1.0 :stencil 0})})
         clear-values
-        (az/array-init [background depth-clear] [:array 2 vk/VkClearValue])
+        (az/init [background depth-clear] [:array 2 vk/VkClearValue])
         render-area
         (vk/VkRect2D
          {:offset (vk/VkOffset2D {:x 0 :y 0})

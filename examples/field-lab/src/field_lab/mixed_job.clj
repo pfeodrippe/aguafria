@@ -118,7 +118,7 @@
             d (p/scale (p/cross ab ac) (/ 1.0 determinant))]
         (set! (az/index (az/field problem elements) cell)
               (mixed/Element {:vertices vertices :edges (mem/zeroes (az/type [:array 6 :u32])) :quadratic? false
-                              :gradients (az/array-init [(p/scale (p/add (p/add b c) d) -1.0) b c d] [:array 4 p/Vec3])
+                              :gradients (az/init [(p/scale (p/add (p/add b c) d) -1.0) b c d] [:array 4 p/Vec3])
                               :volume (/ (ak/abs determinant) 6.0) :density density :material (elastic/material young poisson)}))))
     (dotimes [node 4]
       (let [vertex (az/index vertices node)

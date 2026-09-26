@@ -6,8 +6,8 @@
 (az/defn- foo :i32
   []
   (let [State (az/struct [[:value {:var 1234} :i32]])]
-    (k/+= (az/field State :value) 1)
-    (az/field State :value)))
+    (k/+= (:value State) 1)
+    (:value State)))
 
 (az/deftest static-local-state-test
   (try (testing/expectEqual 1235 (foo)))

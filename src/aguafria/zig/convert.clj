@@ -593,19 +593,15 @@
 (def ^:private binary-operators
   {:equal_equal 'k/== :bang_equal 'k/!= :less_than 'k/< :greater_than 'k/>
    :less_or_equal 'k/<= :greater_or_equal 'k/>=
-   :mul 'k/* :div 'k// :mod '% :add 'k/+ :sub 'k/-
-   :mul_wrap '*% :add_wrap '+% :sub_wrap '-%
-   :mul_sat '*| :add_sat '+| :sub_sat '-|
-   :shl '<< :shl_sat (symbol "op") :shr '>>
-   :bit_and 'k/& :bit_or '| :bit_xor 'k/bit-xor
+   :mul 'k/* :div 'k// :mod 'k/% :add 'k/+ :sub 'k/-
+   :mul_wrap 'k/*% :add_wrap 'k/+% :sub_wrap 'k/-%
+   :mul_sat 'k/*| :add_sat 'k/+| :sub_sat 'k/-|
+   :shl 'k/<< :shl_sat 'k/<<| :shr 'k/>>
+   :bit_and 'k/& :bit_or 'k/| :bit_xor 'k/bit-xor
    :bool_and 'and :bool_or 'or
-   :array_cat (symbol "op") :array_mult (symbol "op")
-   :merge_error_sets (symbol "op") :orelse 'orelse :catch 'catch
-   :switch_range (symbol "op") :for_range (symbol "op")})
-
-(def ^:private binary-operator-tokens
-  {:shl_sat "<<|" :array_cat "++" :array_mult "**"
-   :merge_error_sets "||" :switch_range "..." :for_range ".."})
+   :array_cat 'k/++ :array_mult 'k/**
+   :merge_error_sets 'k/|| :orelse 'orelse :catch 'catch
+   :switch_range 'k/... :for_range 'az/range})
 
 (def ^:private assignment-tokens
   {:assign "=" :assign_mul "*=" :assign_div "/=" :assign_mod "%="
@@ -937,7 +933,10 @@
   (let [[_ type-node element-nodes] (get (:array-init-index context) node-index)
         elements (mapv #(translate-expr context %) element-nodes)]
     (if type-node
-      (list 'array-init elements (translate-type context type-node))
+      (let [type (translate-type context type-node)]
+        (if (and (vector? type) (= :array (first type)) (= :_ (second type)))
+          (list 'az/array elements (nth type 2))
+          (list 'init elements type)))
       elements)))
 
 (defn- field-name-before
@@ -1251,7 +1250,7 @@
       (let [source (node-source context node-index)
             error-name (str/replace-first source #"^error\." "")]
         (list 'error-value
-              (or (safe-identifier error-name)
+              (or (some-> (safe-identifier error-name) name keyword)
                   (list 'identifier-literal error-name))))
 
       (= :field_access tag) (translate-field context node-index)
@@ -1273,14 +1272,12 @@
       (let [operator (get binary-operators tag)
             operands (cond-> [(translate-expr context a)]
                        (some? b) (conj (translate-expr context b)))]
-        (if (= 'op operator)
-          (apply list 'op (get binary-operator-tokens tag) operands)
-          (apply list operator operands)))
+        (apply list operator operands))
 
       (= :bool_not tag) (list '! (translate-expr context a))
       (= :negation tag) (list 'k/- (translate-expr context a))
       (= :negation_wrap tag)
-      (list 'op "-%" (translate-expr context a))
+      (list 'k/-% (translate-expr context a))
       (= :bit_not tag) (list 'k/bit-not (translate-expr context a))
       (= :address_of tag) (list 'k/& (translate-expr context a))
       (= :try tag) (list 'try (translate-expr context a))
@@ -1349,7 +1346,7 @@
          (keep (fn [token-index]
                  (when (= :identifier (first (token context token-index)))
                    (let [source (token-text context token-index)]
-                     (or (safe-identifier source)
+                     (or (some-> (safe-identifier source) name keyword)
                          (list 'identifier-literal source))))))
          vec)))
 
@@ -1519,7 +1516,7 @@
       (record-statement-fallback! context node-index :qualified-while)
       (let [block-form (when (contains? (:block-index context) then-node)
                          (translate-block context then-node))
-            body-label (when (= 'labeled-block (first block-form))
+            body-label (when (= 'with-block (first block-form))
                          (second block-form))
             body (if block-form
                    (if body-label (nnext block-form) (rest block-form))
@@ -1527,7 +1524,7 @@
             else-block? (and else-node
                              (contains? (:block-index context) else-node))
             else-block (when else-block? (translate-block context else-node))
-            labeled-else? (= 'labeled-block (first else-block))
+            labeled-else? (= 'with-block (first else-block))
             else-body (when (and else-block? (not labeled-else?))
                         (vec (rest else-block)))
             options (cond-> {}
@@ -1806,7 +1803,7 @@
       (record-statement-fallback! context node-index :qualified-for)
       (let [block-form (when (contains? (:block-index context) then-node)
                          (translate-block context then-node))
-            body-label (when (= 'labeled-block (first block-form))
+            body-label (when (= 'with-block (first block-form))
                          (second block-form))
             body (if block-form
                    (if body-label (nnext block-form) (rest block-form))
@@ -1817,14 +1814,17 @@
                             ;; A labeled block is itself the else expression.
                             ;; Flattening it turns its label into an identifier
                             ;; statement and leaves `break :label` without a target.
-                            (if (= 'labeled-block (first block))
+                            (if (= 'with-block (first block))
                               (list 'else-expression block)
                               (apply list 'else-clause (rest block))))
                           (list 'else-expression
                                 (translate-expr context else-node))))
-            bindings (mapv (fn [capture input]
-                             [capture (translate-expr context input)])
-                           captures inputs)
+            bindings (vec (mapcat (fn [capture input]
+                                   [(if (and (seq? capture) (= 'pointer-capture (first capture)))
+                                      (list 'k/* (second capture))
+                                      capture)
+                                    (translate-expr context input)])
+                                 captures inputs))
             operator (if (or label body-label) 'for-loop
                          (if inline? 'inline-for 'k/for))
             prefix-arguments
@@ -1879,7 +1879,7 @@
           (= :colon (first (token context next-token)))
           (let [label-token (inc next-token)
                 value-token (inc label-token)
-                label (clojure-identifier (token-text context label-token))]
+                label (keyword (token-text context label-token))]
             (if (<= value-token last-token)
               (if-let [value-node (get (:node-span-index context)
                                        [value-token last-token])]
@@ -1902,7 +1902,7 @@
         (cond
           (> colon-token last-token) (list 'continue)
           (= :colon (first (token context colon-token)))
-          (let [label (clojure-identifier (token-text context label-token))]
+          (let [label (keyword (token-text context label-token))]
             (if (> value-token last-token)
               (list 'continue label)
               (if-let [value-node (get (:node-span-index context)
@@ -1926,7 +1926,7 @@
     (let [{:keys [first-token main-token last-token]} (node context node-index)
           labeled? (< first-token main-token)
           label (when labeled?
-                  (clojure-identifier (token-text context first-token)))
+                  (keyword (token-text context first-token)))
           source-comments
           (fn [start end]
             (when (and start end (< start end))
@@ -1975,7 +1975,7 @@
                            (token-end context main-token))
           trailing (source-comments trailing-start (token-start context last-token))
           form (apply list
-                      (concat [(if labeled? 'labeled-block 'block)]
+                      (concat [(if labeled? 'with-block 'block)]
                               (when labeled? [label])
                               translated))]
       (cond-> form

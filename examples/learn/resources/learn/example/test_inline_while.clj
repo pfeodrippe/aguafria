@@ -5,7 +5,7 @@
 
 (az/defn- type-name-length :usize
   [[T {:attrs #{k/comptime}} :type]]
-  (az/field (k/typeName T) :len))
+  (:len (k/typeName T)))
 
 (az/deftest inline-while-test
   (let [index (k/var 0 nil {:attrs #{k/comptime}})

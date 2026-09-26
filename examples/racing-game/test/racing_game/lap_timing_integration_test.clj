@@ -23,7 +23,7 @@
       (ak/= sim/paused true)
       (sim/step!)
       (let [paused (sim/lap-timing-view 0)]
-        (az/array-init [(az/field first-lap last_ticks) (az/field first-lap samples)
+        (az/init [(az/field first-lap last_ticks) (az/field first-lap samples)
            (az/field fresh samples) (az/field fresh observed_tick)
            (if (az/field fresh started) (ak/as 1 :u64) 0)
            (if (az/field paused started) (ak/as 1 :u64) 0)] [:array 6 :u64])))))

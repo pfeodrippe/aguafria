@@ -12,7 +12,7 @@
                        ;; B doc comment: the shared member merges by name.
                         :PathNotFound]]))
 
-(az/defconst C (az/op "||" A B))
+(az/defconst C (k/|| A B))
 
 (az/defn- foo [:error-union C :void] []
   (az/error-value :NotDir))

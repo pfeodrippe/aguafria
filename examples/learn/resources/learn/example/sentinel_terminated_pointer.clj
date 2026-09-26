@@ -7,7 +7,7 @@
   ;; std.c exposes the same C printf declaration used by the reference.
   (k/= :_ (c/printf "Hello, world!\n"))
   (let [message "Hello, world!\n"
-        bytes (k/as @message [:array (az/field message :len) :u8])]
+        bytes (k/as @message [:array (:len message) :u8])]
     ;; Copying to an ordinary array drops the type's sentinel guarantee.
     ;; Intentionally rejected: printf requires a zero-terminated pointer.
     (k/= :_ (c/printf (k/& bytes)))))

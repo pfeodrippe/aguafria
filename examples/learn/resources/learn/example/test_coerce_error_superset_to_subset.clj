@@ -13,7 +13,7 @@
   error)
 
 (az/deftest superset-to-subset-test
-  (catch (foo (az/field FileOpenError :OutOfMemory)) (az/block)))
+  (catch (foo (:OutOfMemory FileOpenError)) (az/block)))
 
 (comment
   (superset-to-subset-test))

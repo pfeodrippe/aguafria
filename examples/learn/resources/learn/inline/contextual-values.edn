@@ -9,17 +9,17 @@
   :note "An error-union expression can be unwrapped with (k/catch value (k/unreachable)). This asserts success rather than silently ignoring an error."}
 
  "||"
- {:clojure-source "az/op"
+ {:clojure-source "k/||"
   :kind :reference
-  :note "Use az/op with the operator string \"||\" to merge two error sets."}
+  :note "Use k/|| to merge two error sets."}
 
  "C.PathNotFound"
- {:clojure-source "(az/field C :PathNotFound)"
+ {:clojure-source "(:PathNotFound C)"
   :kind :expr
   :note "Access PathNotFound in merged error set C; duplicate error documentation comes from the left-hand set."}
 
  "LinuxFileOpenError || WindowsFileOpenError"
- {:clojure-source "(az/op \"||\" LinuxFileOpenError WindowsFileOpenError)"
+ {:clojure-source "(k/|| LinuxFileOpenError WindowsFileOpenError)"
   :kind :expr
   :note "Combine the errors associated with the two platform-specific file-opening implementations."}
 
@@ -161,7 +161,7 @@
   :note "Reflect the type of named field a."}
 
  "T{x}"
- {:clojure-source "(az/array-init [x] T)"
+ {:clojure-source "(az/init [x] T)"
   :kind :expr
   :note "A typed positional initializer supplies the field type to x but does not propagate its result location."}
 
@@ -196,12 +196,12 @@
   :note "An inferred aggregate initializer writes x and y directly into the destination fields when a result location is available."}
 
  "&ptr.a"
- {:clojure-source "(k/& (az/field ptr :a))"
+ {:clojure-source "(k/& (:a ptr))"
   :kind :expr
   :note "The storage location of field a in the pointed-to aggregate."}
 
  "&ptr.b"
- {:clojure-source "(k/& (az/field ptr :b))"
+ {:clojure-source "(k/& (:b ptr))"
   :kind :expr
   :note "The storage location of field b in the pointed-to aggregate."}
 
@@ -211,7 +211,7 @@
   :note "Result locations make this aggregate assignment write the fields directly, rather than construct an independent temporary copy."}
 
  "foo.a = x; foo.b = y;"
- {:clojure-source "(k/= (az/field foo :a) x)\n(k/= (az/field foo :b) y)"
+ {:clojure-source "(k/= (:a foo) x)\n(k/= (:b foo) y)"
   :kind :statements
   :note "These are sequential field writes, not alternatives; the second expression can observe the first write."}
 
@@ -221,7 +221,7 @@
   :note "The storage location supplied by a binding or assignment to val."}
 
  "&ptr[0]"
- {:clojure-source "(k/& (az/index ptr 0))"
+ {:clojure-source "(k/& (az/get ptr 0))"
   :kind :expr
   :note "The first element's storage location receives the first positional initializer's result."}
 

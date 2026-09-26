@@ -14,7 +14,7 @@
 (az/deftest pointer-to-non-byte-aligned-field-test
   ;; Intentionally rejected: a packed-field pointer carries bit-offset metadata
   ;; that an ordinary *const u3 parameter cannot represent.
-  (try (testing/expectEqual 2 (bar (k/& (az/field bits :b))))))
+  (try (testing/expectEqual 2 (bar (k/& (:b bits))))))
 
 (comment
   (pointer-to-non-byte-aligned-field-test))

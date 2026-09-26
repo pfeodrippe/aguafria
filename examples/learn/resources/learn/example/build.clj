@@ -7,11 +7,11 @@
 
 (az/defn build :void
   [[builder [:* std/Build]]]
-  (let [optimize ((az/field builder :standardOptimizeOption) {})
-        executable ((az/field builder :addExecutable)
+  (let [optimize ((:standardOptimizeOption builder) {})
+        executable ((:addExecutable builder)
                     {:name "example"
-                     :root_module ((az/field builder :createModule)
-                                   {:root_source_file ((az/field builder :path) "example.zig")
+                     :root_module ((:createModule builder)
+                                   {:root_source_file ((:path builder) "example.zig")
                                     :optimize optimize})})]
-    ((az/field (build/-default_step builder) :dependOn)
+    ((:dependOn (build/-default_step builder))
      (k/& (compile-step/-step executable)))))

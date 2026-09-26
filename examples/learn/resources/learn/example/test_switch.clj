@@ -12,7 +12,7 @@
         result (k/switch value
                  (case [1 2 3] 0)
                  ;; Ranges include both endpoints; cases never fall through.
-                 (case [(az/op "..." 5 100)] 1)
+                 (case [(k/... 5 100)] 1)
                  (case [101]
                    (let [base (k/u64 5)]
                      (k/+ (k/* base 2) 1)))

@@ -6,6 +6,65 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest nested-access-expands-to-existing-native-operations
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (doseq [[compact expanded]
+            [['(:x (make-point 3)) '(az/field (make-point 3) :x)]
+             ['(-> point :x) '(az/field point :x)]
+             ['(:len points) '(az/field points :len)]
+             ['(az/get point :x) '(az/field point :x)]
+             ['(az/get points i) '(az/index points i)]
+             ['(az/get-in points [4 :x]) '(az/field (az/index points 4) :x)]
+             ['(az/get-in model [:points i :x])
+              '(az/field (az/index (az/field model :points) i) :x)]
+             ['(az/get-in grid [1 2]) '(az/index (az/index grid 1) 2)]
+             ['(az/get-in points []) 'points]]]
+      (is (= (emit/emit-expr context expanded)
+             (emit/emit-expr context compact))))))
+
+(deftest keyword-field-access-rejects-invalid-arity
+  (doseq [form '[(:x) (:x point 0)]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exactly one value"
+                         (emit/emit-expr form)))))
+
+(deftest keyword-labeled-native-blocks
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        form '(az/with-block :result (ak/break :result 42))]
+    (is (= "result: {\n    break :result 42;\n}"
+           (emit/emit-expr context form)))
+    (is (= "result: {\n    break :result 42;\n}"
+           (emit/emit-stmt-in context form)))
+    (doseq [form '[(az/with-block result (ak/break result 42))
+                  (az/with-block "result" (ak/break "result" 42))
+                  (az/with-block)]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"keyword label"
+                           (emit/emit-expr context form))))))
+
+(deftest array-elements-and-native-operator-vars
+  (is (= "[_]i32{1, 2}" (emit/emit-expr *ns* '(az/array [1 2] :i32))))
+  (is (= "[2]i32{1, 2}" (emit/emit-expr *ns* '(az/init [1 2] [:array 2 :i32]))))
+  (doseq [[form source] [['(ak/++ left right) "(left ++ right)"]
+                       ['(ak/** items 3) "(items ** 3)"]
+                       ['(ak/|| A B) "(A || B)"]
+                       ['(ak/<<| a b) "(a <<| b)"]
+                       ['(ak/... 2 8) "2 ... 8"]]]
+    (is (= source (emit/emit-expr *ns* form))))
+  (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr *ns* '(az/array [1])))))
+
+(deftest flat-native-for-bindings
+  (is (= "for ((&items), 0..) |*item, index| {\n    item.* = @intCast(index);\n}"
+         (emit/emit-stmt-in *ns*
+                           '(ak/for [(ak/* item) (ak/& items) index (az/range 0)]
+                              (ak/= @item (ak/intCast index))))))
+  (is (= "2 .. 8" (emit/emit-expr *ns* '(az/range 2 8))))
+  (doseq [form '[(ak/for [[item items]] (use item))
+                (ak/for [item items index] (use item))
+                (ak/for [(ak/* a b) items] (use a))
+                (az/range)
+                (az/range 1 2 3)
+                (ak/* item)]]
+    (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr *ns* form)))))
+
 (deftest stored-references-are-not-qualified-twice
   (let [source (create-ns (gensym "reference-source-"))
         consumer (create-ns (gensym "reference-consumer-"))
@@ -473,13 +532,13 @@
                 "    use(item);\n"
                 "} else return .different_member_set;")
            (emit/emit-stmt
-            '(for [[item items]] (use item)
+            '(for [item items] (use item)
                (else-expression (return :.different_member_set))))))
     (is (= (str "inline for (items) |item| {\n"
                 "    use(item);\n"
                 "} else unreachable;")
            (emit/emit-stmt
-            '(inline-for [[item items]] (use item)
+            '(inline-for [item items] (use item)
                                 (else-expression (unreachable)))))))
   (testing "while-else expressions terminate only when Zig requires it"
     (is (= (str "while ((head < max)) {\n"

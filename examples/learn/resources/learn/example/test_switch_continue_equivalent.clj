@@ -10,7 +10,7 @@
           (az/block
             (k/= state 4)
             (k/continue)))
-        (case [(az/op "..." 2 4)] [value]
+        (case [(k/... 2 4)] [value]
           (az/block
             (if (k/> value 3)
               (az/block

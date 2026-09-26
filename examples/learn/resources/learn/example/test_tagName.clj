@@ -11,7 +11,7 @@
 
 (az/deftest tag-name-test
   (try (testing/expectEqualSlices
-        (az/type :u8) "a" (k/tagName (az/field Small2 :a)))))
+        (az/type :u8) "a" (k/tagName (:a Small2)))))
 
 (comment
   (tag-name-test))

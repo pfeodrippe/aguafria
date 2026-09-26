@@ -11,9 +11,9 @@
     (k/= :_ (k/& alternating-bits))
     (let [shifted-bits (k/shrExact alternating-bits 2)]
       (debug/print "value: {}\n" [shifted-bits]))
-    (when (and (or ((az/field target/native-arch :isPowerPC))
-                   ((az/field target/native-arch :isRISCV))
-                   ((az/field target/native-arch :isLoongArch))
+    (when (and (or ((:isPowerPC target/native-arch))
+                   ((:isRISCV target/native-arch))
+                   ((:isLoongArch target/native-arch))
                    (k/== target/native-arch :.s390x))
                (k/== target/zig-backend :.stage2_llvm))
       (k/panic "https://github.com/ziglang/zig/issues/24304"))))

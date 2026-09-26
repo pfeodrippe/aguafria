@@ -8,11 +8,11 @@
         aligned-bytes (k/as (k/alignCast four-bytes)
                              (az/type [:pointer {:size :slice :align 4} :u8]))
         words (mem/bytesAsSlice :u32 aligned-bytes)]
-    (az/index words 0)))
+    (az/get words 0)))
 
 (az/defn main [:error-union :void] []
   (let [words
-        (k/var (az/array-init [0x11111111 0x11111111] [:array :_ :u32]) nil {:zig/align 4})
+        (k/var (az/array [0x11111111 0x11111111] :u32) nil {:zig/align 4})
         bytes (mem/sliceAsBytes (az/slice words 0))]
     (when (k/!= (foo bytes) 0x11111111)
       (k/return (az/error-value :Wrong)))))

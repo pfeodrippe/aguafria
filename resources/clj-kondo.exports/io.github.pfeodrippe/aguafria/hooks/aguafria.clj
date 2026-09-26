@@ -33,6 +33,31 @@
                      (:children node))))
       :else node)))
 
+(defn native-block
+  "A native block label is data; analyze its body as expressions in lexical scope."
+  [{:keys [node]}]
+  ;; Resolve eagerly: the hooks API's analysis context ends when this call returns.
+  {:node (call-node 'do (mapv native-expression (drop 2 (:children node))))})
+
+(defn native-for
+  "Treat native captures as lexical bindings; pointer capture is not multiplication."
+  [{:keys [node]}]
+  (let [[_ bindings & body] (:children node)
+        pairs (partition 2 (:children bindings))
+        binding-nodes
+        (into [] (mapcat (fn [[capture input]]
+                  (let [pointer? (and (= :list (:tag capture))
+                                      (= {:ns 'aguafria.keyword :name '*}
+                                         (select-keys
+                                          (api/resolve {:name (sexpr (first (:children capture)))})
+                                          [:ns :name])))
+                        capture (if pointer? (second (:children capture)) capture)
+                        element (call-node 'first [(native-expression input)])]
+                    [capture (if pointer? (call-node 'atom [element]) element)])))
+              pairs)]
+    {:node (call-node 'let (cons (api/vector-node binding-nodes)
+                                (mapv native-expression body)))}))
+
 (defn- expression-node
   [nodes]
   (native-expression

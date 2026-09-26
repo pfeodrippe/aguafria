@@ -26,8 +26,41 @@
                [aguafria.std.process :as process :refer [Init]]
                [aguafria.std.process.Init :as process-init]))\n")
 
+(deftest native-block-labels-are-data-not-vars
+  (let [findings (lint "(ns fixture (:require [aguafria.zig :as az] [aguafria.keyword :as k]))
+                       (let [answer 42]
+                         (az/with-block :result
+                           (try (k/break :result answer))))")]
+    (is (empty? findings) (pr-str findings))))
+
+(deftest native-array-initializer-retains-binding-uses
+  (let [source "(ns fixture (:require [aguafria.zig :as az] [aguafria.keyword :as k]))
+                (az/defstruct Point [[:x :i32] [:y :i32]])
+                (az/defvar fancy-array
+                  (az/with-block :init
+                    (let [initial-value (k/var k/undefined [:array 10 Point])]
+                      (k/for [(k/* point) (k/& initial-value)
+                              index (az/range 0)]
+                        (k/= @point (Point {:x (k/intCast index)
+                                           :y (k/intCast (k/* index 2))})))
+                      (k/break :init initial-value))))"
+        findings (lint source)]
+    (is (empty? findings) (pr-str findings)))
+  (testing "unused locals still produce warnings"
+    (let [findings (lint "(ns fixture (:require [aguafria.zig :as az]))
+                         (az/with-block :result (let [unused 1] 42))")]
+      (is (= ["unused binding unused"] (mapv :message findings))))))
+
 (defn- findings-of [kind findings]
   (filter #(= kind (:type %)) findings))
+
+(deftest flat-native-loop-captures-are-lexical-bindings
+  (let [findings (lint
+                  "(ns fixture (:require [aguafria.zig :as az] [aguafria.keyword :as k]))
+                   (defn run [items]
+                     (k/for [(k/* item) (k/& items) index (az/range 0)]
+                       (k/= @item (k/intCast index))))")]
+    (is (empty? (filter #(= :error (:level %)) findings)))))
 
 (deftest native-try-is-not-clojure-exception-handling
   (let [findings (lint

@@ -5,6 +5,13 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest pointer-capture-is-in-multiplication-documentation
+  (let [{:keys [doc arglists]} (meta #'ak/*)]
+    (is (= '([capture] [argument-1 argument-2 & more]) arglists))
+    (is (str/includes? doc "pointer capture"))
+    (is (str/includes? doc "binding syntax only"))
+    (is (= 2 (:minimum-param-count (ak/resolve-token *ns* 'ak/*))))))
+
 (deftest generated-keyword-catalog-test
   (let [catalog (ak/entries)
         public-vars (ns-publics 'aguafria.keyword)]

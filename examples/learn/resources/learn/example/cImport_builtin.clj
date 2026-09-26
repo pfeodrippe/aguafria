@@ -16,7 +16,7 @@
   (when (k/== (os/-tag builtin/os) :.netbsd)
     ;; https://github.com/Vexu/arocc/issues/960
     (k/return))
-  (k/= :_ ((az/field c :printf) "hello\n")))
+  (k/= :_ ((:printf c) "hello\n")))
 
 (comment
   (main))

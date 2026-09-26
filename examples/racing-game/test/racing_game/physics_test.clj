@@ -46,7 +46,7 @@
       (let [loss (physics/take-vehicle-tread-loss! car)
             after (physics/body-state (az/field car chassis))
             twice (physics/take-vehicle-tread-loss! car)]
-        (az/array-init [loss twice (- (az/field after x) (az/field before x))] [:array 3 :f32])))))
+        (az/init [loss twice (- (az/field after x) (az/field before x))] [:array 3 :f32])))))
 
 (deftest physical-tread-work-test
   (let [[waiting twice _ :as rest] (az/value (tread-work-probe 0))
@@ -88,7 +88,7 @@
     (ak/= final-position (* 700.0 (az/field (physics/body-state (az/field car chassis)) x)))
     (dotimes [i 4]
       (ak/= final-position (+ final-position (* 23.0 (az/field (physics/body-state (az/index (az/field car wheels) i)) x)))))
-    (az/array-init [(/ (- final-position initial) 792.0)
+    (az/init [(/ (- final-position initial) 792.0)
        (b3/b3WheelJoint_GetSpinSpeed (az/index (az/field car joints) 2))] [:array 2 :f32])))
 
 (deftest propulsion-needs-tire-contact-test
@@ -200,7 +200,7 @@
         (let [endcap (physics/body-state wheel)
               state-a (az/cast (b3/b3World_GetUserData a) [:* physics/WorldState])
               state-b (az/cast (b3/b3World_GetUserData b) [:* physics/WorldState])]
-          (az/array-init [(az/field settled z) (az/field settled vz)
+          (az/init [(az/field settled z) (az/field settled vz)
              (- (az/field moving x) (az/field settled x))
              (+ (ak/abs (- (az/field still x) (az/field untouched x)))
                 (ak/abs (- (az/field still z) (az/field untouched z))))
@@ -252,7 +252,7 @@
                            (* 4 physics/step-rate))]
       (physics/step! world))
     (let [p (physics/body-state tire)]
-      (az/array-init [(az/field p x) (az/field p z) (az/field p vz)
+      (az/init [(az/field p x) (az/field p z) (az/field p vz)
          (+ (* (az/field p x) (az/field normal x)) (* (az/field p z) (az/field normal z)))
          radius] [:array 5 :f32]))))
 
@@ -300,7 +300,7 @@
                           (and (ak/== (b3/b3StoreBodyId b) (b3/b3StoreBodyId wheel))
                                (ak/== (b3/b3StoreBodyId a) (b3/b3StoreBodyId wall))))
                   (ak/+= tire-hits 1.0))))))))
-    (az/array-init [tire-hits maximum-speed maximum-x] [:array 3 :f32])))
+    (az/init [tire-hits maximum-speed maximum-x] [:array 3 :f32])))
 
 (deftest tire-barrier-contact-test
   (let [[hits speed _ :as offset] (az/value (tire-barrier-probe true))
@@ -351,7 +351,7 @@
         (let [state (physics/body-state (az/field car chassis))
               count (ak/as (ak/floatFromInt physics/step-rate) :f32)]
           (ak/= (az/index result second)
-                (az/array-init [(ak/as (ak/floatFromInt (+ second 1)) :f32)
+                (az/init [(ak/as (ak/floatFromInt (+ second 1)) :f32)
                    (az/field state vx) (az/field state vy)
                    (/ left-torque count) (/ right-torque count)
                    (b3/b3WheelJoint_GetSpinSpeed left)
@@ -394,7 +394,7 @@
         (dotimes [_ 384] (physics/step! world))
         (let [mass (b3/b3Body_GetMassData wheel)
               omega (b3/b3Body_GetAngularVelocity wheel)]
-          (az/array-init [(* (az/field (az/field (az/field mass inertia) cz) z)
+          (az/init [(* (az/field (az/field (az/field mass inertia) cz) z)
                 (az/field omega z))
              (* 384.0 physics/fixed-step)
              (b3/b3WheelJoint_GetSpinTorque joint)] [:array 3 :f32]))))))
@@ -687,7 +687,7 @@
             up (b3/b3RotateVector (b3/b3Body_GetRotation (az/field car chassis))
                  (b3/b3Vec3 {:x 0.0 :y 0.0 :z 1.0}))]
         (ak/= (az/index rows second)
-          (az/array-init [(ak/as (ak/floatFromInt (+ second 1)) :f32)
+          (az/init [(ak/as (ak/floatFromInt (+ second 1)) :f32)
              (az/field state vx) (az/field state vy)
              (az/field state x) (az/field state y) (az/field state z)
              (az/field up z) (az/field state wz)
@@ -752,7 +752,7 @@
             (physics/step! world)))
         (let [state (physics/body-state wheel)]
           (ak/= (az/index rows second)
-            (az/array-init [(ak/as (ak/floatFromInt second) :f32)
+            (az/init [(ak/as (ak/floatFromInt second) :f32)
                (az/field state vx) (az/field state vy) (az/field state wy)
                (az/field state z) (az/field state y)
                (az/field state wx) (az/field state wz)] [:array 8 :f32]))))
@@ -852,7 +852,7 @@
         (dotimes [_ (* 2 physics/step-rate)]
           (physics/drive-in-gear! car 0.0 1.0 0.0 gear)
           (physics/step! world))
-        (az/array-init [(- (az/field moving x) (az/field initial x)) (az/field moving vx)
+        (az/init [(- (az/field moving x) (az/field initial x)) (az/field moving vx)
            (az/field (physics/body-state (az/field car chassis)) vx) spin] [:array 4 :f32])))))
 
 (deftest physical-reverse-neutral-and-braking-test

@@ -32,13 +32,13 @@
 (az/defn- peerTypeEmptyArrayAndSlice [:slice-const :u8]
   [[choose-empty? :bool] [slice [:slice-const :u8]]]
   (when choose-empty?
-    (k/return (k/& (az/array-init [] [:array :_ :u8]))))
+    (k/return (k/& (az/array [] :u8))))
   (az/slice slice 0 1))
 
 (az/defn- peerTypeEmptyArrayAndSliceAndError [:error-union :anyerror [:slice :u8]]
   [[choose-empty? :bool] [slice [:slice :u8]]]
   (when choose-empty?
-    (k/return (k/& (az/array-init [] [:array :_ :u8]))))
+    (k/return (k/& (az/array [] :u8))))
   (az/slice slice 0 1))
 
 (az/deftest integer-widening-peers-test
@@ -77,23 +77,23 @@
       (try (testing/expectEqual 3 (az/unwrap (peerTypeTAndOptionalT false false)))))))
 
 (az/deftest empty-array-and-slice-peers-test
-  (try (testing/expectEqual 0 (az/field (peerTypeEmptyArrayAndSlice true "hi") :len)))
-  (try (testing/expectEqual 1 (az/field (peerTypeEmptyArrayAndSlice false "hi") :len)))
+  (try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
+  (try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi"))))
   (az/comptime-stmt
     (az/block
-      (try (testing/expectEqual 0 (az/field (peerTypeEmptyArrayAndSlice true "hi") :len)))
-      (try (testing/expectEqual 1 (az/field (peerTypeEmptyArrayAndSlice false "hi") :len))))))
+      (try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
+      (try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi")))))))
 
 (az/deftest empty-array-slice-and-error-peers-test
   (let [data (k/var @"hi")
         slice (az/slice data 0)]
-    (try (testing/expectEqual 0 (az/field (try (peerTypeEmptyArrayAndSliceAndError true slice)) :len)))
-    (try (testing/expectEqual 1 (az/field (try (peerTypeEmptyArrayAndSliceAndError false slice)) :len))))
+    (try (testing/expectEqual 0 (:len (try (peerTypeEmptyArrayAndSliceAndError true slice)))))
+    (try (testing/expectEqual 1 (:len (try (peerTypeEmptyArrayAndSliceAndError false slice))))))
   (az/comptime-stmt
     (let [data (k/var @"hi")
           slice (az/slice data 0)]
-      (try (testing/expectEqual 0 (az/field (try (peerTypeEmptyArrayAndSliceAndError true slice)) :len)))
-      (try (testing/expectEqual 1 (az/field (try (peerTypeEmptyArrayAndSliceAndError false slice)) :len))))))
+      (try (testing/expectEqual 0 (:len (try (peerTypeEmptyArrayAndSliceAndError true slice)))))
+      (try (testing/expectEqual 1 (:len (try (peerTypeEmptyArrayAndSliceAndError false slice))))))))
 
 (az/deftest const-pointer-and-optional-pointer-peers-test
   (let [constant-pointer (k/as (k/ptrFromInt 0x123456780) [:*const :usize])

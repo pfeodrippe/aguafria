@@ -323,7 +323,7 @@
           :queueCount 1
           :pQueuePriorities (ak/& priority)})
         extensions
-        (az/array-init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:pointer {:size :c :const? true} :u8]])
+        (az/init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:pointer {:size :c :const? true} :u8]])
         create-info
         (vk/VkDeviceCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
@@ -411,7 +411,7 @@
 (az/defn make-render-pass! vk/VkRenderPass
   [[preserve :bool] [store-depth :bool]]
   (let [attachments
-        (az/array-init [(vk/VkAttachmentDescription
+        (az/init [(vk/VkAttachmentDescription
            {:format swapchain-format
             :samples vk/VK_SAMPLE_COUNT_1_BIT
             :loadOp (if preserve vk/VK_ATTACHMENT_LOAD_OP_LOAD vk/VK_ATTACHMENT_LOAD_OP_CLEAR)
@@ -484,7 +484,7 @@
   []
   (dotimes [index image-count]
     (let [attachments
-          (az/array-init [(az/index image-views index) depth-view] [:array 2 vk/VkImageView])
+          (az/init [(az/index image-views index) depth-view] [:array 2 vk/VkImageView])
           create-info
           (vk/VkFramebufferCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
@@ -676,7 +676,7 @@
                          "resources/shaders/mesh.vert.spv"))
         fragment-module (load-shader-module "resources/shaders/mesh.frag.spv")
         stages
-        (az/array-init [(vk/VkPipelineShaderStageCreateInfo
+        (az/init [(vk/VkPipelineShaderStageCreateInfo
            {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
             :stage vk/VK_SHADER_STAGE_VERTEX_BIT
             :module vertex-module
@@ -687,7 +687,7 @@
             :module fragment-module
             :pName "main"})] [:array 2 vk/VkPipelineShaderStageCreateInfo])
         bindings
-        (az/array-init [(vk/VkVertexInputBindingDescription
+        (az/init [(vk/VkVertexInputBindingDescription
             {:binding 0 :stride (if instanced 40 (ak/intCast (ak/sizeOf mesh/GpuVertex)))
              :inputRate vk/VK_VERTEX_INPUT_RATE_VERTEX})
            (vk/VkVertexInputBindingDescription
@@ -695,7 +695,7 @@
              :inputRate vk/VK_VERTEX_INPUT_RATE_INSTANCE})] [:array 2 vk/VkVertexInputBindingDescription])
         attributes
         (if instanced
-          (az/array-init [(vk/VkVertexInputAttributeDescription {:location 0 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 0})
+          (az/init [(vk/VkVertexInputAttributeDescription {:location 0 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 0})
              (vk/VkVertexInputAttributeDescription {:location 1 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 12})
              (vk/VkVertexInputAttributeDescription {:location 2 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 24})
              (vk/VkVertexInputAttributeDescription {:location 3 :binding 0 :format vk/VK_FORMAT_R32_SFLOAT :offset 36})
@@ -703,7 +703,7 @@
              (vk/VkVertexInputAttributeDescription {:location 5 :binding 1 :format vk/VK_FORMAT_R32G32B32A32_SFLOAT :offset 16})
              (vk/VkVertexInputAttributeDescription {:location 6 :binding 1 :format vk/VK_FORMAT_R32G32B32A32_SFLOAT :offset 32})
              (vk/VkVertexInputAttributeDescription {:location 7 :binding 1 :format vk/VK_FORMAT_R32G32B32A32_SFLOAT :offset 48})] [:array 8 vk/VkVertexInputAttributeDescription])
-        (az/array-init [(vk/VkVertexInputAttributeDescription
+        (az/init [(vk/VkVertexInputAttributeDescription
            {:location 0 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 0})
           (vk/VkVertexInputAttributeDescription
            {:location 1 :binding 0 :format vk/VK_FORMAT_R32G32B32_SFLOAT :offset 12})
@@ -973,8 +973,8 @@
       (ak/= (az/field entry vertices) (ak/intCast (az/field vertices len)))
       (ak/= instance-upload-bytes (+ instance-upload-bytes (ak/as (ak/intCast bytes) :u64))))
     (let [output (az/cast (az/field instance-stream mapped) [:c-pointer mesh/GpuInstance])
-          buffers (az/array-init [(az/field (az/field entry storage) buffer) (az/field instance-stream buffer)] [:array 2 vk/VkBuffer])
-          offsets (az/array-init [0 (* instance-stream-used (ak/sizeOf mesh/GpuInstance))] [:array 2 vk/VkDeviceSize])]
+          buffers (az/init [(az/field (az/field entry storage) buffer) (az/field instance-stream buffer)] [:array 2 vk/VkBuffer])
+          offsets (az/init [0 (* instance-stream-used (ak/sizeOf mesh/GpuInstance))] [:array 2 vk/VkDeviceSize])]
       (ak/memcpy (az/slice output instance-stream-used (+ instance-stream-used (az/field instances len))) instances)
       (vk/vkCmdBindPipeline active-command-buffer vk/VK_PIPELINE_BIND_POINT_GRAPHICS instance-pipeline)
       (vk/vkCmdBindVertexBuffers active-command-buffer 0 2 (ak/& (az/index buffers 0)) (ak/& (az/index offsets 0)))
@@ -1027,7 +1027,7 @@
    {:color
     (vk/VkClearColorValue
      {:float32
-      (az/array-init [(az/field color r)
+      (az/init [(az/field color r)
         (az/field color g)
         (az/field color b)
         (az/field color a)] [:array 4 :f32])})}))
@@ -1129,7 +1129,7 @@
         begin-info (vk/VkCommandBufferBeginInfo {:sType vk/VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO})
         background (clear-value (Color {:r 0.0 :g 0.0 :b 0.0 :a 1.0}))
         depth-clear (vk/VkClearValue {:depthStencil (vk/VkClearDepthStencilValue {:depth 1.0 :stencil 0})})
-        clear-values (az/array-init [background depth-clear] [:array 2 vk/VkClearValue])
+        clear-values (az/init [background depth-clear] [:array 2 vk/VkClearValue])
         render-area (vk/VkRect2D {:offset (vk/VkOffset2D {:x 0 :y 0}) :extent swapchain-extent})
         pass-info (vk/VkRenderPassBeginInfo
                     {:sType vk/VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO

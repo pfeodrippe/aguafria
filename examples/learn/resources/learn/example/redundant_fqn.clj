@@ -12,7 +12,7 @@
     :type]])
 
 (az/defn main :void []
-  (debug/print "{s}\n" [(k/typeName (az/field json :JsonValue))]))
+  (debug/print "{s}\n" [(k/typeName (:JsonValue json))]))
 
 (comment
   (main))

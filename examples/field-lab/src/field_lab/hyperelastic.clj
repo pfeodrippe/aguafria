@@ -78,7 +78,7 @@
   (let [x (* (az/field a x) (az/field b x))
         y (* (az/field a y) (az/field b y))
         z (* (az/field a z) (az/field b z))
-        values (az/array-init [x y z offset
+        values (az/init [x y z offset
                   (ak/mulAdd :f64 (az/field a x) (az/field b x) (- x))
                   (ak/mulAdd :f64 (az/field a y) (az/field b y) (- y))
                   (ak/mulAdd :f64 (az/field a z) (az/field b z) (- z))] [:array 7 :f64])

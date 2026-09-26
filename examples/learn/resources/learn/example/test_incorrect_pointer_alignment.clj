@@ -10,11 +10,11 @@
                (az/type :u32)
                (k/as (k/alignCast four-bytes)
                       (az/type [:pointer {:size :slice :align 4} :u8])))]
-    (az/index words 0)))
+    (az/get words 0)))
 
 (az/deftest pointer-alignment-safety-test
   (let [words
-        (k/var (az/array-init [0x11111111 0x11111111] [:array :_ :u32]) nil {:zig/align 4})
+        (k/var (az/array [0x11111111 0x11111111] :u32) nil {:zig/align 4})
         bytes (mem/sliceAsBytes (az/slice words 0))]
     ;; Intentionally panics: offsetting aligned storage by one byte breaks
     ;; the four-byte alignment promised by read-misaligned-word's cast.

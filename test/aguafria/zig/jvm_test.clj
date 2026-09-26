@@ -25,6 +25,118 @@
                '[aguafria.std.debug :as debug]))
     namespace))
 
+(deftest syntax-vars-retain-identity-and-metadata-on-reload
+  (let [before (ns-publics 'aguafria.zig)]
+    (require 'aguafria.zig :reload)
+    (is (= (set (keys before)) (set (keys (ns-publics 'aguafria.zig)))))
+    (doseq [[name v] before]
+      (is (identical? v (ns-resolve 'aguafria.zig name)) (str name))))
+  (doseq [v [#'az/array #'az/range #'az/with-block #'az/type]]
+    (is (= (:name (meta v)) (get-in (meta v) [:aguafria/syntax :name])))
+    (is (seq (:doc (meta v))))
+    (is (seq (:arglists (meta v)))))
+  (is (true? (:macro (meta #'az/with-block))))
+  (is (= '([elements element-type]) (:arglists (meta #'az/array))))
+  (is (= '([start] [start end]) (:arglists (meta #'az/range))))
+  (is (= '([label & body]) (:arglists (meta #'az/with-block)))))
+
+(deftest nested-access-works-on-native-values-from-the-jvm
+  (let [Point (az/struct [[:x :i32] [:y :i32]])]
+    (with-open [points (az/array [{:x 4 :y 8} {:x 7 :y 14}] Point)
+                grid (az/array [[1 2] [3 4]] [:array 2 :i32])]
+      (is (= 4 (az/get-in points [0 :x])))
+      (is (= 8 (az/get-in points [0 :y])))
+      (is (= 2 (az/get points :len)))
+      (is (= 8 (az/get (az/get points 0) :y)))
+      (let [index 1]
+        (is (= 14 (az/get-in points [index :y]))))
+      (is (= 3 (az/get-in grid [1 0])))
+      (is (identical? points (az/get-in points [])))
+      (let [calls (atom 0)]
+        (is (= 7 (az/get-in (do (swap! calls inc) points) [1 :x])))
+        (is (= 1 @calls))))))
+
+(deftest keywords-access-native-fields-from-clojure-and-zig
+  (let [namespace (fixture)]
+    (binding [*ns* namespace]
+      (eval '(az/defstruct Point [[:x :i32] [:y :i32]]))
+      (eval '(az/defn make-point Point
+               [[x :i32]]
+               (Point {:x x :y (ak/* x 2)})))
+      (eval '(az/defn point-x :i32
+               [[x :i32]]
+               (:x (make-point x))))
+      (is (= 3 (eval '(:x (make-point 3)))))
+      (is (= 3 (eval '(point-x 3))))
+      (is (= 6 (eval '(-> (make-point 3) :y))))))
+  (let [Record (az/struct [[:active :bool] [:optional [:optional :i32]]])
+        Container (az/struct [[:answer {:const 42} :i32]])]
+    (with-open [record (Record {:active false :optional nil})
+                items (az/array [1 2 3] :i32)]
+      (is (false? (:active record)))
+      (is (nil? (:optional record)))
+      (is (= 3 (:len items)))
+      (is (= 42 (:answer Container)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"default value"
+                           (:active record true))))))
+
+(deftest keyword-labeled-blocks-execute-on-the-jvm
+  (let [answer 42]
+    (is (= answer (az/with-block :result (ak/break :result answer)))))
+  (is (= 7 (az/with-block :outer
+             (let [inner (az/with-block :inner
+                           (ak/break :inner 7))]
+               (ak/break :outer inner)))))
+  (with-open [counter (ak/var 1 :i32)]
+    (is (= 2 (az/with-block :updated
+               (ak/+= counter 1)
+               (ak/break :updated counter))))
+    (is (= 2 (az/value counter))))
+  (is (= [0 1 2] (az/with-block :init
+                  (let [items (ak/var ak/undefined [:array 3 :u32])]
+                    (ak/for [(ak/* item) (ak/& items) i (az/range 0)]
+                      (ak/= @item (ak/intCast i)))
+                    (ak/break :init items)))))
+  (is (nil? (ns-resolve 'aguafria.zig 'labeled-block))))
+
+(deftest arrays-and-operators-execute-on-the-jvm
+  (with-open [left (az/array [1 2 3 4] :i32)
+              right (az/array [5 6 7 8] :i32)
+              nested (az/array [[1 2] [3 4]] [:array 2 :u8])
+              empty-array (az/array [] :u8)]
+    (is (= 1 (az/index left 0)))
+    (is (= 4 (az/field left :len)))
+    (is (= [1 2 3 4 5 6 7 8] (ak/++ left right)))
+    (is (= [1 2 3 4 1 2 3 4] (ak/** left 2)))
+    (is (= [] (ak/** left 0)))
+    (is (= [[1 2] [3 4]] (az/value nested)))
+    (is (= [] (az/value empty-array))))
+  (is (= "hello world" (ak/++ "hello" " " "world")))
+  (is (= "ababab" (ak/** "ab" 3)))
+  (with-open [amount (ak/var 2 :u6)
+              dividend (ak/var 10 :u64)
+              divisor (ak/var 3 :u64)]
+    (is (= 8 (ak/<< 2 amount)))
+    (is (= 1 (ak/% dividend divisor))))
+  (is (thrown? clojure.lang.ArityException (az/array [1 2])))
+  (is (nil? (ns-resolve 'aguafria.zig 'array-init))))
+
+(deftest flat-pointer-captures-execute-on-the-jvm
+  (with-open [items (ak/var (az/array [0 0 0 0] :u32))]
+    (ak/for [(ak/* item) (ak/& items) index (az/range 0)]
+      (ak/= @item (ak/intCast index)))
+    (is (= [0 1 2 3] (az/value items))))
+  (with-open [total (ak/var 0 :u32)
+              lefts (az/array [1 2 3] :u32)
+              rights (az/array [10 20 30] :u32)]
+    (ak/for [left lefts right rights]
+      (ak/+= total (ak/* left right)))
+    (is (= 140 (az/value total))))
+  (with-open [total (ak/var 0 :usize)]
+    (ak/for [i (az/range 2 5)]
+      (ak/+= total i))
+    (is (= 9 (az/value total)))))
+
 (deftest direct-imported-function-results-and-output
   (let [err (StringWriter.)]
     (binding [*err* err]
@@ -421,7 +533,7 @@
   (with-open [x (ak/var ak/undefined :u32)
               y (ak/var ak/undefined :u32)
               z (ak/var ak/undefined :u32)
-              numbers (az/array-init [4 5 6] [:array :_ :u32])
+              numbers (az/array [4 5 6] :u32)
               lanes (ak/as [7 8 9] [:vector 3 :u32])]
     ;; Never read undefined storage. Initialize it before observing its contents.
     (ak/= [x y z] [1 2 3])
@@ -604,10 +716,10 @@
     (try
       (binding [*ns* namespace]
         (eval '(az/defstruct Point [[:x :i32] [:y :i32]]))
-        (eval '(az/defconst letters (az/array-init [\h \i] [:array :_ :u8])))
-        (eval '(az/defconst numbers (az/array-init [7 9] [:array :_ :i32])))
+        (eval '(az/defconst letters (az/array [\h \i] :u8)))
+        (eval '(az/defconst numbers (az/array [7 9] :i32)))
         (eval '(az/defconst points
-                 (az/array-init [(Point {:x 2 :y 3})] [:array :_ Point])))
+                 (az/array [(Point {:x 2 :y 3})] Point)))
         (eval '(az/defconst text "hi")))
       (let [letters @(ns-resolve namespace 'letters)
             numbers @(ns-resolve namespace 'numbers)
@@ -626,17 +738,17 @@
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest array-construction-accepts-characters-with-range-checking
-  (with-open [letters (az/array-init [\h \i] [:array :_ :u8])
-              unicode (az/array-init [\☔] [:array :_ :u21])]
+  (with-open [letters (az/array [\h \i] :u8)
+              unicode (az/array [\☔] :u21)]
     (is (= [104 105] @letters))
     (is (= [9748] @unicode))
     (is (= 209 (reduce + 0 letters))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
-                       (az/array-init [\☔] [:array :_ :u8]))))
+                       (az/array [\☔] :u8))))
 
 (deftest native-loop-captures-are-eager-and-mutable
   (with-open [sum (ak/var 0 :i32)
-              numbers (az/array-init [1 2 3] [:array :_ :i32])]
+              numbers (az/array [1 2 3] :i32)]
     (ak/for [item numbers]
       (ak/+= sum item))
     (is (= 6 @sum))

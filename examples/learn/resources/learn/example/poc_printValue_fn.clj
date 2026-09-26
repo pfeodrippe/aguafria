@@ -7,14 +7,14 @@
      [[self [:* Writer]] [value :anytype]]
      (az/switch-stmt (k/typeInfo (k/TypeOf value))
        (case [:.int]
-         (k/return ((az/field self :write-int) value)))
+         (k/return ((:write-int self) value)))
        (case [:.float]
-         (k/return ((az/field self :write-float) value)))
+         (k/return ((:write-float self) value)))
        (case [:.pointer]
-         (k/return ((az/field self :write) value)))
+         (k/return ((:write self) value)))
        (az/case-else
          (k/compileError
-          (az/op "++" "Unable to print type '" (k/typeName (k/TypeOf value)) "'")))))
+          (k/++ "Unable to print type '" (k/typeName (k/TypeOf value)) "'")))))
 
    (az/fn- write [:error-union :void]
      [[self [:* Writer]] [value [:slice-const :u8]]]

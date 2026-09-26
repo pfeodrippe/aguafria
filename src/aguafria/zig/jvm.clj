@@ -693,6 +693,56 @@
         (runtime/invoke! qualified-name arguments)
         (finally (java.lang.ref.Reference/reachabilityFence locals))))))))
 
+(defn- describe-native-type!
+  [target]
+  (let [var-reference (when (var? target) (:aguafria/zig-reference (meta target)))
+        target (if (var? target) (var-get target) target)
+        reference (or var-reference (:aguafria/zig-reference (meta target)))
+        owner (or (when (= :declaration (:kind reference)) (:module reference))
+                  (when (value/zig-value? target) (:module (value/info target)))
+                  (when (value/zig-type? target) (:module (value/type-info target))))
+        namespace-name 'aguafria.jvm.describe
+        context (or (find-ns namespace-name) (create-ns namespace-name))
+        type (cond
+               (value/zig-type? target) (constructor-type target)
+               var-reference (list 'aguafria.keyword/TypeOf
+                                   (with-meta (:symbol var-reference)
+                                     {:aguafria/zig-reference var-reference}))
+               (value/zig-value? target) (value/qualified-type target)
+               (value/zig-pointer? target) (value/pointer-type target)
+               :else
+               (let [{:keys [expression-arguments parameters]}
+                     (call-inputs [{:type :anytype :properties {:jvm/literal? true}}]
+                                  [target])]
+                 (list 'aguafria.keyword/TypeOf
+                       (expression-without-runtime-inputs
+                        context (first expression-arguments) parameters))))
+        adapter-name (symbol (str namespace-name "-" (token type)))
+        ;; Private declarations are legal in their defining module only.
+        ;; Reflect there rather than importing them or making them public.
+        adapter-context (or (some-> owner symbol find-ns)
+                            (find-ns adapter-name)
+                            (create-ns adapter-name))
+        description (invoke-expression! adapter-context (list 'type type) [] [] 'describeResult)]
+    (-> description
+        (update :kind keyword)
+        (update :fields #(mapv (fn [field] (update field :name keyword)) %))
+        (update :members #(mapv (fn [member]
+                                 (-> member (update :name keyword) (update :kind keyword))) %)))))
+
+(defn describe!
+  "Describe a receiver through native type reflection, without reading its storage."
+  [target]
+  (let [reference (or (:aguafria/zig-reference (meta target))
+                      (when (var? target)
+                        (:aguafria/zig-reference (meta (var-get target)))))]
+    (if (or (:receiver-method? reference) (:field-accessor? reference))
+      ;; An unspecialized accessor is a JVM callable, not the invalid Zig
+      ;; expression `ArrayList.append`. Its native signature needs a receiver.
+      {:kind :fn :signature (:signature reference)
+       :requires-receiver? true :var (:symbol reference) :fields [] :members []}
+      (describe-native-type! target))))
+
 (defn- bound-method [receiver member]
   (fn [& arguments]
     (let [native? (value/zig-value? receiver)
@@ -789,7 +839,14 @@
                     {:function symbol :actual (count arguments)
                      :expected param-count :minimum minimum-param-count})))
   (cond
-    (contains? #{'init 'array-init} (:name syntax))
+    (= 'array (:name syntax))
+    (let [[elements element-type] arguments]
+      (when-not (and (= 2 (count arguments)) (vector? elements))
+        (throw (ex-info "array expects an element vector followed by its element type"
+                        {:arguments arguments})))
+      (coerce! elements [:array (count elements) element-type]))
+
+    (= 'init (:name syntax))
     (apply coerce! arguments)
 
     (and (= 'field (:name syntax))
@@ -811,7 +868,8 @@
             ;; handles still become typed runtime parameters in call-inputs.
             (repeat (count arguments)
                     {:type :anytype
-                     :properties {:jvm/literal? (= :syntax (:kind syntax))}}))
+                     :properties {:jvm/literal? (or (= :syntax (:kind syntax))
+                                                   (:literal-arguments? syntax))}}))
           {:keys [expression-arguments parameters arguments]}
           (call-inputs declarations arguments)
           namespace-name (clojure.core/symbol (str "aguafria.jvm.expression-" (token syntax)))

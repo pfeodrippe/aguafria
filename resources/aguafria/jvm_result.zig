@@ -257,6 +257,92 @@ pub const __aguafria_jvm = struct {
         }
     }
 
+    fn describeField(writer: *std.Io.Writer, comptime name: []const u8, comptime T: type) !void {
+        try writer.writeAll("{:name ");
+        try write(writer, name);
+        try writer.writeAll(" :type ");
+        try write(writer, @as([]const u8, @typeName(T)));
+        try writer.writeAll("} ");
+    }
+
+    fn describeFunction(writer: *std.Io.Writer, comptime T: type) !void {
+        const info = @typeInfo(T).@"fn";
+        try writer.writeAll(" :parameters [");
+        inline for (info.params) |param| {
+            try writer.writeAll("{:type ");
+            if (param.type) |P| try write(writer, @as([]const u8, @typeName(P))) else try writer.writeAll("nil");
+            try writer.writeAll(" :generic? ");
+            try write(writer, param.is_generic);
+            try writer.writeAll("} ");
+        }
+        try writer.writeAll("] :return ");
+        if (info.return_type) |R| try write(writer, @as([]const u8, @typeName(R))) else try writer.writeAll("nil");
+        try writer.writeAll(" :variadic? ");
+        try write(writer, info.is_var_args);
+    }
+
+    fn describeType(writer: *std.Io.Writer, comptime T: type) !void {
+        // Inspect types only: never load a receiver, dereference pointers, or
+        // execute discovered functions (including on undefined native storage).
+        const Container = switch (@typeInfo(T)) {
+            .pointer => |p| if (p.size == .one) p.child else T,
+            else => T,
+        };
+        try writer.writeAll("{:type ");
+        try write(writer, @as([]const u8, @typeName(T)));
+        try writer.writeAll(" :kind ");
+        try write(writer, @tagName(@typeInfo(T)));
+        if (@typeInfo(T) == .@"fn") try describeFunction(writer, T);
+        try writer.writeAll(" :fields [");
+        switch (@typeInfo(Container)) {
+            inline .@"struct", .@"union" => |info| inline for (info.fields) |field| {
+                try describeField(writer, field.name, field.type);
+            },
+            .array => try describeField(writer, "len", @TypeOf(@as(Container, undefined).len)),
+            .pointer => |p| if (p.size == .slice) {
+                try describeField(writer, "len", @TypeOf(@as(T, undefined).len));
+                try describeField(writer, "ptr", @TypeOf(@as(T, undefined).ptr));
+            },
+            else => {},
+        }
+        try writer.writeAll("] :members [");
+        switch (@typeInfo(Container)) {
+            inline .@"struct", .@"union", .@"enum", .@"opaque" => |info| {
+                inline for (info.decls) |decl| {
+                    const D = @TypeOf(@field(Container, decl.name));
+                    try writer.writeAll("{:name ");
+                    try write(writer, @as([]const u8, decl.name));
+                    try writer.writeAll(" :type ");
+                    try write(writer, @as([]const u8, @typeName(D)));
+                    try writer.writeAll(" :kind ");
+                    try write(writer, @tagName(@typeInfo(D)));
+                    try writer.writeAll(" :declaration-kind ");
+                    if (D == type) {
+                        try writer.writeAll(":type");
+                    } else if (@typeInfo(D) == .@"fn") {
+                        try writer.writeAll(":function");
+                    } else if (@typeInfo(@TypeOf(&@field(Container, decl.name))).pointer.is_const) {
+                        try writer.writeAll(":const");
+                    } else {
+                        try writer.writeAll(":var");
+                    }
+                    if (@typeInfo(D) == .@"fn") try describeFunction(writer, D);
+                    try writer.writeAll("} ");
+                }
+            },
+            else => {},
+        }
+        try writer.writeAll("]}");
+    }
+
+    pub fn describeResult(comptime T: type) usize {
+        var writer: std.Io.Writer.Allocating = .init(allocator);
+        defer writer.deinit();
+        describeType(&writer.writer, T) catch @panic("Cannot describe Zig type");
+        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate type description");
+        return @intFromPtr(encoded.ptr);
+    }
+
     pub fn inspectResult(value: anytype) usize {
         var writer: std.Io.Writer.Allocating = .init(allocator);
         defer writer.deinit();

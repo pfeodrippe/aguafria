@@ -1653,12 +1653,48 @@
    :name "-",
    :zig-tag "minus",
    :zig-token "-"}
-  {:documentation "Native Zig multiplication.",
+  {:arglists ([capture] [argument-1 argument-2 & more]),
+   :documentation
+   "Native Zig multiplication, or pointer capture in a loop binding.\n\n(k/* a b ...) multiplies values. In the capture position of k/for or az/inline-for, (k/* item) binds item as a pointer: (k/for [(k/* item) (k/& items)] ...). The one-argument form is binding syntax only, not unary multiplication or a standalone JVM call.",
    :kind :operator,
    :minimum-param-count 2,
    :name "*",
    :zig-tag "asterisk",
    :zig-token "*"}
+  {:documentation "Concatenate Zig arrays or tuples.",
+   :kind :operator,
+   :literal-arguments? true,
+   :minimum-param-count 2,
+   :name "++",
+   :zig-tag "plus_plus",
+   :zig-token "++"}
+  {:documentation
+   "Repeat a Zig array or tuple a comptime-known number of times.",
+   :kind :operator,
+   :literal-arguments? true,
+   :name "**",
+   :param-count 2,
+   :zig-tag "asterisk_asterisk",
+   :zig-token "**"}
+  {:documentation "Merge Zig error sets.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "||",
+   :zig-tag "pipe_pipe",
+   :zig-token "||"}
+  {:documentation "Saturating bit shift left.",
+   :kind :operator,
+   :minimum-param-count 2,
+   :name "<<|",
+   :zig-tag "angle_bracket_angle_bracket_left_pipe",
+   :zig-token "<<|"}
+  {:documentation
+   "Inclusive range pattern in a Zig switch prong. This is syntax, not a standalone value. Use az/range for loop ranges.",
+   :kind :operator,
+   :name "...",
+   :param-count 2,
+   :zig-tag "ellipsis3",
+   :zig-token "..."}
   {:documentation
    "Native Zig division; signed integers require an explicit rounding builtin.",
    :kind :operator,
@@ -1744,9 +1780,9 @@
    :name "+%",
    :zig-tag "plus_percent",
    :zig-token "+%"}
-  {:documentation "Wrapping subtraction.",
+  {:documentation "Wrapping subtraction or negation.",
    :kind :operator,
-   :minimum-param-count 2,
+   :minimum-param-count 1,
    :name "-%",
    :zig-tag "minus_percent",
    :zig-token "-%"}

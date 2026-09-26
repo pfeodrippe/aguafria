@@ -8,7 +8,7 @@
 
 (az/deftest default-fields-test
   (let [value (Foo {:b 5})]
-    (when (k/!= (k/+ (az/field value :a) (az/field value :b)) 1239)
+    (when (k/!= (k/+ (:a value) (:b value)) 1239)
       (az/comptime-stmt (k/unreachable)))))
 
 (comment

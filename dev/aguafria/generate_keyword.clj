@@ -35,7 +35,21 @@
    {:name "-" :zig-token "-" :zig-tag "minus"
     :kind :operator :minimum-param-count 1 :documentation "Native Zig subtraction or negation."}
    {:name "*" :zig-token "*" :zig-tag "asterisk"
-    :kind :operator :minimum-param-count 2 :documentation "Native Zig multiplication."}
+    :kind :operator :minimum-param-count 2
+    :arglists '([capture] [argument-1 argument-2 & more])
+    :documentation "Native Zig multiplication, or pointer capture in a loop binding.\n\n(k/* a b ...) multiplies values. In the capture position of k/for or az/inline-for, (k/* item) binds item as a pointer: (k/for [(k/* item) (k/& items)] ...). The one-argument form is binding syntax only, not unary multiplication or a standalone JVM call."}
+   {:name "++" :zig-token "++" :zig-tag "plus_plus"
+    :kind :operator :minimum-param-count 2 :literal-arguments? true
+    :documentation "Concatenate Zig arrays or tuples."}
+   {:name "**" :zig-token "**" :zig-tag "asterisk_asterisk"
+    :kind :operator :param-count 2 :literal-arguments? true
+    :documentation "Repeat a Zig array or tuple a comptime-known number of times."}
+   {:name "||" :zig-token "||" :zig-tag "pipe_pipe"
+    :kind :operator :minimum-param-count 2 :documentation "Merge Zig error sets."}
+   {:name "<<|" :zig-token "<<|" :zig-tag "angle_bracket_angle_bracket_left_pipe"
+    :kind :operator :minimum-param-count 2 :documentation "Saturating bit shift left."}
+   {:name "..." :zig-token "..." :zig-tag "ellipsis3"
+    :kind :operator :param-count 2 :documentation "Inclusive range pattern in a Zig switch prong. This is syntax, not a standalone value. Use az/range for loop ranges."}
    {:name "/" :zig-token "/" :zig-tag "slash"
     :kind :operator :minimum-param-count 2 :documentation "Native Zig division; signed integers require an explicit rounding builtin."}
    {:name "<" :zig-token "<" :zig-tag "angle_bracket_left"
@@ -89,7 +103,7 @@
    {:name "+%" :zig-token "+%" :zig-tag "plus_percent"
     :kind :operator :minimum-param-count 2 :documentation "Wrapping addition."}
    {:name "-%" :zig-token "-%" :zig-tag "minus_percent"
-    :kind :operator :minimum-param-count 2 :documentation "Wrapping subtraction."}
+    :kind :operator :minimum-param-count 1 :documentation "Wrapping subtraction or negation."}
    {:name "*%" :zig-token "*%" :zig-tag "asterisk_percent"
     :kind :operator :minimum-param-count 2 :documentation "Wrapping multiplication."}
    {:name "+|" :zig-token "+|" :zig-tag "plus_pipe"

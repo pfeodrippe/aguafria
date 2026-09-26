@@ -47,7 +47,7 @@
 
 (def ^:private structural-operators
   '#{raw raw-chunks raw-statements raw-statement-chunks
-     do block labeled-block object init array-init op type
+     do block with-block object init array op range type
      number-literal string-literal multiline-string char-literal
      identifier-literal enum-literal error-value
      pointer-capture else-clause else-expression catch-capture
@@ -441,6 +441,35 @@
                  (map #(qualify-form context-ns %) body))
           (meta form))))))
 
+(declare for-bindings)
+
+(defn- qualify-for
+  [context-ns form operator]
+  (let [[options bindings body] (if (= 'for-loop operator)
+                                  [(second form) (nth form 2) (drop 3 form)]
+                                  [nil (second form) (drop 2 form)])
+        pairs (for-bindings bindings form)
+        captures (mapv (fn [[capture _]]
+                         (cond
+                           (symbol? capture) capture
+                           (and (seq? capture)
+                                (= "*" (:zig-token (keyword/resolve-token context-ns (first capture)))))
+                           (do
+                             (when-not (and (= 2 (count capture)) (symbol? (second capture)))
+                               (fail! "Pointer capture expects (k/* name)" capture))
+                             (with-meta (list 'aguafria.keyword/* (second capture)) (meta capture)))
+                           :else (qualify-form context-ns capture)))
+                       pairs)
+        names (map #(if (seq? %) (second %) %) captures)
+        inputs (mapv #(qualify-form context-ns (second %)) pairs)
+        body (binding [*lexical-bindings* (into *lexical-bindings* names)
+                       *local-name-bindings* (merge *local-name-bindings* (zipmap names names))]
+               (mapv #(qualify-form context-ns %) body))]
+    (with-meta (apply list operator
+                      (concat (when options [(qualify-form context-ns options)])
+                              [(vec (interleave captures inputs))] body))
+      (meta form))))
+
 (defn- qualify-seq
   [context-ns form]
   (let [[op & raw-args] form
@@ -495,6 +524,13 @@
                   "Qualified calls must name a real Var from a required namespace.")
              form {:operator op :context-ns (ns-name context-ns)}))
     (cond
+      (keyword? op)
+      (do
+        (when-not (= 1 (count args))
+          (fail! "Native keyword field access expects exactly one value; defaults are not supported"
+                 form))
+        (with-meta (list 'field (first args) op) (meta form)))
+
       (:field-accessor? reference)
       (do
         (when-not (= 1 (count args))
@@ -536,6 +572,13 @@
          (even? (count (second form))))
     (qualify-let context-ns form)
 
+    (and (seq? form)
+         (or (contains? #{'for 'inline-for 'for-loop}
+                        (resolved-syntax-operator context-ns (first form)))
+             (= "for" (:zig-token (keyword/resolve-token context-ns (first form))))))
+    (qualify-for context-ns form
+                 (or (resolved-syntax-operator context-ns (first form)) 'for))
+
     (seq? form) (if-let [expansion (expand-clojure-macro-once context-ns form)]
                   (let [expanded (:expanded expansion)]
                     ;; `cond` expands its conventional `:else` clause to
@@ -560,9 +603,12 @@
     (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
                            (meta form))
     (and (symbol? form) (contains? *local-type-bindings* form))
-    (with-meta (get *local-name-bindings* form form) (assoc (meta form)
-                          :aguafria/local? true
-                          :aguafria/local-type? (get *local-type-bindings* form)))
+    (let [replacement (get *local-name-bindings* form form)]
+      (if (instance? clojure.lang.IObj replacement)
+        (with-meta replacement (assoc (meta form)
+                                     :aguafria/local? true
+                                     :aguafria/local-type? (get *local-type-bindings* form)))
+        replacement))
 
     (and (symbol? form) (keyword/resolve-token context-ns form))
     (:symbol (keyword/resolve-token context-ns form))
@@ -688,8 +734,11 @@
         (contains? #{'do 'block 'comptime 'comptime-stmt} op)
         (body names args)
 
-        (= 'labeled-block op)
-        (body (conj names (first args)) (rest args))
+        (= 'with-block op)
+        (do
+          (when-not (keyword? (first args))
+            (fail! "with-block expects a keyword label followed by statements" form))
+          (body names (rest args)))
 
         (contains? #{'container} op)
         (body names (if (vector? (second args)) (second args) (rest args)))
@@ -1587,6 +1636,12 @@
           token (when-not (= :keyword (:kind source-token)) source-token)
           expansion (expand-clojure-macro-once (or *keyword-context* *ns*) form)]
       (cond
+        (keyword? source-op)
+        (if (= 1 (count args))
+          (emit-expr (list 'field (first args) source-op))
+          (fail! "Native keyword field access expects exactly one value; defaults are not supported"
+                 form))
+
         (:field-accessor? (current-zig-reference source-op))
         (emit-expr (qualify-form (or *keyword-context* *ns*) form))
 
@@ -1652,28 +1707,29 @@
         (= op 'let)
         (emit-let-expr args form)
 
-        (= op 'labeled-block)
+        (= op 'with-block)
         (let [[label & forms] args]
-          (when-not (or (symbol? label) (keyword? label) (string? label))
-            (fail! "labeled-block expects an identifier followed by statements" form))
+          (when-not (keyword? label)
+            (fail! "with-block expects a keyword label followed by statements" form))
           (emit-block-expr label forms))
 
         (= op 'init)
         (let [[fields type] args]
           (if (and (= 2 (count args))
                    (or (map? fields)
+                       (vector? fields)
                        (and (seq? fields)
                             (= 'object
                                (resolved-syntax-operator
                                 (or *keyword-context* *ns*) (first fields))))))
             (str (emit-type type) (subs (emit-expr fields) 1))
-            (fail! "init expects an object/map literal followed by its type" form)))
+            (fail! "init expects an object/map or element vector followed by its type" form)))
 
-        (= op 'array-init)
-        (let [[elements type] args]
+        (= op 'array)
+        (let [[elements element-type] args]
           (if (and (= 2 (count args)) (vector? elements))
-            (str (emit-type type) (subs (emit-vector-literal elements) 1))
-            (fail! "array-init expects an element vector followed by its type" form)))
+            (str (emit-type [:array :_ element-type]) (subs (emit-vector-literal elements) 1))
+            (fail! "array expects an element vector followed by its element type" form)))
 
         (= op 'unreachable)
         (if (empty? args)
@@ -1684,6 +1740,12 @@
         (if (= 1 (count args))
           (emit-type (first args))
           (fail! "type expects one Aguafria type form" form))
+
+        (= op 'range)
+        (do
+          (when-not (<= 1 (count args) 2)
+            (fail! "range expects a start and optional exclusive end" form))
+          (parenthesized-infix ".." args form))
 
         (= op 'op)
         (let [[operator & operands] args
@@ -1944,7 +2006,7 @@
 
 (defn- emit-statement-branch
   [form level]
-  (if (and (seq? form) (= 'labeled-block (first form)))
+  (if (and (seq? form) (= 'with-block (first form)))
     (emit-expr form)
     (braced (branch-forms form) level)))
 
@@ -2081,7 +2143,7 @@
     (str source ";")))
 
 (def ^:private block-like-expression-ops
-  #{"block" "labeled-block" "let" "if" "when" "when-not" "if-capture"
+  #{"block" "with-block" "let" "if" "when" "when-not" "if-capture"
     "switch" "labeled-switch" "dotimes"})
 
 (defn- expression-statement-needs-semicolon?
@@ -2207,18 +2269,10 @@
 
 (defn- for-bindings
   [bindings form]
-  (cond
-    (and (vector? bindings) (= 2 (count bindings))
-         (not (every? vector? bindings)))
-    [bindings]
-
-    (and (vector? bindings)
-         (seq bindings)
-         (every? #(and (vector? %) (= 2 (count %))) bindings))
-    bindings
-
-    :else
-    (fail! "for expects [capture input] or [[capture input] ...]" form)))
+  (when-not (and (vector? bindings) (seq bindings) (even? (count bindings))
+                (not-any? vector? (take-nth 2 bindings)))
+    (fail! "for expects flat [capture input ...] bindings" form))
+  (mapv vec (partition 2 bindings)))
 
 (defn- capture-source
   [capture form]
@@ -2226,12 +2280,14 @@
     (or (symbol? capture) (keyword? capture) (string? capture))
     (identifier capture)
 
-    (and (seq? capture) (= 'pointer-capture (first capture))
+    (and (seq? capture)
+         (or (= 'pointer-capture (first capture))
+             (= "*" (:zig-token (keyword/resolve-token *keyword-context* (first capture)))))
          (= 2 (count capture)))
     (str "*" (identifier (second capture)))
 
     :else
-    (fail! "for captures must be identifiers or (pointer-capture name)"
+    (fail! "for captures must be identifiers or (k/* name)"
            form {:capture capture})))
 
 (defn- emit-for-source
@@ -2434,10 +2490,10 @@
                (= op 'else-expression)
                (fail! "else-expression can only be the final form of a for" form)
                (= op 'block) (braced args level)
-               (= op 'labeled-block)
+               (= op 'with-block)
                (let [[label & forms] args]
-                 (when-not (or (symbol? label) (keyword? label) (string? label))
-                   (fail! "labeled-block expects an identifier followed by statements" form))
+                 (when-not (keyword? label)
+                   (fail! "with-block expects a keyword label followed by statements" form))
                  (str (identifier label) ": " (braced forms level)))
                (= op 'defer) (if (= 1 (count args))
                                (let [nested (first args)]
@@ -2538,7 +2594,7 @@
   #{"const" "var" "set!" "assign" "while" "while-loop" "for" "inline-for" "for-loop"
     "dotimes" "when" "when-not"
     "if-capture-stmt"
-    "switch-stmt" "labeled-switch-stmt" "block" "labeled-block"
+    "switch-stmt" "labeled-switch-stmt" "block" "with-block"
     "defer" "comptime-stmt" "errdefer" "break" "break-label" "continue"
     "unreachable" "comment"
     "=" "+=" "-=" "*=" "/=" "%=" "+%=" "-%=" "*%="
@@ -3050,7 +3106,7 @@
             (cond
               (and (symbol? form) (= "unreachable" (name form))) true
               (contains? #{"return" "unreachable"} operator-name) true
-              (contains? #{"block" "labeled-block"} operator-name)
+              (contains? #{"block" "with-block"} operator-name)
               (some-> form last terminating-form?)
               (= "if" operator-name)
               (and (<= 4 (count form))

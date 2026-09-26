@@ -10,12 +10,12 @@
      [:items [:slice T]]
      (az/fn- length :usize
        [[self Self]]
-       (az/field (az/field self :items) :len))]))
+       (az/get-in self [:items :len]))]))
 
 (az/deftest this-type-test
-  (let [items (k/var (az/array-init [1 2 3 4] [:array :_ :i32]))
+  (let [items (k/var (az/array [1 2 3 4] :i32))
         list (az/init {:items (az/slice items 0)} (List :i32))]
-    (try (testing/expectEqual 4 ((az/field list :length))))))
+    (try (testing/expectEqual 4 ((:length list))))))
 
 (comment
   (this-type-test))

@@ -5,7 +5,7 @@
 
 (az/deftest vector-reduction-test
   (let [Vector (az/type [:vector 4 :i32])
-        values (az/array-init [1 -1 1 -1] Vector)
+        values (az/init [1 -1 1 -1] Vector)
         positive (k/> values (k/as (k/splat 0) Vector))
         all-positive (k/reduce :.And positive)]
     (try (k/comptime

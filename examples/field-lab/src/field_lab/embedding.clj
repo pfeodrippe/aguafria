@@ -83,9 +83,9 @@
                    :minimum-height 0.0 :maximum-correction 0.0 :reference-inset 0.0}))
     (dotimes [point points]
       (set! (az/index (az/field result bindings) point)
-            (Binding {:cell 0 :weights (az/array-init [0.0 0.0 0.0 0.0] [:array 4 :f64]) :valid false})))
+            (Binding {:cell 0 :weights (az/init [0.0 0.0 0.0 0.0] [:array 4 :f64]) :valid false})))
     (dotimes [face faces]
-      (set! (az/index (az/field result faces) face) (az/array-init [0 0 0] [:array 3 :u32])))
+      (set! (az/index (az/field result faces) face) (az/init [0 0 0] [:array 3 :u32])))
     ;; A + I is positive definite even at vertices with one adjacent cell.
     (dotimes [node nodes]
       (az/set-many!
@@ -163,7 +163,7 @@
       (when (and (>= a -1.0e-12) (>= b -1.0e-12) (>= c -1.0e-12) (>= d -1.0e-12))
         (set! (az/index (az/field render bindings) index)
               (Binding {:cell (ak/intCast cell-index)
-                        :weights (az/array-init [a b c d] [:array 4 :f64]) :valid true}))
+                        :weights (az/init [a b c d] [:array 4 :f64]) :valid true}))
         (ak/return true))))
   false)
 
@@ -172,7 +172,7 @@
   (let [points (az/field (az/field render reference) len)]
     (debug/assert (and (< index (az/field (az/field render faces) len))
                        (< a points) (< b points) (< c points))))
-  (set! (az/index (az/field render faces) index) (az/array-init [a b c] [:array 3 :u32])))
+  (set! (az/index (az/field render faces) index) (az/init [a b c] [:array 3 :u32])))
 
 (az/defn update! :bool
   "Transfer positions and recompute normals from the detailed deformed triangles.

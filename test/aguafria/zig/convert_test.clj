@@ -37,6 +37,17 @@
   (is (= '(var-decl flag {:public false} :bool false)
          (convert/nested-declaration-form '(az/defvar flag :bool {:public false} false)))))
 
+(deftest array-constructor-and-operators-use-the-public-api
+  (let [path "test/fixtures/array_operators.zig"
+        options {:namespace 'fixture.array-operators :mode :build-obj}
+        source (:clojure-source (convert/convert-file path options))]
+    (is (str/includes? source "(az/array [1 2] :i32)"))
+    (is (str/includes? source "(k/++ left right)"))
+    (is (str/includes? source "(k/** left 2)"))
+    (is (str/includes? source "(az/init [1 2] [:array-sentinel :_ 0 :u8])"))
+    (is (not (str/includes? source "array-init")))
+    (is (:success? (convert/verify-file path options)))))
+
 (deftest equality-operators-use-callable-keyword-vars
   (let [converted (convert/convert-file
                    "test/fixtures/qualified_equality.zig"
@@ -238,7 +249,7 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "pointer-capture"))
+    (is (str/includes? clojure-source "(k/*"))
     (is (str/includes? clojure-source "else-clause"))
     (is (str/includes? clojure-source "else-expression"))
     (is (str/includes? clojure-source "(az/inline-for"))
@@ -246,7 +257,8 @@
     (is (str/includes? clojure-source "(az/while-loop"))
     (is (re-find #"\(k/errdefer \(az/block\)\)\n\n  \(k/var total"
                  clojure-source))
-    (is (re-find #"\)\n\n  \(for\n" clojure-source))
+    (is (re-find #"\)\n\n  \(k/for\n" clojure-source))
+    (is (str/includes? clojure-source "(az/range 0)"))
     (is (str/includes? clojure-source ":inline? true"))
     (is (:success? verification))))
 
@@ -604,7 +616,7 @@
     (is (str/includes? clojure-source ":array-sentinel"))
     (is (str/includes? clojure-source "(az/slice-sentinel"))
     (is (str/includes? clojure-source "k/bit-xor"))
-    (is (str/includes? clojure-source "(az/op \"-%\""))
+    (is (str/includes? clojure-source "(k/-%"))
     (is (:success? verification))))
 
 (deftest if-and-while-captures-are-structural-test

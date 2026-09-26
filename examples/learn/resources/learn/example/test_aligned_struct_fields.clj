@@ -11,9 +11,9 @@
     ;; The strongest field alignment determines the containing struct's alignment.
     (try (testing/expectEqual 64 (k/alignOf AlignedFields)))
     (try (testing/expectEqual (az/type [:pointer {:size :one :align 2} :u32])
-                              (k/TypeOf (k/& (az/field fields :a)))))
+                              (k/TypeOf (k/& (:a fields)))))
     (try (testing/expectEqual (az/type [:pointer {:size :one :align 64} :u32])
-                              (k/TypeOf (k/& (az/field fields :b)))))))
+                              (k/TypeOf (k/& (:b fields)))))))
 
 (comment
   (aligned-struct-fields-test))

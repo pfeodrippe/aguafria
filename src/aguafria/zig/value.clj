@@ -59,7 +59,24 @@
                       {:type (pointer-type pointer) :byte-size byte-size})))
     (.reinterpret (MemorySegment/ofAddress address) byte-size)))
 
+(defn- lookup-field
+  [value key]
+  (when-not (keyword? key)
+    (throw (ex-info "Native field lookup requires a keyword" {:key key})))
+  ((requiring-resolve 'aguafria.zig/field) value key))
+
+(defn- reject-lookup-default!
+  [key]
+  (throw (ex-info "Native field lookup does not accept a default value"
+                  {:key key})))
+
 (deftype ZigType [descriptor construct]
+  clojure.lang.ILookup
+  (valAt [this key]
+    (lookup-field this key))
+  (valAt [_ key _not-found]
+    (reject-lookup-default! key))
+
   clojure.lang.IFn
   (invoke [_ value]
     (construct value))
@@ -101,6 +118,12 @@
         (:type error)))
 
 (deftype ZigValue [descriptor state materialize]
+  clojure.lang.ILookup
+  (valAt [this key]
+    (lookup-field this key))
+  (valAt [_ key _not-found]
+    (reject-lookup-default! key))
+
   clojure.lang.IDeref
   (deref [this]
     (decoded this))

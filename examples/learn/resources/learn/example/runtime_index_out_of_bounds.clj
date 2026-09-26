@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- foo :u8 [[text [:slice-const :u8]]]
-  (az/index text 5))
+  (az/get text 5))
 
 (az/defn main :void []
   (let [byte (foo "hello")]

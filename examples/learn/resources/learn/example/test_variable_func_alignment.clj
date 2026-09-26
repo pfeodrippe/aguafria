@@ -16,7 +16,7 @@
         aligned-slice (k/as array-pointer [:pointer {:align 4, :size :slice} :u8])
         ordinary-slice (k/as aligned-slice [:slice :u8])]
     ;; Coercion may weaken an alignment guarantee without changing the data.
-    (try (testing/expectEqual 100 (az/index ordinary-slice 0)))))
+    (try (testing/expectEqual 100 (az/get ordinary-slice 0)))))
 
 (az/defn derp :i32
   {:zig/qualifiers "align(@sizeOf(usize) * 2)"} []

@@ -227,7 +227,7 @@
   :note "The reference's storage-size example; the comparison runs on both sides with the same target."}
 
  "@typeInfo(@TypeOf(ptr)).pointer.alignment"
- {:clojure-source "(az/field (az/field (k/typeInfo (k/TypeOf ptr)) :pointer)\n          :alignment)" :kind :expr
+ {:clojure-source "(az/get-in (k/typeInfo (k/TypeOf ptr)) [:pointer :alignment])" :kind :expr
   :note "The alignment recorded in the surrounding pointer's type information."}
 
  ">= @sizeOf(T)."
@@ -239,7 +239,7 @@
   :note "Reject pointer destination types; pointer casts have dedicated builtins."}
 
  "@typeInfo(T).int.bits"
- {:clojure-source "(az/field (az/field (k/typeInfo T) :int) :bits)" :kind :expr
+ {:clojure-source "(az/get-in (k/typeInfo T) [:int :bits])" :kind :expr
   :note "The integer type's bit width."}
 
  "@workGroupSize(dimension)"
@@ -247,7 +247,7 @@
   :note "GPU work-group size for the selected dimension; requires a GPU execution context."}
 
  "!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1)"
- {:clojure-source "(not (and (k/== (k/typeInfo T) :.int)\n          (az/field T :is_signed)\n          (k/== numerator (aguafria.std.math/minInt T))\n          (k/== denominator -1)))" :kind :expr
+ {:clojure-source "(not (and (k/== (k/typeInfo T) :.int)\n          (:is_signed T)\n          (k/== numerator (aguafria.std.math/minInt T))\n          (k/== denominator -1)))" :kind :expr
   :note "The upstream division-overflow condition, preserved as written. T.is_signed is historical prose syntax, not a valid field on current integer types; current code reads signedness through k/typeInfo. This contextual fragment is not claimed to execute."}
 
  "a * b"
@@ -263,27 +263,27 @@
   :note "Shift a left by b bits."}
 
  "a[i]"
- {:clojure-source "(az/index a i)" :kind :expr
+ {:clojure-source "(az/get a i)" :kind :expr
   :note "Index the surrounding sequence a."}
 
  "b[i]"
- {:clojure-source "(az/index b i)" :kind :expr
+ {:clojure-source "(az/get b i)" :kind :expr
   :note "Index the surrounding sequence b."}
 
  "pred[i]"
- {:clojure-source "(az/index pred i)" :kind :expr
+ {:clojure-source "(az/get pred i)" :kind :expr
   :note "Read the predicate lane at index i."}
 
  "allocator.alloc"
- {:clojure-source "(az/field allocator :alloc)" :kind :expr
+ {:clojure-source "(:alloc allocator)" :kind :expr
   :note "The surrounding allocator's allocation method; not a global allocator instance."}
 
  "allocator.create"
- {:clojure-source "(az/field allocator :create)" :kind :expr
+ {:clojure-source "(:create allocator)" :kind :expr
   :note "The surrounding allocator's single-item allocation method."}
 
  "arena.deinit()"
- {:clojure-source "((az/field arena :deinit))" :kind :expr
+ {:clojure-source "((:deinit arena))" :kind :expr
   :note "Release all allocations owned by the surrounding arena."}
 
  "denominator != 0"
@@ -331,31 +331,31 @@
   :note "The original bit pattern interpreted as unsigned u8."}
 
  "log2(@typeInfo(@TypeOf(a)).int.bits)"
- {:clojure-source "(log2 (az/field (az/field (k/typeInfo (k/TypeOf a)) :int)\n                :bits))" :kind :expr
+ {:clojure-source "(log2 (az/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
   :note "A mathematical bound on the shift count's bit width. log2 names the operation in prose, not a newly provided function."}
 
  "log2(@typeInfo(T).int.bits)"
- {:clojure-source "(log2 (az/field (az/field (k/typeInfo T) :int) :bits))" :kind :expr
+ {:clojure-source "(log2 (az/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
   :note "A mathematical bound in the surrounding shift discussion; log2 is contextual notation."}
 
  "options.linkage"
- {:clojure-source "(az/field options :linkage)" :kind :expr
+ {:clojure-source "(:linkage options)" :kind :expr
   :note "The linkage field in the surrounding export options."}
 
  "ptr_to_struct.*.struct_member"
- {:clojure-source "(az/field @ptr-to-struct :struct_member)" :kind :expr
+ {:clojure-source "(:struct_member @ptr-to-struct)" :kind :expr
   :note "Explicitly dereference a struct pointer, then access its member."}
 
  "ptr_to_struct_array[index].struct_member"
- {:clojure-source "(az/field (az/index ptr-to-struct-array index) :struct_member)" :kind :expr
+ {:clojure-source "(az/get-in ptr-to-struct-array [index :struct_member])" :kind :expr
   :note "Index a pointer to structs, then read the selected struct's member."}
 
  "shift_amt >= @typeInfo(@TypeOf(a)).int.bits"
- {:clojure-source "(>= shift-amt\n    (az/field (az/field (k/typeInfo (k/TypeOf a)) :int) :bits))" :kind :expr
+ {:clojure-source "(>= shift-amt\n    (az/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
   :note "Check whether the shift amount reaches the operand's bit width."}
 
  "shift_amt >= @typeInfo(T).int.bits"
- {:clojure-source "(>= shift-amt (az/field (az/field (k/typeInfo T) :int) :bits))" :kind :expr
+ {:clojure-source "(>= shift-amt (az/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
   :note "Check whether the shift amount reaches T's bit width."}
 
  "~@as(i32, 0)"

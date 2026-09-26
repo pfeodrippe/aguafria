@@ -10,7 +10,7 @@
   (let [architecture (-> builtin/target
                          target/-cpu
                          cpu/-arch)]
-    ((az/field architecture :endian))))
+    ((:endian architecture))))
 
 (az/defstruct Full {:layout :packed}
   [[:number :u16]])
@@ -25,18 +25,18 @@
         divided (k/as (k/bitCast full) Divided)
         ordered (k/as (k/bitCast full) [:array 2 :u8])]
     ;; Packed fields follow bit positions; array elements follow native byte order.
-    (try (testing/expectEqual 0x34 (az/field divided :half1)))
-    (try (testing/expectEqual 0x2 (az/field divided :quarter3)))
-    (try (testing/expectEqual 0x1 (az/field divided :quarter4)))
+    (try (testing/expectEqual 0x34 (:half1 divided)))
+    (try (testing/expectEqual 0x2 (:quarter3 divided)))
+    (try (testing/expectEqual 0x1 (:quarter4 divided)))
     (az/switch-stmt native-endian
       (case [:.big]
         (do
-          (try (testing/expectEqual 0x12 (az/index ordered 0)))
-          (try (testing/expectEqual 0x34 (az/index ordered 1)))))
+          (try (testing/expectEqual 0x12 (az/get ordered 0)))
+          (try (testing/expectEqual 0x34 (az/get ordered 1)))))
       (case [:.little]
         (do
-          (try (testing/expectEqual 0x34 (az/index ordered 0)))
-          (try (testing/expectEqual 0x12 (az/index ordered 1))))))))
+          (try (testing/expectEqual 0x34 (az/get ordered 0)))
+          (try (testing/expectEqual 0x12 (az/get ordered 1))))))))
 
 (az/deftest bit-cast-between-packed-structs-test
   (try (doTheTest))

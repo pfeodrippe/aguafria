@@ -9,16 +9,16 @@
         next-index (k/var 0 :usize)
         candidate (k/var 2 :i32)]
     (az/while-loop {:continue (az/assign-expr "+=" candidate 1)}
-      (k/< next-index (az/field prime-list :len))
+      (k/< next-index (:len prime-list))
       (let [divisor-index (k/var 0 :usize)
             prime? (k/var true)]
         (az/while-loop {:continue (az/assign-expr "+=" divisor-index 1)}
           (k/< divisor-index next-index)
-          (when (k/== (k/% candidate (az/index prime-list divisor-index)) 0)
+          (when (k/== (k/% candidate (az/get prime-list divisor-index)) 0)
             (k/= prime? false)
             (k/break)))
         (when prime?
-          (k/= (az/index prime-list next-index) candidate)
+          (k/= (az/get prime-list next-index) candidate)
           (k/+= next-index 1))))
     prime-list))
 

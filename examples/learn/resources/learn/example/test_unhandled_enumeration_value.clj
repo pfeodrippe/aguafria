@@ -7,10 +7,10 @@
    :on])
 
 (az/deftest missing-enum-prong-test
-  (let [color (az/field Color :off)]
+  (let [color (:off Color)]
     (az/switch-stmt color
-      (case [(az/field Color :auto)] (az/block))
-      (case [(az/field Color :on)] (az/block)))))
+      (case [(:auto Color)] (az/block))
+      (case [(:on Color)] (az/block)))))
 
 (comment
   (missing-enum-prong-test))

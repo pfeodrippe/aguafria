@@ -96,9 +96,9 @@
         curvature (/ (math/tan steering) wheelbase)
         next-yaw (+ yaw (* distance curvature))]
     (if (< (ak/abs curvature) 0.00001)
-      (az/array-init [(+ (az/field body x) (* distance (math/cos yaw)))
+      (az/init [(+ (az/field body x) (* distance (math/cos yaw)))
          (+ (az/field body y) (* distance (math/sin yaw))) next-yaw] [:array 3 :f32])
-      (az/array-init [(+ (az/field body x) (/ (- (math/sin next-yaw) (math/sin yaw)) curvature))
+      (az/init [(+ (az/field body x) (/ (- (math/sin next-yaw) (math/sin yaw)) curvature))
          (- (az/field body y) (/ (- (math/cos next-yaw) (math/cos yaw)) curvature))
          next-yaw] [:array 3 :f32]))))
 

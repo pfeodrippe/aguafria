@@ -7,7 +7,7 @@
   {:attrs #{k/export}}
   [[argc :c_int] [argv [:many-const [:sentinel-const :u8 0]]]]
   (let [args (az/slice argv 0 (k/intCast argc))]
-    (debug/print "Hello! argv[0] is '{s}'\n" [(az/index args 0)])
+    (debug/print "Hello! argv[0] is '{s}'\n" [(az/get args 0)])
     0))
 
 (comment

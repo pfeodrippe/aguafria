@@ -4,8 +4,7 @@
 
 ;; The compiler marks this helper as non-inline in LLVM IR.
 (az/defn- record-error-return :void [[trace [:* StackTrace]]]
-  (k/= (az/index (az/field trace :instruction_addresses)
-                  (az/field trace :index))
+  (k/= (az/get-in trace [:instruction_addresses (:index trace)])
         (k/returnAddress))
-  (k/= (az/field trace :index)
-        (k/% (k/+ (az/field trace :index) 1) N)))
+  (k/= (:index trace)
+        (k/% (k/+ (:index trace) 1) N)))

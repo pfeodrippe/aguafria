@@ -11,7 +11,7 @@
     ;; The constructor supplies S as the initializer's result type.
     ;; intCast's result type is u32 because that is the type of S.x.
     ;; value has no result type: the cast accepts any integer type.
-    (try (testing/expectEqual (k/as 123 :u32) (az/field result :x)))))
+    (try (testing/expectEqual (k/as 123 :u32) (:x result)))))
 
 (comment
   (struct-initializer-result-type-test))

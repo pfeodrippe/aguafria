@@ -16,22 +16,22 @@
      (Vec3 {:x x :y y :z z}))
    (az/fn dot :f32
      [[self Vec3] [other Vec3]]
-     (k/+ (k/* (az/field self :x) (az/field other :x))
-        (k/* (az/field self :y) (az/field other :y))
-        (k/* (az/field self :z) (az/field other :z))))])
+     (k/+ (k/* (:x self) (:x other))
+        (k/* (:y self) (:y other))
+        (k/* (:z self) (:z other))))])
 
 (az/deftest dot-product-test
-  (let [horizontal ((az/field Vec3 :init) 1.0 0.0 0.0)
-        vertical ((az/field Vec3 :init) 0.0 1.0 0.0)]
-    (try (testing/expectEqual 0.0 ((az/field horizontal :dot) vertical)))
+  (let [horizontal ((:init Vec3) 1.0 0.0 0.0)
+        vertical ((:init Vec3) 0.0 1.0 0.0)]
+    (try (testing/expectEqual 0.0 ((:dot horizontal) vertical)))
     ;; Method syntax and the equivalent namespaced function call are identical.
-    (try (testing/expectEqual 0.0 ((az/field Vec3 :dot) horizontal vertical)))))
+    (try (testing/expectEqual 0.0 ((:dot Vec3) horizontal vertical)))))
 
 (az/defstruct Empty
   [[:PI {:const 3.14} :_]])
 
 (az/deftest namespaced-constant-test
-  (try (testing/expectEqual 3.14 (az/field Empty :PI)))
+  (try (testing/expectEqual 3.14 (:PI Empty)))
   (try (testing/expectEqual 0 (k/sizeOf Empty)))
   (let [empty (Empty {})]
     (k/= :_ empty)))
@@ -39,12 +39,12 @@
 (az/defn setYBasedOnX :void
   [[x-pointer [:* :f32]] [y :f32]]
   (let [point (k/as (k/fieldParentPtr "x" x-pointer) [:* Point])]
-    (k/= (az/field point :y) y)))
+    (k/= (:y point) y)))
 
 (az/deftest field-parent-pointer-test
   (let [point (k/var (Point {:x 0.1234 :y 0.5678}))]
-    (setYBasedOnX (k/& (az/field point :x)) 0.9)
-    (try (testing/expectEqual 0.9 (az/field point :y)))))
+    (setYBasedOnX (k/& (:x point)) 0.9)
+    (try (testing/expectEqual 0.9 (:y point)))))
 
 (az/defn LinkedList :type [[T {:attrs #{k/comptime}} :type]]
   (az/struct
@@ -61,12 +61,12 @@
   (try (testing/expectEqual (LinkedList (az/type :i32)) (LinkedList (az/type :i32))))
   (let [empty-list (az/init {:first nil :last nil :len 0} (LinkedList (az/type :i32)))
         ListOfInts (LinkedList (az/type :i32))]
-    (try (testing/expectEqual 0 (az/field empty-list :len)))
+    (try (testing/expectEqual 0 (:len empty-list)))
     (try (testing/expectEqual (LinkedList (az/type :i32)) ListOfInts))
-    (let [node (k/var (az/init {:prev nil :next nil :data 1234} (az/field ListOfInts :Node)))
+    (let [node (k/var (az/init {:prev nil :next nil :data 1234} (:Node ListOfInts)))
           list (az/init {:first (k/& node) :last (k/& node) :len 1} (LinkedList (az/type :i32)))]
       ;; Pointer field access dereferences automatically.
-      (try (testing/expectEqual 1234 (az/field (az/unwrap (az/field list :first)) :data))))))
+      (try (testing/expectEqual 1234 (:data (az/unwrap (:first list))))))))
 
 (comment
   (dot-product-test)

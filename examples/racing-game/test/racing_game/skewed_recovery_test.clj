@@ -102,7 +102,7 @@
           (physics/drive! other 0.0 1.0 0.0)
           (physics/step! world)))))
     (let [final (driver/follow car 8.0 -3.75)]
-      (az/array-init [(* 4309.0 (- (az/field final progress) start)) lane up reverse-travel
+      (az/init [(* 4309.0 (- (az/field final progress) start)) lane up reverse-travel
          (ak/as (ak/floatFromInt phases) :f32) (az/field final speed)] [:array 6 :f32]))))
 
 (deftest skewed-wreck-clearance-test

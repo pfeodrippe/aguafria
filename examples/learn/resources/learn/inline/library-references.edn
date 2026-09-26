@@ -4,7 +4,7 @@
   :note "The standard test allocator; allocations still need their normal cleanup."}
 
  "@import(\"builtin\").is_test"
- {:clojure-source "(az/field (k/import \"builtin\") :is_test)"
+ {:clojure-source "(:is_test (k/import \"builtin\"))"
   :kind :expr
   :note "Whether the current native compilation is a test build."}
 
@@ -115,7 +115,7 @@
   :note "The floating-point optimization mode enum."}
 
  "@import(\"builtin\").single_threaded"
- {:clojure-source "(az/field (k/import \"builtin\") :single_threaded)"
+ {:clojure-source "(:single_threaded (k/import \"builtin\"))"
   :kind :expr
   :note "Whether this native compilation assumes single-threaded execution."}
 
@@ -180,7 +180,7 @@
   :note "The standard library's multithreaded allocator instance."}
 
  "std.ArrayList(T).items"
- {:clojure-source "(az/field (aguafria.std/ArrayList T) :items)"
+ {:clojure-source "(:items (aguafria.std/ArrayList T))"
   :kind :expr
   :note "Preserves the reference's contextual field notation for ArrayList(T). T is supplied by context; ordinary program code accesses :items on an initialized list value, not as an independently executable type-field expression."}
 

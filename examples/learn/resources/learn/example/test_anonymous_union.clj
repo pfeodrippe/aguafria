@@ -15,8 +15,8 @@
 (az/deftest anonymous-union-literal-test
   (let [integer (Number {:int 42})
         floating (make-number)]
-    (try (testing/expectEqual 42 (az/field integer :int)))
-    (try (testing/expectEqual 12.34 (az/field floating :float)))))
+    (try (testing/expectEqual 42 (:int integer)))
+    (try (testing/expectEqual 12.34 (:float floating)))))
 
 (comment
   (anonymous-union-literal-test))

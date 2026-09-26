@@ -32,23 +32,23 @@
   :note "One is less than or equal to two."}
 
  "a ++ b"
- {:clojure-source "(az/op \"++\" a b)"
+ {:clojure-source "(k/++ a b)"
   :kind :expr
   :note "Concatenate arrays whose lengths are known at compile time."}
 
  "const mem = @import(\"std\").mem;\nconst array1 = [_]u32{1,2};\nconst array2 = [_]u32{3,4};\nconst together = array1 ++ array2;\nmem.eql(u32, &together, &[_]u32{1,2,3,4})"
- {:clojure-source "(let [mem (az/field (k/import \"std\") :mem)\n      array1 (az/array-init [1 2] [:array :_ :u32])\n      array2 (az/array-init [3 4] [:array :_ :u32])\n      together (az/op \"++\" array1 array2)]\n  ((az/field mem :eql) :u32\n    (k/& together)\n    (k/& (az/array-init [1 2 3 4] [:array :_ :u32]))))"
+ {:clojure-source "(let [mem (:mem (k/import \"std\"))\n      array1 (az/array [1 2] :u32)\n      array2 (az/array [3 4] :u32)\n      together (k/++ array1 array2)]\n  ((:eql mem) :u32\n    (k/& together)\n    (k/& (az/array [1 2 3 4] :u32))))"
   :kind :expr
   :standalone? true
   :note "Import std.mem locally and compare the concatenated array element by element."}
 
  "a ** b"
- {:clojure-source "(az/op \"**\" a b)"
+ {:clojure-source "(k/** a b)"
   :kind :expr
   :note "Repeat an array; its length and the repetition count must be comptime-known."}
 
  "const mem = @import(\"std\").mem;\nconst pattern = \"ab\" ** 3;\nmem.eql(u8, pattern, \"ababab\")"
- {:clojure-source "(let [mem (az/field (k/import \"std\") :mem)\n      pattern (az/op \"**\" \"ab\" 3)]\n  ((az/field mem :eql) :u8 pattern \"ababab\"))"
+ {:clojure-source "(let [mem (:mem (k/import \"std\"))\n      pattern (k/** \"ab\" 3)]\n  ((:eql mem) :u8 pattern \"ababab\"))"
   :kind :expr
   :standalone? true
   :note "Repeat the string three times and check its bytes with std.mem.eql."}
@@ -70,12 +70,12 @@
   :note "Obtain a single-item pointer to a."}
 
  "a || b"
- {:clojure-source "(az/op \"||\" a b)"
+ {:clojure-source "(k/|| a b)"
   :kind :expr
   :note "Merge two error set types."}
 
  "const A = error{One};\nconst B = error{Two};\n(A || B) == error{One, Two}"
- {:clojure-source "(let [A (az/type [:error-set [:One]])\n      B (az/type [:error-set [:Two]])]\n  (k/== (az/op \"||\" A B)\n      (az/type [:error-set [:One :Two]])))"
+ {:clojure-source "(let [A (az/type [:error-set [:One]])\n      B (az/type [:error-set [:Two]])]\n  (k/== (k/|| A B)\n      (az/type [:error-set [:One :Two]])))"
   :kind :expr
   :standalone? true
   :note "Merging error sets produces the set containing both error names."}
@@ -172,7 +172,7 @@
   :note "Many-item pointer; unlike a slice, it carries no length."}
 
  "ptr[i]"
- {:clojure-source "(az/index ptr i)"
+ {:clojure-source "(az/get ptr i)"
   :kind :expr
   :note "Index a many-item pointer."}
 
@@ -202,7 +202,7 @@
   :note "A single-item pointer whose target is an N-element array."}
 
  "array_ptr[i]"
- {:clojure-source "(az/index array_ptr i)"
+ {:clojure-source "(az/get array_ptr i)"
   :kind :expr
   :note "Array pointers support direct element indexing."}
 
@@ -212,7 +212,7 @@
   :note "Slice the array addressed by array_ptr."}
 
  "array_ptr.len"
- {:clojure-source "(az/field array_ptr :len)"
+ {:clojure-source "(:len array_ptr)"
   :kind :expr
   :note "The pointed-to array's length is part of its type."}
 
@@ -227,7 +227,7 @@
   :note "A slice pairs a many-item pointer with a runtime-known length."}
 
  "slice[i]"
- {:clojure-source "(az/index slice i)"
+ {:clojure-source "(az/get slice i)"
   :kind :expr
   :note "Index a slice with bounds checking in safety-enabled modes."}
 
@@ -237,7 +237,7 @@
   :note "Take a subslice over a half-open index range."}
 
  "slice.len"
- {:clojure-source "(az/field slice :len)"
+ {:clojure-source "(:len slice)"
   :kind :expr
   :note "Read the number of elements in a slice."}
 

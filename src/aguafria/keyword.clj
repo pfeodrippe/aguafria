@@ -141,7 +141,8 @@
 
 (defn- reader-token
   [token]
-  (assoc (select-keys token [:kind :minimum-param-count :name :param-count :zig-token])
+  (assoc (select-keys token [:kind :minimum-param-count :name :param-count :zig-token
+                             :literal-arguments?])
          :symbol (symbol "aguafria.keyword" (:name token))))
 
 (defn- language-token
@@ -387,7 +388,7 @@
     (intern-token!
      token
      {:aguafria/token token
-      :arglists (parameter-arglists entry)
+      :arglists (clojure.core/or (:arglists entry) (parameter-arglists entry))
       :doc (reader-token-doc entry)
       :zig/name (:zig-token entry)
       :zig/param-count (:param-count entry)

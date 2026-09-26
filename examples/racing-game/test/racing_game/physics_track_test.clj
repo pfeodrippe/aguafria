@@ -69,7 +69,7 @@
             delta (- (az/field b heading) (az/field a heading))
             k (ak/abs (math/atan2 (math/sin delta) (math/cos delta)))]
         (when (> k curvature) (ak/= curvature k) (ak/= location d))))
-    (az/array-init [location curvature] [:array 2 :f32])))
+    (az/init [location curvature] [:array 2 :f32])))
 
 (az/defvar lap-trace [:array 360 [:array 11 :f32]] ak/undefined)
 
@@ -86,7 +86,7 @@
             finish (+ middle (az/field plan length))
             end (driver/lane-plan-state (ak/& plan) finish)]
         (driver/update-lane-plan! (ak/& plan) (+ finish 1.0) -3.75 70.0 -3.75)
-        (az/array-init [(az/index before 0) (az/index after 0)
+        (az/init [(az/index before 0) (az/index after 0)
            (az/index before 1) (az/index after 1)
            (az/index before 2) (az/index after 2)
            (az/index end 0) (az/index end 1) (az/index end 2)
@@ -179,7 +179,7 @@
                                             :else delta))))))
           (when (and (< tick 43200) (ak/== (mod tick 120) 0))
             (ak/= (az/index lap-trace (ak/divTrunc tick 120))
-                  (az/array-init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
+                  (az/init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
                     progress (az/field control lane) (az/field control speed)
                     (az/field control throttle) (az/field control brake) (az/field control steering)
                     (- 1.0 (* 2.0 (+ (* (az/field state qx) (az/field state qx))

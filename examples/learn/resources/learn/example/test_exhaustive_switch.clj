@@ -9,7 +9,7 @@
    :on])
 
 (az/deftest exhaustive-enum-switch-test
-  (let [color (az/field Color :off)
+  (let [color (:off Color)
         disabled (k/switch color
                    (case [:.auto] false)
                    (case [:.on] false)

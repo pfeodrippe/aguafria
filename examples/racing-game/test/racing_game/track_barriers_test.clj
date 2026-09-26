@@ -57,7 +57,7 @@
         (ak/= maximum-lane (ak/max maximum-lane (* 50.0 (ak/abs (az/field projection lane)))))
         (ak/= minimum-z (ak/min minimum-z (az/field state z)))))
     (let [state (physics/body-state body)]
-      (az/array-init [(ak/floatFromInt hits) maximum-lane minimum-z
+      (az/init [(ak/floatFromInt hits) maximum-lane minimum-z
          (ak/sqrt (+ (* (az/field state vx) (az/field state vx))
                       (* (az/field state vy) (az/field state vy))))] [:array 4 :f32]))))
 

@@ -5,9 +5,9 @@
 
 (az/deftest labeled-break-test
   (let [y (k/var 123 :i32)
-        x (az/labeled-block blk
+        x (az/with-block :blk
             (k/+= y 1)
-            (k/break blk y))]
+            (k/break :blk y))]
     (try (testing/expectEqual 124 x))
     (try (testing/expectEqual 124 y))))
 

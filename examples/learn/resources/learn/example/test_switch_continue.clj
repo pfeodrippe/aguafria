@@ -8,7 +8,7 @@
                             (k/continue sw 4))
 
     ;; `continue` can occur multiple times within a single switch prong.
-                          (case [(az/op "..." 2 4)] [value]
+                          (case [(k/... 2 4)] [value]
                             (az/block
                               (if (k/> value 3)
                                 (k/continue sw 2)

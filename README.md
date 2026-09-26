@@ -190,7 +190,13 @@ introduce a second runtime abstraction:
 | `(az/index values i)` | `values[i]` |
 | `(Point {:x 1.0 :y 2.0})` | typed struct literal |
 | `(az/init {:x 1.0 :y 2.0} Point)` | explicit value-first struct initializer |
-| `(az/array-init [4 5 6] [:array :_ :u32])` | typed array initializer with inferred length |
+| `(az/array [4 5 6] :u32)` | typed array initializer with inferred length |
+| `(az/init [1 2] [:array-sentinel :_ 0 :u8])` | initializer with an explicit type schema |
+| `(k/++ left right)` / `(k/** values 3)` | native array concatenation / repetition |
+| `(az/with-block :result (k/break :result 42))` | labeled block returning a value; keyword labels are not variables |
+| `(az/get point :x)` / `(az/get points i)` | native field or indexed element access |
+| `(az/get-in points [4 :x])` | nested native access through a literal vector of indices and fields |
+| `(:x point)` / `(-> point :x)` | keyword field access, equivalent to `az/field` in native code and on JVM native handles; no default-value argument |
 | `ak/...` | Zig operators, keywords, and `@builtins`; value calls also use the native JVM bridge |
 
 For example:
@@ -405,6 +411,70 @@ Print a declaration or value as Zig with the pinned Zig formatter:
 to capture it. Pass a Var (`#'name`) or a quoted symbol for a declaration.
 A plain JVM literal cannot identify the constant it originally came from.
 This prints source; it does not execute the inspected declaration.
+
+### Native loop bindings
+
+`k/for` takes a flat vector of capture/input pairs. Inputs advance in parallel
+(Zig's zipped iteration), not Clojure `for`'s nested iteration:
+
+```clojure
+(k/for [(k/* item) (k/& some-integers)
+        index (az/range 0)]
+  (k/= @item (k/intCast index)))
+```
+
+`(k/* item)` is a pointer capture in this binding position only; elsewhere `k/*`
+is multiplication and needs at least two operands. `(az/range start)` emits an
+open-ended `start..`, while `(az/range start end)` excludes `end`. These loops
+also execute natively when evaluated directly on the JVM. Use typed native
+arrays/slices for runtime iteration; heterogeneous tuples require inline loops.
+The former nested `[[capture input] ...]` binding layout is rejected.
+
+### Discover fields and functions
+
+`az/describe` returns ordinary Clojure data about a native value, type constructor,
+or Var. It uses Zig's type reflection, including specialized generic types:
+
+```clojure
+(select-keys (az/describe message) [:type :kind :fields])
+;; For a [5]u8 array:
+;; {:type "[5]u8", :kind :array,
+;;  :fields [{:name :len, :type "usize"}]}
+
+(let [description (az/describe (std/ArrayList :u21))]
+  (:fields description)     ;; items: []u21; capacity: usize
+  (:functions description)) ;; append, deinit, initCapacity, ... with signatures
+```
+
+`:members` lists public container declarations; `:functions`, `:constants`,
+`:variables`, and `:types` group them by declaration kind. Zig methods are
+functions with receiver parameters, so their signatures appear in `:functions`
+alongside static functions. `:fields` describes instance fields separately.
+Constants and variables are identified without reading their values.
+
+Entries include documentation when available. Prepared accessor/function Vars
+appear as qualified symbols under `:accessor` / `:var`, for example
+`aguafria.std.ArrayList/-items` and `aguafria.std.ArrayList/append`. Resolve those
+symbols to call them, or use `(az/field receiver :member)` directly.
+
+Inspection does not read field contents, dereference receiver pointers, or call
+the discovered functions. The first inspection of a type may compile a native
+reflection adapter; subsequent calls reuse it. Zig reflection exposes public
+container declarations, not private methods. Describing an unspecialized generic
+accessor Var reports `:requires-receiver? true`; describe an actual receiver or
+specialized type to get its concrete member signatures. A plain JVM scalar has
+lost its original declaration identity; pass its Var to retain the declared Zig
+type and documentation.
+
+Directly describing a private declaration's Var/function value reflects inside
+its defining module; it does not change the declaration's visibility. Listing a
+container's members still follows Zig's public-declaration reflection rules.
+
+A byte array and a string literal retain different native types. For example,
+`[5]u8` decodes to `[104 101 108 108 111]`, while the literal `"hello"` has type
+`*const [5:0]u8` and prints as a pointer. Pointer printing does not implicitly
+dereference it. For a known-valid literal pointer, `(az/deref same-message)`
+reads its array and `(az/slice same-message 0 5)` returns `"hello"`.
 
 The converter translates a Zig file or tree into formatted Clojure namespaces
 made from Aguafria declarations. It does not rely on `az/defraw`. The resulting

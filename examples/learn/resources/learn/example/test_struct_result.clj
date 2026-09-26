@@ -7,8 +7,8 @@
 (az/deftest anonymous-struct-literal-test
   ;; The constructor supplies the type of the anonymous literal.
   (let [point (Point {:x 13 :y 67})]
-    (try (testing/expectEqual 13 (az/field point :x)))
-    (try (testing/expectEqual 67 (az/field point :y)))))
+    (try (testing/expectEqual 13 (:x point)))
+    (try (testing/expectEqual 67 (:y point)))))
 
 (comment
   (anonymous-struct-literal-test))

@@ -51,7 +51,7 @@
 (az/defn- shift-left-one :u32
   {:attrs #{k/inline}}
   [[value :u32]]
-  (az/op "<<" value 1))
+  (k/<< value 1))
 
 ;; Public visibility allows another file to import and call this function.
 (az/defn sub2 :i8

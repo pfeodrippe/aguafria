@@ -11,7 +11,7 @@
     (debug/print "value: {}\n" [casted-error])))
 
 (az/defn main :void []
-  (foo (az/field Set1 :B)))
+  (foo (:B Set1)))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

@@ -5,10 +5,10 @@
 
 (az/defn- type-name-length :usize
   [[T {:attrs #{k/comptime}} :type]]
-  (az/field (k/typeName T) :len))
+  (:len (k/typeName T)))
 
 (az/deftest inline-for-test
-  (let [numbers (az/array-init [2 4 6] [:array :_ :i32])
+  (let [numbers (az/array [2 4 6] :i32)
         sum (k/var 0 :usize)]
     (az/inline-for [number numbers]
       (let [T (k/switch number

@@ -6,7 +6,7 @@
 
 (az/defn- do-a-thing :void [[text [:slice :u8]]]
   (let [number (catch (parsing/parseU64 text 10)
-                      (az/labeled-block fallback
-                                        ;; Recovery work can run before yielding the fallback.
-                        (break fallback 13)))]
+                   (az/with-block :fallback
+                     ;; Recovery work can run before yielding the fallback.
+                     (k/break :fallback 13)))]
     (k/= :_ number)))

@@ -5,7 +5,7 @@
 
 (az/defn main :void
   []
-  (let [digits (az/array-init [3 8 9 0 7 4 1] [:array :_ :i8])
+  (let [digits (az/array [3 8 9 0 7 4 1] :i8)
         [minimum maximum]
         (let [smallest (k/var 127 :i8)
               largest (k/var -128 :i8)]

@@ -9,7 +9,7 @@
         y (k/var k/undefined :u32)
         z (k/var k/undefined :u32)
         tuple [1 2 3]
-        numbers (az/array-init [4 5 6] [:array :_ :u32])
+        numbers (az/array [4 5 6] :u32)
         lanes (k/as [7 8 9] [:vector 3 :u32])]
     ;; A vector target assigns existing bindings; it does not declare new ones.
     (k/= [x y z] tuple)

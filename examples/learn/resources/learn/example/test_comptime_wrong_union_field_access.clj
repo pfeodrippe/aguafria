@@ -9,4 +9,4 @@
 
 (az/defcomptime reject-inactive-field
   (let [value (k/var (Foo {:int 42}))]
-    (k/= (az/field value :float) 12.34)))
+    (k/= (:float value) 12.34)))

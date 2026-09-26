@@ -5,10 +5,10 @@
             [aguafria.zig :as az]))
 
 (az/defn main [:error-union :void] []
-  (let [arena (k/var ((az/field heap/ArenaAllocator :init) heap/page_allocator))]
-    (k/defer ((az/field arena :deinit)))
-    (let [allocator ((az/field arena :allocator))
-          pointer (try ((az/field allocator :create) :i32))]
+  (let [arena (k/var ((:init heap/ArenaAllocator) heap/page_allocator))]
+    (k/defer ((:deinit arena)))
+    (let [allocator ((:allocator arena))
+          pointer (try ((:create allocator) :i32))]
       (debug/print "ptr={*}\n" [pointer]))))
 
 (comment

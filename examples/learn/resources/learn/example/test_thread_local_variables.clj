@@ -18,8 +18,8 @@
   (let [first-thread (try (thread/spawn {} testTls []))
         second-thread (try (thread/spawn {} testTls []))]
     (testTls)
-    ((az/field first-thread :join))
-    ((az/field second-thread :join))))
+    ((:join first-thread))
+    ((:join second-thread))))
 
 (comment
   (thread-local-storage-test))

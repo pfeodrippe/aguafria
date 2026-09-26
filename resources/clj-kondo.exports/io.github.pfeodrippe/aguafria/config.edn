@@ -1,7 +1,10 @@
 {:min-clj-kondo-version "2023.04.14"
  :hooks
  {:analyze-call
-  {aguafria.zig/defn hooks.aguafria/function-declaration
+  {aguafria.keyword/for hooks.aguafria/native-for
+   aguafria.zig/with-block hooks.aguafria/native-block
+   aguafria.zig/inline-for hooks.aguafria/native-for
+   aguafria.zig/defn hooks.aguafria/function-declaration
    aguafria.zig/defn- hooks.aguafria/function-declaration
    aguafria.zig/defconst hooks.aguafria/top-level-declaration
    aguafria.zig/defvar hooks.aguafria/top-level-declaration

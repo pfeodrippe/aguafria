@@ -4,7 +4,8 @@
   Require this namespace as `az`. Declaration macros capture their bodies;
   the bodies are emitted as Zig. Explicit `clj!` escapes evaluate Clojure while
   preparing a declaration, before native compilation."
-  (:refer-clojure :exclude [cast defn defn- defstruct struct])
+  (:refer-clojure :exclude [cast comment defn defn- defstruct deref destructure
+                            fn get get-in range struct type])
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
@@ -12,17 +13,6 @@
             [aguafria.zig.value :as value]
             [clojure.java.shell :as shell]
             [clojure.string :as str]))
-
-;; A previous REPL load may have interned structural placeholder Vars under
-;; names that are ordinary Clojure forms. Restore those core mappings before
-;; compiling this namespace again; the declaration bodies themselves remain
-;; quoted data and are interpreted by the Zig emitter.
-(clojure.core/doseq [operator '[let when when-not for dotimes case fn]]
-  (clojure.core/when
-   (or (:aguafria/syntax (meta (get (ns-interns *ns*) operator)))
-       (:aguafria/container-function (meta (get (ns-interns *ns*) operator))))
-    (ns-unmap *ns* operator)))
-(refer 'clojure.core :only '[let when when-not for dotimes case fn])
 
 (clojure.core/defn- clj-literal
   [value form]
@@ -32,7 +22,7 @@
     value
 
     (vector? value) (mapv #(clj-literal % form) value)
-    (map? value) (into {} (map (fn [[key item]]
+    (map? value) (into {} (map (clojure.core/fn [[key item]]
                                 [(clj-literal key form) (clj-literal item form)])) value)
     (set? value) (into #{} (map #(clj-literal % form)) value)
 
@@ -110,17 +100,17 @@
     (value/zig-value? target)
     (let [type (value/qualified-type target)
           decoded (value/decoded target)
-          kind (get-in (value/realize! target) [:schema :kind])
+          kind (clojure.core/get-in (value/realize! target) [:schema :kind])
           expression (if (= :error-union kind)
                        (if (contains? decoded :ok)
                          (:ok decoded)
-                         (list 'error-value (keyword (get-in decoded [:error :name]))))
+                         (list 'error-value (keyword (clojure.core/get-in decoded [:error :name]))))
                        decoded)]
       (list 'aguafria.keyword/as (source-value-form expression) type))
     (value/zig-type? target)
     (list 'type ((requiring-resolve 'aguafria.zig.jvm/constructor-type) target))
     (map? target) (into (empty target)
-                       (map (fn [[key item]] [key (source-value-form item)])) target)
+                       (map (clojure.core/fn [[key item]] [key (source-value-form item)])) target)
     (vector? target) (mapv source-value-form target)
     :else target))
 
@@ -168,6 +158,78 @@
 
 (clojure.core/defn module-info "Return inspectable loaded-module information." [module]
   (runtime/module-info module))
+
+(clojure.core/defn- description-owner
+  [target]
+  (let [info (when (value/zig-type? target) (value/type-info target))
+        type (if (value/zig-value? target) (value/qualified-type target) (:type info))
+        reference (cond
+                    (symbol? type) type
+                    (seq? type) (first type)
+                    (and (:module info) (:name info))
+                    (symbol (:module info) (str (:name info))))]
+    (when (and (symbol? reference) (namespace reference)
+               (find-ns (symbol (namespace reference))))
+      (find-var reference))))
+
+(clojure.core/defn- description-member-vars
+  [owner]
+  (when-let [member-ns (when owner
+                        (find-ns (symbol (str (:ns (meta owner)) "." (:name (meta owner))))))]
+    (into {}
+          (keep (clojure.core/fn [[_ v]]
+                  (when-let [ref (:aguafria/zig-reference (meta v))]
+                    (let [member-name (or (:member-name ref)
+                                          (last (str/split (or (:zig-name ref) "") #"\.")))]
+                      [[(boolean (:field-accessor? ref)) member-name] v]))))
+          (ns-publics member-ns))))
+
+(clojure.core/defn- describe-member
+  [docs vars member]
+  (let [field? (nil? (:kind member))
+        member-name (name (:name member))
+        v (clojure.core/get vars [field? member-name])
+        doc (or (clojure.core/get docs member-name) (:doc (meta v)))]
+    (cond-> member
+      doc (assoc :doc doc)
+      v (assoc (if field? :accessor :var)
+               (symbol (str (:ns (meta v))) (str (:name (meta v))))))))
+
+(clojure.core/defn describe
+  "Return native type, fields and public members for a value, type or Var.
+
+  Fields include :name and native :type; :members distinguish :declaration-kind
+  (:function, :type, :const, :var). Callable members include parameter
+  types and :return (nil means generic/unspecified). :functions selects those
+  callable members. Prepared field/function Vars are identified by :accessor
+  and :var symbols when available; otherwise use `(az/field value :name)`.
+  Uses Zig reflection without reading field contents or invoking discovered
+  functions. The first inspection may compile an in-process reflection adapter.
+  Pass a Var to preserve its declared Zig type and docs for plain JVM scalars."
+  [target]
+  (let [description ((requiring-resolve 'aguafria.zig.jvm/describe!) target)
+        root (if (var? target) (var-get target) target)
+        owner (description-owner root)
+        owner-value (when (and owner (bound? owner)) (var-get owner))
+        type-info (cond
+                    (value/zig-type? root) (value/type-info root)
+                    (value/zig-type? owner-value) (value/type-info owner-value))
+        docs (or (:doc (meta target)) (:doc type-info) (:doc (meta owner)))
+        member-docs (into {} (map (clojure.core/fn [member]
+                                   [(emitter/identifier (or (:zig-name member) (:name member)))
+                                    (:doc member)]))
+                          (:members type-info))
+        enrich (partial describe-member member-docs (description-member-vars owner))]
+    (let [members (mapv enrich (:members description))
+          of-kind (clojure.core/fn [kind] (filterv #(= kind (:declaration-kind %)) members))]
+      (cond-> (assoc description
+                     :fields (mapv enrich (:fields description))
+                     :members members
+                     :functions (of-kind :function)
+                     :constants (of-kind :const)
+                     :variables (of-kind :var)
+                     :types (of-kind :type))
+        docs (assoc :doc docs)))))
 
 (clojure.core/defn zig-value?
   "True for an exact native Zig value handle."
@@ -342,7 +404,7 @@
 
 (clojure.core/defn- unavailable-import-reference
   [reference]
-  (fn [& arguments]
+  (clojure.core/fn [& arguments]
     (throw
      (ex-info
       (str (:symbol reference)
@@ -378,10 +440,10 @@
                                 "` from `" import-name "`. Only valid inside "
                                 "an Aguafria declaration.")})))
     (binding [*ns* context-ns]
-      (when-let [old-target (get (ns-aliases context-ns) import-alias)]
+      (when-let [old-target (clojure.core/get (ns-aliases context-ns) import-alias)]
         (when-not (= target-ns old-target)
           (ns-unalias context-ns import-alias)))
-      (when-not (= target-ns (get (ns-aliases context-ns) import-alias))
+      (when-not (= target-ns (clojure.core/get (ns-aliases context-ns) import-alias))
         (alias import-alias target-name)))
     target-ns))
 
@@ -507,7 +569,7 @@
                      (runtime/declaration-info descriptor))
         text (binding [*print-meta* true] (pr-str descriptor))
         size 12000
-        chunks (->> (range 0 (count text) size)
+        chunks (->> (clojure.core/range 0 (count text) size)
                     (mapv #(subs text % (min (count text) (+ % size)))))]
     (if host-expressions
       `(binding [*ns* (the-ns '~(ns-name *ns*))]
@@ -549,7 +611,7 @@
           args (emitter/parse-typed-bindings bindings)
           generic?
           (boolean
-           (some (fn [{:keys [type properties]}]
+           (some (clojure.core/fn [{:keys [type properties]}]
                    (or (= "comptime" (:zig/prefix properties))
                        (contains? #{:anytype 'anytype :type 'type} type)))
                  args))
@@ -830,7 +892,7 @@
             locals (filter referenced (keys environment))]
         `((requiring-resolve 'aguafria.zig.jvm/anonymous-type!)
           '~(ns-name *ns*) '~container
-          (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals)))))))
+          (hash-map ~@(mapcat (clojure.core/fn [local] [(list 'quote local) local]) locals)))))))
 
 (defmacro struct
   "An anonymous Zig struct: (az/struct [[:x :f32] [:y :f32]]).
@@ -1147,20 +1209,19 @@
        (runtime/check-test-definition! descriptor#)
        (runtime/register-declaration! descriptor#)
        (def ~(with-meta name (assoc (meta name) :doc docstring))
-         (fn [] (runtime/run-test! ~(:module descriptor) '~name)))
+         (clojure.core/fn [] (runtime/run-test! ~(:module descriptor) '~name)))
        (alter-meta! (var ~name) assoc
                     :aguafria/declaration descriptor#
                     :aguafria/test true
                     :arglists '([]))
        (var ~name))))
 
-(clojure.core/defn- jvm-syntax-form
-  [operator]
-  (fn [& arguments]
-    ((requiring-resolve 'aguafria.zig.jvm/invoke-syntax!)
-     {:kind :syntax :name operator
-      :symbol (symbol "aguafria.zig" (name operator))}
-     arguments)))
+(clojure.core/defn- invoke-syntax!
+  [operator & arguments]
+  ((requiring-resolve 'aguafria.zig.jvm/invoke-syntax!)
+   {:kind :syntax :name operator
+    :symbol (symbol "aguafria.zig" (name operator))}
+   arguments))
 
 (clojure.core/defn- resolved-declaration
   [symbol]
@@ -1209,10 +1270,37 @@
                     {:assignments assignments})))
   (with-meta
     (cons 'do
-          (map (fn [[target value]]
+          (map (clojure.core/fn [[target value]]
                  (with-meta (list 'set! target value) (meta &form)))
                (partition 2 assignments)))
     (meta &form)))
+
+(defmacro get
+  "Access a native field or element: (az/get point :x), (az/get points index).
+  A literal keyword selects a field; an index expression selects an element.
+  Expands to az/field or az/index and works in native declarations and the JVM.
+  Missing fields and invalid indices are errors, not default-valued lookups."
+  [value key]
+  (with-meta
+    (list (if (keyword? key) 'aguafria.zig/field 'aguafria.zig/index) value key)
+    (meta &form)))
+
+(defmacro get-in
+  "Access a nested native value: (az/get-in points [4 :x]).
+  The path is a literal vector: keywords select fields; other forms are indices.
+  Index expressions may use runtime values. An empty path returns the input.
+  Expands to nested az/get calls, so native code is unchanged and the same
+  expression works from the JVM. Missing fields and invalid indices follow
+  those operations' errors; this is not Clojure map lookup with a default."
+  [value path]
+  (when-not (vector? path)
+    (throw (ex-info "az/get-in requires a literal path vector"
+                    {:form &form :path path})))
+  (reduce (clojure.core/fn [target step]
+            (with-meta
+              (list 'aguafria.zig/get target step)
+              (meta &form)))
+          value path))
 
 (defmacro cast
   "Cast an optional opaque/C pointer to `output-type`, checking alignment.
@@ -1244,36 +1332,53 @@
 ;; and so on) and Zig keyword/operator Vars owned by `ak` stay in their natural
 ;; namespaces.
 (doseq [operator (emitter/syntax-operators)
-        :when (and (not (contains? '#{let when when-not for dotimes case}
+        :when (and (not (contains? '#{let when when-not for dotimes case
+                                     array range with-block}
                                    operator))
                    (not (special-symbol? operator))
                    (or (= operator 'type)
                        (nil? (keyword/token-name (name operator)))))]
-  (when (contains? (ns-map *ns*) operator)
-    (ns-unmap *ns* operator))
   (let [syntax {:kind :syntax
                 :name operator
-                :symbol (symbol "aguafria.zig" (name operator))}
-        v (intern *ns* operator (jvm-syntax-form operator))]
-    (alter-meta! v merge
-                 {:aguafria/syntax syntax
-                  :arglists '([& forms])
-                  :doc (str "Aguafria structural Zig form `" operator
-                            "`. Value expressions also execute through the native JVM "
-                            "bridge; scope-dependent forms need an enclosing declaration.")})))
+                :symbol (symbol "aguafria.zig" (name operator))}]
+    (intern *ns*
+            (with-meta operator
+              {:aguafria/syntax syntax
+               :arglists '([& forms])
+               :doc (str "Aguafria structural Zig form `" operator
+                         "`. Value expressions also execute through the native JVM "
+                         "bridge; scope-dependent forms need an enclosing declaration.")})
+            (partial invoke-syntax! operator))))
 
-(let [v (ns-resolve *ns* 'labeled-block)]
-  (alter-var-root
-   v
-   (constantly
-    (fn [form environment & _]
-      (let [referenced (set (filter symbol? (tree-seq coll? seq form)))
-            locals (filter referenced (keys environment))]
-        `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
-          '~(ns-name *ns*) '~form
-          (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals)) true)))))
-  (alter-meta! v assoc :macro true
-               :doc "A labeled native value block. Its lexical bindings and break targets stay Zig syntax; JVM calls execute the block in process."))
+(clojure.core/defn array
+  "Construct a native array, inferring its length: (az/array [1 2 3] :i32).
+  The second argument is the element type, including nested type schemas.
+  Executes from the JVM too. For explicit lengths, sentinels or vectors,
+  use (az/init elements type)."
+  {:aguafria/syntax '{:kind :syntax :name array :symbol aguafria.zig/array}}
+  [elements element-type]
+  (invoke-syntax! 'array elements element-type))
+
+(clojure.core/defn range
+  "Zig iteration range: start..end, with an exclusive end; omit end for `start..`.
+  Use inside a native loop; this is not a Clojure sequence."
+  {:aguafria/syntax '{:kind :syntax :name range :symbol aguafria.zig/range}}
+  ([start] (invoke-syntax! 'range start))
+  ([start end] (invoke-syntax! 'range start end)))
+
+(defmacro with-block
+  "A scoped, labeled Zig block: (az/with-block :result ... (k/break :result value)).
+  Labels are keywords, not variables. Returns the value of the matching break.
+  Inside Aguafria emits a native labeled block; from the JVM executes the same
+  block in process, capturing lexical values."
+  {:aguafria/syntax '{:kind :syntax :name with-block :symbol aguafria.zig/with-block}}
+  [label & body]
+  (let [referenced (set (filter symbol? (tree-seq coll? seq &form)))
+        locals (filter referenced (keys &env))]
+    `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
+      '~(ns-name *ns*) '~&form
+      (hash-map ~@(mapcat (clojure.core/fn [local] [(list 'quote local) local]) locals))
+      true)))
 
 (clojure.core/defn- container-function-form
   [form name return declaration public?]
@@ -1293,8 +1398,6 @@
                       bindings]
                      body))
       (meta form))))
-
-(ns-unmap *ns* 'fn)
 
 (defmacro ^{:aguafria/container-function true} fn
   "Declare a public container method: (az/fn name return-type [typed-args] body...).

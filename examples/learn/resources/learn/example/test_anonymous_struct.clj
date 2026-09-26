@@ -5,11 +5,11 @@
 
 (az/defn check [:error-union :void]
   [[value :anytype]]
-  (try (testing/expectEqual 1234 (az/field value :int)))
-  (try (testing/expectEqual 12.34 (az/field value :float)))
-  (try (testing/expect (az/field value :b)))
-  (try (testing/expectEqual \h (az/index (az/field value :s) 0)))
-  (try (testing/expectEqual \i (az/index (az/field value :s) 1))))
+  (try (testing/expectEqual 1234 (:int value)))
+  (try (testing/expectEqual 12.34 (:float value)))
+  (try (testing/expect (:b value)))
+  (try (testing/expectEqual \h (az/get-in value [:s 0])))
+  (try (testing/expectEqual \i (az/get-in value [:s 1]))))
 
 (az/deftest fully-anonymous-struct-test
   (try (check {:int (k/as 1234 (az/type :u32))

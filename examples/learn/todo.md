@@ -91,6 +91,13 @@
     - [-] why do need az/defcomptime matching-initializers or az/defcomptime message-length if they aren't labeled in the original? we could use just `(ak/comptime ...)`
     - [x] when we modify message, it complains about `26 |   (debug/assert (mem/eql :u8 (k/& message) same-message)))`
     - [x] add az/clj!
+    - [x] discover callable functions and fields for a value using something like az/describe
+    - [-] when evaluating some-message from the JVM, I just see #aguafria.zig.value.ZigValue[#aguafria/zig-pointer[5079003049 *const [5:0]u8]], while evaluating message give us #aguafria.zig.value.ZigValue[[104 101 108 108 111]]
+      - ok, we can't just deref pointers by default
+    - [x] `modify an array` for improvements
+    - [x] no need for az/array-init, it can be just az/array
+    - [x] (az/defconst all-of-it (az/op "++" part-one part-two)) should be (az/defconst all-of-it (k/++ part-one part-two)), also revisit other usages of az/op where we could have an k/WHATEVER_OP_HERE
+    - [ ] labeled block should be az/with-block
   - [ ] test_multidimensional_arrays.clj
   - [ ] test_null_terminated_array.clj
 

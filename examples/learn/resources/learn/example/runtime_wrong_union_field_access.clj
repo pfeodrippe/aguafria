@@ -9,8 +9,8 @@
      [:int :u32]]))
 
 (az/defn- bar :void [[f [:* Foo]]]
-  (k/= (az/field f :float) 12.34)
-  (debug/print "value: {}\n" [(az/field f :float)]))
+  (k/= (:float f) 12.34)
+  (debug/print "value: {}\n" [(:float f)]))
 
 (az/defn main :void []
   (let [f (k/var (Foo {:int 42}))]

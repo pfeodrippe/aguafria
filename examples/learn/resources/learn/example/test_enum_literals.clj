@@ -10,11 +10,11 @@
 
 (az/deftest enum-literals-test
   (let [inferred (k/as :.auto Color)
-        explicit (az/field Color :auto)]
+        explicit (:auto Color)]
     (try (testing/expectEqual inferred explicit))))
 
 (az/deftest enum-literal-switch-test
-  (let [color (az/field Color :on)
+  (let [color (:on Color)
         enabled (k/switch color
                   (case [:.auto] false)
                   (case [:.on] true)

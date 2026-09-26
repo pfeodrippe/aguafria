@@ -6,9 +6,9 @@
 
 (az/defn- char-to-digit :u8 [[character :u8]]
   (switch character
-    (case [(az/op "..." \0 \9)] (k/- character \0))
-    (case [(az/op "..." \A \Z)] (k/+ (k/- character \A) 10))
-    (case [(az/op "..." \a \z)] (k/+ (k/- character \a) 10))
+    (case [(k/... \0 \9)] (k/- character \0))
+    (case [(k/... \A \Z)] (k/+ (k/- character \A) 10))
+    (case [(k/... \a \z)] (k/+ (k/- character \a) 10))
     (az/case-else (math/maxInt :u8))))
 
 (az/defn parseU64 [:error-union :u64]
@@ -19,12 +19,12 @@
         (when (k/>= digit radix)
           (k/return (az/error-value :InvalidChar)))
         (let [product (k/mulWithOverflow accumulated radix)]
-          (when (k/!= (az/index product 1) 0)
+          (when (k/!= (az/get product 1) 0)
             (k/return (az/error-value :OverFlow)))
-          (let [sum (k/addWithOverflow (az/index product 0) digit)]
-            (when (k/!= (az/index sum 1) 0)
+          (let [sum (k/addWithOverflow (az/get product 0) digit)]
+            (when (k/!= (az/get sum 1) 0)
               (k/return (az/error-value :OverFlow)))
-            (k/= accumulated (az/index sum 0))))))
+            (k/= accumulated (az/get sum 0))))))
     accumulated))
 
 (az/deftest parse-u64-test

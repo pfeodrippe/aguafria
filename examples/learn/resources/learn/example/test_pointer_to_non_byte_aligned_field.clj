@@ -10,7 +10,7 @@
 
 (az/deftest pointer-to-non-byte-aligned-field-test
   ;; Keeping the inferred pointer type retains the sub-byte offset.
-  (let [pointer (k/& (az/field bits :b))]
+  (let [pointer (k/& (:b bits))]
     (try (testing/expectEqual 2 @pointer))))
 
 (comment

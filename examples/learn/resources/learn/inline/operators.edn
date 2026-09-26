@@ -16,7 +16,7 @@
  "-%"
  {:clojure-source "k/-%"
   :kind :reference
-  :note "Wrapping subtraction; use az/op with \"-%\" for unary wrapping negation."}
+  :note "Wrapping subtraction; use k/-% for unary wrapping negation."}
 
  "+|"
  {:clojure-source "k/+|"
@@ -128,12 +128,12 @@
   :note "A negative literal equals subtraction from zero."}
 
  "-%a"
- {:clojure-source "(az/op \"-%\" a)"
+ {:clojure-source "(k/-% a)"
   :kind :expr
   :note "Unary wrapping negation uses the operator form."}
 
  "-%@as(i8, -128) == -128"
- {:clojure-source "(k/== (az/op \"-%\" (k/as -128 :i8)) -128)"
+ {:clojure-source "(k/== (k/-% (k/as -128 :i8)) -128)"
   :kind :expr
   :standalone? true
   :note "Wrapping negation leaves the minimum i8 unchanged."}
@@ -211,13 +211,13 @@
   :note "Clojure's 2r prefix writes binary integer literals."}
 
  "a <<| b\na <<|= b"
- {:clojure-source "(az/op \"<<|\" a b)\n(k/<<|= a b)"
+ {:clojure-source "(k/<<| a b)\n(k/<<|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating left-shift expression and assignment alternatives."}
 
  "@as(u8, 1) <<| 8 == 255"
- {:clojure-source "(k/== (az/op \"<<|\" (k/as 1 :u8) 8) 255)"
+ {:clojure-source "(k/== (k/<<| (k/as 1 :u8) 8) 255)"
   :kind :expr
   :standalone? true
   :note "A saturating left shift clamps the u8 result to 255."}

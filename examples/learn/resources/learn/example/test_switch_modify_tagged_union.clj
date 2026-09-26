@@ -15,11 +15,11 @@
 (az/deftest mutate-tagged-payload-test
   (let [result (k/var (ComplexType {:ok 42}))]
     (az/switch-stmt result
-      (case [(az/field ComplexTypeTag :ok)] [(az/pointer-capture value)]
+      (case [(:ok ComplexTypeTag)] [(az/pointer-capture value)]
         (az/block
           (k/+= @value 1)))
-      (case [(az/field ComplexTypeTag :not_ok)] (k/unreachable)))
-    (try (testing/expectEqual 43 (az/field result :ok)))))
+      (case [(:not_ok ComplexTypeTag)] (k/unreachable)))
+    (try (testing/expectEqual 43 (:ok result)))))
 
 (comment
   (mutate-tagged-payload-test))

@@ -9,8 +9,8 @@
 ;; Target: wasm32-wasi.
 (az/defn main :void
   [[init process/Init]]
-  (k/for [[preopen ((az/field (-> init process-init/-preopens preopens/-map) :keys))]
-        [index (az/op ".." 0)]]
+  (k/for [preopen ((:keys (-> init process-init/-preopens preopens/-map)))
+        index (az/range 0)]
     (log/info "{d}: {s}" [index preopen])))
 
 (comment

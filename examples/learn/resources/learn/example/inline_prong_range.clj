@@ -9,6 +9,6 @@
   [[T {:attrs #{k/comptime}} :type] [field-index :usize]]
   (let [fields (-> (k/typeInfo T) type-info/-struct struct-info/-fields)]
     (switch field-index
-      (az/inline-case [(az/op "..." 0 (k/- (az/field fields :len) 1))] [index]
-        (k/== (k/typeInfo (field-info/-type (az/index fields index))) :.optional))
+      (az/inline-case [(k/... 0 (k/- (:len fields) 1))] [index]
+        (k/== (k/typeInfo (field-info/-type (az/get fields index))) :.optional))
       (az/case-else (k/return (az/error-value :IndexOutOfBounds))))))

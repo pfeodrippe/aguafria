@@ -24,7 +24,7 @@
           clear (turnaround/static-clearance world 10.0 0.0 0.0 0.0)]
       ;; Dynamic objects are handled by the separate oriented/swept tests.
       (b3/b3Body_SetType box b3/b3_dynamicBody)
-      (az/array-init [blocked clear (turnaround/static-clearance world 0.0 0.0 0.0 0.0)] [:array 3 :bool]))))
+      (az/init [blocked clear (turnaround/static-clearance world 0.0 0.0 0.0 0.0)] [:array 3 :bool]))))
 
 (deftest static-world-query-rejects-obstacles-test
   (is (= [false true true] (az/value (static-query-probe)))))

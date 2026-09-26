@@ -7,9 +7,9 @@
   []
   (let [byte (k/u8 255)
         result (k/addWithOverflow byte 10)]
-    (if (k/!= (az/index result 1) 0)
-      (debug/print "overflowed result: {}\n" [(az/index result 0)])
-      (debug/print "result: {}\n" [(az/index result 0)]))))
+    (if (k/!= (az/get result 1) 0)
+      (debug/print "overflowed result: {}\n" [(az/get result 0)])
+      (debug/print "result: {}\n" [(az/get result 0)]))))
 
 (comment
   (main))

@@ -8,9 +8,9 @@
   []
   (let [bytes "hello"]
     (debug/print "{}\n" [(k/TypeOf bytes)]) ; *const [5:0]u8
-    (debug/print "{d}\n" [(az/field bytes :len)]) ; 5
-    (debug/print "{c}\n" [(az/index bytes 1)]) ; e
-    (debug/print "{d}\n" [(az/index bytes 5)]) ; 0
+    (debug/print "{d}\n" [(:len bytes)]) ; 5
+    (debug/print "{c}\n" [(az/get bytes 1)]) ; e
+    (debug/print "{d}\n" [(az/get bytes 5)]) ; 0
     (debug/print "{}\n" [(k/== \e (az/char-literal "'\\x65'"))]) ; true
     (debug/print "{d}\n" [(az/char-literal "'\\u{1f4a9}'")]) ; 128169
     (debug/print "{d}\n" [(az/char-literal "'💯'")]) ; 128175
@@ -22,9 +22,9 @@
     ;; Non-UTF-8 strings are possible with Zig's \xNN notation.
     (let [invalid-utf8 (az/string-literal "\"\\xff\\xfe\"")]
       ;; Indexing returns individual bytes...
-      (debug/print "0x{x}\n" [(az/index invalid-utf8 1)])
+      (debug/print "0x{x}\n" [(az/get invalid-utf8 1)])
       ;; ...including part-way through a non-ASCII character.
-      (debug/print "0x{x}\n" [(az/index "💯" 1)]))))
+      (debug/print "0x{x}\n" [(az/get "💯" 1)]))))
 
 (comment
   (main))

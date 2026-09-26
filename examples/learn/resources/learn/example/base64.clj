@@ -9,10 +9,10 @@
    [source [:many-const :u8]] [source-length :usize]]
   (let [input (az/slice source 0 source-length)
         output (az/slice destination 0 destination-length)
-        decoder (az/field base64/standard :Decoder)
-        decoded-length (catch ((az/field decoder :calcSizeForSlice) input)
+        decoder (:Decoder base64/standard)
+        decoded-length (catch ((:calcSizeForSlice decoder) input)
                               (k/unreachable))]
-    (catch ((az/field decoder :decode) (az/slice output 0 decoded-length) input)
+    (catch ((:decode decoder) (az/slice output 0 decoded-length) input)
            (k/unreachable))
     decoded-length))
 

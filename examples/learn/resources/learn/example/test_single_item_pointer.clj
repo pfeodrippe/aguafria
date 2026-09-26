@@ -16,13 +16,13 @@
     (try (testing/expectEqual 5679 @pointer))))
 
 (az/deftest pointer-array-access-test
-  (let [numbers (k/var (az/array-init [1 2 3 4 5 6 7 8 9 10] [:array :_ :u8]))
-        pointer (k/& (az/index numbers 2))]
+  (let [numbers (k/var (az/array [1 2 3 4 5 6 7 8 9 10] :u8))
+        pointer (k/& (az/get numbers 2))]
     ;; Addressing one element gives a single-item pointer, not a many-item pointer.
     (try (testing/expectEqual (az/type [:* :u8]) (k/TypeOf pointer)))
-    (try (testing/expectEqual 3 (az/index numbers 2)))
+    (try (testing/expectEqual 3 (az/get numbers 2)))
     (k/+= @pointer 1)
-    (try (testing/expectEqual 4 (az/index numbers 2)))))
+    (try (testing/expectEqual 4 (az/get numbers 2)))))
 
 (az/deftest single-item-slice-test
   (let [value (k/var 1234 :i32)
@@ -31,7 +31,7 @@
     (try (testing/expectEqual (az/type [:* [:array 1 :i32]])
                               (k/TypeOf array-pointer)))
     (let [many-pointer (k/as array-pointer [:many :i32])]
-      (try (testing/expectEqual 1234 (az/index many-pointer 0))))))
+      (try (testing/expectEqual 1234 (az/get many-pointer 0))))))
 
 (comment
   (address-of-test)

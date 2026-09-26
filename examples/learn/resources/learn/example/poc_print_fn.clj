@@ -13,56 +13,56 @@
                     :open-brace
                     :close-brace])
            start-index (k/var 0 :usize {:attrs #{k/comptime}})
-           state (k/var (az/field State :start) nil {:attrs #{k/comptime}})
+           state (k/var (:start State) nil {:attrs #{k/comptime}})
            next-argument (k/var 0 :usize {:attrs #{k/comptime}})]
-       (az/inline-for [[character format] [index (az/op ".." 0)]]
+       (az/inline-for [character format index (az/range 0)]
          (az/switch-stmt state
-           (case [(az/field State :start)]
+           (case [(:start State)]
              (az/switch-stmt character
                (case [\{]
                  (do
                    (when (k/< start-index index)
-                     (try ((az/field self :write) (az/slice format start-index index))))
-                   (k/= state (az/field State :open-brace))))
+                     (try ((:write self) (az/slice format start-index index))))
+                   (k/= state (:open-brace State))))
                (case [\}]
                  (do
                    (when (k/< start-index index)
-                     (try ((az/field self :write) (az/slice format start-index index))))
-                   (k/= state (az/field State :close-brace))))
+                     (try ((:write self) (az/slice format start-index index))))
+                   (k/= state (:close-brace State))))
                (az/case-else (do))))
-           (case [(az/field State :open-brace)]
+           (case [(:open-brace State)]
              (az/switch-stmt character
                (case [\{]
                  (do
-                   (k/= state (az/field State :start))
+                   (k/= state (:start State))
                    (k/= start-index index)))
                (case [\}]
                  (do
-                   (try ((az/field self :print-value) (az/index arguments next-argument)))
+                   (try ((:print-value self) (az/get arguments next-argument)))
                    (k/+= next-argument 1)
-                   (k/= state (az/field State :start))
+                   (k/= state (:start State))
                    (k/= start-index (k/+ index 1))))
                (case [\s] (k/continue))
                (az/case-else
                  (k/compileError
-                  (az/op "++" "Unknown format character: " (az/array-init [character] [:array 1 :u8]))))))
-           (case [(az/field State :close-brace)]
+                  (k/++ "Unknown format character: " (az/init [character] [:array 1 :u8]))))))
+           (case [(:close-brace State)]
              (az/switch-stmt character
                (case [\}]
                  (do
-                   (k/= state (az/field State :start))
+                   (k/= state (:start State))
                    (k/= start-index index)))
                (az/case-else
                  (k/compileError "Single '}' encountered in format string"))))))
        (az/comptime-stmt
          (do
-           (when (k/!= (az/field arguments :len) next-argument)
+           (when (k/!= (:len arguments) next-argument)
              (k/compileError "Unused arguments"))
-           (when (k/!= state (az/field State :start))
-             (k/compileError (az/op "++" "Incomplete format string: " format)))))
-       (when (k/< start-index (az/field format :len))
-         (try ((az/field self :write) (az/slice format start-index (az/field format :len)))))
-       (try ((az/field self :flush)))))
+           (when (k/!= state (:start State))
+             (k/compileError (k/++ "Incomplete format string: " format)))))
+       (when (k/< start-index (:len format))
+         (try ((:write self) (az/slice format start-index (:len format)))))
+       (try ((:flush self)))))
 
    (az/fn- write [:error-union :void]
      [[self [:* Writer]] [value [:slice-const :u8]]]

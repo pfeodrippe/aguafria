@@ -9,16 +9,16 @@
 (az/defn add-inferred [:error-union T]
   [[T {:attrs #{k/comptime}} :type] [left T] [right T]]
   (let [sum (k/addWithOverflow left right)]
-    (when (k/!= (az/index sum 1) 0)
+    (when (k/!= (az/get sum 1) 0)
       (k/return (az/error-value :Overflow)))
-    (az/index sum 0)))
+    (az/get sum 0)))
 
 (az/defn add-explicit [:error-union Error T]
   [[T {:attrs #{k/comptime}} :type] [left T] [right T]]
   (let [sum (k/addWithOverflow left right)]
-    (when (k/!= (az/index sum 1) 0)
+    (when (k/!= (az/get sum 1) 0)
       (k/return (az/error-value :Overflow)))
-    (az/index sum 0)))
+    (az/get sum 0)))
 
 (az/deftest inferred-error-set-test
   (az/if-capture-stmt {:payload [_] :error [error]} (add-inferred :u8 255 1)

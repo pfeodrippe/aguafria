@@ -26,12 +26,12 @@
       ;; Slicing a mutable array pointer yields a mutable slice.
       (let [slice (az/slice pointer start end)]
         (try (testing/expectEqual (az/type [:slice :u8]) (k/TypeOf slice)))
-        (k/= (az/index slice 2) 3)
-        (try (testing/expectEqual 3 (az/index bytes 2)))
+        (k/= (az/get slice 2) 3)
+        (try (testing/expectEqual 3 (az/get bytes 2)))
         ;; Compile-time bounds instead produce a pointer to a fixed-size array.
         (let [element-pointer (az/slice slice 2 3)]
-          (try (testing/expectEqual 1 (az/field element-pointer :len)))
-          (try (testing/expectEqual 3 (az/index element-pointer 0)))
+          (try (testing/expectEqual 1 (:len element-pointer)))
+          (try (testing/expectEqual 3 (az/get element-pointer 0)))
           (try (testing/expectEqual (az/type [:* [:array 1 :u8]])
                                     (k/TypeOf element-pointer))))))))
 

@@ -73,7 +73,7 @@
             (let [sign (az/field state turn_sign)
                   limit (az/field state lane_limit)]
               (ak/= (az/index recovery-trace (ak/divTrunc tick 120))
-                (az/array-init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
+                (az/init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
                    (az/field body x) (az/field body y) (turnaround/heading body)
                    (az/field normal lane) (ak/as (ak/floatFromInt (az/field state gear)) :f32)
                    sign limit
@@ -96,7 +96,7 @@
     (let [final (driver/follow car 8.0 -3.75)
           body (physics/body-state (az/field car chassis))
           road (circuit/at-distance (* 4309.0 (az/field final progress)) 0.0)]
-      (az/array-init [(* 4309.0 (- (az/field final progress) start)) lane up
+      (az/init [(* 4309.0 (- (az/field final progress) start)) lane up
          (math/cos (- (turnaround/heading body) (az/field road heading)))
          (ak/as (ak/floatFromInt gears) :f32) (az/field final speed)
          gear-change-speed (if (az/field state active) (ak/as 1.0 :f32) 0.0)

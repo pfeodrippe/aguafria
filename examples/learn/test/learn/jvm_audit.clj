@@ -113,7 +113,7 @@
     (and (seq? form)
          (contains? #{"if" "if-not" "when" "when-not" "cond" "case"
                       "for" "doseq" "dotimes" "loop" "fn" "fn-"
-                      "labeled-block" "while" "while-loop" "switch" "switch-stmt"
+                      "with-block" "while" "while-loop" "switch" "switch-stmt"
                       "if-capture" "if-capture-stmt" "while-capture" "inline-for"
                       "catch-capture" "catch-expr" "catch" "finally" "try"
                       "comptime" "comptime-stmt" "quote" "defer" "errdefer"

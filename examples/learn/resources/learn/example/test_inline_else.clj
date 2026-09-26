@@ -31,7 +31,7 @@
       ;; Inline for generates a series of if statements, relying on the
       ;; optimizer to convert them into a switch.
       (when (k/== (field-info/-value field) (k/intFromEnum any-slice))
-        (k/return (az/field (k/field any-slice (field-info/-name field)) :len)))))
+        (k/return (:len (k/field any-slice (field-info/-name field)))))))
   ;; With inline for, the compiler does not know that every possible case
   ;; has been handled, so an explicit unreachable is required.
   (k/unreachable))
@@ -42,7 +42,7 @@
     ;; Inline else directly generates the desired switch, and the compiler
     ;; can check that every possible case is handled.
     (az/inline-case-else [slice]
-      (az/field slice :len))))
+      (:len slice))))
 
 (az/deftest inline-for-and-else-test
   (let [any-slice (AnySlice {:c "hello"})]

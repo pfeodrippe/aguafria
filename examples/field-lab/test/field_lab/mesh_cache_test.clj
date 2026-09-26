@@ -162,7 +162,7 @@
   (let [rectangle (renderer/render-tile-rectangle width height edge index)
         offset (az/field rectangle offset)
         extent (az/field rectangle extent)]
-    (az/array-init [(ak/intCast (az/field offset x)) (ak/intCast (az/field offset y))
+    (az/init [(ak/intCast (az/field offset x)) (ak/intCast (az/field offset y))
                     (az/field extent width) (az/field extent height)] [:array 4 :u32])))
 
 (deftest tiled-rendering-covers-frame-without-overlap

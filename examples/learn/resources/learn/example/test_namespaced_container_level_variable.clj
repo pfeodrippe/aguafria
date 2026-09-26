@@ -8,8 +8,8 @@
 
 (az/defn- foo :i32
   []
-  (k/+= (az/field S :value) 1)
-  (az/field S :value))
+  (k/+= (:value S) 1)
+  (:value S))
 
 (az/deftest namespaced-state-test
   (try (testing/expectEqual 1235 (foo)))

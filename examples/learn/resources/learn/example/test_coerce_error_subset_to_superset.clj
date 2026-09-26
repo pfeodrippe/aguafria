@@ -12,8 +12,8 @@
   error)
 
 (az/deftest subset-to-superset-test
-  (let [error (foo (az/field AllocationError :OutOfMemory))]
-    (try (testing/expectEqual (az/field FileOpenError :OutOfMemory) error))))
+  (let [error (foo (:OutOfMemory AllocationError))]
+    (try (testing/expectEqual (:OutOfMemory FileOpenError) error))))
 
 (comment
   (subset-to-superset-test))

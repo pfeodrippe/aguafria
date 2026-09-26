@@ -11,7 +11,7 @@
 (az/deftest simple-union-test
   (let [payload (k/var (Payload {:int 1234}))]
     ;; Intentional error: changing a field does not change the active member.
-    (k/= (az/field payload :float) 12.34)))
+    (k/= (:float payload) 12.34)))
 
 (comment
   ;; This deliberately panics and can terminate this JVM.

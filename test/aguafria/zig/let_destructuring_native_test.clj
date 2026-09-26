@@ -13,14 +13,14 @@
     :args [{:name 'calls :type [:* :i32]}]
     :return [:array 2 :i32] :implicit-return? true
     :body '((set! (deref calls) (+ (deref calls) 1))
-            (array-init [20 22] [:array 2 :i32]))}
+            (init [20 22] [:array 2 :i32]))}
    {:kind :fn :name 'next-single
     :args [{:name 'calls :type [:* :i32]}]
     :return [:array 1 :i32] :implicit-return? true
     :body '((set! (deref calls) (+ (deref calls) 1))
-            (array-init [7] [:array 1 :i32]))}
+            (init [7] [:array 1 :i32]))}
    {:kind :fn :name 'tail-sum :args [] :return :i32 :implicit-return? true
-    :body '((let [[left right] (array-init [20 22] [:array 2 :i32])]
+    :body '((let [[left right] (init [20 22] [:array 2 :i32])]
               (+ left right)))}
    {:kind :test :name 'destructuring-values-and-evaluation-count
     :test-name "native let destructuring keeps values and evaluation count"
@@ -49,7 +49,7 @@
           (set! [:_ right] (next-pair (& calls)))
           (when (!= right 22) (return (error-value :WrongDiscardAssignment)))
           (when (!= calls 7) (return (error-value :RepeatedDiscardAssignment)))
-          (set! [left right] (array-init [right left] [:array 2 :i32]))
+          (set! [left right] (init [right left] [:array 2 :i32]))
           (when (!= left 22) (return (error-value :WrongSwapLeft)))
           (when (!= right 7) (return (error-value :WrongSwapRight))))
         (let [total (+ 1 (let [[left right] (next-pair (& calls))]

@@ -20,9 +20,9 @@
   (k/+ value 3))
 
 (az/defconst cmd-fns
-  (az/array-init [(CmdFn {:name "one" :func one})
+  (az/array [(CmdFn {:name "one" :func one})
                   (CmdFn {:name "two" :func two})
-                  (CmdFn {:name "three" :func three})] [:array :_ CmdFn]))
+                  (CmdFn {:name "three" :func three})] CmdFn))
 
 (az/defn- perform-fn :i32
   [[prefix-char {:attrs #{k/comptime}} :u8] [start-value :i32]]
@@ -30,10 +30,10 @@
         i (k/var 0 nil {:attrs #{k/comptime}})]
     (az/while-loop {:inline? true
                     :continue (az/assign-expr "+=" i 1)}
-      (k/< i (az/field cmd-fns :len))
-      (let [command (az/index cmd-fns i)]
-        (when (k/== (az/index (az/field command :name) 0) prefix-char)
-          (k/= result ((az/field command :func) result)))))
+      (k/< i (:len cmd-fns))
+      (let [command (az/get cmd-fns i)]
+        (when (k/== (az/get-in command [:name 0]) prefix-char)
+          (k/= result ((:func command) result)))))
     result))
 
 (az/deftest perform-functions-test

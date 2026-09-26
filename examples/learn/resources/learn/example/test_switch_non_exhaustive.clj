@@ -12,7 +12,7 @@
    :_])
 
 (az/deftest non-exhaustive-enum-test
-  (let [number (az/field Number :one)
+  (let [number (:one Number)
         result (switch number
                  (case [:.one] true)
                  (case [:.two :.three] false)

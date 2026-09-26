@@ -266,7 +266,7 @@
         (eval '(az/deftest foo-extra
                  (ak/compileError "Sibling foo-extra must not be compiled or run")))
         (eval '(az/deftest foo
-                 (let [values (az/array-init [20 22] (pair-type (az/type :i32)))]
+                 (let [values (az/init [20 22] (pair-type (az/type :i32)))]
                    (try (testing/expectEqual 2 (try (dependency/checked-length (& values)))))
                    (try (testing/expectEqual 42 (+ (az/index values 0) (az/index values 1))))))))
       (let [test-var (ns-resolve root 'foo)

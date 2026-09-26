@@ -142,7 +142,7 @@
               (az/field output gear))
           (physics/drive! other 0.0 1.0 0.0)
           (physics/step! world)))))
-    (az/array-init [(* 4309.0 (- (az/field (driver/follow car 8.0 3.75) progress) 0.6657818))
+    (az/init [(* 4309.0 (- (az/field (driver/follow car 8.0 3.75) progress) 0.6657818))
        lane up reverse-travel (ak/as (ak/floatFromInt phases) :f32)
        veto-count seek-veto pass-veto pass-separation last-reason
        (ak/as (ak/floatFromInt (az/field state phase)) :f32)

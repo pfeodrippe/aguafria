@@ -137,7 +137,7 @@
                         (ak/as (ak/floatFromInt projection-samples) :f32))
             center (pose progress 0.0)]
         (ak/= (az/index points index)
-              (az/array-init [(az/field center x) (az/field center y)] [:array 2 :f32]))))
+              (az/init [(az/field center x) (az/field center y)] [:array 2 :f32]))))
     points))
 
 (az/defconst projection-centers [:array projection-samples [:array 2 :f32]]

@@ -16,7 +16,7 @@
 
 (az/deftest tagged-union-switch-test
   (let [result (ComplexType {:ok 42})]
-    (try (testing/expectEqual (az/field ComplexTypeTag :ok) (k/as result ComplexTypeTag)))
+    (try (testing/expectEqual (:ok ComplexTypeTag) (k/as result ComplexTypeTag)))
     (az/switch-stmt result
       (case [:.ok] [value] (try (testing/expectEqual 42 value)))
       (case [:.not_ok] (k/unreachable)))
