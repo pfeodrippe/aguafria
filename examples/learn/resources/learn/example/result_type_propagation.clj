@@ -3,15 +3,15 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest struct-initializer-result-type-test
+(az/deftest result-type-propagates-through-struct-initializer
   (let [S (az/struct
-            [[:x :u32]])
-        value (k/u64 123)
-        result (S {:x (k/intCast value)})]
-    ;; The constructor supplies S as the initializer's result type.
-    ;; intCast's result type is u32 because that is the type of S.x.
-    ;; value has no result type: the cast accepts any integer type.
-    (try (testing/expectEqual (k/as 123 :u32) (:x result)))))
+           [[:x :u32]])
+        val (k/u64 123)
+        s (S {:x (k/intCast val)})]
+    ;; .{ .x = @intCast(val) }   has result type `S` due to the type annotation
+    ;;         @intCast(val)     has result type `u32` due to the type of the field `S.x`
+    ;;                  val      has no result type, as it is permitted to be any integer type
+    (try (testing/expectEqual (k/as 123 :u32) (:x s)))))
 
 (comment
-  (struct-initializer-result-type-test))
+  (result-type-propagates-through-struct-initializer))

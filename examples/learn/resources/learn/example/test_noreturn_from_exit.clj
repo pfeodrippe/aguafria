@@ -4,7 +4,6 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-;; This lesson intentionally targets x86_64-windows, just like the original.
 (az/defimport target "builtin" [[native-arch "cpu.arch"]])
 
 (az/defconst WINAPI builtin-types/CallingConvention
@@ -19,10 +18,9 @@
 (az/defn- bar [:error-union :anyerror :u32] []
   1234)
 
-(az/deftest noreturn-fallback-test
-  ;; A noreturn handler coerces to any payload type because it never returns.
-  (let [number (catch (bar) (ExitProcess 1))]
-    (try (testing/expectEqual 1234 number))))
+(az/deftest foo
+  (let [value (catch (bar) (ExitProcess 1))]
+    (try (testing/expectEqual 1234 value))))
 
 (comment
-  (noreturn-fallback-test))
+  (foo))

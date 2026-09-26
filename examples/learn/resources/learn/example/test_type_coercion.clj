@@ -3,24 +3,24 @@
             [aguafria.zig :as az]))
 
 (az/defn foo :void
-  [[value :u16]]
-  (k/= :_ value))
+  [[b :u16]]
+  (k/= :_ b))
 
-(az/deftest declaration-coercion-test
-  (let [narrow (k/u8 1)
-        wide (k/u16 narrow)]
-    (k/= :_ wide)))
+(az/deftest type-coercion-variable-declaration
+  (let [a (k/u8 1)
+        b (k/u16 a)]
+    (k/= :_ b)))
 
-(az/deftest argument-coercion-test
-  (let [narrow (k/u8 1)]
-    (foo narrow)))
+(az/deftest type-coercion-function-call
+  (let [a (k/u8 1)]
+    (foo a)))
 
-(az/deftest explicit-coercion-test
-  (let [narrow (k/u8 1)
-        wide (k/as narrow (az/type :u16))]
-    (k/= :_ wide)))
+(az/deftest type-coercion-as-builtin
+  (let [a (k/u8 1)
+        b (k/as a (az/type :u16))]
+    (k/= :_ b)))
 
 (comment
-  (declaration-coercion-test)
-  (argument-coercion-test)
-  (explicit-coercion-test))
+  (type-coercion-variable-declaration)
+  (type-coercion-function-call)
+  (type-coercion-as-builtin))

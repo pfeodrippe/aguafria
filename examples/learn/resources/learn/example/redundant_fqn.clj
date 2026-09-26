@@ -7,8 +7,10 @@
   {:attrs #{k/pub}}
   [[:JsonValue
     {:const (az/union {:enum? true}
-              [[:number :f64]
-               [:boolean :bool]])}
+                      [[:number :f64]
+                       [:boolean :bool]
+               ;; ...
+                       ])}
     :type]])
 
 (az/defn main :void []

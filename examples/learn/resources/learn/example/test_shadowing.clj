@@ -4,9 +4,9 @@
 
 (az/defconst pi 3.14)
 
-(az/deftest shadowing-test
-  ;; Let's even go inside another block.
+(az/deftest inside-test-block
+  ;; Let's even go inside another block
   (let [pi (k/var 1234 :i32)]))
 
 (comment
-  (shadowing-test))
+  (inside-test-block))

@@ -1,9 +1,68 @@
 (ns learn.reference-test
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is run-tests testing]]
             [learn.inline :as inline]
-            [learn.reference :as ref]))
+            [learn.reference :as ref]
+            [learn.source-fidelity-test]))
+
+(deftest formatter-selects-existing-changed-examples
+  (let [a "resources/learn/example/hello.clj"
+        b "resources/learn/example/test_vector.clj"
+        commands (atom [])]
+    (with-redefs [shell/sh
+                  (fn [& args]
+                    (swap! commands conj (vec args))
+                    {:exit 0 :err ""
+                     :out (if (= "diff" (second args))
+                            (str a "\u0000resources/learn/example/deleted.clj\u0000")
+                            (str b "\u0000" a "\u0000README.md\u0000"))})]
+      (is (= [a b] (ref/modified-example-paths)))
+      (is (= [["git" "diff" "--relative" "--name-only" "-z" "--diff-filter=ACMR"
+               "HEAD" "--" "resources/learn/example/"]
+              ["git" "ls-files" "--others" "--exclude-standard" "-z"
+               "--" "resources/learn/example/"]]
+             @commands)))))
+
+(deftest formatter-runs-once-and-fails-closed
+  (let [paths ["resources/learn/example/hello.clj" "resources/learn/example/test_vector.clj"]
+        commands (atom [])]
+    (with-redefs [ref/modified-example-paths (constantly paths)
+                  shell/sh (fn [& args]
+                             (swap! commands conj (vec args))
+                             {:exit 0 :out "" :err ""})]
+      (is (= paths (ref/format-modified-examples!)))
+      (is (= [(into ["clojure" "-M:fmt" "fix"] paths)] @commands)))
+    (with-redefs [ref/modified-example-paths (constantly [])
+                  shell/sh (fn [& _] (throw (Exception. "Must not run")))]
+      (is (= [] (ref/format-modified-examples!))))
+    (with-redefs [ref/modified-example-paths (constantly paths)
+                  shell/sh (constantly {:exit 1 :out "" :err "Invalid form"})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Learn build command failed"
+                            (ref/format-modified-examples!))))
+    (with-redefs [shell/sh (constantly {:exit 128 :out "" :err "Git failed"})]
+      (is (thrown? clojure.lang.ExceptionInfo (ref/modified-example-paths))))))
+
+(deftest formatting-precedes-html-and-translation-inputs
+  (doseq [[operation next-var] [[ref/build! #'ref/inventory]
+                                [#(ref/translate! []) #'ref/compiler-fingerprint]]]
+    (let [events (atom [])]
+      (with-redefs-fn {#'ref/format-modified-examples! #(swap! events conj :format)
+                       next-var #(do (swap! events conj :inputs)
+                                     (throw (ex-info "Stop after inputs" {})))}
+        #(is (thrown-with-msg? clojure.lang.ExceptionInfo #"Stop after inputs"
+                               (operation))))
+      (is (= [:format :inputs] @events)))))
+
+(deftest build-records-preserve-diagnostic-forms-as-edn
+  (let [record {:status :compiler-gap
+                :details {:form '(let [i (var 0)] (quote i))}}
+        written (atom nil)]
+    (with-redefs [ref/write-text! (fn [_ text] (reset! written text))]
+      (ref/write-edn! "unused.edn" record))
+    (is (= record (edn/read-string @written)))))
 
 (deftest serving-an-existing-snapshot-does-not-rebuild-it
   (ref/build!)
@@ -34,6 +93,28 @@
                (re-find #"\(k/(!=|==)\s" source))
       (is (str/includes? source "[aguafria.keyword :as k]") (.getPath file)))))
 
+(defn- later-references
+  ([form later] (later-references form later #{}))
+  ([form later locals]
+   (cond
+     (symbol? form) (when (and (later form) (not (locals form))) [form])
+     (and (seq? form) (#{'let 'clojure.core/let} (first form)))
+     (let [[_ bindings & body] form
+           [references scope]
+           (reduce (fn [[references scope] [binding value]]
+                     [(into references (later-references value later scope))
+                      (conj scope binding)])
+                   [[] locals]
+                   (partition 2 (clojure.core/destructure bindings)))]
+       (concat references (mapcat #(later-references % later scope) body)))
+     (coll? form) (mapcat #(later-references % later locals) form)
+     :else nil)))
+
+(deftest dependency-screen-respects-lexical-let-bindings
+  (is (empty? (later-references '(let [src (k/src)] (:line src)) #{'src})))
+  (is (= '[src] (later-references '(let [src (src)] (:line src)) #{'src})))
+  (is (= '[src] (later-references '(do (let [src 1] src) (src)) #{'src}))))
+
 (deftest authored-declarations-follow-their-dependencies
   (doseq [file (file-seq (io/file "resources/learn"))
           :when (str/ends-with? (.getName file) ".clj")
@@ -43,11 +124,11 @@
                      (= "az" (namespace (first form)))
                      (str/starts-with? (name (first form)) "def"))
           :let [later (set (keep #(when (and (seq? %) (symbol? (first %))
-                                            (= "az" (namespace (first %)))
-                                            (str/starts-with? (name (first %)) "def"))
-                                   (second %))
-                                (drop (inc index) forms)))]]
-    (is (empty? (filter later (tree-seq coll? seq form)))
+                                             (= "az" (namespace (first %)))
+                                             (str/starts-with? (name (first %)) "def"))
+                                    (second %))
+                                 (drop (inc index) forms)))]]
+    (is (empty? (later-references form later))
         (str (.getName file) " / " (second form)))))
 
 (deftest incomplete-fragments-are-rendered-not-registered
@@ -65,7 +146,7 @@
   (doseq [streams [{:stdout "5679"} {:stderr "5679"} {:stdout "56" :stderr "79"}]]
     (is (= "learn.example.mutable-var=&gt; (main)\n5679\nnil\n"
            (ref/repl-evaluation (merge {:namespace "learn.example.mutable-var"
-                                       :form "(main)" :value nil} streams)))))
+                                        :form "(main)" :value nil} streams)))))
   (is (= "user=&gt; (main)\n5679\nnil\n"
          (ref/repl-evaluation {:namespace "user" :form "(main)"
                                :stderr "5679\n" :value nil}))))
@@ -73,8 +154,8 @@
 (deftest inline-references-use-real-catalog-and-emitter
   (let [catalog (inline/references)]
     (doseq [[zig aguafria] [["u8" ":u8"] ["i114" ":i114"]
-                           ["undefined" "k/undefined"] ["null" "k/null"]
-                           ["@memcpy" "k/memcpy"] ["a_len" "a_len"]]]
+                            ["undefined" "k/undefined"] ["null" "k/null"]
+                            ["@memcpy" "k/memcpy"] ["a_len" "a_len"]]]
       (is (= aguafria (:clojure-source (inline/equivalent catalog zig)))))
     (is (= "k/memcpy"
            (:clojure-source
@@ -233,7 +314,7 @@
       (is (or (contains? names (normalize-name identifier))
               ;; Zig's quoted export cannot itself be a Clojure symbol.
               (and (= file "export_any_symbol_name.zig")
-                   (= identifier "sentence-function")
+                   (= identifier "a-function-name-that-is-a-complete-sentence")
                    (str/includes? code ":zig/name")))
           (str file ": " identifier " must retain its upstream declaration name")))))
 
@@ -294,7 +375,7 @@
         (is (not (str/includes? code "Converted from ")))
         (is (not (str/includes? code ":zig/qualifiers \"!\"")))
         (let [requires (mapcat rest (filter #(and (seq? %) (= :require (first %)))
-                                           (drop 2 form)))
+                                            (drop 2 form)))
               libraries (mapv #(if (vector? %) (first %) %) requires)]
           (doseq [library libraries
                   :when (str/starts-with? (str library) "aguafria.std.")]
@@ -311,12 +392,12 @@
         panel (ref/example-panel ["<figure>original</figure>" "test_comptime_variables.zig"]
                                  translation 1)]
     (is (str/includes? panel
-                      "<figcaption class=\"clojure-cap\"><cite class=\"file\">test_comptime_variables.clj</cite></figcaption>"))
+                       "<figcaption class=\"clojure-cap\"><cite class=\"file\">test_comptime_variables.clj</cite></figcaption>"))
     (is (str/includes? panel "(ns learn.example.test-comptime-variables"))
     (is (not (str/includes? panel "Converted from")))
     (is (= "<figure>original</figure>" (ref/original-document panel)))
     (is (str/includes? (ref/example-panel ["original" "file.zig"]
-                                         (assoc translation :authored-source "example/<file>.clj") 1)
+                                          (assoc translation :authored-source "example/<file>.clj") 1)
                        "&lt;file&gt;.clj</cite>"))))
 
 (deftest examples-show-code-without-work-log-comments
@@ -382,14 +463,14 @@
     (try
       (require lesson)
       (is (nil? (:doc (meta (the-ns lesson)))))
-      (let [test-var (ns-resolve lesson 'integer-pointer-conversion-test)
+      (let [test-var (ns-resolve lesson 'intFromPtr-and-ptrFromInt)
             output (with-out-str
                      (binding [*err* *out*]
                        (reset! result (test-var))))]
         (is (fn? (var-get test-var)))
         (is (= :passed (:status @result)))
         (is (= 0 (:exit @result)))
-        (is (str/includes? output "integer-pointer-conversion-test...OK"))
+        (is (str/includes? output "intFromPtr-and-ptrFromInt...OK"))
         (is (str/includes? output "All 1 tests passed.")))
       (finally
         (remove-ns lesson)
@@ -410,7 +491,7 @@
                 (learn.example.hello-again/main)
                 (require 'learn.example.test-integer-pointer-conversion)
                 (assert (= :passed
-                           (:status (learn.example.test-integer-pointer-conversion/integer-pointer-conversion-test))))
+                           (:status (learn.example.test-integer-pointer-conversion/intFromPtr-and-ptrFromInt))))
                 (println "fresh-lesson-repl-passed")
                 (shutdown-agents))
         command [(str (io/file (System/getProperty "java.home") "bin" "java"))
@@ -438,11 +519,11 @@
                  (symbol (str "learn.example." (str/replace file #"\.zig$" ""))))))
     (if (= file "comments.zig")
       (is (str/includes? emitted "pub fn main()"))
-      (is (str/includes? emitted "return decoded_length;")))))
+      (is (str/includes? emitted "return decoded_size;")))))
 
 (deftest larger-blocks-have-exact-source-syntax-checks
   (let [block (first (filter #(= "snippet-646" (:id %))
-                            (:snippets (ref/inventory))))
+                             (:snippets (ref/inventory))))
         result (ref/translate-block! block)]
     (is (= :translated (:status result)))
     (is (= :output-matched (:verification result)))
@@ -468,8 +549,8 @@
 (deftest context-blocks-preserve-other-languages
   (doseq [language ["c" "javascript" "peg"]]
     (let [result (ref/translate-block! {:id "context-test"
-                                      :attributes (str language "|host")
-                                      :source "original host code"})]
+                                        :attributes (str language "|host")
+                                        :source "original host code"})]
       (is (= :zig-only (:status result)))
       (is (str/starts-with? (:reason result) "ZIG_ONLY:")))))
 
@@ -491,7 +572,7 @@
                  :comparison {:status :output-matched}}
         authored (io/resource (:authored-source translation))]
     (with-redefs [ref/read-edn (fn [path]
-                               (if (= "build/translations.edn" path) [translation] outcome))
+                                 (if (= "build/translations.edn" path) [translation] outcome))
                   ref/compiler-fingerprint (constantly :current)
                   ref/sha256 (constantly :cached)
                   clojure.core/slurp (fn [path] (if (= authored path) "edited source" "cached source"))]
@@ -509,7 +590,7 @@
            (:status (ref/compare-observations "exe=succeed" "value=42\n" "value=43\n")))))
   (is (= :observation-mismatch
          (:status (ref/compare-observations "test" "All 2 tests passed.\n"
-                                           "All 0 tests passed.\n")))))
+                                            "All 0 tests passed.\n")))))
 
 (deftest matching-exit-codes-do-not-hide-output-mismatches
   (doseq [[original converted expected]
@@ -525,8 +606,8 @@
                   ref/sha256 (constantly "test-hash")
                   clojure.core/slurp (constantly "(ns example) (comment (main))")]
       (let [result (ref/verify-example! {}
-                                      {:file "example.zig" :manifest {:kind "exe=succeed"}}
-                                      {:status :translated :clojure-path "example.clj"})]
+                                        {:file "example.zig" :manifest {:kind "exe=succeed"}}
+                                        {:status :translated :clojure-path "example.clj"})]
         (is (= expected (:status result)))
         (is (= original (get-in result [:comparison :original])))
         (is (= converted (get-in result [:comparison :aguafria])))))))
@@ -588,20 +669,20 @@
     (binding [*out* output]
       (is (= [0 1 2 3]
              (ref/parallel-builds
-               2
-               (fn [n]
-                 (is (.isVirtual (Thread/currentThread)))
-                 (swap! maximum max (swap! active inc))
-                 (try
-                   (.await barrier 10 java.util.concurrent.TimeUnit/SECONDS)
-                   (print n)
-                   n
-                   (finally (swap! active dec))))
-               (range 4)))))
+              2
+              (fn [n]
+                (is (.isVirtual (Thread/currentThread)))
+                (swap! maximum max (swap! active inc))
+                (try
+                  (.await barrier 10 java.util.concurrent.TimeUnit/SECONDS)
+                  (print n)
+                  n
+                  (finally (swap! active dec))))
+              (range 4)))))
     (is (= 2 @maximum))
     (is (= #{\0 \1 \2 \3} (set (str output))))
     (is (thrown-with-msg? Exception #"worker failed"
-                         (ref/parallel-builds 2 (fn [_] (throw (ex-info "worker failed" {}))) [1])))
+                          (ref/parallel-builds 2 (fn [_] (throw (ex-info "worker failed" {}))) [1])))
     (is (thrown? Exception (ref/parallel-builds 0 identity [])))))
 
 (deftest example-cache-checks-artifacts-and-never-reuses-failure
@@ -648,12 +729,12 @@
 (deftest diagnostic-comparison-checks-the-reason-for-failure
   (is (= :diagnostics-matched
          (:status (ref/compare-observations "exe=fail"
-                                           "thread 123 panic: integer overflow\nold.zig:2:3\n"
-                                           "thread 456 panic: integer overflow\nnew.zig:8:9\n"))))
+                                            "thread 123 panic: integer overflow\nold.zig:2:3\n"
+                                            "thread 456 panic: integer overflow\nnew.zig:8:9\n"))))
   (is (= :observation-mismatch
          (:status (ref/compare-observations "test_error="
-                                           "x.zig:1:2: error: division by zero\n"
-                                           "x.zig:7:2: error: use of undeclared identifier 'oops'\n"))))
+                                            "x.zig:1:2: error: division by zero\n"
+                                            "x.zig:7:2: error: use of undeclared identifier 'oops'\n"))))
   (is (= :diagnostic-review-required
          (:status (ref/compare-observations "exe=fail" "" ""))))
   (is (= ["integer overflow"] (ref/failure-messages "Panic! integer overflow\n")))
@@ -661,10 +742,10 @@
          (ref/failure-messages "1 tests leaked memory.\nerror: the following test command failed\n")))
   (is (= ["invalid error code"]
          (ref/failure-messages
-           (str "thread 42 panic: invalid error code\n"
-                "sample.zig:3:4: 0x1234 in cast_error\n"
-                "    const casted_error: Set2 = @errorCast(@\"error\");\n"
-                "    const text = \"panic: this is echoed source\";\n"))))
+          (str "thread 42 panic: invalid error code\n"
+               "sample.zig:3:4: 0x1234 in cast_error\n"
+               "    const casted_error: Set2 = @errorCast(@\"error\");\n"
+               "    const text = \"panic: this is echoed source\";\n"))))
   (is (= ["integer overflow"]
          (ref/failure-messages "1/1 sample.test.overflows...thread 42 panic: integer overflow\n")))
   (is (= ["TestUnexpectedResult)"]
@@ -700,7 +781,7 @@
            (:status (ref/compare-observations "test_error=" output output))))
     (is (= :observation-mismatch
            (:status (ref/compare-observations "test_error=" output
-                                             (str/replace output "99" "98")))))
+                                              (str/replace output "99" "98")))))
     (is (= :observation-mismatch
            (:status (ref/compare-observations "test_error=" output diagnostic))))))
 
@@ -725,7 +806,7 @@
                   nil
                   (catch Exception error error))]
       (is (some #(str/includes? (or (ex-message %) "")
-                               "let expects an even Clojure binding vector")
+                                "let expects an even Clojure binding vector")
                 (take-while some? (iterate ex-cause error)))))))
 
 (deftest authored-recipes-are-complete-and-call-their-own-example
@@ -745,7 +826,7 @@
     (is (not (str/includes? (slurp (io/resource source)) "reference/check-snippet!")) id))
   (is (= [] (ref/comment-calls "(ns example)")))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not a file runner"
-                       (ref/comment-calls "(ns example) (comment (reference/run-example! \"x.zig\"))"))))
+                        (ref/comment-calls "(ns example) (comment (reference/run-example! \"x.zig\"))"))))
 
 (deftest recipe-capture-executes-the-exact-direct-calls
   (let [hello (ref/capture-comment-repl!
@@ -757,7 +838,7 @@
     (is (= "(main)" (:form main-call)))
     (is (= "nil" (:printed-value main-call)))
     (is (= "Hello, World!\n" (:stderr main-call)))
-    (is (= "(boolean-maximum-test)" (:form test-call)))
+    (is (= "(try-to-compare-bools)" (:form test-call)))
     (is (str/includes? (:stderr test-call) "All 1 tests passed."))
     (is (str/includes? (:printed-value test-call) ":status :passed"))
     (is (nil? (find-ns 'learn.example.hello-again)))
@@ -770,7 +851,7 @@
     (is (= :zig-compile (get-in result [:evaluations 0 :exception :phase])))
     (is (str/includes? message (str path ":12:5")))
     (is (str/includes? message "12 |     (k/+= y 1)))"))
-    (is (str/includes? message "^^^^^^^^^^^ this Aguafria form"))
+    (is (str/includes? message "^^^^^^^^^^ this Aguafria form"))
     (is (str/includes? message "cannot assign to constant"))))
 
 (deftest recipe-capture-does-not-invent-success-for-a-bad-call
@@ -790,8 +871,8 @@
                 clojure.core/slurp (constantly "(ns example) (comment (main))")]
     (is (= :failed
            (:status (ref/verify-example! {}
-                                        {:file "example.zig" :manifest {:kind "exe=succeed"}}
-                                        {:status :translated :clojure-path "example.clj"}))))))
+                                         {:file "example.zig" :manifest {:kind "exe=succeed"}}
+                                         {:status :translated :clojure-path "example.clj"}))))))
 
 (deftest native-diagnostics-are-not-confused-with-jvm-recipe-errors
   (doseq [kind ["syntax" "test_error=error: expected failure" "obj=error"]]
@@ -857,7 +938,7 @@
         (is (identical? original (ns-resolve namespace-symbol 'main)))
         (is (= :unsaved-user-value @original))
         (is (empty? (filter #(str/starts-with? (str (ns-name %))
-                                             "learn.example.open-lesson.inspection-")
+                                               "learn.example.open-lesson.inspection-")
                             (all-ns)))))
       (finally (remove-ns namespace-symbol)))))
 
@@ -891,11 +972,11 @@
     (is (every? :alternatives? (filter #(= :statements (:form-kind %)) translated)))
     (is (str/includes? (inline/syntax-unit translated) "<<|="))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"existing Var"
-                         (inline/emit-mapping {:clojure-source "nonexistent-op"
-                                               :kind :reference})))
+                          (inline/emit-mapping {:clojure-source "nonexistent-op"
+                                                :kind :reference})))
     (is (thrown? Exception (inline/read-forms "#=(System/exit 0)")))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"number of inline forms"
-                         (inline/emit-mapping {:clojure-source "1 2" :kind :expr}))))
+                          (inline/emit-mapping {:clojure-source "1 2" :kind :expr}))))
   (let [source "const x: u8 = 7;\nx == 7"
         expression (inline/expression-body source)]
     (is (str/includes? expression "const x: u8 = 7;"))
@@ -938,7 +1019,7 @@
 
 (deftest syntax-notes-are-prose-not-fake-code
   (let [mapping (inline/emit-mapping {:kind :syntax-note :clojure-source ""
-                                     :note "Prefix nesting, such as (+ a (* b c)), sets the order."})
+                                      :note "Prefix nesting, such as (+ a (* b c)), sets the order."})
         markup (inline/markup "<code>precedence</code>"
                               (assoc mapping :id "note" :source "precedence") ref/escape-html)]
     (is (= :reviewed-syntax-note (:verification mapping)))
@@ -946,8 +1027,8 @@
     (is (not (str/includes? markup "<code></code>")))
     (is (str/includes? markup "Prefix nesting")))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"prose"
-                       (inline/emit-mapping {:kind :syntax-note
-                                             :clojure-source "fake program" :note "note"}))))
+                        (inline/emit-mapping {:kind :syntax-note
+                                              :clojure-source "fake program" :note "note"}))))
 
 (deftest discovery-comparison-only-removes-known-empty-test-framing
   (let [scenario {:id :sample :mode :native-test
@@ -955,10 +1036,10 @@
                            :named-tests ["tests.test.alpha"]}}
         result {:out "" :exit 0 :timed-out? false}
         original (assoc result :err (str "1/2 subject.test_0...OK\n"
-                                          "2/2 tests.test.alpha...payload=42\nOK\n"
-                                          "All 2 tests passed.\n"))
+                                         "2/2 tests.test.alpha...payload=42\nOK\n"
+                                         "All 2 tests passed.\n"))
         emitted (assoc result :err (str "1/1 tests.test.alpha...payload=42\nOK\n"
-                                         "All 1 tests passed.\n"))
+                                        "All 1 tests passed.\n"))
         compare! #(#'ref/discovery-compare-scenario scenario original % "subject.test_0")]
     (is (= :discovery-matched (:status (compare! emitted))))
     (doseq [changed [(str/replace (:err emitted) "42" "43")
@@ -1007,8 +1088,8 @@
     (is (str/includes? (:zig-source first-result) "pub const _start = {};"))
     (is (str/includes? (inline/syntax-unit [first-result]) "const fragment_0 = struct {"))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Inline declarations"
-                         (inline/emit-mapping {:kind :declarations
-                                              :clojure-source "(ns forbidden)"})))
+                          (inline/emit-mapping {:kind :declarations
+                                                :clojure-source "(ns forbidden)"})))
     (is (thrown? Exception
                  (inline/emit-mapping {:kind :declarations
                                        :clojure-source "(az/defconst unfinished)"})))
@@ -1017,7 +1098,7 @@
 
 (deftest inline-alignment-assertion-preserves-the-upstream-failure
   (let [[source mapping] (first (filter #(str/starts-with? (key %) "const assert =")
-                                      (inline/authored-mappings)))
+                                        (inline/authored-mappings)))
         emitted (:zig-source (inline/emit-mapping mapping))
         result (ref/verify-native-pair! "build/inline-comptime-test" source emitted)]
     (is (str/includes? emitted "comptime {"))
@@ -1032,7 +1113,7 @@
           (:err run)))))
 
 (defn -main [& _]
-  (let [{:keys [fail error]} (run-tests 'learn.reference-test)]
+  (let [{:keys [fail error]} (run-tests 'learn.reference-test 'learn.source-fidelity-test)]
     (shutdown-agents)
     (when (pos? (+ fail error))
       (System/exit 1))))

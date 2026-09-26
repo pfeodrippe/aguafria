@@ -8,12 +8,12 @@
   []
   1234)
 
-(az/deftest void-ignored-test
+(az/deftest void-is-ignored
   (returns-void))
 
-(az/deftest explicit-discard-test
+(az/deftest explicitly-ignoring-expression-value
   (k/= :_ (foo)))
 
 (comment
-  (void-ignored-test)
-  (explicit-discard-test))
+  (void-is-ignored)
+  (explicitly-ignoring-expression-value))

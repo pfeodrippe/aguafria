@@ -2,10 +2,10 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/deftest variable-outside-block-test
+(az/deftest access-variable-after-block-scope
   (let [x (k/var 1 :i32)]
     (k/= :_ (k/& x)))
   (k/+= x 1))
 
 (comment
-  (variable-outside-block-test))
+  (access-variable-after-block-scope))

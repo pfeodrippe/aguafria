@@ -11,24 +11,24 @@
 
 (az/defconst ComplexType
   (az/union {:argument ComplexTypeTag}
-    [[:ok :u8]
-     [:not_ok :void]]))
+            [[:ok :u8]
+             [:not_ok :void]]))
 
-(az/deftest tagged-union-switch-test
-  (let [result (ComplexType {:ok 42})]
-    (try (testing/expectEqual (:ok ComplexTypeTag) (k/as result ComplexTypeTag)))
-    (az/switch-stmt result
-      (case [:.ok] [value] (try (testing/expectEqual 42 value)))
-      (case [:.not_ok] (k/unreachable)))
-    (az/switch-stmt result
-      ;; A tag captured by a single prong is known at compile time.
-      (case [:.ok] [_ tag]
-        (k/comptime (debug/assert (k/== tag :.ok))))
-      (case [:.not_ok] (k/unreachable)))))
+(az/deftest switch-on-tagged-union
+  (let [c (ComplexType {:ok 42})]
+    (try (testing/expectEqual (:ok ComplexTypeTag) (k/as c ComplexTypeTag)))
+    (az/switch-stmt c
+                    (case [:.ok] [value] (try (testing/expectEqual 42 value)))
+                    (case [:.not_ok] (k/unreachable)))
+    (az/switch-stmt c
+                    (case [:.ok] [_ tag]
+        ;; Because we're in the '.ok' prong, 'tag' is compile-time known to be '.ok':
+                          (k/comptime (debug/assert (k/== tag :.ok))))
+                    (case [:.not_ok] (k/unreachable)))))
 
-(az/deftest tag-type-test
+(az/deftest get-tag-type
   (try (testing/expectEqual ComplexTypeTag (meta/Tag ComplexType))))
 
 (comment
-  (tagged-union-switch-test)
-  (tag-type-test))
+  (switch-on-tagged-union)
+  (get-tag-type))

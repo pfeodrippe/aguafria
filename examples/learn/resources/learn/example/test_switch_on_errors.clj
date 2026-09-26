@@ -8,13 +8,20 @@
 (az/defn- open-file-0 FileOpenError0 []
   (az/error-value :OutOfMemory))
 
-(az/deftest unreachable-else-prong-test
+(az/deftest unreachable-else-prong
   (az/switch-stmt (open-file-0)
-    (case [(az/error-value :AccessDenied) (az/error-value :FileNotFound)] [error]
-      (k/return error))
-    (case [(az/error-value :OutOfMemory)] (az/block))
-    ;; This exact else target is allowed even when all errors are covered.
-    (az/case-else (k/unreachable))))
+                  (case [(az/error-value :AccessDenied) (az/error-value :FileNotFound)] [e]
+                        (k/return e))
+                  (case [(az/error-value :OutOfMemory)] (az/block))
+    ;; 'openFile0' cannot return any more errors, so an 'else' prong would be
+    ;; statically known to be unreachable. Nonetheless, in this case, adding
+    ;; one does not raise an "unreachable else prong" compile error:
+                  (az/case-else (k/unreachable)))
+  ;; Allowed unreachable else prongs are:
+  ;;    `else => unreachable,`
+  ;;    `else => return,`
+  ;;    `else => |e| return e,` (where `e` is any identifier)
+  )
 
 (az/defconst FileOpenError1
   (az/type [:error-set [:AccessDenied :SystemResources :FileNotFound]]))
@@ -27,15 +34,13 @@
   [[kind {:attrs #{k/comptime}} :u1]]
   (switch kind (case [0] (open-file-0)) (case [1] (open-file-1))))
 
-(az/deftest comptime-unreachable-error-test
+(az/deftest comptime-unreachable-errors-not-in-error-set
   (az/switch-stmt (open-file-generic 1)
-    (case [(az/error-value :AccessDenied) (az/error-value :FileNotFound)] [error]
-      (k/return error))
-    ;; OutOfMemory is absent from this instantiation's error set. Preserve
-    ;; the exact comptime-unreachable form that permits this prong.
-    (case [(az/error-value :OutOfMemory)] (k/comptime (k/unreachable)))
-    (case [(az/error-value :SystemResources)] (az/block))))
+                  (case [(az/error-value :AccessDenied) (az/error-value :FileNotFound)] [e]
+                        (k/return e))
+                  (case [(az/error-value :OutOfMemory)] (k/comptime (k/unreachable))) ; not in `FileOpenError1`!
+                  (case [(az/error-value :SystemResources)] (az/block))))
 
 (comment
-  (unreachable-else-prong-test)
-  (comptime-unreachable-error-test))
+  (unreachable-else-prong)
+  (comptime-unreachable-errors-not-in-error-set))

@@ -2,14 +2,16 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/deftest sentinel-mismatch-test
-  (let [bytes (k/var (az/array [3 2 1 0] :u8))
-        length (k/var 2 :usize)]
-    (k/= :_ (k/& length))
-    ;; Intentionally panics: bytes[length] is 1, not the promised zero sentinel.
-    (let [slice (az/slice-sentinel bytes 0 length 0)]
+(az/deftest sentinel-mismatch
+  (let [array (k/var (az/array [3 2 1 0] :u8))
+        ;; Creating a sentinel-terminated slice from the array with a length of 2
+        ;; will result in the value `1` occupying the sentinel element position.
+        ;; This does not match the indicated sentinel value of `0` and will lead
+        ;; to a runtime panic.
+        runtime-length (k/var 2 :usize)]
+    (k/= :_ (k/& runtime-length))
+    (let [slice (az/slice-sentinel array 0 runtime-length 0)]
       (k/= :_ slice))))
 
 (comment
-  ;; This deliberately panics and can terminate this JVM.
-  (sentinel-mismatch-test))
+  (sentinel-mismatch))

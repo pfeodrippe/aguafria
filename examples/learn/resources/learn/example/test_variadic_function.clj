@@ -9,10 +9,10 @@
   {:zig/prefix "pub extern \"c\""}
   [[format [:sentinel-const :u8 0]] [... {:zig/variadic true} _]])
 
-(az/deftest variadic-function-test
+(az/deftest variadic-function
   (try (testing/expectEqual 14 (printf "Hello, world!\n")))
   (try (testing/expect
         (-> (k/typeInfo (k/TypeOf printf)) type-info/-fn fn-info/-is_var_args))))
 
 (comment
-  (variadic-function-test))
+  (variadic-function))

@@ -5,13 +5,13 @@
 
 (az/defconst Small2
   (az/union {:attrs #{k/enum}}
-    [[:a :i32]
-     [:b :bool]
-     [:c :u8]]))
+            [[:a :i32]
+             [:b :bool]
+             [:c :u8]]))
 
-(az/deftest tag-name-test
+(az/deftest tagName
   (try (testing/expectEqualSlices
         (az/type :u8) "a" (k/tagName (:a Small2)))))
 
 (comment
-  (tag-name-test))
+  (tagName))

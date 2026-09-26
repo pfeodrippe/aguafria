@@ -4,5 +4,4 @@
 (az/defstruct Threshold
   [[:minimum :f32]
    [:maximum :f32]
-  ;; A namespaced default value is an ordinary instance of the enclosing type.
    [:default {:const (Threshold {:minimum 0.25 :maximum 0.75})} Threshold]])

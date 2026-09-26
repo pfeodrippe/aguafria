@@ -7,8 +7,8 @@
   []
   builtin/is_test)
 
-(az/deftest detect-test-build-test
+(az/deftest builtin-is-test
   (try (testing/expect (isATest))))
 
 (comment
-  (detect-test-build-test))
+  (builtin-is-test))

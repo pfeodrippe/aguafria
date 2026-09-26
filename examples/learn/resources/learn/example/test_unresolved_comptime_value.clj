@@ -3,15 +3,15 @@
             [aguafria.zig :as az]))
 
 (az/defn- max T
-  [[T {:attrs #{k/comptime}} :type] [left T] [right T]]
-  (if (k/> left right) left right))
+  [[T {:attrs #{k/comptime}} :type] [a T] [b T]]
+  (if (k/> a b) a b))
 
 (az/defn- foo :void [[condition :bool]]
   (let [result (max (if condition :f32 :u64) 1234 5678)]
     (k/= :_ result)))
 
-(az/deftest runtime-type-is-not-comptime-test
+(az/deftest try-to-pass-a-runtime-type
   (foo false))
 
 (comment
-  (runtime-type-is-not-comptime-test))
+  (try-to-pass-a-runtime-type))

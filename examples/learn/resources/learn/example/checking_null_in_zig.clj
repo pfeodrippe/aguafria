@@ -10,8 +10,8 @@
 
 (az/defn- do-a-thing :void
   [[optional-foo [:optional [:* Foo]]]]
-  ;; Do some stuff.
+  ;; do some stuff
   (az/if-capture-stmt {:payload [foo]} optional-foo
                       (do-something-with-foo foo))
-  ;; Do some stuff.
+  ;; do some stuff
   )

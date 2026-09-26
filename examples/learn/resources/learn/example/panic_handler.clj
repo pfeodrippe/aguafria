@@ -6,13 +6,14 @@
 
 (az/defn main :void []
   (k/setRuntimeSafety true)
-  (let [value (k/var 255 :u8)]
-    (k/+= value 1)))
+  (let [x (k/var 255 :u8)]
+    ;; Let's overflow this integer!
+    (k/+= x 1)))
 
 (az/defn- myPanic :noreturn
-  [[message [:slice-const :u8]] [first-trace-address [:optional :usize]]]
-  (k/= :_ first-trace-address)
-  (debug/print "Panic! {s}\n" [message])
+  [[msg [:slice-const :u8]] [first-trace-addr [:optional :usize]]]
+  (k/= :_ first-trace-addr)
+  (debug/print "Panic! {s}\n" [msg])
   (process/exit 1))
 
 (az/defconst panic {:attrs #{k/pub}} (debug/FullPanic myPanic))

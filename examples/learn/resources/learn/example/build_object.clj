@@ -5,17 +5,17 @@
             [aguafria.zig :as az]))
 
 (az/defn build :void
-  [[builder [:* std/Build]]]
-  (let [object ((:addObject builder)
-                {:name "base64"
-                 :root_module ((:createModule builder)
-                               {:root_source_file ((:path builder) "base64.zig")})})
-        executable ((:addExecutable builder)
-                    {:name "test"
-                     :root_module ((:createModule builder)
-                                   {:link_libc true})})]
-    ((:addCSourceFile (compile-step/-root_module executable))
-     {:file ((:path builder) "test.c")
+  [[b [:* std/Build]]]
+  (let [obj ((:addObject b)
+             {:name "base64"
+              :root_module ((:createModule b)
+                            {:root_source_file ((:path b) "base64.zig")})})
+        exe ((:addExecutable b)
+             {:name "test"
+              :root_module ((:createModule b)
+                            {:link_libc true})})]
+    ((:addCSourceFile (compile-step/-root_module exe))
+     {:file ((:path b) "test.c")
       :flags (k/& ["-std=c99"])})
-    ((:addObject (compile-step/-root_module executable)) object)
-    ((:installArtifact builder) executable)))
+    ((:addObject (compile-step/-root_module exe)) obj)
+    ((:installArtifact b) exe)))

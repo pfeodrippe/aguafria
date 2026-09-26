@@ -4,15 +4,15 @@
             [aguafria.zig :as az]))
 
 (az/defn- foo T
-  [[T {:attrs #{k/comptime}} :type] [pointer [:* T]]]
-  (k/+= @pointer 1)
-  @pointer)
+  [[T {:attrs #{k/comptime}} :type] [ptr [:* T]]]
+  (k/+= @ptr 1)
+  @ptr)
 
-(az/deftest no-runtime-side-effects-test
+(az/deftest no-runtime-side-effects
   (let [data (k/var 0 :i32)
         T (k/TypeOf (foo :i32 (k/& data)))]
     (try (k/comptime (testing/expectEqual :i32 T)))
     (try (testing/expectEqual 0 data))))
 
 (comment
-  (no-runtime-side-effects-test))
+  (no-runtime-side-effects))

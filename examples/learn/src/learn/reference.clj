@@ -22,12 +22,47 @@
 (def upstream-url "https://ziglang.org/documentation/0.16.0/")
 (def upstream-dir "resources/upstream")
 
+(defn- checked-command! [& command]
+  (let [{:keys [exit out] :as result} (apply shell/sh command)]
+    (when-not (zero? exit)
+      (throw (ex-info "Learn build command failed"
+                      (assoc result :command (vec command)))))
+    out))
+
+(defn modified-example-paths
+  "Existing changed examples, including staged, unstaged and untracked files."
+  []
+  (let [directory "resources/learn/example/"
+        tracked (checked-command! "git" "diff" "--relative" "--name-only" "-z"
+                                  "--diff-filter=ACMR" "HEAD" "--" directory)
+        untracked (checked-command! "git" "ls-files" "--others" "--exclude-standard"
+                                    "-z" "--" directory)]
+    (->> (str/split (str tracked untracked) #"\u0000")
+         (filter #(and (str/starts-with? % directory)
+                       (str/ends-with? % ".clj")
+                       (.isFile (io/file %))))
+         distinct
+         sort
+         vec)))
+
+(defn format-modified-examples!
+  "Run the pinned cljfmt alias once for all modified examples; fail on error."
+  []
+  (let [paths (modified-example-paths)]
+    (when (seq paths)
+      (println "Formatting" (count paths) "modified Learn examples")
+      (let [output (apply checked-command! "clojure" "-M:fmt" "fix" paths)]
+        (when (seq output) (print output))))
+    paths))
+
 (defn write-text! [path text]
   (io/make-parents path)
   (spit path text :encoding "UTF-8"))
 
 (defn write-edn! [path value]
-  (write-text! path (with-out-str (pprint/pprint value))))
+  ;; pprint abbreviates forms such as (var x) to #'x, which is not EDN.
+  ;; These machine-readable build records must round-trip through clojure.edn.
+  (write-text! path (str (pr-str value) "\n")))
 
 (defn read-edn [path]
   (edn/read-string (slurp path :encoding "UTF-8")))
@@ -341,6 +376,7 @@
 (defn translate!
   ([] (translate! (:examples (inventory))))
   ([examples]
+   (format-modified-examples!)
    (let [fingerprint (compiler-fingerprint)
          overrides (read-edn "resources/learn/overrides.edn")
          previous (when (.isFile (io/file "build/translations.edn"))
@@ -1443,6 +1479,7 @@
        (fn [[_ original]] original))))
 
 (defn build! []
+  (format-modified-examples!)
   (let [catalog (inventory)
         inline-snippets (current-inlines
                          (inline/translate (filterv #(= "syntax" (:kind %))

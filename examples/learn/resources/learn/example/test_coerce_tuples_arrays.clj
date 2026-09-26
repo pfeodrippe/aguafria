@@ -4,13 +4,13 @@
 
 (az/defconst Tuple
   (az/struct
-    [(az/tuple-field-decl :u8)
-     (az/tuple-field-decl :u8)]))
+   [(az/tuple-field-decl :u8)
+    (az/tuple-field-decl :u8)]))
 
-(az/deftest homogeneous-tuple-to-array-test
+(az/deftest coercion-from-homogeneous-tuple-to-array
   (let [tuple (k/as [5 6] Tuple)
         array (k/as tuple [:array 2 :u8])]
     (k/= :_ array)))
 
 (comment
-  (homogeneous-tuple-to-array-test))
+  (coercion-from-homogeneous-tuple-to-array))

@@ -5,10 +5,10 @@
 (az/defextern exit :noreturn
   [])
 
-(az/deftest comptime-extern-call-test
+(az/deftest foo
   (az/comptime-stmt
-    (az/block
-      (exit))))
+   (az/block
+    (exit))))
 
 (comment
-  (comptime-extern-call-test))
+  (foo))

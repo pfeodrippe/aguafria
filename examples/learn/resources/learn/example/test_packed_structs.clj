@@ -7,16 +7,13 @@
             [aguafria.zig :as az]))
 
 (az/defconst native-endian
-  (let [architecture (-> builtin/target
-                         target/-cpu
-                         cpu/-arch)]
-    ((:endian architecture))))
+  ((:endian (-> builtin/target target/-cpu cpu/-arch))))
 
 (az/defstruct Full {:layout :packed}
-  [[:number :u16]])
+              [[:number :u16]])
 
 (az/defstruct Divided {:layout :packed}
-  [[:half1 :u8] [:quarter3 :u4] [:quarter4 :u4]])
+              [[:half1 :u8] [:quarter3 :u4] [:quarter4 :u4]])
 
 (az/defn doTheTest [:error-union :void] []
   (try (testing/expectEqual 2 (k/sizeOf Full)))
@@ -24,23 +21,22 @@
   (let [full (Full {:number 0x1234})
         divided (k/as (k/bitCast full) Divided)
         ordered (k/as (k/bitCast full) [:array 2 :u8])]
-    ;; Packed fields follow bit positions; array elements follow native byte order.
     (try (testing/expectEqual 0x34 (:half1 divided)))
     (try (testing/expectEqual 0x2 (:quarter3 divided)))
     (try (testing/expectEqual 0x1 (:quarter4 divided)))
     (az/switch-stmt native-endian
-      (case [:.big]
-        (do
-          (try (testing/expectEqual 0x12 (az/get ordered 0)))
-          (try (testing/expectEqual 0x34 (az/get ordered 1)))))
-      (case [:.little]
-        (do
-          (try (testing/expectEqual 0x34 (az/get ordered 0)))
-          (try (testing/expectEqual 0x12 (az/get ordered 1))))))))
+                    (case [:.big]
+                      (do
+                        (try (testing/expectEqual 0x12 (az/get ordered 0)))
+                        (try (testing/expectEqual 0x34 (az/get ordered 1)))))
+                    (case [:.little]
+                      (do
+                        (try (testing/expectEqual 0x34 (az/get ordered 0)))
+                        (try (testing/expectEqual 0x12 (az/get ordered 1))))))))
 
-(az/deftest bit-cast-between-packed-structs-test
+(az/deftest bitCast-between-packed-structs
   (try (doTheTest))
   (try (k/comptime (doTheTest))))
 
 (comment
-  (bit-cast-between-packed-structs-test))
+  (bitCast-between-packed-structs))

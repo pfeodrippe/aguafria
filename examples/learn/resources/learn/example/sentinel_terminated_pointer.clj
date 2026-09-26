@@ -3,14 +3,12 @@
             [aguafria.std.c :as c]
             [aguafria.zig :as az]))
 
+;; This is also available as `std.c.printf`.
 (az/defn main [:error-union :anyerror :void] []
-  ;; std.c exposes the same C printf declaration used by the reference.
-  (k/= :_ (c/printf "Hello, world!\n"))
-  (let [message "Hello, world!\n"
-        bytes (k/as @message [:array (:len message) :u8])]
-    ;; Copying to an ordinary array drops the type's sentinel guarantee.
-    ;; Intentionally rejected: printf requires a zero-terminated pointer.
-    (k/= :_ (c/printf (k/& bytes)))))
+  (k/= :_ (c/printf "Hello, world!\n")) ; OK
+  (let [msg "Hello, world!\n"
+        non-null-terminated-msg (k/as @msg [:array (:len msg) :u8])]
+    (k/= :_ (c/printf (k/& non-null-terminated-msg)))))
 
 (comment
   (main))

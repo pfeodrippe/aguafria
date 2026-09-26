@@ -3,7 +3,6 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-;; x86-64 Linux, LLVM backend. The assembler supplies this external symbol.
 (az/defcomptime install-addition
   (k/asm
    (az/multiline-string
@@ -14,10 +13,10 @@
      "  retq"])))
 
 (az/defextern my-func :i32
-  [[first-value :i32] [second-value :i32]])
+  [[a :i32] [b :i32]])
 
-(az/deftest global-assembly-test
+(az/deftest global-assembly
   (try (testing/expectEqual 46 (my-func 12 34))))
 
 (comment
-  (global-assembly-test))
+  (global-assembly))

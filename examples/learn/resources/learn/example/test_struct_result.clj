@@ -4,11 +4,10 @@
 
 (az/defstruct Point [[:x :i32] [:y :i32]])
 
-(az/deftest anonymous-struct-literal-test
-  ;; The constructor supplies the type of the anonymous literal.
-  (let [point (Point {:x 13 :y 67})]
-    (try (testing/expectEqual 13 (:x point)))
-    (try (testing/expectEqual 67 (:y point)))))
+(az/deftest anonymous-struct-literal
+  (let [pt (Point {:x 13 :y 67})]
+    (try (testing/expectEqual 13 (:x pt)))
+    (try (testing/expectEqual 67 (:y pt)))))
 
 (comment
-  (anonymous-struct-literal-test))
+  (anonymous-struct-literal))

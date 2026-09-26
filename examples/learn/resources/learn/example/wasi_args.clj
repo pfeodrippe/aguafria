@@ -11,8 +11,8 @@
   [[init process/Init]]
   (let [args (try ((:toSlice (-> init process-init/-minimal minimal-init/-args))
                    ((:allocator (process-init/-arena init)))))]
-    (k/for [index (az/range 0) argument args]
-      (debug/print "{d}: {s}\n" [index argument]))))
+    (k/for [i (az/range 0) arg args]
+      (debug/print "{d}: {s}\n" [i arg]))))
 
 (comment
   (main))

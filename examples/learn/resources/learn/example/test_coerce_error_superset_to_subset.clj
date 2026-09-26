@@ -7,13 +7,11 @@
 (az/defconst AllocationError
   (az/type [:error-set [:OutOfMemory]]))
 
-;; The parameter's type admits errors absent from the return type, even though
-;; this particular call passes the shared OutOfMemory member.
-(az/defn- foo AllocationError [[error FileOpenError]]
-  error)
+(az/defn- foo AllocationError [[err FileOpenError]]
+  err)
 
-(az/deftest superset-to-subset-test
+(az/deftest coerce-superset-to-subset
   (catch (foo (:OutOfMemory FileOpenError)) (az/block)))
 
 (comment
-  (superset-to-subset-test))
+  (coerce-superset-to-subset))

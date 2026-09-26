@@ -4,32 +4,34 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defn- char-to-digit :u8 [[character :u8]]
-  (switch character
-    (case [(k/... \0 \9)] (k/- character \0))
-    (case [(k/... \A \Z)] (k/+ (k/- character \A) 10))
-    (case [(k/... \a \z)] (k/+ (k/- character \a) 10))
-    (az/case-else (math/maxInt :u8))))
+(az/defn- char-to-digit :u8 [[c :u8]]
+  (switch c
+          (case [(k/... \0 \9)] (k/- c \0))
+          (case [(k/... \A \Z)] (k/+ (k/- c \A) 10))
+          (case [(k/... \a \z)] (k/+ (k/- c \a) 10))
+          (az/case-else (math/maxInt :u8))))
 
 (az/defn parseU64 [:error-union :u64]
-  [[text [:slice-const :u8]] [radix :u8]]
-  (let [accumulated (k/var 0 :u64)]
-    (k/for [character text]
-      (let [digit (char-to-digit character)]
+  [[buf [:slice-const :u8]] [radix :u8]]
+  (let [x (k/var 0 :u64)]
+    (k/for [c buf]
+      (let [digit (char-to-digit c)]
         (when (k/>= digit radix)
           (k/return (az/error-value :InvalidChar)))
-        (let [product (k/mulWithOverflow accumulated radix)]
-          (when (k/!= (az/get product 1) 0)
+        ;; x *= radix
+        (let [ov (k/var (k/mulWithOverflow x radix))]
+          (when (k/!= (az/get ov 1) 0)
             (k/return (az/error-value :OverFlow)))
-          (let [sum (k/addWithOverflow (az/get product 0) digit)]
-            (when (k/!= (az/get sum 1) 0)
-              (k/return (az/error-value :OverFlow)))
-            (k/= accumulated (az/get sum 0))))))
-    accumulated))
+          ;; x += digit
+          (k/= ov (k/addWithOverflow (az/get ov 0) digit))
+          (when (k/!= (az/get ov 1) 0)
+            (k/return (az/error-value :OverFlow)))
+          (k/= x (az/get ov 0)))))
+    x))
 
-(az/deftest parse-u64-test
-  (let [number (try (parseU64 "1234" 10))]
-    (try (testing/expectEqual 1234 number))))
+(az/deftest parse-u64
+  (let [result (try (parseU64 "1234" 10))]
+    (try (testing/expectEqual 1234 result))))
 
 (comment
-  (parse-u64-test))
+  (parse-u64))

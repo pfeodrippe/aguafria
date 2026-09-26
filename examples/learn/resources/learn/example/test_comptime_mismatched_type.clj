@@ -3,11 +3,11 @@
             [aguafria.zig :as az]))
 
 (az/defn- max T
-  [[T {:attrs #{k/comptime}} :type] [left T] [right T]]
-  (if (k/> left right) left right))
+  [[T {:attrs #{k/comptime}} :type] [a T] [b T]]
+  (if (k/> a b) a b))
 
-(az/deftest cannot-order-booleans-test
+(az/deftest try-to-compare-bools
   (k/= :_ (max :bool true false)))
 
 (comment
-  (cannot-order-booleans-test))
+  (try-to-compare-bools))

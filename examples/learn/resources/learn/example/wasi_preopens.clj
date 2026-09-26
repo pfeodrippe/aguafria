@@ -10,8 +10,8 @@
 (az/defn main :void
   [[init process/Init]]
   (k/for [preopen ((:keys (-> init process-init/-preopens preopens/-map)))
-        index (az/range 0)]
-    (log/info "{d}: {s}" [index preopen])))
+          i (az/range 0)]
+    (log/info "{d}: {s}" [i preopen])))
 
 (comment
   (main))

@@ -6,12 +6,12 @@
             [aguafria.std.ArrayList :as al]
             [aguafria.std.ArrayList.Slice :as al-slice]))
 
-(az/deftest detect-leak-test
-  (let [allocator testing/allocator
+(az/deftest detect-leak
+  (let [gpa testing/allocator
         list (k/var :.empty (std/ArrayList :u21))]
-    ;; Intentionally missing (k/defer (al/deinit list allocator)).
-    (try (al/append list allocator \☔))
+    ;; missing `defer list.deinit(gpa);`
+    (try (al/append list gpa \☔))
     (try (testing/expectEqual 1 (-> list al/-items al-slice/-len)))))
 
 (comment
-  (detect-leak-test))
+  (detect-leak))

@@ -8,22 +8,22 @@
   [[number :i32]]
   (k/+ number 1))
 
-(az/deftest add-one-expectation-test
+(az/deftest expect-addOne-adds-one-to-41
   ;; The Standard Library contains useful functions to help create tests.
   ;; `expect` is a function that verifies its argument is true.
-  ;; It returns an error when false to indicate a failure.
-  ;; `try` returns that error to the test runner to report the failed test.
+  ;; It will return an error if its argument is false to indicate a failure.
+  ;; `try` is used to return an error to the test runner to notify it that the test failed.
   (try (testing/expect (k/== (addOne 41) 42)))
 
-  ;; A more specific function such as `expectEqual` is usually more convenient.
-  ;; It gives clearer and more helpful error messages when a test fails.
+  ;; However, in most cases it is more convenient to use a more specific function like `expectEqual`.
+  ;; This gives you much clearer and more helpful error messages when a test fails.
   (try (testing/expectEqual 42 (addOne 41))))
 
 (az/deftest add-one-doctest
-  ;; The Zig version uses an identifier doctest for addOne. Here the test
-  ;; is an ordinary named Aguafria Var, with the same assertion.
+  ;; A test name can also be written using an identifier.
+  ;; This is a doctest, and serves as documentation for `addOne`.
   (try (testing/expectEqual 42 (addOne 41))))
 
 (comment
-  (add-one-expectation-test)
+  (expect-addOne-adds-one-to-41)
   (add-one-doctest))

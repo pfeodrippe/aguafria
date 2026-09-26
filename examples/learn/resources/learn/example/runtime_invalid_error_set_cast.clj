@@ -6,9 +6,9 @@
 (az/defconst Set1 (az/type [:error-set [:A :B]]))
 (az/defconst Set2 (az/type [:error-set [:A :C]]))
 
-(az/defn- foo :void [[error Set1]]
-  (let [casted-error (k/as (k/errorCast error) Set2)]
-    (debug/print "value: {}\n" [casted-error])))
+(az/defn- foo :void [[set1 Set1]]
+  (let [x (k/as (k/errorCast set1) Set2)]
+    (debug/print "value: {}\n" [x])))
 
 (az/defn main :void []
   (foo (:B Set1)))

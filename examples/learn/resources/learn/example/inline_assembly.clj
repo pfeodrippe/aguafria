@@ -2,35 +2,34 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-;; This executable uses the x86-64 Linux syscall ABI.
-(az/defconst sys-write 1)
-(az/defconst sys-exit 60)
-(az/defconst stdout-fileno 1)
+(az/defconst SYS_write 1)
+(az/defconst SYS_exit 60)
+(az/defconst STDOUT_FILENO 1)
 
-(az/defn syscall1 :usize [[number :usize] [argument :usize]]
+(az/defn syscall1 :usize [[number :usize] [arg1 :usize]]
   (k/asm "syscall"
-          {:attrs #{k/volatile}
-           :outputs [[:result "={rax}" {:type :usize}]]
-           :inputs [[:number "{rax}" number] [:argument "{rdi}" argument]]
-           :clobbers {:rcx true :r11 true}}))
+         {:attrs #{k/volatile}
+          :outputs [[:ret "={rax}" {:type :usize}]]
+          :inputs [[:number "{rax}" number] [:arg1 "{rdi}" arg1]]
+          :clobbers {:rcx true :r11 true}}))
 
 (az/defn syscall3 :usize
-  [[number :usize] [first-argument :usize] [second-argument :usize]
-   [third-argument :usize]]
+  [[number :usize] [arg1 :usize] [arg2 :usize]
+   [arg3 :usize]]
   (k/asm "syscall"
-          {:attrs #{k/volatile}
-           :outputs [[:result "={rax}" {:type :usize}]]
-           :inputs [[:number "{rax}" number]
-                    [:first "{rdi}" first-argument]
-                    [:second "{rsi}" second-argument]
-                    [:third "{rdx}" third-argument]]
-           :clobbers {:rcx true :r11 true}}))
+         {:attrs #{k/volatile}
+          :outputs [[:ret "={rax}" {:type :usize}]]
+          :inputs [[:number "{rax}" number]
+                   [:arg1 "{rdi}" arg1]
+                   [:arg2 "{rsi}" arg2]
+                   [:arg3 "{rdx}" arg3]]
+          :clobbers {:rcx true :r11 true}}))
 
 (az/defn main :noreturn []
-  (let [message "hello world\n"]
-    (k/= :_ (syscall3 sys-write stdout-fileno
-                      (k/intFromPtr message) (:len message)))
-    (k/= :_ (syscall1 sys-exit 0))
+  (let [msg "hello world\n"]
+    (k/= :_ (syscall3 SYS_write STDOUT_FILENO
+                      (k/intFromPtr msg) (:len msg)))
+    (k/= :_ (syscall1 SYS_exit 0))
     (k/unreachable)))
 
 (comment

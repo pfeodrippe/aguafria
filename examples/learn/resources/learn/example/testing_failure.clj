@@ -2,12 +2,12 @@
   (:require [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest failing-expectation-test
+(az/deftest expect-this-to-fail
   (try (testing/expect false)))
 
-(az/deftest passing-expectation-test
+(az/deftest expect-this-to-succeed
   (try (testing/expect true)))
 
 (comment
-  (failing-expectation-test)
-  (passing-expectation-test))
+  (expect-this-to-fail)
+  (expect-this-to-succeed))

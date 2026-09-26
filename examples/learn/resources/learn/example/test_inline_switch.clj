@@ -10,17 +10,18 @@
   [[T {:attrs #{k/comptime}} :type] [field-index :usize]]
   (let [fields (-> (k/typeInfo T) type-info/-struct struct-info/-fields)]
     (k/switch field-index
-      ;; This prong is analyzed twice, with a compile-time-known index each time.
-      (az/inline-case [0 1] [index]
-        (k/== (k/typeInfo (field-info/-type (az/get fields index))) :.optional))
-      (az/case-else
-        (k/return (az/error-value :IndexOutOfBounds))))))
+      ;; This prong is analyzed twice with `idx` being a
+      ;; comptime-known value each time.
+              (az/inline-case [0 1] [idx]
+                              (k/== (k/typeInfo (field-info/-type (az/get fields idx))) :.optional))
+              (az/case-else
+               (k/return (az/error-value :IndexOutOfBounds))))))
 
 (az/defstruct Struct1
   [[:a :u32]
    [:b [:optional :u32]]])
 
-(az/deftest runtime-index-type-info-test
+(az/deftest using-typeInfo-with-runtime-values
   (let [index (k/var 0 :usize)]
     (try (testing/expect (k/! (try (isFieldOptional Struct1 index)))))
     (k/+= index 1)
@@ -29,14 +30,15 @@
     (try (testing/expectError (az/error-value :IndexOutOfBounds)
                               (isFieldOptional Struct1 index)))))
 
-;; Calls to field-optional? on Struct1 unroll to the equivalent of this function.
+;; Calls to `isFieldOptional` on `Struct1` get unrolled to an equivalent
+;; of this function:
 (az/defn- isFieldOptionalUnrolled :!bool
   [[field-index :usize]]
   (k/switch field-index
-    (case [0] false)
-    (case [1] true)
-    (az/case-else
-      (k/return (az/error-value :IndexOutOfBounds)))))
+            (case [0] false)
+            (case [1] true)
+            (az/case-else
+             (k/return (az/error-value :IndexOutOfBounds)))))
 
 (comment
-  (runtime-index-type-info-test))
+  (using-typeInfo-with-runtime-values))

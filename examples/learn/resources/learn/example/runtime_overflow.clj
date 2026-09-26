@@ -5,7 +5,6 @@
 
 (az/defn main :void []
   (let [byte (k/var 255 :u8)]
-    ;; Runtime safety traps instead of silently wrapping to zero.
     (k/+= byte 1)
     (debug/print "value: {}\n" [byte])))
 

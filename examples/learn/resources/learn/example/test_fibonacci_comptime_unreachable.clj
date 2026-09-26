@@ -7,10 +7,10 @@
   (if (k/< index 2)
     index
     (k/+ (fibonacci (k/- index 1))
-       (fibonacci (k/- index 2)))))
+         (fibonacci (k/- index 2)))))
 
-(az/deftest fibonacci-unreachable-test
+(az/deftest fibonacci-test
   (try (k/comptime (debug/assert (k/== (fibonacci 7) 99999)))))
 
 (comment
-  (fibonacci-unreachable-test))
+  (fibonacci-test))

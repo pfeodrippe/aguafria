@@ -5,9 +5,9 @@
 
 (az/defn main :void
   []
-  (let [value (k/var 5678 :i32)]
-    (k/+= value 1)
-    (debug/print "{d}" [value])))
+  (let [y (k/var 5678 :i32)]
+    (k/+= y 1)
+    (debug/print "{d}" [y])))
 
 (comment
   (main))

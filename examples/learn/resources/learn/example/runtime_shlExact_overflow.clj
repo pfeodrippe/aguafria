@@ -4,11 +4,10 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [alternating-bits (k/var 2r01010101 :u8)]
-    (k/= :_ (k/& alternating-bits))
-    ;; Shifting by two would need more than eight bits.
-    (let [shifted-bits (k/shlExact alternating-bits 2)]
-      (debug/print "value: {}\n" [shifted-bits]))))
+  (let [x (k/var 2r01010101 :u8)] ; runtime-known
+    (k/= :_ (k/& x))
+    (let [y (k/shlExact x 2)]
+      (debug/print "value: {}\n" [y]))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

@@ -4,13 +4,13 @@
             [aguafria.zig :as az]))
 
 (az/defn- max T
-  [[T {:attrs #{k/comptime}} :type] [left T] [right T]]
+  [[T {:attrs #{k/comptime}} :type] [a T] [b T]]
   (if (k/== T :bool)
-    (or left right)
-    (if (k/> left right) left right)))
+    (or a b)
+    (if (k/> a b) a b)))
 
-(az/deftest boolean-maximum-test
+(az/deftest try-to-compare-bools
   (try (testing/expectEqual true (max :bool false true))))
 
 (comment
-  (boolean-maximum-test))
+  (try-to-compare-bools))

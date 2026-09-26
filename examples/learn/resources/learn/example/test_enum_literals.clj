@@ -8,19 +8,19 @@
    :off
    :on])
 
-(az/deftest enum-literals-test
-  (let [inferred (k/as :.auto Color)
-        explicit (:auto Color)]
-    (try (testing/expectEqual inferred explicit))))
+(az/deftest enum-literals
+  (let [color1 (k/as :.auto Color)
+        color2 (:auto Color)]
+    (try (testing/expectEqual color1 color2))))
 
-(az/deftest enum-literal-switch-test
+(az/deftest switch-using-enum-literals
   (let [color (:on Color)
-        enabled (k/switch color
-                  (case [:.auto] false)
-                  (case [:.on] true)
-                  (case [:.off] false))]
-    (try (testing/expect enabled))))
+        result (k/switch color
+                         (case [:.auto] false)
+                         (case [:.on] true)
+                         (case [:.off] false))]
+    (try (testing/expect result))))
 
 (comment
-  (enum-literals-test)
-  (enum-literal-switch-test))
+  (enum-literals)
+  (switch-using-enum-literals))

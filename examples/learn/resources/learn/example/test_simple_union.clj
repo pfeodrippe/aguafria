@@ -5,16 +5,15 @@
 
 (az/defconst Payload
   (az/union
-    [[:int :i64]
-     [:float :f64]
-     [:boolean :bool]]))
+   [[:int :i64]
+    [:float :f64]
+    [:boolean :bool]]))
 
-(az/deftest simple-union-test
+(az/deftest simple-union
   (let [payload (k/var (Payload {:int 1234}))]
     (try (testing/expectEqual 1234 (:int payload)))
-    ;; Assigning the whole union changes its active field.
     (k/= payload (Payload {:float 12.34}))
     (try (testing/expectEqual 12.34 (:float payload)))))
 
 (comment
-  (simple-union-test))
+  (simple-union))

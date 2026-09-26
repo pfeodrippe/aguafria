@@ -10,9 +10,9 @@
 (az/defconst x :i32 (add 12 34))
 (az/defvar y :i32 (add 10 x))
 
-(az/deftest container-level-variables-test
+(az/deftest container-level-variables
   (try (testing/expectEqual 46 x))
   (try (testing/expectEqual 56 y)))
 
 (comment
-  (container-level-variables-test))
+  (container-level-variables))

@@ -9,27 +9,25 @@
 (az/defn- add :c_int
   {:zig/qualifiers "callconv(.c)"}
   [[count :c_int] [... {:zig/variadic true} _]]
-  (let [arguments (k/var (k/cVaStart))]
-    (k/defer (k/cVaEnd (k/& arguments)))
-    (let [index (k/var 0 :usize)
+  (let [ap (k/var (k/cVaStart))]
+    (k/defer (k/cVaEnd (k/& ap)))
+    (let [i (k/var 0 :usize)
           sum (k/var 0 :c_int)]
-      (az/while-loop {:continue (az/assign-expr "+=" index 1)}
-        (k/< index count)
-        (k/+= sum (k/cVaArg (k/& arguments) :c_int)))
+      (az/while-loop {:continue (az/assign-expr "+=" i 1)}
+                     (k/< i count)
+                     (k/+= sum (k/cVaArg (k/& ap) :c_int)))
       sum)))
 
-(az/deftest defining-variadic-function-test
-  (let [architecture (cpu/-arch builtin/cpu)
-        operating-system (os/-tag builtin/os)]
-    (when (and (k/== architecture :.aarch64) (k/!= operating-system :.macos))
+(az/deftest defining-a-variadic-function
+  (when (and (k/== (cpu/-arch builtin/cpu) :.aarch64) (k/!= (os/-tag builtin/os) :.macos))
       ;; https://github.com/ziglang/zig/issues/14096
-      (k/return (az/error-value :SkipZigTest)))
-    (when (and (k/== architecture :.x86_64) (k/== operating-system :.windows))
+    (k/return (az/error-value :SkipZigTest)))
+  (when (and (k/== (cpu/-arch builtin/cpu) :.x86_64) (k/== (os/-tag builtin/os) :.windows))
       ;; https://github.com/ziglang/zig/issues/16961
-      (k/return (az/error-value :SkipZigTest)))
-    (when (k/== architecture :.s390x)
+    (k/return (az/error-value :SkipZigTest)))
+  (when (k/== (cpu/-arch builtin/cpu) :.s390x)
       ;; https://github.com/ziglang/zig/issues/21350#issuecomment-3543006475
-      (k/return (az/error-value :SkipZigTest))))
+    (k/return (az/error-value :SkipZigTest)))
 
   (try (testing/expectEqual (k/as 0 :c_int) (add 0)))
   (try (testing/expectEqual (k/as 1 :c_int) (add 1 (k/as 1 :c_int))))
@@ -37,4 +35,4 @@
                             (add 2 (k/as 1 :c_int) (k/as 2 :c_int)))))
 
 (comment
-  (defining-variadic-function-test))
+  (defining-a-variadic-function))

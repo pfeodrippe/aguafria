@@ -3,7 +3,7 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest comptime-variables-test
+(az/deftest comptime-vars
   (let [x (k/var 1 :i32)
         y (k/var 1 :i32 {:attrs #{k/comptime}})]
     (k/+= x 1)
@@ -12,9 +12,9 @@
     (try (testing/expectEqual 2 y))
 
     (when (k/!= y 2)
-      ;; This compile error never triggers: y is a comptime variable, so
-      ;; y != 2 is a comptime value and the condition is statically evaluated.
+      ;; This compile error never triggers because y is a comptime variable,
+      ;; and so `y != 2` is a comptime value, and this if is statically evaluated.
       (k/compileError "wrong y value"))))
 
 (comment
-  (comptime-variables-test))
+  (comptime-vars))

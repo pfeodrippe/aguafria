@@ -5,17 +5,17 @@
 
 (az/defn- capture-error [:error-union :void]
   [[captured [:* [:optional :anyerror]]]]
-  (errdefer [error] (k/= @captured error))
+  (errdefer [err] (k/= @captured err))
   (az/error-value :GeneralFailure))
 
-(az/deftest errdefer-capture-test
+(az/deftest errdefer-capture
   (let [captured (k/var nil [:optional :anyerror])]
-    (az/if-capture-stmt {:error [error]} (capture-error (k/& captured))
+    (az/if-capture-stmt {:error [err]} (capture-error (k/& captured))
                         (k/unreachable)
                         (az/block
-                          (try (testing/expectEqual (az/error-value :GeneralFailure)
-                                                    (az/unwrap captured)))
-                          (try (testing/expectEqual (az/error-value :GeneralFailure) error))))))
+                         (try (testing/expectEqual (az/error-value :GeneralFailure)
+                                                   (az/unwrap captured)))
+                         (try (testing/expectEqual (az/error-value :GeneralFailure) err))))))
 
 (comment
-  (errdefer-capture-test))
+  (errdefer-capture))

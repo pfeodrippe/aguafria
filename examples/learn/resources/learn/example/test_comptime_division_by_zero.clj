@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-zero-divisor
-  (let [numerator (k/i32 1)
-        denominator (k/i32 0)
-        quotient (k// numerator denominator)]
-    (k/= :_ quotient)))
+  (let [a (k/i32 1)
+        b (k/i32 0)
+        c (k// a b)]
+    (k/= :_ c)))

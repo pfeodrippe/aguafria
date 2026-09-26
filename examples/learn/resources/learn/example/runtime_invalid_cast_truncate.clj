@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [spartan-count (k/var 300 :u16)]
+  (let [spartan-count (k/var 300 :u16)] ; runtime-known
     (k/= :_ (k/& spartan-count))
     (let [byte (k/u8 (k/intCast spartan-count))]
       (debug/print "value: {}\n" [byte]))))

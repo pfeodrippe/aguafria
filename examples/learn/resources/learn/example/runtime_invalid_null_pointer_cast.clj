@@ -3,11 +3,10 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [optional-pointer (k/var nil [:optional [:* :i32]])]
-    (k/= :_ (k/& optional-pointer))
-    ;; The same invalid conversion is diagnosed by a runtime safety check.
-    (let [pointer (k/as (k/ptrCast optional-pointer) [:* :i32])]
-      (k/= :_ pointer))))
+  (let [opt-ptr (k/var nil [:optional [:* :i32]])]
+    (k/= :_ (k/& opt-ptr))
+    (let [ptr (k/as (k/ptrCast opt-ptr) [:* :i32])]
+      (k/= :_ ptr))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

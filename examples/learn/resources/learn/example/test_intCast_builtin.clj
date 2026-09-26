@@ -2,12 +2,11 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/deftest integer-cast-panic-test
-  (let [wide (k/var 0xabcd :u16)] ; runtime-known
-    (k/= :_ (k/& wide))
-    (let [narrow (k/u8 (k/intCast wide))]
-      (k/= :_ narrow))))
+(az/deftest integer-cast-panic
+  (let [a (k/var 0xabcd :u16)] ; runtime-known
+    (k/= :_ (k/& a))
+    (let [b (k/u8 (k/intCast a))]
+      (k/= :_ b))))
 
 (comment
-  ;; This deliberately panics and can terminate this JVM.
-  (integer-cast-panic-test))
+  (integer-cast-panic))

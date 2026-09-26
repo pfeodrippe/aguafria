@@ -9,10 +9,10 @@
    :c])
 
 (az/defn main :void []
-  (let [tag-value (k/var 3 :u2)]
-    (k/= :_ (k/& tag-value))
-    (let [value (k/as (k/enumFromInt tag-value) Foo)]
-      (debug/print "value: {s}\n" [(k/tagName value)]))))
+  (let [a (k/var 3 :u2)]
+    (k/= :_ (k/& a))
+    (let [b (k/as (k/enumFromInt a) Foo)]
+      (debug/print "value: {s}\n" [(k/tagName b)]))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

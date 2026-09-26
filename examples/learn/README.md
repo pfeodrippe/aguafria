@@ -41,17 +41,21 @@ Their original Shell results are not copied into a pretend REPL transcript.
 
 From this directory:
 
-Format changed example files before rebuilding with the pinned
-[cljfmt](https://github.com/weavejester/cljfmt) alias and the local Aguafria
-indentation configuration:
+HTML builds and translation/output verification automatically format modified
+examples with the pinned [cljfmt](https://github.com/weavejester/cljfmt) alias
+and local Aguafria indentation configuration. This includes staged, unstaged,
+and untracked `.clj` files under `resources/learn/example`; deleted files are
+skipped. Git or formatter errors stop the build. To format or check manually:
 
 ```sh
 clojure -M:fmt fix resources/learn/example/test_structs.clj
 clojure -M:fmt check resources/learn/example/test_structs.clj
 ```
 
-Pass all changed example paths to the same invocation; formatting does not
-change the original Zig documentation or its examples.
+Formatting runs before source fingerprints are calculated. A formatting change
+invalidates old execution evidence normally; building HTML alone does not
+rerun native outputs. Use `:outcomes` before `:build` to refresh that evidence.
+The original Zig documentation and examples are not formatted.
 
 ```sh
 clojure -X:prepare         # prepare local Aguafria before starting the REPL

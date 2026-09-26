@@ -2,7 +2,6 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-;; The declaration supplies the name used by the self-referential pointer type.
 (az/defstruct Node
   [[:next [:optional [:* Node]]]
    [:name [:slice-const :u8]]])

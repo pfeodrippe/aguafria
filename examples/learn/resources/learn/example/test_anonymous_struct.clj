@@ -11,11 +11,11 @@
   (try (testing/expectEqual \h (az/get s 0)))
   (try (testing/expectEqual \i (az/get s 1))))
 
-(az/deftest fully-anonymous-struct-test
+(az/deftest fully-anonymous-struct
   (try (check {:int (k/as 1234 (az/type :u32))
                :float (k/as 12.34 (az/type :f64))
                :b true
                :s "hi"})))
 
 (comment
-  (fully-anonymous-struct-test))
+  (fully-anonymous-struct))

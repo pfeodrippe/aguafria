@@ -3,12 +3,11 @@
             [aguafria.zig :as az]))
 
 (az/defn foo :void
-  [[text [:slice :u8]]]
-  (k/= :_ text))
+  [[s [:slice :u8]]]
+  (k/= :_ s))
 
-(az/deftest string-to-mutable-slice-test
-  ;; Intentionally invalid: a string literal cannot become mutable storage.
+(az/deftest string-literal-to-mutable-slice
   (foo "hello"))
 
 (comment
-  (string-to-mutable-slice-test))
+  (string-literal-to-mutable-slice))

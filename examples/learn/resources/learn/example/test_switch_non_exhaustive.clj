@@ -11,17 +11,17 @@
    :three
    :_])
 
-(az/deftest non-exhaustive-enum-test
+(az/deftest switch-on-non-exhaustive-enum
   (let [number (:one Number)
         result (switch number
-                 (case [:.one] true)
-                 (case [:.two :.three] false)
-                 (case [_] false))]
+                       (case [:.one] true)
+                       (case [:.two :.three] false)
+                       (case [_] false))]
     (try (testing/expect result))
     (let [is-one (switch number
-                   (case [:.one] true)
-                   (az/case-else false))]
+                         (case [:.one] true)
+                         (az/case-else false))]
       (try (testing/expect is-one)))))
 
 (comment
-  (non-exhaustive-enum-test))
+  (switch-on-non-exhaustive-enum))

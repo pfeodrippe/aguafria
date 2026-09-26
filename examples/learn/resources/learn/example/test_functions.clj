@@ -7,24 +7,25 @@
 
 (az/defconst native-arch (cpu/-arch builtin/cpu))
 
-;; Functions are declared like this.
+;; Functions are declared like this
 (az/defn- add :i8
   [[a :i8] [b :i8]]
   (when (k/== a 0)
     (k/return b))
   (k/+ a b))
 
-;; Export makes a function externally visible in the generated object file
-;; and makes it use the C ABI.
+;; The export specifier makes a function externally visible in the generated
+;; object file, and makes it use the C ABI.
 (az/defn sub :i8
   {:attrs #{k/export}}
   [[a :i8] [b :i8]]
   (k/- a b))
 
-;; Extern declares a function resolved at link time when linking statically,
-;; or at runtime when linking dynamically. The quoted library name identifies
-;; the library containing the function (for example, "c" refers to libc.so).
-;; callconv changes the function's calling convention.
+;; The extern specifier is used to declare a function that will be resolved
+;; at link time, when linking statically, or at runtime, when linking
+;; dynamically. The quoted identifier after the extern keyword specifies
+;; the library that has the function. (e.g. "c" -> libc.so)
+;; The callconv specifier changes the calling convention of the function.
 (az/defextern ExitProcess :noreturn
   {:zig/prefix "extern \"kernel32\"" :zig/qualifiers "callconv(.winapi)"}
   [[exit-code :u32]])
@@ -33,44 +34,45 @@
   {:zig/prefix "extern \"c\""}
   [[a :f64] [b :f64]])
 
-;; @branchHint tells the optimizer that a function is rarely called ("cold").
+;; The @branchHint builtin can be used to tell the optimizer that a function is rarely called ("cold").
 (az/defn- abort :noreturn
   []
   (k/branchHint :.cold)
   (az/while-loop {} true))
 
-;; The naked calling convention omits the function prologue and epilogue.
+;; The naked calling convention makes a function not have any function prologue or epilogue.
 ;; This can be useful when integrating with assembly.
 (az/defn- _start :noreturn
   {:zig/qualifiers "callconv(.naked)"}
   []
   (abort))
 
-;; Inline forces a function to be inlined at every call site.
-;; If it cannot be inlined, that is a compile-time error.
+;; The inline calling convention forces a function to be inlined at all call sites.
+;; If the function cannot be inlined, it is a compile-time error.
 (az/defn- shift-left-one :u32
   {:attrs #{k/inline}}
-  [[value :u32]]
-  (k/<< value 1))
+  [[a :u32]]
+  (k/<< a 1))
 
-;; Public visibility allows another file to import and call this function.
+;; The pub specifier allows the function to be visible when importing.
+;; Another file can use @import and call sub2
 (az/defn sub2 :i8
   [[a :i8] [b :i8]]
   (k/- a b))
 
-;; Function pointers have a *const prefix.
+;; Function pointers are prefixed with `*const `.
 (az/defconst Call2Op
   (az/type [:*const [:fn {} [{:name :a :type :i8}
                              {:name :b :type :i8}]
                      :i8]]))
 
 (az/defn- do-op :i8
-  [[operation Call2Op] [left :i8] [right :i8]]
-  (operation left right))
+  [[fn-call Call2Op] [op1 :i8] [op2 :i8]]
+  (fn-call op1 op2))
 
-(az/deftest function-test
+(az/deftest function
   (try (testing/expectEqual 11 (do-op add 5 6)))
   (try (testing/expectEqual -1 (do-op sub2 5 6))))
 
 (comment
-  (function-test))
+  (function))

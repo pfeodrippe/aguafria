@@ -22,8 +22,8 @@
     (quux)
     (hello)))
 
-(az/defn- foo :void [[value :i32]]
-  (if (k/>= value 5)
+(az/defn- foo :void [[x :i32]]
+  (if (k/>= x 5)
     (bar)
     (bang2)))
 

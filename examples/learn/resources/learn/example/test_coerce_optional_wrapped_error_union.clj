@@ -3,12 +3,11 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest optional-error-union-coercion-test
-  (let [present (k/as 1234 [:error-union :anyerror [:optional :i32]])
-        absent (k/as nil [:error-union :anyerror [:optional :i32]])]
-    ;; Unwrap the successful error union before inspecting its optional payload.
-    (try (testing/expectEqual 1234 (az/unwrap (try present))))
-    (try (testing/expectEqual nil (try absent)))))
+(az/deftest coerce-to-optionals-wrapped-in-error-union
+  (let [x (k/as 1234 [:error-union :anyerror [:optional :i32]])
+        y (k/as nil [:error-union :anyerror [:optional :i32]])]
+    (try (testing/expectEqual 1234 (az/unwrap (try x))))
+    (try (testing/expectEqual nil (try y)))))
 
 (comment
-  (optional-error-union-coercion-test))
+  (coerce-to-optionals-wrapped-in-error-union))

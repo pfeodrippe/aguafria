@@ -9,17 +9,17 @@
 
 (az/defconst ComplexType
   (az/union {:argument ComplexTypeTag}
-    [[:ok :u8]
-     [:not_ok :void]]))
+            [[:ok :u8]
+             [:not_ok :void]]))
 
-(az/deftest mutate-tagged-payload-test
-  (let [result (k/var (ComplexType {:ok 42}))]
-    (az/switch-stmt result
-      (case [(:ok ComplexTypeTag)] [(az/pointer-capture value)]
-        (az/block
-          (k/+= @value 1)))
-      (case [(:not_ok ComplexTypeTag)] (k/unreachable)))
-    (try (testing/expectEqual 43 (:ok result)))))
+(az/deftest modify-tagged-union-in-switch
+  (let [c (k/var (ComplexType {:ok 42}))]
+    (az/switch-stmt c
+                    (case [(:ok ComplexTypeTag)] [(az/pointer-capture value)]
+                          (az/block
+                           (k/+= @value 1)))
+                    (case [(:not_ok ComplexTypeTag)] (k/unreachable)))
+    (try (testing/expectEqual 43 (:ok c)))))
 
 (comment
-  (mutate-tagged-payload-test))
+  (modify-tagged-union-in-switch))

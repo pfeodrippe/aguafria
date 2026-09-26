@@ -6,41 +6,55 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest switch-simple-test
-  (let [value (k/u64 10)
-        special-value (k/u64 103)
-        result (k/switch value
-                 (case [1 2 3] 0)
-                 ;; Ranges include both endpoints; cases never fall through.
-                 (case [(k/... 5 100)] 1)
-                 (case [101]
-                   (let [base (k/u64 5)]
-                     (k/+ (k/* base 2) 1)))
-                 (case [special-value] special-value)
-                 ;; Case expressions may themselves compute a comptime value.
-                 (case [(let [lower (k/u32 5)
-                              upper (k/u32 100)]
-                          (k/+ lower upper))]
-                   107)
-                 (az/case-else 9))]
-    (try (testing/expectEqual 1 result))))
+(az/deftest switch-simple
+  (let [a (k/u64 10)
+        zz (k/u64 103)
+        ;; All branches of a switch expression must be able to be coerced to a
+        ;; common type.
+        ;;
+        ;; Branches cannot fallthrough. If fallthrough behavior is desired, combine
+        ;; the cases and use an if.
+        b (k/switch a
+                 ;; Multiple cases can be combined via a ','
+                    (case [1 2 3] 0)
+                 ;; Ranges can be specified using the ... syntax. These are inclusive
+                 ;; of both ends.
+                    (case [(k/... 5 100)] 1)
+                 ;; Branches can be arbitrarily complex.
+                    (case [101]
+                      (az/with-block :blk
+                        (let [c (k/u64 5)]
+                          (k/break :blk (k/+ (k/* c 2) 1)))))
+                 ;; Switching on arbitrary expressions is allowed as long as the
+                 ;; expression is known at compile-time.
+                    (case [zz] zz)
+                    (case [(az/with-block :blk
+                             (let [d (k/u32 5)
+                                   e (k/u32 100)]
+                               (k/break :blk (k/+ d e))))]
+                      107)
+                 ;; The else branch catches everything not already captured.
+                 ;; Else branches are mandatory unless the entire range of values
+                 ;; is handled.
+                    (az/case-else 9))]
+    (try (testing/expectEqual 1 b))))
 
-(az/defconst target-os
-  (-> builtin/target
-      target/-os
-      os/-tag))
+;; Switch expressions can be used outside a function:
+(az/defconst os-msg
+  (k/switch (-> builtin/target target/-os os/-tag)
+            (case [:.linux] "we found a linux user")
+            (az/case-else "not a linux user")))
 
-(az/defconst os-message
-  (k/switch target-os
-    (case [:.linux] "we found a linux user")
-    (az/case-else "not a linux user")))
-
-(az/deftest switch-inside-function-test
-  ;; The unselected branch is not analyzed when the target is comptime-known.
-  (az/switch-stmt target-os
-    (case [:.fuchsia] (do (k/compileError "fuchsia not supported")))
-    (az/case-else (do))))
+;; Inside a function, switch statements implicitly are compile-time
+;; evaluated if the target expression is compile-time known.
+(az/deftest switch-inside-function
+  (az/switch-stmt (-> builtin/target target/-os os/-tag)
+    ;; On an OS other than fuchsia, block is not even analyzed,
+    ;; so this compile error is not triggered.
+    ;; On fuchsia this compile error would be triggered.
+                  (case [:.fuchsia] (do (k/compileError "fuchsia not supported")))
+                  (az/case-else (do))))
 
 (comment
-  (switch-simple-test)
-  (switch-inside-function-test))
+  (switch-simple)
+  (switch-inside-function))

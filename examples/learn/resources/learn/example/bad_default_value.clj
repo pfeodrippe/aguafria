@@ -8,8 +8,8 @@
   [[:minimum {:default 0.25} :f32]
    [:maximum {:default 0.75} :f32]
    [:Category {:const (az/enum [:low :medium :high])} :type]
-   (az/fn- categorize Category [[threshold Threshold] [value :f32]]
-           (let [{:keys [minimum maximum]} threshold]
+   (az/fn- categorize Category [[t Threshold] [value :f32]]
+           (let [{:keys [minimum maximum]} t]
              (debug/assert (k/>= maximum minimum))
              (if (k/< value minimum)
                :.low

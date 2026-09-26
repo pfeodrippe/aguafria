@@ -2,12 +2,12 @@
   (:require [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defconst number :i32 1234)
-(az/defconst text "foobar")
+(az/defconst a-number :i32 1234)
+(az/defconst a-string "foobar")
 
-(az/deftest unused-print-argument-test
+(az/deftest print-too-many-arguments
   (debug/print "here is a string: '{s}' here is a number: {}\n"
-               [text number number]))
+               [a-string a-number a-number]))
 
 (comment
-  (unused-print-argument-test))
+  (print-too-many-arguments))

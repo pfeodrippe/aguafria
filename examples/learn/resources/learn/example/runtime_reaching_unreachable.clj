@@ -3,7 +3,6 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  ;; The standard assertion reaches unreachable when its condition is false.
   (debug/assert false))
 
 (comment

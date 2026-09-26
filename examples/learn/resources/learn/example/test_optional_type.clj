@@ -5,19 +5,19 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest optional-type-test
-  ;; Declare an optional and coerce from null.
-  (let [optional-number (k/var nil [:optional :i32])]
-    ;; Coerce from the optional's child type.
-    (k/= optional-number 1234)
+(az/deftest optional-type
+  ;; Declare an optional and coerce from null:
+  (let [foo (k/var nil [:optional :i32])]
+    ;; Coerce from child type of an optional
+    (k/= foo 1234)
 
-    ;; Use compile-time reflection to access the child type of the optional.
+    ;; Use compile-time reflection to access the child type of the optional:
     (try (k/comptime
           (testing/expectEqual
            :i32
-           (-> (k/typeInfo (k/TypeOf optional-number))
+           (-> (k/typeInfo (k/TypeOf foo))
                type-info/-optional
                optional-info/-child))))))
 
 (comment
-  (optional-type-test))
+  (optional-type))

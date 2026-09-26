@@ -6,10 +6,10 @@
   [[:a {:default 1234} :i32]
    [:b :i32]])
 
-(az/deftest default-fields-test
-  (let [value (Foo {:b 5})]
-    (when (k/!= (k/+ (:a value) (:b value)) 1239)
+(az/deftest default-struct-initialization-fields
+  (let [x (Foo {:b 5})]
+    (when (k/!= (k/+ (:a x) (:b x)) 1239)
       (az/comptime-stmt (k/unreachable)))))
 
 (comment
-  (default-fields-test))
+  (default-struct-initialization-fields))

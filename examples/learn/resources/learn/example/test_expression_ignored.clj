@@ -5,8 +5,8 @@
   []
   1234)
 
-(az/deftest ignored-value-test
+(az/deftest ignoring-expression-value
   (foo))
 
 (comment
-  (ignored-value-test))
+  (ignoring-expression-value))

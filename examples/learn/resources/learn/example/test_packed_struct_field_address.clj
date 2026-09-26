@@ -4,15 +4,13 @@
             [aguafria.zig :as az]))
 
 (az/defstruct BitField {:layout :packed}
-  [[:a :u3] [:b :u3] [:c :u2]])
+              [[:a :u3] [:b :u3] [:c :u2]])
 
-(az/defvar bits (BitField {:a 1 :b 2 :c 3}))
+(az/defvar bit-field (BitField {:a 1 :b 2 :c 3}))
 
-(az/deftest pointers-of-sub-byte-aligned-fields-share-addresses-test
-  (let [first-address (k/intFromPtr (k/& (:a bits)))]
-    ;; The bit offset belongs to the pointer type, not to its integer address.
-    (try (testing/expectEqual first-address (k/intFromPtr (k/& (:b bits)))))
-    (try (testing/expectEqual first-address (k/intFromPtr (k/& (:c bits)))))))
+(az/deftest pointers-of-sub-byte-aligned-fields-share-addresses
+  (try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:b bit-field)))))
+  (try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:c bit-field))))))
 
 (comment
-  (pointers-of-sub-byte-aligned-fields-share-addresses-test))
+  (pointers-of-sub-byte-aligned-fields-share-addresses))

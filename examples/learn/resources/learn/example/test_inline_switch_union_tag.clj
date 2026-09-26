@@ -5,19 +5,21 @@
 
 (az/defconst U
   (az/union {:attrs #{k/enum}}
-    [[:a :u32]
-     [:b :f32]]))
+            [[:a :u32]
+             [:b :f32]]))
 
-(az/defn- getNum :u32 [[value U]]
-  (switch value
-    (az/inline-case-else [number tag]
-      (if (k/== tag :.b)
-        (k/intFromFloat number)
-        number))))
+(az/defn- getNum :u32 [[u U]]
+  (switch u
+    ;; Here `num` is a runtime-known value that is either
+    ;; `u.a` or `u.b` and `tag` is `u`'s comptime-known tag value.
+          (az/inline-case-else [num tag]
+                               (if (k/== tag :.b)
+                                 (k/intFromFloat num)
+                                 num))))
 
-(az/deftest inline-union-tag-test
-  (let [value (U {:b 42})]
-    (try (testing/expectEqual 42 (getNum value)))))
+(az/deftest test
+  (let [u (U {:b 42})]
+    (try (testing/expectEqual 42 (getNum u)))))
 
 (comment
-  (inline-union-tag-test))
+  (test))

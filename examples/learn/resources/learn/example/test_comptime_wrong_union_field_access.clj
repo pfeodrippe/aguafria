@@ -4,9 +4,9 @@
 
 (az/defconst Foo
   (az/union
-    [[:float :f32]
-     [:int :u32]]))
+   [[:float :f32]
+    [:int :u32]]))
 
 (az/defcomptime reject-inactive-field
-  (let [value (k/var (Foo {:int 42}))]
-    (k/= (:float value) 12.34)))
+  (let [f (k/var (Foo {:int 42}))]
+    (k/= (:float f) 12.34)))

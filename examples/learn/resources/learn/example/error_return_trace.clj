@@ -2,8 +2,6 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-;; Retain the original function names so the propagated-error trace is legible
-;; beside the Zig version: FileNotFound is handled, PermissionDenied escapes.
 (az/defn- bang1 [:error-union :void] []
   (az/error-value :FileNotFound))
 
@@ -20,13 +18,13 @@
   (try (bang2)))
 
 (az/defn- bar [:error-union :void] []
-  (az/if-capture-stmt {:error [error]} (baz)
+  (az/if-capture-stmt {:error [err]} (baz)
                       (try (quux))
-                      (az/switch-stmt error
-                        (case [(az/error-value :FileNotFound)] (try (hello))))))
+                      (az/switch-stmt err
+                                      (case [(az/error-value :FileNotFound)] (try (hello))))))
 
-(az/defn- foo [:error-union :void] [[value :i32]]
-  (if (k/>= value 5)
+(az/defn- foo [:error-union :void] [[x :i32]]
+  (if (k/>= x 5)
     (try (bar))
     (try (bang2))))
 
@@ -34,5 +32,4 @@
   (try (foo 12)))
 
 (comment
-  ;; This deliberately triggers native safety failure; it can terminate this JVM.
   (main))

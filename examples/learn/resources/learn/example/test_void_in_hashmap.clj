@@ -3,16 +3,16 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest hashmap-as-set-test
-  (let [members (k/var ((:init (aguafria.std/AutoHashMap :i32 :void))
-                       testing/allocator))]
-    (k/defer ((:deinit members)))
-    (try ((:put members) 1 (az/init {} :void)))
-    (try ((:put members) 2 (az/init {} :void)))
-    (try (testing/expect ((:contains members) 2)))
-    (try (testing/expect (k/! ((:contains members) 3))))
-    (k/= :_ ((:remove members) 2))
-    (try (testing/expect (k/! ((:contains members) 2))))))
+(az/deftest turn-HashMap-into-a-set-with-void
+  (let [map (k/var ((:init (aguafria.std/AutoHashMap :i32 :void))
+                    testing/allocator))]
+    (k/defer ((:deinit map)))
+    (try ((:put map) 1 (az/init {} :void)))
+    (try ((:put map) 2 (az/init {} :void)))
+    (try (testing/expect ((:contains map) 2)))
+    (try (testing/expect (k/! ((:contains map) 3))))
+    (k/= :_ ((:remove map) 2))
+    (try (testing/expect (k/! ((:contains map) 2))))))
 
 (comment
-  (hashmap-as-set-test))
+  (turn-HashMap-into-a-set-with-void))

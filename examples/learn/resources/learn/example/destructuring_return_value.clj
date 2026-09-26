@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/defn- divmod (az/struct [(az/tuple-field-decl :u32)
-                            (az/tuple-field-decl :u32)])
+                             (az/tuple-field-decl :u32)])
   [[numerator :u32] [denominator :u32]]
   [(k// numerator denominator) (k/% numerator denominator)])
 

@@ -5,6 +5,7 @@
   (:require [aguafria.zig :as az]))
 
 (az/defstruct S
-  ;; Zig also permits top-level documentation inside non-module containers.
-  ;; Its package documentation currently ignores those comments.
+  ;; Top level comments are allowed inside a container other than a module,
+  ;; but it is not very useful.  Currently, when producing the package
+  ;; documentation, these comments are ignored.
   [])

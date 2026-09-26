@@ -3,15 +3,15 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest array-initializer-swap-test
-  (let [array (k/var [1 2] [:array 2 :u32])]
-    (k/= array [(az/get array 1) (az/get array 0)])
-    ;; The initializer writes directly into its result location, as if:
-    ;;   (k/= (az/get array 0) (az/get array 1))
-    ;;   (k/= (az/get array 1) (az/get array 0))
+(az/deftest attempt-to-swap-array-elements-with-array-initializer
+  (let [arr (k/var [1 2] [:array 2 :u32])]
+    (k/= arr [(az/get arr 1) (az/get arr 0)])
+    ;; The previous line is equivalent to the following two lines:
+    ;;   arr[0] = arr[1];
+    ;;   arr[1] = arr[0];
     ;; So this fails!
-    (try (testing/expectEqual 2 (az/get array 0))) ; succeeds
-    (try (testing/expectEqual 1 (az/get array 1))))) ; fails
+    (try (testing/expectEqual 2 (az/get arr 0))) ; succeeds
+    (try (testing/expectEqual 1 (az/get arr 1))))) ; fails
 
 (comment
-  (array-initializer-swap-test))
+  (attempt-to-swap-array-elements-with-array-initializer))

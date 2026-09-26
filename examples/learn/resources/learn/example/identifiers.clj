@@ -2,11 +2,10 @@
   (:require [aguafria.std.c :as c]
             [aguafria.zig :as az]))
 
-;; Friendly Clojure names can retain exact, quoted Zig identifiers.
-(az/defconst identifier-with-spaces
+(az/defconst identifier-with-spaces-in-it
   {:zig/name "@\"identifier with spaces in it\""}
   0xff)
-(az/defconst one-small-step
+(az/defconst one-small-step4-man
   {:zig/name "@\"1SmallStep4Man\""}
   112358)
 

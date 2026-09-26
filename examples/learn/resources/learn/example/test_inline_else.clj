@@ -19,35 +19,37 @@
 
 (az/defconst AnySlice
   (az/union {:enum? true}
-    [[:a SliceTypeA]
-     [:b SliceTypeB]
-     [:c [:slice-const :u8]]
-     [:d [:slice AnySlice]]]))
+            [[:a SliceTypeA]
+             [:b SliceTypeB]
+             [:c [:slice-const :u8]]
+             [:d [:slice AnySlice]]]))
 
 (az/defn- with-for :usize
-  [[any-slice AnySlice]]
+  [[any AnySlice]]
   (let [Tag (az/unwrap (-> (k/typeInfo AnySlice) type-info/-union union-info/-tag_type))]
     (az/inline-for [field (-> (k/typeInfo Tag) type-info/-enum enum-info/-fields)]
-      ;; Inline for generates a series of if statements, relying on the
-      ;; optimizer to convert them into a switch.
-      (when (k/== (field-info/-value field) (k/intFromEnum any-slice))
-        (k/return (:len (k/field any-slice (field-info/-name field)))))))
-  ;; With inline for, the compiler does not know that every possible case
-  ;; has been handled, so an explicit unreachable is required.
+      ;; With `inline for` the function gets generated as
+      ;; a series of `if` statements relying on the optimizer
+      ;; to convert it to a switch.
+                   (when (k/== (field-info/-value field) (k/intFromEnum any))
+                     (k/return (:len (k/field any (field-info/-name field)))))))
+  ;; When using `inline for` the compiler doesn't know that every
+  ;; possible case has been handled requiring an explicit `unreachable`.
   (k/unreachable))
 
 (az/defn- with-switch :usize
-  [[any-slice AnySlice]]
-  (k/switch any-slice
-    ;; Inline else directly generates the desired switch, and the compiler
-    ;; can check that every possible case is handled.
-    (az/inline-case-else [slice]
-      (:len slice))))
+  [[any AnySlice]]
+  (k/switch any
+    ;; With `inline else` the function is explicitly generated
+    ;; as the desired switch and the compiler can check that
+    ;; every possible case is handled.
+            (az/inline-case-else [slice]
+                                 (:len slice))))
 
-(az/deftest inline-for-and-else-test
-  (let [any-slice (AnySlice {:c "hello"})]
-    (try (testing/expectEqual 5 (with-for any-slice)))
-    (try (testing/expectEqual 5 (with-switch any-slice)))))
+(az/deftest inline-for-and-inline-else-similarity
+  (let [any (AnySlice {:c "hello"})]
+    (try (testing/expectEqual 5 (with-for any)))
+    (try (testing/expectEqual 5 (with-switch any)))))
 
 (comment
-  (inline-for-and-else-test))
+  (inline-for-and-inline-else-similarity))

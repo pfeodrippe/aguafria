@@ -4,17 +4,15 @@
             [aguafria.zig :as az]))
 
 (az/defstruct BitField {:layout :packed}
-  [[:a :u3] [:b :u3] [:c :u2]])
+              [[:a :u3] [:b :u3] [:c :u2]])
 
-(az/defvar bits (BitField {:a 1 :b 2 :c 3}))
+(az/defvar bit-field (BitField {:a 1 :b 2 :c 3}))
 
-(az/defn bar :u3 [[pointer [:*const :u3]]]
-  @pointer)
+(az/defn bar :u3 [[x [:*const :u3]]]
+  @x)
 
-(az/deftest pointer-to-non-byte-aligned-field-test
-  ;; Intentionally rejected: a packed-field pointer carries bit-offset metadata
-  ;; that an ordinary *const u3 parameter cannot represent.
-  (try (testing/expectEqual 2 (bar (k/& (:b bits))))))
+(az/deftest pointer-to-non-byte-aligned-field
+  (try (testing/expectEqual 2 (bar (k/& (:b bit-field))))))
 
 (comment
-  (pointer-to-non-byte-aligned-field-test))
+  (pointer-to-non-byte-aligned-field))

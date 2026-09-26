@@ -3,11 +3,11 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest allowzero-test
-  (let [address (k/var 0 :usize)]
-    (k/= :_ (k/& address))
-    (let [pointer (k/as (k/ptrFromInt address) [:pointer {:size :one, :allowzero? true} :i32])]
-      (try (testing/expectEqual 0 (k/intFromPtr pointer))))))
+(az/deftest allowzero
+  (let [zero (k/var 0 :usize)] ; var to make to runtime-known
+    (k/= :_ (k/& zero)) ; suppress 'var is never mutated' error
+    (let [ptr (k/as (k/ptrFromInt zero) [:pointer {:size :one, :allowzero? true} :i32])]
+      (try (testing/expectEqual 0 (k/intFromPtr ptr))))))
 
 (comment
-  (allowzero-test))
+  (allowzero))

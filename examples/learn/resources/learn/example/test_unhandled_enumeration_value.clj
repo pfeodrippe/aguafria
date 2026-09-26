@@ -6,11 +6,11 @@
    :off
    :on])
 
-(az/deftest missing-enum-prong-test
+(az/deftest exhaustive-switching
   (let [color (:off Color)]
     (az/switch-stmt color
-      (case [(:auto Color)] (az/block))
-      (case [(:on Color)] (az/block)))))
+                    (case [(:auto Color)] (az/block))
+                    (case [(:on Color)] (az/block)))))
 
 (comment
-  (missing-enum-prong-test))
+  (exhaustive-switching))

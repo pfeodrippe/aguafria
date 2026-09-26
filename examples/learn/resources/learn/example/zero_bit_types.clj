@@ -3,10 +3,10 @@
             [aguafria.zig :as az]))
 
 (az/defn entry :void {:attrs #{k/export}} []
-  (let [first-value (k/var (az/block) :void)
-        second-value (k/var (az/block) :void)]
-    (k/= first-value second-value)
-    (k/= second-value first-value)))
+  (let [x (k/var (az/block) :void)
+        y (k/var (az/block) :void)]
+    (k/= x y)
+    (k/= y x)))
 
 (comment
   (entry))

@@ -8,13 +8,13 @@
   (let [i (k/var begin)]
     (az/while-loop {:continue (az/assign-expr "+=" i 1)
                     :else-expression false}
-      (k/< i end)
-      (if (k/== i number)
-        (k/break true)))))
+                   (k/< i end)
+                   (if (k/== i number)
+                     (k/break true)))))
 
-(az/deftest while-else-test
+(az/deftest while-else
   (try (testing/expect (range-has-number 0 10 5)))
   (try (testing/expect (k/! (range-has-number 0 10 15)))))
 
 (comment
-  (while-else-test))
+  (while-else))

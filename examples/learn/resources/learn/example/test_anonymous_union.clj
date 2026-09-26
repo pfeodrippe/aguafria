@@ -6,17 +6,17 @@
 
 (az/defconst Number
   (az/union
-    [[:int :i32]
-     [:float :f64]]))
+   [[:int :i32]
+    [:float :f64]]))
 
 (az/defn make-number Number []
   {:float 12.34})
 
-(az/deftest anonymous-union-literal-test
-  (let [integer (Number {:int 42})
-        floating (make-number)]
-    (try (testing/expectEqual 42 (:int integer)))
-    (try (testing/expectEqual 12.34 (:float floating)))))
+(az/deftest anonymous-union-literal-syntax
+  (let [i (Number {:int 42})
+        f (make-number)]
+    (try (testing/expectEqual 42 (:int i)))
+    (try (testing/expectEqual 12.34 (:float f)))))
 
 (comment
-  (anonymous-union-literal-test))
+  (anonymous-union-literal-syntax))

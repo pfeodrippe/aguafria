@@ -2,12 +2,11 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/deftest lossy-integer-to-float-test
-  (let [integer (k/var 123 :u25)]
-    (k/= :_ (k/& integer))
-    ;; Intentionally invalid: f32 cannot exactly represent every runtime u25.
-    (let [floating (k/f32 integer)]
-      (k/= :_ floating))))
+(az/deftest integer-type-is-too-large-for-implicit-cast-to-float
+  (let [int (k/var 123 :u25)]
+    (k/= :_ (k/& int))
+    (let [float (k/f32 int)]
+      (k/= :_ float))))
 
 (comment
-  (lossy-integer-to-float-test))
+  (integer-type-is-too-large-for-implicit-cast-to-float))

@@ -4,14 +4,13 @@
             [aguafria.zig :as az]))
 
 (az/defstruct BitField {:layout :packed}
-  [[:a :u3] [:b :u3] [:c :u2]])
+              [[:a :u3] [:b :u3] [:c :u2]])
 
-(az/defvar bits (BitField {:a 1 :b 2 :c 3}))
+(az/defvar foo (BitField {:a 1 :b 2 :c 3}))
 
-(az/deftest pointer-to-non-byte-aligned-field-test
-  ;; Keeping the inferred pointer type retains the sub-byte offset.
-  (let [pointer (k/& (:b bits))]
-    (try (testing/expectEqual 2 @pointer))))
+(az/deftest pointer-to-non-byte-aligned-field
+  (let [ptr (k/& (:b foo))]
+    (try (testing/expectEqual 2 @ptr))))
 
 (comment
-  (pointer-to-non-byte-aligned-field-test))
+  (pointer-to-non-byte-aligned-field))

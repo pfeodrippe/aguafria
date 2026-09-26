@@ -2,10 +2,9 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/defn- assert :void [[condition :bool]]
-  (when (k/! condition)
-    (k/unreachable)))
+(az/defn- assert :void [[ok :bool]]
+  (when (k/! ok)
+    (k/unreachable))) ; assertion failure
 
-;; A false assertion reaches unreachable during compile-time evaluation.
 (az/defcomptime reject-false-condition
   (assert false))

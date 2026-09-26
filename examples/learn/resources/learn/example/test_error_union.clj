@@ -5,21 +5,24 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest error-union-test
-  (let [result (k/var k/undefined [:error-union :anyerror :i32])]
-    ;; Both a payload and an error coerce into their shared error-union type.
-    (k/= result 1234)
-    (k/= result (az/error-value :SomeError))
+(az/deftest error-union
+  (let [foo (k/var k/undefined [:error-union :anyerror :i32])]
+    ;; Coerce from child type of an error union:
+    (k/= foo 1234)
+    ;; Coerce from an error set:
+    (k/= foo (az/error-value :SomeError))
+    ;; Use compile-time reflection to access the payload type of an error union:
     (try (k/comptime
           (testing/expectEqual :i32
-                               (-> (k/typeInfo (k/TypeOf result))
+                               (-> (k/typeInfo (k/TypeOf foo))
                                    type-info/-error_union
                                    error-union-info/-payload))))
+    ;; Use compile-time reflection to access the error set type of an error union:
     (try (k/comptime
           (testing/expectEqual :anyerror
-                               (-> (k/typeInfo (k/TypeOf result))
+                               (-> (k/typeInfo (k/TypeOf foo))
                                    type-info/-error_union
                                    error-union-info/-error_set))))))
 
 (comment
-  (error-union-test))
+  (error-union))

@@ -3,31 +3,31 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest many-item-arithmetic-test
-  (let [numbers (az/array [1 2 3 4] :i32)
-        pointer (k/var (k/& numbers) [:many-const :i32])]
-    (try (testing/expectEqual 1 (az/get pointer 0)))
-    (k/+= pointer 1)
-    (try (testing/expectEqual 2 (az/get pointer 0)))
-    ;; An open-ended slice of a many-item pointer advances the pointer.
-    (try (testing/expectEqual (az/slice pointer 1) (k/+ pointer 1)))
-    ;; Pointer subtraction counts elements, not bytes.
-    (try (testing/expectEqual 1 (k/- (k/& (az/get pointer 1))
-                                   (k/& (az/get pointer 0)))))))
+(az/deftest pointer-arithmetic-with-many-item-pointer
+  (let [array (az/array [1 2 3 4] :i32)
+        ptr (k/var (k/& array) [:many-const :i32])]
+    (try (testing/expectEqual 1 (az/get ptr 0)))
+    (k/+= ptr 1)
+    (try (testing/expectEqual 2 (az/get ptr 0)))
+    ;; slicing a many-item pointer without an end is equivalent to
+    ;; pointer arithmetic: `ptr[start..] == ptr + start`
+    (try (testing/expectEqual (az/slice ptr 1) (k/+ ptr 1)))
+    ;; subtraction between any two pointers except slices based on element size is supported
+    (try (testing/expectEqual 1 (k/- (k/& (az/get ptr 1))
+                                     (k/& (az/get ptr 0)))))))
 
-(az/deftest slice-arithmetic-test
-  (let [numbers (k/var (az/array [1 2 3 4] :i32))
-        length (k/var 0 :usize)]
-    ;; Taking its address keeps length runtime-known.
-    (k/= :_ (k/& length))
-    (let [slice (k/var (az/slice numbers length (:len numbers)))]
+(az/deftest pointer-arithmetic-with-slices
+  (let [array (k/var (az/array [1 2 3 4] :i32))
+        length (k/var 0 :usize)] ; var to make it runtime-known
+    (k/= :_ (k/& length)) ; suppress 'var is never mutated' error
+    (let [slice (k/var (az/slice array length (:len array)))]
       (try (testing/expectEqual 1 (az/get slice 0)))
       (try (testing/expectEqual 4 (:len slice)))
       (k/+= (:ptr slice) 1)
-      ;; Deliberately inconsistent: moving ptr does not update len.
+      ;; now the slice is in an bad state since len has not been updated
       (try (testing/expectEqual 2 (az/get slice 0)))
       (try (testing/expectEqual 4 (:len slice))))))
 
 (comment
-  (many-item-arithmetic-test)
-  (slice-arithmetic-test))
+  (pointer-arithmetic-with-many-item-pointer)
+  (pointer-arithmetic-with-slices))

@@ -6,25 +6,28 @@
 
 (az/defconst Error (az/type [:error-set [:Overflow]]))
 
+;; With an inferred error set
 (az/defn add-inferred [:error-union T]
-  [[T {:attrs #{k/comptime}} :type] [left T] [right T]]
-  (let [sum (k/addWithOverflow left right)]
-    (when (k/!= (az/get sum 1) 0)
+  [[T {:attrs #{k/comptime}} :type] [a T] [b T]]
+  (let [ov (k/addWithOverflow a b)]
+    (when (k/!= (az/get ov 1) 0)
       (k/return (az/error-value :Overflow)))
-    (az/get sum 0)))
+    (az/get ov 0)))
 
+;; With an explicit error set
 (az/defn add-explicit [:error-union Error T]
-  [[T {:attrs #{k/comptime}} :type] [left T] [right T]]
-  (let [sum (k/addWithOverflow left right)]
-    (when (k/!= (az/get sum 1) 0)
+  [[T {:attrs #{k/comptime}} :type] [a T] [b T]]
+  (let [ov (k/addWithOverflow a b)]
+    (when (k/!= (az/get ov 1) 0)
       (k/return (az/error-value :Overflow)))
-    (az/get sum 0)))
+    (az/get ov 0)))
 
-(az/deftest inferred-error-set-test
-  (az/if-capture-stmt {:payload [_] :error [error]} (add-inferred :u8 255 1)
+(az/deftest inferred-error-set
+  (az/if-capture-stmt {:payload [_] :error [err]} (add-inferred :u8 255 1)
                       (k/unreachable)
-                      (az/switch-stmt error
-                        (case [(az/error-value :Overflow)] (az/block)))))
+                      (az/switch-stmt err
+                        ;; ok
+                                      (case [(az/error-value :Overflow)] (az/block)))))
 
 (comment
-  (inferred-error-set-test))
+  (inferred-error-set))

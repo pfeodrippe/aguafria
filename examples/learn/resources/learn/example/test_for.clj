@@ -3,7 +3,7 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest for-basics-test
+(az/deftest for-basics
   (let [items (az/array [4 5 3 4 0] :i32)
         sum (k/var 0 :i32)]
     ;; For loops iterate over slices and arrays.
@@ -21,31 +21,31 @@
 
     ;; To access the index of iteration, specify a second condition as well
     ;; as a second capture value.
-    (let [index-sum (k/var 0 :i32)]
-      (k/for [_ items index (az/range 0)]
-        (try (testing/expectEqual :usize (k/TypeOf index)))
-        (k/+= index-sum (k/as (k/intCast index) :i32)))
-      (try (testing/expectEqual 10 index-sum)))
+    (let [sum2 (k/var 0 :i32)]
+      (k/for [_ items i (az/range 0)]
+        (try (testing/expectEqual :usize (k/TypeOf i)))
+        (k/+= sum2 (k/as (k/intCast i) :i32)))
+      (try (testing/expectEqual 10 sum2)))
 
     ;; To iterate over consecutive integers, use the range syntax.
     ;; Unbounded range is always a compile error.
-    (let [range-sum (k/var 0 :usize)]
-      (k/for [index (az/range 0 5)]
-        (k/+= range-sum index))
-      (try (testing/expectEqual 10 range-sum)))))
+    (let [sum3 (k/var 0 :usize)]
+      (k/for [i (az/range 0 5)]
+        (k/+= sum3 i))
+      (try (testing/expectEqual 10 sum3)))))
 
-(az/deftest multi-object-for-test
+(az/deftest multi-object-for
   (let [items (az/array [1 2 3] :usize)
-        other-items (az/array [4 5 6] :usize)
+        items2 (az/array [4 5 6] :usize)
         count (k/var 0 :usize)]
     ;; Iterate over multiple objects.
     ;; All lengths must be equal at the start of the loop, otherwise detectable
     ;; illegal behavior occurs.
-    (k/for [left items right other-items]
-      (k/+= count (k/+ left right)))
+    (k/for [i items j items2]
+      (k/+= count (k/+ i j)))
     (try (testing/expectEqual 21 count))))
 
-(az/deftest for-reference-test
+(az/deftest for-reference
   (let [items (k/var (az/array [3 4 2] :i32))]
     ;; Iterate over the slice by reference by
     ;; specifying that the capture value is a pointer.
@@ -55,13 +55,12 @@
     (try (testing/expectEqual 5 (az/get items 1)))
     (try (testing/expectEqual 3 (az/get items 2)))))
 
-(az/deftest for-else-test
+(az/deftest for-else
   ;; For allows an else attached to it, the same as a while loop.
   (let [items (az/array [3 4 nil 5] [:optional :i32])
         sum (k/var 0 :i32)]
     ;; For loops can also be used as expressions.
-    ;; Similar to while loops, when you break from a for loop,
-    ;; the else branch is not evaluated.
+    ;; Similar to while loops, when you break from a for loop, the else branch is not evaluated.
     (let [result (k/for [value items]
                    (when (k/!= value nil)
                      (k/+= sum (az/unwrap value)))
@@ -72,7 +71,7 @@
       (try (testing/expectEqual 12 result)))))
 
 (comment
-  (for-basics-test)
-  (multi-object-for-test)
-  (for-reference-test)
-  (for-else-test))
+  (for-basics)
+  (multi-object-for)
+  (for-reference)
+  (for-else))

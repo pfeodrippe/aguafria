@@ -6,8 +6,8 @@
   (debug/print "\n" [])
   (defer (debug/print "1 " []))
   (defer (debug/print "2 " []))
-  ;; Only executed defer statements participate in reverse-order cleanup.
   (when false
+    ;; defers are not run if they are never executed.
     (defer (debug/print "3 " []))))
 
 (comment

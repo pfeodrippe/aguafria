@@ -7,8 +7,8 @@
   [[a :i32] [b :i32]]
   (k/+ a b))
 
-(az/deftest call-builtin-test
+(az/deftest noinline-function-call
   (try (testing/expectEqual 12 (k/call :.auto add [3 9]))))
 
 (comment
-  (call-builtin-test))
+  (noinline-function-call))

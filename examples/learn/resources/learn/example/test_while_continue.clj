@@ -3,7 +3,7 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest while-continue-test
+(az/deftest while-continue
   (let [i (k/var 0 :usize)]
     (k/while true
       (k/+= i 1)
@@ -13,4 +13,4 @@
     (try (testing/expectEqual 10 i))))
 
 (comment
-  (while-continue-test))
+  (while-continue))

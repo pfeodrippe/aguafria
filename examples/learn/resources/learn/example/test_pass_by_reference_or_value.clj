@@ -5,14 +5,15 @@
 
 (az/defstruct Point [[:x :i32] [:y :i32]])
 
-;; Zig may pass this value by reference or copy. Its parameter address is
-;; valid only during the call, regardless of that implementation choice.
 (az/defn foo :i32 [[point Point]]
+  ;; Here, `point` could be a reference, or a copy. The function body
+  ;; can ignore the difference and treat it as a value. Be very careful
+  ;; taking the address of the parameter - it should be treated as if
+  ;; the address will become invalid when the function returns.
   (k/+ (:x point) (:y point)))
 
-(az/deftest pass-struct-to-function-test
-  (let [point (Point {:x 1 :y 2})]
-    (try (testing/expectEqual 3 (foo point)))))
+(az/deftest pass-struct-to-function
+  (try (testing/expectEqual 3 (foo (Point {:x 1 :y 2})))))
 
 (comment
-  (pass-struct-to-function-test))
+  (pass-struct-to-function))

@@ -8,7 +8,7 @@
   (if (k/< index 2)
     (k/return index))
   (k/+ (fibonacci (k/- index 1))
-     (fibonacci (k/- index 2))))
+       (fibonacci (k/- index 2))))
 
 (az/deftest fibonacci-test
   ;; test fibonacci at run-time

@@ -5,10 +5,10 @@
 (az/defn- foo :void
   [[_ [:*const :i32]]])
 
-(az/deftest const-qualification-test
-  (let [value (k/var 1 :i32)
-        pointer (k/as (k/& value) [:* :i32])]
-    (foo pointer)))
+(az/deftest type-coercion-const-qualification
+  (let [a (k/var 1 :i32)
+        b (k/as (k/& a) [:* :i32])]
+    (foo b)))
 
 (comment
-  (const-qualification-test))
+  (type-coercion-const-qualification))

@@ -7,10 +7,10 @@
   [[native-arch "cpu.arch"] [zig-backend "zig_backend"]])
 
 (az/defn main :void []
-  (let [alternating-bits (k/var 2r10101010 :u8)]
-    (k/= :_ (k/& alternating-bits))
-    (let [shifted-bits (k/shrExact alternating-bits 2)]
-      (debug/print "value: {}\n" [shifted-bits]))
+  (let [x (k/var 2r10101010 :u8)] ; runtime-known
+    (k/= :_ (k/& x))
+    (let [y (k/shrExact x 2)]
+      (debug/print "value: {}\n" [y]))
     (when (and (or ((:isPowerPC target/native-arch))
                    ((:isRISCV target/native-arch))
                    ((:isLoongArch target/native-arch))

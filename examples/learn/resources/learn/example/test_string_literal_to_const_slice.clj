@@ -3,11 +3,11 @@
             [aguafria.zig :as az]))
 
 (az/defn foo :void
-  [[text [:slice-const :u8]]]
-  (k/= :_ text))
+  [[s [:slice-const :u8]]]
+  (k/= :_ s))
 
-(az/deftest string-to-const-slice-test
+(az/deftest string-literal-to-constant-slice
   (foo "hello"))
 
 (comment
-  (string-to-const-slice-test))
+  (string-literal-to-constant-slice))

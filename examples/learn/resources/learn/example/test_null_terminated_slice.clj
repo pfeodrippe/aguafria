@@ -3,11 +3,10 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest sentinel-slice-test
+(az/deftest zero-terminated-slice
   (let [slice (k/as "hello" [:pointer {:sentinel 0, :size :slice, :const? true} :u8])]
     (try (testing/expectEqual 5 (:len slice)))
-    ;; A sentinel slice permits reading its terminator at index len.
     (try (testing/expectEqual 0 (az/get slice 5)))))
 
 (comment
-  (sentinel-slice-test))
+  (zero-terminated-slice))

@@ -1,5 +1,39 @@
 # Learn reference implementation
 
+- [x] Automatically cljfmt modified Learn examples before HTML builds and
+      translation/output verification. Cover staged, unstaged and untracked
+      files; stop on errors; fingerprint only after formatting. Test integration
+      and regenerate verified HTML. Verified 71 tests / 12,532 assertions,
+      all 292 example outcomes, 351 authored inline checks, and served HTML.
+
+- [x] Restore original identifier, test-title, and comment wording in 16
+      vector/array/destructuring/loop examples, including `test_vector.clj`.
+      Add 48 source-fidelity assertions to the Learn test suite; output equality
+      alone does not establish faithful translation of names or comments.
+- [x] Screen all 290 authored examples against their pinned Zig sources;
+      record the findings and limitations in `SOURCE_FIDELITY_AUDIT.md`.
+- [x] Manually review the remaining 210 source-fidelity candidates and restore
+      unnecessary rewrites. Candidates are not all confirmed bugs: account for
+      required imports, invalid-source examples, and Clojure spelling changes.
+      Keep original comments verbatim apart from comment delimiters; preserve
+      identifier wording instead of inventing descriptive replacement names.
+      Completed four disjoint manual-review batches covering all 290 authored
+      examples, including unflagged files. Expanded regression checks to all
+      files and inline/doc comments: 1,166 assertions pass. No unexplained
+      screening findings remain; necessary adaptations are documented in
+      `SOURCE_FIDELITY_AUDIT.md`.
+- [x] Rebuild and verify all genuine comment-form REPL outputs and HTML after
+      the corpus-wide fidelity cleanup; run the Learn suite and inspect the
+      served page before reporting completion.
+      All 292 outcome checks pass (288 upstream comparisons, four documented
+      special cases). Rebuilt 202 REPL transcripts and 307 tabbed figures;
+      351 authored inline checks and all fragment checks pass. Learn suite:
+      68 tests / 12,521 assertions, zero failures/errors. Served HTML equals
+      the verified disk artifact; refreshed the browser and opened the vector
+      tab to check restored names/comments and both real test results.
+- [x] Keep diagnostic forms in build records valid EDN: pprint's reader
+      abbreviations such as `#'x` are not EDN. Add a round-trip regression test.
+
 - [x] Regenerate all Learn outcomes and HTML after the `ZigValue` indexed-access
       fix, verify the served page, and refresh the browser. Runtime tests alone
       do not complete a Learn change: rebuild its real REPL outputs and HTML

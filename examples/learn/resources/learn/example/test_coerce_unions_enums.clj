@@ -10,31 +10,36 @@
 
 (az/defconst U
   (az/union {:argument E}
-    [[:one :i32]
-     [:two :f32]
-     [:three :void]]))
+            [[:one :i32]
+             [:two :f32]
+             [:three :void]]))
 
 (az/defconst U2
   (az/union {:attrs #{k/enum}}
-    [[:a :void]
-     [:b :f32]
-     (az/fn- tag :usize [[self U2]]
-       (switch self
-         (case [:.a] 1)
-         (case [:.b] 2)))]))
+            [[:a :void]
+             [:b :f32]
+             (az/fn- tag :usize [[self U2]]
+                     (switch self
+                             (case [:.a] 1)
+                             (case [:.b] 2)))]))
 
-(az/deftest union-enum-coercion-test
-  (let [value (U {:two 12.34})
-        tag (k/as value E)]
-    (try (testing/expectEqual (:two E) tag)))
-  (let [empty-tag (:three E)
-        from-enum (k/as empty-tag U)
-        from-literal (k/as :.three U)
-        inferred (k/as :.a U2)]
-    (try (testing/expectEqual (:three E) from-enum))
-    (try (testing/expectEqual (:three E) from-literal))
-    ;; A bare .b would be invalid: that variant requires an f32 payload.
-    (try (testing/expectEqual 1 ((:tag inferred))))))
+(az/deftest coercion-between-unions-and-enums
+  (let [u (U {:two 12.34})
+        e (k/as u E)] ; coerce union to enum
+    (try (testing/expectEqual (:two E) e)))
+  (let [three (:three E)
+        u-2 (k/as three U)] ; coerce enum to union
+    (try (testing/expectEqual (:three E) u-2)))
+  (let [u-3 (k/as :.three U)] ; coerce enum literal to union
+    (try (testing/expectEqual (:three E) u-3)))
+  (let [u-4 (k/as :.a U2)] ; coerce enum literal to union with inferred enum tag type.
+    (try (testing/expectEqual 1 ((:tag u-4)))))
+
+  ;; The following example is invalid.
+  ;; error: coercion from enum '@EnumLiteral()' to union 'test_coerce_unions_enum.U2' must initialize 'f32' field 'b'
+  ;; var u_5: U2 = .b;
+  ;; try expectEqual(2, u_5.tag());
+  )
 
 (comment
-  (union-enum-coercion-test))
+  (coercion-between-unions-and-enums))

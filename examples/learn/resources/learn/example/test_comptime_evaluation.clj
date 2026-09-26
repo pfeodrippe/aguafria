@@ -21,25 +21,24 @@
 
 (az/defconst cmd-fns
   (az/array [(CmdFn {:name "one" :func one})
-                  (CmdFn {:name "two" :func two})
-                  (CmdFn {:name "three" :func three})] CmdFn))
+             (CmdFn {:name "two" :func two})
+             (CmdFn {:name "three" :func three})] CmdFn))
 
-(az/defn- perform-fn :i32
+(az/defn- performFn :i32
   [[prefix-char {:attrs #{k/comptime}} :u8] [start-value :i32]]
   (let [result (k/var start-value :i32)
         i (k/var 0 nil {:attrs #{k/comptime}})]
     (az/while-loop {:inline? true
                     :continue (az/assign-expr "+=" i 1)}
-      (k/< i (:len cmd-fns))
-      (let [command (az/get cmd-fns i)]
-        (when (k/== (az/get-in command [:name 0]) prefix-char)
-          (k/= result ((:func command) result)))))
+                   (k/< i (:len cmd-fns))
+                   (when (k/== (az/get-in cmd-fns [i :name 0]) prefix-char)
+                     (k/= result ((az/get-in cmd-fns [i :func]) result))))
     result))
 
-(az/deftest perform-functions-test
-  (try (testing/expectEqual 6 (perform-fn \t 1)))
-  (try (testing/expectEqual 1 (perform-fn \o 0)))
-  (try (testing/expectEqual 99 (perform-fn \w 99))))
+(az/deftest perform-fn
+  (try (testing/expectEqual 6 (performFn \t 1)))
+  (try (testing/expectEqual 1 (performFn \o 0)))
+  (try (testing/expectEqual 99 (performFn \w 99))))
 
 (comment
-  (perform-functions-test))
+  (perform-fn))

@@ -6,17 +6,18 @@
 (az/defn main :void
   []
   (let [digits (az/array [3 8 9 0 7 4 1] :i8)
-        [minimum maximum]
-        (let [smallest (k/var 127 :i8)
-              largest (k/var -128 :i8)]
-          (k/for [digit digits]
-            (when (k/< digit smallest)
-              (k/= smallest digit))
-            (when (k/> digit largest)
-              (k/= largest digit)))
-          [smallest largest])]
-    (debug/print "min = {}\n" [minimum])
-    (debug/print "max = {}\n" [maximum])))
+        [min max]
+        (az/with-block :blk
+          (let [min (k/var 127 :i8)
+                max (k/var -128 :i8)]
+            (k/for [digit digits]
+              (when (k/< digit min)
+                (k/= min digit))
+              (when (k/> digit max)
+                (k/= max digit)))
+            (k/break :blk [min max])))]
+    (debug/print "min = {}\n" [min])
+    (debug/print "max = {}\n" [max])))
 
 (comment
   (main))

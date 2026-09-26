@@ -12,15 +12,15 @@
       (k/-= numbers-left 1)
       numbers-left)))
 
-(az/deftest while-error-capture-test
-  (let [sum (k/var 0 :u32)]
+(az/deftest while-error-union-capture
+  (let [sum1 (k/var 0 :u32)]
     (k/= numbers-left 3)
-    (az/while-loop {:payload [number]
-                    :error [error]
+    (az/while-loop {:payload [value]
+                    :error [err]
                     :else [(try (testing/expectEqual
-                                 (az/error-value :ReachedZero) error))]}
-      (eventuallyErrorSequence)
-      (k/+= sum number))))
+                                 (az/error-value :ReachedZero) err))]}
+                   (eventuallyErrorSequence)
+                   (k/+= sum1 value))))
 
 (comment
-  (while-error-capture-test))
+  (while-error-union-capture))

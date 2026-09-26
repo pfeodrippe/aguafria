@@ -7,8 +7,8 @@
 (az/defconst c
   (k/cImport
    (az/block
-     (k/cDefine "_NO_CRT_STDIO_INLINE" "1")
-     (k/cInclude "stdio.h"))))
+    (k/cDefine "_NO_CRT_STDIO_INLINE" "1")
+    (k/cInclude "stdio.h"))))
 
 (az/defn main :void
   []

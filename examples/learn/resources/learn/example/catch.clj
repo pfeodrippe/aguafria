@@ -4,7 +4,6 @@
 
 (az/defimport parsing "error_union_parsing_u64.zig" [parseU64])
 
-(az/defn- do-a-thing :void [[text [:slice :u8]]]
-  ;; A fallback turns either parse failure into an ordinary value.
-  (let [number (catch (parsing/parseU64 text 10) 13)]
-    (k/= :_ number)))
+(az/defn- do-a-thing :void [[str [:slice :u8]]]
+  (let [number (catch (parsing/parseU64 str 10) 13)]
+    (k/= :_ number))) ; ...

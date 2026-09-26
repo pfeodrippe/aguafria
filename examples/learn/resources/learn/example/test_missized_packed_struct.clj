@@ -2,12 +2,11 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/deftest missized-packed-struct-test
-  ;; Intentionally rejected: the fields total 24 bits, but the backing integer has 32.
-  (let [WrongSize (az/struct {:layout :packed, :argument :u32}
-                    [[:a :u16]
-                     [:b :u8]])]
-    (k/= :_ (WrongSize {:a 4 :b 2}))))
+(az/deftest missized-packed-struct
+  (let [S (az/struct {:layout :packed, :argument :u32}
+                     [[:a :u16]
+                      [:b :u8]])]
+    (k/= :_ (S {:a 4 :b 2}))))
 
 (comment
-  (missized-packed-struct-test))
+  (missized-packed-struct))

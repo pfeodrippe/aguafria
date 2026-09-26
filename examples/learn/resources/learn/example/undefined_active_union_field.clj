@@ -5,15 +5,14 @@
 
 (az/defconst Foo
   (az/union
-    [[:float :f32]
-     [:int :u32]]))
+   [[:float :f32]
+    [:int :u32]]))
 
 (az/defn- bar :void [[f [:* Foo]]]
   (k/= (:float f) 12.34))
 
 (az/defn main :void []
   (let [f (k/var (Foo {:int 42}))]
-    ;; Select the float field first; its payload can be initialized separately.
     (k/= f (Foo {:float k/undefined}))
     (bar (k/& f))
     (debug/print "value: {}\n" [(:float f)])))

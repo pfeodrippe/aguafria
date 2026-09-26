@@ -3,6 +3,5 @@
             [aguafria.zig :as az]))
 
 (az/defcomptime reject-lost-low-bits
-  (let [alternating-bits (k/u8 2r10101010)
-        shifted-bits (k/shrExact alternating-bits 2)]
-    (k/= :_ shifted-bits)))
+  (let [x (k/shrExact (k/u8 2r10101010) 2)]
+    (k/= :_ x)))

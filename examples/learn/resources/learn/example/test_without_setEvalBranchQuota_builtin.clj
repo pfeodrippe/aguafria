@@ -2,11 +2,11 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/deftest default-branch-quota-test
+(az/deftest foo
   (az/comptime-stmt
-    (let [index (k/var 0)]
-      (az/while-loop {:continue (az/assign-expr "+=" index 1)}
-        (k/< index 1001)))))
+   (let [i (k/var 0)]
+     (az/while-loop {:continue (az/assign-expr "+=" i 1)}
+                    (k/< i 1001)))))
 
 (comment
-  (default-branch-quota-test))
+  (foo))

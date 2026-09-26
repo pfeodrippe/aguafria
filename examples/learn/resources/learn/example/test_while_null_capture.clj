@@ -12,29 +12,30 @@
       (k/-= numbers-left 1)
       numbers-left)))
 
-(az/deftest while-null-capture-test
-  (let [sum (k/var 0 :u32)]
+(az/deftest while-null-capture
+  (let [sum1 (k/var 0 :u32)]
     (k/= numbers-left 3)
-    (az/while-loop {:payload [number]} (eventuallyNullSequence)
-      (k/+= sum number))
-    (try (testing/expectEqual 3 sum)))
+    (az/while-loop {:payload [value]} (eventuallyNullSequence)
+                   (k/+= sum1 value))
+    (try (testing/expectEqual 3 sum1)))
 
-  ;; An optional loop's else branch runs when its condition becomes null.
-  (let [sum (k/var 0 :u32)]
+  ;; null capture with an else block
+  (let [sum2 (k/var 0 :u32)]
     (k/= numbers-left 3)
-    (az/while-loop {:payload [number]
-                    :else [(try (testing/expectEqual 3 sum))]}
-      (eventuallyNullSequence)
-      (k/+= sum number)))
+    (az/while-loop {:payload [value]
+                    :else [(try (testing/expectEqual 3 sum2))]}
+                   (eventuallyNullSequence)
+                   (k/+= sum2 value)))
 
-  (let [iterations (k/var 0 :u32)
-        sum (k/var 0 :u32)]
+  ;; null capture with a continue expression
+  (let [i (k/var 0 :u32)
+        sum3 (k/var 0 :u32)]
     (k/= numbers-left 3)
-    (az/while-loop {:payload [number]
-                    :continue (az/assign-expr "+=" iterations 1)}
-      (eventuallyNullSequence)
-      (k/+= sum number))
-    (try (testing/expectEqual 3 iterations))))
+    (az/while-loop {:payload [value]
+                    :continue (az/assign-expr "+=" i 1)}
+                   (eventuallyNullSequence)
+                   (k/+= sum3 value))
+    (try (testing/expectEqual 3 i))))
 
 (comment
-  (while-null-capture-test))
+  (while-null-capture))

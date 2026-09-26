@@ -4,11 +4,12 @@
             [aguafria.zig :as az]))
 
 (az/defn- fibonacci :i32 [[index :i32]]
+  ;;if (index < 2) return index;
   (k/+ (fibonacci (k/- index 1))
-     (fibonacci (k/- index 2))))
+       (fibonacci (k/- index 2))))
 
-(az/deftest fibonacci-infinite-recursion-test
+(az/deftest fibonacci-test
   (try (k/comptime (debug/assert (k/== (fibonacci 7) 13)))))
 
 (comment
-  (fibonacci-infinite-recursion-test))
+  (fibonacci-test))

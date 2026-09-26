@@ -1,8 +1,8 @@
 (ns learn.example.compiler-generated-function
   (:require [aguafria.zig :as az]))
 
-(az/defn- max :bool [[left :bool] [right :bool]]
-  (or left right))
+(az/defn- max :bool [[a :bool] [b :bool]]
+  (or a b))
 
 (comment
   (max false true))

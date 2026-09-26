@@ -3,11 +3,10 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest comptime-narrowing-test
-  ;; The compiler knows this particular u64 value fits in u8.
-  (let [wide (k/u64 255)
-        narrow (k/u8 wide)]
-    (try (testing/expectEqual 255 narrow))))
+(az/deftest coercing-large-integer-type-to-smaller-one-when-value-is-comptime-known-to-fit
+  (let [x (k/u64 255)
+        y (k/u8 x)]
+    (try (testing/expectEqual 255 y))))
 
 (comment
-  (comptime-narrowing-test))
+  (coercing-large-integer-type-to-smaller-one-when-value-is-comptime-known-to-fit))

@@ -7,15 +7,15 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest function-reflection-test
-  (let [expect-signature (type-info/-fn (k/typeInfo (k/TypeOf testing/expect)))
-        first-parameter (az/get (fn-info/-params expect-signature) 0)
-        tmp-dir-signature (type-info/-fn (k/typeInfo (k/TypeOf testing/tmpDir)))
-        log2-signature (type-info/-fn (k/typeInfo (k/TypeOf math/Log2Int)))]
-    (try (testing/expectEqual :bool (az/unwrap (param-info/-type first-parameter))))
-    (try (testing/expectEqual testing/TmpDir
-                              (az/unwrap (fn-info/-return_type tmp-dir-signature))))
-    (try (testing/expect (fn-info/-is_generic log2-signature)))))
+(az/deftest fn-reflection
+  (try (testing/expectEqual
+        :bool
+        (az/unwrap (param-info/-type
+                    (az/get (fn-info/-params (type-info/-fn (k/typeInfo (k/TypeOf testing/expect)))) 0)))))
+  (try (testing/expectEqual
+        testing/TmpDir
+        (az/unwrap (fn-info/-return_type (type-info/-fn (k/typeInfo (k/TypeOf testing/tmpDir)))))))
+  (try (testing/expect (fn-info/-is_generic (type-info/-fn (k/typeInfo (k/TypeOf math/Log2Int)))))))
 
 (comment
-  (function-reflection-test))
+  (fn-reflection))

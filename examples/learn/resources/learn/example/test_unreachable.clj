@@ -4,11 +4,11 @@
 
 ;; unreachable is used to assert that control flow will never reach a
 ;; particular location:
-(az/deftest basic-math-test
+(az/deftest basic-math
   (let [x 1
         y 2]
     (when (k/!= (k/+ x y) 3)
       (k/unreachable))))
 
 (comment
-  (basic-math-test))
+  (basic-math))

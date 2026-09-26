@@ -13,6 +13,9 @@
 (az/defconst gpio [:pointer {:size :one :volatile? true} GpioRegister]
   (k/ptrFromInt 0x0123))
 
-;; Write the entire packed register, not an individual bit field.
 (az/defn write-to-gpio :void [[new-states GpioRegister]]
+  ;; Example of what not to do:
+  ;; BAD! gpio.GPIO0 = true; BAD!
+
+  ;; Instead, do this:
   (k/= @gpio new-states))

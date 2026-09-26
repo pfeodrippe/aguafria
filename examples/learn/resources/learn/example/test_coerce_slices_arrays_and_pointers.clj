@@ -3,73 +3,83 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest constant-array-to-slice-test
-  (let [literal (k/as "hello" [:slice-const :u8])
-        letters
+;; You can assign constant pointers to arrays to a slice with
+;; const modifier on the element type. Useful in particular for
+;; String literals.
+(az/deftest *const-N-T-to-const-T
+  (let [x1 (k/as "hello" [:slice-const :u8])
+        x2
         (k/as (k/& (az/init [\h \e \l \l 111] [:array 5 :u8])) [:slice-const :u8])
-        numbers
+        y
         (k/as (k/& (az/init [1.2 3.4] [:array 2 :f32])) [:slice-const :f32])]
-    (try (testing/expectEqualStrings literal letters))
-    (try (testing/expectEqual 1.2 (az/get numbers 0)))))
+    (try (testing/expectEqualStrings x1 x2))
+    (try (testing/expectEqual 1.2 (az/get y 0)))))
 
-(az/deftest constant-array-to-error-slice-test
-  (let [literal (k/as "hello" [:error-union :anyerror [:slice-const :u8]])
-        letters
+;; Likewise, it works when the destination type is an error union.
+(az/deftest *const-N-T-to-E!const-T
+  (let [x1 (k/as "hello" [:error-union :anyerror [:slice-const :u8]])
+        x2
         (k/as (k/& (az/init [\h \e \l \l 111] [:array 5 :u8])) [:error-union :anyerror [:slice-const :u8]])
-        numbers
+        y
         (k/as (k/& (az/init [1.2 3.4] [:array 2 :f32])) [:error-union :anyerror [:slice-const :f32]])]
-    (try (testing/expectEqualStrings (try literal) (try letters)))
-    (try (testing/expectEqual 1.2 (az/get (try numbers) 0)))))
+    (try (testing/expectEqualStrings (try x1) (try x2)))
+    (try (testing/expectEqual 1.2 (az/get (try y) 0)))))
 
-(az/deftest constant-array-to-optional-slice-test
-  (let [literal (k/as "hello" [:optional [:slice-const :u8]])
-        letters
+;; Likewise, it works when the destination type is an optional.
+(az/deftest *const-N-T-to-?const-T
+  (let [x1 (k/as "hello" [:optional [:slice-const :u8]])
+        x2
         (k/as (k/& (az/init [\h \e \l \l 111] [:array 5 :u8])) [:optional [:slice-const :u8]])
-        numbers
+        y
         (k/as (k/& (az/init [1.2 3.4] [:array 2 :f32])) [:optional [:slice-const :f32]])]
-    (try (testing/expectEqualStrings (az/unwrap literal) (az/unwrap letters)))
-    (try (testing/expectEqual 1.2 (az/get (az/unwrap numbers) 0)))))
+    (try (testing/expectEqualStrings (az/unwrap x1) (az/unwrap x2)))
+    (try (testing/expectEqual 1.2 (az/get (az/unwrap y) 0)))))
 
-(az/deftest array-to-slice-test
-  ;; The fixed array length becomes the slice length during coercion.
-  (let [buffer (k/var (deref "hello") [:array 5 :u8])
-        bytes (k/as (k/& buffer) [:slice :u8])
-        numbers (az/init [1.2 3.4] [:array 2 :f32])
-        values (k/as (k/& numbers) [:slice-const :f32])]
-    (try (testing/expectEqualStrings "hello" bytes))
+;; In this cast, the array length becomes the slice length.
+(az/deftest *N-T-to-T
+  (let [buf (k/var (deref "hello") [:array 5 :u8])
+        x (k/as (k/& buf) [:slice :u8])
+        buf2 (az/init [1.2 3.4] [:array 2 :f32])
+        x2 (k/as (k/& buf2) [:slice-const :f32])]
+    (try (testing/expectEqualStrings "hello" x))
     (try (testing/expectEqualSlices
           (az/type :f32)
           (k/& (az/init [1.2 3.4] [:array 2 :f32]))
-          values))))
+          x2))))
 
-(az/deftest array-to-many-pointer-test
-  (let [buffer (k/var (deref "hello") [:array 5 :u8])
-        pointer (k/as (k/& buffer) [:many :u8])]
-    ;; A many-item pointer carries no length: index 5 would not be checked.
-    (try (testing/expectEqual \o (az/get pointer 4)))))
+;; Single-item pointers to arrays can be coerced to many-item pointers.
+(az/deftest *N-T-to-*T
+  (let [buf (k/var (deref "hello") [:array 5 :u8])
+        x (k/as (k/& buf) [:many :u8])]
+    (try (testing/expectEqual \o (az/get x 4)))
+    ;; x[5] would be an uncaught out of bounds pointer dereference!
+    ))
 
-(az/deftest array-to-optional-many-pointer-test
-  (let [buffer (k/var (deref "hello") [:array 5 :u8])
-        pointer (k/as (k/& buffer) [:optional [:many :u8]])]
-    (try (testing/expectEqual \o (az/get (az/unwrap pointer) 4)))))
+;; Likewise, it works when the destination type is an optional.
+(az/deftest *N-T-to-?*T
+  (let [buf (k/var (deref "hello") [:array 5 :u8])
+        x (k/as (k/& buf) [:optional [:many :u8]])]
+    (try (testing/expectEqual \o (az/get (az/unwrap x) 4)))))
 
-(az/deftest single-item-to-array-pointer-test
-  (let [value (k/var 1234 :i32)
-        array-pointer (k/as (k/& value) [:* [:array 1 :i32]])
-        many-pointer (k/as array-pointer [:many :i32])]
-    (try (testing/expectEqual 1234 (az/get many-pointer 0)))))
+;; Single-item pointers can be cast to len-1 single-item arrays.
+(az/deftest *T-to-*1T
+  (let [x (k/var 1234 :i32)
+        y (k/as (k/& x) [:* [:array 1 :i32]])
+        z (k/as y [:many :i32])]
+    (try (testing/expectEqual 1234 (az/get z 0)))))
 
-(az/deftest sentinel-slice-to-pointer-test
-  (let [slice (k/as "hello" [:pointer {:sentinel 0, :size :slice, :const? true} :u8])
-        pointer (k/as slice [:sentinel-const :u8 0])]
-    (try (testing/expectEqual \o (az/get pointer 4)))))
+;; Sentinel-terminated slices can be coerced into sentinel-terminated pointers
+(az/deftest xT-to-*xT
+  (let [buf (k/as "hello" [:pointer {:sentinel 0, :size :slice, :const? true} :u8])
+        buf2 (k/as buf [:sentinel-const :u8 0])]
+    (try (testing/expectEqual \o (az/get buf2 4)))))
 
 (comment
-  (constant-array-to-slice-test)
-  (constant-array-to-error-slice-test)
-  (constant-array-to-optional-slice-test)
-  (array-to-slice-test)
-  (array-to-many-pointer-test)
-  (array-to-optional-many-pointer-test)
-  (single-item-to-array-pointer-test)
-  (sentinel-slice-to-pointer-test))
+  (*const-N-T-to-const-T)
+  (*const-N-T-to-E!const-T)
+  (*const-N-T-to-?const-T)
+  (*N-T-to-T)
+  (*N-T-to-*T)
+  (*N-T-to-?*T)
+  (*T-to-*1T)
+  (xT-to-*xT))

@@ -5,13 +5,13 @@
 
 (az/defn- foo :i32
   []
-  (let [State (az/struct [[:value {:var 1234} :i32]])]
-    (k/+= (:value State) 1)
-    (:value State)))
+  (let [S (az/struct [[:x {:var 1234} :i32]])]
+    (k/+= (:x S) 1)
+    (:x S)))
 
-(az/deftest static-local-state-test
+(az/deftest static-local-variable
   (try (testing/expectEqual 1235 (foo)))
   (try (testing/expectEqual 1236 (foo))))
 
 (comment
-  (static-local-state-test))
+  (static-local-variable))

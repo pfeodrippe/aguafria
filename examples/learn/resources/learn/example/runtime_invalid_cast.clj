@@ -4,10 +4,10 @@
             [aguafria.zig :as az]))
 
 (az/defn main :void []
-  (let [signed-value (k/var -1 :i32)]
-    (k/= :_ (k/& signed-value))
-    (let [unsigned-value (k/u32 (k/intCast signed-value))]
-      (debug/print "value: {}\n" [unsigned-value]))))
+  (let [value (k/var -1 :i32)] ; runtime-known
+    (k/= :_ (k/& value))
+    (let [unsigned (k/u32 (k/intCast value))]
+      (debug/print "value: {}\n" [unsigned]))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

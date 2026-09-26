@@ -9,18 +9,18 @@
 ;; Adjacent let bindings become adjacent declarations in the generated file.
 (az/defn- doTheTest :!void
   []
-  (let [first-location (k/src)
+  (let [src (k/src)
         next-location (k/src)]
-    (try (testing/expectEqual (k/+ (source-location/-line first-location) 1)
+    (try (testing/expectEqual (k/+ (source-location/-line src) 1)
                               (source-location/-line next-location)))
     ;; The longer binding name shifts the builtin's source column.
-    (try (testing/expectEqual (k/- (source-location/-column first-location) 1)
+    (try (testing/expectEqual (k/+ (source-location/-column src) 10)
                               (source-location/-column next-location)))
-    (try (testing/expect (mem/endsWith :u8 (source-location/-fn_name first-location) "doTheTest")))
-    (try (testing/expect (mem/endsWith :u8 (source-location/-file first-location) "test_src_builtin.zig")))))
+    (try (testing/expect (mem/endsWith :u8 (source-location/-fn_name src) "doTheTest")))
+    (try (testing/expect (mem/endsWith :u8 (source-location/-file src) "test_src_builtin.zig")))))
 
-(az/deftest source-location-test
+(az/deftest src
   (try (doTheTest)))
 
 (comment
-  (source-location-test))
+  (src))

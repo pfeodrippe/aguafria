@@ -3,17 +3,16 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest aligned-struct-fields-test
-  (let [AlignedFields (az/struct
-                        [[:a {:zig/align 2} :u32]
-                         [:b {:zig/align 64} :u32]])
-        fields (k/var (AlignedFields {:a 1 :b 2}))]
-    ;; The strongest field alignment determines the containing struct's alignment.
-    (try (testing/expectEqual 64 (k/alignOf AlignedFields)))
+(az/deftest aligned-struct-fields
+  (let [S (az/struct
+           [[:a {:zig/align 2} :u32]
+            [:b {:zig/align 64} :u32]])
+        foo (k/var (S {:a 1 :b 2}))]
+    (try (testing/expectEqual 64 (k/alignOf S)))
     (try (testing/expectEqual (az/type [:pointer {:size :one :align 2} :u32])
-                              (k/TypeOf (k/& (:a fields)))))
+                              (k/TypeOf (k/& (:a foo)))))
     (try (testing/expectEqual (az/type [:pointer {:size :one :align 64} :u32])
-                              (k/TypeOf (k/& (:b fields)))))))
+                              (k/TypeOf (k/& (:b foo)))))))
 
 (comment
-  (aligned-struct-fields-test))
+  (aligned-struct-fields))

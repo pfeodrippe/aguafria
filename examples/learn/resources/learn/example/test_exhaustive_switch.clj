@@ -8,13 +8,13 @@
    :off
    :on])
 
-(az/deftest exhaustive-enum-switch-test
+(az/deftest enum-literals-with-switch
   (let [color (:off Color)
-        disabled (k/switch color
-                   (case [:.auto] false)
-                   (case [:.on] false)
-                   (case [:.off] true))]
-    (try (testing/expect disabled))))
+        result (k/switch color
+                         (case [:.auto] false)
+                         (case [:.on] false)
+                         (case [:.off] true))]
+    (try (testing/expect result))))
 
 (comment
-  (exhaustive-enum-switch-test))
+  (enum-literals-with-switch))

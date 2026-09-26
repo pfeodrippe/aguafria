@@ -3,20 +3,21 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/deftest expect-equal-test
+(az/deftest expectEqual-demo
   (let [expected (k/i32 42)
         actual 42]
-    ;; The first argument is the known, expected result.
-    ;; The second is the result of an expression.
-    ;; The actual value is cast to the expected value's type.
+    ;; The first argument to `expectEqual` is the known, expected, result.
+    ;; The second argument is the result of some expression.
+    ;; The actual's type is casted to the type of expected.
     (try (testing/expectEqual expected actual))))
 
-(az/deftest expect-error-test
+(az/deftest expectError-demo
   (let [expected-error (az/error-value :DemoError)
         actual-error-union (k/as (az/error-value :DemoError) [:error-union :anyerror :void])]
-    ;; `expectError` fails when the actual error differs from the expected error.
+    ;; `expectError` will fail when the actual error is different than
+    ;; the expected error.
     (try (testing/expectError expected-error actual-error-union))))
 
 (comment
-  (expect-equal-test)
-  (expect-error-test))
+  (expectEqual-demo)
+  (expectError-demo))

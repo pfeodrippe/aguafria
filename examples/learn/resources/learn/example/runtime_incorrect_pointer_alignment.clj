@@ -4,16 +4,16 @@
             [aguafria.zig :as az]))
 
 (az/defn- foo :u32 [[bytes [:slice :u8]]]
-  (let [four-bytes (az/slice bytes 1 5)
-        aligned-bytes (k/as (k/alignCast four-bytes)
-                             (az/type [:pointer {:size :slice :align 4} :u8]))
-        words (mem/bytesAsSlice :u32 aligned-bytes)]
-    (az/get words 0)))
+  (let [slice4 (az/slice bytes 1 5)
+        int-slice (mem/bytesAsSlice :u32
+                                    (k/as (k/alignCast slice4)
+                                          (az/type [:pointer {:size :slice :align 4} :u8])))]
+    (az/get int-slice 0)))
 
 (az/defn main [:error-union :void] []
-  (let [words
+  (let [array
         (k/var (az/array [0x11111111 0x11111111] :u32) nil {:zig/align 4})
-        bytes (mem/sliceAsBytes (az/slice words 0))]
+        bytes (mem/sliceAsBytes (az/slice array 0))]
     (when (k/!= (foo bytes) 0x11111111)
       (k/return (az/error-value :Wrong)))))
 
