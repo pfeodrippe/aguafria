@@ -20,6 +20,9 @@
   nil)
 
 (deftype ZigPointer [address zigType]
+  clojure.lang.IDeref
+  (deref [this]
+    ((requiring-resolve 'aguafria.zig.jvm/dereference-pointer!) this))
   Object
   (toString [_]
     (str "#aguafria/zig-pointer[" address " " (pr-str zigType) "]")))
@@ -126,7 +129,10 @@
 
   clojure.lang.IDeref
   (deref [this]
-    (decoded this))
+    (let [result (decoded this)]
+      (if (zig-pointer? result)
+        ((requiring-resolve 'aguafria.zig.jvm/dereference-pointer!) this)
+        result)))
 
   clojure.lang.Seqable
   (seq [this]
@@ -348,9 +354,12 @@
   [field value]
   (let [{:keys [bit-size type]} field
         integer (cond
-                  (= :bool type) (if value
-                                   java.math.BigInteger/ONE
-                                   java.math.BigInteger/ZERO)
+                  (= :bool type) (case value
+                                   true java.math.BigInteger/ONE
+                                   false java.math.BigInteger/ZERO
+                                   (throw (ex-info "Packed Zig bool requires true or false"
+                                                   {:field field :value value})))
+                  (char? value) (java.math.BigInteger/valueOf (int value))
                   (instance? java.math.BigInteger value) value
                   (integer? value) (biginteger value)
                   :else (throw (ex-info "Packed Zig field requires an integer or boolean"
@@ -422,6 +431,9 @@
       (cond
         (= "usize" type-name) {:signed? false :bits (* 8 storage-size)}
         (= "isize" type-name) {:signed? true :bits (* 8 storage-size)}
+        (re-matches #"c_(u?)(short|int|long|longlong)" type-name)
+        {:signed? (not (.startsWith type-name "c_u"))
+         :bits (* 8 storage-size)}
         :else
         (when-let [[_ signed-marker bit-count]
                    (re-matches #"([iu])(\d+)" type-name)]
@@ -483,17 +495,25 @@
 
 (defn- decode-array
   [^MemorySegment native-segment
-   {:keys [length storage-length element-type element-schema]}]
-  (let [storage-length (long (or storage-length length))
-        element-size (if (zero? storage-length)
-                       0
-                       (quot (.byteSize native-segment) storage-length))]
-    (mapv (fn [index]
-            (decode-value-segment
-             (.asSlice native-segment (* index element-size) element-size)
-             element-type
-             element-schema))
-          (range length))))
+   {:keys [length storage-length element-type element-schema element-bit-size element-size]}]
+  (if element-bit-size
+    (let [backing (unsigned-native-integer native-segment)]
+      (mapv (fn [index]
+              (decode-packed-field backing {:bit-offset (* index element-bit-size)
+                                            :bit-size element-bit-size
+                                            :type element-type :schema element-schema}))
+            (range length)))
+    (let [storage-length (long (or storage-length length))
+          element-size (or element-size
+                           (if (zero? storage-length)
+                             0
+                             (quot (.byteSize native-segment) storage-length)))]
+      (mapv (fn [index]
+              (decode-value-segment
+               (.asSlice native-segment (* index element-size) element-size)
+               element-type
+               element-schema))
+            (range length)))))
 
 (defn- enum-key
   [value]
@@ -657,7 +677,7 @@
 
 (defn write-array!
   [^MemorySegment native-segment
-   {:keys [length storage-length element-type element-schema sentinel]
+   {:keys [length storage-length element-type element-schema sentinel element-bit-size element-size]
     :as schema}
    values]
   (when-not (sequential? values)
@@ -666,16 +686,26 @@
   (when-not (= length (count values))
     (throw (ex-info "Wrong number of Zig array/vector elements"
                     {:schema schema :expected length :actual (count values)})))
-  (let [storage-length (long (or storage-length length))
-        element-size (if (zero? storage-length)
-                       0
-                       (quot (.byteSize native-segment) storage-length))
-        storage-values (cond-> (vec values)
-                         (> storage-length length) (conj sentinel))]
-    (doseq [[index value] (map-indexed vector storage-values)]
-      (write-value-segment!
-       (.asSlice native-segment (* index element-size) element-size)
-       element-type element-schema value {:index index})))
+  (if element-bit-size
+    (write-packed-struct! native-segment
+                          {:fields (mapv (fn [index]
+                                           {:name (str index) :type element-type
+                                            :schema element-schema
+                                            :bit-offset (* index element-bit-size)
+                                            :bit-size element-bit-size})
+                                         (range length))}
+                          (into {} (map-indexed (fn [index value] [(keyword (str index)) value]) values)))
+    (let [storage-length (long (or storage-length length))
+          element-size (or element-size
+                           (if (zero? storage-length)
+                             0
+                             (quot (.byteSize native-segment) storage-length)))
+          storage-values (cond-> (vec values)
+                           (> storage-length length) (conj sentinel))]
+      (doseq [[index value] (map-indexed vector storage-values)]
+        (write-value-segment!
+         (.asSlice native-segment (* index element-size) element-size)
+         element-type element-schema value {:index index}))))
   native-segment)
 
 (defn write-enum!
@@ -978,7 +1008,8 @@
   (let [module (:module (info zig-value))]
     (letfn [(qualify [form]
               (cond
-                (and module (symbol? form) (nil? (namespace form)))
+                (and module (symbol? form) (nil? (namespace form))
+                     (not (:aguafria/local? (meta form))))
                 (with-meta (symbol module (name form)) (meta form))
 
                 (vector? form) (mapv qualify form)
@@ -1003,6 +1034,55 @@
                             (proxy [ThreadLocal] []
                               (initialValue [] (atom {:status :pending})))))]
     (ZigValue. descriptor (atom {:status :pending}) materialize)))
+
+(defn array-element-view
+  "Borrow one array element as an immutable native value, retaining its owner."
+  [array-value index]
+  (let [{:keys [segment schema generation alignment]} (realize! array-value)
+        {:keys [length element-type element-schema]} schema]
+    (when-not (and (integer? index) (<= 0 index) (< index length))
+      (throw (ex-info "Array element index is out of bounds" {:index index :length length})))
+    (let [element-size (quot (.byteSize ^MemorySegment segment) length)]
+     (native-value
+     {:module (:module (info array-value)) :kind :const :type element-type}
+     (constantly {:representation :native
+                  :segment (.asSlice ^MemorySegment segment (* index element-size) element-size)
+                  :size element-size :alignment alignment
+                  :schema element-schema :generation generation
+                  :owners [array-value]})))))
+
+(defn retain-owners!
+  "Keep borrowed-view owners alive for as long as the returned native value."
+  [result owners]
+  (when (zig-value? result)
+    (realize! result)
+    (swap! (value-state result) update :owners (fnil into []) owners))
+  result)
+
+(defn address-value
+  "Own a pointer to existing storage, retaining its pointee without copying it."
+  [owner mutable?]
+  (let [{:keys [segment]} (realize! owner)
+        child (qualified-type owner)
+        type [(if mutable? :* :*const) child]
+        arena (Arena/ofShared)]
+    (try
+      (let [storage (.allocate arena java.lang.foreign.ValueLayout/ADDRESS)
+            result (native-value
+                    {:kind :const :type type}
+                    (constantly {:representation :native
+                                 :segment storage
+                                 :size (.byteSize storage)
+                                 :alignment (.byteAlignment java.lang.foreign.ValueLayout/ADDRESS)
+                                 :owners [owner]
+                                 :schema {:kind :pointer :child-type child}
+                                 :close! #(.close arena)}))]
+        (.set storage java.lang.foreign.ValueLayout/ADDRESS 0 segment)
+        (realize! result)
+        result)
+      (catch Throwable failure
+        (.close arena)
+        (throw failure)))))
 
 (defn mutable-copy
   "Copy owned native storage into an independently mutable JVM handle.

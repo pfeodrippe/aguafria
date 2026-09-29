@@ -16,7 +16,8 @@ class NativeCallSmoke {
         Object result = Clojure.var("java-native-qa", "maximum")
                                .invoke(Clojure.read(":bool"), false, true);
         if (!Boolean.TRUE.equals(result)) throw new AssertionError(result);
-        Object root = Clojure.var("aguafria.std.math", "sqrt").invoke(16.0);
+        Object nativeRoot = Clojure.var("aguafria.std.math", "sqrt").invoke(16.0);
+        Object root = Clojure.var("aguafria.zig", "value").invoke(nativeRoot);
         if (!(root instanceof Double) || ((Double) root) != 4.0) throw new AssertionError(root);
         Object printed = Clojure.var("aguafria.std.debug", "print")
                                 .invoke("Hello, {s}!\n", PersistentVector.create("Java"));

@@ -1,10 +1,13 @@
 (ns learn.reference
   "Pinned reference inventory, structural conversion and offline HTML build."
   (:require [aguafria.zig :as az]
+            [aguafria.zig.analysis :as analysis]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.source-map :as source-map]
+            [aguafria.zig.zls :as zls]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -169,12 +172,16 @@
       (str/replace #"\.zig$" "")
       (str/replace #"[^a-zA-Z0-9-]+" "-")))
 
+(def ^:dynamic *type-source-map* nil)
+(def ^:dynamic *zls-client* nil)
+
 (defn emit-clojure
   "Evaluate the exact displayed namespace, not converter-only in-memory forms.
   Collect descriptors without starting native code or a hot-reload runtime.
   An already-open lesson is inspected in a temporary namespace, never overwritten."
   [source namespace-symbol report]
-  (let [occupied? (find-ns namespace-symbol)
+  (let [original-source source
+        occupied? (find-ns namespace-symbol)
         evaluation-ns (if occupied?
                         (symbol (str namespace-symbol ".inspection-" (random-uuid)))
                         namespace-symbol)
@@ -193,12 +200,19 @@
                 *read-eval* false
                 runtime/*registration-batch* declarations
                 project/*catalog-namespace* namespace-symbol]
-        (load-string source))
+        (if *type-source-map*
+          (doseq [form (source-map/read-forms original-source)]
+            (eval (if (and (seq? form) (= 'ns (first form)))
+                    (with-meta (list* 'ns evaluation-ns (nnext form)) (meta form))
+                    form)))
+          (load-string source)))
       (binding [*ns* (the-ns namespace-symbol)
                 project/*catalog-namespace* namespace-symbol]
         ;; Batched registration bypasses the live runtime's order assignment.
         ;; Preserve authored order without exposing numeric metadata in lessons.
-        (emitter/emit-module
+        (let [spans (when *type-source-map* (atom []))
+              rendered (binding [source-map/*spans* spans]
+                         (emitter/emit-module
          (str namespace-symbol)
          (map-indexed (fn [index declaration]
                         (cond-> declaration
@@ -207,7 +221,12 @@
                       ;; A first require may also register imported declarations
                       ;; in this batch. They belong to their own module, not to
                       ;; the lesson's root (notably builtin/os is not root.os).
-                      (filter #(= (str namespace-symbol) (:module %)) @declarations))))
+                      (filter #(= (str namespace-symbol) (:module %)) @declarations))))]
+          (if spans
+            (let [mapped (source-map/extract rendered @spans)]
+              (reset! *type-source-map* mapped)
+              (:source mapped))
+            rendered)))
       (finally
         (remove-ns namespace-symbol)
         ;; `ns` marks the temporary namespace as loaded. Remove that marker too,
@@ -1362,6 +1381,50 @@
        (str/join "\n" (map repl-evaluation (or (:evaluations transcript) [transcript])))
        "</samp></pre></div>")))
 
+(defn type-tooltip [{:keys [line column type types basis status signature message]}]
+  (str (case basis
+         :compiler "Compiler-confirmed"
+         :zls "ZLS · generated Zig"
+         "Type unresolved")
+       " · " line ":" column
+       (when (or type (seq types))
+         (str "\n" (if (seq types) (str/join " | " types) (pr-str type))))
+       (when signature (str "\n" (pr-str signature)))
+       (when message (str "\n" message))))
+
+(defn annotated-clojure-source
+  "Attach compact source-span metadata; the displayed/copyable code stays exact."
+  [source file]
+  (let [namespace-symbol (some->> (source-map/read-forms source)
+                                 (filter #(and (seq? %) (= 'ns (first %))))
+                                 first second)
+        mapped (atom nil)
+        unavailable (atom nil)
+        observations
+        (when (and *zls-client* namespace-symbol)
+          (try
+            (binding [*type-source-map* mapped]
+              (emit-clojure source namespace-symbol {}))
+            (zls/hover-report! *zls-client*
+                               (str "build/types/" (analysis/source-hash source) ".zig") @mapped)
+            (catch Exception error
+              ;; Compile-error lessons can intentionally fail before any Zig is
+              ;; emitted. Preserve that diagnostic; never substitute a type.
+              (reset! unavailable
+                      (str "Zig analysis unavailable: "
+                           (ex-message (last (take-while some? (iterate ex-cause error)))))))))
+        report (analysis/analyze-source source {:file file
+                                               :zls-observations observations
+                                               :unavailable @unavailable
+                                               :observations (vals (az/debug-reports))})
+        _ (analysis/write-report! report "build/types")
+        spans (str "[" (str/join "," (map (fn [{:keys [start end] :as form}]
+                                           (str "[" start "," end ","
+                                                (pr-str (type-tooltip form)) "]"))
+                                         (:forms report))) "]")]
+    (str "<code class=\"language-clojure\" data-type-report=\""
+         (escape-html spans) "\">" (escape-html source) "</code>")))
+
 (defn example-panel [[original file] translation index]
   (let [id (str "learn-example-" index)
         translated? (contains? #{:translated :translated-front-end-error}
@@ -1372,9 +1435,11 @@
                        "<figcaption class=\"clojure-cap\"><cite class=\"file\">"
                        (escape-html (.getName (io/file (or (:authored-source translation)
                                                            (:clojure-path translation)))))
-                       "</cite></figcaption><pre><code class=\"language-clojure\">"
-                       (escape-html (slurp (:clojure-path translation)))
-                       "</code></pre></figure>"
+                       "</cite></figcaption><pre>"
+                       (annotated-clojure-source
+                        (slurp (:clojure-path translation))
+                        (or (:authored-source translation) (:clojure-path translation)))
+                       "</pre></figure>"
                        (when-let [diagnostic (when-not (:repl-transcript translation)
                                                (:diagnostic translation))]
                          (str "<p>Expected Aguafria diagnostic: "
@@ -1478,7 +1543,7 @@
        #"(?s)<span class=\"learn-inline\"[^>]*><span data-language=\"zig\">(.*?)</span><span data-language=\"aguafria\" hidden>.*?<span class=\"learn-inline-note\"[^>]*>.*?</span></span>"
        (fn [[_ original]] original))))
 
-(defn build! []
+(defn- build-with-analysis! []
   (format-modified-examples!)
   (let [catalog (inventory)
         inline-snippets (current-inlines
@@ -1595,6 +1660,12 @@
       (some #(and (not= :zig-only (:status %))
                   (nil? (:source (get overrides (:file %))))) translations)
       (conj :hand-written-examples-pending))))
+
+(defn build! []
+  (let [client (zls/start!)]
+    (try
+      (binding [*zls-client* client] (build-with-analysis!))
+      (finally (zls/stop! client)))))
 
 (defn verify! []
   (let [coverage (build!)

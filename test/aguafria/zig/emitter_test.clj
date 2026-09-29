@@ -51,6 +51,15 @@
     (is (= source (emit/emit-expr *ns* form))))
   (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr *ns* '(az/array [1])))))
 
+(deftest vector-constructor-infers-lane-count
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (doseq [[elements type] [[[1 2 3 4] :i32] [[true false] :bool] [[] :f32]]]
+      (is (= (emit/emit-expr context (list 'az/init elements [:vector (count elements) type]))
+             (emit/emit-expr context (list 'az/vector elements type)))))
+    (doseq [form '[(az/vector [1]) (az/vector 1 :i32) (az/vector [1] {} :i32)]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"vector expects"
+                           (emit/emit-expr context form))))))
+
 (deftest sentinel-array-options
   (doseq [[form expected]
           [['(az/array [1 25 3 4] {:sentinel 0} :u8) "[_:0]u8{1, 25, 3, 4}"]

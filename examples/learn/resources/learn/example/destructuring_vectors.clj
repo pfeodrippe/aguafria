@@ -12,8 +12,8 @@
 
 (az/defn main :void
   []
-  (let [x (k/as [1.0 2.0 3.0 4.0] [:vector 4 :f32])
-        y (k/as [5.0 6.0 7.0 8.0] [:vector 4 :f32])]
+  (let [x (az/vector [1.0 2.0 3.0 4.0] :f32)
+        y (az/vector [5.0 6.0 7.0 8.0] :f32)]
     (debug/print "{}" [(unpack x y)])))
 
 (comment

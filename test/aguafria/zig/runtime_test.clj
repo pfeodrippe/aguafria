@@ -76,6 +76,18 @@
       (is (not-any? #(= (:logical-id d) (first %))
                     (:callable-dependency-fingerprints d))))))
 
+(deftest slice-storage-uses-the-compilers-pointer-type
+  (doseq [slice-type [[:slice :i32]
+                     [:slice-const :i32]
+                     [:slice [:*const :u8]]]]
+    (let [source (#'runtime/emit-jvm-slice-storage-wrapper
+                  slice-type (second slice-type) {:slice-set "set_slice"})]
+      (is (str/includes? source
+                         (str "const items: @TypeOf(@as("
+                              (emitter/emit-type slice-type)
+                              ", undefined).ptr) = @ptrFromInt(items_address);")))
+      (is (not (str/includes? source "const items: [*]"))))))
+
 (deftest inferred-error-results-use-explicit-storage-types
   (let [bridge-type #'runtime/jvm-callable-result-type]
     (doseq [return [:!void [:! :void] [:error-union :void]]]

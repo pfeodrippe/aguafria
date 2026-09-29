@@ -354,9 +354,39 @@ pub const __aguafria_jvm = struct {
     pub fn result(value: anytype) usize {
         var writer: std.Io.Writer.Allocating = .init(allocator);
         defer writer.deinit();
-        write(&writer.writer, value) catch @panic("Cannot encode JVM result");
+        writeResult(&writer.writer, value) catch @panic("Cannot encode JVM result");
         const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate JVM result");
         return @intFromPtr(encoded.ptr);
+    }
+
+    fn writeResult(writer: *std.Io.Writer, value: anytype) !void {
+        const T = @TypeOf(value);
+        switch (@typeInfo(T)) {
+            .comptime_int, .comptime_float => {
+                try writer.writeAll("{:aguafria.jvm/comptime {:type :");
+                try writer.writeAll(@typeName(T));
+                try writer.writeAll(" :value ");
+                try write(writer, value);
+                try writer.writeAll("}}");
+            },
+            .int, .float, .array, .vector, .pointer => {
+                // Public numeric and sequential results retain their exact
+                // type and addressable storage. Inspection still uses write/inspect
+                // to produce ordinary EDN scalars and transport metadata.
+                const size = @sizeOf(T);
+                const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
+                const bytes = allocator.rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
+                errdefer allocator.rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
+                @memcpy(bytes[0..size], std.mem.asBytes(&value));
+                try writer.print("{{:aguafria.jvm/native {{:address {d} :size {d} :alignment {d} :path []", .{@intFromPtr(bytes), size, @alignOf(T)});
+                if (@typeInfo(T) == .int or @typeInfo(T) == .float) {
+                    try writer.writeAll(" :scalar-type :");
+                    try writer.writeAll(@typeName(T));
+                }
+                try writer.writeAll("}}");
+            },
+            else => try write(writer, value),
+        }
     }
 
     pub fn fieldResult(value: anytype) usize {

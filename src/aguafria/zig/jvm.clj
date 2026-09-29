@@ -118,23 +118,39 @@
   [namespace expression parameters]
   (emitter/qualify-form
    namespace
-   (walk/postwalk-replace
-    (into {} (map (fn [{:keys [name type]}]
-                    [name (list 'aguafria.keyword/as 'aguafria.keyword/undefined type)]))
-          parameters)
-    expression)))
+   (if (empty? parameters)
+     expression
+     ;; @TypeOf must analyze unknown runtime operands, not evaluate a known
+     ;; undefined pointer. Runtime locals preserve that distinction, including
+     ;; pointer dereferences and slices. This block is used only for type queries.
+     (let [id (token [expression parameters])
+           label (keyword (str "jvm_type_" id))
+           names (into {} (map (fn [{:keys [name]}]
+                                [name (symbol (str "__jvm_type_arg_" id "_" name))]) parameters))
+           expression (walk/postwalk-replace names expression)]
+      (list 'aguafria.zig/with-block label
+           (list* 'let
+                  (vec (mapcat (fn [{:keys [name type]}]
+                                 [(names name) (list 'aguafria.keyword/var
+                                             'aguafria.keyword/undefined type)])
+                               parameters))
+                  (concat
+                   (map (fn [{:keys [name]}]
+                          (list 'aguafria.keyword/= :_ (list 'aguafria.keyword/& (names name))))
+                        parameters)
+                   [(list 'aguafria.keyword/break label expression)])))))))
 
 (defn- native-expression-result
-  [namespace expression parameters arguments {:keys [address size alignment path]}]
+  [namespace expression parameters arguments {:keys [address size alignment path scalar-type]}]
   (let [module (str (ns-name namespace))
         root-type (list 'aguafria.keyword/TypeOf
                         (expression-without-runtime-inputs namespace expression parameters))
-        type (reduce (fn [type [kind member]]
+        type (or scalar-type (reduce (fn [type [kind member]]
                        (list 'field
                              (list 'field
                                    (list 'aguafria.keyword/typeInfo type) (keyword kind))
                              (keyword member)))
-                     root-type (partition 2 path))
+                     root-type (partition 2 path)))
         release-generation! (*retain-result-generation*)
         result (value/native-value
                 {:module module :kind :return :type type}
@@ -142,6 +158,10 @@
                   {:representation :native
                    :segment (.reinterpret (MemorySegment/ofAddress address) size)
                    :size size :alignment alignment :owners arguments
+                   :schema (when (and scalar-type
+                                      (or (#{:usize :isize :f32 :f64} scalar-type)
+                                          (re-matches #"[iu][0-9]+" (name scalar-type))))
+                             {:kind :scalar :type scalar-type})
                    :close! #(try
                               (runtime/invoke! (symbol module "__jvm_release_native")
                                                [address size alignment])
@@ -153,6 +173,11 @@
 (defn- expression-result
   [namespace expression parameters arguments result]
   (cond
+    (and (map? result) (= #{:aguafria.jvm/comptime} (set (keys result))))
+    (let [{:keys [type value]} (:aguafria.jvm/comptime result)]
+      (value/native-value {:kind :const :type type}
+                          (constantly {:representation :scalar :value value})))
+
     (and (map? result) (= #{:aguafria.jvm/native} (set (keys result))))
     (native-expression-result namespace expression parameters arguments (:aguafria.jvm/native result))
 
@@ -382,10 +407,8 @@
            (nil? (namespace argument))
            (str/starts-with? (name argument) "."))))
 
-(defn coerce!
-  "Coerce a JVM value using a cached in-process Zig adapter. Scalar results
-  have their ordinary JVM representation; composites retain owned native
-  storage (including slice backing). The adapter is keyed by types, not values."
+(defn- coerce-raw!
+  "Internal coercion; the public boundary below owns numeric scalar results."
   [argument type]
   (let [argument (if (value/zig-value? argument) (value/value argument) argument)
         type (constructor-type type)
@@ -476,6 +499,26 @@
                                        (list 'aguafria.keyword/as expression type))]}))
             (swap! prepared-coercions conj [type input-type])))
         (runtime/invoke! qualified-name [argument])))))
+
+(defn coerce!
+  "Coerce while preserving the exact Zig type and addressable numeric storage.
+  Use az/value for explicit conversion back to a plain JVM value."
+  [argument type]
+  (let [result (coerce-raw! argument type)]
+    (if (number? result)
+      (if (#{:comptime_int :comptime_float} type)
+        (value/native-value {:kind :const :type type}
+                            (constantly {:representation :scalar :value result}))
+        (value/array-element-view (coerce-raw! [result] [:array 1 (constructor-type type)]) 0))
+      result)))
+
+(defn invoke-value!
+  "Public Var call: retain numeric results; internal ABI calls remain scalars."
+  [declaration arguments]
+  (let [result (runtime/invoke! (:qualified-name declaration) arguments)]
+    (if (number? result)
+      (coerce! result (:return declaration))
+      result)))
 
 (defn- mutable-type [argument]
   (cond
@@ -582,11 +625,14 @@
                                        [(:name declaration) argument])))
                              (map vector argument-declarations arguments))]
     (letfn [(lift [argument expected literal?]
-              (let [argument (if (value/zig-value? argument) (value/value argument) argument)
+              (let [original argument
+                    argument (if (value/zig-value? argument) (value/value argument) argument)
                     expected (get type-arguments expected expected)
                     inferred (cond
-                               (value/zig-value? argument)
-                               (value/qualified-type argument)
+                               (value/zig-value? original)
+                               (value/qualified-type original)
+                               (value/zig-pointer? argument)
+                               (value/pointer-type argument)
                                (boolean? argument) :bool
                                (instance? Byte argument) :i8
                                (instance? Short argument) :i16
@@ -616,6 +662,7 @@
                   ;; A JVM Character is a Zig character literal, not a Java
                   ;; object pointer or a string. Keep its code point in source.
                   (char? argument) argument
+                  (and (#{:comptime_int :comptime_float} inferred) (number? argument)) argument
                   (and literal? (or (number? argument) (boolean? argument)
                                     (string? argument)))
                   argument
@@ -829,6 +876,70 @@
      (or (:type (container-variable receiver member))
          (list 'aguafria.keyword/TypeOf field)))))
 
+(defn dereference-pointer!
+  "Borrow a pointer's pointee, retaining native arguments and constness.
+  A mutable pointee remains an assignable native handle, not a detached scalar."
+  [pointer]
+  (let [type (if (value/zig-value? pointer)
+               (value/qualified-type pointer)
+               (value/pointer-type pointer))
+        module (clojure.core/symbol (str "aguafria.jvm.pointee-" (token type)))
+        context (or (find-ns module) (create-ns module))
+        pointer-info (list 'field (list 'aguafria.keyword/typeInfo (list 'type type)) :pointer)
+        child (list 'field pointer-info :child)
+        const? (invoke-expression! context (list 'field pointer-info :is_const) [] [])
+        name (clojure.core/symbol (str module) "view")]
+    (locking context
+      (when-not (contains? @prepared-adapters name)
+        (binding [runtime/*source-only-registration?* true]
+          (register! context {:kind :fn :name 'view :qualified-name name
+                              :declaration-key [:fn 'view]
+                              :return [(if const? :slice-const :slice) child]
+                              :args [{:name 'pointer :type type}]
+                              :body [(list 'aguafria.zig/slice
+                                           (list 'aguafria.keyword/as
+                                                 (list 'aguafria.keyword/ptrCast 'pointer)
+                                                 [(if const? :*const :*) [:array 1 child]])
+                                           0 1)]}))
+        (swap! prepared-adapters conj name))
+      (value/slice-element-view (runtime/invoke! name [pointer]) 0 (not const?)))))
+
+(defn- indexed-value!
+  "Keep addressable indexed values attached to their original native storage.
+  Zig decides the element type and pointee constness; vector lanes remain values."
+  [receiver index]
+  (let [owner (if (value/zig-value? receiver)
+                receiver
+                (coerce! receiver (value/pointer-type receiver)))
+        type (value/qualified-type owner)
+        module (clojure.core/symbol (str "aguafria.jvm.index-" (token type)))
+        context (or (find-ns module) (create-ns module))
+        storage (value/address-value owner (= :var (:kind (value/info owner))))
+        {:keys [expression-arguments parameters arguments]}
+        (call-inputs [{:type :anytype}
+                      {:type :anytype :properties {:jvm/literal? true}}]
+                     [storage index])
+        element (list 'aguafria.zig/index
+                      (list 'aguafria.zig/deref (first expression-arguments))
+                      (second expression-arguments))
+        ;; Vector lanes are values, not independently addressable storage.
+        ;; Booleans stay plain JVM booleans: a wrapper around false is truthy.
+        by-value? (invoke-expression!
+                   context
+                   (list 'aguafria.keyword/or
+                         (list 'aguafria.keyword/==
+                               (list 'aguafria.keyword/typeInfo (list 'type type))
+                               :.vector)
+                         (list 'aguafria.keyword/==
+                               (list 'aguafria.keyword/TypeOf element) :bool))
+                   parameters arguments)
+        result (invoke-expression! context
+                                   (if by-value? element (list 'aguafria.keyword/& element))
+                                   parameters arguments)
+        view (if by-value? result (dereference-pointer! result))]
+    (value/retain-owners! view (cond-> [owner storage]
+                               (not by-value?) (conj result)))))
+
 (defn invoke-syntax!
   "Execute a Zig builtin or value expression through the shared native bridge.
   Comptime parameters stay in source; runtime operands retain their Zig types."
@@ -839,6 +950,19 @@
                     {:function symbol :actual (count arguments)
                      :expected param-count :minimum minimum-param-count})))
   (cond
+    (and (= "&" (:zig-token syntax)) (= 1 (count arguments)))
+    (let [argument (first arguments)
+          native? (value/zig-value? argument)
+          storage? (and native? (= :native (:representation (value/realize! argument))))
+          owner (if storage? argument
+                    (if native? (mutable! argument (value/qualified-type argument))
+                        (mutable! argument)))
+          mutable? (and native? (= :var (:kind (value/info argument))))]
+      (value/address-value owner mutable?))
+
+    (= 'vector (:name syntax))
+    (coerce! (first arguments) (emitter/vector-initializer-type arguments))
+
     (= 'array (:name syntax))
     (let [type (emitter/array-initializer-type arguments)
           elements (first arguments)]
@@ -850,6 +974,11 @@
     (and (= 'field (:name syntax))
          (container-variable (first arguments) (second arguments)))
     (container-variable-view! (first arguments) (second arguments))
+
+    (and (= 'index (:name syntax))
+         (or (value/zig-value? (first arguments))
+             (value/zig-pointer? (first arguments))))
+    (apply indexed-value! arguments)
 
     :else
     (let [receiver (first arguments)
@@ -867,9 +996,21 @@
             (repeat (count arguments)
                     {:type :anytype
                      :properties {:jvm/literal? (or (= :syntax (:kind syntax))
+                                                   (and (= :operator (:kind syntax))
+                                                        (some value/zig-value? arguments)
+                                                        (not (contains? #{"==" "!=" "<" ">" "<=" ">="}
+                                                                        (:zig-token syntax))))
                                                    (:literal-arguments? syntax))}}))
+          storage-source? (and (= 'slice (:name syntax)) (value/zig-value? receiver))
           {:keys [expression-arguments parameters arguments]}
-          (call-inputs declarations arguments)
+          (if storage-source?
+            ;; Slicing a copied array would return a dangling stack pointer.
+            ;; Borrow the receiver's storage; retain it on the resulting view.
+            (let [pointer (value/address-value receiver (= :var (:kind (value/info receiver))))
+                  inputs (call-inputs declarations (cons pointer (rest arguments)))]
+              (update inputs :expression-arguments
+                      #(assoc % 0 (list 'aguafria.zig/deref (first %)))))
+            (call-inputs declarations arguments))
           namespace-name (clojure.core/symbol (str "aguafria.jvm.expression-" (token syntax)))
           context (or (find-ns namespace-name) (create-ns namespace-name))
           expression (if native-field?
@@ -880,7 +1021,7 @@
                                      (if (= 'field (:name syntax)) 'fieldResult 'result))]
       (if (and native-field? (= {"__aguafria_bound_method" true} result))
         (bound-method receiver member)
-        result))))
+        (value/retain-owners! result [receiver])))))
 
 (def ^:private signature-arguments
   (memoize

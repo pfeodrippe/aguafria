@@ -4,7 +4,9 @@
   Preparation expands Clojure macros (including explicit host escapes), then
   qualifies and validates data. Emission renders deterministic Zig source."
   (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.debug :as debug]
             [aguafria.zig.project :as project]
+            [aguafria.zig.source-map :as source-map]
             [clojure.string :as str]
             [clojure.walk :as walk]))
 
@@ -42,10 +44,17 @@
       (array-type-parts type)
       type)))
 
+(defn vector-initializer-type
+  "Validate vector constructor arguments and infer the lane count."
+  [arguments]
+  (when-not (and (= 2 (count arguments)) (vector? (first arguments)))
+    (fail! "vector expects an element vector followed by its element type" arguments))
+  [:vector (count (first arguments)) (second arguments)])
+
 (def ^:private reserved-identifiers
   (set (map :name (keyword/language-keywords))))
 
-(defn identifier
+(defn- identifier-source
   "Render a Clojure name as a legal, conventional Zig identifier.
 
   Hyphens become underscores and namespace separators become double
@@ -71,13 +80,18 @@
           (str "@" (pr-str source))
           source)))))
 
+(defn identifier
+  "Render a Zig identifier, retaining an exact tooling source mapping when enabled."
+  [x]
+  (source-map/mark x (identifier-source x)))
+
 (declare zig-string emit-expr emit-stmt emit-statements emit-type emit-block-expr
          postfix-source multiline-string-tail? indent braced capture-source
          emit-container emit-while-loop emit-for emit-for-loop emit-let-expr)
 
 (def ^:private structural-operators
   '#{raw raw-chunks raw-statements raw-statement-chunks
-     do block with-block object init array op range type
+     do block with-block object init array vector debug! op range type
      number-literal string-literal multiline-string char-literal
      identifier-literal enum-literal error-value
      pointer-capture else-clause else-expression catch-capture
@@ -443,7 +457,7 @@
                      pattern))
           entries (concat
                    (for [key (:keys pattern)]
-                     [(symbol (name key)) (keyword key)])
+                     [(with-meta (symbol (name key)) (meta key)) (keyword key)])
                    (for [[binding key] (dissoc pattern :keys :as :or)]
                      (do
                        (when-not (or (keyword? key) (string? key))
@@ -629,18 +643,21 @@
         pairs (mapv vector names (map second pairs))
         captures (mapv (fn [[capture _]]
                          (cond
-                           (symbol? capture) capture
+                           (symbol? capture) (vary-meta capture assoc :aguafria/local? true)
                            (and (seq? capture)
                                 (= "*" (:zig-token (keyword/resolve-token context-ns (first capture)))))
                            (do
                              (when-not (and (= 2 (count capture)) (symbol? (second capture)))
                                (fail! "Pointer capture expects (k/* name)" capture))
-                             (with-meta (list 'aguafria.keyword/* (second capture)) (meta capture)))
+                             (with-meta (list 'aguafria.keyword/*
+                                              (vary-meta (second capture) assoc :aguafria/local? true))
+                               (meta capture)))
                            :else (qualify-form context-ns capture)))
                        pairs)
         names (map #(if (seq? %) (second %) %) captures)
         inputs (mapv #(qualify-form context-ns (second %)) pairs)
         body (binding [*lexical-bindings* (into *lexical-bindings* names)
+                       *local-type-bindings* (merge *local-type-bindings* (zipmap names (repeat false)))
                        *local-name-bindings* (merge *local-name-bindings* (zipmap names names))]
                (mapv #(qualify-form context-ns %) body))]
     (with-meta (apply list operator
@@ -1734,7 +1751,7 @@
          (meta step))
 
        (or (symbol? step) (keyword? step))
-       (list step value)
+       (with-meta (list step value) (merge (meta form) (meta step)))
 
        :else
        (fail! "Clojure thread steps must be symbols or lists"
@@ -1910,6 +1927,15 @@
         (= op 'array)
         (str (emit-type (array-initializer-type args))
              (subs (emit-vector-literal (first args)) 1))
+
+        (= op 'vector)
+        (str (emit-type (vector-initializer-type args))
+             (subs (emit-vector-literal (first args)) 1))
+
+        (= op 'debug!)
+        (if (= 1 (count args))
+          (debug/expression form (emit-expr (first args)))
+          (fail! "debug! expects one expression" form))
 
         (= op 'unreachable)
         (if (empty? args)
@@ -3040,7 +3066,8 @@
            has-value? align doc comments body-prefix-source
            dependency-default-export? import-container]
     :as declaration}]
-  (let [declaration-name (or zig-name name)]
+  (binding [debug/*source* source]
+   (let [declaration-name (or zig-name name)]
     (str
      leading-source
      (declaration-notes {:doc doc :comments comments})
@@ -3189,7 +3216,7 @@
             (when (seq body-source) (str (indent 1 body-source) "\n"))
             "}"))
 
-     (fail! "Unknown Zig declaration kind" declaration {:kind kind})))))
+     (fail! "Unknown Zig declaration kind" declaration {:kind kind}))))))
 
 (defn- exact-zig-symbol
   [name]

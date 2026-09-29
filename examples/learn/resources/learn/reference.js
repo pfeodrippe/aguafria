@@ -30,6 +30,81 @@ document.querySelectorAll('code.language-clojure, [data-language="aguafria"] cod
   code.replaceChildren(fragment);
 });
 
+// Type reports are source-spanned data, independent of Prism's token classes.
+// Split text nodes only; never rewrite source or insert text into copied code.
+function attachTypeInformation(code) {
+  const reports = JSON.parse(code.dataset.typeReport);
+  const boundaries = [...new Set(reports.flatMap(([start, end]) => [start, end]))]
+    .sort((a, b) => a - b);
+  const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+  const texts = [];
+  while (walker.nextNode()) texts.push(walker.currentNode);
+  let offset = 0;
+  for (const text of texts) {
+    const start = offset;
+    offset += text.length;
+    const cuts = [start, ...boundaries.filter(n => n > start && n < offset), offset];
+    const fragment = document.createDocumentFragment();
+    for (let i = 1; i < cuts.length; i++) {
+      const from = cuts[i - 1], to = cuts[i];
+      const value = text.data.slice(from - start, to - start);
+      const report = reports.filter(([a, b]) => a <= from && b >= to)
+        .sort((a, b) => (a[1] - a[0]) - (b[1] - b[0]))[0];
+      if (report && value.trim()) {
+        const span = document.createElement("span");
+        span.className = "learn-typed";
+        span.dataset.typeInfo = report[2];
+        span.textContent = value;
+        fragment.appendChild(span);
+      } else {
+        fragment.appendChild(document.createTextNode(value));
+      }
+    }
+    text.replaceWith(fragment);
+  }
+  code.tabIndex = 0;
+  code.setAttribute("aria-label", "Aguafria source with type information. Hover a form; press Alt+ArrowDown or Alt+ArrowUp to inspect forms with the keyboard.");
+  let selected = -1;
+  code.addEventListener("keydown", event => {
+    if (!event.altKey || !["ArrowDown", "ArrowUp"].includes(event.key)) return;
+    event.preventDefault();
+    selected = Math.max(0, Math.min(reports.length - 1,
+      selected + (event.key === "ArrowDown" ? 1 : -1)));
+    const rect = code.getBoundingClientRect();
+    showTypeTooltip(reports[selected][2], rect.left + 16, Math.max(0, rect.top) + 24);
+  });
+  code.addEventListener("blur", hideTypeTooltip);
+}
+
+const typeTooltip = document.createElement("div");
+typeTooltip.id = "learn-type-tooltip";
+typeTooltip.setAttribute("role", "tooltip");
+typeTooltip.setAttribute("aria-live", "polite");
+typeTooltip.hidden = true;
+document.body.appendChild(typeTooltip);
+
+function showTypeTooltip(text, x, y) {
+  // ZLS returns Markdown. Keep its contents as safe text, without displaying
+  // the code-fence delimiters as part of the tooltip.
+  typeTooltip.textContent = text.replace(/^```[^\n]*\n?/gm, "").trim();
+  typeTooltip.hidden = false;
+  typeTooltip.style.left = `${Math.max(8, Math.min(x + 12, innerWidth - typeTooltip.offsetWidth - 8))}px`;
+  typeTooltip.style.top = `${Math.max(8, Math.min(y + 16, innerHeight - typeTooltip.offsetHeight - 8))}px`;
+}
+
+function hideTypeTooltip() { typeTooltip.hidden = true; }
+
+document.querySelectorAll('code[data-type-report]').forEach(attachTypeInformation);
+document.addEventListener("mouseover", event => {
+  const target = event.target.closest(".learn-typed");
+  if (target) showTypeTooltip(target.dataset.typeInfo, event.clientX, event.clientY);
+  else hideTypeTooltip();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") hideTypeTooltip();
+});
+document.addEventListener("scroll", hideTypeTooltip, true);
+
 // Small references use an independent, keyboard-operable language toggle.
 // Explanations are available as tooltips and accessible descriptions, without
 // expanding every type mention into a full-size code panel inside prose.

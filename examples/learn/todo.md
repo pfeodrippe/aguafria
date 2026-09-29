@@ -104,9 +104,16 @@
     - [x] remove :array-sentinel in favour of just :array
   - [x] destructuring_arrays.clj
     - [x] fix sequence destructuring
-  - [ ] test_vector.clj
-  - [ ] destructuring_vectors.clj
-  - [ ] test_single_item_pointer.clj
+  - [x] test_vector.clj
+    - [x] (az/init [1 2 3 4] (k/Vector 4 :i32)) could be (az/vector [1 2 3 4] :i32)
+    - [x] (k/as (az/array [1.1 3.2 4.5 5.6] :f32) [:array 4 :f32]) could be (az/array [1.1 3.2 4.5 5.6] :f32)
+    - [x] az/debug!
+    - [x] ability to generate the types for all forms and subforms of a file, then, for testing, make sure the aguafria zig examples we show at http://127.0.0.1:63979/ all show some tooltip with type info when someone hovers it
+    - [x] conversion-between-vectors-arrays-and-slices via JVM
+  - [x] destructuring_vectors.clj
+  - [x] test_single_item_pointer.clj
+    - [x] when evaluating each of the lets at address-of-syntax test, I have Cannot pass this value to native Zig
+    - [x] pointer-array-access `Assignment requires a mutable native value; create it with ak/var`
 
 - [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?
 - [ ] add assertions from the JVM as alternative to comptime assertions (e.g. inside test_arrays.clj)

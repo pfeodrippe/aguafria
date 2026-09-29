@@ -136,3 +136,19 @@ pre > .learn-inline > [data-language] > code {
   .learn-tabs, .learn-copy, .learn-toc-toggle,
   #navigation.learn-navigation { display: none; }
 }
+#learn-type-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: min(32rem, calc(100vw - 32px));
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #999;
+  border-radius: 5px;
+  background: #20242b;
+  color: #f1f1f1;
+  box-shadow: 0 3px 12px #0006;
+  font: 13px/1.5 monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.learn-typed:hover { background: #8883; }

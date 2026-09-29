@@ -1,6 +1,7 @@
 (ns aguafria.zig.runtime
   "Compilation, loading, and invocation for generated Zig modules."
   (:require [aguafria.zig.emitter :as emit]
+            [aguafria.zig.debug :as debug]
             [aguafria.zig.project :as project]
             [aguafria.zig.toolchain :as toolchain]
             [aguafria.zig.value :as zig-value]
@@ -447,6 +448,8 @@
   that module is actually present in the compilation slice.
   `:module-cache-tokens` maps configured modules to immutable version/content
   identities, allowing artifacts that select them to be reused safely.
+  `:debug-output` selects az/debug! report destinations (#{:print :file} by
+  default); `:debug-report-file` overrides .aguafria/debug/types.edn.
   Returns the resulting configuration."
   [options]
   (when-not (map? options)
@@ -1237,6 +1240,8 @@
 (defn- run-command
   [command directory]
   (let [result (apply shell/sh (concat command [:dir directory]))]
+    (when (zero? (:exit result))
+      (debug/inspect-command! command directory @config))
     (assoc result :command command :directory directory)))
 
 (defn- remove-ansi
@@ -5870,8 +5875,8 @@
      "export fn " slice-set
      "(storage_address: usize, items_address: usize, length: usize) callconv(.c) void {\n"
      "    const storage: *" slice-type " = @ptrFromInt(storage_address);\n"
-     "    const items: [*]" (when (str/includes? slice-type "const ") "const ")
-     element-type " = @ptrFromInt(items_address);\n"
+     "    const items: @TypeOf(@as(" slice-type
+     ", undefined).ptr) = @ptrFromInt(items_address);\n"
      "    storage.* = items[0..length];\n"
      "}\n"
      "export fn " slice-pointer
@@ -12164,6 +12169,10 @@
               :storage-length storage-length
               :sentinel (:sentinel options)
               :element-type element-type
+              :element-bit-size (when (= :vector kind)
+                                  (packed-field-bit-width module element-type seen))
+              :element-size (when (= :vector kind)
+                              (case element-type :f16 2 :f32 4 :f64 8 :f128 16 nil))
               :element-schema
               (native-type-schema module element-type (conj seen identity))}))
 

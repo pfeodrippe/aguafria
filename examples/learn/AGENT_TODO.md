@@ -1,5 +1,63 @@
 # Learn reference implementation
 
+- [x] Fix direct JVM evaluation of `pointer-array-access`: indexed native
+      elements must borrow the original storage, preserving Zig's element type
+      and pointee constness. Verify mutation through the pointer updates the
+      parent, const writes fail, and nested arrays/slices/sentinels still work.
+      Also derive slice-storage pointer types through Zig `@TypeOf`, never by
+      searching type text for `const`. All three original pointer test bodies
+      pass as ordinary JVM forms. Seven JVM tests / 60 assertions and 28 runtime
+      tests / 138 assertions pass. No Learn example was changed for this fix.
+      Regenerated and verified 288 upstream outcomes plus four reviewed cases;
+      the served HTML matches the rebuilt file, includes 202 REPL transcripts,
+      and contains the successful `pointer-array-access` native test output.
+
+- [x] Remove Clojure-side type inference from hover reports. Source traversal
+      only supplies spans; type contents must come from Zig compiler or ZLS.
+- [x] Remove browser `title` attributes from custom type tooltip spans.
+- [x] Connect ZLS 0.16 to generated Zig via exact emitter source mappings;
+      verify pointer bindings, struct methods/destructuring, rebuild and inspect.
+      Verified `x: i32`, `x-ptr: *const i32`, `y-ptr: *i32`, Vec3 locals and
+      destructured f32 fields using actual ZLS responses. No Clojure inference.
+      7 source-map/report tests (106 assertions), 55 emitter tests (319
+      assertions), 71 Learn tests (11,381 assertions) pass. Full regeneration:
+      288 upstream comparisons + 4 reviewed cases; 202 REPL transcripts.
+      Browser keyboard inspection displays one custom tooltip, no native titles.
+- [ ] Extend exact emission mappings beyond the currently mapped identifiers
+      and compiler debug probes. Unmapped forms and uninstantiated generics
+      must stay unavailable unless a Zig tool supplies their result.
+- [ ] Investigate long-lived JVM native-library TLS exhaustion on macOS
+      (DYLD pthread-key allocation failure observed during the broad JVM suite).
+      Targeted pointer/value checks pass; do not claim this lifetime issue fixed.
+      Reproduced during the 2026-09-28 full Learn regeneration after running
+      the indexing regression suite in the same JVM: diagnostic
+      `java-2026-09-28-225250.ips`, DYLD "could not create thread local variables
+      pthread key". Resume verified outcome caches in a fresh build REPL;
+      that recovery does not fix the native-library lifetime limit.
+
+- [ ] Preserve native identity for JVM numeric constructors, operations and
+      function results; extract plain values explicitly with `az/value`.
+      Keep predicates as JVM booleans so `false` remains false in Clojure.
+
+- [ ] Fix JVM argument transport for typed borrowed `ZigPointer` values;
+      evaluate both `address-of-syntax` let forms and add transport regressions.
+- [ ] Verify the whole `conversion-between-vectors-arrays-and-slices` let on
+      the JVM. Preserve array/slice backing owners and dereference pointer-to-array
+      results before coercing to vectors; no addresses into temporary arguments.
+
+- [ ] Add `az/vector`, inferring lane count with equivalent JVM/native behavior;
+      audit all Learn constructors and simplify eligible ones without changing
+      original names/comments. Preserve type schemas and array/slice coercions.
+- [ ] Add identity `az/debug!` type probes with source locations, structured
+      REPL reports and atomic `.aguafria/debug/types.edn` output. Keep inspection
+      separate from executable code; test single evaluation and file-only mode.
+- [ ] Regenerate real Learn outputs and HTML after these compiler/API changes.
+- [ ] Future whole-form/editor analysis: query generated Zig through ZLS and
+      separately labeled compiler-confirmed observations; no Clojure inference.
+      Do not treat ZIR/ast-check as fully typed IR or claim unused generic
+      specializations were analyzed. Reuse structured reports for nREPL/LSP;
+      no editor-specific changes or new language server required for debug!.
+
 - [x] Automatically cljfmt modified Learn examples before HTML builds and
       translation/output verification. Cover staged, unstaged and untracked
       files; stop on errors; fingerprint only after formatting. Test integration
@@ -1084,3 +1142,8 @@ also passed the named-getter, real REPL output, and mapped leak-location checks.
       55 tests / 10,212 assertions. Browser checks: 10/10, plus live served-page
       verification of mixed destructuring, `5679`/`nil` separation and viewport fit.
       `hello.clj` was restored by its owner; no user edits were moved or replaced.
+- [x] Preserve named vector types in examples: `test_reduce_builtin.clj`
+      initializes through `V`; constructor shorthand must not bypass that alias.
+- [ ] Generate source-spanned type reports for file forms and subforms, and
+      expose them as Learn hover tooltips. Use only compiler/ZLS observations;
+      report unavailable analysis explicitly, never guess from Clojure syntax.

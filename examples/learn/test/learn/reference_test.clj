@@ -1,5 +1,6 @@
 (ns learn.reference-test
   (:require [clojure.edn :as edn]
+            [aguafria.zig.zls :as zls]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -7,6 +8,36 @@
             [learn.inline :as inline]
             [learn.reference :as ref]
             [learn.source-fidelity-test]))
+
+(deftest type-tooltips-preserve-code-and-label-evidence
+  (let [source "(ns sample (:require [aguafria.zig :as az]))\n(az/defconst n :i32 42)"
+        html (ref/annotated-clojure-source source "sample.clj")]
+    (is (str/includes? html "data-type-report="))
+    (is (str/includes? html "No Zig-tool type result"))
+    (is (not (str/includes? html "not compiler-verified")))
+    (is (str/includes? html (str ">" (ref/escape-html source) "</code>")))
+    (is (not (str/includes? html "Compiler-confirmed")))))
+
+(deftest zls-resolves-pointer-and-struct-bindings-from-generated-zig
+  (let [client (zls/start!)]
+    (try
+      (doseq [[file namespace-symbol expectations]
+              [["test_single_item_pointer" 'learn.example.test-single-item-pointer
+                {"x" "(i32" "x-ptr" "(*const i32)" "y-ptr" "(*i32)"}]
+               ["test_structs" 'learn.example.test-structs
+                {"v1" "(Vec3)" "ox" "(f32)" "oy" "(f32)"}]]]
+        (let [source (slurp (str "resources/learn/example/" file ".clj"))
+              mapped (atom nil)
+              emitted (binding [ref/*type-source-map* mapped]
+                        (ref/emit-clojure source namespace-symbol {}))
+              hovers (zls/hover-report! client (str "build/types/" file ".zig") @mapped)]
+          (is (= emitted (:source @mapped)))
+          (is (not (re-find #"[\u0001-\u0004]" emitted)))
+          (doseq [[name expected] expectations]
+            (is (some #(and (= name (subs source (:start %) (:end %)))
+                            (str/includes? (or (:hover %) "") expected)) hovers)
+                (str file " / " name)))))
+      (finally (zls/stop! client)))))
 
 (deftest formatter-selects-existing-changed-examples
   (let [a "resources/learn/example/hello.clj"

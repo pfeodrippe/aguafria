@@ -290,6 +290,48 @@ data. There is no generated-code mode or options argument.
 
 ## REPL and hot reload
 
+`az/vector` constructs a typed SIMD vector on either side of the JVM/native
+boundary: `(az/vector [1 2 3 4] :i32)` emits `@Vector(4, i32){1, 2, 3, 4}`.
+
+Numeric constructors, native arithmetic and numeric function results retain
+their Zig type as `ZigValue`s. Use `k/+` and other native operations to keep
+working with them, and `k/&` for an owned pointer to their storage. `k/var`
+provides mutable storage; taking its address does not copy it. `(az/value x)`
+explicitly extracts a JVM snapshot. Predicates remain ordinary JVM booleans,
+so `false` behaves correctly in Clojure conditionals. Comptime-only numbers
+retain their type but need a concrete runtime type before taking an address.
+
+Use `(az/debug! expression)` (including as a `->` step) to inspect its Zig type
+with a Clojure file, line and column. In native declarations it adds an opt-in
+compiler inspection pass, not runtime logging; the expression still executes
+once. From the JVM it returns the identical value after native reflection.
+You can also inspect a top-level declaration with `(az/debug! #'my-function)`
+or `(az/debug! (az/defn answer :i32 [] 42))`.
+
+`(az/debug-reports)` returns structured reports. The same data is written
+atomically to `.aguafria/debug/types.edn`. For tooling-only output:
+
+```clojure
+(az/configure! {:debug-output #{:file}})
+```
+
+Compiler reports cover expressions Zig actually analyzes, including generic
+specializations, not every possible path through a file. Expressions requiring
+a result type, such as a bare `k/intCast`, need an explicit `k/as` within the
+probe. Failed inspection is reported as unavailable with diagnostics, never as
+a guessed type. This is a reporting API/data file, not an installed nREPL/LSP or
+clj-kondo integration. ZIR is untyped, whereas AIR is produced after semantic
+analysis per function.
+
+`(az/type-report "path/to/example.clj")` returns source spans for every form
+and subform without loading or evaluating that file. `(az/type-report!
+"path/to/example.clj")` writes the report under `.aguafria/types/`. Reports
+use only exact-revision Zig compiler observations or ZLS hover results mapped
+through the emitter. There is no Clojure-side type inference. Forms without a
+Zig-tool result remain unresolved. Learn builds require ZLS 0.16 on PATH and
+analyze generated Zig with Aguafria's pinned compiler. The original examples
+are unchanged. Focus a code block and use Alt+Up/Down for keyboard inspection.
+
 Start the project through the nREPL alias used by CIDER, Calva, or another
 nREPL client:
 

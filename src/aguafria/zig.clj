@@ -5,8 +5,10 @@
   the bodies are emitted as Zig. Explicit `clj!` escapes evaluate Clojure while
   preparing a declaration, before native compilation."
   (:refer-clojure :exclude [cast comment defn defn- defstruct deref destructure
-                            fn get get-in range struct type])
+                            fn get get-in range struct type vector])
   (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.analysis :as analysis]
+            [aguafria.zig.debug :as debug]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
@@ -692,7 +694,7 @@
        (runtime/register-declaration! descriptor#)
        (clojure.core/defn ~(with-meta clojure-name (meta clojure-name))
          [& arguments#]
-         (runtime/invoke! '~qualified-name arguments#))
+         ((requiring-resolve 'aguafria.zig.jvm/invoke-value!) descriptor# arguments#))
        (alter-meta! (var ~clojure-name) merge
                     {:doc ~docstring
                      :arglists '~(list arglist)
@@ -1111,7 +1113,7 @@
        (runtime/register-declaration! descriptor#)
        (clojure.core/defn ~(with-meta name (meta name))
          [& arguments#]
-         (runtime/invoke! '~qualified-name arguments#))
+         ((requiring-resolve 'aguafria.zig.jvm/invoke-value!) descriptor# arguments#))
        (alter-meta! (var ~name) merge
                     {:doc ~(function-documentation docstring return)
                      :arglists '~(list bindings)
@@ -1333,7 +1335,7 @@
 ;; namespaces.
 (doseq [operator (emitter/syntax-operators)
         :when (and (not (contains? '#{let when when-not for dotimes case
-                                     array range with-block}
+                                     array vector debug! range with-block}
                                    operator))
                    (not (special-symbol? operator))
                    (or (= operator 'type)
@@ -1354,13 +1356,57 @@
   "Construct a native array, inferring its length: (az/array [1 2 3] :i32).
   The final argument is the element type, including nested type schemas.
   Add a sentinel with (az/array [1 2 3] {:sentinel 0} :u8).
-  Executes from the JVM too. For explicit lengths or vectors,
-  use (az/init elements type)."
+  Executes from the JVM too. For explicit lengths use (az/init elements type)."
   {:aguafria/syntax '{:kind :syntax :name array :symbol aguafria.zig/array}}
   ([elements element-type]
    (invoke-syntax! 'array elements element-type))
   ([elements options element-type]
    (invoke-syntax! 'array elements options element-type)))
+
+(clojure.core/defn vector
+  "Construct a native SIMD vector: (az/vector [1 2 3 4] :i32).
+  Infers the lane count from the element vector. Executes from the JVM too;
+  emits the same Zig initializer as (az/init elements (k/Vector n type))."
+  {:aguafria/syntax '{:kind :syntax :name vector :symbol aguafria.zig/vector}}
+  [elements element-type]
+  (invoke-syntax! 'vector elements element-type))
+
+(clojure.core/defn type-report
+  "Read-only types and source spans for every form in a file.
+
+  Returns :forms with :status and :basis (:compiler or :zls).
+  Forms without a Zig-tool observation remain unresolved; no Clojure inference.
+  Does not evaluate code, load imports or instantiate generics. Compiler
+  observations from debug! are used only for the exact source revision."
+  [file]
+  (analysis/file-report file {:observations (vals (debug/reports-map))}))
+
+(clojure.core/defn type-report!
+  "Write a source-fingerprinted type report under .aguafria/types; return its path."
+  [file]
+  (analysis/write-report! (type-report file) ".aguafria/types"))
+
+(clojure.core/defn debug-reports
+  "Return structured type reports for REPL/editor tooling, without parsing stdout.
+  Reports also persist to .aguafria/debug/types.edn. Configure :debug-output
+  as #{:file} to suppress printing, #{:print} for printing only, or #{} for neither."
+  []
+  (debug/reports-map))
+
+(defmacro debug!
+  "Report an expression's Zig type and Clojure source location; return it unchanged.
+  Inside native code, a separate compiler probe inspects @TypeOf without running
+  the expression. Context-dependent expressions need an explicit type (k/as).
+  From Clojure, evaluates once and reflects its native type; accepts Vars/types
+  as well as values. Reports are available through az/debug-reports."
+  {:aguafria/syntax '{:kind :syntax :name debug! :symbol aguafria.zig/debug!}}
+  [expression]
+  `(let [value# ~expression]
+     (debug/report! (assoc ~(assoc (source-location &form) :form (pr-str expression)
+                                   :phase :jvm :kind :type :status :ok)
+                           :type (:type (describe value#)))
+                    (runtime/configuration))
+     value#))
 
 (clojure.core/defn range
   "Zig iteration range: start..end, with an exclusive end; omit end for `start..`.
