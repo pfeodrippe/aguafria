@@ -3,10 +3,9 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst U
-  (az/union {:attrs #{k/enum}}
-            [[:a :u32]
-             [:b :f32]]))
+(az/defunion U {:attrs #{k/enum}}
+  [[:a :u32]
+   [:b :f32]])
 
 (az/defn- getNum :u32 [[u U]]
   (switch u

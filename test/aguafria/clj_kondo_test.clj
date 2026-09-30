@@ -32,6 +32,18 @@
                [aguafria.std.process :as process :refer [Init]]
                [aguafria.std.process.Init :as process-init]))\n")
 
+(deftest explain-wrapper-preserves-linting
+  (is (empty?
+       (lint "(ns fixture (:require [aguafria.zig :as az]))
+              (az/explain! (def answer 42) (+ answer 1))"))))
+
+(deftest named-union-declarations-register-real-vars
+  (is (empty?
+       (lint "(ns fixture (:require [aguafria.zig :as az] [aguafria.keyword :as k]))
+              (az/defunion Payload \"Payload docs.\" {:attrs #{k/enum}}
+                [[:int {:doc \"Integer\"} :i32] [:empty :void]])
+              (Payload {:int 42})"))))
+
 (deftest native-destructured-bindings-are-visible-to-the-linter
   (is (empty?
        (lint "(ns fixture (:require [aguafria.zig :as az] [aguafria.keyword :as k]))

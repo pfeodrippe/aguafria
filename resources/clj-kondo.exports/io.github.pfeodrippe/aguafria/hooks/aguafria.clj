@@ -70,18 +70,21 @@
   [nodes]
   (loop [remaining nodes
          docstring nil
-         options {}]
+         options {}
+         option-nodes []]
     (let [value (some-> remaining first sexpr)]
       (cond
         (string? value)
-        (recur (rest remaining) (first remaining) options)
+        (recur (rest remaining) (first remaining) options option-nodes)
 
         (map? value)
-        (recur (rest remaining) docstring (merge options value))
+        (recur (rest remaining) docstring (merge options value)
+               (conj option-nodes (first remaining)))
 
         :else
         {:declaration remaining
          :docstring docstring
+         :option-nodes option-nodes
          :options options}))))
 
 (defn- marker-index
@@ -155,9 +158,9 @@
   "Lint an Aguafria `def*` form as a definition while still analyzing values."
   [{:keys [node]}]
   (let [[_ definition-name & raw-declaration] (:children node)
-        {:keys [declaration]} (declaration-prefix raw-declaration)]
+        {:keys [declaration option-nodes]} (declaration-prefix raw-declaration)]
     {:node (call-node 'def
-                      [definition-name (expression-node (vec declaration))])}))
+                      [definition-name (expression-node (into option-nodes declaration))])}))
 
 (defn import-declaration
   "Register the import alias Var without treating Zig member names as locals."

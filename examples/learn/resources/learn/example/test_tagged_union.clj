@@ -9,10 +9,9 @@
   [:ok
    :not_ok])
 
-(az/defconst ComplexType
-  (az/union {:argument ComplexTypeTag}
-            [[:ok :u8]
-             [:not_ok :void]]))
+(az/defunion ComplexType {:argument ComplexTypeTag}
+  [[:ok :u8]
+   [:not_ok :void]])
 
 (az/deftest switch-on-tagged-union
   (let [c (ComplexType {:ok 42})]

@@ -2,11 +2,10 @@
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as az]))
 
-(az/defconst Payload
-  (az/union
-   [[:int :i64]
-    [:float :f64]
-    [:boolean :bool]]))
+(az/defunion Payload
+  [[:int :i64]
+   [:float :f64]
+   [:boolean :bool]])
 
 (az/deftest simple-union
   (let [payload (k/var (Payload {:int 1234}))]

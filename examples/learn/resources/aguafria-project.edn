@@ -1,0 +1,12 @@
+{:schema-version 1
+ :asset-root "upstream/doc/langref"
+ :asset-files ["error_union_parsing_u64.zig"]
+ :modules
+ {"learn.example.catch"
+  {:source-kind :aguafria :relative-path "catch.zig"}
+  "learn.example.catch-err-return"
+  {:source-kind :aguafria :relative-path "catch_err_return.zig"}
+  "learn.example.handle-error-with-catch-block"
+  {:source-kind :aguafria :relative-path "handle_error_with_catch_block.zig"}
+  "learn.example.try"
+  {:source-kind :aguafria :relative-path "try.zig"}}}

@@ -1,5 +1,549 @@
 # Learn reference implementation
 
+## Resume checkpoint — September 30
+
+- Latest scope: **values.clj only** so the user can test and iterate. Do not
+  restart the whole-Learn sweep or HTML rebuild for this iteration.
+- Shared native cache default implemented: `~/.aguafria/zig` in runtime,
+  converter helpers and extracted project assets. Explicit `:cache-dir` and
+  `aguafria.cache-dir` overrides remain. Old project caches untouched. Reports
+  such as `container-lessons.edn` remain project-local diagnostics, not keys.
+- Values-only shared preparation complete: **27/27 operations, 40 prepared
+  handler records, 1/1 function, zero gaps**, 78.02 seconds. Report:
+  `.aguafria/precompile/values-shared-cache.edn`. Two fresh JVMs evaluated all
+  five actual body forms (not native main), with correct output and **zero
+  compilations, 34 disk hits, 14 memory hits** each. Learn cwd: 4,858.15 ms;
+  repo-root cwd: 999.92 ms. Different OS page-cache warmth; not a speedup ratio.
+  Shared cache currently 222 MiB including compiler-analysis support.
+- Fixed the user's three error-union cache misses generically: finite error-set
+  literal conversions prepared from compiler members; native error-set/union
+  reflection retains structural schemas so TypeOf/print adapter keys match.
+  Independent empty-cache preparation/fresh-JVM regression: 1 test, 6 passing
+  assertions; both error members reuse artifacts. Cache default/override:
+  1 test, 2 passing assertions. Reproduction and storage decision:
+  `VALUES_SHARED_CACHE_2026-09-30.md`.
+- No SQLite/DuckDB dependency: keyed native artifacts already require files.
+  Existing artifact publication retained; this iteration verifies sequential
+  reuse across fresh JVMs and working directories, not simultaneous multi-JVM
+  writers. Cross-process contention/eviction remains separate work.
+- Completed current user request: whole Learn AOT preparation, fresh build JVM
+  from `examples/learn`, all 290 namespaces under `resources/learn/example`,
+  four bounded workers, normal `.aguafria/zig` disk cache. Exec 99012 exited 0.
+  Report `.aguafria/precompile/learn-aot-2026-09-30.edn`: **2,110/2,703 operations
+  prepared, 593 incomplete, 3,046 prepared handler records, 697.17 seconds**.
+  This new whole sweep supersedes the incremental 2,049 estimate below.
+  288 namespaces analyzed; `test-blocks` and `var-must-be-initialized` failed
+  to load. 50 baseline compiler rejections include invalid/context-dependent
+  reference examples; do not call these all regressions or all expected.
+  User can now restart a JVM from `examples/learn` using the normal cache:
+  `values` 27/27, `test-slice-bounds` 12/12, `test-vector` 35/35,
+  `test-pointer-arithmetic` 32/32 operations prepared.
+  Do not rerun AOT just because the conversation continues. This historical
+  whole sweep was project-local; only values has now been prepared globally.
+- User's latest priority: continue preparation work only when it delivers
+  substantial JVM-evaluation performance gains. Do not pursue the earlier
+  2,200/2,400/2,600 count milestones merely as a metric. Measure first evaluation
+  after restart separately from already-loaded execution and JVM startup.
+- Completed performance comparison: owned root REPL 52092, future
+  `performance-comparison-v2`, three separate JVMs (cold execution, compile-only
+  preparation, prepared execution). **First evaluation: 16,979.99 ms / 14 builds
+  cold versus 2,173.62 ms / zero builds prepared (7.81× faster, 87.2% less time).**
+  Both return the same checked array mutation/slicing/indexing and arithmetic
+  results. Already-loaded evaluations: 15.93 ms and 15.13 ms respectively.
+  Compile-only preparation: 90,999.13 ms / 82 builds, 34/35 fixture operations;
+  native invocation forbidden. Startup is excluded from evaluation timings.
+  See `PRECOMPILATION_PERFORMANCE_2026-09-30.md` for limitations and reproduction.
+  The earlier `performance-comparison` failed while loading the harness and
+  is not timing evidence. All measurement futures are now terminal.
+- New function-value fixes: no automatic C-export convention on ordinary
+  scalar source functions; JVM calls use separate existing C trampolines.
+  Function signature maps are not recursively treated as value storage schemas.
+  Failed preparation requests no longer contaminate later preparation in the
+  same namespace. Focused evidence: 4 ABI/request-isolation assertions plus
+  3 signature-storage assertions pass. Clean-source Learn preparation recovers
+  three calls in `test_comptime_evaluation.clj` (16/27 prepared; 9 failed
+  operations still require comptime-only value transport, 2 inspection gaps).
+  Root REPL 52092 `clean-function-values` complete. Do not reuse the earlier
+  polluted REPL's function-values-correction report as post-fix evidence.
+- Completed bounded checks: nominal identity discovery adds 19 prepared
+  operations (69→88/103 across five namespaces); contextual inspection adds
+  three (`test-arrays` 70→72, `doc-comments` 0→1). Along with the three function
+  ABI recoveries and one packed-field recovery, this is **26 recovered operations,
+  an incremental 2,049/2,703 prepared, 654 incomplete**. This combines disjoint
+  targeted results with the previous snapshot, not a fresh whole-project sweep.
+  Runtime-shrExact's invalid probe is removed without claiming its dead branch
+  was prepared; four peer-type comptime-pointer inspection failures remain.
+  Packed fix is verified: 7/8 Learn
+  operations prepared (+1), four JVM assertions, original body/native test pass.
+  Failure classification is persisted in
+  `PRECOMPILATION_FAILURE_CLASSIFICATION_2026-09-30.md` (40 failed operations,
+  7 rejected probes, grounded in original Zig directives).
+
+- Completed: `az/defunion`, 16 named declarations in 15 Learn files; native,
+  converter, lint and original-outcome checks recorded below. Do not repeat
+  this work or present it as a new accomplishment on continuation.
+- Completed focused proof: runtime tuple preparation, 19/19 operations and
+  29 handlers; preparation loads no native functions; restarted JVM builds
+  zero adapters. Runtime regression results: four tests / 35 assertions and
+  the runtime unit suite: 31 tests / 153 assertions. Reuse this evidence unless
+  a relevant implementation/test change invalidates it.
+- Completed: all-290 compile-only inventory, owned Learn REPL **52949**, future
+  `runtime-tuple-inventory`, exec session **42612**, PID **88008**. Report:
+  `.aguafria/precompile/learn-operations-runtime-tuples-complete.edn`.
+  **2,023/2,703 prepared, 680 incomplete; 688.31 seconds, zero native loads.**
+  Four operations newly prepared (two overflow tuple assignments, two empty
+  slice construction operations); `build.clj` now exposes an invalid native
+  empty-tuple variant for `StandardOptimizeOptionOptions`, net gain three.
+  No signatures in this inventory contain nested representation alternatives,
+  so recursive expansion does not require repeating the full inventory.
+- Completed: recursive nested representation expansion and the five boolean
+  cache misses. Zig's argument reflection now reports runtime bool plus its
+  two literal alternatives; known comptime tuple fields keep their known value.
+  Added the boolean constructor used by the call phase to its source fixture.
+  Empty-cache proof: **22/22 operations, 50 handlers, zero baseline failures,
+  zero native loads, zero restarted builds**, three assertions pass.
+  Evidence: `.aguafria/precompile-tests/runtime-tuples-13756545412958763445/report.edn`,
+  root REPL 52092 future `boolean-tuple-restart` (completed).
+- Completed affected observation regressions: four tests / 100 assertions,
+  root REPL 52092 future `boolean-observation-regressions`.
+- Completed full boolean-domain inventory: owned REPL 52949, future
+  `boolean-domain-inventory`, report `learn-operations-boolean-domain.edn`.
+  It exposed a regression: **2,011/2,703**, 692 incomplete, 173.33 seconds,
+  zero native loads. All 12 newly incomplete operations rejected boolean
+  literal descriptors in the preparation validator (e.g. `values.clj`'s `!`
+  and `test_union_method.clj`'s `!`), while ordinary JVM calls accepted them.
+- Completed correction: preparation accepts boolean literal descriptors and
+  feeds their values to the SAME operator planner used by direct JVM calls.
+  Regression reproduced two errors and one failure before the change; after
+  the change all five assertions pass, including zero builds for direct calls.
+  Root REPL 52092 future `boolean-operator-after` completed; do not repeat it.
+  Affected operator regressions also pass three tests / 26 assertions
+  (`operator-runtime-regressions`, same REPL); formatting and diff checks pass.
+- Completed targeted preparation: **11 namespaces, 159/189 operations**,
+  10.50 seconds, native invocation forbidden. All **12/12** regressions recover.
+  Report `.aguafria/precompile/learn-boolean-operator-correction.edn`, owned
+  REPL 52949 future `boolean-operator-targeted` completed. Combined with the
+  unchanged entries of the boolean-domain snapshot, coverage is **2,023/2,703**,
+  680 incomplete, 2,959 prepared / 63 failed handler variants. This is an
+  incremental result, NOT a new full run. No union verification was repeated.
+- Completed computed builtin parameter correction: source literals keep the
+  context of computed parameter types, while explicitly typed operands keep
+  their types. Two tests / 14 assertions pass (`computed-builtin-after`, root
+  REPL 52092). `test_comptime_invalid_error_code.clj` now reports Zig's intended
+  invalid-code error rather than a spurious i64/u16 transport mismatch.
+- Classification completed for the prior snapshot's **40 failed operations**:
+  22 valid-source preparation defects, nine correct negative-example rejections,
+  four wrong diagnostics on negative examples, four target mismatches, one
+  syntax-only runtime instantiation. Next work should target reusable runtime
+  handlers with demonstrable first-call benefit, not force invalid/dead code
+  into successful coverage. Examples still needing work:
+  `build.clj:10`'s native empty-tuple options and
+  `test_comptime_evaluation.clj`'s comptime-only function storage. Do not rerun
+  the union, tuple restart, boolean or computed-builtin checks unless a relevant
+  source change invalidates their recorded evidence.
+- Two namespace failures remain: `test_blocks.clj` and
+  `var_must_be_initialized.clj`. The reused-REPL sweep reports no registered
+  declarations instead of their original load errors; this is not a fix.
+- Pending afterward: other coverage categories and full HTML regeneration.
+- Verification rule: record the change that necessitates each repeated test.
+  A continuation alone is not an invalidation. Poll live work for completion,
+  but avoid repetitive progress-only reports and do not rerun completed work.
+
+## Implementation and verification record
+
+- [x] Add `az/defunion`, matching `az/defstruct`'s named declaration shape.
+      Support one member vector, docs, tagged/untagged unions, explicit tag
+      types, layouts, nested methods, and native JVM constructors/reflection.
+      Migrated 16 declarations in 15 Learn files without renaming identifiers
+      or rewriting comments; anonymous local unions remain `az/union`.
+      Added converter output and clj-kondo support. Preserve explicit union
+      attributes when compacting generated declarations. Four focused tests /
+      22 assertions pass; converter checks pass two tests / 18 assertions;
+      emitter and lint suites pass 69 tests / 378 assertions. Direct Learn
+      calls pass all 11 native tests in the ten positive union namespaces.
+      Rechecked the named-union API (12 assertions, zero failures/errors) and
+      `Number`'s native `anonymous-union-literal-syntax` test on September 30;
+      both pass through the normal owned REPLs.
+  - [x] Regenerate transcripts/outcomes for all 15 migrated files: 15/15 match
+        original Zig, including five intentional-error examples. The initial
+        transcript capture refused to overwrite the ten namespaces loaded for
+        direct JVM checks; removing only those owned verification namespaces
+        allowed normal capture to succeed. No guard was bypassed.
+  - [ ] Regenerate and verify the entire HTML after the remaining shared-code
+        work; do not publish a partial rebuild that drops stale transcripts.
+  - [ ] Broad API/converter suite is not green. Recorded run: 119 tests,
+        722 passing assertions, 15 failures, four errors. Union conversion
+        assertions and enum-attribute handling were fixed afterward. Other
+        observed failures include raw-number expectations versus ZigValue
+        (`absolute -42`, `absolute 7`), unprepared fresh-process imports
+        (TigerBeetle main/options), and old converted syntax/source ordering
+        (TigerBeetle nested `for`, container fixture's forward `Replica`).
+        Keep these separate from the passing union regressions; do not call
+        that broad run successful or report a guessed post-fix total.
+
+- [ ] Include numeric progress and remaining-error categories in every update:
+      state the last completed inventory, verified delta, current focused test
+      result, and distinguish unique operations from handler variants. Never
+      count an in-progress fix as additional fully prepared coverage. Include
+      two concrete source examples for every remaining category in status reports.
+
+- [x] Add `az/explain!` (no `az/explain` alias): execute wrapped forms normally
+      exactly once, preserve results/exceptions, and report actual native
+      compilation, disk-cache and loaded-code reuse to stdout. Verify ordinary
+      side effects, declarations, failures, and cold/warm native calls.
+      Six tests / 20 assertions pass, covering return/exception identity,
+      exactly-once side effects, disconnected output, async execution, and real
+      compiled/disk-cache/loaded-code events. The kondo wrapper test also passes.
+
+- [ ] Automatically discover JVM handler requirements across every Learn
+      namespace using Zig compiler observations linked to emitter operations.
+      Never infer native types from Clojure or execute example/test/comment
+      bodies for discovery. Preserve unresolved specializations, unsupported
+      storage placements and expected compiler failures in a persisted report.
+      Compile supported signatures through the existing handler/cache path;
+      verify normal JVM calls and subsequent JVMs reuse those artifacts.
+      The initial compiler-backed discovery and bounded namespace sweep are
+      implemented; remaining coverage gaps must not be counted as warmed.
+  - [x] Verify why discovery touches the emitter: optional inspection hooks
+        preserve lexical scope and assignable field/index/dereference locations;
+        normal emission leaves them disabled. Added an unchanged-emission
+        regression; the emitter suite passes 56 tests / 331 assertions.
+  - [ ] Finish anonymous runtime tuple storage and its preparation path.
+        Native overflow tuples retain storage through copying, assignment,
+        and address-taking. Fixed snapshot-based sequence destructuring losing
+        element types: compiler-reported tuple lengths select native element
+        views, retaining ownership and mutability. Three focused tests now pass
+        21 assertions (previously one failure and three errors). The expanded
+        tuple/value/nested-value run passes eight tests / 107 assertions,
+        including mutable destructured elements and bounds. Compiler reflection
+        now records structural runtime-tuple identities and required comptime
+        indices. Live calls/preparation share the index and embedded-value
+        constructor planners. The empty-cache two-JVM regression passes three
+        assertions: zero native loads during preparation, zero builds during
+        restarted overflow-tuple construction, reassignment and destructuring.
+        The surrounding tuple/representation/native-storage regressions pass
+        four tests / 116 assertions. The all-290 replacement sweep on owned
+        Learn REPL 52561 was stopped after discovering additional tuple-import
+        defects; that JVM exited with code 143. Its checkpoint directory
+        (`learn-operations-runtime-tuples.edn.d`) is partial, not a new complete
+        inventory. Do not update full coverage totals from focused tests.
+  - [ ] Finish generic compound-tuple/imported-call preparation and restart
+        coverage. Avoid native integer-width queries when a call has no untyped
+        JVM integer needing a runtime carrier. The execution guard exposed this
+        in `assign_undefined.clj` and `mutable_var.clj`; two focused tests / five
+        assertions and integer-carrier regressions (two / 17) pass. Compound
+        tuple elements now serialize as type expressions, not value vectors,
+        in both compiler observations and JVM result transport. Targeted Learn
+        preparation reaches 14/15 operations, all 18 handler records prepared,
+        across assign-undefined, mutable-var and math-add; the remaining entry
+        is inspection placement. Expanded empty-cache restart test passes:
+        19/19 operations, 29 prepared handler records, no baseline failures,
+        zero native loads during preparation and zero builds in the second JVM.
+        It includes numeric tuples and a tuple containing a slice, changing
+        runtime values between calls. Four runtime regressions / 35 assertions
+        pass after nested type-schema canonicalization.
+        The full runtime unit suite also passes 31 tests / 153 assertions.
+        The restart test rejects missing observations as well as failed handlers;
+        its initial fixture shadowed a parameter, which Zig rejected and the
+        weaker check missed.
+        Fresh full inventory completed on owned Learn REPL 52949 (four workers),
+        report `learn-operations-runtime-tuples-complete.edn`: 2,023/2,703,
+        680 incomplete, zero native loads; see resume checkpoint.
+  - [ ] Recursively expand compiler-observed representation alternatives inside
+        tuple alternatives. New regression reproduces a nested `:representations`
+        descriptor escaping expansion and being treated as an unsupported type.
+        Keep the representation budget explicit; do not drop variants silently.
+        Recursive expansion implemented; four tests / 18 assertions pass.
+        Expanded native nested-tuple restart proof initially failed its zero-build
+        check with five builds; the boolean-domain fix below closes these misses.
+        The completed Learn sweep used
+        pre-fix loaded discovery code, but inspecting its signatures found
+        zero nested alternatives; no Learn namespace needs reanalysis for this
+        expansion-only change.
+        The first expanded fixture observed/prepared the nested operators but
+        additionally took the address of a mixed runtime/comptime tuple; its
+        nominal anonymous type is currently unrepresentable (21/22 operations
+        prepared). Keep that separate gap open. The operator restart fixture
+        now discards its result instead of adding unrelated address-taking.
+  - [x] Prepare JVM literal boolean alternatives for compiler-observed runtime
+        bool operands. Zig establishes the finite domain; no Clojure type
+        inference or native execution. Preserve known boolean tuple constants
+        without widening their value. The boolean constructor is now explicit
+        in the restart fixture, matching the evaluated call phase. Empty-cache
+        proof: 22/22 operations and 50 handlers; no native loads in preparation,
+        no builds in the restarted JVM; both false/true nested tuples verified.
+  - [ ] Preserve exact anonymous tuple identity when taking the address of a
+        tuple with both runtime and comptime fields. Reproducer: a runtime bool
+        tuple `inner = .{flag} ++ .{}` followed by `outer = .{inner} ++ .{false}`
+        and `&outer`. Compiler observation currently yields `[nil [:*const nil]]`.
+        Do not replace this nominal type with a structurally guessed runtime tuple.
+  - [x] Report unique incomplete-operation groups separately from handler
+        variants. Two regression tests / 11 assertions pass; the last completed
+        inventory's ten groups sum exactly to 683. Preserve multi-reason cases
+        and observed entries without handlers instead of hiding them.
+  - [x] Keep precompilation namespace-generic (`:analyze`, or classpath-backed
+        `:source-dirs`), separate from `:prepare`. Preserve compiler-confirmed
+        named tuple identities, numbered field layout and JVM sequence encoding;
+        canonicalize constructor/conversion keys before hashing. The focused
+        tuple/private-constructor checks pass 17 assertions, mixed-field tuple
+        storage passes four, and an empty-cache two-JVM tuple test passes three
+        (zero loads during preparation, zero builds during restarted calls).
+        Runtime/emitter/value/nested-value regressions: 91 tests / 552 assertions.
+        Explicit precompilation regressions: seven tests / 35 assertions.
+        Updated all-290 inventory: `.aguafria/precompile/learn-operations-named-tuples.edn`.
+        2,020/2,703 operations fully prepared, 46 failed handler records,
+        683 incomplete operations; 218.11 seconds with existing caches and
+        zero native loads. Remaining anonymous overflow tuple storage is not
+        covered by the declared-tuple fix.
+  - [x] Finish private-member preparation/restart verification. Member lookup
+        and invocation now use the explicit type's defining module without
+        making private methods public. Zig decides whether a member is a
+        method. The enum/union/mutable-struct fixture prepares all 18 records;
+        its same-JVM regression passed 9 assertions in a fresh REPL. A stricter
+        empty-cache two-JVM test exposed two misses (enum-literal construction
+        and noncanonical type metadata in field adapter keys). Both paths have
+        been corrected. Three planner-only tests / six assertions pass for
+        canonical type identity, native member spelling, and literal-vs-runtime
+        constructor selection, with compilation/invocation disabled. The
+        empty-cache rerun found one remaining nil-vs-absent source-order key
+        mismatch. After normalizing that metadata, the two-JVM test passes:
+        45 preparation builds, zero native loads during preparation, and zero
+        new builds during calls in the second JVM. The full runtime unit suite
+        passes 30 tests / 149 assertions. A targeted Learn retest prepares all
+        12 previously failing private-member operations with zero native loads.
+  - [x] Finish the existing all-290 comptime-value sweep. After the user freed
+        disk space, the same JVM resumed from 210 checkpoints and completed all
+        290 attempts: 2,005/2,703 operations fully prepared, 63 failed handler
+        records (previously 75). The consistent baseline predates the private
+        member fixes; do not present targeted results as a completed recount.
+  - [x] Verify private generic type constructors and their field views with
+        empty-cache restart coverage, preserving the type factory's privacy.
+        The expanded two-JVM test passes three assertions; the private-type
+        fixture passes six, including real field access and zero new builds.
+        Normalize reference-role metadata by its explicit logical identity
+        for stable adapter keys. Runtime/emitter tests: 86 / 472 assertions.
+        Two Learn computed-type constructors now compile instead of failing
+        on private `List`, but remain partial for native-value-only inputs.
+  - [x] Complete the updated all-290 owner-scope inventory on the fresh owned
+        Learn REPL (51029), using four bounded workers and no native loading.
+        Report: `.aguafria/precompile/learn-operations-owner-scopes.edn`.
+        191.65 seconds with existing caches: 2,019/2,703 operations fully
+        prepared, 47 failed handler records, 32 partial. Overall discovery is
+        still incomplete; do not count the remaining 684 operations as warmed.
+  - [x] Complete the broader 12-fixture restart verification with the final cache
+        identity normalization. Its cold preparation hit the 300-second test
+        deadline after 11 checkpoints; no second-JVM call phase ran. Retain that
+        cache was continued compile-only in another JVM (six remaining builds,
+        zero native loads). A separate invocation JVM loaded 65 modules and
+        built zero artifacts. This is a resumed preparation proof, not a claim
+        that the original timed-out test passed. Allow 600 seconds for the cold
+        preparation phase; invocation retains its 300-second deadline.
+  - [x] Use compile-only Zig reflection with baseline/probe diagnostics; isolate
+        failing probes instead of abandoning the remaining operations in a file.
+  - [x] Preserve field/index lvalues and prepare their native view handlers;
+        include compound assignments and result decoding in restart tests.
+  - [x] Prepare disk artifacts without loading native generations. The broader
+        scan exposed macOS TLS-key exhaustion in the previous materialization
+        path; compile-only preparation now rejects native loading/invocation.
+  - [x] Include address-taking and static/runtime slicing in the shared
+        preparation paths; verify runtime slicing/mutation after a JVM restart.
+  - [x] Persist explicit coverage totals. Observed signatures, partial handlers,
+        unsupported operations and failed namespace loads never count as fully
+        prepared operations.
+  - [x] Reverify the latest initializer/null and nominal-type additions. After
+        authorized shared-cache cleanup, the recovered sweep attempted all 290
+        namespaces. The newer nominal sweep prepared 3,515 handler records
+        (not unique libraries), with 1,482 / 2,583 emitted operations fully
+        prepared. The expanded restart test now passes: preparation loads zero
+        native modules; the second JVM runs covered operations with zero builds.
+  - [x] Add compiler-observed tuple/comptime-argument preparation and its
+        restart test. Live JVM print calls (including escaped/Unicode formats)
+        now reuse prepared adapters without compiler invocations. Include both
+        envelope and native-payload cleanup handlers; the latter was missing
+        from the previous restart preparation and caused three extra builds.
+        Preserve typed tuple elements even when Zig constant-folds them.
+        Normalize equivalent type expressions through the shared call planner;
+        preparation and ordinary calls must generate identical cache keys.
+        The fresh-JVM test passes for numeric/boolean tuples, escaped/Unicode
+        formats, type comparisons and explicit native-result cleanup. Broader
+        tuple shapes and named-type coverage remain in the full-sweep work.
+  - [ ] Complete remaining nominal/context-dependent/syntax adapter coverage,
+        and verify every prepared family against the normal JVM call path.
+        Keep unsupported cases explicit; do not substitute Clojure type guesses
+        or run example bodies to discover missing signatures.
+    - [x] Identify explicitly referenced imported containers by Zig type equality
+          against their real import references. Qualify adapter parameter schemas
+          before hashing so compiler-discovered and live imported types share
+          cache identities. The SemanticVersion live regression passes all nine
+          assertions, including field access/address-taking with zero new builds.
+          The broader discovery regression passes 18 tests / 212 assertions.
+          The expanded fresh-JVM regression also passes: preparation loads zero
+          native modules; the second JVM makes all covered calls with zero builds.
+    - [x] Inventory actual member invocations as well as field lookups, and
+          share their adapter planner with ordinary JVM calls. Verify static
+          functions and const/mutable instance receivers without executing
+          the discovery test body. Do not count private-member gaps as prepared.
+          The focused suite passes three tests / 28 assertions. Fix probe
+          placement to preserve dot-method lookup and receiver lvalues;
+          static function lookup returns a callable closure, not an attempted
+          serialization of a storage-free Zig function. The expanded restart
+          check passes all three assertions (zero preparation loads and zero
+          second-JVM builds). Whole-Learn verification is still running in
+          `learn-operations-members.edn`; private-member gaps remain explicit.
+          The broader discovery/member regression passes 21 tests / 236 assertions.
+    - [x] Use an inspection runner that does not collide with a lesson's
+          exported C `main`, while preserving test analysis and never executing
+          the tests. The isolated Zig check and three native frontend regression
+          tests / 31 assertions pass. The members inventory predates this runner
+          change. The real `libc_export_entry_point` baseline now passes.
+    - [x] Preserve slice-index result context using Zig's own receiver slice
+          length type in the inspection probe. Seven focused assertions pass;
+          the real exported-entry lesson now has four observed operations,
+          three prepared and one explicitly unsupported standalone `intCast`
+          without a destination type. No probe errors remain in that lesson.
+    - [x] Inventory original top-level callables even when no declaration calls
+          them. Prepare scalar result readers as part of single-function
+          preparation; exclude internal adapters to avoid recursive preparation.
+          Six assertions verify unused-function coverage, explicit generic/test
+          skips, no discovery execution, and a normal call with zero new builds.
+          The expanded fresh-JVM check passes: zero preparation loads and zero
+          builds after restart, including an unused function call. The full
+          callables inventory attempts all 290 namespaces and records 445
+          callables separately: 166 prepared, 259 skipped, 20 failed.
+    - [x] Bundle the pinned native parsing helper for four import-dependent
+          lessons using ordinary project asset discovery. Keep hand-written
+          declaration semantics via `:source-kind :aguafria`. Three asset tests
+          / six assertions pass; a fresh Learn JVM compiles all four baselines
+          and prepares their functions with zero native loads. Raw `defimport`
+          member calls remain declaration-only and explicitly unsupported.
+    - [x] Recognize nominal types returned by type functions using compiler-
+          observed constant arguments and Zig type equality. Preserve exact
+          qualified type expressions in ordinary JVM results and adapter keys.
+          Three real lessons improve from 69 to 109 prepared operations before
+          the subsequent literal-constructor correction. The generic fixture
+          passes ten assertions and the expanded restart check passes: zero
+          preparation loads, zero second-JVM builds, including three literal
+          constructions of computed types. Nonliteral computed-type
+          construction remains partial. The corrected full inventory prepares
+          1,993/2,703 operations, with 710 incomplete and zero native loads.
+          Nested type identities and other nominal/context gaps remain open.
+    - [x] Fix the `noreturn` JVM bridge storage error; do not misclassify
+          `panic_handler/myPanic` and `test_functions/abort` as intended compile
+          failures. Both now prepare without execution. Use a void result in
+          the guarded bridge, preserving noreturn on original Zig functions.
+          Five restart assertions pass: zero preparation loads and zero builds
+          for subsequent direct/indirect guarded panic calls and arithmetic.
+          `_start` remains explicitly rejected by Zig's naked-call restriction.
+          The completed 290-namespace recount records 1,994/2,703 operations
+          prepared, 168 declared callables prepared and 18 failed, with zero
+          native loads. All 709 incomplete operations remain explicit.
+    - [ ] Transport comptime-only compound values without attempting native
+          storage allocation. The compiler-backed sweep repeatedly rejects
+          `typeInfo` results because `builtin.Type` has no runtime size.
+          Use compiler-authoritative expressions/values, not JVM type inference,
+          and verify the same ordinary call path plus compile-only preparation.
+          Comptime aggregate results now retain their qualified producing Zig
+          expression and a compiler-generated inspection view, without native
+          value storage. Two JVM tests / 15 assertions cover reflection, nested
+          fields, boolean truth semantics and user aggregates containing
+          types/function bodies. All 12
+          formerly failing typeInfo signatures across 11 Learn operations now
+          prepare with zero native loads. Five preparation assertions and five
+          fresh-JVM assertions pass, including zero builds on restart. Complete
+          downstream comptime field/constructor discovery remains open; the
+          previous whole-Learn totals have not been replaced by a partial retest.
+    - [x] Preserve native debug information with persistent macOS artifacts.
+          The broader panic test contains the panic but loses source locations
+          when reusing an old image whose Mach-O debug map references a missing
+          Zig temporary object. Full-debug artifacts now retain their DWARF
+          independently and validate it on cache lookup. Eight unit assertions,
+          three panic-smoke assertions and the six-test / 30-assertion preparation
+          suite pass. The strengthened restart test also passes: zero native
+          builds, with source-mapped direct/indirect noreturn panic exceptions.
+    - [ ] Support compiler-derived imported-container layouts for construction
+          from plain JVM maps. Until supported, report these constructor adapters
+          as partial (`:external-type-layout`), not fully prepared. Existing
+          native imported values can still use the prepared adapters.
+  - [x] Verify C variadic calls through the ordinary call planner. Preserve
+        compiler-observed string literals and explicitly typed native varargs;
+        prepare C-alias result readers, and flush buffered C stdout before
+        restoring REPL output capture. Discovery tests pass 13 tests / 92
+        assertions including the fresh-JVM zero-build check. Output-capture
+        regressions pass three tests / six assertions, including exceptions.
+  - [x] Run the updated inventory in a fresh owned JVM: 290 namespaces attempted,
+        zero native modules loaded, 1,834 / 2,620 emitted operations fully
+        prepared in 347.88 seconds. Keep all 786 incomplete operations explicit.
+        This snapshot predates the variadic and pointer-qualifier additions;
+        it is not a claim of complete coverage.
+  - [x] Verify compiler-derived pointer qualifier schemas in both discovery and
+        live JVM result transport. The focused regression passes 17 assertions,
+        preserving volatile/aligned/allow-zero/C/sentinel types. Eight actual
+        Learn lessons prepare 54 / 64 operations, with the ten gaps retained.
+        The restart check exposed map-order-dependent adapter keys and one
+        missing string decoder. Fix both through canonical metadata-aware keys
+        and the compiler-observed decoder type; the corrected fresh-JVM check
+        passes with zero preparation loads and zero builds after restart.
+        The subsequent clean owned REPL passed 28 tests / 217 assertions.
+  - [x] Prepare tuple repetition/concatenation signatures, including raw literal
+        and explicitly typed native representations of compiler-known boolean
+        and string fields. The discovery suite passes 17 tests / 140 assertions
+        including fresh-JVM zero-build reuse. The two actual Learn lessons
+        initially prepared 30 / 34 operations without native execution. The
+        four tuple field/index accessors now use the ordinary tuple-value planner;
+        the targeted compile-only report prepares all 34 operations with zero
+        native modules loaded. Keep any representation-expansion limit visible
+        as partial coverage.
+        The expanded live check now passes three tests / 97 assertions with
+        zero builds for all 16 input representations and their accessors.
+        Tuple results retain native numeric types; field-result writers match,
+        and readers for compiler-provided structural schemas are shared.
+        The expanded fresh-JVM check passes three assertions: zero native loads
+        during preparation and zero builds in the second JVM. The broader
+        regression check passed 29 tests / 315 assertions. The consistent full
+        sweep `learn-operations-shared-readers.edn` completed all 290 namespaces
+        in 1,165.81 seconds, loading zero native modules. It fully prepares
+        1,898 / 2,620 emitted operations and preserves all 722 incomplete ones.
+        This snapshot predates imported-container identity/layout-status fixes;
+        the interrupted previous sweep is not a completed inventory.
+  - [x] Verify compiler-observed pointer dereferences and optional
+        unwrap preparation. Inventory `clojure.core/deref` as well as `az/deref`;
+        keep dereference probes addressable and use the ordinary borrowed-view
+        adapter. Live const reads, mutable writes and unwrap reuse pass, as does
+        the expanded cold/fresh-JVM regression (zero native modules loaded by
+        preparation; zero builds after restart). Current discovery suite:
+        11 tests / 74 assertions passed. Do not count this as
+        full Learn coverage: the all-namespace sweep still has explicit gaps.
+  - [x] Verify dependent builtin parameters across a fresh JVM. The
+        shared call planner now retains source literals for builtin signature
+        placeholders such as `T` / `Log2T`, while preserving explicit native
+        operand types. Exact shifts compile and reuse their handlers; an
+        explicitly typed wider shift operand is correctly rejected by Zig.
+        The unit suite passes 11 tests / 80 assertions and existing bridge
+        regressions pass 11 tests / 102 assertions. The expanded restart test
+        passes (three assertions): preparation loads zero native modules and
+        normal calls after restart issue zero builds. Discovery suite total:
+        12 tests / 83 assertions passed.
+  - [x] Verify the expanded named-container/member restart regression. Discovery
+        now includes callable `defconst` containers and type-level fields;
+        enum lookup, union construction/field reads and shared container-variable
+        mutation passed both live and fresh-JVM zero-build checks. The prepare
+        JVM loaded zero native modules (two tests / 10 assertions passed).
+        The updated all-290-namespace sweep fully prepared 1,694 / 2,583
+        operations; 889 remain unprepared. The discovery suite passes eight
+        tests / 52 assertions, including the restart test.
+  - [x] Prepare storage-free enum/comptime-type operands and literal syntax
+        calls through the normal JVM planner. Keep native structural type
+        identity stable between compiler discovery and runtime reflection;
+        verify a fresh JVM does not rebuild equivalent TypeOf signatures.
+        The discovery suite passes 10 tests / 62 assertions, including zero
+        native loads during preparation and zero new builds after restart.
+        Existing JVM bridge regressions pass 11 tests / 102 assertions.
+        Invalid UTF-8 cannot silently become replacement JVM characters.
+  - [ ] Complete the new full inventory after the literal/structural-type
+        changes. Six targeted lessons prepare 75 / 82 operations; the remaining
+        seven concern container syntax and comptime-only Type reflection.
+        The previous full inventory remains the latest completed baseline.
+
 - [x] Fix the `values.clj` JVM regression without changing the lesson: ordinary
       numeric operator operands retain literal/comptime context rather than
       becoming synthetic i64/f64 runtime parameters. Keep explicitly typed
@@ -1202,6 +1746,16 @@ also passed the named-getter, real REPL output, and mapped leak-location checks.
       four reviewed special cases, 202 regenerated REPL transcripts.
       Served HTML SHA-256 matches the rebuilt file. New signatures and genuinely
       comptime/source expressions still compile; see `NATIVE_HANDLERS_PLAN.md`.
+- [x] Add explicit AOT-like JVM precompilation, separate from :prepare; verify
+      concrete function bodies are not executed and handlers reuse disk artifacts
+      across JVM restarts. Never execute workloads for discovery; dynamic call
+      signatures must be supplied explicitly and analyzed by Zig.
+      Added az/precompile! and :precompile with :namespaces, :calls and :coercions.
+      Unsupported/specialization-dependent paths are reported, not executed.
+      Five regression tests / 25 assertions passed, including a separate JVM
+      making first calls with zero compiler builds after compile-only preparation.
+      Existing bridge regressions also passed: 10 tests / 141 assertions.
+      Normalized false/nil test-context cache identity; :prepare remains unchanged.
 - [ ] Address macOS native-library TLS-key exhaustion during long-running,
       high-specialization stress runs. The reused regression JVM aborted with
       dyld's `could not create thread local variables pthread key`; it was not

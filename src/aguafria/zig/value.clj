@@ -11,7 +11,7 @@
 (declare decoded info realize! type type-info qualified-type value-state
          decode-packed-backing decode-struct decode-value-segment
          encode-packed-backing
-         write-struct! write-value-segment!)
+         write-struct! write-value-segment! sequence-values sequence-element)
 
 (defonce ^:private ^Cleaner native-cleaner (Cleaner/create))
 
@@ -136,13 +136,13 @@
 
   clojure.lang.Seqable
   (seq [this]
-    (seq (decoded this)))
+    (seq (sequence-values this)))
 
   clojure.lang.Indexed
   (nth [this index]
-    (nth (decoded this) index))
+    (sequence-element this index))
   (nth [this index not-found]
-    (nth (decoded this) index not-found))
+    (sequence-element this index not-found))
   (count [this]
     (count (decoded this)))
 
@@ -661,13 +661,13 @@
     (vec (.toArray native-segment java.lang.foreign.ValueLayout/JAVA_BYTE))))
 
 (defn- decode-struct
-  [^MemorySegment native-segment {:keys [fields]}]
-  (into (array-map)
+  [^MemorySegment native-segment {:keys [fields tuple?]}]
+  (into (if tuple? [] (array-map))
         (map (fn [{:keys [name byte-offset byte-size] :as field}]
-               [(field-key name)
-                (decode-native-field
-                 (.asSlice native-segment byte-offset byte-size)
-                 field)]))
+               (let [decoded (decode-native-field
+                              (.asSlice native-segment byte-offset byte-size)
+                              field)]
+                 (if tuple? decoded [(field-key name) decoded]))))
         fields))
 
 (defn- write-native-field!
@@ -931,18 +931,28 @@
      (write-value-segment! native-segment zig-type schema value {}))))
 
 (defn write-struct!
-  "Encode a Clojure field map into a normal or extern struct using offsets and
-  storage sizes reported by Zig itself. Omitted fields use Zig's defaults;
+  "Encode a field map (or a sequence for a tuple) using offsets and storage
+  sizes reported by Zig itself. Omitted fields use Zig's defaults;
   fields without a default retain the JVM constructor's zero initialization."
-  [^MemorySegment native-segment {:keys [fields] :as schema} field-values]
-  (validate-field-map! "Zig struct values" schema field-values)
-  (.fill native-segment (byte 0))
-  (doseq [{:keys [byte-offset byte-size type] :as field} fields
-          :let [value (field-value field-values field)]
-          :when (or (field-present? field-values field) (:default-segment field))]
-    (write-native-field! (.asSlice native-segment byte-offset byte-size)
-                         field value))
-  native-segment)
+  [^MemorySegment native-segment {:keys [fields tuple?] :as schema} field-values]
+  (let [field-values
+        (if (and tuple? (sequential? field-values))
+          (do
+            (when-not (= (count fields) (count field-values))
+              (throw (ex-info "Wrong number of Zig tuple elements"
+                              {:schema schema :expected (count fields)
+                               :actual (count field-values)})))
+            (into {} (map (fn [field item] [(field-key (:name field)) item])
+                          fields field-values)))
+          field-values)]
+    (validate-field-map! "Zig struct values" schema field-values)
+    (.fill native-segment (byte 0))
+    (doseq [{:keys [byte-offset byte-size type] :as field} fields
+            :let [value (field-value field-values field)]
+            :when (or (field-present? field-values field) (:default-segment field))]
+      (write-native-field! (.asSlice native-segment byte-offset byte-size)
+                           field value))
+    native-segment))
 
 (defn decoded
   "Decode a Zig value into its natural Clojure view while retaining the native
@@ -963,6 +973,32 @@
       ;; segment. The JVM may otherwise prove the wrapper dead while a long
       ;; composite decode is still reading its arena.
       (java.lang.ref.Reference/reachabilityFence zig-value))))
+
+(defn- native-tuple-length
+  [zig-value]
+  (let [{:keys [tuple-length schema]} (realize! zig-value)]
+    (or tuple-length
+        (when (:tuple? schema) (count (:fields schema))))))
+
+(defn- sequence-values
+  [zig-value]
+  (if-some [length (native-tuple-length zig-value)]
+    (map #((requiring-resolve 'aguafria.zig/index) zig-value %) (range length))
+    (decoded zig-value)))
+
+(defn- sequence-element
+  ([zig-value index]
+   (if-some [length (native-tuple-length zig-value)]
+     (if (< -1 index length)
+       ((requiring-resolve 'aguafria.zig/index) zig-value index)
+       (throw (IndexOutOfBoundsException. (str index))))
+     (nth (decoded zig-value) index)))
+  ([zig-value index not-found]
+   (if-some [length (native-tuple-length zig-value)]
+     (if (< -1 index length)
+       ((requiring-resolve 'aguafria.zig/index) zig-value index)
+       not-found)
+     (nth (decoded zig-value) index not-found))))
 
 (defn set-value!
   "Write a semantic Clojure value into a live native `az/defvar` and return
@@ -1105,7 +1141,7 @@
   Slice/pointer owners remain reachable; new pointees live in the copy's arena."
   ([source zig-type schema] (mutable-copy source zig-type schema {}))
   ([source zig-type schema options]
-   (let [{:keys [segment size alignment]} (realize! source)
+   (let [{:keys [segment size alignment tuple-length]} (realize! source)
          alignment (max alignment (long (get options :zig/align 1)))
          arena (Arena/ofShared)]
      (try
@@ -1116,6 +1152,7 @@
                               {:kind :var :type zig-type})
                        (constantly {:representation :native
                                     :segment storage :size size :alignment alignment
+                                    :tuple-length tuple-length
                                     :owners [source]
                                     :schema (assoc schema :allocation-arena arena)
                                     :close! #(.close arena)}))]

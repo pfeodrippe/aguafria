@@ -121,12 +121,12 @@
                       ":implicit-return false" ":source-comment false"]]
       (is (not (str/includes? container-source obsolete)) obsolete))
     (is (str/includes? container-source ":attrs #{k/pub}"))
-    (is (str/includes? container-source ":attrs #{k/enum}"))
+    (is (re-find #":attrs #\{[^}]*k/enum" container-source))
     (is (not (str/includes? container-source ":explicit-return")))
     (is (not (str/includes? container-source "Generated from")))
     (is (not (str/includes? container-source "Edit and reevaluate")))
     (is (not (str/includes? container-source ":attrs #{}")))
-    (is (str/includes? container-source "(az/field-decl replica Replica)"))
+    (is (str/includes? container-source "[replica Replica]"))
     (is (re-find #"\)\n\n\(az/defconst" container-source))))
 
 (deftest canonical-declaration-headers-stay-together-test
@@ -513,7 +513,7 @@
   (doseq [path ["test/fixtures/ordered_object.zig" "test/fixtures/container.zig"]]
     (let [{:keys [forms]} (convert/convert-file path {:namespace 'fixture.member-vectors})
           types (filter #(and (seq? %)
-                              (contains? '#{az/defstruct az/defenum az/struct-decl struct-decl}
+                              (contains? '#{az/defstruct az/defenum az/defunion az/struct-decl struct-decl}
                                          (first %)))
                         (tree-seq coll? seq forms))]
       (is (seq types) path)
@@ -521,6 +521,15 @@
               :let [members (drop-while #(or (string? %) (map? %)) declaration)]]
         (is (= 1 (count members)) (str operator " " name " " (pr-str form)))
         (is (vector? (first members)) (pr-str form))))))
+
+(deftest named-unions-convert-to-defunion
+  (let [path "test/fixtures/named_unions.zig"
+        converted (convert/convert-file path {:namespace 'fixture.named-unions})
+        unions (filter #(and (seq? %) (= 'az/defunion (first %))) (:forms converted))
+        verification (convert/verify-file path {:namespace 'fixture.named-unions :mode :build-obj})]
+    (is (= '#{Number-zig Tagged ExplicitTag Packed External} (set (map second unions))))
+    (is (str/includes? (:clojure-source converted) "(az/defunion Number"))
+    (is (:success? verification) (pr-str verification))))
 
 (deftest struct-literal-field-order-is-explicit-test
   (let [{:keys [clojure-source zig-source]}

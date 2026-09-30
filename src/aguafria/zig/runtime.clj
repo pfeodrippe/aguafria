@@ -1,7 +1,9 @@
 (ns aguafria.zig.runtime
   "Compilation, loading, and invocation for generated Zig modules."
-  (:require [aguafria.zig.emitter :as emit]
+  (:require [aguafria.zig.cache :as cache]
+            [aguafria.zig.emitter :as emit]
             [aguafria.zig.debug :as debug]
+            [aguafria.zig.explain :as explanation]
             [aguafria.zig.project :as project]
             [aguafria.zig.toolchain :as toolchain]
             [aguafria.zig.value :as zig-value]
@@ -108,6 +110,10 @@
   "When true, declaration macros update complete module source without asking
   Zig for a development library. Standalone build tooling binds this while it
   loads a project, then performs one final program build."
+  false)
+
+(def ^:dynamic *compile-only?*
+  "Tooling may materialize disk artifacts, but must not load or invoke them."
   false)
 
 (def ^:dynamic *propagate-dependent-changes?*
@@ -260,6 +266,18 @@
        (or (some-> module symbol find-ns) *ns*)
        form))))
 
+(defn- container-storage-fields
+  "Name tuple fields by their Zig indices; layout still comes from native
+  offset/size accessors, exactly as it does for named struct fields."
+  [description]
+  (->> (:members description)
+       (filter #(contains? #{:field :tuple-field} (:kind %)))
+       (mapv (fn [index field]
+               (cond-> field
+                 (= :tuple-field (:kind field))
+                 (assoc :name (symbol (str index)))))
+             (range))))
+
 (defn- explicit-declaration-type
   [{:keys [kind value]}]
   (when (and (= :const kind) (seq? value) (= 2 (count value))
@@ -392,8 +410,7 @@
              (some-> value str/lower-case str/trim)))
 
 (defonce ^:private config
-  (atom {:cache-dir (or (System/getProperty "aguafria.cache-dir")
-                        ".aguafria/zig")
+  (atom {:cache-dir (cache/default-directory)
          :optimize (or (System/getProperty "aguafria.optimize") "Debug")
          :development-debug-info
          (keyword
@@ -834,7 +851,15 @@
   ([value reference-keys]
    (cond
      (symbol? value)
-     (let [reference (:aguafria/zig-reference (meta value))]
+     (let [reference (:aguafria/zig-reference (meta value))
+           ;; An imported reference can acquire an absent ordering hint as nil.
+           ;; Both emit identically; a real source order must remain in the key.
+           reference (cond-> reference
+                       (nil? (:source-order reference)) (dissoc :source-order)
+                       ;; Qualification may label the same declaration :fn,
+                       ;; :declaration, or :namespace-member. Its explicit
+                       ;; logical identity already records the actual kind.
+                       (:logical-id reference) (assoc :kind (second (:logical-id reference))))]
        (cond-> [:symbol (str value)]
          (:zig/name (meta value))
          (conj [:zig/name (:zig/name (meta value))])
@@ -890,6 +915,12 @@
   [value]
   (sha256 (pr-str (canonical-fingerprint-value
                    value source-reference-fingerprint-keys))))
+
+(defn adapter-fingerprint
+  "Stable native adapter identity. Ignore map/set iteration order while
+  retaining type structure and emitter-relevant symbol/reference metadata."
+  [form]
+  (source-data-fingerprint form))
 
 (defn- declaration-zig-name
   [{:keys [name zig-name]}]
@@ -1869,6 +1900,42 @@
       (Files/move (.toPath from) (.toPath to)
                   (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING])))))
 
+(defn- native-debug-format
+  [{:keys [development-debug-info target]}]
+  (when (and (not= :none development-debug-info)
+             (str/includes? (str/lower-case (System/getProperty "os.name")) "mac")
+             (or (nil? target) (= "native" (str target))
+                 (str/includes? (str target) "macos")))
+    :macos-flat-dwarf-v1))
+
+(defn- native-debug-file [library-file]
+  (io/file (str library-file ".dwarf")))
+
+(defn- usable-native-artifact? [library-file debug-format]
+  (and (usable-artifact? library-file)
+       (or (nil? debug-format)
+           (usable-artifact? (native-debug-file library-file)))))
+
+(defn- preserve-native-debug!
+  "Resolve Mach-O's temporary-object debug map while its objects still exist.
+  Keep the flat DWARF beside the persistent library, not in Zig's temp cache."
+  [^File input ^File library-file debug-format]
+  (when debug-format
+    (let [output (native-debug-file library-file)
+          temporary (io/file (.getParentFile library-file)
+                             (str "." (java.util.UUID/randomUUID) "-" (.getName output)))
+          command ["dsymutil" "--flat" "--num-threads" "1"
+                   (.getAbsolutePath input) "-o" (.getAbsolutePath temporary)]]
+      (try
+        (let [{:keys [exit out err]} (run-command command (.getAbsolutePath (.getParentFile input)))]
+          (when-not (and (zero? exit) (usable-artifact? temporary))
+            (throw (ex-info "Unable to preserve native debug information"
+                            {:aguafria/phase :native-debug-info
+                             :command command :exit exit :stdout out :stderr err
+                             :library-path (.getAbsolutePath library-file)})))
+          (move-replacing! temporary output))
+        (finally (Files/deleteIfExists (.toPath temporary)))))))
+
 (def ^:private development-panic-support-source
   (str "const std = @import(\"std\");\n\n"
        "extern fn aguafria_guard_panic([*]const u8, usize, usize) void;\n"
@@ -1906,12 +1973,13 @@
        "pub const panic = "
        "__aguafria_panic_std.debug.FullPanic(__aguafria_forward_panic);\n\n"))
 (defn- development-panic-support!
-  [{:keys [cache-dir optimize target cpu zig]} compiler-version]
+  [{:keys [cache-dir optimize target cpu zig] :as options} compiler-version]
   (let [guard-source (slurp (io/resource "aguafria/jvm_guard.c"))
+        debug-format (native-debug-format options)
         support-hash
         (subs (sha256 [development-panic-support-version
                        development-panic-support-source guard-source compiler-version
-                       optimize target cpu
+                       optimize target cpu debug-format
                        (System/getProperty "os.name")
                        (System/getProperty "os.arch")])
               0 24)
@@ -1953,7 +2021,7 @@
                          (assoc % path (Object.))))
                path)]
       (locking artifact-lock
-        (when-not (usable-artifact? library-file)
+        (when-not (usable-native-artifact? library-file debug-format)
           (let [temporary-file
                 (io/file support-dir
                          (str "." (java.util.UUID/randomUUID) "-"
@@ -1980,6 +2048,7 @@
                             {:aguafria/phase :development-support
                              :command temporary-command
                              :library-path path})))
+                (preserve-native-debug! temporary-file library-file debug-format)
                 (move-replacing! temporary-file library-file))
               (finally
                 (Files/deleteIfExists (.toPath temporary-file)))))))
@@ -3564,7 +3633,8 @@
          dependency-snapshot development-linkage-logical-ids)
         root-getter-linkage-source
         (development-root-getter-linkage-source development-root-source)
-        hash-input [source compiler-version *native-test-context?*
+        debug-format (native-debug-format compiler-options)
+        hash-input [source compiler-version (boolean *native-test-context?*) debug-format
                     (assoc (select-keys compiler-options
                                          [:optimize :development-debug-info
                                           :target :cpu :zig-args
@@ -3651,7 +3721,8 @@
                              (.getAbsolutePath library-file))]
       (locking artifact-lock
         (let [cache-safe? (:cache-safe? compiler-options)
-              cached? (and cache-safe? (usable-artifact? library-file))
+              cached? (and cache-safe? (usable-native-artifact? library-file debug-format))
+              explain-start (System/nanoTime)
               result
               (if *validate-without-linking?*
                 (let [validation-command (assoc command 3 "-fno-emit-bin")]
@@ -3677,10 +3748,19 @@
                                          :library-path (.getAbsolutePath library-file)
                                          :command temporary-command})))
                       (when (zero? (:exit result))
+                        (preserve-native-debug! temporary-file library-file debug-format)
                         (move-replacing! temporary-file library-file))
                       result)
                     (finally
                       (Files/deleteIfExists (.toPath temporary-file)))))))]
+          (explanation/event!
+           {:event (cond (and result (not (zero? (:exit result)))) :compile-failed
+                         *validate-without-linking?* :validated
+                         cached? :disk-cache-hit
+                         :else :compiled)
+            :module module-name
+            :path (.getAbsolutePath (if *validate-without-linking?* source-file library-file))
+            :duration-ms (/ (- (System/nanoTime) explain-start) 1e6)})
           (when (and result (not (zero? (:exit result))))
             (let [command (or (:command result) command)
                   {:keys [message diagnostics report location]}
@@ -3711,6 +3791,8 @@
             :compiled-source source
             :source-path (.getAbsolutePath source-file)
             :library-path (.getAbsolutePath library-file)
+            :debug-symbol-path (when debug-format
+                                 (.getAbsolutePath (native-debug-file library-file)))
             :library-size-bytes (.length library-file)
             :command command
             :compiler-output result}))))))
@@ -4490,6 +4572,9 @@
   ([compiled declarations dispatch-specs dependency-entries
     dependency-state-entries jvm-callable-specs jvm-value-specs
     jvm-type-specs]
+  (when *compile-only?*
+    (throw (ex-info "Native library loading is forbidden during compile-only preparation"
+                    {:aguafria/phase :compile-only :library (:library-path compiled)})))
   (let [arena (Arena/ofShared)]
     (try
       (let [lookup (SymbolLookup/libraryLookup
@@ -5450,7 +5535,9 @@
 
   Inferred error unions may use a keyword (`:!void`), a composite type, or
   converted source's `!` qualifier. Store the complete union with an explicit
-  error set: inferred sets are only valid in function return positions."
+  error set: inferred sets are only valid in function return positions.
+  A noreturn callee has a void bridge because a contained panic returns control
+  to the JVM without producing a value. The callee's declaration is unchanged."
   [{:keys [module return zig-qualifiers]}]
   (let [return (bridge-storage-type module return #{})]
     (if-let [payload (or (emit/inferred-error-payload return)
@@ -5461,7 +5548,7 @@
       ;; standalone storage type (`*!T`). The bridge stores it as `anyerror!T`,
       ;; retaining the runtime error without guessing its compile-time set.
       [:error-union :anyerror payload]
-      return)))
+      (if (= :noreturn return) :void return))))
 
 (defn- jvm-callable-wrapper-specs
   [module declarations]
@@ -5729,9 +5816,7 @@
                                              [:options :argument]))))
                      fields (if (= :struct kind)
                               (:fields declaration)
-                              (->> (:members container-description)
-                                   (filter #(= :field (:kind %)))
-                                   vec))
+                              (container-storage-fields container-description))
                      enum-members
                      (->> (:members container-description)
                           (filter #(= :enum-field (:kind %)))
@@ -8141,6 +8226,7 @@
           propagation-duration-ms
           (elapsed-nanos-ms propagation-started-ns)]
       (when adopted?
+        (explanation/event! {:event :memory-cache-hit :module module})
         (swap! registry update module assoc
                :last-dependent-publication affected))
       (mark-build-finished!
@@ -10461,6 +10547,9 @@
        (let [result (run-command command
                                  (.getAbsolutePath (.getParentFile output-file)))
              finished-at (System/currentTimeMillis)]
+         (explanation/event! {:event (if (zero? (:exit result)) :compiled :compile-failed)
+                              :module module :path (.getAbsolutePath output-file)
+                              :duration-ms (- finished-at started-at)})
          (if (zero? (:exit result))
            (let [artifact {:module module
                            :kind kind
@@ -10556,6 +10645,49 @@
          :dependencies (vec (keys dependencies))
          :compiler-options compiler-options}))))
 
+(defn inspect-module!
+  "Compile a separate inspection source with Zig's test frontend, never execute
+  it or load its native image. transform receives static declarations and returns
+  {:source string :files {filename contents}}. Uses actual dependency/build options."
+  [module transform]
+  (let [module (str module)
+        declarations (native-test-declarations
+                      (filterv (complement :jvm-adapter?)
+                               (vals (get-in @registry [module :definitions]))))]
+    (when (empty? declarations)
+      (throw (ex-info "No registered declarations to inspect" {:module module})))
+    (let [dependencies (static-dependency-snapshot
+                        declarations (comp native-test-declarations without-native-tests))
+          options (compiler-options-for-declarations
+                   (assoc @config :transitive-dependencies? true
+                                  :dependency-snapshot dependencies)
+                   declarations)
+          {:keys [source files]} (transform declarations)
+          runner-source (slurp (io/resource "aguafria/inspection_runner.zig"))
+          directory (.getAbsoluteFile
+                     (io/file (:cache-dir options) "inspection"
+                              (safe-path-component module) (subs (sha256 [source files runner-source]) 0 24)))
+          file (io/file directory "module.zig")
+          runner (io/file directory "__aguafria_inspection_runner.zig")
+          _ (io/make-parents file)
+          _ (spit file source)
+          _ (spit runner runner-source)
+          _ (doseq [[filename contents] files]
+              (when-not (and (string? filename) (= filename (.getName (io/file filename)))
+                             (not (contains? #{"." ".." "module.zig" "__aguafria_inspection_runner.zig"} filename)))
+                (throw (ex-info "Inspection support files require distinct basenames" {:filename filename})))
+              (spit (io/file directory filename) contents))
+          _ (project/materialize-module-assets! module source directory)
+          command (vec (concat [(:zig options) "test" "--test-no-exec" "-fno-emit-bin"
+                               "-fno-entry" "--test-runner" (.getAbsolutePath runner)]
+                               (root-module-arguments file options)))]
+      (let [started (System/nanoTime)
+            result (apply shell/sh (concat command [:dir (.getAbsolutePath directory)]))]
+        (explanation/event! {:event :analysis :module module :path (.getAbsolutePath file)
+                             :exit (:exit result)
+                             :duration-ms (/ (- (System/nanoTime) started) 1e6)})
+        (assoc result :command command :source-path (.getAbsolutePath file))))))
+
 (defn- native-test-library!
   [module test-name & [candidate]]
   (let [{:keys [selected source dependencies compiler-options]}
@@ -10568,7 +10700,8 @@
         directory (.getParentFile materialized)
         basename (str/replace (last (str/split module #"\.")) "-" "_")
         source-file (io/file directory (str basename ".zig"))
-        token (subs (sha256 [source runner compiler-options (:hash panic-support)]) 0 24)
+        debug-format (native-debug-format compiler-options)
+        token (subs (sha256 [source runner compiler-options (:hash panic-support) debug-format]) 0 24)
         runner-file (io/file directory (str "jvm_test_runner_" token ".zig"))
         bitcode-file (io/file directory (str "test_" token ".bc"))
         library-file (io/file directory (System/mapLibraryName (str "test_" token)))
@@ -10598,10 +10731,14 @@
         (when-not (.isFile ^File file)
           (Files/writeString (.toPath ^File file) text StandardCharsets/UTF_8
                              (make-array StandardOpenOption 0))))
-      (when-not (usable-artifact? library-file)
+      (let [cached? (usable-native-artifact? library-file debug-format)
+            started (System/nanoTime)]
+       (when-not cached?
         (doseq [command [compile-command link-command]]
           (let [result (run-command command (.getAbsolutePath directory))]
             (when-not (zero? (:exit result))
+              (explanation/event! {:event :compile-failed :module module
+                                   :path (.getAbsolutePath library-file)})
               (let [{:keys [message diagnostics report location]}
                     (pretty-zig-error module source (.getAbsolutePath source-file)
                                       command (:err result))]
@@ -10613,7 +10750,11 @@
                          :status :failed :command command
                          :exit (:exit result) :stdout (:out result)
                          :stderr (:err result) :diagnostics diagnostics)
-                  location nil))))))))
+                  location nil))))))
+        (preserve-native-debug! library-file library-file debug-format))
+       (explanation/event! {:event (if cached? :disk-cache-hit :compiled)
+                            :module module :path (.getAbsolutePath library-file)
+                            :duration-ms (/ (- (System/nanoTime) started) 1e6)})))
     details))
 
 (defn check-test-definition!
@@ -10643,6 +10784,9 @@
   Zig panics become JVM exceptions. Native defers are not unwound; process.exit,
   custom abort handlers and arbitrary memory corruption are not contained."
   [module test-name]
+  (when *compile-only?*
+    (throw (ex-info "Native test execution is forbidden during compile-only preparation"
+                    {:aguafria/phase :compile-only :module module :test test-name})))
   (let [module (str module)
         started-at (System/currentTimeMillis)
         artifact (native-test-library! module test-name)
@@ -11419,9 +11563,14 @@
           actual-module (:module (zig-value/info argument))
           canonical
           (fn [type default-module]
-            (if (and (symbol? type) (nil? (namespace type)))
-              (symbol (str default-module) (name type))
-              type))]
+            (let [type (if (and (symbol? type) (nil? (namespace type)))
+                         (symbol (str default-module) (name type))
+                         type)
+                  context (or (some-> default-module symbol find-ns) *ns*)]
+              ;; Transport schemas use the public type form; declarations have
+              ;; already passed through the emitter's structural qualification.
+              ;; Compare the same canonical form, including nested type forms.
+              (emit/qualify-type context type)))]
       (when-not (= (canonical expected-type module)
                    (canonical actual-type actual-module))
         (throw (ex-info "Native Zig argument has the wrong Zig type"
@@ -11476,8 +11625,12 @@
   [[image frames]]
   (let [mac? (str/includes? (str/lower-case (System/getProperty "os.name")) "mac")
         hex #(str "0x" (Long/toHexString (long %)))
+        debug-file (native-debug-file image)
+        symbol-file (if (and mac? (usable-artifact? debug-file))
+                      (.getAbsolutePath debug-file)
+                      image)
         command (if mac?
-                  (into ["atos" "-fullPath" "-o" image "-l" (hex (:image-base (first frames)))]
+                  (into ["atos" "-fullPath" "-o" symbol-file "-l" (hex (:image-base (first frames)))]
                         (map (comp hex :address)) frames)
                   (into ["addr2line" "-e" image "-f" "-C"]
                         (map #(hex (- (:address %) (:image-base %)))) frames))]
@@ -11721,13 +11874,48 @@
                                      :functions qualified-name])]
       (boolean (and binding (:panic-handle binding) (not (:unsupported? binding)))))))
 
+(defn- precompile-declaration-generation! [declaration request-key]
+  (let [module (:module declaration)
+        definitions (vals (:definitions (get @registry module)))
+        declaration-key (:declaration-key declaration)
+        added-request? (atom false)]
+    (ensure-converted-dependency-sources! module definitions)
+    (try
+      (let [plan
+            (locking compile-lock
+              (when (and request-key
+                         (not (contains? (get-in @registry [module request-key]) declaration-key)))
+                (reset! added-request? true)
+                (swap! registry update-in [module request-key]
+                       (fnil conj #{}) declaration-key))
+              (let [state (get @registry module)]
+                (binding [*propagate-dependent-changes?* false
+                          *exact-declaration-publication?* true
+                          *materialize-declaration-key* (:declaration-key declaration)
+                          *pending-declaration-keys*
+                          (conj (set (:pending-declaration-keys state)) (:declaration-key declaration))]
+                  (compilation-plan module state (vec (vals (:definitions state)))
+                                    declaration declaration))))]
+        ;; Same source, dependency and artifact keys as demand loading. Do not
+        ;; publish a native generation or consume a platform TLS key to warm disk.
+        (compile-plan! module (refresh-plan-dependency-snapshots plan)))
+      (catch Throwable error
+        ;; A failed layout/callable request must not poison unrelated later
+        ;; preparations in the same namespace. Keep existing requests intact.
+        (when @added-request?
+          (locking compile-lock
+            (swap! registry update-in [module request-key] disj declaration-key)))
+        (throw error)))))
+
 (defn- materialize-declaration-generation!
   "Publish one exact declaration slice for a Clojure-demanded Var.
 
   `request-key` selects the JVM wrapper registry set to extend, or nil when
   the declaration's ordinary reload/state hooks are sufficient."
   [declaration request-key]
-  (let [module (:module declaration)]
+  (if *compile-only?*
+    (precompile-declaration-generation! declaration request-key)
+    (let [module (:module declaration)]
     (when (:pending (get @registry module))
       (await! module))
     (when request-key
@@ -11738,7 +11926,7 @@
               *exact-declaration-publication?* true
               *materialize-declaration-key* (:declaration-key declaration)]
       (register-sync! declaration))
-    (await-callable-generation! module)))
+    (await-callable-generation! module))))
 
 (defn- materialize-jvm-callable!
   "Compile a development-only C ABI trampoline for a registered Zig Var whose
@@ -11751,7 +11939,8 @@
     ;; prerequisite for calling one Var.
     (when (:pending (get @registry module))
       (await! module))
-    (when-not (function-loaded? qualified-name)
+    (if (function-loaded? qualified-name)
+      (explanation/event! {:event :memory-cache-hit :function qualified-name})
       (let [declaration
             (locking compile-lock
               (current-function-declaration (get @registry module)
@@ -12187,9 +12376,7 @@
                  layout (or (get-in container-description [:options :layout])
                             layout)
                  fields (if container-description
-                          (->> (:members container-description)
-                               (filter #(= :field (:kind %)))
-                               vec)
+                          (container-storage-fields container-description)
                           fields)
                  qualified-name (symbol (:module declaration) (str (:name declaration)))
                  field-bindings (get-in @registry [(:module declaration) :types
@@ -12209,6 +12396,7 @@
              (let [base
                    {:type type
                     :layout layout
+                    :tuple? (boolean (some #(= :tuple-field (:kind %)) fields))
                     :declaration
                     (select-keys declaration [:module :name :logical-id
                                               :schema-fingerprint])}]
@@ -12293,7 +12481,14 @@
   ([module type] (ensure-native-type-binding! module type #{}))
   ([module type seen]
    (cond
+     (and (vector? type) (= :fn (first type)))
+     ;; A function signature is not embedded storage. Its options and argument
+     ;; maps are not type schemas, and its parameter types need no field accessors
+     ;; just to represent a function reference.
+     false
+
      (and (vector? type)
+          (keyword? (first type))
           (contains? #{"*" "*const" "many" "many-const" "sentinel"
                        "sentinel-const" "c-pointer" "pointer"}
                      (some-> type first name)))
@@ -12318,7 +12513,7 @@
                      (contains? #{:struct :enum :union}
                                 (get-in container-description [:options :kind])))
                  fields (if container-description
-                          (filter #(= :field (:kind %)) (:members container-description))
+                          (container-storage-fields container-description)
                           (:fields declaration))
                  nested-published?
                  (some true?
@@ -12332,6 +12527,19 @@
                     declaration :jvm-type-declaration-keys)
                    true)]
              (boolean (or nested-published? published?)))))))))
+
+(defn precompile-type!
+  "Prepare a declared native type's construction/layout adapter without loading
+  it or allocating an instance. Uses the same path as the callable type Var."
+  [qualified-name]
+  (when-not (qualified-symbol? qualified-name)
+    (throw (ex-info "Type preparation requires a qualified declaration" {:type qualified-name})))
+  (if (native-type-declaration (namespace qualified-name) (symbol (name qualified-name)))
+    (do
+      (binding [*compile-only?* true]
+        (ensure-native-type-binding! (namespace qualified-name) (symbol (name qualified-name))))
+      {:type qualified-name :status :prepared})
+    {:type qualified-name :status :unsupported :reason :external-type-layout}))
 
 (defn materialize-type!
   "Construct a persistent native value from an ordinary callable Zig type Var."
@@ -12579,6 +12787,59 @@
                 (vector? (first arguments))
                 (every? string? (first arguments))))))
 
+(defn precompile-function!
+  "Prepare one concrete JVM callable without invoking its body."
+  [function]
+  (let [qualified-name (qualified-function-name function)
+        module (namespace qualified-name)
+        declaration (current-function-declaration (get @registry module) qualified-name)]
+    (when-not declaration
+      (throw (ex-info "Zig function is not registered" {:function qualified-name})))
+    (let [reason (cond
+                   (= :test (:kind declaration)) :test-runner
+                   (= :fn-proto (:kind declaration)) :extern-linkage
+                   (some generic-function-argument? (:args declaration)) :specialization
+                   (contains? #{:type 'type :comptime_int :comptime_float}
+                              (:return declaration)) :comptime-result
+                   (process-entry-call? declaration []) :process-entry)]
+      (if reason
+        {:function qualified-name :status :skipped :reason reason}
+        (binding [*compile-only?* true]
+          (materialize-jvm-callable! qualified-name)
+          (doseq [type (concat (map :type (:args declaration))
+                              [(:return declaration)])
+                  :when (and type
+                             (not= :void type)
+                             (not (contains? scalar-layouts (scalar-key type))))]
+            (ensure-native-type-binding! module type))
+          (let [return-type (:return declaration)]
+            ;; Direct Var calls also wrap scalar results in native storage.
+            ;; Preparing a single callable must include its normal reader and
+            ;; constructor path, not only namespace-wide preparation.
+            (when (and (not (:jvm-adapter? declaration))
+                       (not= :bool return-type)
+                       (contains? scalar-layouts (scalar-key return-type)))
+              ((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) return-type)))
+          {:function qualified-name :status :prepared})))))
+
+(defn precompile-functions!
+  "Materialize concrete JVM-callable functions in a registered namespace without
+  invoking their bodies. Return skipped declarations whose compilation requires
+  a specialization, test runner, extern linkage, or process entry host."
+  [module]
+  (let [module (str module)
+        declarations (->> (get-in @registry [module :definitions])
+                          vals
+                          (remove :jvm-adapter?)
+                          (filter #(contains? #{:fn :fn-proto :test} (:kind %)))
+                          (sort-by (comp str :name)))]
+    (mapv (fn [declaration]
+            (if (= :test (:kind declaration))
+              {:function (symbol module (str (:name declaration)))
+               :status :skipped :reason :test-runner}
+              (precompile-function! (symbol module (str (:name declaration))))))
+          declarations)))
+
 (defn- invoke-uncaptured!
   "Invoke the latest loaded generation of a scalar Zig Var. Non-exported
   declarations receive a cached development-only trampoline on first call."
@@ -12618,6 +12879,9 @@
   "Invoke a Zig Var from any Clojure/Java caller. Generic calls are specialized
   natively; synchronous native output follows the caller's Clojure writers."
   [function arguments]
+  (when *compile-only?*
+    (throw (ex-info "Native invocation is forbidden during compile-only preparation"
+                    {:aguafria/phase :compile-only :function function})))
   ((requiring-resolve 'aguafria.zig.jvm/call-with-output)
    #(invoke-uncaptured! function arguments)))
 
@@ -12633,6 +12897,9 @@
   "Invoke a retained scalar ABI version of an exported Zig function. Obtain
   version fingerprints from `function-versions` or Var declaration metadata."
   [function abi-fingerprint arguments]
+  (when *compile-only?*
+    (throw (ex-info "Native invocation is forbidden during compile-only preparation"
+                    {:aguafria/phase :compile-only :function function})))
   (let [qualified-name (qualified-function-name function)
         module (namespace qualified-name)
         _ (await-callable-generation! module)

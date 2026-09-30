@@ -4,6 +4,37 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest function-signatures-do-not-materialize-parameter-storage
+  (doseq [type [[:fn {} [{:type :i32}] :i32]
+                [:fn {:callconv :.c} [{:name :argument :type 'Missing}] 'Missing]
+                [:*const [:fn {} [{:type 'Missing}] 'Missing]]]]
+    (is (false? (#'runtime/ensure-native-type-binding! "fixture" type)))))
+
+(deftest adapter-identity-normalizes-absent-source-order
+  (let [reference {:kind :const :module "fixture" :zig-name "Value"}
+        form (fn [order]
+               (with-meta 'fixture/Value
+                 {:aguafria/zig-reference (merge reference order)}))]
+    (is (= (runtime/adapter-fingerprint (form {}))
+           (runtime/adapter-fingerprint (form {:source-order nil}))))
+    (is (not= (runtime/adapter-fingerprint (form {}))
+              (runtime/adapter-fingerprint (form {:source-order 0}))))
+    (is (not= (runtime/adapter-fingerprint (form {:source-order 0}))
+              (runtime/adapter-fingerprint (form {:source-order 1}))))))
+
+(deftest adapter-identity-uses-explicit-declaration-kind
+  (let [reference {:kind :fn :module "fixture" :zig-name "make"
+                   :logical-id ["fixture" :fn "make"]}
+        fingerprint (fn [reference]
+                      (runtime/adapter-fingerprint
+                       (with-meta 'fixture/make {:aguafria/zig-reference reference})))]
+    (doseq [kind [:declaration :namespace-member]]
+      (is (= (fingerprint reference) (fingerprint (assoc reference :kind kind)))))
+    (is (not= (fingerprint reference)
+              (fingerprint (assoc reference :logical-id ["fixture" :const "make"]))))
+    (is (not= (fingerprint reference)
+              (fingerprint (assoc reference :zig-name "imported.make"))))))
+
 (deftest diagnostic-frames-use-original-forms-generically
   (let [source "(let [value 0]\n  (consume\n    value\n    false))\n"]
     (with-redefs-fn
@@ -200,6 +231,35 @@
       (is (= 1 @calls))
       (finally
         (reset! cache old-cache)))))
+
+(deftest persistent-native-debug-artifact-test
+  (testing "a full-debug macOS cache entry requires its independent DWARF file"
+    (with-redefs-fn
+      {#'runtime/usable-artifact? #(= "library.dylib" (str %))}
+      (fn []
+        (is (#'runtime/usable-native-artifact? "library.dylib" nil))
+        (is (not (#'runtime/usable-native-artifact? "library.dylib" :macos-flat-dwarf-v1)))))
+    (with-redefs-fn
+      {#'runtime/usable-artifact? (constantly true)}
+      #(is (#'runtime/usable-native-artifact? "library.dylib" :macos-flat-dwarf-v1))))
+  (testing "explicitly stripped and non-macOS targets do not request dSYM packaging"
+    (is (nil? (#'runtime/native-debug-format {:development-debug-info :none})))
+    (is (nil? (#'runtime/native-debug-format {:target "x86_64-linux-gnu"}))))
+  (when (str/includes? (str/lower-case (System/getProperty "os.name")) "mac")
+    (testing "symbolication reads the retained DWARF rather than temporary object references"
+      (let [commands (atom [])]
+        (with-redefs-fn
+          {#'runtime/usable-artifact? (constantly true)
+           #'clojure.java.shell/sh
+           (fn [& args]
+             (swap! commands conj (vec args))
+             {:exit 0 :out "callee (in library.dylib) (/source/module.zig:42)\n" :err ""})}
+          (fn []
+            (let [frames (#'runtime/symbolize-panic-image
+                           ["/cache/library.dylib" [{:image-base 4096 :address 4200}]])]
+              (is (= "/cache/library.dylib.dwarf" (nth (first @commands) 3)))
+              (is (= "/source/module.zig" (:file (first frames))))
+              (is (= 42 (:line (first frames)))))))))))
 
 (deftest exact-root-dependency-snapshot-closes-missing-registered-modules-test
   (let [registry (var-get #'aguafria.zig.runtime/registry)

@@ -3,6 +3,30 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
 
+(deftest handwritten-module-assets-preserve-declaration-semantics
+  (let [root (.toFile
+              (java.nio.file.Files/createTempDirectory
+               "aguafria-handwritten-assets"
+               (make-array java.nio.file.attribute.FileAttribute 0)))
+        module (str "fixture.handwritten-assets-" (gensym))
+        catalog (io/file root "aguafria-project.edn")
+        bundled (io/file root "native/helper.zig")
+        target (io/file root "cache/dependencies/module/hash")]
+    (io/make-parents bundled)
+    (spit bundled "pub const answer: u32 = 42;\n")
+    (spit catalog
+          (pr-str {:schema-version 1
+                   :asset-root "native"
+                   :asset-files ["helper.zig"]
+                   :modules {module {:source-kind :aguafria
+                                     :relative-path "module.zig"}}}))
+    (project/load-catalog! catalog)
+    (is (false? (project/converted-module? module)))
+    (is (= "module.zig" (project/module-relative-path module)))
+    (project/materialize-module-assets!
+     module "const helper = @import(\"helper.zig\");" target)
+    (is (= (slurp bundled) (slurp (io/file target "helper.zig"))))))
+
 (deftest converted-module-assets-materialize-beside-cached-source-test
   (let [root (.toFile
               (java.nio.file.Files/createTempDirectory

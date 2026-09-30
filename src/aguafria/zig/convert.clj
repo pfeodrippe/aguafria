@@ -1,6 +1,7 @@
 (ns aguafria.zig.convert
   "Convert compiler-parsed Zig source into inspectable Aguafria namespaces."
   (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.cache :as cache]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
@@ -132,7 +133,7 @@
                         (assoc result :aguafria/phase :zig-build-graph))))))
 
 (defn- ensure-build-graph-runner!
-  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"} :as options}
+  [{:keys [cache-dir] :or {cache-dir (cache/default-directory)} :as options}
    directory]
   (locking build-graph-lock
     (let [zig (embedded-zig options)
@@ -337,7 +338,7 @@
         :modules-by-path modules-by-path}))))
 
 (defn- ensure-helper!
-  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"} :as options}]
+  [{:keys [cache-dir] :or {cache-dir (cache/default-directory)} :as options}]
   (locking helper-lock
     (let [zig (embedded-zig options)
           source (helper-source)
@@ -398,7 +399,7 @@
   (into {} (map (juxt first identity)) entries))
 
 (defn- ast-cache-file
-  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"}}
+  [{:keys [cache-dir] :or {cache-dir (cache/default-directory)}}
    helper source-hash]
   (io/file cache-dir "conversion" "ast" (:hash helper)
            (str source-hash ".edn")))
@@ -2347,7 +2348,7 @@
     (byte-slice (:source-bytes context) start end)))
 
 (defn- named-container-declaration
-  "Give named structs/enums the same public API as hand-written declarations.
+  "Give named structs/enums/unions the same public API as hand-written declarations.
   Anonymous, tuple and type-factory containers keep their expression form."
   [form]
   (if-not (= 'az/defconst (first form))
@@ -2358,13 +2359,15 @@
           [_ options members] (when (seq? value) value)
           kind (:kind options)]
       (if-not (and (= 1 (count values)) (= 'container (first (when (seq? value) value)))
-                   (contains? #{:struct :enum} kind)
+                   (contains? #{:struct :enum :union} kind)
                    (not-any? #(= 'tuple-field-decl (first %)) members))
         form
         (with-meta
-          (apply list (if (= kind :struct) 'az/defstruct 'az/defenum) name
+          (apply list (case kind :struct 'az/defstruct :enum 'az/defenum :union 'az/defunion) name
                  (concat (when doc [doc])
-                         [(merge attributes (select-keys options [:layout :argument :zig/trailing]))]
+                         [(cond-> (merge attributes
+                                         (select-keys options [:layout :argument :zig/trailing]))
+                            (:enum? options) (update :attrs (fnil conj #{}) :enum))]
                          [(mapv (fn [member]
                                 (let [[operator field & tail] member]
                                   (if (contains? #{'field-decl 'enum-field-decl} operator)
@@ -2420,7 +2423,7 @@
       forms)))
 
 (def ^:private declaration-form-operators
-  '#{az/defn az/defn- az/defconst az/defvar az/defstruct az/defenum az/defcomptime
+  '#{az/defn az/defn- az/defconst az/defvar az/defstruct az/defenum az/defunion az/defcomptime
      az/defextern az/defexternvar az/deffield az/deftest
      fn-decl fn-proto-decl const-decl var-decl struct-decl comptime-decl
      field-decl enum-field-decl tuple-field-decl test-decl container
@@ -2547,7 +2550,7 @@
       (case (first form)
         (az/defn az/defn- az/defextern az/fn az/fn- az/fn-decl az/fn-proto-decl
          fn-decl fn-proto-decl) (write-declaration-header form 3)
-        (az/deftest az/defstruct az/defenum) (write-declaration-header form 2)
+        (az/deftest az/defstruct az/defenum az/defunion) (write-declaration-header form 2)
         (pprint/code-dispatch form)))
 
     :else
@@ -2645,7 +2648,7 @@
   (if (or (contains? attributes :zig/order)
           (contains? attributes :zig/leading))
     (let [flags (cond->
-                 (into (sorted-set)
+                 (into (into (sorted-set) (:attrs attributes))
                        (keep (fn [[key flag]]
                                (when (true? (get attributes key)) flag)))
                        compact-boolean-attributes)
@@ -3590,7 +3593,7 @@
   Failures throw by default; pass `:throw? false` to receive the failed report."
   ([path] (verify-file path {}))
   ([path {:keys [mode cache-dir throw?]
-          :or {mode :ast-check cache-dir ".aguafria/zig" throw? true}
+          :or {mode :ast-check cache-dir (cache/default-directory) throw? true}
           :as options}]
    (when-not (contains? #{:ast-check :test :build-obj} mode)
      (throw (ex-info "Unsupported Zig conversion verification mode"
@@ -4799,7 +4802,7 @@
     (zig-std/catalog-info)]))
 
 (defn- rendered-conversion-cache-file
-  [{:keys [cache-dir] :or {cache-dir ".aguafria/zig"}} cache-key]
+  [{:keys [cache-dir] :or {cache-dir (cache/default-directory)}} cache-key]
   (io/file cache-dir "conversion" "rendered"
            (str rendered-conversion-cache-version) (str cache-key ".edn")))
 

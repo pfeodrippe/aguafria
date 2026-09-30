@@ -2,7 +2,7 @@
 
 Aguafria is a `deps.edn` library for writing Zig with Clojure forms.
 
-- `az/defn`, `az/defconst`, `az/defvar`, and `az/defstruct` emit ordinary Zig.
+- `az/defn`, `az/defconst`, `az/defvar`, `az/defstruct`, `az/defenum`, and `az/defunion` emit ordinary Zig.
 - The same Vars are callable and inspectable from a Clojure REPL during development.
 - Re-evaluating a declaration compiles and publishes a new native generation without restarting the JVM.
 - Release builds are standalone Zig artifacts with no JVM or Aguafria runtime.
@@ -140,6 +140,21 @@ bare tags or detailed tag vectors:
     [[:items [:array length T]]
      (az/fn- capacity :usize [] length)]))
 ```
+
+Named unions use `az/defunion`, with the same field vectors and constructor calls:
+
+```clojure
+(az/defunion Payload
+  {:attrs #{ak/enum}}
+  [[:int :i32]
+   [:float :f64]])
+
+(Payload {:int 42})
+```
+
+Omit `ak/enum` for an untagged union. Use `{:argument Tag}` for a named tag
+type, or `{:layout :packed}` / `{:layout :extern}` for an explicit layout.
+Field documentation and nested methods work just as they do in structs.
 
 Anonymous `az/struct`, `az/enum`, `az/union`, and `az/opaque` use the same member
 vector, optionally preceded by a container options map.
@@ -446,6 +461,11 @@ original panic and captured addresses remain available rather than inventing
 a source location. Explicitly stripped builds can use
 `{:development-debug-info :none}`.
 
+On macOS, full-debug compilation also uses `dsymutil` (from Apple's developer
+tools) to retain a `.dwarf` file beside each cached native library. Keep these
+files together: they preserve source reporting independently of Zig's temporary
+object cache. A missing debug file invalidates a full-debug cache entry.
+
 Directly representable results return as ordinary Clojure values. Zig values
 with native-only representation use typed Aguafria values backed by FFM
 memory; they print and pretty-print as their real value and can be passed to
@@ -616,6 +636,129 @@ For third-party Zig packages, add `generated` to the project's `:paths` and use
 This updates the catalog and `aguafria.pkg.*` entry points, including removal of
 obsolete ones. Ordinary Maven/Clojure dependencies still use normal tools.deps;
 they are not automatically interpreted as Zig packages.
+
+Hand-written namespaces with relative native imports can bundle those sources
+in an `aguafria-project.edn` classpath resource:
+
+```clojure
+{:schema-version 1
+ :asset-root "native"
+ :asset-files ["helper.zig"]
+ :modules {"my.app.math" {:source-kind :aguafria
+                         :relative-path "math.zig"}}}
+```
+
+Here `native/helper.zig` is copied beside the compiled module for
+`(az/defimport helper "helper.zig" [...])`. `:source-kind :aguafria` retains
+normal hand-written declaration semantics; the catalog only supplies assets.
+Raw `defimport` members currently work inside native declarations, not as
+standalone JVM calls. Preparation reports those calls as unsupported while
+preparing their concrete enclosing functions.
+
+### Explain native compilation and cache reuse
+
+Wrap ordinary evaluations with `az/explain!`:
+
+```clojure
+(az/explain!
+  (az/defn add :i32 [[x :i32]] (k/+ x 1)))
+(az/explain! (add 41))
+```
+
+The forms execute normally, once, with their usual side effects. The wrapper
+returns the same result or propagates the same exception and prints actual
+compiler/cache activity to stdout (including the REPL output). `compiled` means
+a native artifact was built, `disk-cache-hit` means an existing Aguafria artifact
+was reused, and `memory-cache-hit` means native code already loaded in this JVM
+was reused. These are not statistics for Zig's internal compilation cache.
+Reporting does not force compilation, run extra warm-ups, or wait for async
+work; conveyed async events can arrive after the immediate summary.
+
+### Optional JVM precompilation
+
+Run this explicitly when desired, never as part of `:prepare`:
+
+```sh
+clojure -X:precompile :namespaces '[my.app.audio my.app.math]'
+```
+
+Or from Clojure: `(az/precompile! {:namespaces '[my.app.audio my.app.math]})`.
+This requires the namespaces and compiles concrete native function bodies and
+JVM wrappers without invoking those functions. Ordinary Clojure top-level code
+still runs during `require`. The report lists declarations skipped because they
+need a generic specialization, comptime result, extern linkage, test runner or
+process-entry host. Compilation failures propagate normally.
+
+Native handlers can be discovered automatically or prepared from explicit signatures.
+
+Automatic discovery can also inspect emitted Zig operations without running
+native bodies. From `examples/learn`, inspect every example namespace with:
+
+```sh
+clojure -X:precompile :source-dirs '["resources/learn/example"]' :parallelism 2
+```
+
+Or select namespaces with `:analyze '[my.app.math]`. Directories must already
+be on the classpath. The same API works for application and library namespaces;
+Learn is a coverage corpus, not a special precompilation path. For example:
+
+```clojure
+(az/precompile! {:analyze '[my.app.audio my.app.math]
+                 :parallelism 4})
+```
+
+Zig's compile-time reflection supplies the observed operand
+types and literal values; emitter records link them to the existing JVM handler
+generators. There is no Clojure type inference. This uses compiler reflection,
+not an AIR dump. Two bounded virtual-thread
+workers run by default. Ordinary Clojure namespace loading is sequential.
+
+The report is written to `.aguafria/precompile/report.edn` (override with
+`:report-file`), with per-namespace checkpoints in its `.d` directory. Compiler
+errors, unresolved specializations, unsupported types/storage placements and
+handler compilation failures remain explicit. This is **not yet exhaustive
+warming of all JVM subforms**. Inspection uses `zig test --test-no-exec
+-fno-emit-bin`; no native example or test body is called. Native libraries are
+compiled to disk without loading them. Native invocation is rejected during
+preparation; Zig still executes its normal `comptime` logic, and `require` still
+evaluates ordinary top-level Clojure code/macros.
+
+Inspection first compiles an uninstrumented baseline. If probes make valid
+source fail, smaller probe groups isolate those failures so other operations
+can still be discovered. Reports retain the baseline diagnostics, isolated
+probe failures and partial contextual-cast preparation. Field/index probes
+preserve lvalue storage; compound assignment handlers use the normal bridge
+planner. A `:prepared` operation is not a claim that its enclosing body is
+fully warmed.
+
+For explicit signatures:
+
+```sh
+clojure -X:precompile :calls '[{:function aguafria.keyword/+ :args [:i32 :i32]}]' :coercions '[:i32]'
+```
+
+`:namespaces`, `:calls` and `:coercions` can be combined. `:coercions` prepares
+constructors for the listed type schemas, including addressable numeric storage.
+Call argument entries are native type schemas; `{:comptime value}` supplies a
+source-level argument for builtin/imported/generic function specialization.
+Operator signatures require native operand types, not untyped source literals.
+Call adapters use the same registration/cache path as JVM invocation but never
+invoke the body. Unsupported storage/constructor adapter paths fail explicitly.
+No warm-up workload is executed, and no `main`, test or comment form is called.
+Zig still performs normal compile-time evaluation. This does not enumerate all
+possible generic specializations or all separately evaluated JVM subforms.
+Your project can define a `:precompile` alias with
+`:exec-fn aguafria.zig.precompile/precompile!` and native-access JVM options;
+the root and Learn projects already include it.
+
+Both paths populate the shared `~/.aguafria/zig` cache by default. Override it
+with `-Daguafria.cache-dir=...` or `az/configure!`'s `:cache-dir` option.
+Preparation reports remain project-local under `.aguafria/precompile`;
+they are not the binary cache. Existing project-local caches are not moved or deleted.
+Later JVMs and projects reuse
+those binaries when compiler, target, build options and dependencies match.
+Live values, function handles and native state are not persisted; first-use
+loading still costs time. New specializations or invalidated inputs still build.
 
 Kaocha configuration lives in [`tests.edn`](tests.edn). Release packaging uses
 the deps.edn-native [`build.clj`](build.clj) tasks through the

@@ -4,10 +4,9 @@
 
 (ns-unmap *ns* 'Number)
 
-(az/defconst Number
-  (az/union
-   [[:int :i32]
-    [:float :f64]]))
+(az/defunion Number
+  [[:int :i32]
+   [:float :f64]])
 
 (az/defn make-number Number []
   {:float 12.34})

@@ -163,6 +163,36 @@
         (is (not (str/includes? source "pub const hidden"))))
       (finally (remove-ns namespace-symbol)))))
 
+(deftest named-unions-share-the-existing-container-semantics
+  (let [scratch (create-ns (gensym "aguafria.zig-api-test.unions-"))
+        declarations (atom [])]
+    (try
+      (binding [*ns* scratch runtime/*registration-batch* declarations]
+        (refer 'clojure.core)
+        (require '[aguafria.zig :as az] '[aguafria.keyword :as k])
+        (eval '(az/defunion Payload
+                 "A documented union."
+                 [[:int {:doc "Integer payload."} :i32] [:float :f64]]))
+        (eval '(az/defunion Tagged {:attrs #{k/enum}}
+                 [[:number :i32] [:empty :void]
+                  (az/fn answer :i32 [] 42)]))
+        (eval '(az/defunion Packed {:layout :packed} [[:int :i32] [:uint :u32]]))
+        (eval '(az/defunion External {:layout :extern} [[:int :i32] [:uint :u32]]))
+        (doseq [form '[(az/defunion Bad [:x :i32])
+                       (az/defunion Bad [[:x :i32 :i32]])
+                       (az/defunion Bad [[:x :i32]] [[:y :i32]])
+                       (az/defunion Bad {:attrs k/enum} [[:x :i32]])]]
+          (is (thrown? Exception (eval form)) (pr-str form))))
+      (let [source (emitter/emit-module (str (ns-name scratch)) @declarations)
+            docs (:doc (meta (ns-resolve scratch 'Payload)))]
+        (doseq [expected ["pub const Payload = union {" "/// Integer payload."
+                          "pub const Tagged = union(enum) {" "pub fn answer() i32"
+                          "pub const Packed = packed union {" "pub const External = extern union {"]]
+          (is (str/includes? source expected) source))
+        (is (str/includes? docs "A documented union."))
+        (is (str/includes? docs "Integer payload.")))
+      (finally (remove-ns (ns-name scratch))))))
+
 (deftest vector-types-retain-fields-docs-names-defaults-and-methods
   (let [namespace-symbol (gensym "aguafria.zig-api-test.types-")
         scratch (create-ns namespace-symbol)

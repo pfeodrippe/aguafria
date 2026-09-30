@@ -3,10 +3,9 @@
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defconst Foo
-  (az/union
-   [[:float :f32]
-    [:int :u32]]))
+(az/defunion Foo
+  [[:float :f32]
+   [:int :u32]])
 
 (az/defn- bar :void [[f [:* Foo]]]
   (k/= @f (Foo {:float 12.34}))

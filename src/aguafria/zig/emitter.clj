@@ -54,6 +54,8 @@
 (def ^:private reserved-identifiers
   (set (map :name (keyword/language-keywords))))
 
+(def ^:dynamic *inspection-placement* nil)
+
 (defn- identifier-source
   "Render a Clojure name as a legal, conventional Zig identifier.
 
@@ -484,7 +486,7 @@
             (= '& binding)
             (let [[_ tail & remaining] bindings]
               (when-not (and tail (or (empty? remaining)
-                                     (and (= :as (first remaining)) (= 2 (count remaining)))))
+                                      (and (= :as (first remaining)) (= 2 (count remaining)))))
                 (fail! "Rest binding must be last, optionally followed by :as" pattern))
               (into result
                     (concat (destructure-binding tail (list 'slice source index))
@@ -503,11 +505,11 @@
     (fail! "let expects an even Clojure binding vector" bindings))
   (vec (mapcat (fn [[pattern value]]
                 ;; Preserve Zig's native multiple-assignment form for flat tuples.
-                (if (and (vector? pattern) (seq pattern)
-                         (every? #(and (symbol? %) (not= '& %)) pattern))
-                  [pattern value]
-                  (destructure-binding pattern value)))
-              (partition 2 bindings))))
+                 (if (and (vector? pattern) (seq pattern)
+                          (every? #(and (symbol? %) (not= '& %)) pattern))
+                   [pattern value]
+                   (destructure-binding pattern value)))
+               (partition 2 bindings))))
 
 (defn- lower-function-bindings [declaration]
   (if (some #(binding-pattern? (:name %)) (:args declaration))
@@ -572,7 +574,7 @@
           (let [[names bindings] (lower-captures captures)]
             (when (seq bindings)
               (apply list operator (concat (when ordinary? [patterns]) [names]
-                                          (bind-captures bindings (rest tail))))))))
+                                           (bind-captures bindings (rest tail))))))))
 
       (catch-capture errdefer)
       (when (vector? (first args))
@@ -592,12 +594,12 @@
          ordinal 0]
     (if-let [[binding-name value] (first pairs)]
       (let [value (binding [*local-type-bindings* local-types
-                           *local-name-bindings* local-names]
+                            *local-name-bindings* local-names]
                     (qualify-form context-ns value))
             names (if (vector? binding-name) binding-name [binding-name])
             later-names (set (mapcat (fn [[binding]]
-                                      (if (vector? binding) binding [binding]))
-                                    (next pairs)))
+                                       (if (vector? binding) binding [binding]))
+                                     (next pairs)))
             replacements (into {}
                                (map (fn [name]
                                       [name (if (and (not= '_ name)
@@ -737,7 +739,7 @@
         (when-not (seq args)
           (fail! "A container method requires its receiver as the first argument" form))
         (with-meta (apply list (list 'field (first args) (keyword (:member-name reference)))
-                         (rest args))
+                          (rest args))
           (meta form)))
       :else (with-meta (apply list qualified-op args) (meta form)))))
 
@@ -763,84 +765,84 @@
    ;; Type-bearing binding metadata is source code too. Capture its defining
    ;; namespace before declaration emission happens in a different context.
    ;; Other metadata (docs, source spans, arbitrary user values) stays intact.
-   (cond
-    captured
-    (qualify-form context-ns (with-meta captured (meta form)))
+    (cond
+      captured
+      (qualify-form context-ns (with-meta captured (meta form)))
 
-    (and (seq? form)
-         (= 'let (resolved-syntax-operator context-ns (first form)))
-         (vector? (second form))
-         (even? (count (second form))))
-    (qualify-let context-ns form)
+      (and (seq? form)
+           (= 'let (resolved-syntax-operator context-ns (first form)))
+           (vector? (second form))
+           (even? (count (second form))))
+      (qualify-let context-ns form)
 
-    (and (seq? form)
-         (or (contains? #{'for 'inline-for 'for-loop}
-                        (resolved-syntax-operator context-ns (first form)))
-             (= "for" (:zig-token (keyword/resolve-token context-ns (first form))))))
-    (qualify-for context-ns form
-                 (or (resolved-syntax-operator context-ns (first form)) 'for))
+      (and (seq? form)
+           (or (contains? #{'for 'inline-for 'for-loop}
+                          (resolved-syntax-operator context-ns (first form)))
+               (= "for" (:zig-token (keyword/resolve-token context-ns (first form))))))
+      (qualify-for context-ns form
+                   (or (resolved-syntax-operator context-ns (first form)) 'for))
 
-    (seq? form) (if-let [expansion (expand-clojure-macro-once context-ns form)]
-                  (let [expanded (:expanded expansion)]
+      (seq? form) (if-let [expansion (expand-clojure-macro-once context-ns form)]
+                    (let [expanded (:expanded expansion)]
                     ;; `cond` expands its conventional `:else` clause to
                     ;; `(if :else value (cond))`. In Clojure the keyword is
                     ;; unconditionally truthy; simplify it before Zig sees an
                     ;; `else` keyword in expression position or the nil tail.
-                    (if (and (seq? expanded)
-                             (= 'if (first expanded))
-                             (= :else (second expanded)))
-                      (qualify-form context-ns (nth expanded 2))
-                      (qualify-form context-ns expanded)))
-                  (qualify-seq context-ns form))
-    (vector? form) (with-meta (mapv #(qualify-form context-ns %) form)
-                              (meta form))
-    (map? form) (with-meta
-                  (into (empty form)
-                        (map (fn [[key value]]
-                               [(qualify-form context-ns key)
-                                (qualify-form context-ns value)]))
-                        form)
-                  (meta form))
-    (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
-                           (meta form))
-    (and (symbol? form) (contains? *local-type-bindings* form))
-    (let [replacement (get *local-name-bindings* form form)]
-      (if (instance? clojure.lang.IObj replacement)
-        (with-meta replacement (assoc (meta form)
-                                     :aguafria/local? true
-                                     :aguafria/local-type? (get *local-type-bindings* form)))
-        replacement))
+                      (if (and (seq? expanded)
+                               (= 'if (first expanded))
+                               (= :else (second expanded)))
+                        (qualify-form context-ns (nth expanded 2))
+                        (qualify-form context-ns expanded)))
+                    (qualify-seq context-ns form))
+      (vector? form) (with-meta (mapv #(qualify-form context-ns %) form)
+                       (meta form))
+      (map? form) (with-meta
+                    (into (empty form)
+                          (map (fn [[key value]]
+                                 [(qualify-form context-ns key)
+                                  (qualify-form context-ns value)]))
+                          form)
+                    (meta form))
+      (set? form) (with-meta (into #{} (map #(qualify-form context-ns %)) form)
+                    (meta form))
+      (and (symbol? form) (contains? *local-type-bindings* form))
+      (let [replacement (get *local-name-bindings* form form)]
+        (if (instance? clojure.lang.IObj replacement)
+          (with-meta replacement (assoc (meta form)
+                                        :aguafria/local? true
+                                        :aguafria/local-type? (get *local-type-bindings* form)))
+          replacement))
 
-    (and (symbol? form) (keyword/resolve-token context-ns form))
-    (:symbol (keyword/resolve-token context-ns form))
+      (and (symbol? form) (keyword/resolve-token context-ns form))
+      (:symbol (keyword/resolve-token context-ns form))
 
-    (and (symbol? form) (nil? (namespace form))
-         (namespace-root-reference context-ns form))
-    (reference-symbol context-ns form
-                      (namespace-root-reference context-ns form))
+      (and (symbol? form) (nil? (namespace form))
+           (namespace-root-reference context-ns form))
+      (reference-symbol context-ns form
+                        (namespace-root-reference context-ns form))
 
     ;; Preserve schema identity on ordinary same-namespace type/state
     ;; references. This lets implementation fingerprints notice a new
     ;; defstruct and lets development emission route a defvar through its
     ;; stable state-reference cell.
-    (and (symbol? form) (nil? (namespace form))
-         (not (contains? *lexical-bindings* form)))
-    (if-let [reference
-             (some-> (resolve-context-var context-ns form)
-                     meta :aguafria/zig-reference
-                     (#(when (or (:type-reference? %)
-                                 (= :var (:declaration-kind %)))
+      (and (symbol? form) (nil? (namespace form))
+           (not (contains? *lexical-bindings* form)))
+      (if-let [reference
+               (some-> (resolve-context-var context-ns form)
+                       meta :aguafria/zig-reference
+                       (#(when (or (:type-reference? %)
+                                   (= :var (:declaration-kind %)))
                            %)))]
-      (reference-symbol context-ns form reference)
-      form)
+        (reference-symbol context-ns form reference)
+        form)
 
-    (and (symbol? form)
-         (or (namespace form) (str/includes? (name form) ".")))
-    (if-let [reference (resolve-zig-reference context-ns form)]
-      (reference-symbol context-ns form reference)
-      form)
+      (and (symbol? form)
+           (or (namespace form) (str/includes? (name form) ".")))
+      (if-let [reference (resolve-zig-reference context-ns form)]
+        (reference-symbol context-ns form reference)
+        form)
 
-    :else form)))
+      :else form)))
 
 (defn- declaration-local-bindings
   [context-ns declaration]
@@ -981,8 +983,8 @@
                                          [{} (first args) (rest args)])
               pairs (for-bindings bindings form)
               scope (into names (binding-symbols
-                                  (concat (map first pairs)
-                                          [(:label options) (:body-label options)])))]
+                                 (concat (map first pairs)
+                                         [(:label options) (:body-label options)])))]
           (doseq [[_ value] pairs] (check value))
           (body scope forms))
 
@@ -993,7 +995,7 @@
         (contains? #{'if-capture 'if-capture-stmt 'while-loop} op)
         (let [[options condition & forms] args
               scope (into names (binding-symbols
-                                  (select-keys options [:payload :error :label :body-label])))]
+                                 (select-keys options [:payload :error :label :body-label])))]
           (check condition)
           (doseq [value (vals (dissoc options :payload :error :label :body-label))]
             (validate-reference-form! context-ns scope value))
@@ -1142,13 +1144,13 @@
 
          (contains? declaration :args)
          (update :args #(mapv (fn [arg]
-                               (update arg :type (partial qualify-type context-ns)))
-                             %))
+                                (update arg :type (partial qualify-type context-ns)))
+                              %))
 
          (contains? declaration :fields)
          (update :fields #(mapv (fn [field]
-                                 (update field :type (partial qualify-type context-ns)))
-                               %)))))))
+                                  (update field :type (partial qualify-type context-ns)))
+                                %)))))))
 
 (def ^:dynamic *source-mapping?*
   "When true, statement emission includes Clojure line/column marker comments.
@@ -1166,9 +1168,9 @@
         prefix (case size
                  :one "*"
                  :many (str "[*" (when (some? sentinel)
-                                    (str ":" (emit-expr sentinel))) "]")
+                                   (str ":" (emit-expr sentinel))) "]")
                  :slice (str "[" (when (some? sentinel)
-                                    (str ":" (emit-expr sentinel))) "]")
+                                   (str ":" (emit-expr sentinel))) "]")
                  :c "[*c]"
                  (fail! "Pointer :size must be :one, :many, :slice, or :c"
                         form))]
@@ -1705,7 +1707,7 @@
 
     :call
     (let [logical-type-name? (and *logical-type-names?*
-                                 (= "@typeName" (:zig-name token)))
+                                  (= "@typeName" (:zig-name token)))
           call-source
           (if (= "@as" (:zig-name token))
             (str "@as(" (emit-type (second args)) ", " (emit-expr (first args)) ")")
@@ -1794,30 +1796,30 @@
                     "` must be used as a form, not an atom")
                form {:token token}))
       (if-let [reference (current-zig-reference form)]
-      (if (and *reloadable-state-references?*
-               (:state-accessor reference)
+        (if (and *reloadable-state-references?*
+                 (:state-accessor reference)
                ;; The local accessor set only describes state declared by the
                ;; module currently being emitted. A qualified dependency Var
                ;; owns its accessor in the imported module, so rejecting it
                ;; here silently emitted `dependency.var` and created a second
                ;; native state capsule in every caller image.
-               (or (:import-alias reference)
-                   (nil? *reloadable-state-accessors*)
-                   (contains? *reloadable-state-accessors*
-                              (:state-accessor reference))))
-        (let [accessor (if-let [alias (:import-alias reference)]
-                         (str alias "." (:state-accessor reference))
-                         (:state-accessor reference))]
-          (str accessor "().*"))
-        (:zig-name reference))
-      (if (str/includes? (name form) ".")
-        (fail! (str "Unresolved dotted Zig reference `" form "`. "
-                    "Declare imported members with az/defimport.")
-               form {:operator form})
-        (if (= 'undefined form)
-          (fail! "Bare `undefined` is not a Clojure Var; use `ak/undefined`"
-                 form {:operator form :replacement 'aguafria.keyword/undefined})
-          (identifier form)))))
+                 (or (:import-alias reference)
+                     (nil? *reloadable-state-accessors*)
+                     (contains? *reloadable-state-accessors*
+                                (:state-accessor reference))))
+          (let [accessor (if-let [alias (:import-alias reference)]
+                           (str alias "." (:state-accessor reference))
+                           (:state-accessor reference))]
+            (str accessor "().*"))
+          (:zig-name reference))
+        (if (str/includes? (name form) ".")
+          (fail! (str "Unresolved dotted Zig reference `" form "`. "
+                      "Declare imported members with az/defimport.")
+                 form {:operator form})
+          (if (= 'undefined form)
+            (fail! "Bare `undefined` is not a Clojure Var; use `ak/undefined`"
+                   form {:operator form :replacement 'aguafria.keyword/undefined})
+            (identifier form)))))
     (keyword? form) (let [n (name form)]
                       (if (str/starts-with? n ".")
                         n
@@ -2085,13 +2087,29 @@
                          (contains? *reloadable-state-accessors* accessor)))
               (str (when-let [alias (:import-alias reference)] (str alias "."))
                    accessor "().*")
-              (str (postfix-source (first args)) "."
-                   (identifier-fragment (second args)))))
+              (let [receiver (postfix-source (first args))
+                    member (identifier-fragment (second args))]
+                (when *inspection-placement*
+                  (reset! *inspection-placement*
+                          {:placement :field
+                           :place-probe (fn [log label]
+                                          ;; Preserve dot-method lookup and the receiver's
+                                          ;; lvalue. @field(value, name) cannot bind methods.
+                                          (str "(" label ": { " log " break :" label
+                                               " &(" receiver "); }).*." member))}))
+                (str receiver "." member))))
           (fail! "field expects a target and field name" form))
 
         (= op 'deref)
         (if (= 1 (count args))
-          (str (postfix-source (first args)) ".*")
+          (let [receiver (postfix-source (first args))]
+            (when *inspection-placement*
+              (reset! *inspection-placement*
+                      {:placement :deref
+                       :place-probe (fn [log label]
+                                      (str "(" label ": { " log " break :" label " "
+                                           receiver "; }).*"))}))
+            (str receiver ".*"))
           (fail! "deref expects one pointer expression" form))
 
         (= op 'unwrap)
@@ -2101,14 +2119,30 @@
 
         (= op 'index)
         (if (= 2 (count args))
-          (str (postfix-source (first args)) "[" (emit-expr (second args)) "]")
+          (let [receiver (postfix-source (first args))
+                index (emit-expr (second args))]
+            (when *inspection-placement*
+              (reset! *inspection-placement*
+                      {:placement :index
+                       :place-probe (fn [log label]
+                                      (str receiver "[" label ": { " log
+                                           " break :" label " " index "; }]"))}))
+            (str receiver "[" index "]"))
           (fail! "index expects a target and index" form))
 
         (= op 'slice)
         (if (<= 2 (count args) 3)
-          (let [[target start end] args]
-            (str (postfix-source target) "[" (emit-expr start) ".."
-                 (when (some? end) (emit-expr end)) "]"))
+          (let [[target start end] args
+                receiver (postfix-source target)
+                start (emit-expr start)
+                end (when (some? end) (emit-expr end))]
+            (when *inspection-placement*
+              (reset! *inspection-placement*
+                      {:placement :slice
+                       :place-probe (fn [log label]
+                                      (str receiver "[(" label ": { " log
+                                           " break :" label " " start "; }).." end "]"))}))
+            (str receiver "[" start ".." end "]"))
           (fail! "slice expects a target, start, and optional end" form))
 
         (= op 'slice-sentinel)
@@ -2171,13 +2205,46 @@
     :else
     (fail! "Cannot emit Zig expression" form {:class (class form)})))
 
+(def ^:dynamic *expression-observer*
+  "Optional inspection-only emitter callback. Receives the original form, its
+  resolved Var metadata, source location and plain Zig source. Normal builds
+  never bind this; observers must not infer types from the source form."
+  nil)
+
+(defn- observe-expression [form rendered placement]
+  (if (and *expression-observer* (seq? form))
+    (*expression-observer*
+     (merge (when (seq? (first form))
+              (let [[operator receiver member :as target] (first form)]
+                (cond
+                  (and (keyword? operator) (= 2 (count target)))
+                  {:method-call? true :receiver receiver :member operator}
+
+                  (and (= 'field (resolved-syntax-operator (or *keyword-context* *ns*) operator))
+                       (= 3 (count target)))
+                  {:method-call? true :receiver receiver :member member})))
+            placement
+            {:form form :source rendered
+             :location (merge debug/*source* (select-keys (meta form) [:line :column]))
+             :var-meta (some-> (or (resolve-context-var (or *keyword-context* *ns*) (first form))
+                                   (when (and (symbol? (first form))
+                                              (structural-operator? (first form)))
+                                     (some-> (find-ns 'aguafria.zig)
+                                             (ns-resolve (first form))))) meta)
+             :render (fn [expression]
+                       (binding [*expression-observer* nil *inspection-placement* nil]
+                         (emit-expr* expression)))}))
+    rendered))
+
 (defn emit-expr
   "Emit one Zig expression, resolving `aguafria.keyword` Vars directly."
   ([form]
-   (emit-expr* form))
+   (binding [*inspection-placement* (when *expression-observer* (atom nil))]
+     (let [rendered (emit-expr* form)]
+       (observe-expression form rendered (some-> *inspection-placement* deref)))))
   ([context-ns form]
    (binding [*keyword-context* context-ns]
-     (emit-expr* form))))
+     (emit-expr form))))
 
 (defn- indent
   [level text]
@@ -2388,8 +2455,8 @@
          (emit-statement-branch then level)
          (when (some? else)
            (str " else " (if (and (seq? else) (= 'if (first else)))
-                            (emit-if-stmt (rest else) level else)
-                            (emit-statement-branch else level)))))))
+                           (emit-if-stmt (rest else) level else)
+                           (emit-statement-branch else level)))))))
 
 (defn- emit-if-capture-stmt
   [args level form]
@@ -2476,7 +2543,7 @@
 (defn- for-bindings
   [bindings form]
   (when-not (and (vector? bindings) (seq bindings) (even? (count bindings))
-                (not-any? vector? (take-nth 2 bindings)))
+                 (not-any? vector? (take-nth 2 bindings)))
     (fail! "for expects flat [capture input ...] bindings" form))
   (mapv vec (partition 2 bindings)))
 
@@ -2507,31 +2574,31 @@
                     (last body))
         body (if else-form (butlast body) body)
         {:keys [label body-label inline?]} options]
-      (when-not (or (nil? label) (symbol? label) (keyword? label) (string? label))
-        (fail! "for-loop :label must be an identifier" form {:label label}))
-      (when-not (or (nil? inline?) (boolean? inline?))
-        (fail! "for-loop :inline? must be boolean" form {:inline? inline?}))
-      (when-not (or (nil? body-label)
-                    (symbol? body-label) (keyword? body-label)
-                    (string? body-label))
-        (fail! "for-loop :body-label must be an identifier"
-               form {:body-label body-label}))
-      (str (when label (str (identifier label) ": "))
-           (when inline? "inline ")
-           "for (" (str/join ", " (map (comp emit-expr second) pairs)) ") |"
-           (str/join ", " (map #(capture-source (first %) form) pairs)) "| "
-           (if body-label
-             (str (identifier body-label) ": " (braced body level))
-             (braced body level))
-           (when else-form
-             (str " else "
-                  (case (first else-form)
-                    else-clause (braced (rest else-form) level)
-                    else-expression
-                    (if (= 2 (count else-form))
-                      (emit-control-flow-target (second else-form) level)
-                      (fail! "else-expression expects exactly one expression"
-                             else-form))))))))
+    (when-not (or (nil? label) (symbol? label) (keyword? label) (string? label))
+      (fail! "for-loop :label must be an identifier" form {:label label}))
+    (when-not (or (nil? inline?) (boolean? inline?))
+      (fail! "for-loop :inline? must be boolean" form {:inline? inline?}))
+    (when-not (or (nil? body-label)
+                  (symbol? body-label) (keyword? body-label)
+                  (string? body-label))
+      (fail! "for-loop :body-label must be an identifier"
+             form {:body-label body-label}))
+    (str (when label (str (identifier label) ": "))
+         (when inline? "inline ")
+         "for (" (str/join ", " (map (comp emit-expr second) pairs)) ") |"
+         (str/join ", " (map #(capture-source (first %) form) pairs)) "| "
+         (if body-label
+           (str (identifier body-label) ": " (braced body level))
+           (braced body level))
+         (when else-form
+           (str " else "
+                (case (first else-form)
+                  else-clause (braced (rest else-form) level)
+                  else-expression
+                  (if (= 2 (count else-form))
+                    (emit-control-flow-target (second else-form) level)
+                    (fail! "else-expression expects exactly one expression"
+                           else-form))))))))
 
 (defn- emit-for
   [args level form]
@@ -2775,7 +2842,27 @@
                                      "unreachable;"
                                      (fail! "unreachable takes no arguments" form))
                :else (str (emit-expr form) ";"))))]
-     (str (form-source-comment form) rendered))))
+     (let [op (when (seq? form) (first form))
+           token (when op (current-keyword-token op))
+           assignment (cond
+                        (= op 'set!) "="
+                        (and (= :assignment (:kind token)) (not= "=" (:zig-token token)))
+                        (:zig-token token)
+                        (contains? assignment-operators (operator-name op))
+                        (get assignment-operators (operator-name op)))
+           inspect? (and *expression-observer* assignment
+                         (not (vector? (second form)))
+                         (not (contains? #{:_ '_} (second form))))
+           rendered (if inspect?
+                      (observe-expression
+                       (with-meta (cons (symbol "aguafria.keyword" assignment) (rest form)) (meta form))
+                       rendered
+                       {:assignment assignment :placement :statement
+                        :place-probe (fn [log label]
+                                       (str "(" label ": { " log "\n" rendered
+                                            "\nbreak :" label "; });"))})
+                      rendered)]
+       (str (form-source-comment form) rendered)))))
 
 (defn emit-stmt-in
   "Emit one statement while resolving aliases in `context-ns`."
@@ -2925,7 +3012,7 @@
       (mapv (fn [[n marker t :as triple]]
               (when-not (= marker ':-)
                 (fail! "Expected :- in typed binding" triple))
-            {:name n :type t :properties {}})
+              {:name n :type t :properties {}})
             (partition 3 bindings)))
 
     :else
@@ -2980,8 +3067,8 @@
                file)]
     (when (or file line)
       (str "// Aguafria source: " (or file "<repl>")
-         (when line (str ":" line))
-         (when column (str ":" column)) "\n"))))
+           (when line (str ":" line))
+           (when column (str ":" column)) "\n"))))
 
 (defn- declaration-source-comment
   [{:keys [module name qualified-name]}]
@@ -3067,156 +3154,156 @@
            dependency-default-export? import-container]
     :as declaration}]
   (binding [debug/*source* source]
-   (let [declaration-name (or zig-name name)]
-    (str
-     leading-source
-     (declaration-notes {:doc doc :comments comments})
-     (when (or *source-mapping?* (not= false emit-source-comment?))
-       (str (declaration-source-comment declaration)
-            (source-comment source)))
-     (case kind
-     :import
-     (if (string? import-name)
-       (str (declaration-prefix zig-prefix "") "const "
-            (identifier declaration-name) " = @import(" (zig-string import-name) ")"
-            (when import-container
-              (str "." (identifier import-container)))
-            ";")
-       (fail! "Import declaration requires string :import-name" declaration))
+    (let [declaration-name (or zig-name name)]
+      (str
+       leading-source
+       (declaration-notes {:doc doc :comments comments})
+       (when (or *source-mapping?* (not= false emit-source-comment?))
+         (str (declaration-source-comment declaration)
+              (source-comment source)))
+       (case kind
+         :import
+         (if (string? import-name)
+           (str (declaration-prefix zig-prefix "") "const "
+                (identifier declaration-name) " = @import(" (zig-string import-name) ")"
+                (when import-container
+                  (str "." (identifier import-container)))
+                ";")
+           (fail! "Import declaration requires string :import-name" declaration))
 
-     :raw
-     (if (string? code) code (fail! "Raw declaration requires string :code" declaration))
+         :raw
+         (if (string? code) code (fail! "Raw declaration requires string :code" declaration))
 
-     :const
-     (let [rendered (if-let [import (namespace-root-import declaration)]
-                      (str "@import(" (zig-string (:import-name import)) ")"
-                           (named-module-selector (:import-namespace import)))
-                      (emit-expr value))]
-       (str (declaration-prefix zig-prefix
-                                (when (not= false public?) "pub "))
-            "const " (identifier declaration-name)
-            (when type (str ": " (emit-type type)))
-            (when (seq zig-qualifiers) (str " " zig-qualifiers))
-            " = " rendered
-            (expression-terminator rendered)))
+         :const
+         (let [rendered (if-let [import (namespace-root-import declaration)]
+                          (str "@import(" (zig-string (:import-name import)) ")"
+                               (named-module-selector (:import-namespace import)))
+                          (emit-expr value))]
+           (str (declaration-prefix zig-prefix
+                                    (when (not= false public?) "pub "))
+                "const " (identifier declaration-name)
+                (when type (str ": " (emit-type type)))
+                (when (seq zig-qualifiers) (str " " zig-qualifiers))
+                " = " rendered
+                (expression-terminator rendered)))
 
-     :var
-     (let [rendered (emit-expr value)]
-       (str (declaration-prefix zig-prefix
-                                (when (not= false public?) "pub "))
-            "var " (identifier declaration-name)
-            (when type (str ": " (emit-type type)))
-            (when (seq zig-qualifiers) (str " " zig-qualifiers))
-            " = " rendered
-            (expression-terminator rendered)))
+         :var
+         (let [rendered (emit-expr value)]
+           (str (declaration-prefix zig-prefix
+                                    (when (not= false public?) "pub "))
+                "var " (identifier declaration-name)
+                (when type (str ": " (emit-type type)))
+                (when (seq zig-qualifiers) (str " " zig-qualifiers))
+                " = " rendered
+                (expression-terminator rendered)))
 
-     :extern-var
-     (str (declaration-prefix zig-prefix
-                              (when public? "pub extern "))
-          "var " (identifier declaration-name)
-          (when type (str ": " (emit-type type)))
-          (when (seq zig-qualifiers) (str " " zig-qualifiers))
-          ";")
+         :extern-var
+         (str (declaration-prefix zig-prefix
+                                  (when public? "pub extern "))
+              "var " (identifier declaration-name)
+              (when type (str ": " (emit-type type)))
+              (when (seq zig-qualifiers) (str " " zig-qualifiers))
+              ";")
 
-     :struct
-     (if value
-       (str (declaration-prefix zig-prefix (when (not= false public?) "pub "))
-            "const " (identifier declaration-name) " = " (emit-expr value) ";")
-       (str (declaration-prefix zig-prefix
-                              (when (not= false public?) "pub "))
-          "const " (identifier declaration-name) " = "
-          (case layout
-            :extern "extern struct"
-            :packed "packed struct"
-            :normal "struct"
-            nil "struct"
-            (fail! "Struct :layout must be :extern, :packed, or :normal" declaration))
-          " {\n"
-          (indent 1 (->> fields
-                         (map (fn [{:keys [name type]}]
-                                (str (identifier name) ": " (emit-type type) ",")))
-                         (str/join "\n")))
-          "\n};"))
+         :struct
+         (if value
+           (str (declaration-prefix zig-prefix (when (not= false public?) "pub "))
+                "const " (identifier declaration-name) " = " (emit-expr value) ";")
+           (str (declaration-prefix zig-prefix
+                                    (when (not= false public?) "pub "))
+                "const " (identifier declaration-name) " = "
+                (case layout
+                  :extern "extern struct"
+                  :packed "packed struct"
+                  :normal "struct"
+                  nil "struct"
+                  (fail! "Struct :layout must be :extern, :packed, or :normal" declaration))
+                " {\n"
+                (indent 1 (->> fields
+                               (map (fn [{:keys [name type]}]
+                                      (str (identifier name) ": " (emit-type type) ",")))
+                               (str/join "\n")))
+                "\n};"))
 
-     :field
-     (str (declaration-prefix zig-prefix "")
-          (identifier declaration-name) ": " (emit-type type)
-          (when align (str " align(" (emit-expr align) ")"))
-          (when has-value? (str " = " (emit-expr value)))
-          ",")
+         :field
+         (str (declaration-prefix zig-prefix "")
+              (identifier declaration-name) ": " (emit-type type)
+              (when align (str " align(" (emit-expr align) ")"))
+              (when has-value? (str " = " (emit-expr value)))
+              ",")
 
-     :comptime
-     (let [body-source (binding [*source-mapping?*
-                                 (or *source-mapping?* (not= false emit-source-comment?))]
-                         (emit-function-body body :void false))]
-       (str "comptime {\n"
-            (when (seq body-source) (str (indent 1 body-source) "\n"))
-            "}"))
+         :comptime
+         (let [body-source (binding [*source-mapping?*
+                                     (or *source-mapping?* (not= false emit-source-comment?))]
+                             (emit-function-body body :void false))]
+           (str "comptime {\n"
+                (when (seq body-source) (str (indent 1 body-source) "\n"))
+                "}"))
 
-     :fn-proto
-     (str (declaration-prefix zig-prefix
-                              (when public? "pub "))
-          "fn " (identifier declaration-name) "("
-          (->> args
-               (map (fn [{:keys [name properties type]}]
-                      (if (:zig/variadic properties)
-                        "..."
-                        (str (when-let [prefix (:zig/prefix properties)]
-                               (str prefix " "))
-                             (identifier name) ": " (emit-type type)))))
-               (str/join ", "))
-          ")"
-          (when (seq zig-qualifiers) (str " " zig-qualifiers))
-          " " (emit-type return) ";")
+         :fn-proto
+         (str (declaration-prefix zig-prefix
+                                  (when public? "pub "))
+              "fn " (identifier declaration-name) "("
+              (->> args
+                   (map (fn [{:keys [name properties type]}]
+                          (if (:zig/variadic properties)
+                            "..."
+                            (str (when-let [prefix (:zig/prefix properties)]
+                                   (str prefix " "))
+                                 (identifier name) ": " (emit-type type)))))
+                   (str/join ", "))
+              ")"
+              (when (seq zig-qualifiers) (str " " zig-qualifiers))
+              " " (emit-type return) ";")
 
-     :fn
-     (let [body-source (binding [*source-mapping?*
-                                 (or *source-mapping?* (not= false emit-source-comment?))]
-                         (emit-function-body body return implicit-return?))
-           body-source (str (when (seq body-prefix-source)
-                              (str body-prefix-source
-                                   (when (seq body-source) "\n")))
-                            body-source)]
-       (str (declaration-prefix zig-prefix
-                                (cond
-                                  (and export? public?) "pub export "
-                                  export? "export "
-                                  public? "pub "
-                                  :else ""))
-            "fn " (identifier declaration-name) "("
-            (->> args
-                 (map (fn [{:keys [name properties type]}]
-                        (if (:zig/variadic properties)
-                          "..."
-                          (str (when-let [prefix (:zig/prefix properties)]
-                                 (str prefix " "))
-                               (identifier name) ": " (emit-type type)))))
-                 (str/join ", "))
-            ")"
-            (when (seq zig-qualifiers) (str " " zig-qualifiers))
-            (when (and (or export? dependency-default-export?)
-                       (nil? zig-prefix)
-                       (not (seq zig-qualifiers))
-                       (not-any? generic-function-argument? args))
-              " callconv(.c)")
-            " " (emit-type return) " {\n"
-            (when (seq body-source) (str (indent 1 body-source) "\n"))
-            "}"))
+         :fn
+         (let [body-source (binding [*source-mapping?*
+                                     (or *source-mapping?* (not= false emit-source-comment?))]
+                             (emit-function-body body return implicit-return?))
+               body-source (str (when (seq body-prefix-source)
+                                  (str body-prefix-source
+                                       (when (seq body-source) "\n")))
+                                body-source)]
+           (str (declaration-prefix zig-prefix
+                                    (cond
+                                      (and export? public?) "pub export "
+                                      export? "export "
+                                      public? "pub "
+                                      :else ""))
+                "fn " (identifier declaration-name) "("
+                (->> args
+                     (map (fn [{:keys [name properties type]}]
+                            (if (:zig/variadic properties)
+                              "..."
+                              (str (when-let [prefix (:zig/prefix properties)]
+                                     (str prefix " "))
+                                   (identifier name) ": " (emit-type type)))))
+                     (str/join ", "))
+                ")"
+                (when (seq zig-qualifiers) (str " " zig-qualifiers))
+                (when (and (or export? dependency-default-export?)
+                           (nil? zig-prefix)
+                           (not (seq zig-qualifiers))
+                           (not-any? generic-function-argument? args))
+                  " callconv(.c)")
+                " " (emit-type return) " {\n"
+                (when (seq body-source) (str (indent 1 body-source) "\n"))
+                "}"))
 
-     :test
-     (let [body-source (binding [*source-mapping?*
-                                 (or *source-mapping?* (not= false emit-source-comment?))]
-                         (emit-function-body body :void false))]
-       (str "test"
-            (when (some? test-name)
-              (str " " (if (string? test-name)
-                          (zig-string test-name)
-                          (identifier test-name))))
-            " {\n"
-            (when (seq body-source) (str (indent 1 body-source) "\n"))
-            "}"))
+         :test
+         (let [body-source (binding [*source-mapping?*
+                                     (or *source-mapping?* (not= false emit-source-comment?))]
+                             (emit-function-body body :void false))]
+           (str "test"
+                (when (some? test-name)
+                  (str " " (if (string? test-name)
+                             (zig-string test-name)
+                             (identifier test-name))))
+                " {\n"
+                (when (seq body-source) (str (indent 1 body-source) "\n"))
+                "}"))
 
-     (fail! "Unknown Zig declaration kind" declaration {:kind kind}))))))
+         (fail! "Unknown Zig declaration kind" declaration {:kind kind}))))))
 
 (defn- exact-zig-symbol
   [name]
@@ -3432,8 +3519,8 @@
                     "const " target ": " dispatch-type
                     " = @ptrFromInt(" target-address ");\n"
                     target-invocation-source))
-         wrapper-source
-         (emit-declaration wrapper-declaration)]
+        wrapper-source
+        (emit-declaration wrapper-declaration)]
     (str implementation-source "\n\n"
          ;; External Zig hosts and replacement dylibs are compiled by the
          ;; same Zig toolchain. Dispatch with Zig's exact native function ABI
@@ -3450,9 +3537,9 @@
                 ;; symbol but does not make it visible through Zig's module
                 ;; namespace; `pub export` is required for both forms of
                 ;; linkage.
-                "pub export fn " getter "() callconv(.c) usize {\n"
-                "    return @intFromPtr(&" implementation ");\n"
-                "}\n\n"))
+            "pub export fn " getter "() callconv(.c) usize {\n"
+            "    return @intFromPtr(&" implementation ");\n"
+            "}\n\n"))
          (when linkable? "pub ")
          "export fn " setter "(" setter "_address: usize) callconv(.c) void {\n"
          "    @atomicStore(usize, &" dispatch ", " setter
@@ -3533,8 +3620,8 @@
   ([module-name declarations dispatch-specs state-specs]
    (emit-reloadable-module module-name declarations dispatch-specs state-specs {}))
   ([module-name declarations dispatch-specs state-specs
-   {:keys [dependency? linkable-declaration-keys extra-body-source top-level?
-           external-publication-epoch-symbol]}]
+    {:keys [dependency? linkable-declaration-keys extra-body-source top-level?
+            external-publication-epoch-symbol]}]
    (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
      (binding [*source-mapping?* true
                *keyword-context* context-ns
@@ -3551,7 +3638,7 @@
                *named-module-imports?* (not top-level?)
                *logical-type-names?* true]
        (let [imports (remove nil? (synthesized-import-declarations declarations
-                                                                     true))
+                                                                   true))
              {:keys [active-counter active-depth active-tracking
                      active-tracking-setter active-getter publication-epoch
                      publication-epoch-setter]}
@@ -3632,31 +3719,31 @@
                              (emit-development-declaration declaration)))))
                   (str/join "\n\n"))
              body-source (str/join "\n\n" (remove str/blank?
-                                                   [logical-type-name-helper
-                                                    helper-source
-                                                    declarations-source
-                                                    (str/join "\n\n"
-                                                      (for [[key spec] dispatch-specs
-                                                            :let [declaration (:declaration spec)]
-                                                            :when (:owner-declaration-key declaration)]
-                                                        (emit-reloadable-function
-                                                         declaration
-                                                         (assoc spec
-                                                                :emit-getter? (not dependency?)
-                                                                :linkable? (or (not dependency?)
-                                                                               (contains? linkable-declaration-keys key))))))
-                                                    (str/join "\n\n"
-                                                      (for [[key spec] state-specs
-                                                            :let [declaration (:declaration spec)]
-                                                            :when (:state-path declaration)]
-                                                        (emit-reloadable-state
-                                                         declaration
-                                                         (assoc spec
-                                                                :linkable? (contains? linkable-declaration-keys key)
-                                                                :emit-native-helpers?
-                                                                (or (not dependency?)
-                                                                    (contains? linkable-declaration-keys key))))))
-                                                    extra-body-source]))
+                                                  [logical-type-name-helper
+                                                   helper-source
+                                                   declarations-source
+                                                   (str/join "\n\n"
+                                                             (for [[key spec] dispatch-specs
+                                                                   :let [declaration (:declaration spec)]
+                                                                   :when (:owner-declaration-key declaration)]
+                                                               (emit-reloadable-function
+                                                                declaration
+                                                                (assoc spec
+                                                                       :emit-getter? (not dependency?)
+                                                                       :linkable? (or (not dependency?)
+                                                                                      (contains? linkable-declaration-keys key))))))
+                                                   (str/join "\n\n"
+                                                             (for [[key spec] state-specs
+                                                                   :let [declaration (:declaration spec)]
+                                                                   :when (:state-path declaration)]
+                                                               (emit-reloadable-state
+                                                                declaration
+                                                                (assoc spec
+                                                                       :linkable? (contains? linkable-declaration-keys key)
+                                                                       :emit-native-helpers?
+                                                                       (or (not dependency?)
+                                                                           (contains? linkable-declaration-keys key))))))
+                                                   extra-body-source]))
              module-source
              (str (when-not (str/blank? imports-source)
                     (str imports-source "\n\n"))
@@ -3728,46 +3815,50 @@
   "Lower vector fields and nested declarations through the regular container emitter."
   [options members]
   (list 'aguafria.zig/container (merge {:kind :struct} options)
-         (mapv (fn [member]
+        (mapv (fn [member]
                 (if-let [declaration (vector-container-declaration member)]
                   declaration
                   (if (vector? member)
-                  (let [{:keys [name type properties]} (first (parse-struct-fields [member]))]
-                    (with-meta
-                      (apply list 'aguafria.zig/field-decl name
-                             (dissoc properties :default) type
-                             (when (contains? properties :default) [(:default properties)]))
-                      (meta member)))
-                  (if (seq? member)
-                    member
-                    (fail! "Struct/union members must be field vectors or nested declarations"
-                           member)))))
+                    (if (and (= :union (:kind options))
+                             (or (= 1 (count member))
+                                 (and (= 2 (count member)) (map? (second member)))))
+                      (with-meta (apply list 'aguafria.zig/enum-field-decl member) (meta member))
+                      (let [{:keys [name type properties]} (first (parse-struct-fields [member]))]
+                        (with-meta
+                          (apply list 'aguafria.zig/field-decl name
+                                 (dissoc properties :default) type
+                                 (when (contains? properties :default) [(:default properties)]))
+                          (meta member))))
+                    (if (seq? member)
+                      member
+                      (fail! "Struct/union members must be field vectors or nested declarations"
+                             member)))))
               members)))
 
 (defn enum-container-form
   "Lower vector tags, preserving explicit values, names and documentation."
   [options members]
   (list 'aguafria.zig/container (assoc options :kind :enum)
-         (mapv (fn [member]
+        (mapv (fn [member]
                 (if-let [declaration (vector-container-declaration member)]
                   declaration
                   (if (or (keyword? member) (vector? member))
-                  (let [[tag & tail] (if (keyword? member) [member] member)
-                        [properties values] (if (map? (first tail))
-                                              [(first tail) (next tail)]
-                                              [{} tail])]
-                    (when-not (and (or (keyword? tag) (symbol? tag) (string? tag))
-                                   (<= (count values) 1))
-                      (fail! "Enum tags expect [name], [name properties], or [name properties value]"
-                             member))
-                    (with-meta
-                      (apply list 'aguafria.zig/enum-field-decl tag
-                             (merge (meta tag) (meta member) properties) values)
-                      (meta member)))
-                  (if (seq? member)
-                    member
-                    (fail! "Enum members must be keywords, tag vectors, or nested declarations"
-                           member)))))
+                    (let [[tag & tail] (if (keyword? member) [member] member)
+                          [properties values] (if (map? (first tail))
+                                                [(first tail) (next tail)]
+                                                [{} tail])]
+                      (when-not (and (or (keyword? tag) (symbol? tag) (string? tag))
+                                     (<= (count values) 1))
+                        (fail! "Enum tags expect [name], [name properties], or [name properties value]"
+                               member))
+                      (with-meta
+                        (apply list 'aguafria.zig/enum-field-decl tag
+                               (merge (meta tag) (meta member) properties) values)
+                        (meta member)))
+                    (if (seq? member)
+                      member
+                      (fail! "Enum members must be keywords, tag vectors, or nested declarations"
+                             member)))))
               members)))
 
 (defn type-declaration-members
@@ -3839,7 +3930,7 @@
   [form]
   (let [[source-operator & declaration] form
         operator (or (resolved-syntax-operator (or *keyword-context* *ns*)
-                                                  source-operator)
+                                               source-operator)
                      source-operator)]
     (case operator
       fn-decl
@@ -3852,8 +3943,8 @@
                  form))
         (lower-function-bindings
          (merge (nested-base :fn name attributes)
-               {:doc doc :return return
-                :args (parse-typed-bindings bindings) :body (vec body)})))
+                {:doc doc :return return
+                 :args (parse-typed-bindings bindings) :body (vec body)})))
 
       fn-proto-decl
       (let [[name return & declaration] declaration
@@ -4084,23 +4175,23 @@
                   :import-name (:import reference)
                   :source-order (:source-order reference)}
                  reference)]
-         (if (and import-alias import-name)
-           (let [entry {:alias import-alias
-                        :import-name import-name
-                        :namespace import-namespace
-                        :source-order source-order}]
-             (if-let [existing (get imports import-alias)]
-               (if (= (select-keys existing [:alias :import-name :namespace])
-                      (select-keys entry [:alias :import-name :namespace]))
-                 (assoc imports import-alias
-                        (assoc existing :source-order
-                               (or (:source-order existing) source-order)))
-                 (fail! "Two required namespaces resolve to the same Zig import alias"
-                        value {:alias import-alias
-                               :first existing
-                               :second entry}))
-               (assoc imports import-alias entry)))
-           imports))
+           (if (and import-alias import-name)
+             (let [entry {:alias import-alias
+                          :import-name import-name
+                          :namespace import-namespace
+                          :source-order source-order}]
+               (if-let [existing (get imports import-alias)]
+                 (if (= (select-keys existing [:alias :import-name :namespace])
+                        (select-keys entry [:alias :import-name :namespace]))
+                   (assoc imports import-alias
+                          (assoc existing :source-order
+                                 (or (:source-order existing) source-order)))
+                   (fail! "Two required namespaces resolve to the same Zig import alias"
+                          value {:alias import-alias
+                                 :first existing
+                                 :second entry}))
+                 (assoc imports import-alias entry)))
+             imports))
          imports))
      explicit
      (tree-seq #(or (coll? %) (and (symbol? %) (seq (select-keys (meta %) [:var :zig/type :tag]))))
@@ -4112,48 +4203,48 @@
    (synthesized-import-declarations declarations false))
   ([declarations development?]
    (let [explicit (into {}
-                       (keep (fn [{:keys [kind name zig-name import-name
-                                         attributes]
-                                  :as declaration}]
-                               (let [ordinary-import
-                                     (:zig/import-name attributes)
-                                     root-import
-                                     (namespace-root-import declaration)]
-                                 (cond
-                                   (= :import kind)
-                                   [(identifier (or zig-name name)) import-name]
+                        (keep (fn [{:keys [kind name zig-name import-name
+                                           attributes]
+                                    :as declaration}]
+                                (let [ordinary-import
+                                      (:zig/import-name attributes)
+                                      root-import
+                                      (namespace-root-import declaration)]
+                                  (cond
+                                    (= :import kind)
+                                    [(identifier (or zig-name name)) import-name]
 
-                                   root-import
-                                   [(identifier (or zig-name name))
-                                    (:import-name root-import)]
+                                    root-import
+                                    [(identifier (or zig-name name))
+                                     (:import-name root-import)]
 
-                                   (string? ordinary-import)
-                                   [(identifier (or zig-name name))
-                                    ordinary-import]))))
-                       declarations)]
+                                    (string? ordinary-import)
+                                    [(identifier (or zig-name name))
+                                     ordinary-import]))))
+                        declarations)]
      (mapv
-     (fn [[alias {:keys [import-name namespace source-order]}]]
-       (let [import-name (if (and development? namespace)
-                           (str namespace)
-                           import-name)]
-       (when-let [explicit-import (get explicit alias)]
-         (when-not (= explicit-import import-name)
-          (fail! "A synthesized namespace import conflicts with an explicit module Var"
-                  alias {:alias alias
-                         :namespace-import import-name
-                         :explicit-import explicit-import})))
-       (when-not (contains? explicit alias)
-         {:kind :import
-          :name (symbol alias)
-          :zig-name alias
-          :source-order (or source-order Long/MIN_VALUE)
-          :public? false
-          :export? false
-          :emit-source-comment? false
-          :import-name import-name
-          :import-container (when (and development? namespace)
-                              (named-module-container namespace))})))
-     (declaration-imports declarations)))))
+      (fn [[alias {:keys [import-name namespace source-order]}]]
+        (let [import-name (if (and development? namespace)
+                            (str namespace)
+                            import-name)]
+          (when-let [explicit-import (get explicit alias)]
+            (when-not (= explicit-import import-name)
+              (fail! "A synthesized namespace import conflicts with an explicit module Var"
+                     alias {:alias alias
+                            :namespace-import import-name
+                            :explicit-import explicit-import})))
+          (when-not (contains? explicit alias)
+            {:kind :import
+             :name (symbol alias)
+             :zig-name alias
+             :source-order (or source-order Long/MIN_VALUE)
+             :public? false
+             :export? false
+             :emit-source-comment? false
+             :import-name import-name
+             :import-container (when (and development? namespace)
+                                 (named-module-container namespace))})))
+      (declaration-imports declarations)))))
 
 (defn emit-named-module
   "Emit a compiler root whose converted namespace imports select Aguafria's
@@ -4166,7 +4257,7 @@
               *named-module-imports?* true
               *logical-type-names?* true]
       (let [imports (remove nil? (synthesized-import-declarations declarations
-                                                                    true))
+                                                                  true))
             imports-source (->> imports
                                 (sort-by declaration-sort-key)
                                 (map emit-declaration)
@@ -4206,17 +4297,17 @@
   "Emit a complete deterministic Zig source module from declarations."
   ([module-name declarations]
    (let [context-ns (or (some-> module-name str symbol find-ns) *ns*)]
-   (binding [*source-mapping?* true
-             *keyword-context* context-ns]
-     (let [imports (remove nil? (synthesized-import-declarations declarations))
-           declarations (concat imports declarations)]
-       (str "// Generated by Aguafria. Edit the Clojure declarations, not this file.\n"
-            "// Module: " module-name "\n\n"
-            (->> declarations
-               (sort-by declaration-sort-key)
-               (map emit-declaration)
-               (str/join "\n\n"))
-            "\n")))))
+     (binding [*source-mapping?* true
+               *keyword-context* context-ns]
+       (let [imports (remove nil? (synthesized-import-declarations declarations))
+             declarations (concat imports declarations)]
+         (str "// Generated by Aguafria. Edit the Clojure declarations, not this file.\n"
+              "// Module: " module-name "\n\n"
+              (->> declarations
+                   (sort-by declaration-sort-key)
+                   (map emit-declaration)
+                   (str/join "\n\n"))
+              "\n")))))
   ([context-ns module-name declarations]
    (emit-module module-name
                 (reduce (fn [preceding declaration]
@@ -4256,7 +4347,7 @@
               *named-module-imports?* true
               *logical-type-names?* true]
       (let [imports (remove nil? (synthesized-import-declarations declarations
-                                                                    true))
+                                                                  true))
             declarations (map dependency-declaration declarations)
             imports-source (->> imports
                                 (sort-by declaration-sort-key)

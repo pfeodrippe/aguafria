@@ -2,7 +2,8 @@
   "Project module catalogs used by converted Zig namespaces.
 
   Catalogs are EDN data, not namespace metadata or generated Clojure source."
-  (:require [clojure.edn :as edn]
+  (:require [aguafria.zig.cache :as cache]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [java.io PushbackReader]
@@ -122,7 +123,10 @@
 (defn ^:no-doc converted-module?
   [module]
   (ensure-resource-catalogs!)
-  (contains? @catalogs (str module)))
+  (let [data (get @catalogs (str module))]
+    ;; Hand-written namespaces can bundle native assets without adopting the
+    ;; converter's visibility, implicit-return, or namespace-loading rules.
+    (and (some? data) (not= :aguafria (:source-kind data)))))
 
 (defn ^:no-doc module-data
   [module]
@@ -140,7 +144,7 @@
 
 (defn- extracted-build-path-root
   [{:keys [token bundle-relative]}]
-  (io/file (or (System/getProperty "aguafria.cache-dir") ".aguafria/zig")
+  (io/file (cache/default-directory)
            "project-build-paths"
            (subs token 2 (- (count token) 2))
            (.getName (io/file bundle-relative))))
@@ -346,7 +350,7 @@
                       (some (fn [[marker value]]
                               (when (= :as marker) value)))
                       str)))
-        (tree-seq coll? seq namespace-form))))
+         (tree-seq coll? seq namespace-form))))
 
 (defn- read-source-declaration-count
   [source-url expected-module]

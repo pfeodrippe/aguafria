@@ -6,6 +6,7 @@
             [aguafria.std.SemanticVersion :as semantic-version]
             [aguafria.std.testing :as zig-testing]
             [aguafria.std.debug :as debug]
+            [aguafria.std.c :as c]
             [aguafria.std.math :as math]
             [aguafria.std.mem :as mem]
             [aguafria.zig :as az]
@@ -45,6 +46,65 @@
                  (f))]
     (is (empty? @commands) (str "Warm handler launched processes: " @commands))
     result))
+
+(deftest tuple-results-preserve-native-element-types
+  (let [result (ak/++ [(ak/u32 1234) (ak/f64 12.34)]
+                      [[(ak/i16 7)]])
+        [integer floating nested] result]
+    (is (= :u32 (value/qualified-type integer)))
+    (is (= :f64 (value/qualified-type floating)))
+    (is (= :i16 (value/qualified-type (first nested))))
+    (is (values= [1234 12.34 [7]] result))
+    (is (= [:*const :u32] (value/qualified-type (ak/& integer))))
+    (is (values= 1234 @(ak/& integer)))))
+
+(deftest runtime-tuples-preserve-native-storage
+  (let [result (ak/mulWithOverflow (ak/u64 12) (ak/u64 10))
+        mutable (ak/var result)]
+    (is (value/zig-value? result))
+    (is (= '(aguafria.keyword/Tuple (aguafria.keyword/& [:u64 :u1]))
+           (value/qualified-type result)))
+    (is (= [120 0] (az/value result)))
+    (ak/= mutable (ak/addWithOverflow (az/get mutable 0) (ak/u64 3)))
+    (is (= [123 0] (az/value mutable)))
+    (is (= [120 0] (az/value result)))
+    (is (= [123 0] (az/value @(ak/& mutable))))
+    (let [[number overflow] mutable]
+      (is (= :u64 (value/qualified-type number)))
+      (is (= :u1 (value/qualified-type overflow)))
+      (ak/= number (ak/u64 124))
+      (is (= [124 0] (az/value mutable))))
+    (is (= :missing (nth mutable 2 :missing)))
+    (is (= :missing (nth mutable -1 :missing)))
+    (is (thrown? IndexOutOfBoundsException (nth mutable 2)))))
+
+(deftest comptime-aggregates-retain-compiler-expressions
+  (let [integer (ak/typeInfo :u8)
+        array (ak/typeInfo (az/type [:array 4 :u16]))
+        error-union (ak/typeInfo (az/type [:error-union :anyerror :i32]))]
+    (is (= :comptime-expression (:representation (value/realize! integer))))
+    (is (= {:int {:signedness :unsigned :bits 8}} (az/value integer)))
+    (is (values= 8 (:bits (:int integer))))
+    (is (= :u16 (:type (value/type-info (:child (:array array))))))
+    (is (values= 4 (:len (:array array))))
+    (is (= :i32 (:type (value/type-info (:payload (:error_union error-union))))))
+    (is (true? (:is_const (:pointer (ak/typeInfo [:*const :u8])))))
+    (is (nil? (:segment (value/realize! integer))))
+    (is (some? (ak/TypeOf integer)))))
+
+(deftest comptime-aggregate-function-results-round-trip
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.precompile-comptime-fixture :reload))
+  (let [metadata ((resolve 'aguafria.zig.precompile-comptime-fixture/metadata) :u8)
+        callable ((resolve 'aguafria.zig.precompile-comptime-fixture/callable) :u8)]
+    (is (= {:element {:type "u8"} :count 3} (az/value metadata)))
+    (is (= :u8 (:type (value/type-info (:element metadata)))))
+    (is (values= 3 (:count metadata)))
+    (is (false? (:is_tuple (:struct (ak/typeInfo
+                                     @(resolve 'aguafria.zig.precompile-comptime-fixture/Metadata))))))
+    (is (re-matches #"fn \(i32\).*i32"
+                    (get-in (az/value callable) [:function :function-type])))
+    (is (values= 42 ((:function callable) 41)))))
 
 (deftest runtime-handler-reuse-is-independent-of-operand-values
   (ak/+ 1 2)
@@ -786,6 +846,28 @@
         (is (values= 1236 @counter)))
       (finally (remove-ns (ns-name namespace))))))
 
+(deftest named-union-constructors-work-from-the-jvm
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defunion Payload
+                 "A native union constructor."
+                 {:attrs #{ak/enum}}
+                 [[:int {:doc "Integer payload."} :i32]
+                  [:float :f64]
+                  (az/fn answer :i32 [] 42)])))
+      (let [Payload @(ns-resolve namespace 'Payload)
+            payload (ak/var (Payload {:int 7}))]
+        (is (value/zig-value? payload))
+        (is (values= 7 (:int payload)))
+        (is (values= 42 ((:answer Payload))))
+        (ak/= payload (Payload {:float 12.5}))
+        (is (values= 12.5 (:float payload)))
+        (let [description (az/describe payload)]
+          (is (= :union (:kind description)))
+          (is (= #{:int :float} (set (map :name (:fields description)))))))
+      (finally (remove-ns (ns-name namespace))))))
+
 (deftest anonymous-container-members-work-from-the-jvm
   (let [namespace (fixture)]
     (try
@@ -1272,6 +1354,19 @@
                                   (throw (Exception. "deliberate"))))))
       (debug/print "after\n" []))
     (is (values= "before\nafter\n" (str err)))))
+
+(deftest buffered-c-output-is-flushed-and-restored-after-failure
+  (let [out (StringWriter.)
+        failure (ex-info "deliberate C capture failure" {})]
+    (binding [*out* out]
+      (is (identical? failure
+                      (try
+                        (native-call/call-with-output
+                         #(do (c/printf "before\n")
+                              (throw failure)))
+                        (catch Throwable error error))))
+      (c/printf "after\n"))
+    (is (= "before\nafter\n" (str out)))))
 
 (deftest normal-zero-arg-function-forwards-native-output
   (let [namespace (fixture)

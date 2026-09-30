@@ -10,6 +10,7 @@
             [aguafria.zig.analysis :as analysis]
             [aguafria.zig.debug :as debug]
             [aguafria.zig.emitter :as emitter]
+            [aguafria.zig.explain :as explanation]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
@@ -58,6 +59,19 @@
   convert lists to literal vectors. Does not insert generated code."
   [expression]
   `(host-value! (clojure.core/fn [] ~expression) '~&form))
+
+(defmacro explain!
+  "Evaluate forms normally and print native compilation/cache activity to stdout.
+
+  (az/explain! (az/defn add :i32 [[x :i32]] (k/+ x 1)))
+  (az/explain! (add 41))
+
+  Returns the last form's result unchanged; exceptions still propagate.
+  Reports actual compilation, disk-cache and already-loaded native reuse.
+  Does not force compilation or wait for asynchronous work. Events from work
+  that conveys dynamic bindings may arrive after the immediate summary."
+  [& forms]
+  `(explanation/call-with-report (clojure.core/fn [] ~@forms)))
 
 (clojure.core/defn emit-expr "Emit one Zig expression." [form]
   (emitter/emit-expr *ns* form))
@@ -343,6 +357,14 @@
 (clojure.core/defn configuration "Return current Aguafria configuration." []
   (runtime/configuration))
 
+(clojure.core/defn precompile!
+  "Explicitly prepare persistent JVM artifacts. :namespaces compiles concrete
+  functions without calling them; :calls supplies explicit native signatures
+  for call handlers. No workloads are executed. Never runs with :prepare.
+  See aguafria.zig.precompile/precompile! for limitations and side effects."
+  [options]
+  ((requiring-resolve 'aguafria.zig.precompile/precompile!) options))
+
 (clojure.core/defn clear! "Forget loaded modules and build history." []
   (runtime/clear!))
 
@@ -582,19 +604,6 @@
                                         [~@host-expressions]))))
       `(runtime/read-declaration ~chunks))))
 
-(clojure.core/defn- development-c-abi-type?
-  "True only for scalar Zig types whose C ABI is guaranteed on supported
-  targets. Rich Zig values use Aguafria's generated JVM trampoline instead of
-  changing the user's function calling convention."
-  [type]
-  (contains? #{:void :bool
-               :i8 :i16 :i32 :i64 :i128 :isize
-               :u8 :u16 :u32 :u64 :u128 :usize
-               :f32 :f64
-               :c_char :c_short :c_int :c_long :c_longlong
-               :c_uchar :c_ushort :c_uint :c_ulong :c_ulonglong}
-             type))
-
 (clojure.core/defn- parse-defn-declaration
   [form name declaration private?]
   (let [[return & tail] declaration
@@ -629,10 +638,6 @@
           explicit-export?
           (or (contains? attrs :export)
               (true? (:export attributes)))
-          explicit-export-setting?
-          (or (contains? attrs :export)
-              (contains? attributes :export)
-              (contains? (meta name) :export))
           _ (when (and generic? explicit-export?)
               (throw
                (ex-info
@@ -645,18 +650,9 @@
                     (and (not private?) (not converted?)
                          (not explicit-public?))
                     (assoc :public? true)
-                    (and (not converted?) (not generic?)
-                         (not explicit-export-setting?)
-                         (development-c-abi-type? return)
-                         (every? (comp development-c-abi-type? :type) args)
-                         (str/blank? (or (:zig/prefix attributes) ""))
-                         (str/blank? (or (:zig/qualifiers attributes) "")))
-                    ;; The development dylib may expose a C-callable wrapper
-                    ;; even though the user's standalone Zig declaration is
-                    ;; only `pub fn`. This hidden bit preserves versioned JVM
-                    ;; and cross-module hot reload without changing emitted
-                    ;; release semantics or the user-facing `:export?` value.
-                    (assoc :development-export? true)
+                    ;; JVM calls use a separate C ABI trampoline. The original
+                    ;; function must retain its Zig calling convention, even
+                    ;; when its arguments and result happen to be C scalars.
                     private? (assoc :public? false
                                     :export? explicit-export?)
                     generic? (assoc :export? false
@@ -880,6 +876,25 @@
   (let [[doc attributes members] (emitter/type-declaration-members declaration)
         value (emitter/enum-container-form
                (select-keys attributes [:argument :zig/trailing]) members)]
+    (with-meta
+      (apply list `defconst name
+             (concat (when doc [doc]) [attributes value]))
+      (meta &form))))
+
+(defmacro defunion
+  "Define a named Zig union using one vector of fields and nested declarations.
+
+      (az/defunion Number [[:int :i32] [:float :f64]])
+
+  Accepts a docstring and options before the member vector, like defstruct.
+  Use {:attrs #{k/enum}} for an inferred tag, {:argument Tag} for a named tag,
+  or {:layout :extern} / {:layout :packed} for an explicit layout. Field docs,
+  member functions, and container constants use the same entries as defstruct.
+  The resulting Var is a native type and constructor on both Zig and the JVM."
+  [name & declaration]
+  (let [[doc attributes members] (emitter/type-declaration-members declaration)
+        container-options (select-keys attributes [:layout :argument :enum? :attrs :zig/trailing])
+        value (emitter/struct-container-form (assoc container-options :kind :union) members)]
     (with-meta
       (apply list `defconst name
              (concat (when doc [doc]) [attributes value]))

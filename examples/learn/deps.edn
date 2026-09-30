@@ -6,6 +6,8 @@
             :replace-deps {org.clojure/tools.deps.cli {:mvn/version "0.9.49"}}
             :exec-fn clojure.tools.deps.cli.api/prep
             :exec-args {:force true}}
+  :precompile {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+               :exec-fn aguafria.zig.precompile/precompile!}
   :fmt {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.6"}}
         :main-opts ["-m" "cljfmt.main"]}
   :dev {:extra-paths ["test"]

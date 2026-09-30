@@ -6,6 +6,31 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest inspection-hooks-preserve-ordinary-emission
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        observations (atom [])
+        observer (fn [observation]
+                   (swap! observations conj observation)
+                   (:source observation))]
+    (doseq [[form expected]
+            [['(az/field receiver :items) "receiver.items"]
+             ['(deref pointer) "pointer.*"]
+             ['(az/index array index) "array[index]"]
+             ['(az/slice array start end) "array[start..end]"]]]
+      (is (= expected (emit/emit-expr context form)))
+      (is (= expected
+             (binding [emit/*expression-observer* observer]
+               (emit/emit-expr context form)))))
+    (let [form '(ak/+= (az/index array index) 1)
+          ordinary (emit/emit-stmt-in context form)]
+      (is (= ordinary
+             (binding [emit/*expression-observer* observer]
+               (emit/emit-stmt-in context form))))
+      (is (= ordinary (emit/emit-stmt-in context form))))
+    (is (= #{:field :deref :index :slice :statement}
+           (set (keep :placement @observations))))
+    (is (nil? emit/*expression-observer*))))
+
 (deftest nested-access-expands-to-existing-native-operations
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[compact expanded]
@@ -41,15 +66,16 @@
                            (emit/emit-expr context form))))))
 
 (deftest array-elements-and-native-operator-vars
-  (is (= "[_]i32{1, 2}" (emit/emit-expr *ns* '(az/array [1 2] :i32))))
-  (is (= "[2]i32{1, 2}" (emit/emit-expr *ns* '(az/init [1 2] [:array 2 :i32]))))
-  (doseq [[form source] [['(ak/++ left right) "(left ++ right)"]
-                       ['(ak/** items 3) "(items ** 3)"]
-                       ['(ak/|| A B) "(A || B)"]
-                       ['(ak/<<| a b) "(a <<| b)"]
-                       ['(ak/... 2 8) "2 ... 8"]]]
-    (is (= source (emit/emit-expr *ns* form))))
-  (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr *ns* '(az/array [1])))))
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (is (= "[_]i32{1, 2}" (emit/emit-expr context '(az/array [1 2] :i32))))
+    (is (= "[2]i32{1, 2}" (emit/emit-expr context '(az/init [1 2] [:array 2 :i32]))))
+    (doseq [[form source] [['(ak/++ left right) "(left ++ right)"]
+                           ['(ak/** items 3) "(items ** 3)"]
+                           ['(ak/|| A B) "(A || B)"]
+                           ['(ak/<<| a b) "(a <<| b)"]
+                           ['(ak/... 2 8) "2 ... 8"]]]
+      (is (= source (emit/emit-expr context form))))
+    (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr context '(az/array [1]))))))
 
 (deftest vector-constructor-infers-lane-count
   (let [context (the-ns 'aguafria.zig.emitter-test)]
@@ -87,18 +113,19 @@
     (is (thrown? clojure.lang.ExceptionInfo (emit/emit-type schema)))))
 
 (deftest flat-native-for-bindings
-  (is (= "for ((&items), 0..) |*item, index| {\n    item.* = @intCast(index);\n}"
-         (emit/emit-stmt-in *ns*
-                           '(ak/for [(ak/* item) (ak/& items) index (az/range 0)]
-                              (ak/= @item (ak/intCast index))))))
-  (is (= "2 .. 8" (emit/emit-expr *ns* '(az/range 2 8))))
-  (doseq [form '[(ak/for [[item items]] (use item))
-                (ak/for [item items index] (use item))
-                (ak/for [(ak/* a b) items] (use a))
-                (az/range)
-                (az/range 1 2 3)
-                (ak/* item)]]
-    (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr *ns* form)))))
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (is (= "for ((&items), 0..) |*item, index| {\n    item.* = @intCast(index);\n}"
+           (emit/emit-stmt-in context
+                              '(ak/for [(ak/* item) (ak/& items) index (az/range 0)]
+                                 (ak/= @item (ak/intCast index))))))
+    (is (= "2 .. 8" (emit/emit-expr context '(az/range 2 8))))
+    (doseq [form '[(ak/for [[item items]] (use item))
+                   (ak/for [item items index] (use item))
+                   (ak/for [(ak/* a b) items] (use a))
+                   (az/range)
+                   (az/range 1 2 3)
+                   (ak/* item)]]
+      (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr context form))))))
 
 (deftest stored-references-are-not-qualified-twice
   (let [source (create-ns (gensym "reference-source-"))

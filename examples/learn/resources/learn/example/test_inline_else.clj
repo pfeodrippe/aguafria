@@ -17,12 +17,11 @@
   [[:ptr [:many SliceTypeA]]
    [:len :usize]])
 
-(az/defconst AnySlice
-  (az/union {:enum? true}
-            [[:a SliceTypeA]
-             [:b SliceTypeB]
-             [:c [:slice-const :u8]]
-             [:d [:slice AnySlice]]]))
+(az/defunion AnySlice {:enum? true}
+  [[:a SliceTypeA]
+   [:b SliceTypeB]
+   [:c [:slice-const :u8]]
+   [:d [:slice AnySlice]]])
 
 (az/defn- with-for :usize
   [[any AnySlice]]

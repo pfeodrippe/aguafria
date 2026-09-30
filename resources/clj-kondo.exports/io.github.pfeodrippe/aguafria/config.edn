@@ -1,4 +1,5 @@
 {:min-clj-kondo-version "2023.04.14"
+ :lint-as {aguafria.zig/explain! clojure.core/do}
  :hooks
  {:analyze-call
   {aguafria.keyword/for hooks.aguafria/native-for
@@ -10,6 +11,7 @@
    aguafria.zig/defvar hooks.aguafria/top-level-declaration
    aguafria.zig/defstruct hooks.aguafria/top-level-declaration
    aguafria.zig/defenum hooks.aguafria/top-level-declaration
+   aguafria.zig/defunion hooks.aguafria/top-level-declaration
    aguafria.zig/struct-decl hooks.aguafria/top-level-declaration
    aguafria.zig/const-decl hooks.aguafria/top-level-declaration
    aguafria.zig/fn-decl hooks.aguafria/function-declaration

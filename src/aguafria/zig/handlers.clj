@@ -4,6 +4,13 @@
   (:require [aguafria.zig.value :as value])
   (:import [java.lang.foreign ValueLayout]))
 
+(defrecord ^:private OperandType [type])
+
+(defn- operand-type [operand]
+  (cond
+    (instance? OperandType operand) (:type operand)
+    (value/zig-value? operand) (value/qualified-type operand)))
+
 (defn- shift-count-type [type]
   (let [bits (cond
                (#{:usize :isize} type) (* 8 (.byteSize ValueLayout/ADDRESS))
@@ -13,8 +20,8 @@
       (keyword (str "u" (if (<= bits 1) 0 (- 64 (Long/numberOfLeadingZeros (dec bits)))))))))
 
 (defn assignment-operand-type [target operation]
-  (let [type (value/qualified-type target)
-        state (value/realize! target)
+  (let [type (operand-type target)
+        state (when (value/zig-value? target) (value/realize! target))
         pointer? (or (= :pointer (:native-kind state))
                      (and (vector? type)
                           (#{:* :*const :many :many-const :c-pointer} (first type))))]
@@ -25,6 +32,9 @@
            (or (#{:usize :isize :f16 :f32 :f64 :f80 :f128} type)
                (re-matches #"[iu][0-9]+" (name type)))
            (not (#{"<<=" ">>=" "<<|="} operation))) type)))
+
+(defn assignment-signature-operand-type [type operation]
+  (assignment-operand-type (->OperandType type) operation))
 
 (defn- literal-number [argument]
   (cond
@@ -56,6 +66,11 @@
                                           (filter integer? arguments)))]
       (keyword (str "i" (max 128 (inc bits) (+ 2 literal-bits)))))))
 
+(defn- float-plan [argument-count comparison?]
+  {:types (vec (repeat argument-count [:slice-const :u8]))
+   :float-literals? true
+   :result-type (when-not comparison? :comptime_float)})
+
 (defn operator-plan
   "Return a reusable runtime signature where no operand value is required by
   Zig's type system. Nil means this operation requires its structural/comptime
@@ -70,9 +85,10 @@
           floating? (and numeric? (not integer?))
           carrier (when (and integer? (or arithmetic? comparison?))
                     (integer-carrier zig-token numbers))
-          native-type (some #(when (value/zig-value? %) (value/qualified-type %)) arguments)
-          pointer? (and (value/zig-value? (first arguments))
-                        (or (= :pointer (:native-kind (value/realize! (first arguments))))
+          native-type (some operand-type arguments)
+          pointer? (and (operand-type (first arguments))
+                        (or (and (value/zig-value? (first arguments))
+                                 (= :pointer (:native-kind (value/realize! (first arguments)))))
                             (and (vector? native-type)
                                  (#{:many :many-const :c-pointer} (first native-type)))))
           numeric-type? (and (keyword? native-type)
@@ -85,10 +101,7 @@
          :result-type (when-not comparison? :comptime_int)}
 
         (and floating? (or arithmetic? comparison? (= "/" zig-token)))
-        {:types (vec (repeat (count arguments) [:slice-const :u8]))
-         :arguments (mapv str numbers)
-         :float-literals? true
-         :result-type (when-not comparison? :comptime_float)}
+        (assoc (float-plan (count arguments) comparison?) :arguments (mapv str numbers))
 
         (and (seq arguments) (every? boolean? arguments))
         {:types (vec (repeat (count arguments) :bool)) :arguments arguments}
@@ -98,13 +111,13 @@
         {:types [native-type :usize] :arguments arguments}
 
         (and numeric-type?
-             (every? #(or (value/zig-value? %)
+             (every? #(or (operand-type %)
                           (clojure.core/integer? %)
                           (and (#{:f16 :f32 :f64 :f80 :f128} native-type) (number? %)))
                      arguments))
         {:types (mapv (fn [index argument]
                         (cond
-                          (value/zig-value? argument) (value/qualified-type argument)
+                          (operand-type argument) (operand-type argument)
                           (and (pos? index) (#{"<<" ">>" "<<|"} zig-token))
                           (shift-count-type native-type)
                           (and comparison? (clojure.core/integer? argument))
@@ -114,3 +127,17 @@
          :arguments arguments}
 
         :else nil))))
+
+(defn operator-signature-plan
+  "Use the normal transport planner with compiler-confirmed types/literals,
+  without allocating native operands or executing an operation."
+  [syntax arguments]
+  (if (and (some #{:comptime_float} arguments)
+           (every? #(or (= :comptime_float %) (= :comptime_int (:type %))) arguments)
+           (contains? #{"+" "-" "*" "/" "==" "!=" "<" ">" "<=" ">="} (:zig-token syntax)))
+    (float-plan (count arguments) (contains? #{"==" "!=" "<" ">" "<=" ">="} (:zig-token syntax)))
+    (operator-plan syntax
+                   (mapv #(cond
+                            (and (map? %) (contains? % :literal)) (:literal %)
+                            (and (map? %) (boolean? (:comptime %))) (:comptime %)
+                            :else (->OperandType %)) arguments))))

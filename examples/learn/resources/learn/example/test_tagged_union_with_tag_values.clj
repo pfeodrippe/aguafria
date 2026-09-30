@@ -3,10 +3,9 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst Tagged
-  (az/union {:argument :u32, :attrs #{k/enum}}
-            [[:int {:default 123} :i64]
-             [:boolean {:default 67} :bool]]))
+(az/defunion Tagged {:argument :u32, :attrs #{k/enum}}
+  [[:int {:default 123} :i64]
+   [:boolean {:default 67} :bool]])
 
 (az/deftest tag-values
   (let [int (Tagged {:int -40})

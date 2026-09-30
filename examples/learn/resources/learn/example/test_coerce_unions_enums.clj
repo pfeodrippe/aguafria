@@ -8,20 +8,18 @@
    :two
    :three])
 
-(az/defconst U
-  (az/union {:argument E}
-            [[:one :i32]
-             [:two :f32]
-             [:three :void]]))
+(az/defunion U {:argument E}
+  [[:one :i32]
+   [:two :f32]
+   [:three :void]])
 
-(az/defconst U2
-  (az/union {:attrs #{k/enum}}
-            [[:a :void]
-             [:b :f32]
-             (az/fn- tag :usize [[self U2]]
-                     (switch self
-                             (case [:.a] 1)
-                             (case [:.b] 2)))]))
+(az/defunion U2 {:attrs #{k/enum}}
+  [[:a :void]
+   [:b :f32]
+   (az/fn- tag :usize [[self U2]]
+           (switch self
+                   (case [:.a] 1)
+                   (case [:.b] 2)))])
 
 (az/deftest coercion-between-unions-and-enums
   (let [u (U {:two 12.34})
