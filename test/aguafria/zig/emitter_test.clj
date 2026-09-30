@@ -247,12 +247,38 @@
                          (emit/qualify-form *ns* '(nonexistent/deref pointer))))))
 
 (deftest direct-comptime-let-is-a-block-not-an-expression-statement
-  (let [source (emit/emit-stmt '(comptime-stmt
+  (let [source (emit/emit-stmt '(comptime
                                (let [^{:var :i32} value 1]
                                  (set! value 2))) 0)]
     (is (str/includes? source "comptime {"))
     (is (str/includes? source "var value: i32 = 1;"))
     (is (not (str/includes? source "};")))))
+
+(deftest array-constructor-alignment-belongs-to-storage-not-the-element-type
+  (is (= [:array :_ :u8] (emit/array-initializer-type [[1 2] {:align 4} :u8])))
+  (is (= [:array :_ {:sentinel 0} :u8]
+         (emit/array-initializer-type [[1 2] {:align 4 :sentinel 0} :u8])))
+  (is (str/includes? (emit/emit-stmt '(let [bytes (array [1 2] {:align 4} :u8)]))
+                     "const bytes align(4) = [_]u8{1, 2};")))
+
+(deftest comptime-uses-the-enclosing-expression-or-statement-context
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        expression (emit/qualify-form context '(ak/comptime (ak/+ 20 22)))
+        statement (emit/qualify-form context '(ak/comptime (ak/unreachable)))]
+    (is (= "(comptime (20 + 22))" (emit/emit-expr expression)))
+    (is (= "return (comptime (20 + 22));"
+           (emit/emit-function-body [expression] :i32)))
+    (is (= "comptime unreachable;" (emit/emit-stmt statement)))
+    (doseq [block ['(do (validate)) '(block (validate))]]
+      (is (= "comptime {\n    validate();\n}"
+             (emit/emit-stmt (list 'comptime block)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"comptime expects one"
+                         (emit/emit-stmt '(comptime))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"comptime expects one"
+                         (emit/emit-stmt '(comptime 1 2))))
+    (is (not (contains? (emit/syntax-operators) 'comptime-stmt)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                         (emit/qualify-form context '(aguafria.zig/comptime-stmt 1))))))
 
 (deftest type-emission-test
   (is (= "i32" (emit/emit-type :i32)))
@@ -562,7 +588,7 @@
   (is (= "defer cleanup();" (emit/emit-stmt '(defer (cleanup)))))
   (is (= "errdefer cleanup();" (emit/emit-stmt '(errdefer (cleanup)))))
   (is (= "comptime validate();"
-         (emit/emit-stmt '(comptime-stmt (validate)))))
+         (emit/emit-stmt '(comptime (validate)))))
   (testing "Clojure-shaped locals are immutable unless explicitly marked mutable"
     (let [source (emit/emit-stmt
                   '(let [a 4
@@ -1003,7 +1029,8 @@
            :getter "__state_io_threaded_address"
            :setter "__state_io_threaded_set_address"
            :size-getter "__state_io_threaded_size"
-           :align-getter "__state_io_threaded_alignment"}})]
+           :align-getter "__state_io_threaded_alignment"
+           :pointer-align-getter "__state_io_threaded_pointer_alignment"}})]
     (is (str/includes? source "const answer: u32 = (io_threaded + 1);"))
     (is (str/includes? source
                        "return __state_io_threaded_reference().*;"))))
@@ -1024,7 +1051,8 @@
            :getter "__state_address"
            :setter "__state_set_address"
            :size-getter "__state_size"
-           :align-getter "__state_alignment"}})]
+           :align-getter "__state_alignment"
+           :pointer-align-getter "__state_pointer_alignment"}})]
     (is (str/includes?
          source
          "var state: StateType = if (@typeInfo(StateType) == .void) {} else .{};"))))

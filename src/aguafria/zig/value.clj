@@ -183,7 +183,7 @@
   (let [state-map @(value-state value)]
     (merge
      (select-keys (.-descriptor value)
-                  [:module :name :kind :type :logical-id :execution-context])
+                  [:module :name :kind :type :logical-id :execution-context :align])
      (select-keys state-map
                   [:status :representation :size :alignment :generation]))))
 
@@ -1005,7 +1005,7 @@
   [schema]
   (or (= :error-union (:kind schema))
       (some error-bearing-schema?
-            (keep schema [:child-schema :element-schema :payload-schema]))
+            (keep #(get schema %) [:child-schema :element-schema :payload-schema]))
       (some #(error-bearing-schema? (:schema %)) (:fields schema))))
 
 (defn copy-native!
@@ -1164,9 +1164,11 @@
 (defn address-value
   "Own a pointer to existing storage, retaining its pointee without copying it."
   [owner mutable?]
-  (let [{:keys [segment]} (realize! owner)
+  (let [{:keys [segment pointer-alignment]} (realize! owner)
         child (qualified-type owner)
-        type [(if mutable? :* :*const) child]
+        type (if-let [alignment (or pointer-alignment (:align (info owner)))]
+               [:* {:const? (not mutable?) :align alignment} child]
+               [(if mutable? :* :*const) child])
         arena (Arena/ofShared)]
     (try
       (let [storage (.allocate arena java.lang.foreign.ValueLayout/ADDRESS)
@@ -1202,31 +1204,53 @@
                        (assoc :owners [owner pointer]
                               :schema {:kind :pointer :child-type (nth type 2)})))))))
 
-(defn mutable-copy
-  "Copy owned native storage into an independently mutable JVM handle.
+(defn- storage-alignment
+  [alignment]
+  (let [alignment (if (zig-value? alignment) (decoded alignment) alignment)]
+    (when-not (and (integer? alignment) (pos? alignment)
+                   (<= alignment Long/MAX_VALUE)
+                   (zero? (bit-and alignment (dec alignment))))
+      (throw (ex-info "Alignment must be a positive power of two" {:alignment alignment})))
+    (long alignment)))
+
+(defn- storage-copy
+  "Copy owned native storage into an independently owned JVM handle.
   Slice/pointer owners remain reachable; new pointees live in the copy's arena."
+  [source zig-type schema options kind]
+  (let [{:keys [segment size alignment tuple-length]} (realize! source)
+        requested-alignment (storage-alignment (get options :align 1))
+        alignment (max alignment requested-alignment)
+        arena (Arena/ofShared)]
+    (try
+      (let [storage (.allocate arena (long size) (long alignment))]
+        (.copyFrom storage segment)
+        (let [result (native-value
+                      (merge (select-keys (info source) [:module :execution-context])
+                             {:kind kind :type zig-type}
+                             (when (contains? options :align) {:align requested-alignment}))
+                      (constantly {:representation :native
+                                   :segment storage :size size :alignment alignment
+                                   :tuple-length tuple-length
+                                   :owners [source]
+                                   :schema (assoc schema :allocation-arena arena)
+                                   :close! #(.close arena)}))]
+          (realize! result)
+          result))
+      (catch Throwable failure
+        (.close arena)
+        (throw failure)))))
+
+(defn mutable-copy
+  "Copy native storage into a mutable handle, preserving pointee owners."
   ([source zig-type schema] (mutable-copy source zig-type schema {}))
   ([source zig-type schema options]
-   (let [{:keys [segment size alignment tuple-length]} (realize! source)
-         alignment (max alignment (long (get options :zig/align 1)))
-         arena (Arena/ofShared)]
-     (try
-       (let [storage (.allocate arena (long size) (long alignment))]
-         (.copyFrom storage segment)
-         (let [result (native-value
-                       (merge (select-keys (info source) [:module :execution-context])
-                              {:kind :var :type zig-type})
-                       (constantly {:representation :native
-                                    :segment storage :size size :alignment alignment
-                                    :tuple-length tuple-length
-                                    :owners [source]
-                                    :schema (assoc schema :allocation-arena arena)
-                                    :close! #(.close arena)}))]
-           (realize! result)
-           result))
-       (catch Throwable failure
-         (.close arena)
-         (throw failure))))))
+   (storage-copy source zig-type schema options :var)))
+
+(defn aligned-copy
+  "Own a copy with explicit storage alignment, preserving constness and type."
+  [source alignment]
+  (storage-copy source (qualified-type source) (:schema (realize! source))
+                {:align alignment} (:kind (info source))))
 
 (defn slice-element-view
   "Borrow an element's native storage, retaining the slice and its library owner."

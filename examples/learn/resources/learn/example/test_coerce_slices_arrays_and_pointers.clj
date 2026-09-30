@@ -43,7 +43,7 @@
         x2 (k/as (k/& buf2) [:slice-const :f32])]
     (try (testing/expectEqualStrings "hello" x))
     (try (testing/expectEqualSlices
-          (az/type :f32)
+          :f32
           (k/& (az/init [1.2 3.4] [:array 2 :f32]))
           x2))))
 
@@ -70,7 +70,7 @@
 
 ;; Sentinel-terminated slices can be coerced into sentinel-terminated pointers
 (az/deftest xT-to-*xT
-  (let [buf (k/as "hello" [:pointer {:sentinel 0, :size :slice, :const? true} :u8])
+  (let [buf (k/as "hello" [:* {:sentinel 0, :size :slice, :const? true} :u8])
         buf2 (k/as buf [:sentinel-const :u8 0])]
     (try (testing/expectEqual \o (az/get buf2 4)))))
 

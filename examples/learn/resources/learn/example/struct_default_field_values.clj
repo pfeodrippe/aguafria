@@ -9,7 +9,7 @@
 (az/deftest default-struct-initialization-fields
   (let [x (Foo {:b 5})]
     (when (k/!= (k/+ (:a x) (:b x)) 1239)
-      (az/comptime-stmt (k/unreachable)))))
+      (k/comptime (k/unreachable)))))
 
 (comment
   (default-struct-initialization-fields))

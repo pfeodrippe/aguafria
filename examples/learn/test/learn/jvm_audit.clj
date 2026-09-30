@@ -135,7 +135,7 @@
                       "with-block" "while" "while-loop" "switch" "switch-stmt"
                       "if-capture" "if-capture-stmt" "while-capture" "inline-for"
                       "catch-capture" "catch-expr" "catch" "finally" "try"
-                      "comptime" "comptime-stmt" "quote" "defer" "errdefer"
+                      "comptime" "quote" "defer" "errdefer"
                       "and" "or" "orelse" "return" "break" "continue"
                       "struct" "union" "enum" "container" "type" "asm"
                       "->" "->>" "some->" "some->>" "cond->" "cond->>"

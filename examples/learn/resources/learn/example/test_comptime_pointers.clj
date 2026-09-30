@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest comptime-pointers
-  (az/comptime-stmt
+  (k/comptime
    (let [x (k/var 1 :i32)
          ptr (k/& x)]
      (k/+= @ptr 1)

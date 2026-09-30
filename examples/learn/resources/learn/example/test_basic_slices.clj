@@ -10,7 +10,7 @@
     (let [slice (az/slice array known-at-runtime-zero (:len array))
           ;; alternative initialization using result location
           alt-slice (k/as (k/& [1 2 3 4]) [:slice-const :i32])]
-      (try (testing/expectEqualSlices (az/type :i32) slice alt-slice))
+      (try (testing/expectEqualSlices :i32 slice alt-slice))
       (try (testing/expectEqual (az/type [:slice :i32]) (k/TypeOf slice)))
       (try (testing/expectEqual (k/& (az/get array 0)) (k/& (az/get slice 0))))
       (try (testing/expectEqual (:len array) (:len slice)))

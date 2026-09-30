@@ -73,6 +73,10 @@
            (:aguafria/source diagnostic)))))
 
 (deftest diagnostic-sources-can-be-classpath-resources
+  (is (nil? (#'runtime/source-text "test"))
+      "A compiler pseudo-file must not be read as a directory.")
+  (is (nil? (#'runtime/source-text "aguafria/zig"))
+      "Classpath directories are not diagnostic source files either.")
   (is (str/starts-with? (#'runtime/source-text "aguafria/zig/runtime_test.clj")
                        "(ns aguafria.zig.runtime-test"))
   (is (nil? (#'runtime/clojure-code-frame "missing-diagnostic-source.clj" 3 2 "unavailable"))))

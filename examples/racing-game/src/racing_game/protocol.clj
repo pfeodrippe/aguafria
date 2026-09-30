@@ -177,7 +177,7 @@
   radio line is represented by zero radio_length, not a synthetic message.
   No substring guessing, negation guessing, silent truncation or encoded head.
   `complete` must reflect the generator's actual successful end-of-message."
-  [[bytes [:pointer {:size :c :const? true} :u8]] [length :usize] [complete :bool]]
+  [[bytes [:* {:size :c :const? true} :u8]] [length :usize] [complete :bool]]
   (let [^:var result (DrivingPlan {:valid false :kind plan-invalid
                                   :rejection plan-malformed :radio_start 0 :radio_length 0})]
     (when (or (ak/! complete) (> length 2048))

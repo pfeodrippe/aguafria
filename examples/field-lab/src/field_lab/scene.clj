@@ -139,12 +139,12 @@
 (az/defconst dt :f64 0.004166666666666667)
 
 (az/defn entity! :u64
-  [[name [:pointer {:size :c :const? true} :u8]]]
+  [[name [:* {:size :c :const? true} :u8]]]
   (let [description (ecs/ecs_entity_desc_t {:name name})]
     (ecs/ecs_entity_init world (ak/& description))))
 
 (az/defn component! :u64
-  [[name [:pointer {:size :c :const? true} :u8]] [size :usize] [alignment :usize]]
+  [[name [:* {:size :c :const? true} :u8]] [size :usize] [alignment :usize]]
   (let [info (ecs/ecs_type_info_t {:size (ak/intCast size) :alignment (ak/intCast alignment)})
         description (ecs/ecs_component_desc_t {:entity (entity! name) :type info})]
     (ecs/ecs_component_init world (ak/& description))))

@@ -40,7 +40,10 @@
   (cond
     (number? argument) argument
     (and (value/zig-value? argument)
-         (#{:comptime_int :comptime_float} (value/qualified-type argument)))
+         (#{:comptime_int :comptime_float} (value/qualified-type argument))
+         ;; A source expression may be more precise than its JVM display value.
+         ;; Keep it in Zig instead of turning that display value into an operand.
+         (not (:expression (value/realize! argument))))
     (value/value argument)))
 
 (defn- integer-carrier [operation operands]

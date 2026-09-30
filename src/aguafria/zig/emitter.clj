@@ -6,6 +6,7 @@
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.debug :as debug]
             [aguafria.zig.project :as project]
+            [aguafria.zig.signature :as signature]
             [aguafria.zig.source-map :as source-map]
             [clojure.string :as str]
             [clojure.walk :as walk]))
@@ -38,8 +39,10 @@
                  arguments))]
     (when-not (vector? elements)
       (fail! "array expects an element vector" arguments))
-    (let [type (if (= 3 (count arguments))
-                 [:array :_ options element-type]
+    (when-not (and (map? options) (every? #{:sentinel :align} (keys options)))
+      (fail! "array options may contain :sentinel and :align" arguments))
+    (let [type (if (contains? options :sentinel)
+                 [:array :_ (select-keys options [:sentinel]) element-type]
                  [:array :_ element-type])]
       (array-type-parts type)
       type)))
@@ -103,7 +106,7 @@
      field-decl enum-field-decl tuple-field-decl comptime-decl
      test-decl fn-proto-decl
      if when when-not if-capture if-capture-stmt
-     field deref unwrap index slice slice-sentinel try comptime comptime-stmt nosuspend
+     field deref unwrap index slice slice-sentinel try comptime nosuspend
      comment return const var let set! assign assign-expr destructure while for dotimes defer errdefer
      inline-for for-loop while-loop
      break break-label continue unreachable})
@@ -383,6 +386,18 @@
                   (#(when (:type-reference? %) %)))))))
 
 (declare qualify-form qualify-type)
+
+(defn- declared-call-arguments [context-ns op reference]
+  (when (and (symbol? op)
+             (not (or (:aguafria/local? (meta op))
+                      (contains? *lexical-bindings* op)
+                      (contains? *local-type-bindings* op))))
+    (let [metadata (some-> (resolve-context-var context-ns op) meta)
+          reference (or reference (:aguafria/zig-reference metadata))]
+      (or (:args (:aguafria/declaration metadata))
+          (when (and (#{:function :type-function} (:category reference))
+                     (:signature reference))
+            (:args (signature/declaration (:signature reference))))))))
 
 (def ^:private preserved-clojure-macro-operators
   "Clojure macros whose spelling is also a direct, zero-cost Zig operator.
@@ -675,6 +690,8 @@
         token (when-not structural? (keyword/resolve-token context-ns op))
         reference (when-not (or structural? (contains? *local-type-bindings* op))
                     (resolve-zig-reference context-ns op))
+        parameters (when-not (or structural? token)
+                     (declared-call-arguments context-ns op reference))
         args (cond
                (and (= "@as" (:zig-name token)) (= 2 (count raw-args)))
                [(qualify-form context-ns (first raw-args))
@@ -703,7 +720,11 @@
                      (next raw-args))
 
                :else
-               (mapv #(qualify-form context-ns %) raw-args))
+               (mapv (fn [index argument]
+                       (if (= :type (:type (nth parameters index nil)))
+                         (list 'type (qualify-type context-ns argument))
+                         (qualify-form context-ns argument)))
+                     (range) raw-args))
         qualified-op (cond
                        structural? structural-op
                        (= :keyword (:kind token)) (symbol (:zig-token token))
@@ -757,7 +778,7 @@
                              (if (and (some? value) (not (boolean? value)))
                                (assoc metadata key (qualify-form context-ns value))
                                metadata)))
-                         (meta form) [:var :zig/type :tag :zig/align :zig/addrspace :zig/linksection]))
+                         (meta form) [:var :zig/type :tag :align :zig/addrspace :zig/linksection]))
                form)
         captured (when (seq? form)
                    (lower-capture-form
@@ -934,7 +955,7 @@
                             names (partition 2 bindings))]
           (body scope forms))
 
-        (contains? #{'do 'block 'comptime 'comptime-stmt} op)
+        (contains? #{'do 'block 'comptime} op)
         (body names args)
 
         (= 'with-block op)
@@ -1056,7 +1077,7 @@
                            (validate-reference-form! context-ns scope type))
                          (conj scope name))
                        scope (:args declaration))]
-     (doseq [key [:type :return :value]]
+     (doseq [key [:type :return :value :align]]
        (validate-reference-form! context-ns scope (get declaration key)))
      (doseq [field (when-not (:value declaration) (:fields declaration))]
        (validate-reference-form! context-ns scope (:type field)))
@@ -1122,6 +1143,9 @@
       (validate-declaration-references!
        context-ns
        (cond-> declaration
+         (some? (:align declaration))
+         (update :align #(qualify-form context-ns %))
+
          (contains? declaration :type)
          (update :type #(when (some? %) (qualify-type context-ns %)))
 
@@ -1164,7 +1188,7 @@
     (fail! "Pointer type options must be a map" form))
   (let [{:keys [size const? volatile? allowzero? align addrspace sentinel
                 bit-start bit-end]}
-        options
+        (merge {:size :one} options)
         prefix (case size
                  :one "*"
                  :many (str "[*" (when (some? sentinel)
@@ -1227,12 +1251,13 @@
 (defn- emit-type*
   "Emit a Zig type from a keyword/symbol/string or a compositional vector.
 
-  Supported vectors include `[:* t]`, `[:*const t]`, `[:many t]`,
+  Supported vectors include `[:* t]`, `[:* options t]`, `[:*const t]`, `[:many t]`,
   `[:many-const t]`, `[:sentinel t n]`, `[:slice t]`, `[:slice-const t]`,
   `[:array n t]`, `[:array n {:sentinel value} t]`, `[:vector n t]`,
   `[:c-pointer t]`, `[:optional t]`, and
   `[:error-union t]` (also `[:! t]`). Keywords such as `:!void` and `:!u32` are shorthand
-  for inferred error unions. A generated keyword call may also produce a type."
+  for inferred error unions. Pointer options default to `:size :one`.
+  A generated keyword call may also produce a type."
   [t]
   (cond
     (symbol? t)
@@ -1254,9 +1279,10 @@
     (let [[op & xs] t]
       (case op
         :! (str "!" (emit-type (inferred-error-payload t)))
-        :* (if (= 1 (count xs))
-             (str "*" (emit-type (first xs)))
-             (fail! "Pointer type expects one child type" t))
+        :* (case (count xs)
+             1 (str "*" (emit-type (first xs)))
+             2 (emit-general-pointer-type (first xs) (second xs) t)
+             (fail! "Pointer type expects a child type, optionally preceded by options" t))
         :*const (if (= 1 (count xs))
                   (str "*const " (emit-type (first xs)))
                   (fail! "Const pointer type expects one child type" t))
@@ -1312,9 +1338,6 @@
                                          (first xs)))
                           "}")
                      (fail! "Error set type expects one vector of error names" t))
-        :pointer (if (= 2 (count xs))
-                   (emit-general-pointer-type (first xs) (second xs) t)
-                   (fail! "General pointer type expects options and child type" t))
         :fn (let [[options arguments return-type & extra] xs]
               (when-not (and (empty? extra) (map? options)
                              (vector? arguments) return-type)
@@ -1714,7 +1737,16 @@
             (str (if logical-type-name?
                    "__aguafria_type_name"
                    (:zig-name token))
-                 "(" (str/join ", " (map emit-expr args)) ")"))]
+                 "(" (str/join ", "
+                               (let [parameters (when (and (:signature token)
+                                                           (not (str/includes? (:signature token) "...")))
+                                                  (signature/builtin-arguments (:signature token)))]
+                                 (map-indexed
+                                  (fn [index argument]
+                                    (if (= :type (:type (nth parameters index nil)))
+                                      (emit-type argument)
+                                      (emit-expr argument)))
+                                  args))) ")"))]
       call-source)
 
     :operator
@@ -2196,8 +2228,16 @@
         (str (postfix-source op) (subs (emit-expr (first args)) 1))
 
         (or (symbol? op) (keyword? op) (string? op) (seq? op))
-        (str (postfix-source op)
-             "(" (str/join ", " (map emit-expr args)) ")")
+        (let [parameters (declared-call-arguments (or *keyword-context* *ns*) op
+                                                  (when (symbol? op) (current-zig-reference op)))]
+          (str (postfix-source op)
+               "(" (str/join ", "
+                             (map-indexed
+                              (fn [index argument]
+                                (if (= :type (:type (nth parameters index nil)))
+                                  (emit-type argument)
+                                  (emit-expr argument)))
+                              args)) ")"))
 
         :else
         (fail! "Cannot emit Zig invocation" form {:operator op})))
@@ -2340,7 +2380,7 @@
     (cond-> {:kind (if var :var :const) :name binding}
       type (assoc :type type)
       (:zig/prefix metadata) (assoc :prefix (:zig/prefix metadata))
-      (:zig/align metadata) (assoc :align (:zig/align metadata))
+      (:align metadata) (assoc :align (:align metadata))
       (:zig/addrspace metadata) (assoc :addrspace (:zig/addrspace metadata))
       (:zig/linksection metadata) (assoc :linksection (:zig/linksection metadata)))))
 
@@ -2369,7 +2409,10 @@
             value))
     :else
     (let [{:keys [kind type] :as declaration} (local-binding binding)
-          options (dissoc declaration :kind :name :type)]
+          options (cond-> (dissoc declaration :kind :name :type)
+                    (and (seq? value) (= 'array (first value)) (= 4 (count value))
+                         (contains? (nth value 2) :align))
+                    (assoc :align (:align (nth value 2))))]
       (apply list (symbol (name kind)) binding
              (cond-> []
                (seq options) (conj options)
@@ -2778,7 +2821,7 @@
                                         (ensure-semicolon
                                          (emit-stmt nested level)))))
                                (fail! "defer expects one statement or do block" form))
-               (= op 'comptime-stmt)
+               (= op 'comptime)
                (if (= 1 (count args))
                  (let [nested (first args)]
                    (str "comptime "
@@ -2790,7 +2833,7 @@
                           (emit-stmt nested level)
 
                           :else (ensure-semicolon (emit-stmt nested level)))))
-                 (fail! "comptime-stmt expects one statement" form))
+                 (fail! "comptime expects one expression, statement, or block" form))
                (= op 'nosuspend)
                (if (= 1 (count args))
                  (let [nested (first args)]
@@ -2888,7 +2931,7 @@
     "dotimes" "when" "when-not"
     "if-capture-stmt"
     "switch-stmt" "labeled-switch-stmt" "block" "with-block"
-    "defer" "comptime-stmt" "errdefer" "break" "break-label" "continue"
+    "defer" "errdefer" "break" "break-label" "continue"
     "unreachable" "comment"
     "=" "+=" "-=" "*=" "/=" "%=" "+%=" "-%=" "*%="
     "+|=" "-|=" "*|=" "&=" "|=" "^=" "<<=" "<<|=" ">>="})
@@ -3183,6 +3226,7 @@
                                     (when (not= false public?) "pub "))
                 "const " (identifier declaration-name)
                 (when type (str ": " (emit-type type)))
+                (when align (str " align(" (emit-expr align) ")"))
                 (when (seq zig-qualifiers) (str " " zig-qualifiers))
                 " = " rendered
                 (expression-terminator rendered)))
@@ -3193,6 +3237,7 @@
                                     (when (not= false public?) "pub "))
                 "var " (identifier declaration-name)
                 (when type (str ": " (emit-type type)))
+                (when align (str " align(" (emit-expr align) ")"))
                 (when (seq zig-qualifiers) (str " " zig-qualifiers))
                 " = " rendered
                 (expression-terminator rendered)))
@@ -3202,6 +3247,7 @@
                                   (when public? "pub extern "))
               "var " (identifier declaration-name)
               (when type (str ": " (emit-type type)))
+              (when align (str " align(" (emit-expr align) ")"))
               (when (seq zig-qualifiers) (str " " zig-qualifiers))
               ";")
 
@@ -3253,6 +3299,7 @@
                                  (identifier name) ": " (emit-type type)))))
                    (str/join ", "))
               ")"
+              (when align (str " align(" (emit-expr align) ")"))
               (when (seq zig-qualifiers) (str " " zig-qualifiers))
               " " (emit-type return) ";")
 
@@ -3280,6 +3327,7 @@
                                    (identifier name) ": " (emit-type type)))))
                      (str/join ", "))
                 ")"
+                (when align (str " align(" (emit-expr align) ")"))
                 (when (seq zig-qualifiers) (str " " zig-qualifiers))
                 (when (and (or export? dependency-default-export?)
                            (nil? zig-prefix)
@@ -3548,7 +3596,7 @@
          wrapper-source)))
 
 (defn- emit-reloadable-state
-  [declaration {:keys [accessor getter setter size-getter align-getter
+  [declaration {:keys [accessor getter setter size-getter align-getter pointer-align-getter
                        linkable? emit-native-helpers?]}]
   (let [name (if-let [path (:state-path declaration)]
                (str/join "." (map identifier path))
@@ -3594,7 +3642,11 @@
                 "}\n\n"
                 (when linkable? "pub ")
                 "export fn " align-getter "() callconv(.c) usize {\n"
-                "    return @alignOf(@TypeOf(" name "));\n"
+                "    return @typeInfo(@TypeOf(&" name ")).pointer.alignment orelse @alignOf(@TypeOf(" name "));\n"
+                "}\n\n"
+                (when linkable? "pub ")
+                "export fn " pointer-align-getter "() callconv(.c) usize {\n"
+                "    return @typeInfo(@TypeOf(&" name ")).pointer.alignment orelse 0;\n"
                 "}")))))
 
 (defn- emit-development-declaration
@@ -3924,7 +3976,7 @@
                          true)
      :emit-source-comment? (if compact? (contains? attrs :source-comment)
                                (not= false (:source-comment attributes)))
-     :align (:zig/align attributes)}))
+     :align (:align attributes)}))
 
 (defn- nested-declaration
   [form]
@@ -4095,7 +4147,7 @@
            (declaration-notes declaration)
            (when-let [prefix (:zig/prefix attributes)] (str prefix " "))
            (emit-type type)
-           (when-let [align (:zig/align attributes)]
+           (when-let [align (:align attributes)]
              (str " align(" (emit-expr align) ")"))
            (when has-value? (str " = " (emit-expr value))) ",")
 

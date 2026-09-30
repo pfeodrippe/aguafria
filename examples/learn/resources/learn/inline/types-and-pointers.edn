@@ -268,7 +268,7 @@
   :note "A many-item pointer with sentinel x; the sentinel determines the sequence's end."}
 
  "[:x]T"
- {:clojure-source "[:pointer {:size :slice :sentinel x} T]"
+ {:clojure-source "[:* {:size :slice :sentinel x} T]"
   :kind :type
   :note "A slice with a runtime length and a guaranteed sentinel x at that length."}
 
@@ -303,7 +303,7 @@
   :note "Explicit quoted-identifier syntax. For tuple field access, a numeric keyword passed to az/field supplies the quoting automatically."}
 
  "[:0]const u8"
- {:clojure-source "[:pointer {:size :slice :sentinel 0 :const? true} :u8]"
+ {:clojure-source "[:* {:size :slice :sentinel 0 :const? true} :u8]"
   :kind :type
   :note "A read-only byte slice with a zero sentinel, as returned by @tagName."}
 

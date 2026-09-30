@@ -24,21 +24,21 @@
 
 (az/defextern fprintf :c_int
   {:zig/prefix "pub extern"}
-  [[file [:optional [:* stdio/AguafriaFile]]] [format [:pointer {:size :c :const? true} :u8]]
+  [[file [:optional [:* stdio/AguafriaFile]]] [format [:* {:size :c :const? true} :u8]]
    [... {:zig/variadic true} _]])
 
 (az/defextern snprintf :c_int
   {:zig/prefix "pub extern"}
-  [[buffer [:c-pointer :u8]] [size :usize] [format [:pointer {:size :c :const? true} :u8]]
+  [[buffer [:c-pointer :u8]] [size :usize] [format [:* {:size :c :const? true} :u8]]
    [... {:zig/variadic true} _]])
 
 (az/defextern mkdir :c_int
   {:zig/prefix "pub extern"}
-   [[path [:pointer {:size :c :const? true} :u8]] [mode :u16]])
+   [[path [:* {:size :c :const? true} :u8]] [mode :u16]])
 
 (az/defextern remove :c_int
   {:zig/prefix "pub extern"}
-   [[path [:pointer {:size :c :const? true} :u8]]])
+   [[path [:* {:size :c :const? true} :u8]]])
 
 (az/defn text! :void [[text [:slice-const :u8]]]
   (ui/aguafria_ui_text (az/field text ptr) (az/field text len) 0.87 0.91 0.94))
@@ -61,12 +61,12 @@
        (text! (az/slice buffer# 0 (ak/as (ak/intCast count#) :usize))))))
 
 (az/defn number! :void
-  [[name [:pointer {:size :c :const? true} :u8]] [value [:c-pointer :f64]]
-   [low :f64] [high :f64] [format [:pointer {:size :c :const? true} :u8]]]
+  [[name [:* {:size :c :const? true} :u8]] [value [:c-pointer :f64]]
+   [low :f64] [high :f64] [format [:* {:size :c :const? true} :u8]]]
   (ui/aguafria_ui_item_width 142)
   (set! _ (ui/aguafria_ui_slider_double name value low high format)))
 
-(az/defn metric! :void [[title [:slice-const :u8]] [value :f64] [unit [:pointer {:size :c :const? true} :u8]]]
+(az/defn metric! :void [[title [:slice-const :u8]] [value :f64] [unit [:* {:size :c :const? true} :u8]]]
   (label! title)
   (textf! "%.3f %s" value unit)
   (ui/aguafria_ui_spacing))
@@ -81,7 +81,7 @@
   (ak/| r (ak/<< g 8) (ak/<< b 16) 4278190080))
 
 (az/defn node! :void
-  [[title [:pointer {:size :c :const? true} :u8]] [subtitle [:pointer {:size :c :const? true} :u8]]
+  [[title [:* {:size :c :const? true} :u8]] [subtitle [:* {:size :c :const? true} :u8]]
    [id :i32] [panel [:* api/LabPanel]] [x :f32] [y :f32]]
   (let [selected (ak/== (az/field panel selected) id)
         accent (rgba 65 213 180)]
@@ -198,7 +198,7 @@
   (ui/aguafria_ui_separator)
   (ui/aguafria_ui_spacing)
   (text! (if scripted "v  scripted scene" "v  sphere-impact"))
-  (let [names (az/init [(if scripted "   mesh_sources" "   sphere_source") "   mechanical_solver" "   telemetry_output"] [:array 3 [:pointer {:size :c :const? true} :u8]])]
+  (let [names (az/init [(if scripted "   mesh_sources" "   sphere_source") "   mechanical_solver" "   telemetry_output"] [:array 3 [:* {:size :c :const? true} :u8]])]
     (dotimes [index 3]
       (when (ak/!= (ui/aguafria_ui_selectable (az/index names index)
                       (flag (ak/== (az/field panel selected) (ak/as (ak/intCast index) :i32)))) 0)
@@ -308,7 +308,7 @@
            (az/field panel time) "s")
   (textf! "Speed %.3f m/s" (az/field panel speed))
   (if (ak/!= (az/field panel deform) 0)
-    (textf! "%s %.1f%% / min Y %.3f m" (ak/as (if scripted "Height decrease" "Compression") (az/type [:pointer {:size :c :const? true} :u8]))
+    (textf! "%s %.1f%% / min Y %.3f m" (ak/as (if scripted "Height decrease" "Compression") (az/type [:* {:size :c :const? true} :u8]))
             (* (az/field panel compression) 100) (az/field panel clearance))
     (textf! "Impacts  %d" (az/field panel impacts)))
   (textf! "Cache    %d / 14401" (az/field panel count))
@@ -450,11 +450,11 @@
                     "{\n  \"solver\": \"%s\",\n  \"%s\": %.17g,\n  \"poisson_ratio\": %s,\n  \"body_count\": %d,\n  \"dt_s\": %.17g,\n  \"radius_m\": %.17g,\n  \"mass_kg\": %.17g,\n  \"drop_gap_m\": %.17g,\n  \"gravity_m_s2\": %.17g,\n  \"restitution\": %.17g,\n  \"friction\": %.17g,\n  \"rolling\": %.17g,\n  \"launch_x_m_s\": %.17g,\n  \"launch_z_m_s\": %.17g,\n  \"spin_y_rad_s\": %.17g\n}\n"
                     (ak/as (if (ak/== deform 2) "field-lab-stable-neo-hookean-v1"
                         (if (ak/!= deform 0) "field-lab-xpbd-v1" "field-lab-rigid-v1"))
-                      (az/type [:pointer {:size :c :const? true} :u8]))
+                      (az/type [:* {:size :c :const? true} :u8]))
                     (ak/as (if (ak/== deform 2) "young_modulus_Pa" "effective_stiffness_Pa")
-                      (az/type [:pointer {:size :c :const? true} :u8]))
+                      (az/type [:* {:size :c :const? true} :u8]))
                     stiffness
-                    (ak/as (if (ak/== deform 2) "0.4" "null") (az/type [:pointer {:size :c :const? true} :u8]))
+                    (ak/as (if (ak/== deform 2) "0.4" "null") (az/type [:* {:size :c :const? true} :u8]))
                     bodies dt radius mass height gravity restitution friction rolling vx vz spin)
           closed (stdio/fclose metadata)]
       (when (or (< written 0) (ak/!= closed 0)) (ak/return null))))
@@ -527,7 +527,7 @@
     (flag (>= (fprintf (az/field run cells) "%d,%d,%d,%d,%d,%d\n" body cell a b c d) 0))))
 
 (az/defn export-scene-source! :i32
-  [[file [:optional [:* :anyopaque]]] [source [:pointer {:size :c :const? true} :u8]] [bodies :i32] [dt :f64]]
+  [[file [:optional [:* :anyopaque]]] [source [:* {:size :c :const? true} :u8]] [bodies :i32] [dt :f64]]
   (when (or (ak/== file null) (ak/== source null)) (ak/return 0))
   (dotimes [index 64]
     (let [character (az/index source index)]
@@ -550,9 +550,9 @@
     (flag (and (ak/!= (az/field run metadata) null)
                (>= (fprintf (az/field run metadata)
                      "%s{\"body\":%d,\"mass_kg\":%.17g,\"young_modulus_Pa\":%.17g,\"poisson_ratio\":%.17g,\"gravity_m_s2\":[%.17g,%.17g,%.17g],\"floor\":%s,\"friction\":%.17g}"
-                     (ak/as (if (ak/!= body 0) ",\n" "") (az/type [:pointer {:size :c :const? true} :u8]))
+                     (ak/as (if (ak/!= body 0) ",\n" "") (az/type [:* {:size :c :const? true} :u8]))
                      body mass young poisson gx gy gz
-                     (ak/as (if (ak/!= floor 0) "true" "false") (az/type [:pointer {:size :c :const? true} :u8])) friction) 0)))))
+                     (ak/as (if (ak/!= floor 0) "true" "false") (az/type [:* {:size :c :const? true} :u8])) friction) 0)))))
 
 (az/defn export-end! :i32 [[file [:optional [:* :anyopaque]]]]
   (when (ak/== file null) (ak/return 0))

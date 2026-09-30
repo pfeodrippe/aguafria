@@ -9,14 +9,14 @@
         ;; To shuffle within a single vector, pass undefined as the second argument.
         ;; Notice that we can re-order, duplicate, or omit elements of the input vector
         mask1 (az/vector [2 3 1 1 0] :i32)
-        res1 (k/shuffle (az/type :u8) a k/undefined mask1)]
+        res1 (k/shuffle :u8 a k/undefined mask1)]
     (try (testing/expectEqualStrings
-          "hello" (k/& (k/as res1 (az/type [:array 5 :u8])))))
+          "hello" (k/& (k/as res1 [:array 5 :u8]))))
     ;; Combining two vectors
     (let [mask2 (az/vector [-1 0 4 1 -2 -3] :i32)
-          res2 (k/shuffle (az/type :u8) a b mask2)]
+          res2 (k/shuffle :u8 a b mask2)]
       (try (testing/expectEqualStrings
-            "world!" (k/& (k/as res2 (az/type [:array 6 :u8]))))))))
+            "world!" (k/& (k/as res2 [:array 6 :u8])))))))
 
 (comment
   (vector-shuffle))

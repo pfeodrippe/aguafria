@@ -12,8 +12,8 @@
   (try (testing/expectEqual \i (az/get s 1))))
 
 (az/deftest fully-anonymous-struct
-  (try (check {:int (k/as 1234 (az/type :u32))
-               :float (k/as 12.34 (az/type :f64))
+  (try (check {:int (k/as 1234 :u32)
+               :float (k/as 12.34 :f64)
                :b true
                :s "hi"})))
 

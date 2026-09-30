@@ -14,7 +14,7 @@
     (debug/print "anonymous: {s}\n"
                  [(k/typeName (az/struct
                                []))])
-    (debug/print "function: {s}\n" [(k/typeName (List (az/type :i32)))])))
+    (debug/print "function: {s}\n" [(k/typeName (List :i32))])))
 
 (comment
   (main))

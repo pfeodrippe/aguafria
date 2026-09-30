@@ -4,8 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest volatile
-  (let [mmio-ptr (k/as (k/ptrFromInt 0x12345678) [:pointer {:volatile? true, :size :one} :u8])]
-    (try (testing/expectEqual (az/type [:pointer {:size :one :volatile? true} :u8])
+  (let [mmio-ptr (k/as (k/ptrFromInt 0x12345678) [:* {:volatile? true} :u8])]
+    (try (testing/expectEqual (az/type [:* {:volatile? true} :u8])
                               (k/TypeOf mmio-ptr)))))
 
 (comment

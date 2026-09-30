@@ -98,13 +98,18 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"result expression"
                        (emit/emit-expr '(let [[left right] (read-pair)])))))
 
-(deftest unsupported-let-patterns-fail-before-zig
-  (doseq [pattern '[[[left right] third] [left & remaining] [] [left :as pair]
-                   [left {:right right}]]]
+(deftest clojure-let-patterns-are-supported
+  (doseq [pattern '[[[left right] third] [left & remaining] [] [left :as pair]]]
     (testing (pr-str pattern)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fixed vector of names"
+      (is (string? (emit/emit-stmt (list 'let [pattern '(read-values)]) 0)))
+      (is (string? (emit/emit-expr (list 'let [pattern '(read-values)] 1)))))))
+
+(deftest unsupported-let-patterns-fail-before-zig
+  (doseq [pattern '[[left {:right right}]]]
+    (testing (pr-str pattern)
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"field names must be keywords or strings"
                            (emit/emit-stmt (list 'let [pattern '(read-values)]) 0)))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fixed vector of names"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"field names must be keywords or strings"
                            (emit/emit-expr (list 'let [pattern '(read-values)] 1)))))))
 
 (deftest unsupported-vector-assignment-patterns-fail-before-zig
@@ -116,7 +121,7 @@
 (deftest scalar-local-metadata-is-preserved
   (let [source (emit/emit-stmt
                 '(let [^{:var :i32 :zig/prefix "comptime"} count 0
-                       ^{:var [:array 4 :u8] :zig/align 16} bytes aguafria.keyword/undefined]
+                       ^{:var [:array 4 :u8] :align 16} bytes aguafria.keyword/undefined]
                    (set! count 1)
                    (consume (& bytes))) 0)]
     (is (str/includes? source "comptime var count: i32 = 0;"))
@@ -125,14 +130,14 @@
 (deftest destructured-local-metadata-is-preserved
   (let [source (emit/emit-stmt
                 '(let [[^{:var :i32 :zig/prefix "comptime"} count
-                        ^{:zig/type :i32 :zig/align 16} aligned]
+                        ^{:zig/type :i32 :align 16} aligned]
                        (read-pair)]
                    (set! count 1)
                    (consume aligned)) 0)]
     (is (str/includes? source
                        "comptime var count: i32, const aligned: i32 align(16) = read_pair();")))
   (let [source (emit/emit-stmt
-                '(let [[^{:var :i32 :zig/prefix "comptime" :zig/align 8} only]
+                '(let [[^{:var :i32 :zig/prefix "comptime" :align 8} only]
                        (read-single)]
                    (set! only 1)) 0)]
     (is (str/includes? source

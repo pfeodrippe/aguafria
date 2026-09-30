@@ -184,7 +184,7 @@
         glfw-extensions (vk/glfwGetRequiredInstanceExtensions (ak/& extension-count))
         ^:var extensions
         (std-mem/zeroes
-         (az/type [:array 8 [:pointer {:size :c :const? true} :u8]]))]
+         (az/type [:array 8 [:* {:size :c :const? true} :u8]]))]
     (std-debug/assert (ak/!= glfw-extensions null))
     (std-debug/assert (< extension-count 8))
     (dotimes [index extension-count]
@@ -262,7 +262,7 @@
           :queueCount 1
           :pQueuePriorities (ak/& priority)})
         extensions
-        (az/init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:pointer {:size :c :const? true} :u8]])
+        (az/init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:* {:size :c :const? true} :u8]])
         features (vk/VkPhysicalDeviceVulkan12Features
                    {:sType vk/VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
                     :bufferDeviceAddress vk/VK_TRUE :scalarBlockLayout vk/VK_TRUE})
@@ -622,7 +622,7 @@
 
 (az/defn load-shader-module vk/VkShaderModule
   "Load one checked-in SPIR-V shader and create its Vulkan module."
-  [[path [:pointer {:size :c :const? true} :u8]]]
+  [[path [:* {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
         ^{:var true} module (ak/as null vk/VkShaderModule)]
     (when (ak/== file null) (ak/return null))

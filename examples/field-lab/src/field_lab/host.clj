@@ -16,19 +16,19 @@
 (require '[field-lab.host-api :as api])
 
 (az/defextern dlopen [:optional [:* :anyopaque]] {:zig/prefix "pub extern"}
-   [[path [:pointer {:size :c :const? true} :u8]] [flags :c_int]])
+   [[path [:* {:size :c :const? true} :u8]] [flags :c_int]])
 
 (az/defextern dlsym [:optional [:* :anyopaque]] {:zig/prefix "pub extern"}
-   [[handle [:optional [:* :anyopaque]]] [name [:pointer {:size :c :const? true} :u8]]])
+   [[handle [:optional [:* :anyopaque]]] [name [:* {:size :c :const? true} :u8]]])
 
 (az/defextern dlclose :c_int {:zig/prefix "pub extern"}
    [[handle [:optional [:* :anyopaque]]]])
 
-(az/defextern getenv [:pointer {:size :c :const? true} :u8] {:zig/prefix "pub extern"}
-   [[name [:pointer {:size :c :const? true} :u8]]])
+(az/defextern getenv [:* {:size :c :const? true} :u8] {:zig/prefix "pub extern"}
+   [[name [:* {:size :c :const? true} :u8]]])
 
 (az/defextern open :c_int {:zig/prefix "pub extern"}
-   [[path [:pointer {:size :c :const? true} :u8]] [flags :c_int] [... {:zig/variadic true} _]])
+   [[path [:* {:size :c :const? true} :u8]] [flags :c_int] [... {:zig/variadic true} _]])
 
 (az/defextern close :c_int {:zig/prefix "pub extern"}
    [[descriptor :c_int]])
@@ -40,16 +40,16 @@
    [[descriptor :c_int] [buffer [:*const :anyopaque]] [count :usize]])
 
 (az/defextern rename :c_int {:zig/prefix "pub extern"}
-   [[before [:pointer {:size :c :const? true} :u8]] [after [:pointer {:size :c :const? true} :u8]]])
+   [[before [:* {:size :c :const? true} :u8]] [after [:* {:size :c :const? true} :u8]]])
 
 (az/defextern unlink :c_int {:zig/prefix "pub extern"}
-   [[path [:pointer {:size :c :const? true} :u8]]])
+   [[path [:* {:size :c :const? true} :u8]]])
 
 (az/defextern access :c_int {:zig/prefix "pub extern"}
-   [[path [:pointer {:size :c :const? true} :u8]] [mode :c_int]])
+   [[path [:* {:size :c :const? true} :u8]] [mode :c_int]])
 
 (az/defextern opendir [:optional [:* :anyopaque]] {:zig/prefix "pub extern"}
-   [[path [:pointer {:size :c :const? true} :u8]]])
+   [[path [:* {:size :c :const? true} :u8]]])
 
 (az/defextern closedir :c_int {:zig/prefix "pub extern"}
    [[directory [:optional [:* :anyopaque]]]])
@@ -106,17 +106,17 @@
 (az/defn unlock! :void []
   (ak/atomicStore :u8 (ak/& mailbox) 0 :.release))
 
-(az/defn bounded-length :usize [[text [:pointer {:size :c :const? true} :u8]] [limit :usize]]
+(az/defn bounded-length :usize [[text [:* {:size :c :const? true} :u8]] [limit :usize]]
   (when (ak/== text null) (ak/return 0))
   (let [^:var length (ak/usize 0)]
     (while (and (< length limit) (ak/!= (az/index text length) 0)) (set! length (+ length 1)))
     length))
 
-(az/defn copy-string! :void [[destination [:slice :u8]] [source [:pointer {:size :c :const? true} :u8]] [length :usize]]
+(az/defn copy-string! :void [[destination [:slice :u8]] [source [:* {:size :c :const? true} :u8]] [length :usize]]
   (dotimes [index length] (set! (az/index destination index) (az/index source index)))
   (set! (az/index destination length) 0))
 
-(az/defn valid-id? :bool [[id [:pointer {:size :c :const? true} :u8]]]
+(az/defn valid-id? :bool [[id [:* {:size :c :const? true} :u8]]]
   (let [length (bounded-length id 65)]
     (when (or (ak/== length 0) (> length 64)) (ak/return false))
     (dotimes [index length]
@@ -135,7 +135,7 @@
   null)
 
 (az/defn pitoco_submit_v1 :u32
-  {:attrs #{:export}} [[command [:pointer {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
+  {:attrs #{:export}} [[command [:* {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
   (when (or (ak/== command null) (ak/== ticket null)) (ak/return 3))
   (set! (az/deref ticket) 0)
   (when (or (ak/!= (az/field (az/index command 0) abi_version) 1) (< (az/field (az/index command 0) struct_size) (ak/sizeOf api/PitocoCommandV1)))
@@ -179,7 +179,7 @@
   (api/PitocoHostV1 {:abi_version 1 :struct_size (ak/sizeOf api/PitocoHostV1)
                      :submit (ak/& pitoco_submit_v1) :status (ak/& pitoco_status_v1)}))
 
-(az/defn load-plugin! :u32 [[path [:pointer {:size :c :const? true} :u8]]]
+(az/defn load-plugin! :u32 [[path [:* {:size :c :const? true} :u8]]]
   (when (or (ak/== path null) (ak/!= (az/index path 0) 47)) (ak/return 3))
   (let [^:var available (ak/as null [:optional [:* Plugin]])]
     (dotimes [index 16]
@@ -226,7 +226,7 @@
     0))
 
 (az/defn pitoco_bridge_open_v1 :u32
-  {:attrs #{:export}} [[directory [:pointer {:size :c :const? true} :u8]]]
+  {:attrs #{:export}} [[directory [:* {:size :c :const? true} :u8]]]
   (set! checked-environment true)
   (let [length (bounded-length directory 4097)]
     (when (or (ak/== length 0) (> length 4096) (ak/!= (az/index directory 0) 47)) (ak/return 3))
@@ -253,7 +253,7 @@
 
 (az/defn execute! :u32 [[request [:*const Pending]] [panel [:c-pointer api/LabPanel]]]
   (let [operation (az/field request operation)
-        text (ak/as (ak/& (az/index (az/field request text) 0)) (az/type [:pointer {:size :c :const? true} :u8]))
+        text (ak/as (ak/& (az/index (az/field request text) 0)) (az/type [:* {:size :c :const? true} :u8]))
         length (bounded-length text 4097)]
     (cond
       (ak/== operation 1)
@@ -433,7 +433,7 @@
   (pitoco_tick_v1 panel))
 
 (az/defn pitoco_aguafria_submit_v1 :u32
-  {:attrs #{:export}} [[command [:pointer {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
+  {:attrs #{:export}} [[command [:* {:size :c :const? true} api/PitocoCommandV1]] [ticket [:c-pointer :u64]]]
   (pitoco_submit_v1 command ticket))
 
 (az/defn pitoco_aguafria_shutdown_v1 :void

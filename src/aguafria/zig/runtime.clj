@@ -922,6 +922,7 @@
                               (nil? zig-prefix)) :c
                          :else :zig)
    :prefix zig-prefix
+   :align (:align declaration)
    :arguments
    (mapv (fn [{:keys [type properties]}]
            {:type type
@@ -979,6 +980,7 @@
    ;; data when loaded. Their initializer is implementation, not layout,
    ;; otherwise changing `0` to `1` would spuriously demand a migration.
    :type (or type :zig-inferred)
+   :align (:align declaration)
    ;; A named type is not a complete storage identity: its Var can acquire a
    ;; new struct/container layout while retaining the same Zig name. Include
    ;; the referenced type shapes so that state migration is requested before
@@ -1011,7 +1013,7 @@
     (cond->
      {:kind kind
       :attributes (select-keys attributes
-                               [:attrs :align :zig/align :zig/prefix])}
+                               [:attrs :align :zig/prefix])}
       field-name (assoc :name (emit/identifier field-name))
       (= :enum-field-decl kind) (assoc :value type-or-value)
       (contains? #{:field-decl :tuple-field-decl} kind)
@@ -1139,7 +1141,7 @@
             (assoc :implementation-fingerprint
                    (data-fingerprint
                     (select-keys declaration
-                                 [:kind :type :value
+                                 [:kind :type :value :align
                                   :type-dependency-fingerprints
                                   :callable-dependency-fingerprints])))
 
@@ -1150,7 +1152,7 @@
                     (select-keys declaration
                                  [:kind :name :zig-name :args :return :body
                                   :export? :development-export? :public?
-                                  :zig-prefix :zig-qualifiers
+                                  :zig-prefix :zig-qualifiers :align
                                   :implicit-return?
                                   :type-dependency-fingerprints
                                   :callable-dependency-fingerprints])))
@@ -1272,7 +1274,12 @@
   [file]
   (when file
     (let [source-file (io/file file)
-          source (if (.isFile source-file) source-file (io/resource file))]
+          resource (when-not (.exists source-file) (io/resource file))
+          source (cond
+                   (.isFile source-file) source-file
+                   (and resource
+                        (or (not= "file" (.getProtocol resource))
+                            (.isFile (io/file resource)))) resource)]
       (when source (slurp source)))))
 
 (defn- existing-source-line
@@ -1702,7 +1709,8 @@
      :getter (str prefix "_address")
      :setter (str prefix "_set_address")
      :size-getter (str prefix "_size")
-     :align-getter (str prefix "_alignment")}))
+     :align-getter (str prefix "_alignment")
+     :pointer-align-getter (str prefix "_pointer_alignment")}))
 
 (defn- container-state-declarations
   [declaration]
@@ -2406,7 +2414,7 @@
         ;; turn incorrectly disables stable dispatch for inferred error sets.
         ;; Only Zig-emitted signature/schema/implementation forms can create a
         ;; native dependency edge.
-        (select-keys declaration [:args :return :body :value :type :fields])
+        (select-keys declaration [:args :return :body :value :type :fields :align])
         reference-values (nested-form-values reference-source)
         same-module-by-name
         (get-in @declaration-reference-index
@@ -3414,7 +3422,8 @@
                             (mapcat
                              (fn [{:keys [spec]}]
                                [(:getter spec) (:setter spec)
-                                (:size-getter spec) (:align-getter spec)])
+                                (:size-getter spec) (:align-getter spec)
+                                (:pointer-align-getter spec)])
                              (filter #(linkage-entry? logical-ids %)
                                      state-entries)))
                            (remove nil?)
@@ -4268,6 +4277,7 @@
         address-handle (bind-getter (:getter spec))
         size-handle (bind-getter (:size-getter spec))
         align-handle (bind-getter (:align-getter spec))
+        pointer-align-handle (bind-getter (:pointer-align-getter spec))
         setter-handle
         (.downcallHandle linker (find-required (:setter spec))
                          setter-descriptor options)
@@ -4279,6 +4289,8 @@
            :address (call-long address-handle)
            :size (call-long size-handle)
            :alignment (call-long align-handle)
+           :pointer-alignment (let [alignment (call-long pointer-align-handle)]
+                                (when (pos? alignment) alignment))
            :setter-handle setter-handle)))
 
 (defn- dependency-dispatch-entries
@@ -4853,7 +4865,7 @@
                      (assoc (select-keys binding
                                          [:version-key :logical-id
                                           :schema-fingerprint :address :size
-                                          :alignment])
+                                          :alignment :pointer-alignment])
                             :generation generation
                             :active? true
                             :status :initialized)))
@@ -4889,7 +4901,7 @@
                          (assoc (select-keys binding
                                              [:version-key :logical-id
                                               :schema-fingerprint :address
-                                              :size :alignment])
+                                              :size :alignment :pointer-alignment])
                                 :generation generation
                                 :active? true
                                 :status :migrated
@@ -6861,7 +6873,7 @@
                                        (declaration-index-names d)))
                                 (vals by-id)))
         source-keys [:kind :name :zig-name :layout :type :value :fields :args :return
-                     :body :zig-prefix :zig-qualifiers :implicit-return? :export?
+                     :body :zig-prefix :zig-qualifiers :align :implicit-return? :export?
                      :development-export? :public?]
         reference-id
         (fn [d v]
@@ -6950,7 +6962,7 @@
                    (let [source-reference-changed? (volatile! false)
                          self-logical-id (:logical-id declaration)
                          reference-source-keys
-                       [:args :return :body :value :type :fields]
+                       [:args :return :body :value :type :fields :align]
                          refreshed
                        (merge
                         declaration
@@ -7370,7 +7382,7 @@
                 ;; `declaration-reference-logical-ids`.
                 reference-source
                 (select-keys declaration
-                             [:args :return :body :value :type :fields])
+                             [:args :return :body :value :type :fields :align])
                 references
                 (->> (concat
                       (keep (fn [value]
@@ -12767,7 +12779,7 @@
                          :logical-id logical-id
                          :versions (state-versions
                                     (symbol module (str name)))})))
-      (let [{:keys [address size alignment generation version-key]}
+      (let [{:keys [address size alignment pointer-alignment generation version-key]}
             state-version
             allocation-arena
             (locking compile-lock
@@ -12812,6 +12824,7 @@
                                 (long size))
          :size size
          :alignment alignment
+         :pointer-alignment pointer-alignment
          :schema (assoc schema :allocation-arena allocation-arena)
          :generation (or (:wrapper-generation owner-binding) generation)
          :close! close!}))))

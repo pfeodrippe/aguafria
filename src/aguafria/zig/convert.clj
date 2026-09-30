@@ -1316,8 +1316,9 @@
                          (and (= :c size) const-token)
                          (and (= :slice size) sentinel-node))]
       (if qualified?
-        [:pointer
-         (cond-> {:size size}
+        [:*
+         (cond-> {}
+           (not= :one size) (assoc :size size)
            const-token (assoc :const? true)
            volatile (assoc :volatile? true)
            allowzero (assoc :allowzero? true)
@@ -1679,7 +1680,7 @@
                      (not= (str name) zig-name) (assoc :zig/name zig-name)
                      comptime-token (assoc :zig/prefix
                                            (token-text context comptime-token))
-                     align-node (assoc :zig/align
+                     align-node (assoc :align
                                        (translate-expr context align-node)))
         value (when value-node (translate-expr context value-node))
         docstring (docstring-from-leading leading)]
@@ -1857,7 +1858,7 @@
 
       (= :defer tag) (list 'defer (translate-stmt context a))
       (= :errdefer tag) (translate-errdefer context node-index)
-      (= :comptime tag) (list 'comptime-stmt (translate-stmt context a))
+      (= :comptime tag) (list 'comptime (translate-stmt context a))
       (= :if tag) (translate-if context node-index true)
       (= :if_simple tag) (translate-if context node-index true)
       (contains? (:while-index context) node-index) (translate-while context node-index)
@@ -2027,12 +2028,25 @@
         token-index
         (recur (inc token-index) depth)))))
 
+(declare token-before-tag)
+
+(defn- qualifier-source
+  [context start end align-node]
+  (str/trim
+   (if align-node
+     (let [align-token (token-before-tag context (:first-token (node context align-node))
+                                        :keyword_align)
+           close-token (matching-rparen context (inc align-token))]
+       (str (byte-slice (:source-bytes context) start (token-start context align-token))
+            (byte-slice (:source-bytes context) (token-end context close-token) end)))
+     (byte-slice (:source-bytes context) start end))))
+
 (defn- function-qualifiers
-  [context lparen return-node]
+  [context lparen return-node align-node]
   (let [rparen (matching-rparen context lparen)
         start (token-end context rparen)
         end (first (node-range context return-node))]
-    (str/trim (byte-slice (:source-bytes context) start end))))
+    (qualifier-source context start end align-node)))
 
 (defn- function-arguments
   [context params]
@@ -2055,7 +2069,7 @@
 (defn- translate-function-declaration
   [context node-index order leading]
   (let [[_ proto-node body-node name-token return-node lparen _visibility _extern _lib
-         _align _addrspace _section _callconv params]
+         align-node _addrspace _section _callconv params]
         (get (:function-index context) node-index)
         zig-name (when name-token (token-text context name-token))
         name (when zig-name (or (get (:declaration-names context) zig-name)
@@ -2064,7 +2078,7 @@
       nil
       (let [prefix (prefix-before-token context node-index
                                         (:main-token (node context proto-node)))
-            qualifiers (function-qualifiers context lparen return-node)
+            qualifiers (function-qualifiers context lparen return-node align-node)
             metadata {:export (words-contain? prefix "export")
                       :public (or (words-contain? prefix "pub")
                                   (words-contain? prefix "export"))
@@ -2072,7 +2086,8 @@
                       :zig/order order
                       :zig/leading leading
                       :zig/prefix prefix
-                      :zig/qualifiers (when (seq qualifiers) qualifiers)}
+                      :zig/qualifiers (when (seq qualifiers) qualifiers)
+                      :align (when align-node (translate-expr context align-node))}
             [declaration-name attributes]
             (declaration-name-and-attributes context zig-name metadata)
             return (translate-type context return-node)
@@ -2101,7 +2116,7 @@
         (recur (dec token-index))))))
 
 (defn- variable-qualifiers
-  [context name-token type-node init-node]
+  [context name-token type-node init-node align-node]
   (let [equal-token (token-before-tag context
                                       (:first-token (node context init-node))
                                       :equal)
@@ -2109,9 +2124,8 @@
                 (second (node-range context type-node))
                 (token-end context name-token))]
     (when equal-token
-      (let [source (str/trim
-                    (byte-slice (:source-bytes context) start
-                                (token-start context equal-token)))]
+      (let [source (qualifier-source context start
+                                     (token-start context equal-token) align-node)]
         (when (seq source) source)))))
 
 (defn- import-initializer
@@ -2149,7 +2163,7 @@
 (defn- translate-var-declaration
   [context node-index order leading]
   (let [[_ _visibility extern-token _lib _threadlocal _comptime mut-token type-node
-         _align _addrspace _section init-node]
+         align-node _addrspace _section init-node]
         (get (:var-index context) node-index)
         name-token (inc mut-token)
         zig-name (token-text context name-token)
@@ -2162,7 +2176,8 @@
                       :source-comment false
                       :zig/order order
                       :zig/leading leading
-                      :zig/prefix prefix}
+                      :zig/prefix prefix
+                      :align (when align-node (translate-expr context align-node))}
             [declaration-name attributes]
             (declaration-name-and-attributes context zig-name metadata)
             docstring (docstring-from-leading leading)
@@ -2223,7 +2238,7 @@
           (let [kind (if (= :keyword_const (first (token context mut-token)))
                        'az/defconst 'az/defvar)
                 type (when type-node (translate-type context type-node))
-                qualifiers (variable-qualifiers context name-token type-node init-node)
+                qualifiers (variable-qualifiers context name-token type-node init-node align-node)
                 attributes (cond-> attributes
                              qualifiers (assoc :zig/qualifiers qualifiers))]
             (apply list kind declaration-name
@@ -2282,7 +2297,7 @@
                     :zig/leading leading
                     :zig/prefix (when comptime-token
                                   (token-text context comptime-token))
-                    :zig/align (when align-node
+                    :align (when align-node
                                  (translate-expr context align-node))}
           [declaration-name attributes]
           (declaration-name-and-attributes context zig-name metadata)
@@ -2296,7 +2311,7 @@
 (defn- translate-function-prototype
   [context node-index order leading]
   (let [[_ name-token return-node lparen _visibility _extern _lib
-         _align _addrspace _section _callconv params]
+         align-node _addrspace _section _callconv params]
         (get (:function-prototype-index context) node-index)
         zig-name (when name-token (token-text context name-token))]
     (when-not (and zig-name return-node)
@@ -2306,14 +2321,15 @@
                        :source (node-source context node-index)})))
     (let [prefix (prefix-before-token context node-index
                                       (:main-token (node context node-index)))
-          qualifiers (function-qualifiers context lparen return-node)
+          qualifiers (function-qualifiers context lparen return-node align-node)
           metadata {:export false
                     :public (words-contain? prefix "pub")
                     :source-comment false
                     :zig/order order
                     :zig/leading leading
                     :zig/prefix prefix
-                    :zig/qualifiers (when (seq qualifiers) qualifiers)}
+                    :zig/qualifiers (when (seq qualifiers) qualifiers)
+                    :align (when align-node (translate-expr context align-node))}
           [declaration-name attributes]
           (declaration-name-and-attributes context zig-name metadata)
           docstring (docstring-from-leading leading)]

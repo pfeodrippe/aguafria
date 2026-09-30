@@ -878,7 +878,7 @@
 (az/defn load-replay-file! ReplayFileSummary
   "Load one canonical little-endian replay artifact with strict schema,
   provenance, size, ordering, and intent validation."
-  [[path [:pointer {:size :c :const? true} :u8]]]
+  [[path [:* {:size :c :const? true} :u8]]]
   (let [file (runtime/fopen path "rb")]
     (if (ak/== file ak/null)
       (replay-file-summary false replay-file-open-failed 0 0 0 0 0)
@@ -1010,7 +1010,7 @@
 
 (az/defn register-component :u64
   [[flecs-world [:* flecs/ecs_world_t]]
-   [component-name [:pointer {:size :c :const? true} :u8]]
+   [component-name [:* {:size :c :const? true} :u8]]
    [byte-size :usize]
    [byte-alignment :usize]]
   (let [entity-desc (flecs/ecs_entity_desc_t {:name component-name})
@@ -2575,7 +2575,7 @@
   identity/time comes from the request, not text invented by the model.
   Every bounded reply is retained verbatim, including rejected replies."
   [[index :usize] [epoch :u64] [revision :u64] [observed :u64] [expires :u64]
-   [bytes [:pointer {:size :c :const? true} :u8]] [length :usize] [complete :bool] [generated :bool]]
+   [bytes [:* {:size :c :const? true} :u8]] [length :usize] [complete :bool] [generated :bool]]
   (when (or (>= index racer-count) (ak/! initialized))
     (ak/return protocol/plan-inactive-driver))
   (let [state (ak/& (az/index language-drivers index))

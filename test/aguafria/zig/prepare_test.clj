@@ -19,7 +19,7 @@
          (mapv :field-name
                (prepare/type-fields
                 '(az/if-capture {:payload [a]} alignment
-                               (type [:pointer {:size :slice :align a} T])
+                               (type [:* {:size :slice :align a} T])
                                (type [:slice T]))))))
   (is (empty? (prepare/type-fields '(if condition (type [:slice :u8]) :u32))))
   (is (empty? (prepare/type-fields '(unknown-type-constructor :u8)))))

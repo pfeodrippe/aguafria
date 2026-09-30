@@ -10,7 +10,7 @@
 
 (az/deftest tagName
   (try (testing/expectEqualSlices
-        (az/type :u8) "a" (k/tagName (:a Small2)))))
+        :u8 "a" (k/tagName (:a Small2)))))
 
 (comment
   (tagName))

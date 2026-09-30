@@ -40,7 +40,7 @@
 
 (az/defn request! :bool
   "Copy a NUL-terminated path; reject empty/oversized paths and an occupied slot."
-  [[path [:pointer {:size :c :const? true} :u8]]]
+  [[path [:* {:size :c :const? true} :u8]]]
   (when (ak/== path ak/null) (ak/return false))
   (let [^:var length (ak/usize 0)]
     (while (and (< length 1024) (ak/!= (az/index path length) 0))

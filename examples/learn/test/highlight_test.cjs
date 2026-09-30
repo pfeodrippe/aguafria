@@ -86,7 +86,7 @@ test("every authored lesson keeps its exact text after highlighting", () => {
     for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) visit(file);
-      else if (file.endsWith(".clj")) {
+      else if (entry.isFile() && file.endsWith(".clj")) {
         const source = fs.readFileSync(file, "utf8");
         assert.equal(highlight(source).textContent, source, file);
       }

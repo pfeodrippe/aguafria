@@ -254,7 +254,7 @@
         glfw-extensions (vk/glfwGetRequiredInstanceExtensions (ak/& extension-count))
         ^:var extensions
         (std-mem/zeroes
-         (az/type [:array 8 [:pointer {:size :c :const? true} :u8]]))]
+         (az/type [:array 8 [:* {:size :c :const? true} :u8]]))]
     (std-debug/assert (ak/!= glfw-extensions ak/null))
     (std-debug/assert (<= extension-count 6))
     (dotimes [index extension-count]
@@ -323,7 +323,7 @@
           :queueCount 1
           :pQueuePriorities (ak/& priority)})
         extensions
-        (az/init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:pointer {:size :c :const? true} :u8]])
+        (az/init [vk/VK_KHR_SWAPCHAIN_EXTENSION_NAME "VK_KHR_portability_subset"] [:array 2 [:* {:size :c :const? true} :u8]])
         create-info
         (vk/VkDeviceCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
@@ -648,7 +648,7 @@
 
 (az/defn load-shader-module vk/VkShaderModule
   "Load one checked-in SPIR-V shader and create its Vulkan module."
-  [[path [:pointer {:size :c :const? true} :u8]]]
+  [[path [:* {:size :c :const? true} :u8]]]
   (let [file (stdio/fopen path "rb")
         ^{:var true} module (ak/as ak/null vk/VkShaderModule)]
     (std-debug/assert (ak/!= file ak/null))
@@ -837,7 +837,7 @@
   (std-debug/assert (and (> byte-count 0) (<= byte-count 128)
                          (ak/== (mod byte-count 4) 0)))
   (std-debug/assert (ak/!= active-command-buffer ak/null))
-  (let [source (ak/as (ak/ptrCast data) [:pointer {:size :c, :const? true} :u8])
+  (let [source (ak/as (ak/ptrCast data) [:* {:size :c, :const? true} :u8])
         target (ak/as (ak/ptrCast (ak/& (az/index saved-frame-data 0))) [:c-pointer :u8])]
     (dotimes [i byte-count] (ak/= (az/index target i) (az/index source i))))
   (ak/= saved-frame-data-bytes byte-count)

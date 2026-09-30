@@ -227,7 +227,7 @@
   :note "The reference's storage-size example; the comparison runs on both sides with the same target."}
 
  "@typeInfo(@TypeOf(ptr)).pointer.alignment"
- {:clojure-source "(az/get-in (k/typeInfo (k/TypeOf ptr)) [:pointer :alignment])" :kind :expr
+ {:clojure-source "(az/get-in (k/typeInfo (k/TypeOf ptr)) [:* :alignment])" :kind :expr
   :note "The alignment recorded in the surrounding pointer's type information."}
 
  ">= @sizeOf(T)."
@@ -383,7 +383,7 @@
   :note "A public top-level _start declaration disables Zig's default startup routine; it is not a function body."}
 
  "const assert = @import(\"std\").debug.assert;\ncomptime {\n    assert(*u32 == *align(@alignOf(u32)) u32);\n}"
- {:clojure-source "(az/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (k/== (az/type [:* :u32])\n        (az/type [:pointer {:size :one :align (k/alignOf :u32)} :u32]))))"
+ {:clojure-source "(az/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (k/== (az/type [:* :u32])\n        (az/type [:* {:align (k/alignOf :u32)} :u32]))))"
   :kind :declarations
   :expected-compile-error "reached unreachable code"
   :note "A module-level pointer-alignment assertion, preserved from the reference. The original and translated assertion both fail with the pinned 0.16.0 compiler on this target; it is not a successful compilation example."}}

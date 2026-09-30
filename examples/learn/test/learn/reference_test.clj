@@ -936,6 +936,16 @@
                                          {:status :translated :clojure-path "example.clj"}))))))
 
 (deftest native-diagnostics-are-not-confused-with-jvm-recipe-errors
+  (is (not (ref/verified-comment?
+            {:kind "test_safety=incorrect alignment"}
+            {:scope :native-failure-requires-disposable-jvm :evaluations []})))
+  (is (not (ref/verified-comment?
+            {:kind "test_safety=incorrect alignment"}
+            {:scope :isolated-native-failure :evaluations [{:printed-value "nil"}]})))
+  (is (ref/verified-comment?
+       {:kind "test_safety=incorrect alignment"}
+       {:scope :isolated-native-failure
+        :evaluations [{:exception {:phase :native-panic :message "incorrect alignment"}}]}))
   (doseq [kind ["syntax" "test_error=error: expected failure" "obj=error"]]
     (is (ref/verified-comment?
          {:kind kind}
@@ -947,6 +957,38 @@
   (is (not (ref/verified-comment?
             {:kind "exe=succeed"}
             {:evaluations [{:exception {:phase :zig-compile :message "must run"}}]}))))
+
+(deftest intentional-panics-have-real-comment-transcripts
+  (let [path (.getCanonicalPath
+              (clojure.java.io/file "resources/learn/example/test_incorrect_pointer_alignment.clj"))
+        result (ref/capture-isolated-comment! (slurp path) path)
+        evaluation (first (:evaluations result))]
+    (is (= :isolated-native-failure (:scope result)))
+    (is (= "(pointer-alignment-safety)" (:form evaluation)))
+    (is (str/includes? (str (:stdout evaluation) (:stderr evaluation)
+                           (get-in evaluation [:exception :message])) "incorrect alignment"))
+    (is (ref/verified-comment? {:kind "test_safety=incorrect alignment"} result))))
+
+(deftest shell-panels-require-nonempty-repl-evaluations
+  (let [html (str "<figure><figcaption class=\"zig-cap\"><cite class=\"file\">sample.zig</cite>"
+                  "</figcaption><pre>code</pre></figure>"
+                  "<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre>output</pre></figure>")
+        example {:file "sample.zig" :status :translated}]
+    (doseq [transcript [nil {} {:evaluations [] :scope :context-only}
+                       {:evaluations [] :scope :native-failure-requires-disposable-jvm}]]
+      (is (= ["sample.zig"]
+             (ref/missing-repl-outputs html [(assoc example :repl-transcript transcript)]))))
+    (is (empty? (ref/missing-repl-outputs html
+                  [(assoc example :repl-transcript
+                          {:evaluations [{:form "(main)" :printed-value "nil"}]})])))
+    (is (empty? (ref/missing-repl-outputs html [(assoc example :status :zig-only)])))))
+
+(deftest declaration-only-examples-capture-their-actual-evaluation
+  (let [result (ref/capture-comment-repl!
+                "(ns learn.example.declaration-output)\n(def answer 42)" nil)]
+    (is (= :declarations (:scope result)))
+    (is (= "(def answer 42)" (-> result :evaluations last :form)))
+    (is (str/includes? (-> result :evaluations last :printed-value) "answer"))))
 
 (deftest compiler-wrappers-retain-the-native-diagnostic
   (doseq [phase [:zig-test nil]]

@@ -23,8 +23,8 @@
 
 (az/defextern pitoco_aguafria_ccd_query :void
   {:zig/prefix "pub extern" :attrs #{:public}}
-  [[kind :u32] [start [:pointer {:size :c :const? true} p/Vec3]]
-   [end [:pointer {:size :c :const? true} p/Vec3]]
+  [[kind :u32] [start [:* {:size :c :const? true} p/Vec3]]
+   [end [:* {:size :c :const? true} p/Vec3]]
    [separation :f64] [tolerance :f64] [maximum-time :f64]
    [maximum-iterations :u32] [result [:c-pointer CCDResult]]])
 

@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest foo
-  (az/comptime-stmt
+  (k/comptime
    (do
      (k/setEvalBranchQuota 1001)
      (let [i (k/var 0)]

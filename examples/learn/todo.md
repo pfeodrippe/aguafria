@@ -122,12 +122,33 @@
       - by not recompiling same operators + types again and again
     - [x] are we able to generate the handlers beforehand in disk aot-like? so we can do a precompilation for all namespaces or whatever and we can reuse it across JVM restarts
   - [x] test_comptime_pointers.clj
-  - [ ] improve precompilation
+  - [x] improve precompilation
     - [x] move to ~/.aguafria/zig
-    - [ ] store optimized
-      - [ ] check ReleaseSmall instead of ReleaseSafe
-      - [ ] we create many dylibs, could we have it being aggregated into one? or maybe it would be slower
-    - [ ] test with values.clj
+    - [x] store optimized
+      - [x] check ReleaseSmall instead of ReleaseSafe
+      - [x] we create many dylibs, could we have it being aggregated into one? or maybe it would be slower
+    - [x] test with values.clj
+  - [x] test_integer_pointer_conversion.clj
+    - [x] (k/ptrFromInt 0xdeadbee0) not working
+  - [x] test_comptime_pointer_conversion.clj
+    - [x] same as above
+    - [x] improve testing/expectEqual speed in the JVM
+    - [x] fix k/comptime call in the JVM
+  - [x] test_pointer_casting.clj
+    - [x] pointer-casting body not working
+    - [x] hot to align using bytes (k/alignOf (az/type :u32 (az/array [0x12 0x12 0x12 0x12] :u8))) instead of ^{:zig/align (k/alignOf (az/type :u32))} bytes (az/array [0x12 0x12 0x12 0x12] :u8)
+  - [x] test_volatile.clj
+    - [x] why (k/as (k/ptrFromInt 0x12345678) [:pointer {:volatile? true, :size :one} :u8]) and not (k/as (k/ptrFromInt 0x12345678) [:* {:volatile? true, :size :one} :u8])
+  - [x] test_variable_alignment.clj
+    - [x] variable-alignment, Cannot emit Zig expression
+  - [x] test_variable_func_alignment.clj
+    - [x] I have `(az/defvar foo :u8 {:zig/qualifiers "align(4)"}  100)`, then (-> (k/typeInfo (k/TypeOf (k/& foo))) type-info/-pointer pointer-info/-alignment) returns nil instead of 4
+    - [x] remove az/type where not needed
+    - [x] remove :zig/qualifiers usage
+  - [x] test_incorrect_pointer_alignment.clj
+    - [x] no error output
+  - [x] test_allowzero.clj
+  - [x] sentinel_terminated_pointer.clj
 
 - [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?
 - [ ] add assertions from the JVM as alternative to comptime assertions (e.g. inside test_arrays.clj)

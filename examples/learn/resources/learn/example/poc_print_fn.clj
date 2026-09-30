@@ -54,7 +54,7 @@
                                                             (k/= start-index i)))
                                                         (az/case-else
                                                          (k/compileError "Single '}' encountered in format string"))))))
-       (az/comptime-stmt
+       (k/comptime
         (do
           (when (k/!= (:len args) next-arg)
             (k/compileError "Unused arguments"))

@@ -6,6 +6,7 @@
   generated namespace entry points intern those declarations as ordinary
   documented Vars. `:prepare` refreshes the catalog and ignored entry points."
   (:require [aguafria.zig.convert :as convert]
+            [aguafria.keyword :as k]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.prepare :as prepare]
             [aguafria.zig.runtime :as runtime]
@@ -437,7 +438,7 @@
        :name declaration-name
        :form form
        :documentation (or documentation (:doc attributes))
-       :attributes attributes
+       :attributes (k/normalize-attributes (the-ns 'aguafria.zig.package) attributes)
        :payload payload})))
 
 (defn- public-declaration?
@@ -928,6 +929,7 @@
         :zig/package (:package member)
         :zig/param-count (:param-count member)
         :zig/signature (:signature member)
+        :zig/source-file (:source-file member)
         :zig/source (:source member)})
       var)))
 
@@ -965,8 +967,8 @@
                      :expected-schema-version 1
                      :catalog (select-keys catalog [:schema-version])})))
   (locking package-lock
-    (install! (:packages catalog))
-    (let [namespace-names
+    (let [resolved (install! (:packages catalog))
+          namespace-names
           (mapv :name (:namespaces catalog))
           var-count
           (reduce
@@ -979,7 +981,14 @@
                         :when (and (:aguafria/package (meta var))
                                    (not (contains? expected sym)))]
                   (ns-unmap target-ns sym))
-                (count (mapv #(install-member! target-ns %) members))))
+                (count (mapv (fn [member]
+                               (let [root (:package-root (get resolved (:package member)))]
+                                 (install-member! target-ns
+                                                  (cond-> member
+                                                    root (assoc :source-file
+                                                                (.getCanonicalPath
+                                                                 (io/file root (:source member))))))))
+                             members))))
             (:namespaces catalog)))
           loaded-libs (loaded-libs-ref)]
       (dosync (alter loaded-libs into namespace-names))

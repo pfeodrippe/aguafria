@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest comptime-ptrFromInt
-  (az/comptime-stmt
+  (k/comptime
     ;; Zig is able to do this at compile-time, as long as
     ;; ptr is never dereferenced.
    (let [ptr (k/as (k/ptrFromInt 0xdeadbee0) [:* :i32])

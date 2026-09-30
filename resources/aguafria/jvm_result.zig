@@ -165,7 +165,7 @@ pub const __aguafria_jvm = struct {
             .pointer => |p| {
                 if (p.size == .many and p.sentinel_ptr != null and
                     !p.is_volatile and !p.is_allowzero and p.address_space == .generic and
-                    (p.alignment == null or p.alignment == @alignOf(p.child)))
+                    p.alignment == null)
                 {
                     try writer.print("[:{s} ", .{if (p.is_const) "sentinel-const" else "sentinel"});
                     try writeStructuralType(writer, p.child);
@@ -176,15 +176,16 @@ pub const __aguafria_jvm = struct {
                 }
                 const qualified = p.sentinel_ptr != null or p.is_volatile or (p.is_allowzero and p.size != .c) or
                     p.address_space != .generic or
-                    (p.alignment != null and p.alignment != @alignOf(p.child)) or
+                    p.alignment != null or
                     (p.size == .c and p.is_const);
                 if (qualified) {
-                    try writer.print("[:pointer {{:size :{s}", .{@tagName(p.size)});
+                    try writer.writeAll("[:* {");
+                    if (p.size != .one) try writer.print(":size :{s}", .{@tagName(p.size)});
                     if (p.is_const) try writer.writeAll(" :const? true");
                     if (p.is_volatile) try writer.writeAll(" :volatile? true");
                     if (p.is_allowzero and p.size != .c) try writer.writeAll(" :allowzero? true");
                     if (p.alignment) |alignment| {
-                        if (alignment != @alignOf(p.child)) try writer.print(" :align {d}", .{alignment});
+                        try writer.print(" :align {d}", .{alignment});
                     }
                     if (p.address_space != .generic)
                         try writer.print(" :addrspace :.{s}", .{@tagName(p.address_space)});

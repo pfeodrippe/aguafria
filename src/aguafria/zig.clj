@@ -522,6 +522,7 @@
       :leading-source (:zig/leading m)
       :zig-prefix (:zig/prefix m)
       :zig-qualifiers (:zig/qualifiers m)
+      :align (:align m)
       :zig-name (:zig/name m)
       :implicit-return? (cond
                           (contains? m :implicit-return)
@@ -1040,7 +1041,7 @@
                             :type type
                             :has-value? (boolean (seq initializer))
                             :value (first initializer)
-                            :align (:zig/align options)
+                            :align (:align options)
                             :doc docstring
                             :clojure-form &form
                             :source (source-location &form)}
@@ -1369,6 +1370,8 @@
 
 (clojure.core/defn array
   "Construct a native array, inferring its length: (az/array [1 2 3] :i32).
+  Options support :sentinel and explicit :align storage alignment. Alignment
+  applies to the native let binding and to owned JVM storage alike.
   The final argument is the element type, including nested type schemas.
   Add a sentinel with (az/array [1 2 3] {:sentinel 0} :u8).
   Executes from the JVM too. For explicit lengths use (az/init elements type)."

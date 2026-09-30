@@ -7,6 +7,7 @@
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.source-map :as source-map]
+            [aguafria.zig.value :as value]
             [aguafria.zig.zls :as zls]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -1141,7 +1142,12 @@
         stderr (java.io.StringWriter.)
         result (binding [*out* stdout *err* stderr]
                  (try
-                   {:printed-value (pr-str (invoke))}
+                   (let [result (invoke)
+                         printed (pr-str result)
+                         native-result (when (value/zig-value? result) (az/value result))]
+                     (cond-> {:printed-value printed}
+                       (and (map? native-result) (contains? native-result :error))
+                       (assoc :returned-error? true)))
                    (catch Exception error
                      (let [diagnostic
                            (or (some #(when (:aguafria/phase (ex-data %)) %)
@@ -1156,7 +1162,7 @@
 
 (defn capture-comment-repl!
   "Evaluate the authored comment's forms in its own namespace in this JVM.
-  There is no file-runner substitution. Context-only excerpts have no calls."
+  With no comment calls, capture evaluation of the actual declarations instead."
   ([source context] (capture-comment-repl! source context nil))
   ([source context source-path]
   (let [calls (comment-calls source)
@@ -1169,7 +1175,18 @@
       (binding [*ns* (create-ns namespace-symbol)
                 *example-context* context]
         (refer 'clojure.core)
-        (let [load-result
+        (if (empty? calls)
+          (binding [*file* (or source-path "REPL")]
+            (loop [forms (source-map/read-forms source) evaluations []]
+              (if-let [form (first forms)]
+                (let [evaluation (capture-repl-evaluation!
+                                  namespace-symbol (pr-str form) #(eval form))
+                      evaluations (conj evaluations evaluation)]
+                  (if (:exception evaluation)
+                    {:evaluations evaluations :scope :load-error}
+                    (recur (next forms) evaluations)))
+                {:evaluations evaluations :scope :declarations})))
+          (let [load-result
               (when (seq calls)
                 (capture-repl-evaluation!
                  namespace-symbol
@@ -1194,7 +1211,7 @@
                          (pprint/with-pprint-dispatch pprint/code-dispatch
                            (pprint/pprint form))))
                       #(eval form)))
-                   calls)})))
+                   calls)}))))
       (finally
         ;; A recipe can require another lesson (for example its object library).
         ;; Retire only lessons this capture created, not any pre-existing REPL
@@ -1206,30 +1223,50 @@
           (remove-ns created)
           (dosync (alter @#'clojure.core/*loaded-libs* disj created))))))))
 
+(defn capture-isolated-comment!
+  "Evaluate real comment calls in a disposable JVM using the native JVM bridge."
+  [source source-path]
+  (let [directory (.toFile (Files/createTempDirectory
+                            "aguafria-repl-capture-"
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
+        request (io/file directory "request.edn")
+        result-file (io/file directory "result.edn")
+        _ (doseq [file [directory request result-file]] (.deleteOnExit file))
+        _ (write-edn! (.getPath request) {:source source :source-path source-path})
+        command [(str (io/file (System/getProperty "java.home") "bin" "java"))
+                 "--enable-native-access=ALL-UNNAMED"
+                 "-cp" (System/getProperty "java.class.path")
+                 "clojure.main" "-m" "learn.repl-capture-worker"
+                 (.getPath request) (.getPath result-file)]
+        result (run-command command 120)]
+    (when (or (:timed-out? result) (not (zero? (:exit result)))
+              (not (.isFile result-file)))
+      (throw (ex-info "Isolated REPL capture did not finish"
+                      (assoc result :source-path source-path))))
+    (assoc (read-edn (.getPath result-file)) :scope :isolated-native-failure)))
+
 (defn capture-example-comment!
-  "Capture same-JVM calls, without running known process-terminating lessons
-  in the documentation server. The direct call remains in their comment with
-  a warning; no standalone program output is presented as REPL output."
+  "Capture the authored calls. Expected native panics use a disposable JVM;
+  ordinary calls share the build JVM under the output-capture lock."
   [{:keys [file manifest]} translation context]
   (let [kind (:kind manifest)
         source (slurp (:clojure-path translation))
+        source-path (.getCanonicalPath
+                     (io/file (or (some-> (:authored-source translation) io/resource)
+                                  (:clojure-path translation))))
         upstream-output (io/file "build/doctest/zig" (str file ".html"))
         panics? (and (.isFile upstream-output)
                      (re-find #"thread [0-9]+ panic:"
                               (observed-output (slurp upstream-output))))]
     (cond
-      (empty? (comment-calls source)) {:evaluations [] :scope :context-only}
+      (some #(str/starts-with? % "target=") (:options manifest))
+      (assoc (capture-isolated-comment! source source-path) :scope :isolated-target)
       (or (= "exe=fail" kind)
           (str/starts-with? kind "test_safety=")
           panics?)
-      {:evaluations [] :scope :native-failure-requires-disposable-jvm}
-      (some #(str/starts-with? % "target=") (:options manifest))
-      {:evaluations [] :scope :target-specific}
-      :else (capture-comment-repl!
-             source context
-             (.getCanonicalPath
-              (io/file (or (some-> (:authored-source translation) io/resource)
-                           (:clojure-path translation))))))))
+      (capture-isolated-comment! source source-path)
+      :else (locking repl-capture-lock
+              (capture-comment-repl! source context source-path)))))
 
 (def matching-comparisons
   #{:output-matched :diagnostics-matched :compile-only-matched})
@@ -1239,18 +1276,24 @@
   JVM arity/resolution/loading failures never count as a verified native result.
   Syntax-only excerpts may intentionally fail when their declarations are used."
   [{:keys [kind]} {:keys [scope evaluations]}]
-  (or (contains? #{:context-only :native-failure-requires-disposable-jvm
-                   :target-specific} scope)
-      (and (seq evaluations)
+  (and (seq evaluations)
+           (or (not= :isolated-native-failure scope)
+               (some #(or (:returned-error? %)
+                          (contains? #{:native-panic :zig-test}
+                                     (get-in % [:exception :phase]))) evaluations))
            (every? (fn [{:keys [exception]}]
                      (or (nil? exception)
+                         (and (= :isolated-native-failure scope)
+                              (contains? #{:native-panic :zig-test} (:phase exception)))
+                         (and (= :isolated-target scope)
+                              (contains? #{:zig-compile :zig-test} (:phase exception)))
                          (and (or (= "syntax" kind)
                                   (str/starts-with? kind "test_error=")
                                   (str/starts-with? kind "obj=")
                                   (= "exe=build_fail" kind))
                               (contains? #{:zig-compile :zig-test :zig-program-compile}
                                          (:phase exception)))))
-                   evaluations))))
+                   evaluations)))
 
 (defn verify-example!
   "Run the original and the emitted displayed Aguafria through the same pinned
@@ -1285,8 +1328,7 @@
        :original original
        :repl-transcript (when front-end?
                           (try
-                            (locking repl-capture-lock
-                              (capture-example-comment! example translation *example-context*))
+                            (capture-example-comment! example translation *example-context*)
                             (catch Exception error
                               {:evaluations [] :scope :front-end-error
                                :load-error (.getMessage error)})))}
@@ -1301,10 +1343,10 @@
                                    (= 0 (:exit converted)))
               comparison (when harness-passed? (compare-doctest-output file manifest))
               recipe (try
-                       (locking repl-capture-lock
-                         (capture-example-comment! example translation *example-context*))
+                       (capture-example-comment! example translation *example-context*)
                        (catch Exception error
-                         {:capture-error (.getMessage error)}))
+                         {:capture-error (.getMessage error)
+                          :capture-data (ex-data error)}))
               recipe-passed? (verified-comment? manifest recipe)
               passed? (and harness-passed? (matching-comparisons (:status comparison))
                            recipe-passed?)
@@ -1367,6 +1409,18 @@
 
 (def figure-pattern
   #"(?s)<figure><figcaption class=\"zig-cap\"><cite class=\"file\">([^<]+)</cite></figcaption>.*?</figure>(?:\s*<figure><figcaption class=\"shell-cap\">Shell</figcaption>.*?</figure>)?")
+
+(defn missing-repl-outputs
+  "Every translated example with an upstream Shell panel must have real REPL evaluations."
+  [original translations]
+  (let [by-file (into {} (map (juxt :file identity)) translations)]
+    (into []
+          (keep (fn [[html file]]
+                  (when (and (str/includes? html "class=\"shell-cap\"")
+                             (not= :zig-only (:status (by-file file)))
+                             (empty? (get-in by-file [file :repl-transcript :evaluations])))
+                    file)))
+          (re-seq figure-pattern original))))
 
 (defn repl-evaluation [{:keys [namespace form stdout stderr value printed-value exception]}]
   (str (escape-html (str namespace "=> " form "\n"))
@@ -1560,6 +1614,10 @@
                       (map (juxt :file identity))
                       (remove #(= :zig-only (:status %)) blocks))
         original (slurp (io/file upstream-dir "index.html"))
+        missing-outputs (missing-repl-outputs original (vals by-file))
+        _ (when (seq missing-outputs)
+            (throw (ex-info "Zig Shell panels are missing their Clojure REPL outputs"
+                            {:files missing-outputs :count (count missing-outputs)})))
         annotated (inline/annotate original inline-snippets decode-html escape-html)
         _ (when (seq (:unmatched annotated))
             (throw (ex-info "Cannot pair the published HTML with the pinned snippets"
@@ -1584,6 +1642,7 @@
                   :file-examples (count (:examples catalog))
                   :code-references (count (:code-references catalog))
                   :tabbed-figures @index
+                  :missing-repl-outputs missing-outputs
                   :snippet-count (count (:snippets catalog))
                   :inline-status (frequencies (map :status inline-snippets))
                   :inline-verification (frequencies (map :verification inline-snippets))

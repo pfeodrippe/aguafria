@@ -32,7 +32,7 @@
 
 (az/defextern pitoco_aguafria_submit_v1 :u32
   {:zig/prefix "pub extern" :attrs #{:public}}
-   [[command [:pointer {:size :c :const? true} panel/PitocoCommandV1]] [ticket [:c-pointer :u64]]])
+   [[command [:* {:size :c :const? true} panel/PitocoCommandV1]] [ticket [:c-pointer :u64]]])
 
 (az/defextern pitoco_aguafria_shutdown_v1 :void
   {:zig/prefix "pub extern" :attrs #{:public}}
@@ -293,7 +293,7 @@
 
 (az/defn request-scripting! :u64
   "Enable the optional external controller on the native owning thread."
-  [[directory [:pointer {:size :c :const? true} :u8]]]
+  [[directory [:* {:size :c :const? true} :u8]]]
   (let [command (panel/PitocoCommandV1
                  {:abi_version 1 :struct_size (ak/sizeOf panel/PitocoCommandV1)
                   :operation 9 :reserved 0 :integer 0 :text directory})

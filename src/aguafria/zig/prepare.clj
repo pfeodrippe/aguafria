@@ -42,7 +42,7 @@
     (case (first expression)
       :slice (slice-fields [:many (second expression)])
       :slice-const (slice-fields [:many-const (second expression)])
-      :pointer (when (= :slice (:size (second expression)))
+      :* (when (= :slice (:size (second expression)))
                  (slice-fields (assoc expression 1 (assoc (second expression) :size :many))))
       :array [{:field-name "len" :signature "len: usize" :documentation "Number of elements in the array."}]
       [])

@@ -17,7 +17,7 @@
 
 (az/deftest type-coercion-as-builtin
   (let [a (k/u8 1)
-        b (k/as a (az/type :u16))]
+        b (k/as a :u16)]
     (k/= :_ b)))
 
 (comment

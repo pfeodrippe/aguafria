@@ -8,6 +8,24 @@ const reference = pathToFileURL(path.join(__dirname, "../build/site/index.html")
 const near = (actual, expected, label) =>
   assert.ok(Math.abs(actual - expected) < 1, `${label}: ${actual} != ${expected}`);
 
+test("every translated Shell panel has real REPL output, including native failures", async () => {
+  const browser = await chromium.launch({channel: process.env.LEARN_BROWSER || "chrome"});
+  try {
+    const page = await browser.newPage();
+    await page.goto(reference);
+    const missing = await page.evaluate(() => Array.from(document.querySelectorAll('.learn-example'))
+      .filter(example => example.querySelector('.learn-aguafria code') &&
+        example.querySelector('[id$="-z"] samp') &&
+        !example.querySelector('.learn-repl samp')?.textContent.trim())
+      .map(example => example.getAttribute('aria-label')));
+    assert.deepEqual(missing, []);
+    const failure = page.getByRole('region', {name: 'test_incorrect_pointer_alignment.zig', exact: true});
+    assert.match(await failure.locator('.learn-repl').innerText(), /incorrect alignment/);
+  } finally {
+    await browser.close();
+  }
+});
+
 async function geometry(page, file = "hello_again.zig") {
   return page.evaluate(file => {
     const example = document.querySelector(`.learn-example[aria-label="${file}"]`);

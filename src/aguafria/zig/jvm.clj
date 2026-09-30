@@ -7,7 +7,9 @@
             [aguafria.keyword :as keyword]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.handlers :as handlers]
+            [aguafria.zig.peer-call :as peer-call]
             [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.signature :as signature]
             [aguafria.zig.value :as value]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -120,7 +122,9 @@
 (defn- comptime-expression [operand]
   (when (value/zig-value? operand)
     (let [state (value/realize! operand)]
-      (when (= :comptime-expression (:representation state))
+      (when (or (= :comptime-expression (:representation state))
+                (and (= :scalar (:representation state))
+                     (#{:comptime_int :comptime_float} (value/qualified-type operand))))
         (:expression state)))))
 
 (defn- inspection-view [result]
@@ -240,7 +244,11 @@
     (and (map? result) (= #{:aguafria.jvm/comptime} (set (keys result))))
     (let [{:keys [type value]} (:aguafria.jvm/comptime result)]
       (value/native-value {:kind :const :type type}
-                          (constantly {:representation :scalar :value value})))
+                          (constantly
+                           (cond-> {:representation :scalar :value value}
+                             (#{:comptime_int :comptime_float} type)
+                             (assoc :expression (expression-without-runtime-inputs
+                                                 namespace expression parameters))))))
 
     (and (map? result) (= #{:aguafria.jvm/native} (set (keys result))))
     (native-expression-result namespace expression parameters arguments (:aguafria.jvm/native result))
@@ -469,6 +477,12 @@
       (var? type)
       (constructor-type (var-get type))
 
+      (value/zig-value? type)
+      ;; Dimensions and pointer options can be computed by native operations.
+      ;; Preserve their Zig expression when available; otherwise embed the
+      ;; compiler-produced scalar (for example @alignOf's usize result).
+      (or (comptime-expression type) (value/value type))
+
       (= :container (get-in (meta type) [:aguafria/zig-reference :category]))
       (emitter/qualify-type (the-ns 'aguafria.zig.jvm)
                             (get-in (meta type) [:aguafria/zig-reference :symbol]))
@@ -653,10 +667,19 @@
         (swap! prepared-coercions conj name)))
     name))
 
+(defrecord ContextualCall [syntax arguments])
+
+(defmethod print-method ContextualCall
+  [call writer]
+  (.write ^java.io.Writer writer
+          (str "#aguafria/contextual-call[" (get-in call [:syntax :symbol])
+               " — result type required; use k/as]")))
+
 (defn- coerce-raw!
   "Internal coercion; the public boundary below owns numeric scalar results."
   [argument type]
-  (let [argument (if (value/zig-value? argument) (value/value argument) argument)
+  (let [source (comptime-expression argument)
+        argument (if (and (value/zig-value? argument) (not source)) (value/value argument) argument)
         type (constructor-type type)
         type (if (and (vector? type)
                       (= :array (first type))
@@ -696,6 +719,17 @@
     ;; A coercion to the same type does not copy a borrowed pointer or detach
     ;; its owner. Return the original owning value rather than a dangling view.
     (cond
+      source
+      ;; Keep comptime expressions intact until Zig applies the requested type.
+      ;; Decoding a float to a JVM double first can round it to the wrong side
+      ;; of a narrower float's midpoint.
+      (runtime/invoke! (prepare-literal-coercion! type source) [])
+
+      (instance? ContextualCall argument)
+      (let [inputs (call-inputs [{:type :anytype}] [argument])
+            result (runtime/invoke! (prepare-construction! type inputs) (:arguments inputs))]
+        (value/retain-owners! result [argument]))
+
       (and (coll? argument)
            (some value/zig-value? (tree-seq coll? seq argument)))
       ;; Embedded native values need Zig's typed construction, not a field
@@ -883,6 +917,17 @@
               (repeat (- argument-count (count fixed))
                       {:type :anytype :properties {:jvm/literal? true}}))))))
 
+(declare signature-arguments)
+
+(defn- builtin-arguments [signature]
+  ;; Compiler-dependent parameter types remain in source. Zig supplies the
+  ;; actual type; native handles keep their explicit transport types.
+  (mapv (fn [parameter]
+          (cond-> parameter
+            (or (symbol? (:type parameter)) (seq? (:type parameter)))
+            (assoc-in [:properties :jvm/literal?] true)))
+        (signature/builtin-arguments signature)))
+
 (defn- call-inputs [argument-declarations arguments]
   (let [argument-declarations (call-declarations argument-declarations (count arguments))
         parameters (atom [])
@@ -933,6 +978,17 @@
                                expected
                                inferred)]
                 (cond
+                  (instance? ContextualCall argument)
+                  (let [{:keys [syntax arguments]} argument
+                        declarations (builtin-arguments (:signature syntax))
+                        expression (apply list (:symbol syntax)
+                                          (map (fn [declaration operand]
+                                                 (lift operand (:type declaration)
+                                                       (get-in declaration [:properties :jvm/literal?])))
+                                               declarations arguments))]
+                    (if (or (nil? expected) (#{:anytype 'anytype} expected))
+                      expression
+                      (list 'aguafria.keyword/as expression (constructor-type expected))))
                   (comptime-expression original) (comptime-expression original)
                   (instance? PreparedType argument) (type-expression (:schema argument))
                   (#{:type 'type} expected) (type-expression argument)
@@ -981,28 +1037,23 @@
                                         {:argument argument :type (type argument)})))))]
       {:expression-arguments
        (mapv (fn [{:keys [properties type]} argument]
-               (if (or (= "comptime" (:zig/prefix properties))
-                       (#{:type 'type :comptime_int :comptime_float} type))
+               (cond
+                 (and (:jvm/peer-float? properties)
+                      (or (instance? Double argument) (instance? Float argument)))
+                 ;; Keep the source decimal spelling: Zig parses and rounds it,
+                 ;; not the JVM's double-to-float conversion. Text is a runtime
+                 ;; slice, so changing its digits never changes adapter source.
+                 (list 'aguafria.keyword/as
+                       (list 'aguafria.keyword/floatCast
+                             (list '(field __aguafria_jvm :parseComptimeFloat)
+                                   (lift (str argument) [:slice-const :u8] false))) type)
+                 (or (= "comptime" (:zig/prefix properties))
+                     (#{:type 'type :comptime_int :comptime_float} type))
                  (lift argument type true)
-                 (lift argument type (:jvm/literal? properties))))
+                 :else (lift argument type (:jvm/literal? properties))))
              argument-declarations arguments)
        :parameters @parameters
        :arguments @values})))
-
-(declare signature-arguments)
-
-(defn- builtin-arguments [signature]
-  ;; Builtin documentation includes compiler-dependent parameter types such
-  ;; as T, Log2T and @Int(.unsigned, @bitSizeOf(anyerror)). These are not JVM
-  ;; ABI types. Leave untyped source literals
-  ;; in the call so Zig checks them in that parameter's actual context. Native
-  ;; handles still become runtime parameters carrying their explicit types.
-  (mapv (fn [parameter]
-          (cond-> parameter
-            (or (symbol? (:type parameter)) (seq? (:type parameter)))
-            (assoc-in [:properties :jvm/literal?] true)))
-        (signature-arguments
-         (str/replace-first signature #"^@[A-Za-z0-9_]+" "fn builtin"))))
 
 (defn invoke-scoped!
   "Execute native scoped syntax with JVM lexical captures in the same process.
@@ -1347,7 +1398,11 @@
                     {:function symbol :actual (count arguments)
                      :expected param-count :minimum minimum-param-count})))
   (cond
+    (keyword/result-context-required? (:zig-name syntax))
+    (->ContextualCall syntax (vec arguments))
+
     (and (= "&" (:zig-token syntax)) (= 1 (count arguments))
+         (not (:aguafria/zig-reference (meta (first arguments))))
          (not (comptime-expression (first arguments))))
     (let [argument (first arguments)
           native? (value/zig-value? argument)
@@ -1363,8 +1418,12 @@
 
     (= 'array (:name syntax))
     (let [type (emitter/array-initializer-type arguments)
-          elements (first arguments)]
-      (coerce! elements (assoc type 1 (count elements))))
+          elements (first arguments)
+          result (coerce! elements (assoc type 1 (count elements)))
+          alignment (when (= 3 (count arguments)) (:align (second arguments)))]
+      (if (some? alignment)
+        (value/aligned-copy result (if (value/zig-value? alignment) (value/value alignment) alignment))
+        result))
 
     (= 'init (:name syntax))
     (apply coerce! arguments)
@@ -1470,36 +1529,82 @@
 
         :else (value/retain-owners! result [receiver])))))
 
-(def ^:private signature-declaration
-  (memoize
-   (fn [signature]
-     (when-not (seq signature)
-       (throw (ex-info "Imported function has no Zig signature" {})))
-     ;; Builtin documentation uses `anytype` as a return-type placeholder.
-     ;; That placeholder is not a legal function result declaration. It is
-     ;; omitted from the parsed descriptor, not reported as a real void result.
-     (let [result-placeholder? (boolean (re-find #"\)\s+anytype$" signature))
-           signature (str/replace signature #"\)\s+anytype$" ") void")
-           source (str signature (if (re-find #"\bextern\b" signature) ";" " { unreachable; }"))
-           parsed (convert/parse-source source)
-           converted (convert/convert-file "signature.zig" {::convert/parsed parsed})
-           form (first (filter #(#{"defn" "defn-" "defextern"}
-                                 (some-> % first name)) (:forms converted)))
-           bindings (first (filter vector? (drop 3 form)))]
-       (when-not form
-         (throw (ex-info "Cannot read imported function signature" {:signature signature})))
-       {:return (when-not result-placeholder? (nth form 2))
-        :args (mapv (fn [parameter]
-                      (cond-> parameter
-                        ;; A source string is already a NUL-terminated Zig literal.
-                        ;; Passing it as a []const u8 runtime parameter would erase
-                        ;; the sentinel required by this declared C-string parameter.
-                        (= [:sentinel-const :u8 0] (:type parameter))
-                        (assoc-in [:properties :jvm/literal?] true)))
-                    (emitter/parse-typed-bindings bindings))}))))
-
 (defn- signature-arguments [signature]
-  (:args (signature-declaration signature)))
+  (mapv (fn [parameter]
+          (cond-> parameter
+            ;; Preserve the sentinel when passing a source string as a C string.
+            (= [:sentinel-const :u8 0] (:type parameter))
+            (assoc-in [:properties :jvm/literal?] true)))
+        (:args (signature/declaration signature))))
+
+(defn- reference-source [reference]
+  (when-let [source (let [metadata (some-> (:symbol reference) find-var meta)]
+                     (or (:zig/source-file metadata) (:zig/source metadata)))]
+    (let [file (io/file source)
+          file (cond
+                 (.isAbsolute file) file
+                 (= :std (:kind reference))
+                 (io/file (.getParentFile (io/file (:executable (runtime/toolchain-information))))
+                          "lib" source))]
+      (when (and file (.isFile file)) (slurp file)))))
+
+(defn- peer-number-type [argument]
+  (let [type (cond
+               (instance? PreparedOperand argument) (:type argument)
+               (value/zig-value? argument) (value/qualified-type argument))]
+    (cond
+      (and (keyword? type)
+           (or (#{:usize :isize :f16 :f32 :f64 :f80 :f128} type)
+               (re-matches #"[iu][0-9]+" (name type)))) type
+      (and (nil? type) (integer? argument)) :comptime_int
+      (and (nil? type) (or (instance? Double argument) (instance? Float argument))
+           (Double/isFinite (double argument))) :comptime_float)))
+
+(def ^:private confirmed-peer-type
+  (memoize
+   (fn [types]
+     ;; Compile a type check without loading a library or running a function.
+     ;; Zero stands for the literal's type; the call still checks its real value.
+     (let [module (symbol (str "aguafria.jvm.peer-type-" (token types)))
+           context (or (find-ns module) (create-ns module))
+           expected (first (remove #{:comptime_int :comptime_float} types))
+           expression (apply list 'aguafria.keyword/TypeOf
+                             (map #(case %
+                                     :comptime_int 0
+                                     :comptime_float 0.0
+                                     (list 'aguafria.keyword/as 'aguafria.keyword/undefined %)) types))]
+       (binding [runtime/*source-only-registration?* true]
+         (register! context {:kind :const :name 'CommonType :value expression
+                            :declaration-key [:const 'CommonType] :jvm-adapter? false}))
+       (let [result (runtime/inspect-module!
+                     module
+                     (fn [_]
+                       {:source (str "comptime { if (" (emitter/emit-expr context expression)
+                                     " != " (emitter/emit-type expected)
+                                     ") @compileError(\"JVM operand changes the common Zig type\"); }")}))]
+         (when-not (zero? (:exit result))
+           (throw (ex-info "Zig could not confirm the common argument type" result)))
+         expected)))))
+
+(defn- reference-arguments [reference declarations arguments]
+  (let [types (mapv peer-number-type arguments)
+        native-types (disj (set types) :comptime_int :comptime_float)
+        native-type (first native-types)
+        floating? (contains? #{:f16 :f32 :f64 :f80 :f128} native-type)
+        literal-type (if floating? :comptime_float :comptime_int)]
+    (if (and (= 1 (count native-types)) (not (contains? native-types nil))
+             (some #{literal-type} types)
+             (every? #{native-type literal-type} types)
+             (every? #(and (#{:anytype 'anytype} (:type %))
+                          (not (get-in % [:properties :jvm/literal?]))
+                          (not= "comptime" (get-in % [:properties :zig/prefix]))) declarations)
+             (when-let [source (reference-source reference)]
+               (peer-call/peer-wrapper-source? source
+                                               (:zig-name (signature/declaration (:signature reference)))))
+             (= native-type (confirmed-peer-type types)))
+      (mapv #(cond-> (assoc % :type native-type)
+               floating? (assoc-in [:properties :jvm/peer-float?] true)) declarations)
+      declarations)))
 
 (defn call-parameters
   "Read native parameter declarations from a registered declaration or the
@@ -1552,8 +1657,10 @@
                            {:function (:symbol reference) :receiver receiver})))
          (apply (bound-method receiver (keyword (:member-name reference))) operands))
        :else
-       (let [{:keys [expression-arguments parameters arguments]}
-             (call-inputs (signature-arguments (:signature reference)) arguments)
+       (let [declarations (reference-arguments reference
+                                              (signature-arguments (:signature reference)) arguments)
+             {:keys [expression-arguments parameters arguments]}
+             (call-inputs declarations arguments)
              namespace-name (symbol (str "aguafria.jvm.imported-" (token reference)))
              namespace (or (find-ns namespace-name) (create-ns namespace-name))
              expression (with-meta (apply list (:symbol reference) expression-arguments)
@@ -1667,18 +1774,24 @@
       (emitter/emit-type type)
       (->PreparedOperand type))))
 
-(defn- precompile-inputs [arguments declarations]
-  (let [declarations (mapv (fn [argument declaration]
-                             (cond-> (or declaration {:type :anytype})
-                               (and (map? argument)
-                                    (or (contains? argument :comptime) (contains? argument :comptime-type)))
-                               (assoc-in [:properties :jvm/literal?] true)))
-                           arguments (concat declarations (repeat nil)))
-        operands (mapv prepared-operand arguments declarations)]
-    ;; Use the actual call planner, including contextual primitive parameters,
-    ;; comptime arguments and lossless unsigned/integer carriers. These are
-    ;; type-only placeholders, never allocated or passed to native code.
-    (select-keys (call-inputs declarations operands) [:parameters :expression-arguments])))
+(defn- precompile-inputs
+  ([arguments declarations] (precompile-inputs arguments declarations nil))
+  ([arguments declarations reference]
+   (let [declarations (mapv (fn [argument declaration]
+                              (cond-> (or declaration {:type :anytype})
+                                (and (map? argument)
+                                     (or (contains? argument :comptime) (contains? argument :comptime-type)))
+                                (assoc-in [:properties :jvm/literal?] true)))
+                            arguments (concat declarations (repeat nil)))
+         operands (mapv prepared-operand arguments declarations)
+         declarations (if reference (reference-arguments reference declarations operands) declarations)]
+     ;; Use the actual call planner, including contextual primitive parameters,
+     ;; comptime arguments and lossless unsigned/integer carriers. These are
+     ;; type-only placeholders, never allocated or passed to native code.
+     (cond-> (select-keys (call-inputs declarations operands) [:parameters :expression-arguments])
+       (some #(get-in % [:properties :jvm/peer-float?]) declarations)
+       (assoc :inspection-types
+              (into #{} (keep #(when (instance? PreparedOperand %) (:type %))) operands))))))
 
 (defn precompile-method!
   "Prepare a member call from compiler-observed receiver/argument types.
@@ -1853,11 +1966,12 @@
                        args (concat argument-declarations (repeat nil))))
           handler-plan (when (= :operator (:kind syntax))
                          (handlers/operator-signature-plan syntax args))
-          {:keys [parameters expression-arguments]}
+          {:keys [parameters expression-arguments inspection-types]}
           (precompile-inputs (or (:types handler-plan) args)
                              (if handler-plan
                                (mapv #(hash-map :type %) (:types handler-plan))
-                               argument-declarations))
+                               argument-declarations)
+                             (when imported? zig-reference))
           expression-arguments (if (:float-literals? handler-plan)
                                  (mapv #(list '(field __aguafria_jvm :parseComptimeFloat) %)
                                        expression-arguments)
@@ -1879,9 +1993,11 @@
                                          (= 'field (:name syntax)) 'fieldResult
                                          :else 'result))]
       (precompile-expression! adapter)
+      (doseq [type inspection-types]
+        (precompile-inspection! context type))
       (let [return-type (or (:return declaration)
                             (when imported?
-                              (:return (signature-declaration (:signature zig-reference)))))]
+                              (:return (signature/declaration (:signature zig-reference)))))]
         ;; Native C integer aliases retain their compiler identity (c_int is
         ;; not renamed to a guessed host integer). Their JVM value reader uses
         ;; the existing compiler reflection adapter instead of a scalar codec.

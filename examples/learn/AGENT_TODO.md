@@ -2,6 +2,168 @@
 
 ## Resume checkpoint — September 30
 
+- [x] Use `:align` consistently for native storage, fields and top-level
+  declarations. No `:zig/align` uses remain in source, tests or examples.
+  Computed native alignments work for `k/var`; invalid alignments fail before
+  allocation. Focused alignment/packed-field/destructuring/runtime regressions:
+  **53 tests / 275 assertions**, plus **10 live nREPL assertions** on owned port
+  60876. Updated an obsolete destructuring rejection test: nested, rest and
+  `:as` bindings have been supported already; malformed field keys still fail.
+  Logs: `.tmp/align-option-regressions-final.log`, `.tmp/align-option-nrepl.log`.
+- [x] Capture actual JVM evaluations for intentionally failing native lessons
+  in isolated workers, including panic messages and original Clojure locations.
+  Declaration-only lessons capture their actual declarations. Error-union
+  return values count as native failures, not successful nil evaluations.
+  Cross-target examples record the actual host-JVM compiler diagnostic; this
+  does not claim execution on the target architecture. Fixed a diagnostic
+  formatter bug where the pseudo-file `test` was read as a directory, masking
+  the real Zig error. All seven capture failures exposed by the initial full
+  run pass on focused recheck (`.tmp/output-seven-recheck.log`).
+- [x] The HTML build rejects translated Shell panels without nonempty REPL
+  evaluations; a browser regression checks the rendered counterparts too.
+  Capture/parity regression tests: **6 tests / 39 assertions** passed
+  (`.tmp/output-parity-tests-final.log`).
+- [x] Full regeneration completed: **292/292 comparisons** (288 upstream +
+  4 reviewed), **290 nonempty REPL transcripts**, **zero missing REPL outputs**.
+  Transcript scopes: 178 in-process recipes, 29 declaration-only, 44 expected
+  load diagnostics, 32 isolated native failures, 7 isolated cross-target host
+  captures. Fragments: 15 translated blocks; 351 authored / 251 syntax checks /
+  77 matching inline outputs. Original upstream HTML preservation passes.
+  Served port 63979 matches `build/site/index.html`, SHA-256
+  `622b9bd6b413daf222a32f223977780e6d4eaf5767502a8692427fc5879df0fc`.
+  Logs: `.tmp/align-output-final-outcomes.log`,
+  `.tmp/align-output-final-fragments.log`, `.tmp/align-output-final-html.log`.
+  **11/11 browser/highlighting checks pass**, including generic rendered output
+  parity and the incorrect-alignment diagnostic. The browser parity check
+  excludes panels with no Clojure translation, matching the build guard.
+  Log: `.tmp/align-output-final-browser.log`.
+
+- [x] Structured top-level alignment: `{:align 4}` and
+  `{:align (k/* (k/sizeOf :usize) 2)}` work on constants, variables, functions
+  and extern prototypes, including nested declarations. Qualified alignment
+  expressions participate in dependency tracking, cache identity and reload
+  compatibility. Zig conversion retains alignment as a parsed expression and
+  preserves other qualifiers such as calling conventions. Migrated all four
+  raw alignment qualifiers in Learn's variable/function alignment lesson.
+  Focused suite: **66 tests / 398 assertions pass**, including converter round
+  trips and the real lesson bodies on the JVM plus native tests.
+  `.tmp/structured-align-regressions.log`. An initial nREPL test-suite invocation
+  hit two fixture-path errors because the old server ran from Learn, not the
+  repo root. A fresh owned root REPL passed **5 tests / 41 assertions**
+  (`.tmp/structured-align-fresh-nrepl.log`); final regeneration is recorded above.
+
+- [x] Remove redundant `az/type` from known type-argument positions: **31
+  wrappers across 15 Learn files**, including `k/as`, builtin reflection/size
+  queries, imported functions and user-defined `List`/`LinkedList` calls.
+  Native emission now reads builtin/imported parameter types through the same
+  Zig signature parser as the JVM bridge; user functions use their declared
+  argument types. Composite schemas are emitted as types, not tuple values.
+  No Clojure type inference is involved. Keep `az/type` when a type itself is
+  the value (for example, the expected value in a type equality assertion).
+  Regression suite: **70 tests / 427 assertions pass**, including **3 new tests /
+  14 assertions** for direct schemas in both JVM and compiled calls.
+  Logs: `.tmp/type-wrapper-regressions.log`, `.tmp/type-wrapper-tests.log`.
+  Owned nREPL verification also passed **3 tests / 14 assertions**
+  (`.tmp/type-wrapper-nrepl.log`). Output/HTML refresh COMPLETE: **292/292**
+  comparisons (288 upstream + 4 reviewed), **202 REPL transcripts**, **307
+  tabbed figures**, zero acceptance problems. Fragment refresh: 15 translated
+  blocks, 9 Zig-only; 351 authored / 251 syntax checks / 77 matching inline
+  outputs. Served port 63979 exactly matches the rebuilt HTML:
+  SHA-256 `85b74ced9c10c985f7ddbf42dd27648ece6dad56f2a23e53c992102d40a9e4d1`.
+  Logs: `.tmp/type-wrapper-outcomes-final.log`, `.tmp/type-wrapper-fragments.log`,
+  `.tmp/type-wrapper-html.log`, `.tmp/type-wrapper-browser.log`.
+  Browser/highlighting checks: **10/10 passed**. The source-text walker now
+  visits regular files only, avoiding Emacs lock symlinks without deleting them.
+
+- [x] Pointer-schema/alignment follow-up: `:*` accepts options and defaults to
+  a single-item pointer. Removed `:pointer` schema support and redundant
+  `:size :one` from code/examples; converter and compiler probes emit the same
+  canonical schema. Zig reflection's `pointer` variant is unchanged. Computed
+  dimensions/options retain Zig expressions or native scalar results. Global
+  address-taking preserves explicit alignment from Zig's pointer type; function
+  addresses use Zig rather than the mutable-data path. All **4 native tests**
+  and their JVM bodies pass in the volatile/variable/function alignment lessons.
+  Focused checks: **86 tests / 547 assertions pass**, including pointer discovery,
+  converter round trips, packed fields, emitter, preparation, package aliases,
+  precision, cache reuse and prior pointer lessons. The discovery test was rerun
+  with `test` on the classpath after an initial runner setup error; logs:
+  `.tmp/pointer-final-regressions.log`, `.tmp/pointer-discovery-regression.log`.
+  Also fixed the missing `rewrite-clj` preparation dependency; Learn `:prepare`
+  now succeeds. `k/alignOf` already accepts primitive/composite type schemas
+  directly through builtin signatures: verified in the REPL, removed redundant
+  `az/type` wrappers, and added three direct-schema assertions. The final two
+  lesson edits pass **6 tests / 50 assertions**; see
+  `.tmp/direct-alignment-regression.log` (included in the total above).
+  HTML refresh COMPLETE: **292/292** comparisons, **202 REPL transcripts**,
+  **307 tabbed figures**, zero acceptance problems, **10/10 browser tests**.
+  Last incremental refresh reused **290** examples and executed only the two
+  modified lessons. Served port 63979 exactly matches the rebuilt HTML:
+  SHA-256 `f27cf84993e5424d0eb568ce5605073dab68425e313f290b788a7166d7c3e390`.
+  Logs: `.tmp/current-pointer-html-outcomes-final.log`,
+  `.tmp/current-html-build-final.log`, `.tmp/current-html-browser-tests.log`.
+
+- [ ] Broader converter suite is not clean: **10 failures / 4 errors** from the
+  additional full run (`.tmp/pointer-schema-regressions.log`). Categories:
+  missing generated catalog in subprocess classpaths (6 failures; examples:
+  fresh namespace loading, callee hot swapping); obsolete generated syntax
+  (2 errors; checked TigerBeetle corpus, complete TigerBeetle conversion);
+  binding validation (2 errors; destructuring assignments, nested containers);
+  raw-JVM-value expectations (4 failures; generated-answer, data-path-length).
+  These are outside the focused passing suite; do not report all tests green.
+
+- [x] `k/comptime` is identity in ordinary JVM evaluation: its argument runs
+  once and its result is preserved, including nil/false. Inside Aguafria forms
+  it still emits Zig `comptime`. Tested the complete pointer-conversion wrapper.
+- [x] Reuse imported-call adapters when changing integer/float literals is safe.
+  Read the original Zig AST to check that arguments first become a common type
+  and are passed to a normal typed helper; no function-name special cases or
+  Clojure type inference. Zig `@TypeOf` confirms the type without loading or
+  executing native code. Float decimal rounding and integer range checks remain.
+  Runtime and preparation share the planner. Package loading provides resolved
+  source locations in Var metadata without committing generated source paths.
+  Final focused suite: **6 tests / 60 assertions**, zero failures, including
+  full JVM comptime body, native pointer tests, safe/unsafe wrapper patterns,
+  mismatch/range errors, float midpoint, booleans, aliased package functions,
+  resolved package source metadata, and compile-only preparation. Changed
+  integer and float values produced **0 compilations / 6 memory-cache hits**
+  in live REPL checks. The full JVM `k/comptime` example returned `{:ok nil}`.
+  No HTML,
+  full Learn audit, cache deletion, or whole AOT rerun in this scoped fix.
+- [x] Fixed package catalog visibility: normalize converted `k/pub` attributes
+  before collecting public declarations. Alias namespaces (`Bytes`, `BytesAlias`,
+  `RowAlias`) and qualified `Buffer/Slice` documentation are restored. Updated
+  old raw-JVM assertions to inspect the deliberately preserved native values.
+- [x] Fixed standalone comptime-literal precision: keep original Zig expressions
+  through coercion and arithmetic instead of round-tripping through JVM doubles.
+  `(k/as (az/number-literal "1.0000000596046448") :f32)` now rounds up correctly.
+  New regressions compare f16/f32/f64 values inside Zig, including computed and
+  negative expressions, exact u64 literals, and overflow rejection. Combined
+  package, precision, imported-call reuse, and pointer suite: **12 tests / 104
+  assertions, zero failures or errors** (`.tmp/current-regressions.log`). Live
+  nREPL checks confirm direct and computed f32 coercions. Included in the HTML
+  refresh recorded above.
+
+- [x] Unify compile-time expressions and statements under `k/comptime`; removed
+  `az/comptime-stmt` without an alias, migrated converter and nine Learn files.
+  Focused checks: **58 tests / 343 assertions**, including a native round trip.
+  HTML rebuilt with **202 REPL transcripts**, live served hash matches the file.
+  Coarse compiler fingerprint forced a broader **292/292** outcome refresh;
+  avoid repeating whole-suite checks for subsequent scoped fixes.
+- [x] Reproduced and fixed JVM integer-to-pointer conversion and the actual
+  `pointer-casting` body. Result-context builtins retain their operands until
+  `k/as` supplies the destination type; no pointee type is guessed. Array
+  `{:align ...}` options replace inert local metadata and preserve the original
+  Zig binding alignment, plus owned JVM storage alignment. Fixed a nil child
+  schema check exposed by native argument transport.
+  `jvm_pointer_context_test.clj` reads and evaluates the actual three lesson
+  lets (not calls to their compiled tests), then separately runs the native
+  tests: **3/3 JVM bodies / 3/3 native tests**, combined focused emitter/native
+  suite **60 tests / 363 assertions**, zero failures. Log:
+  `.tmp/pointer-context-tests.log` at repository root. No whole-Learn rerun.
+  HTML above includes the comptime rename but predates the subsequent pointer
+  alignment edit; do not report all JVM subforms as verified from native
+  outcome-comparison counts.
+
 - HTML regeneration after the single-library AOT change COMPLETED: refreshed
   **292/292 outcomes (288 upstream / 4 reviewed special cases)**, blocks and
   inline checks, then rebuilt the page with **202 REPL transcripts / 307 tabbed

@@ -8,7 +8,7 @@
         runtime-length (k/var 3 :usize)]
     (k/= :_ (k/& runtime-length))
     (let [slice (az/slice-sentinel array 0 runtime-length 0)]
-      (try (testing/expectEqual (az/type [:pointer {:size :slice :sentinel 0} :u8])
+      (try (testing/expectEqual (az/type [:* {:size :slice :sentinel 0} :u8])
                                 (k/TypeOf slice)))
       (try (testing/expectEqual 3 (:len slice))))))
 

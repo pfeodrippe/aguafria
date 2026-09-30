@@ -11,7 +11,7 @@
 
 (az/defn attach :u32
   {:zig/qualifiers "callconv(.c)"}
-  [[api [:pointer {:size :c :const? true} sdk/PitocoHostV1]] [state [:c-pointer [:optional [:* :anyopaque]]]]]
+  [[api [:* {:size :c :const? true} sdk/PitocoHostV1]] [state [:c-pointer [:optional [:* :anyopaque]]]]]
   (when (or (ak/== api null) (ak/!= (az/field (az/index api 0) abi_version) 1)
             (< (az/field (az/index api 0) struct_size) (ak/sizeOf sdk/PitocoHostV1)))
     (ak/return 4))
@@ -28,7 +28,7 @@
 
 (az/defn run-command :u32
   {:zig/qualifiers "callconv(.c)"}
-  [[state [:optional [:* :anyopaque]]] [command [:pointer {:size :c :const? true} :u8]]]
+  [[state [:optional [:* :anyopaque]]] [command [:* {:size :c :const? true} :u8]]]
   (set! _ state)
   (when (or (ak/== host null) (ak/== command null)) (ak/return 3))
   (when (ak/! (mem/eql :u8 (mem/span command) "rewind")) (ak/return 3))

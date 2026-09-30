@@ -28,7 +28,7 @@
   {:zig/prefix "pub extern" :attrs #{:public}}
    [[handle [:optional [:* :anyopaque]]]])
 
-(az/defextern pitoco_aguafria_variational_error [:pointer {:size :c :const? true} :u8]
+(az/defextern pitoco_aguafria_variational_error [:* {:size :c :const? true} :u8]
   {:zig/prefix "pub extern" :attrs #{:public}}
    [])
 

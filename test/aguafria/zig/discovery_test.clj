@@ -18,11 +18,11 @@
            [java.util.concurrent TimeUnit]))
 
 (deftest adapter-identities-ignore-map-order-but-preserve-type-information
-  (let [left [:pointer (array-map :size :one :const? true :align 1) :i32]
-        right [:pointer (array-map :align 1 :const? true :size :one) :i32]]
+  (let [left [:* (array-map :const? true :align 1) :i32]
+        right [:* (array-map :align 1 :const? true) :i32]]
     (is (= (runtime/adapter-fingerprint left) (runtime/adapter-fingerprint right)))
     (is (not= (runtime/adapter-fingerprint left)
-              (runtime/adapter-fingerprint [:pointer {:size :one :const? true :align 2} :i32])))
+              (runtime/adapter-fingerprint [:* {:const? true :align 2} :i32])))
     (is (not= (runtime/adapter-fingerprint (with-meta 'x {:zig/type :i32}))
               (runtime/adapter-fingerprint (with-meta 'x {:zig/type :u32}))))))
 
@@ -917,9 +917,9 @@
                                               (filter #(= 'aguafria.keyword/intFromPtr (:function %)) operations))))]
     (is (zero? (get-in report [:baseline :exit])))
     (is (not (:compiler-errors? report)) (:diagnostics report))
-    (is (contains? pointer-types [:pointer {:size :one :const? true :volatile? true} :i32]))
-    (is (contains? pointer-types [:pointer {:size :one :const? true :align 1} :i32]))
-    (is (contains? pointer-types [:pointer {:size :one :allowzero? true} :i32]))
+    (is (contains? pointer-types [:* {:const? true :volatile? true} :i32]))
+    (is (contains? pointer-types [:* {:const? true :align 1} :i32]))
+    (is (contains? pointer-types [:* {:allowzero? true} :i32]))
     (is (contains? pointer-types [:sentinel-const :u8 0]))
     ;; ptrFromInt deliberately needs its enclosing cast; don't claim that
     ;; isolated result-location-dependent subexpression has been prepared.
@@ -933,9 +933,9 @@
                                (when (= "build-lib" (second args))
                                  (swap! commands conj (vec args)))
                                (apply original args))]
-        (doseq [type [[:pointer {:size :one :const? true :volatile? true} :i32]
-                      [:pointer {:size :one :const? true :align 1} :i32]
-                      [:pointer {:size :c :const? true} :i32]]]
+        (doseq [type [[:* {:const? true :volatile? true} :i32]
+                      [:* {:const? true :align 1} :i32]
+                      [:* {:size :c :const? true} :i32]]]
           (let [qualified (k/as pointer type)]
             (is (contains? pointer-types (value/qualified-type qualified)))
             (is (pos? (az/value (k/intFromPtr qualified))))))
@@ -1049,9 +1049,9 @@
                          (assert (= 3 (aguafria.zig/value (aguafria.std.c/printf "%d\n" (aguafria.keyword/i32 12)))))
                          (assert (= 9 (aguafria.zig/value (aguafria.std.c/printf "%s=%d\n" "value" (aguafria.keyword/i32 42)))))
                          (let [pointer# (aguafria.keyword/& x#)]
-                           (doseq [type# [[:pointer {:size :one :const? true :volatile? true} :i32]
-                                          [:pointer {:size :one :const? true :align 1} :i32]
-                                          [:pointer {:size :c :const? true} :i32]]]
+                           (doseq [type# [[:* {:const? true :volatile? true} :i32]
+                                          [:* {:const? true :align 1} :i32]
+                                          [:* {:size :c :const? true} :i32]]]
                              (assert (pos? (aguafria.zig/value
                                             (aguafria.keyword/intFromPtr
                                              (aguafria.keyword/as pointer# type#)))))))

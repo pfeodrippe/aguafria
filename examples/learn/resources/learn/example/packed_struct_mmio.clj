@@ -10,7 +10,7 @@
    [:GPIO3 :bool]
    [:reserved {:default 0} :u4]])
 
-(az/defconst gpio [:pointer {:size :one :volatile? true} GpioRegister]
+(az/defconst gpio [:* {:volatile? true} GpioRegister]
   (k/ptrFromInt 0x0123))
 
 (az/defn write-to-gpio :void [[new-states GpioRegister]]

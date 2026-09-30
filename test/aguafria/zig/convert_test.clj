@@ -23,6 +23,14 @@
           forms
           (recur (conj forms form)))))))
 
+(deftest comptime-statements-use-the-same-public-keyword-as-expressions
+  (let [result (convert/verify-file "test/fixtures/comptime_forms.zig"
+                                    {:namespace 'fixture.comptime-forms
+                                     :mode :test :throw? false})]
+    (is (:success? result) (pr-str result))
+    (is (str/includes? (:clojure-source result) "(k/comptime"))
+    (is (not (str/includes? (:clojure-source result) "comptime-stmt")))))
+
 (deftest inferred-variables-do-not-acquire-placeholder-types
   (let [{:keys [forms clojure-source]}
         (convert/convert-file "test/fixtures/inferred_variables.zig"
@@ -619,7 +627,7 @@
     (is (not (str/includes? clojure-source "(raw")))
     (is (str/includes? clojure-source ":error-set"))
     (is (str/includes? clojure-source ":error-union"))
-    (is (str/includes? clojure-source ":pointer"))
+    (is (str/includes? clojure-source "[:* {"))
     (is (str/includes? clojure-source ":fn"))
     (is (str/includes? clojure-source ":callconv"))
     (is (str/includes? clojure-source "{:sentinel 0}"))

@@ -4,7 +4,7 @@
             [aguafria.zig :as az]))
 
 (az/deftest zero-terminated-slice
-  (let [slice (k/as "hello" [:pointer {:sentinel 0, :size :slice, :const? true} :u8])]
+  (let [slice (k/as "hello" [:* {:sentinel 0, :size :slice, :const? true} :u8])]
     (try (testing/expectEqual 5 (:len slice)))
     (try (testing/expectEqual 0 (az/get slice 5)))))
 

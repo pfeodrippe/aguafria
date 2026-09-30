@@ -139,6 +139,15 @@
    :signature (:signature builtin)
    :zig-name (:zig-name builtin)})
 
+(defn result-context-required?
+  "Whether a Zig builtin requires an enclosing result type. This describes
+  Zig syntax, not a guessed type for its operands or result."
+  [zig-name]
+  (contains? #{"@intCast" "@floatCast" "@ptrCast" "@alignCast" "@addrSpaceCast"
+               "@bitCast" "@ptrFromInt" "@fieldParentPtr" "@splat" "@enumFromInt"
+               "@errorCast" "@intFromFloat" "@truncate"}
+             zig-name))
+
 (defn- reader-token
   [token]
   (assoc (select-keys token [:kind :minimum-param-count :name :param-count :zig-token
@@ -169,6 +178,9 @@
 (defn- token-root
   [token]
   (cond
+    (= "comptime" (:zig-token token))
+    identity
+
     (= "var" (:zig-token token))
     (fn [& arguments]
       (apply (requiring-resolve 'aguafria.zig.jvm/mutable!) arguments))
@@ -366,12 +378,14 @@
        token
        {:aguafria/token token
         :arglists '([& forms])
-        :doc (str (when (= "var" (:zig-token token))
+        :doc (str (when (= "comptime" (:zig-token token))
+                    "Inside an Aguafria declaration, evaluate one expression, statement, or block during Zig compilation. Use (k/comptime expression), (k/comptime (do ...)), or (k/comptime (let [...] ...)). In ordinary JVM evaluation this is identity: its argument evaluates normally once and its result is returned unchanged.\n\n")
+                  (when (= "var" (:zig-token token))
                     "JVM: (k/var value) or (k/var value type) creates owned mutable native storage. Assign with (k/= handle value). In an Aguafria let initializer, declares a Zig var.\n\n")
                   "Zig `" (:zig-token token) "` keyword, mechanically discovered "
                   "from Zig " (:zig-version generated-catalog) " `"
                   (get-in generated-catalog [:sources :tokenizer :path]) "`. "
-                  (when-not (= "var" (:zig-token token))
+                  (when-not (#{"var" "comptime"} (:zig-token token))
                     "This Var is syntax and is only valid inside an Aguafria declaration."))
         :zig/name (:zig-token token)
         :zig/source (get-in generated-catalog [:sources :tokenizer :path])

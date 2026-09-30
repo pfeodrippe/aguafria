@@ -61,7 +61,7 @@
     :test-name "native let metadata preserves comptime and alignment"
     :body
     '((let [^{:var :i32 :zig/prefix "comptime"} count 1
-            ^{:var [:array 4 :u8] :zig/align 16} bytes aguafria.keyword/undefined]
+            ^{:var [:array 4 :u8] :align 16} bytes aguafria.keyword/undefined]
         (set! count (+ count 1))
         (set! (index bytes 0) 7)
         (when (!= count 2) (return (error-value :WrongComptimeValue)))

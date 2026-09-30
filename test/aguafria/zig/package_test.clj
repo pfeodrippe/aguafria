@@ -90,11 +90,13 @@
       (prepare/write-entrypoints! {:kind :packages :namespaces (:namespaces catalog)
                                    :generated-dir generated})
       (doseq [suffix [".Bytes" ".BytesAlias" ".Buffer.Slice" ".RowAlias.Slice"]]
-        (is (= 3 (call suffix '-len "abc")))
+      (is (= 3 (az/value (call suffix '-len "abc"))))
         (is (value/zig-pointer? (call suffix '-ptr "abc")))
         (is (= '([self]) (:arglists (meta (ns-resolve (symbol (str prefix suffix)) '-len))))))
-      (is (= 42 (call ".RowAlias" '-value (call "" 'row))))
-      (is (= "abc" (call ".Buffer" '-items (call "" 'buffer))))
+      (is (= 42 (az/value (call ".RowAlias" '-value (call "" 'row)))))
+      (let [items (call ".Buffer" '-items (call "" 'buffer))]
+        (is (value/zig-value? items))
+        (is (= [97 98 99] (mapv #(az/value (az/get items %)) (range 3)))))
       (is (str/includes? (:doc (meta (ns-resolve prefix 'Buffer))) "Fields:"))
       (is (str/includes? (:doc (meta (ns-resolve (symbol (str prefix ".Buffer")) '-items)))
                          "items: aguafria.pkg.type-fields-fixture.Buffer/Slice"))
@@ -105,7 +107,7 @@
         (alias 'slice (symbol (str prefix ".BytesAlias")))
         (eval '(az/defn native-length :usize [[input [:slice-const :u8]]]
                  (slice/-len input)))
-        (is (= 3 ((ns-resolve prefix 'native-length) "abc")))
+        (is (= 3 (az/value ((ns-resolve prefix 'native-length) "abc"))))
         (is (= "input.len" (emitter/emit-expr *ns* '(slice/-len input)))))
       (finally
         (runtime/configure! original-config)

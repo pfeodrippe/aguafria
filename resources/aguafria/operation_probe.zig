@@ -233,7 +233,7 @@ pub fn Inspector(comptime declarations: anytype) type {
                 .pointer => |p| pointer: {
                     if (p.size == .many and p.sentinel_ptr != null and
                         !p.is_volatile and !p.is_allowzero and p.address_space == .generic and
-                        (p.alignment == null or p.alignment == @alignOf(p.child)))
+                        p.alignment == null)
                     {
                         const sentinel = switch (@typeInfo(p.child)) {
                             .int => std.fmt.comptimePrint("{d}", .{p.sentinel().?}),
@@ -244,16 +244,15 @@ pub fn Inspector(comptime declarations: anytype) type {
                     }
                     const qualified = p.sentinel_ptr != null or p.is_volatile or (p.is_allowzero and p.size != .c) or
                         p.address_space != .generic or
-                        (p.alignment != null and p.alignment != @alignOf(p.child)) or
+                        p.alignment != null or
                         (p.size == .c and p.is_const);
                     if (qualified) {
-                        var options: []const u8 = ":size :" ++ @tagName(p.size);
+                        var options: []const u8 = if (p.size == .one) "" else ":size :" ++ @tagName(p.size);
                         if (p.is_const) options = options ++ " :const? true";
                         if (p.is_volatile) options = options ++ " :volatile? true";
                         if (p.is_allowzero and p.size != .c) options = options ++ " :allowzero? true";
                         if (p.alignment) |alignment| {
-                            if (alignment != @alignOf(p.child))
-                                options = options ++ std.fmt.comptimePrint(" :align {d}", .{alignment});
+                            options = options ++ std.fmt.comptimePrint(" :align {d}", .{alignment});
                         }
                         if (p.address_space != .generic)
                             options = options ++ " :addrspace :." ++ @tagName(p.address_space);
@@ -264,7 +263,7 @@ pub fn Inspector(comptime declarations: anytype) type {
                                 else => break :pointer "nil",
                             };
                         }
-                        break :pointer "[:pointer {" ++ options ++ "} " ++ schema(p.child) ++ "]";
+                        break :pointer "[:* {" ++ options ++ "} " ++ schema(p.child) ++ "]";
                     }
                     const tag = switch (p.size) {
                         .one => if (p.is_const) "*const" else "*",

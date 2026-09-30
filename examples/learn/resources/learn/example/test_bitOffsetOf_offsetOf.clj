@@ -7,7 +7,7 @@
               [[:a :u3] [:b :u3] [:c :u2]])
 
 (az/deftest offsets-of-non-byte-aligned-fields
-  (az/comptime-stmt
+  (k/comptime
    (do
      (try (testing/expectEqual 0 (k/bitOffsetOf BitField "a")))
      (try (testing/expectEqual 3 (k/bitOffsetOf BitField "b")))

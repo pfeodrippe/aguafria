@@ -13,9 +13,9 @@
   [[b :bool]]
   (let [value1 (if b
                  "aoeu"
-                 (k/as "zz" (az/type [:slice-const :u8])))
+                 (k/as "zz" [:slice-const :u8]))
         value2 (if b
-                 (k/as "zz" (az/type [:slice-const :u8]))
+                 (k/as "zz" [:slice-const :u8])
                  "aoeu")]
     (try (testing/expectEqualStrings "aoeu" value1))
     (try (testing/expectEqualStrings "zz" value2))))
@@ -71,7 +71,7 @@
 (az/deftest peer-type-resolution-?T-and-T
   (try (testing/expectEqual 0 (az/unwrap (peerTypeTAndOptionalT true false))))
   (try (testing/expectEqual 3 (az/unwrap (peerTypeTAndOptionalT false false))))
-  (az/comptime-stmt
+  (k/comptime
    (az/block
     (try (testing/expectEqual 0 (az/unwrap (peerTypeTAndOptionalT true false))))
     (try (testing/expectEqual 3 (az/unwrap (peerTypeTAndOptionalT false false)))))))
@@ -79,7 +79,7 @@
 (az/deftest peer-type-resolution-*zero-u8-and-const-u8-slice
   (try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
   (try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi"))))
-  (az/comptime-stmt
+  (k/comptime
    (az/block
     (try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
     (try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi")))))))
@@ -89,7 +89,7 @@
         slice (az/slice data 0)]
     (try (testing/expectEqual 0 (:len (try (peerTypeEmptyArrayAndSliceAndError true slice)))))
     (try (testing/expectEqual 1 (:len (try (peerTypeEmptyArrayAndSliceAndError false slice))))))
-  (az/comptime-stmt
+  (k/comptime
    (let [data (k/var @"hi")
          slice (az/slice data 0)]
      (try (testing/expectEqual 0 (:len (try (peerTypeEmptyArrayAndSliceAndError true slice)))))

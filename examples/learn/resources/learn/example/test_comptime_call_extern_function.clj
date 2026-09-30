@@ -6,7 +6,7 @@
   [])
 
 (az/deftest foo
-  (az/comptime-stmt
+  (k/comptime
    (az/block
     (exit))))
 

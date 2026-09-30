@@ -317,6 +317,21 @@ data. There is no generated-code mode or options argument.
 `az/vector` constructs a typed SIMD vector on either side of the JVM/native
 boundary: `(az/vector [1 2 3 4] :i32)` emits `@Vector(4, i32){1, 2, 3, 4}`.
 
+Result-context builtins such as `k/ptrFromInt`, `k/ptrCast` and `k/bitCast`
+need a destination type in Zig. From the JVM their unresolved calls retain
+their operands until `(k/as call type)` supplies that context, then execute
+native Zig. Printing an unresolved call reports that a result type is required;
+it is not a pointer with a guessed pointee type. For explicitly aligned array
+storage, use `(az/array bytes {:align (k/alignOf :u32)} :u8)`.
+Unlike binding metadata, this requests aligned storage on the JVM too.
+
+Pointer schemas use `[:* child-type]` or `[:* options child-type]`, for example
+`[:* {:volatile? true} :u8]` and `[:* {:align 4} :u8]`. The default size is
+single-item; use `:size :many`, `:size :slice`, or `:size :c` when needed.
+Alignment expressions can use native results such as `(k/alignOf :i32)`.
+`k/alignOf` accepts type schemas directly, including arrays and pointers; no
+`az/type` wrapper is needed.
+
 Numeric constructors, native arithmetic and numeric function results retain
 their Zig type as `ZigValue`s. Use `k/+` and other native operations to keep
 working with them, and `k/&` for an owned pointer to their storage. `k/var`
@@ -727,6 +742,16 @@ warming of all JVM subforms**. Inspection uses `zig test --test-no-exec
 compiled to disk without loading them. Native invocation is rejected during
 preparation; Zig still executes its normal `comptime` logic, and `require` still
 evaluates ordinary top-level Clojure code/macros.
+
+Imported calls such as `testing/expectEqual` reuse their JVM handler when an
+untyped integer or float changes but its native counterpart's type stays the
+same. Aguafria checks the original Zig source: the function must first convert
+all arguments to a common type and pass them to a normal typed helper. Zig's
+`@TypeOf` confirms that type in a compile-only check. Float literals retain
+their decimal spelling and Zig rounding; integer range checks still apply.
+Calls that inspect the original argument types or require comptime values keep
+their existing specialization. This changes JVM adapters, not emitted lesson
+or application code. Preparation and normal evaluation use the same planner.
 
 Inspection first compiles an uninstrumented baseline. If probes make valid
 source fail, smaller probe groups isolate those failures so other operations

@@ -17,8 +17,8 @@
                              [[:low :u3] [:high :u5]])))
       (let [Packed (var-get (ns-resolve fixture 'Packed))
             Bits (var-get (ns-resolve fixture 'Bits))
-            packed (k/var (Packed {:a 1 :b 2}) nil {:zig/align 4})
-            pointer (k/as (k/& packed) [:pointer {:align 4 :size :one} Packed])
+            packed (k/var (Packed {:a 1 :b 2}) nil {:align 4})
+            pointer (k/as (k/& packed) [:* {:align 4} Packed])
             bits (k/var (Bits {:low 3 :high 17}))]
         (is (= 1 (az/value (:a pointer))))
         (is (= 2 (az/value (:b pointer))))

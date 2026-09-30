@@ -12,8 +12,8 @@
     (try (testing/expectEqual 1 (deref (az/unwrap ptr))))
     ;; Optional pointers are the same size as normal pointers, because pointer
     ;; value 0 is used as the null value.
-    (try (testing/expectEqual (k/sizeOf (az/type [:optional [:* :i32]]))
-                              (k/sizeOf (az/type [:* :i32]))))))
+    (try (testing/expectEqual (k/sizeOf [:optional [:* :i32]])
+                              (k/sizeOf [:* :i32])))))
 
 (comment
   (optional-pointers))

@@ -70,15 +70,15 @@
 
 (az/deftest linked-list
   ;; Functions called at compile-time are memoized.
-  (try (testing/expectEqual (LinkedList (az/type :i32)) (LinkedList (az/type :i32))))
-  (let [list (az/init {:first nil :last nil :len 0} (LinkedList (az/type :i32)))]
+  (try (testing/expectEqual (LinkedList :i32) (LinkedList :i32)))
+  (let [list (az/init {:first nil :last nil :len 0} (LinkedList :i32))]
     (try (testing/expectEqual 0 (:len list))))
   ;; Since types are first class values you can instantiate the type
   ;; by assigning it to a variable:
-  (let [ListOfInts (LinkedList (az/type :i32))]
-    (try (testing/expectEqual (LinkedList (az/type :i32)) ListOfInts))
+  (let [ListOfInts (LinkedList :i32)]
+    (try (testing/expectEqual (LinkedList :i32) ListOfInts))
     (let [node (k/var (az/init {:prev nil :next nil :data 1234} (:Node ListOfInts)))
-          list2 (az/init {:first (k/& node) :last (k/& node) :len 1} (LinkedList (az/type :i32)))]
+          list2 (az/init {:first (k/& node) :last (k/& node) :len 1} (LinkedList :i32))]
       ;; When using a pointer to a struct, fields can be accessed directly,
       ;; without explicitly dereferencing the pointer.
       ;; So you can do

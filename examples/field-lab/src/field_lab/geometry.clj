@@ -78,7 +78,7 @@
     (and (cubic-excludes-zero? (az/init [(az/index coefficients 0) a d midpoint] [:array 4 Interval]) (- depth 1))
          (cubic-excludes-zero? (az/init [midpoint e c (az/index coefficients 3)] [:array 4 Interval]) (- depth 1)))))
 
-(az/defn non-coplanar? :bool [[before [:pointer {:size :c :const? true} p/Vec3]] [after [:pointer {:size :c :const? true} p/Vec3]]]
+(az/defn non-coplanar? :bool [[before [:* {:size :c :const? true} p/Vec3]] [after [:* {:size :c :const? true} p/Vec3]]]
   (let [edge-u-before (difference (az/index before 1) (az/index before 0))
         edge-v-before (difference (az/index before 2) (az/index before 0))
         edge-w-before (difference (az/index before 3) (az/index before 0))
@@ -108,8 +108,8 @@
   (and (math/isFinite (az/field v x)) (math/isFinite (az/field v y)) (math/isFinite (az/field v z))))
 
 (az/defn separating-axis? :bool
-  [[kind :u32] [before [:pointer {:size :c :const? true} p/Vec3]]
-   [after [:pointer {:size :c :const? true} p/Vec3]] [axis p/Vec3]]
+  [[kind :u32] [before [:* {:size :c :const? true} p/Vec3]]
+   [after [:* {:size :c :const? true} p/Vec3]] [axis p/Vec3]]
   (when (or (ak/! (finite-vector? axis))
              (and (ak/== (az/field axis x) 0) (ak/== (az/field axis y) 0) (ak/== (az/field axis z) 0)))
     (ak/return false))
@@ -125,7 +125,7 @@
     (or positive negative)))
 
 (az/defn separated? :bool
-  [[kind :u32] [before [:pointer {:size :c :const? true} p/Vec3]] [after [:pointer {:size :c :const? true} p/Vec3]]]
+  [[kind :u32] [before [:* {:size :c :const? true} p/Vec3]] [after [:* {:size :c :const? true} p/Vec3]]]
   (dotimes [time 2]
     (let [points (if (ak/== time 0) before after)]
       (if (ak/== kind 0)
@@ -150,7 +150,7 @@
 
 (az/defn pitoco_geometry_ccd_prepare :u32
   {:attrs #{:export}}
-  [[kind :u32] [before [:pointer {:size :c :const? true} p/Vec3]] [after [:pointer {:size :c :const? true} p/Vec3]]
+  [[kind :u32] [before [:* {:size :c :const? true} p/Vec3]] [after [:* {:size :c :const? true} p/Vec3]]
    [separation :f64] [tolerance :f64] [maximum-time :f64] [maximum-iterations :u32] [error-bound [:c-pointer :f64]]]
   ;; 0 needs upstream CCD, 1/2 certified clear, 3 invalid input.
   (when (or (> kind 1) (ak/== before null) (ak/== after null) (ak/== error-bound null)
@@ -179,14 +179,14 @@
           (set! (az/index error-bound axis) bound))))
     0))
 
-(az/defn column-point p/Vec3 [[data [:pointer {:size :c :const? true} :f64]] [index :usize] [nodes :usize]]
+(az/defn column-point p/Vec3 [[data [:* {:size :c :const? true} :f64]] [index :usize] [nodes :usize]]
   (p/Vec3 {:x (az/index data index) :y (az/index data (+ nodes index)) :z (az/index data (+ (* 2 nodes) index))}))
 
 (az/defn pitoco_geometry_positive_path :u32
   {:attrs #{:export}}
-  [[nodes :u32] [tet-count :u32] [cells [:pointer {:size :c :const? true} :u32]]
-   [floor [:pointer {:size :c :const? true} :u8]]
-   [start [:pointer {:size :c :const? true} :f64]] [end [:pointer {:size :c :const? true} :f64]]]
+  [[nodes :u32] [tet-count :u32] [cells [:* {:size :c :const? true} :u32]]
+   [floor [:* {:size :c :const? true} :u8]]
+   [start [:* {:size :c :const? true} :f64]] [end [:* {:size :c :const? true} :f64]]]
   (when (or (ak/== start null) (ak/== end null) (and (> tet-count 0) (ak/== cells null))) (ak/return 0))
   (dotimes [tet tet-count]
     (let [^:var before (ak/as ak/undefined [:array 4 p/Vec3])
@@ -210,8 +210,8 @@
 
 (az/defn pitoco_geometry_trial :void
   {:attrs #{:export}}
-  [[count :u32] [rest [:pointer {:size :c :const? true} :f64]]
-   [start [:pointer {:size :c :const? true} :f64]] [direction [:pointer {:size :c :const? true} :f64]]
+  [[count :u32] [rest [:* {:size :c :const? true} :f64]]
+   [start [:* {:size :c :const? true} :f64]] [direction [:* {:size :c :const? true} :f64]]
    [alpha :f64] [output [:c-pointer :f64]]]
   (dotimes [index count]
     (let [trial (+ (az/index start index) (* alpha (az/index direction index)))
@@ -220,9 +220,9 @@
 
 (az/defn pitoco_geometry_safe_fraction :f64
   {:attrs #{:export}}
-  [[nodes :u32] [tet-count :u32] [cells [:pointer {:size :c :const? true} :u32]]
-   [floor [:pointer {:size :c :const? true} :u8]] [rest [:pointer {:size :c :const? true} :f64]]
-   [start [:pointer {:size :c :const? true} :f64]] [direction [:pointer {:size :c :const? true} :f64]]
+  [[nodes :u32] [tet-count :u32] [cells [:* {:size :c :const? true} :u32]]
+   [floor [:* {:size :c :const? true} :u8]] [rest [:* {:size :c :const? true} :f64]]
+   [start [:* {:size :c :const? true} :f64]] [direction [:* {:size :c :const? true} :f64]]
    [surface-fraction :f64] [scratch [:c-pointer :f64]]]
   ;; The surface fraction comes from IPC. Ground clearance and positive-volume
   ;; backtracking are Pitoco's policy, and therefore live in AguaFria.
@@ -247,7 +247,7 @@
 
 (az/defn pitoco_geometry_edges :u32
   {:attrs #{:export}}
-  [[nodes :u32] [face-count :u32] [faces [:pointer {:size :c :const? true} :u32]] [keys [:c-pointer :u64]]]
+  [[nodes :u32] [face-count :u32] [faces [:* {:size :c :const? true} :u32]] [keys [:c-pointer :u64]]]
   ;; Caller supplies capacity for three edges per face. Sorting packed indices
   ;; produces the same lexicographic, unique edge order as the former C++ set.
   (when (or (ak/== faces null) (ak/== keys null) (> face-count 2000000)) (ak/return 0))
