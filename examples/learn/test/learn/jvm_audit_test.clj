@@ -4,21 +4,21 @@
 
 (deftest resource-bindings-are-not-detached-from-their-lifetime
   (let [cases (:cases (audit/plan
-                      "(ns fixture.resources)
+                       "(ns fixture.resources)
                        (comment (with-open [arena (open-arena)] (consume arena)))"))]
     (is (= 1 (count (filter #(= :comment-call (:kind %)) cases))))
     (is (some #(and (= '(with-open [arena (open-arena)] (consume arena))
-                        (:expression %))
+                       (:expression %))
                     (= :comment-call (:kind %))) cases))
     (is (every? :status (filter #(= '[arena (open-arena)] (:expression %)) cases)))))
 
 (deftest nested-comment-bodies-are-not-mislabeled-as-authored-calls
   (let [cases (:cases (audit/plan
-                      "(ns fixture.comments)
+                       "(ns fixture.comments)
                        (comment (let [x 1] (consume x) (consume x)))"))]
     (is (= 1 (count (filter #(= :comment-call (:kind %)) cases))))
     (is (= 2 (count (filter #(and (= :body-expression (:kind %))
-                                 (= '(consume x) (:expression %))) cases))))))
+                                  (= '(consume x) (:expression %))) cases))))))
 
 (deftest inventory-keeps-lexical-setup-and-does-not-invent-arguments
   (let [{:keys [cases]}
@@ -43,7 +43,7 @@
 
 (deftest intentionally-invalid-and-control-dependent-forms-remain-visible
   (let [cases (:cases (audit/plan
-                      "(ns fixture.invalid)
+                       "(ns fixture.invalid)
                        (az/defn main :void [] (let [x] (k/= x 1)))
                        (az/deftest branching (if condition (danger!) (safe!)))"))]
     (is (some #(= '(let [x] (k/= x 1)) (:expression %)) cases))
@@ -53,23 +53,32 @@
 (deftest inventory-uses-bounded-virtual-workers-and-preserves-order
   (is (= (mapv vector (range 10) (repeat true))
          (audit/parallel-inventory 2
-                                  #(vector % (.isVirtual (Thread/currentThread)))
-                                  (range 10))))
+                                   #(vector % (.isVirtual (Thread/currentThread)))
+                                   (range 10))))
   (is (thrown? clojure.lang.ExceptionInfo
                (audit/parallel-inventory 0 identity []))))
 
 (deftest threaded-steps-are-not-evaluated-with-their-input-missing
   (let [cases (:cases (audit/plan
-                      "(ns fixture.threaded)
+                       "(ns fixture.threaded)
                        (az/defn main :void []
                          (let [n (-> 1 (k/as :i32) k/var)] n))"))]
-    (is (some #(and (= '(-> 1 (k/as :i32) k/var) (:expression %))
-                    (= :requires-control-context (:status %))) cases))
+    (is (some #(and (= '(k/as 1 :i32) (:expression %)) (:form %)) cases))
+    (is (some #(and (= '(k/var (k/as 1 :i32)) (:expression %)) (:form %)) cases))
     (is (not-any? #(and (= '(k/as :i32) (:expression %)) (:form %)) cases))))
+
+(deftest thread-last-steps-keep-their-input
+  (let [cases (:cases (audit/plan
+                       "(ns fixture.threadlast)
+                       (az/defn main :void []
+                         (let [xs [1 2]] (->> xs (map inc) vec)))"))]
+    (is (some #(= '(map inc xs) (:expression %)) cases))
+    (is (some #(= '(vec (map inc xs)) (:expression %)) cases))
+    (is (not-any? #(and (= '(map inc) (:expression %)) (:form %)) cases))))
 
 (deftest dependent-descendants-are-inventoried-without-detaching-bindings
   (let [cases (:cases (audit/plan
-                      "(ns fixture.context)
+                       "(ns fixture.context)
                        (az/defn f :i32 [[x :i32]] (k/+ x (k/* x 2)))
                        (az/deftest branching
                          (az/if-capture-stmt [value] optional
@@ -79,11 +88,11 @@
     (is (some #(and (= '(k/== value 2) (:expression %))
                     (= :requires-control-context (:status %))) cases))
     (is (not-any? #(and (= '(k/== value 2) (:expression %))
-                       (:form %)) cases))))
+                        (:form %)) cases))))
 
 (deftest sequential-forms-retain-their-own-prefix-and-native-block
   (let [cases (:cases (audit/plan
-                      "(ns fixture.sequence)
+                       "(ns fixture.sequence)
                        (az/deftest check
                          (do (prepare!) (inspect!)))
                        (az/deftest scoped
@@ -93,7 +102,7 @@
 
 (deftest comment-entrypoints-and-container-descendants-are-visible
   (let [cases (:cases (audit/plan
-                      "(ns fixture.entries)
+                       "(ns fixture.entries)
                        (az/defstruct Point
                          [[:x {:default (k/+ 1 2)} :i32]
                           (az/fn get-x :i32 [[self Point]] (az/field self :x))])
@@ -105,7 +114,7 @@
 
 (deftest source-read-errors-preserve-the-readable-inventory
   (let [{:keys [namespace cases]} (audit/plan
-                                 "(ns fixture.invalid-source)
+                                   "(ns fixture.invalid-source)
                                   (az/defconst good 1)
                                   (az/defconst broken [")]
     (is (= 'fixture.invalid-source namespace))
@@ -114,13 +123,25 @@
 
 (deftest map-value-expressions-are-inventoried
   (let [cases (:cases (audit/plan
-                      "(ns fixture.map)
+                       "(ns fixture.map)
                        (az/defconst point (Point {:x (k/+ 1 2)}))"))]
     (is (some #(= '(k/+ 1 2) (:expression %)) cases))))
 
+(deftest handlerless-try-retains-context-for-assertion-operands
+  (let [cases (:cases (audit/plan
+                       "(ns fixture.assertion)
+                       (az/deftest check
+                         (let [n (k/var 1 :i32)]
+                           (k/+= n 1)
+                           (try (testing/expectEqual 2 n))))"))]
+    (is (some #(= '(do (let [n (k/var 1 :i32)]
+                         (do (k/+= n 1) (try (do n))))) (:form %)) cases))
+    (is (not-any? #(and (= :requires-control-context (:status %))
+                        (= '(testing/expectEqual 2 n) (:expression %))) cases))))
+
 (deftest callee-expressions-and-native-symbol-operands-are-inventoried
   (let [cases (:cases (audit/plan
-                      "(ns fixture.callee)
+                       "(ns fixture.callee)
                        (az/deftest check
                          (let [list (make-list)]
                            ((az/field list :append) testing/allocator 3)))"))]

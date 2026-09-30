@@ -573,31 +573,53 @@
   nil)
 
 (defn invoke-assignment!
-  "Execute a compound assignment against owned native storage in Zig."
+  "Execute a compound assignment in Zig with independently typed operands.
+  Literals retain Zig's contextual typing; native operands retain their types."
   [syntax target operand]
   (when-not (and (value/zig-value? target) (= :var (:kind (value/info target))))
     (throw (ex-info "Assignment requires a mutable native value; create it with ak/var"
                     {:target target})))
-  (let [type (value/type target)
-        module (symbol (str "aguafria.jvm.assignment-" (token [syntax type])))
+  (let [storage (value/address-value target true)
+        {:keys [expression-arguments parameters arguments]}
+        (call-inputs [{:type :anytype}
+                      {:type :anytype :properties {:jvm/literal? true}}]
+                     [storage operand])
+        expression (list (:symbol syntax)
+                         (list 'aguafria.zig/deref (first expression-arguments))
+                         (second expression-arguments))
+        module (symbol (str "aguafria.jvm.assignment-"
+                            (token [expression parameters])))
         context (or (find-ns module) (create-ns module))
-        qualified-name (symbol (str module) "assign")
-        pointer (list 'aguafria.keyword/as
-                      (list 'aguafria.keyword/ptrFromInt 'address) [:* type])]
+        qualified-name (symbol (str module) "assign")]
     (locking context
       (when-not (contains? @prepared-adapters qualified-name)
         (binding [runtime/*source-only-registration?* true]
           (register! context
                      {:kind :fn :name 'assign :qualified-name qualified-name
                       :declaration-key [:fn 'assign] :return :void
-                      :args [{:name 'address :type :usize}
-                             {:name 'operand :type type}]
-                      :body [(list (:symbol syntax)
-                                   (list 'aguafria.zig/deref pointer) 'operand)]}))
+                      :args parameters
+                      :body [expression]}))
         (swap! prepared-adapters conj qualified-name))
-      (runtime/invoke! qualified-name
-                       [(.address ^MemorySegment (value/segment target))
-                        (coerce! operand type)]))))
+      (try
+        (runtime/invoke! qualified-name arguments)
+        (finally (java.lang.ref.Reference/reachabilityFence storage))))))
+
+(defn- unsigned-integer-width [argument]
+  (when (value/zig-value? argument)
+    (let [type (value/qualified-type argument)]
+      (cond
+        (= :usize type) (* 8 (.byteSize ValueLayout/ADDRESS))
+        (keyword? type)
+        (some-> (re-matches #"u([0-9]+)" (name type)) second Long/parseLong)
+        ;; A borrowed field can carry a @TypeOf expression rather than a
+        ;; primitive keyword. Ask Zig; the printed JVM number loses signedness.
+        (seq? type)
+        (let [context (or (find-ns 'aguafria.jvm.integer-width)
+                          (create-ns 'aguafria.jvm.integer-width))]
+          (invoke-expression! context
+                              (list '(field __aguafria_jvm :unsignedIntegerBits)
+                                    (list 'type type))
+                              [] [] 'inspectResult))))))
 
 (defn- call-inputs [argument-declarations arguments]
   (when-not (= (count argument-declarations) (count arguments))
@@ -609,16 +631,7 @@
         ;; lossless signed carrier when an anytype call also contains native
         ;; unsigned values. Never coerce explicitly typed native operands, and
         ;; never narrow/wrap negative values merely to make their types match.
-        unsigned-width (reduce max 0
-                               (keep (fn [argument]
-                                       (when (value/zig-value? argument)
-                                         (let [type (value/type argument)]
-                                           (cond
-                                             (= :usize type) (* 8 (.byteSize ValueLayout/ADDRESS))
-                                             (keyword? type)
-                                             (some-> (re-matches #"u([0-9]+)" (name type))
-                                                     second Long/parseLong)))))
-                                     arguments))
+        unsigned-width (reduce max 0 (keep unsigned-integer-width arguments))
         type-arguments (into {}
                              (keep (fn [[declaration argument]]
                                      (when (#{:type 'type} (:type declaration))
@@ -904,6 +917,29 @@
         (swap! prepared-adapters conj name))
       (value/slice-element-view (runtime/invoke! name [pointer]) 0 (not const?)))))
 
+(defn- addressable-field?
+  [receiver member]
+  (let [context (or (find-ns 'aguafria.jvm.field-storage)
+                    (create-ns 'aguafria.jvm.field-storage))]
+    (invoke-expression! context
+                        (list '(field __aguafria_jvm :hasAddressableField)
+                              (list 'type (value/qualified-type receiver))
+                              (name member))
+                        [] [])))
+
+(defn- field-storage-view!
+  [receiver member]
+  (let [context (or (find-ns 'aguafria.jvm.field-storage)
+                    (create-ns 'aguafria.jvm.field-storage))
+        storage (value/address-value receiver (= :var (:kind (value/info receiver))))
+        {:keys [expression-arguments parameters arguments]}
+        (call-inputs [{:type :anytype}] [storage])
+        field (list 'aguafria.zig/field
+                    (list 'aguafria.zig/deref (first expression-arguments)) member)
+        pointer (invoke-expression! context (list 'aguafria.keyword/& field)
+                                    parameters arguments)]
+    (value/retain-owners! (dereference-pointer! pointer) [receiver storage pointer])))
+
 (defn- indexed-value!
   "Keep addressable indexed values attached to their original native storage.
   Zig decides the element type and pointee constness; vector lanes remain values."
@@ -975,6 +1011,11 @@
          (container-variable (first arguments) (second arguments)))
     (container-variable-view! (first arguments) (second arguments))
 
+    (and (= 'field (:name syntax))
+         (value/zig-value? (first arguments))
+         (addressable-field? (first arguments) (second arguments)))
+    (apply field-storage-view! arguments)
+
     (and (= 'index (:name syntax))
          (or (value/zig-value? (first arguments))
              (value/zig-pointer? (first arguments))))
@@ -990,16 +1031,13 @@
           (if (and signature (not (re-find #"\.\.\." signature)))
             (signature-arguments
              (str/replace-first signature #"^@[A-Za-z0-9_]+" "fn builtin"))
-            ;; Structural forms consume source literals (e.g. tuple indices and
-            ;; field names), not an invented all-i64 function signature. Native
-            ;; handles still become typed runtime parameters in call-inputs.
+            ;; Structural forms and operators preserve plain source literals,
+            ;; including comptime arithmetic before a later coercion. Assigning
+            ;; every integer an i64 parameter loses that context. Explicitly
+            ;; typed native handles remain typed runtime parameters in call-inputs.
             (repeat (count arguments)
                     {:type :anytype
-                     :properties {:jvm/literal? (or (= :syntax (:kind syntax))
-                                                   (and (= :operator (:kind syntax))
-                                                        (some value/zig-value? arguments)
-                                                        (not (contains? #{"==" "!=" "<" ">" "<=" ">="}
-                                                                        (:zig-token syntax))))
+                     :properties {:jvm/literal? (or (#{:syntax :operator} (:kind syntax))
                                                    (:literal-arguments? syntax))}}))
           storage-source? (and (= 'slice (:name syntax)) (value/zig-value? receiver))
           {:keys [expression-arguments parameters arguments]}

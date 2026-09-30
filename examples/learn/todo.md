@@ -114,6 +114,12 @@
   - [x] test_single_item_pointer.clj
     - [x] when evaluating each of the lets at address-of-syntax test, I have Cannot pass this value to native Zig
     - [x] pointer-array-access `Assignment requires a mutable native value; create it with ak/var`
+  - [x] test_pointer_arithmetic.clj
+    - [x] pointer-arithmetic-with-many-item-pointer
+    - [x] pointer-arithmetic-with-slices
+  - [ ] test_slice_bounds.clj
+    - [ ] pointer-slicing body fucking slow
+  - [ ] test_comptime_pointers.clj
 
 - [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?
 - [ ] add assertions from the JVM as alternative to comptime assertions (e.g. inside test_arrays.clj)

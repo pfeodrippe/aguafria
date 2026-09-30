@@ -1,11 +1,14 @@
 (ns build
   "Build and publish self-contained Aguafria platform JARs."
   (:require [aguafria.zig.prepare :as prepare]
+            [aguafria.zig.toolchain-crypto :as crypto]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.tools.build.api :as b])
-  (:import [java.security DigestInputStream MessageDigest]
+  (:import [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]
+           [java.security DigestInputStream MessageDigest]
            [java.util HexFormat]
            [java.util.zip ZipFile]))
 
@@ -115,13 +118,14 @@
 (defn- manifest
   [{:keys [id artifact-id os arch archive-url archive-size archive-sha256
            root-directory executable]} release-version]
-  {:schema-version 1
+  {:schema-version 2
    :artifact (str group-id "/" artifact-id)
    :version release-version
    :zig-version zig-version
    :os os
    :arch arch
-   :archive-resource "aguafria/toolchain/zig.tar.xz"
+   :archive-resource crypto/archive-resource
+   :archive-encryption crypto/algorithm
    :archive-minisig-resource "aguafria/toolchain/zig.tar.xz.minisig"
    :archive-url archive-url
    :archive-size archive-size
@@ -149,8 +153,7 @@
     (b/copy-dir {:src-dirs ["src" "resources" "generated"] :target-dir classes})
     (doseq [file ["LICENSE" "THIRD_PARTY_NOTICES.md"]]
       (b/copy-file {:src file :target (str classes "/" file)}))
-    (b/copy-file {:src archive
-                  :target (str classes "/aguafria/toolchain/zig.tar.xz")})
+    (crypto/encrypt! archive (str classes "/" crypto/archive-resource))
     (b/copy-file {:src signature
                   :target (str classes "/aguafria/toolchain/zig.tar.xz.minisig")})
     (b/write-file {:path (str classes "/aguafria/toolchain/manifest.edn")
@@ -210,17 +213,24 @@
 (defn- verify-archive!
   [{:keys [jar archive-size archive-sha256 artifact]}]
   (with-open [zip (ZipFile. ^String jar)]
-    (let [entry (.getEntry zip "aguafria/toolchain/zig.tar.xz")]
+    (let [entry (.getEntry zip crypto/archive-resource)]
       (when-not entry
-        (throw (ex-info "Platform JAR is missing embedded Zig"
+        (throw (ex-info "Platform JAR is missing encrypted Zig"
                         {:artifact artifact})))
-      (when-not (= archive-size (.getSize entry))
-        (throw (ex-info "Embedded Zig has the wrong size"
+      (when (.getEntry zip "aguafria/toolchain/zig.tar.xz")
+        (throw (ex-info "Platform JAR also contains a plaintext Zig archive"
                         {:artifact artifact})))
-      (with-open [input (.getInputStream zip entry)]
-        (when-not (= archive-sha256 (digest "SHA-256" input))
-          (throw (ex-info "Embedded Zig has the wrong checksum"
-                          {:artifact artifact})))))))
+      (let [temporary (Files/createTempFile "aguafria-verify-" ".tar.xz"
+                                             (make-array FileAttribute 0))]
+        (try
+          (with-open [input (.getInputStream zip entry)]
+            (crypto/decrypt! input (.toFile temporary)))
+          (when-not (= archive-size (Files/size temporary))
+            (throw (ex-info "Decrypted Zig has the wrong size" {:artifact artifact})))
+          (when-not (= archive-sha256 (digest "SHA-256" (.toFile temporary)))
+            (throw (ex-info "Decrypted Zig has the wrong checksum" {:artifact artifact})))
+          (finally
+            (Files/deleteIfExists temporary)))))))
 
 (defn- host-platform
   []
@@ -239,20 +249,25 @@
       (let [home (str target-dir "/verify-home")
             expression
             (str "(require '[aguafria.zig :as az] '[aguafria.keyword :as ak])"
-                 "(eval '(az/defn release-smoke :- :i64 "
-                 "[a :- :i64 b :- :i64 c :- :i64] (+ (* a b) c)))"
-                 "(assert (= 47 ((resolve 'user/release-smoke) 6 7 5)))"
-                 "(eval '(az/defn release-primitive-smoke :- :u8 [] "
+                 "(assert (= \"jar\" (.getProtocol (clojure.java.io/resource \"aguafria/zig/toolchain.clj\"))))"
+                 "(assert (= :aes-256-gcm-v1 (:archive-encryption (az/toolchain-information))))"
+                 "(eval '(az/defn release-smoke :i64 "
+                 "[[a :i64] [b :i64] [c :i64]] (+ (* a b) c)))"
+                 "(assert (= 47 (az/value ((resolve 'user/release-smoke) 6 7 5))))"
+                 "(eval '(az/defn release-primitive-smoke :u8 [] "
                  "(let [^{:var true :zig/type [:array 1 :u8]} buffer ak/undefined] "
                  "(set! (az/index buffer 0) 42) (az/index buffer 0))))"
-                 "(assert (= 42 ((resolve 'user/release-primitive-smoke))))"
+                 "(assert (= 42 (az/value ((resolve 'user/release-primitive-smoke)))))"
                  "(assert (= \"" zig-version
                  "\" (:zig-version (az/toolchain-information))))"
                  "(println :embedded-zig-smoke-ok)"
                  "(shutdown-agents)(System/exit 0)")
             command (b/java-command
                      {:cp [(:jar artifact)]
-                      :basis @basis
+                      ;; Exercise the JAR and its dependencies without allowing
+                      ;; missing packaged files to fall back to this checkout.
+                      :basis (assoc @basis :classpath-roots
+                                    (vec (mapcat :paths (vals (:libs @basis)))))
                       :java-opts ["--enable-native-access=ALL-UNNAMED"
                                   (str "-Duser.home=" home)
                                   (str "-Daguafria.cache-dir=" home "/compile-cache")]

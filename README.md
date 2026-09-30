@@ -41,6 +41,15 @@ Enable the JDK Foreign Function & Memory API when calling native code:
 No separate Zig installation is required. The matching embedded toolchain is
 verified, extracted atomically into a cache, and reused.
 
+Newly built platform JARs store the archive as `aguafria/toolchain/zig.tar.xz.enc`
+using AES-256-GCM. Aguafria decrypts it automatically, authenticates it, and
+checks the original Zig archive's SHA-256 before extraction. The key is embedded
+in `aguafria.zig.toolchain-crypto`, so no configuration is needed. This packaging
+obscures the archive from ordinary archive tools; anyone with the JAR also has
+the key. The extracted compiler and libraries remain readable in the user cache.
+This loader requires the encrypted format; plaintext and split archives are
+rejected. Previously published JARs use their own older loader.
+
 ## First function
 
 ```clojure

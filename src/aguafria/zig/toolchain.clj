@@ -3,7 +3,8 @@
 
   There is intentionally no PATH, environment, or configured-compiler fallback:
   the platform artifact is the compiler identity."
-  (:require [clojure.edn :as edn]
+  (:require [aguafria.zig.toolchain-crypto :as crypto]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [java.io BufferedInputStream File]
@@ -67,11 +68,12 @@
         (when platform
           (-> platform
               (dissoc :id :binary-format)
-              (assoc :schema-version 1
+              (assoc :schema-version 2
                      :artifact "aguafria/source-checkout"
                      :version "development"
                      :zig-version (:zig-version releases)
-                     :archive-resource "aguafria/toolchain/zig.tar.xz"
+                     :archive-resource crypto/archive-resource
+                     :archive-encryption crypto/algorithm
                      :archive-minisig-resource
                      "aguafria/toolchain/zig.tar.xz.minisig"
                      :source-checkout? true)))))))
@@ -98,8 +100,23 @@
         :resource manifest-resource
         :hint "Use io.github.pfeodrippe/aguafria-<os>-<architecture>; Aguafria never uses Zig from PATH."})))))
 
+(defn- verify-format!
+  [{:keys [schema-version archive-resource archive-resources archive-encryption]
+    :as embedded}]
+  (when-not (and (= 2 schema-version)
+                 (= crypto/archive-resource archive-resource)
+                 (= crypto/algorithm archive-encryption)
+                 (nil? archive-resources))
+    (throw (ex-info "Aguafria requires an AES-256-GCM encrypted Zig archive"
+                    {:aguafria/phase :embedded-zig-manifest
+                     :schema-version schema-version
+                     :archive-resource archive-resource
+                     :archive-encryption archive-encryption})))
+  embedded)
+
 (defn- verify-platform!
   [{:keys [os arch] :as embedded}]
+  (verify-format! embedded)
   (let [host (host-platform)]
     (when-not (= host {:os os :arch arch})
       (throw
@@ -209,7 +226,7 @@
           (Files/createDirectories (.getParent target) empty-file-attributes)
           (Files/createLink target existing))))))
 
-(defn- copy-source-checkout-archive!
+(defn- encrypt-source-checkout-archive!
   [{:keys [archive-url]} ^File target]
   (let [request (-> (HttpRequest/newBuilder (URI/create archive-url)) .GET .build)
         response (.send http-client request
@@ -219,44 +236,50 @@
                       {:aguafria/phase :embedded-zig-download
                        :url archive-url
                        :status (.statusCode response)})))
-    (with-open [input ^java.io.InputStream (.body response)
-                output (io/output-stream target)]
-      (.transferTo input output))))
+    (with-open [input ^java.io.InputStream (.body response)]
+      (crypto/encrypt! input target))))
 
 (defn- copy-verified-archive!
-  [{:keys [archive-resource archive-resources archive-sha256 archive-size
-           source-checkout?]
+  [{:keys [archive-resource archive-sha256 archive-size source-checkout?]
     :as embedded} ^File target]
-  (let [resource-names (or (seq archive-resources)
-                           (when archive-resource [archive-resource]))
-        resources (mapv io/resource resource-names)]
-  (if (and (seq resources) (every? some? resources))
-    (do
-      (.mkdirs (.getParentFile target))
-      (with-open [output (io/output-stream target)]
-        (doseq [resource resources]
-          (with-open [input (io/input-stream resource)]
-            (.transferTo input output))))
-      target)
-    (if source-checkout?
-      (do
-        (.mkdirs (.getParentFile target))
-        (copy-source-checkout-archive! embedded target)
-        target)
-      (throw (ex-info "The embedded Zig archive resource is missing"
-                      {:aguafria/phase :embedded-zig-missing
-                       :resources resource-names}))))
-  (let [actual-size (.length target)
-        actual-sha256 (sha256-file target)]
-    (when-not (and (= (long archive-size) actual-size)
-                   (= archive-sha256 actual-sha256))
-      (throw
-       (ex-info "The embedded Zig archive failed integrity verification"
-                {:aguafria/phase :embedded-zig-integrity
-                 :resources resource-names
-                 :expected {:size archive-size :sha256 archive-sha256}
-                 :actual {:size actual-size :sha256 actual-sha256}}))))
-  target))
+  (let [resource (when archive-resource (io/resource archive-resource))]
+    (io/make-parents target)
+    (try
+      (verify-format! embedded)
+      (cond
+        resource
+        (crypto/decrypt! resource target)
+
+        source-checkout?
+        ;; A source checkout bootstraps the same encrypted format from the
+        ;; pinned upstream download. Packaged JARs cannot take this path.
+        (let [encrypted (io/file (.getParentFile target)
+                                 (str ".bootstrap-" (UUID/randomUUID) ".enc"))]
+          (try
+            (encrypt-source-checkout-archive! embedded encrypted)
+            (crypto/decrypt! encrypted target)
+            (finally (Files/deleteIfExists (.toPath encrypted)))))
+
+        :else
+        (throw (ex-info "The encrypted Zig archive resource is missing"
+                        {:aguafria/phase :embedded-zig-missing
+                         :resource archive-resource})))
+      ;; These remain the upstream archive's identity, checked after decryption
+      ;; and before tar extraction or native execution.
+      (let [actual-size (.length target)
+            actual-sha256 (sha256-file target)]
+        (when-not (and (= (long archive-size) actual-size)
+                      (= archive-sha256 actual-sha256))
+          (throw
+           (ex-info "The embedded Zig archive failed integrity verification"
+                    {:aguafria/phase :embedded-zig-integrity
+                     :resource archive-resource
+                     :expected {:size archive-size :sha256 archive-sha256}
+                     :actual {:size actual-size :sha256 actual-sha256}}))))
+      target
+      (catch Exception cause
+        (Files/deleteIfExists (.toPath target))
+        (throw cause)))))
 
 (defn- run-version
   [^File executable]
@@ -330,7 +353,8 @@
 (defn executable
   "Return the absolute executable path of the verified embedded Zig compiler.
 
-  The first call extracts the immutable archive into Aguafria's user cache.
+  The first call decrypts, verifies, and extracts the immutable
+  archive into Aguafria's user cache.
   Subsequent JVMs validate and reuse that checksum-addressed installation."
   []
   (or @materialized

@@ -7,6 +7,9 @@
             [clojure.test :refer [deftest is run-tests testing]]
             [learn.inline :as inline]
             [learn.reference :as ref]
+            [learn.jvm-body-test]
+            [learn.jvm-audit-test]
+            [learn.jvm-audit-report-test]
             [learn.source-fidelity-test]))
 
 (deftest type-tooltips-preserve-code-and-label-evidence
@@ -1144,7 +1147,9 @@
           (:err run)))))
 
 (defn -main [& _]
-  (let [{:keys [fail error]} (run-tests 'learn.reference-test 'learn.source-fidelity-test)]
+  (let [{:keys [fail error]} (run-tests 'learn.reference-test 'learn.source-fidelity-test
+                                      'learn.jvm-body-test 'learn.jvm-audit-test
+                                      'learn.jvm-audit-report-test)]
     (shutdown-agents)
     (when (pos? (+ fail error))
       (System/exit 1))))

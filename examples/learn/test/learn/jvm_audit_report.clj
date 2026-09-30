@@ -5,7 +5,33 @@
             [clojure.string :as str]))
 
 (def failure-statuses
-  #{:failed :timeout :worker-exited :worker-error})
+  #{:failed :timeout :worker-exited :worker-error :returned-error-value})
+
+(defn- returned-error? [probe]
+  (when (= :passed (:status probe))
+    (let [result (try
+                   (edn/read-string {:default tagged-literal}
+                                    (or (:printed-value probe) "nil"))
+                   (catch Exception _ nil))
+          result (if (and (instance? clojure.lang.TaggedLiteral result)
+                          (= 'aguafria.zig.value.ZigValue (:tag result)))
+                   (first (:form result))
+                   result)]
+      (and (map? result) (= #{:error} (set (keys result)))))))
+
+(defn- observe-probe [probe]
+  (if (returned-error? probe)
+    (assoc probe :status :returned-error-value :evaluation-status :passed)
+    probe))
+
+(defn observed-report
+  "Distinguish a completed evaluation from a returned error value. Keep the
+  raw checkpoint status and output: returning an error is not throwing one."
+  [report]
+  (let [examples (mapv #(update % :cases (partial mapv observe-probe))
+                       (:examples report))]
+    (assoc report :examples examples
+           :summary (frequencies (map :status (mapcat :cases examples))))))
 
 (defn- failure [c]
   (contains? failure-statuses (:status c)))
@@ -48,7 +74,7 @@
         cases (mapcat :cases examples)
         counts (frequencies (map :status cases))
         failures (filter failure cases)]
-    (str "# Full Learn JVM audit — 2026-09-25\n\n"
+    (str "# Full Learn JVM audit — " (java.time.LocalDate/now) "\n\n"
          "## Scope\n\n"
          "All **" (count examples) " authored Learn example files** were submitted to "
          (:jobs report) " isolated JVM workers. Native calls execute in-process inside each worker; "
@@ -56,10 +82,10 @@
          "for independent files, with separate native build caches, per-case checkpoints, "
          "timeouts and replacement after native panics.\n\n"
          "Elapsed wall time: " (format "%.1f" (/ (:elapsed-ms report) 1000.0)) " seconds. "
-         "Cases recorded: **" (count cases) "**. Passing probes: **" (get counts :passed 0)
-         "**. Failed/interrupted executed probes: **" (count failures) "**.\n\n"
+         "Cases recorded: **" (count cases) "**. Completed non-error probes: **" (get counts :passed 0)
+         "**. Failed/error-valued/interrupted executed probes: **" (count failures) "**.\n\n"
          "**This is an audit, not an all-green claim.** A passing probe means evaluation and printing "
-         "completed without throwing (including any authored assertions). It is not a semantic "
+         "completed without throwing or returning an error map. It is not a semantic "
          "equivalence proof for arbitrary intermediate values. A passed function-Var inspection is not a "
          "passed invocation. Bodies needing arguments, branch/lexical context, container declaration "
          "context, foreign-target execution, and cases blocked by loading are explicit exclusions. "
@@ -68,6 +94,11 @@
          "evaluation also shares native state within a file: "
          "failures require triage before being called independent bugs. Earlier failed native "
          "adapters and missing build/link setup can also produce cascading failures.\n\n"
+         "`returned-error-value` identifies an evaluation whose result was `{:error ...}`, "
+         "possibly wrapped in a ZigValue. Ordinary Clojure `try` does not unwrap Zig error unions. "
+         "These results are not counted as passing assertions, even though evaluation itself "
+         "completed. Raw checkpoints retain their original status and exact printed result. "
+         "Earlier discarded intermediate results can still require separate contextual probes.\n\n"
          "Expected upstream compile/runtime failures are annotated, **not automatically counted as "
          "verified expected failures**; matching the diagnostic is a separate check.\n\n"
          "## Case dispositions\n\n| Disposition | Count |\n|---|---:|\n"
@@ -98,7 +129,7 @@
                        (path-link e) " — " (outcome e) ". " (evidence-link root e) "\n\n"
                        (when c (str "```clojure\n" (pr-str (:form c)) "\n```\n\n"))
                        "```text\n"
-                       (let [message (or (:cause c) (:message c)
+                       (let [message (or (:cause c) (:message c) (:printed-value c)
                                          (:cause load-error) (:message load-error)
                                          (pr-str (:worker-event c)))]
                          (subs message 0 (min 1800 (count message))))
@@ -111,6 +142,6 @@
          "Each worker log and interrupted-case checkpoint remains under the same run directory.\n")))
 
 (defn write! [root destination]
-  (let [report (edn/read-string (slurp (io/file root "report.edn")))]
+  (let [report (observed-report (edn/read-string (slurp (io/file root "report.edn"))))]
     (spit destination (markdown report root))
     {:report destination :files (count (:examples report)) :summary (:summary report)}))

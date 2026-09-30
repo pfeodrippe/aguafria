@@ -1,5 +1,48 @@
 # Learn reference implementation
 
+- [x] Fix the `values.clj` JVM regression without changing the lesson: ordinary
+      numeric operator operands retain literal/comptime context rather than
+      becoming synthetic i64/f64 runtime parameters. Keep explicitly typed
+      native operands typed, addressable, and subject to Zig's narrowing rules.
+      Add the exact nested i32/add regression, float/comptime and mixed-operand
+      checks, and update obsolete raw-number coercion test expectations.
+      The maintained Learn tests evaluate all 78 inventoried `values.clj` probes
+      (73 contextual probes plus five literal schema/boolean forms), and compare
+      the full direct JVM body's output with the compiled native entry point.
+      Threading subforms now retain their incoming value during audit execution.
+      Learn body/planner regressions: 17 tests, 120 assertions, no failures.
+      Coercion suite: five tests, 55 assertions, no failures. Rebuilt the entire
+      HTML after 288 upstream outcome matches plus four reviewed special cases.
+- [x] Fix compound assignment operand typing generically: pointer offsets and
+      shift amounts must not be coerced to the target's type. Evaluate the
+      actual many-item-pointer and slice test bodies on the JVM, retain their
+      source unchanged, and add source-body regression coverage to Learn tests.
+      Mutable field reads now borrow the owner's native storage, including
+      slice `:ptr` and `:len`; Zig supplies layout, type and constness. Keep
+      boolean/optional reads compatible with Clojure false/nil semantics.
+      Seven real source test bodies pass; 14 body/planner tests (35 assertions)
+      pass. Compound/field/unsigned regressions pass (19 assertions), as do
+      field-accessor (21), false/nil keyword-field (8), and ZLS/HTML (15) checks.
+      Full HTML regeneration verified 288 upstream comparisons plus four
+      reviewed cases; the served file matches disk and has 202 REPL panels.
+- [x] Audit all Learn examples again with the current compiler, including
+      test bodies, local initializers/values and contextual subexpressions.
+      Reuse bounded, isolated workers with checkpoints. Record every failure,
+      expected-error example and context/argument/target exclusion in a new
+      dated Markdown report; never count exclusions as successful evaluations.
+      Completed all 290 files / 9,236 cases with four workers in 877 seconds.
+      See `JVM_AUDIT_2026-09-29.md`: 3,236 non-error completions, 1,627 exceptions,
+      62 returned error values, one worker exit, and 4,310 context/load/target
+      exclusions. Pointer arithmetic has 77 passing checks; single-item pointers
+      have 90 plus nine context exclusions; vectors have 88 plus eight exclusions.
+      These are probe counts, not independent defects or exhaustive semantic
+      proofs. A returned error union is never counted as a passing assertion.
+- [ ] Triage and fix the remaining JVM audit failures separately from expected
+      upstream failures and repeated-state/probe-context artifacts. Observed
+      remaining gaps include result-type-dependent builtins in
+      `test_pointer_casting.clj`, and callable type members in
+      `test_structs.clj`. Do not claim all JVM expressions work yet.
+
 - [x] Fix direct JVM evaluation of `pointer-array-access`: indexed native
       elements must borrow the original storage, preserving Zig's element type
       and pointee constness. Verify mutation through the pointer updates the

@@ -77,8 +77,27 @@
 
 (defn- inner-probes [declaration form context path]
   (cond
+    ;; Thread steps need their incoming value. Evaluate each ordinary Clojure
+    ;; expansion with its lexical context, never the detached step syntax.
+    (and (seq? form)
+         (contains? #{'-> '->> 'clojure.core/-> 'clojure.core/->>} (first form)))
+    (mapcat (fn [index]
+              (let [prefix (apply list (take (+ index 3) form))
+                    expanded (macroexpand-1 prefix)
+                    location (conj path :thread index)]
+                (cons (probe :subexpression declaration expanded context location)
+                      (inner-probes declaration expanded context location))))
+            (range (count (drop 2 form))))
+
     (= "do" (operator form))
     (body-probes declaration (vec (rest form)) context (conj path :body))
+
+    ;; Aguafria examples use ordinary JVM try forms without handlers as well
+    ;; as Zig's try syntax. Keep that wrapper while probing the real operands.
+    (and (= "try" (operator form))
+         (not-any? #(#{"catch" "finally"} (operator %)) (rest form)))
+    (body-probes declaration (vec (rest form))
+                 #(context (list (first form) %)) (conj path :body))
 
     ;; A native block owns defer/break scope. Preserve the block around probes;
     ;; descendants still requiring that scope are inventoried below, not run.

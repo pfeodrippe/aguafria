@@ -112,6 +112,76 @@
   (with-open [lanes (az/vector [1 2 3 4] :i32)]
     (is (values= 3 (az/get lanes 2)))))
 
+(deftest compound-assignment-preserves-independent-operand-types
+  (with-open [array (az/array [1 2 3 4] :i32)
+              pointer (ak/var (ak/& array) [:many-const :i32])]
+    (ak/+= pointer 1)
+    (is (values= 2 (az/get pointer 0)))
+    (ak/+= pointer (ak/as 1 :usize))
+    (is (values= 3 (az/get pointer 0)))
+    (ak/-= pointer 2)
+    (is (values= 1 (az/get pointer 0))))
+  (with-open [number (ak/var 3 :u8)]
+    (ak/<<= number (ak/as 2 :u3))
+    (is (values= 12 number))
+    (ak/>>= number 1)
+    (is (values= 6 number))
+    (ak/+= number 1)
+    (is (values= 7 number))))
+
+(deftest field-views-borrow-original-header-storage
+  (with-open [array (ak/var (az/array [1 2 3 4] :i32))
+              slice (ak/var (ak/as (ak/& array) [:slice :i32]))]
+    (is (values= {:ok nil} (zig-testing/expectEqual 4 (:len slice))))
+    (ak/+= (:ptr slice) 1)
+    (ak/-= (:len slice) 1)
+    (is (values= [2 3 4] (az/value slice)))
+    (is (values= {:ok nil} (zig-testing/expectEqual 3 (:len slice))))
+    (is (false? (ak/== -1 (:len slice))))
+    (ak/= (az/get slice 0) 20)
+    (is (values= [1 20 3 4] (az/value array))))
+  (with-open [array (az/array [1 2] :i32)
+              slice (ak/as (ak/& array) [:slice-const :i32])]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable native value"
+                          (ak/+= (:ptr slice) 1))))
+  (let [namespace (fixture)]
+    (binding [*ns* namespace]
+      (eval '(az/defstruct Pair [[:x :i32] [:y :i32]]))
+      (with-open [pair (eval '(ak/var (Pair {:x 1 :y 2})))]
+        (ak/+= (:x pair) 5)
+        (is (values= {:x 6 :y 2} (az/value pair)))))))
+
+(deftest literal-arithmetic-retains-comptime-types
+  (with-open [result (ak/i32 (ak/+ 1 1))]
+    (is (values= 2 result)))
+  (let [sum (ak/+ 1 1)
+        quotient (ak// 7.0 3.0)]
+    (is (value/zig-value? sum))
+    (is (= :comptime_int (value/qualified-type sum)))
+    (is (= :comptime_float (value/qualified-type quotient)))
+    (with-open [integer (ak/i32 sum)
+                floating (ak/f32 quotient)]
+      (is (values= 2 integer))
+      (is (= (float (/ 7.0 3.0)) (float (az/value floating))))))
+  ;; Retaining literal context must not silently narrow explicitly typed values.
+  (with-open [typed (ak/i64 2)]
+    (is (thrown? clojure.lang.Compiler$CompilerException (ak/i32 typed)))))
+
+(deftest literal-arithmetic-composes-with-native-operands
+  (doseq [[result expected] [[(ak/- 5 8) -3]
+                             [(ak/* 7 6) 42]
+                             [(ak/+ (bigint "18446744073709551615") 1)
+                              (bigint "18446744073709551616")]]]
+    (is (= :comptime_int (value/qualified-type result)))
+    (is (values= expected result)))
+  (with-open [unsigned (ak/u64 2)
+              sum (ak/+ unsigned 1)]
+    (is (= :u64 (value/qualified-type sum)))
+    (is (values= 3 sum))
+    (is (true? (ak/== sum 3))))
+  (is (false? (ak/< 3 2)))
+  (is (true? (ak/== (ak/+ 1 1) 2))))
+
 (deftest numeric-results-retain-native-identity
   (doseq [type [:i8 :u8 :i32 :u32 :i64 :u64 :f32 :f64 :c_int :c_uint]]
     (let [number (ak/as 12 type)
@@ -678,7 +748,9 @@
          (az/emit-expr '(aguafria.std.ArrayList.Slice/-len (aguafria.std.ArrayList/-items list)))))
   (with-open [slice (ak/as [1 2] [:slice :u21])]
     (is (values= 2 (array-list-slice/-len slice)))
-    (is (value/zig-pointer? (array-list-slice/-ptr slice))))
+    (let [pointer (array-list-slice/-ptr slice)]
+      (is (value/zig-value? pointer))
+      (is (value/zig-pointer? (az/value pointer)))))
   (is (:field-accessor? (:aguafria/zig-reference (meta #'array-list/-items))))
   (is (values= "list.items" (az/emit-expr '(aguafria.std.ArrayList/-items list))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exactly one receiver"

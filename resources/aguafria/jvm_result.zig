@@ -29,6 +29,46 @@ pub const __aguafria_jvm = struct {
         }
     }
 
+    pub fn unsignedIntegerBits(comptime T: type) usize {
+        return switch (@typeInfo(T)) {
+            .int => |info| if (info.signedness == .unsigned) info.bits else 0,
+            else => 0,
+        };
+    }
+
+    fn fieldNeedsStorage(comptime T: type) bool {
+        // Wrapping false or null in an object changes Clojure truthiness.
+        return T != bool and @typeInfo(T) != .optional;
+    }
+
+    pub fn hasAddressableField(comptime T: type, comptime name: []const u8) bool {
+        const Container = switch (@typeInfo(T)) {
+            .pointer => |p| if (p.size == .one) p.child else T,
+            else => T,
+        };
+        return switch (@typeInfo(Container)) {
+            .@"struct" => |info| blk: {
+                if (info.layout == .@"packed") break :blk false;
+                inline for (info.fields) |field| {
+                    if (std.mem.eql(u8, field.name, name)) {
+                        break :blk !field.is_comptime and fieldNeedsStorage(field.type);
+                    }
+                }
+                break :blk false;
+            },
+            .@"union" => |info| blk: {
+                if (info.layout == .@"packed") break :blk false;
+                inline for (info.fields) |field| {
+                    if (std.mem.eql(u8, field.name, name)) break :blk fieldNeedsStorage(field.type);
+                }
+                break :blk false;
+            },
+            .pointer => |p| p.size == .slice and
+                (std.mem.eql(u8, name, "ptr") or std.mem.eql(u8, name, "len")),
+            else => false,
+        };
+    }
+
     fn needsNativeStorage(comptime T: type) bool {
         return switch (@typeInfo(T)) {
             .pointer => |p| p.size != .slice and
