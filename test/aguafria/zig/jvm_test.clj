@@ -14,6 +14,7 @@
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.walk :as walk]
             [clojure.test :refer [deftest is testing]])
@@ -23,8 +24,8 @@
   "Compare explicit JVM snapshots; native identity is asserted separately."
   [& values]
   (apply = (map #(walk/postwalk (fn [item]
-                                (if (value/zig-value? item) (az/value item) item))
-                              %)
+                                  (if (value/zig-value? item) (az/value item) item))
+                                %)
                 values)))
 
 (defn- fixture []
@@ -34,6 +35,135 @@
       (require '[aguafria.zig :as az] '[aguafria.keyword :as ak]
                '[aguafria.std.debug :as debug]))
     namespace))
+
+(defn- without-compilation [f]
+  (let [commands (atom [])
+        original shell/sh
+        result (with-redefs [shell/sh (fn [& arguments]
+                                        (swap! commands conj (take 2 arguments))
+                                        (apply original arguments))]
+                 (f))]
+    (is (empty? @commands) (str "Warm handler launched processes: " @commands))
+    result))
+
+(deftest runtime-handler-reuse-is-independent-of-operand-values
+  (ak/+ 1 2)
+  (is (values= 300 (without-compilation #(ak/+ 100 200))))
+  (ak// 7.0 3.0)
+  (is (values= 2.5 (without-compilation #(ak// 10.0 4.0))))
+  (with-open [number (ak/var 1 :u32)
+              array (ak/var (az/array [10 20 30 40 50] :i32))
+              start (ak/var 0 :usize)]
+    (ak/+= number 1)
+    (without-compilation #(ak/+= number 3))
+    (is (values= 5 number))
+    (az/get array 0)
+    (is (values= 30 (without-compilation #(az/get array 2))))
+    (az/slice array start 3)
+    (is (values= [10 20 30 40] (without-compilation #(az/slice array start 4))))))
+
+(deftest array-length-changes-reuse-runtime-slice-handlers
+  (letfn [(exercise [array start]
+            (let [slice (az/slice array start 4)]
+              (is (= [:slice :u8] (value/qualified-type slice)))
+              (is (values= {:ok nil} (zig-testing/expectEqual 2 (:len slice))))
+              (is (values= {:ok nil} (zig-testing/expectEqual 4 (az/get array 3))))
+              (ak/+= (az/get slice 1) 1)
+              (is (values= {:ok nil} (zig-testing/expectEqual 5 (az/get array 3))))))]
+    (with-open [start (ak/var 2 :usize)]
+      (doseq [length [10 11 12]]
+        ;; Construction retains the exact [N]u8 type. Only the subsequent
+        ;; runtime operations must be independent of N.
+        (with-open [array (ak/var (az/array (vec (range 1 (inc length))) :u8))]
+          (is (= [:array length :u8] (value/qualified-type array)))
+          (if (= length 10)
+            (exercise array start)
+            (without-compilation #(exercise array start))))))))
+
+(deftest values-lesson-reuses-handlers-with-changed-runtime-values
+  (let [errors (az/type [:error-set [:ExampleErrorVariant]])]
+    (letfn [(exercise [a b numerator denominator flag text number]
+              (let [output (StringWriter.)]
+                (binding [*out* output *err* output]
+                  (debug/print "1 + 1 = {}\n" [(ak/i32 (ak/+ a b))])
+                  (debug/print "7.0 / 3.0 = {}\n" [(ak/f32 (ak// numerator denominator))])
+                  (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (ak/! flag)])
+                  (with-open [optional-value (ak/var (ak/as nil [:optional [:slice-const :u8]]))]
+                    (debug/assert (ak/== optional-value nil))
+                    (debug/print "\noptional 1\ntype: {}\nvalue: {?s}\n"
+                                 [(ak/TypeOf optional-value) optional-value])
+                    (ak/= optional-value text)
+                    (debug/assert (ak/!= optional-value nil))
+                    (debug/print "\noptional 2\ntype: {}\nvalue: {?s}\n"
+                                 [(ak/TypeOf optional-value) optional-value]))
+                  (with-open [number-or-error (-> (:ExampleErrorVariant errors)
+                                                  (ak/as [:error-union errors :i32]) ak/var)]
+                    (debug/print "\nerror union 1\ntype: {}\nvalue: {!}\n"
+                                 [(ak/TypeOf number-or-error) number-or-error])
+                    (ak/= number-or-error number)
+                    (debug/print "\nerror union 2\ntype: {}\nvalue: {!}\n"
+                                 [(ak/TypeOf number-or-error) number-or-error])))
+                (str output)))]
+      (is (str/includes? (exercise 1 1 7.0 3.0 true "hi" 1234) "value: 1234"))
+      (let [output (without-compilation #(exercise 2 3 9.0 4.0 false "hello again" 5678))]
+        (doseq [expected ["1 + 1 = 5" "7.0 / 3.0 = 2.25" "false\ntrue\ntrue"
+                          "value: null" "value: hello again" "value: error.ExampleErrorVariant"
+                          "value: 5678"]]
+          (is (str/includes? output expected)))))))
+
+(deftest integer-operator-families-reuse-native-handlers
+  (doseq [operation [ak/+% ak/-% ak/*% ak/+| ak/-| ak/*|]]
+    (operation 20 10)
+    (without-compilation #(operation 30 12)))
+  (is (values= -16 (ak/+% (ak/i8 120) (ak/i8 120))))
+  (is (values= 127 (ak/+| (ak/i8 120) (ak/i8 120)))))
+
+(deftest reusable-array-views-preserve-bounds-and-constness
+  (with-open [array (az/array [1 2 3 4] :u8)
+              start (ak/var 1 :usize)]
+    (let [slice (az/slice array start 3)]
+      (is (= [:slice-const :u8] (value/qualified-type slice)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable native value"
+                            (ak/+= (az/get slice 0) 1))))
+    (is (thrown? clojure.lang.ExceptionInfo (az/get array 4)))
+    (is (thrown? clojure.lang.ExceptionInfo (az/slice array start 5)))
+    (ak/= start 3)
+    (is (thrown? clojure.lang.ExceptionInfo (az/slice array start 2)))
+    ;; Constant bounds must still produce a pointer to a fixed-size array.
+    (is (values= {:ok nil}
+                 (zig-testing/expectEqual (az/type [:*const [:array 2 :u8]])
+                                          (ak/TypeOf (az/slice array 1 3))))))
+  (with-open [array (az/array [false true] :bool)]
+    (is (false? (az/get array 0)))
+    (is (true? (az/get array 1))))
+  (with-open [array (ak/var (az/array [] :u8))
+              start (ak/var 0 :usize)]
+    (is (values= 0 (:len (az/slice array start 0)))))
+  (with-open [array (ak/var (az/array [1 2] :u8))]
+    (with-open [pointer (value/array-elements-pointer array)]
+      (is (= [:many :u8] (value/qualified-type pointer))))
+    ;; Closing the temporary pointer handle must not close its array owner.
+    (is (values= 2 (az/get array 1)))))
+
+(deftest dereferenced-boolean-pointers-remain-assignable
+  (with-open [flag (ak/var false :bool)]
+    (let [pointer (ak/& flag)
+          view @pointer]
+      (is (false? (az/value view)))
+      (ak/= view true)
+      (is (true? (az/value flag))))))
+
+(deftest reusable-handlers-preserve-extended-floats-and-pointer-offsets
+  (doseq [type [:f16 :f80 :f128]]
+    (with-open [number (ak/as 1.5 type)]
+      (is (values= 1.5 @(ak/& number)))
+      (ak/+ number 2.0)
+      (is (values= 5.5 (without-compilation #(ak/+ number 4.0))))))
+  (with-open [array (az/array [10 20 30] :i32)
+              pointer (ak/as (ak/& array) [:many-const :i32])]
+    (ak/+ pointer 1)
+    (let [advanced (without-compilation #(ak/+ pointer 2))]
+      (is (values= 30 (az/get advanced 0))))))
 
 (deftest vector-constructor-executes-on-the-jvm
   (with-open [a (az/vector [1 2 3 4] :i32)
@@ -60,7 +190,7 @@
         pointer (ak/& x)]
     (is (values= {:ok nil} (zig-testing/expectEqual 1234 @pointer)))
     (is (values= {:ok nil} (zig-testing/expectEqual (az/type [:*const :i32])
-                                             (ak/TypeOf pointer))))
+                                                    (ak/TypeOf pointer))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable native value"
                           (ak/+= @pointer 1))))
   (with-open [y (ak/var 5678 :i32)
@@ -224,9 +354,9 @@
                               :debug-report-file ".aguafria/debug/types.edn"}
                              (az/configuration))
         report-file (str (java.nio.file.Files/createTempDirectory
-                         "aguafria-debug-test-"
-                         (make-array java.nio.file.attribute.FileAttribute 0))
-                        "/types.edn")]
+                          "aguafria-debug-test-"
+                          (make-array java.nio.file.attribute.FileAttribute 0))
+                         "/types.edn")]
     (try
       (az/configure! {:debug-output #{:file} :debug-report-file report-file})
       (binding [*ns* namespace *file* source-file]
@@ -271,7 +401,7 @@
     (is (seq (:arglists (meta v)))))
   (is (true? (:macro (meta #'az/with-block))))
   (is (values= '([elements element-type] [elements options element-type])
-         (:arglists (meta #'az/array))))
+               (:arglists (meta #'az/array))))
   (is (values= '([start] [start end]) (:arglists (meta #'az/range))))
   (is (values= '([label & body]) (:arglists (meta #'az/with-block)))))
 
@@ -313,25 +443,25 @@
       (is (values= 3 (:len items)))
       (is (values= 42 (:answer Container)))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"default value"
-                           (:active record true))))))
+                            (:active record true))))))
 
 (deftest keyword-labeled-blocks-execute-on-the-jvm
   (let [answer 42]
     (is (values= answer (az/with-block :result (ak/break :result answer)))))
   (is (values= 7 (az/with-block :outer
-             (let [inner (az/with-block :inner
-                           (ak/break :inner 7))]
-               (ak/break :outer inner)))))
+                   (let [inner (az/with-block :inner
+                                 (ak/break :inner 7))]
+                     (ak/break :outer inner)))))
   (with-open [counter (ak/var 1 :i32)]
     (is (values= 2 (az/with-block :updated
-               (ak/+= counter 1)
-               (ak/break :updated counter))))
+                     (ak/+= counter 1)
+                     (ak/break :updated counter))))
     (is (values= 2 (az/value counter))))
   (is (values= [0 1 2] (az/with-block :init
-                  (let [items (ak/var ak/undefined [:array 3 :u32])]
-                    (ak/for [(ak/* item) (ak/& items) i (az/range 0)]
-                      (ak/= @item (ak/intCast i)))
-                    (ak/break :init items)))))
+                         (let [items (ak/var ak/undefined [:array 3 :u32])]
+                           (ak/for [(ak/* item) (ak/& items) i (az/range 0)]
+                             (ak/= @item (ak/intCast i)))
+                           (ak/break :init items)))))
   (is (nil? (ns-resolve 'aguafria.zig 'labeled-block))))
 
 (deftest arrays-and-operators-execute-on-the-jvm
@@ -374,7 +504,7 @@
     (is (false? (az/get flags 2))))
   (doseq [options [{:sentinal 0} :sentinel {:sentinel 0 :length 1}]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"array options"
-                         (az/array [1] options :u8)))))
+                          (az/array [1] options :u8)))))
 
 (deftest sentinel-array-schemas-execute-on-the-jvm
   (with-open [array (az/init [1 2] [:array 2 {:sentinel 9} :u8])
@@ -385,7 +515,7 @@
     (is (values= 0 (az/get inferred 2)))
     (is (values= [[1 2] [3 4]] (az/value nested)))
     (is (values= 255 (az/with-block :result
-                 (ak/break :result (az/get-in nested [1 2]))))))
+                       (ak/break :result (az/get-in nested [1 2]))))))
   (is (thrown? Exception
                (az/init [1 2] [:array-sentinel 2 0 :u8]))))
 
@@ -461,7 +591,7 @@
     (is (values= 50 (ak/+% 20 30)))
     (is (values= before (count @@#'native-call/prepared-adapters))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Wrong number"
-                       (ak/! true false)))
+                        (ak/! true false)))
   (let [error (try (ak/! 42) (catch clojure.lang.Compiler$CompilerException e e))]
     (is (some? error))
     (is (str/includes? (:aguafria/report (runtime/error-data error))
@@ -500,7 +630,7 @@
 
 (deftest void-error-unions-return-errors-and-success-to-the-jvm
   (doseq [type [:!void [:! :void] [:error-union :anyerror :void]
-               [:error-union [:error-set [:DemoError]] :void]]]
+                [:error-union [:error-set [:DemoError]] :void]]]
     (with-open [failed (ak/as (az/error-value :DemoError) type)
                 succeeded (ak/as nil type)
                 mutable (ak/var (az/error-value :DemoError) type)]
@@ -520,7 +650,7 @@
                  [[:minimum :f32]
                   [:maximum :f32]
                   (az/const-decl default {:attrs #{:public}} Threshold
-                    {:minimum 0.25 :maximum 0.75})]))
+                                 {:minimum 0.25 :maximum 0.75})]))
         (eval '(az/defenum Mode [:active :inactive]))
         (eval '(az/defn append-and-read :!u21 [[initial (std/ArrayList :u21)]]
                  (let [list (ak/var initial)]
@@ -557,7 +687,7 @@
         (is (values= [9748 9786] (:items @list)))
         (is (values= (az/field list :capacity) (:capacity @list)))
         (is (str/starts-with? (pr-str list)
-                             "#aguafria.zig.value.ZigValue[{:items [9748 9786]"))
+                              "#aguafria.zig.value.ZigValue[{:items [9748 9786]"))
         (is (values= {:ok nil} (zig-testing/expectEqual 2 (az/field (az/field list :items) :len))))
         (finally (array-list/deinit list allocator)))))
   (let [namespace (fixture)]
@@ -668,7 +798,7 @@
           (ak/+= field 1)
           (is (values= 1235 @(az/field type :value))))
         (let [type (eval '(let [T :i32]
-                           (az/struct [[:x T]])))
+                            (az/struct [[:x T]])))
               instance (type {:x 7})]
           (is (values= 7 (az/field instance :x))))
         (is (values= :enum (:kind (value/type-info (eval '(az/enum [:red :blue]))))))
@@ -706,9 +836,9 @@
     (try
       (binding [*ns* namespace]
         (is (thrown? Exception
-                      (eval '(az/defvar bad {:attrs #{ak/threadlocal}} :i32 1))))
+                     (eval '(az/defvar bad {:attrs #{ak/threadlocal}} :i32 1))))
         (is (thrown? Exception
-                      (eval '(az/defvar bad :i32 {:attrs ak/threadlocal} 1))))
+                     (eval '(az/defvar bad :i32 {:attrs ak/threadlocal} 1))))
         (eval '(az/defn compile-counter :i32 []
                  (let [counter (ak/var 1 :i32 {:attrs #{ak/comptime}})]
                    (ak/+= counter 1)
@@ -745,7 +875,7 @@
   (is (str/includes? (:doc (meta #'std/ArrayList)) "aguafria.std.ArrayList/-items"))
   (is (values= '([self]) (:arglists (meta #'array-list-slice/-len))))
   (is (values= "list.items.len"
-         (az/emit-expr '(aguafria.std.ArrayList.Slice/-len (aguafria.std.ArrayList/-items list)))))
+               (az/emit-expr '(aguafria.std.ArrayList.Slice/-len (aguafria.std.ArrayList/-items list)))))
   (with-open [slice (ak/as [1 2] [:slice :u21])]
     (is (values= 2 (array-list-slice/-len slice)))
     (let [pointer (array-list-slice/-ptr slice)]
@@ -757,8 +887,8 @@
                         (array-list/-items)))
   (let [version (:ok (semantic-version/parse "1.2.3"))]
     (is (values= [1 2 3] [(semantic-version/-major version)
-                    (semantic-version/-minor version)
-                    (semantic-version/-patch version)])))
+                          (semantic-version/-minor version)
+                          (semantic-version/-patch version)])))
   (with-open [list (ak/var :.empty (std/ArrayList :u21))]
     (try
       (is (values= [] (array-list/-items list)))
@@ -874,8 +1004,8 @@
 (deftest destructuring-retains-native-struct-error-and-slice-values
   (let [namespace (fixture)
         body '(let [tuple [(Point {:x 7})
-                          (az/field Fault :Broken)
-                          (ak/as "hello" [:slice-const :u8])]
+                           (az/field Fault :Broken)
+                           (ak/as "hello" [:slice-const :u8])]
                     [point fault text] tuple
                     point (ak/var point)]
                 (ak/= point (Point {:x 9}))
@@ -915,10 +1045,10 @@
         (eval '(az/defn add :i32 [[x :i32]] (+ x 1)))
         (eval '(az/deftest addition-test (debug/assert true))))
       (doseq [[name expected] [['Point "/// A point."]
-                              ['limit "const limit: u32 = 42;"]
-                              ['counter "var counter: u32 = 7;"]
-                              ['add "fn add(x: i32)"]
-                              ['addition-test "test \"addition-test\""]]]
+                               ['limit "const limit: u32 = 42;"]
+                               ['counter "var counter: u32 = 7;"]
+                               ['add "fn add(x: i32)"]
+                               ['addition-test "test \"addition-test\""]]]
         (is (str/includes? (with-out-str (az/zig-source! (ns-resolve namespace name)))
                            expected)))
       (is (str/includes? (with-out-str (az/zig-source! @(ns-resolve namespace 'Point)))
@@ -927,13 +1057,13 @@
       (is (values= "i32\n" (with-out-str (az/zig-source! ak/i32))))
       (is (values= "[2]i32\n" (with-out-str (az/zig-source! [:array 2 ak/i32]))))
       (is (values= "[2]Point\n" (with-out-str
-                              (az/zig-source! [:array 2 @(ns-resolve namespace 'Point)]))))
+                                  (az/zig-source! [:array 2 @(ns-resolve namespace 'Point)]))))
       (is (values= "42\n" (with-out-str (az/zig-source! 42))))
       (is (values= "@import(\"std\").debug.print\n"
-             (with-out-str (az/zig-source! #'debug/print))))
+                   (with-out-str (az/zig-source! #'debug/print))))
       (with-open [items (ak/as [4 5 6] [:array 3 :u32])]
         (is (values= "@as([3]u32, .{ 4, 5, 6 })\n"
-               (with-out-str (az/zig-source! items)))))
+                     (with-out-str (az/zig-source! items)))))
       (is (nil? (binding [*out* (StringWriter.)] (az/zig-source! :bool))))
       (finally (remove-ns (ns-name namespace))))))
 
@@ -974,7 +1104,7 @@
         (is (str/includes? (:doc (meta error-var)) "Expected failures."))
         (is (str/includes? (:doc (meta error-var)) ":Denied"))
         (is (values= [:array 8 :u8]
-               (:type (value/type-info @(ns-resolve namespace 'Buffer))))))
+                     (:type (value/type-info @(ns-resolve namespace 'Buffer))))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest inferred-number-constants-are-readable-from-ordinary-clojure
@@ -982,25 +1112,25 @@
     (binding [*ns* namespace]
       (require '[aguafria.std.math :as math])
       (doseq [form '[(az/defconst octal-int (az/number-literal "0o755"))
-                    (az/defconst binary-int (az/number-literal "0b11110000"))
-                    (az/defconst one-billion (az/number-literal "1_000_000_000"))
-                    (az/defconst binary-mask (az/number-literal "0b1_1111_1111"))
-                    (az/defconst permissions (az/number-literal "0o7_5_5"))
-                    (az/defconst big-address (az/number-literal "0xFF80_0000_0000_0000"))
-                    (az/defconst inf (math/inf :f32))
-                    (az/defconst negative-inf (- (math/inf :f64)))
-                    (az/defconst nan (math/nan :f128))
-                    (az/defconst computed (+ 40 2))]]
+                     (az/defconst binary-int (az/number-literal "0b11110000"))
+                     (az/defconst one-billion (az/number-literal "1_000_000_000"))
+                     (az/defconst binary-mask (az/number-literal "0b1_1111_1111"))
+                     (az/defconst permissions (az/number-literal "0o7_5_5"))
+                     (az/defconst big-address (az/number-literal "0xFF80_0000_0000_0000"))
+                     (az/defconst inf (math/inf :f32))
+                     (az/defconst negative-inf (- (math/inf :f64)))
+                     (az/defconst nan (math/nan :f128))
+                     (az/defconst computed (+ 40 2))]]
         (eval form)))
     (let [read-constant #(value/value @(ns-resolve namespace %))]
       (is (values= [493 240 1000000000 511 493 18410715276690587648N 42]
-             (mapv read-constant '[octal-int binary-int one-billion binary-mask
-                                  permissions big-address computed])))
+                   (mapv read-constant '[octal-int binary-int one-billion binary-mask
+                                         permissions big-address computed])))
       (is (values= Double/POSITIVE_INFINITY (read-constant 'inf)))
       (is (values= Double/NEGATIVE_INFINITY (read-constant 'negative-inf)))
       (is (Double/isNaN (read-constant 'nan)))
       (is (values= 18410715276690587648N
-             (ak/as @(ns-resolve namespace 'big-address) :u64)))
+                   (ak/as @(ns-resolve namespace 'big-address) :u64)))
       (is (str/includes? (pr-str @(ns-resolve namespace 'inf)) "##Inf")))))
 
 (deftest inferred-aggregate-constants-retain-their-native-type
@@ -1026,7 +1156,7 @@
         (is (values= 9 (az/index numbers 1)))
         (is (nil? (debug/assert (mem/eql :u8 text "hi"))))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable"
-                             (value/set-value! numbers [1 2]))))
+                              (value/set-value! numbers [1 2]))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest array-construction-accepts-characters-with-range-checking
@@ -1036,7 +1166,7 @@
     (is (values= [9748] @unicode))
     (is (values= 209 (reduce + 0 letters))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
-                       (az/array [\☔] :u8))))
+                        (az/array [\☔] :u8))))
 
 (deftest native-loop-captures-are-eager-and-mutable
   (with-open [sum (ak/var 0 :i32)
@@ -1062,25 +1192,25 @@
 
 (deftest extern-linking-is-lazy-but-native-body-validation-is-not
   (doseq [already-running? [false true]]
-   (let [namespace (fixture)]
-    (binding [*ns* namespace]
-      (when already-running?
-        (eval '(az/defn running :i32 [] 42))
-        (is (values= 42 ((ns-resolve namespace 'running)))))
-      (eval '(az/defextern aguafria_missing_test_symbol :i32 [[x :i32]]))
-      (eval '(az/defn use-external :i32 [[x :i32]]
-               (aguafria_missing_test_symbol x)))
-      (is (:source-only? (runtime/module-info (ns-name namespace))))
-      (let [failure (try
-                      (eval '(az/defn invalid :i32 [[a :i32] [b :i32]] (/ a b)))
-                      (catch Throwable failure failure))]
-        (is (str/includes? (:aguafria/report (runtime/error-data failure))
-                           "signed integers must use")))
-      (let [failure (try
-                      ((ns-resolve namespace 'use-external) 1)
-                      (catch Throwable failure failure))]
-        (is (str/includes? (:aguafria/report (runtime/error-data failure))
-                           "aguafria_missing_test_symbol")))))))
+    (let [namespace (fixture)]
+      (binding [*ns* namespace]
+        (when already-running?
+          (eval '(az/defn running :i32 [] 42))
+          (is (values= 42 ((ns-resolve namespace 'running)))))
+        (eval '(az/defextern aguafria_missing_test_symbol :i32 [[x :i32]]))
+        (eval '(az/defn use-external :i32 [[x :i32]]
+                 (aguafria_missing_test_symbol x)))
+        (is (:source-only? (runtime/module-info (ns-name namespace))))
+        (let [failure (try
+                        (eval '(az/defn invalid :i32 [[a :i32] [b :i32]] (/ a b)))
+                        (catch Throwable failure failure))]
+          (is (str/includes? (:aguafria/report (runtime/error-data failure))
+                             "signed integers must use")))
+        (let [failure (try
+                        ((ns-resolve namespace 'use-external) 1)
+                        (catch Throwable failure failure))]
+          (is (str/includes? (:aguafria/report (runtime/error-data failure))
+                             "aguafria_missing_test_symbol")))))))
 
 (deftest ordinary-function-values-can-spawn-and-join-native-threads
   (let [namespace (fixture)]
@@ -1108,7 +1238,7 @@
       (is (values= 12 (maximum :i32 12 4)))
       (is (true? (.invoke ^clojure.lang.IFn maximum :bool false true)))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Wrong number"
-                           (maximum :bool true)))
+                            (maximum :bool true)))
       (binding [*ns* namespace]
         (eval '(az/defn- maximum T
                  [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
@@ -1137,9 +1267,9 @@
   (let [err (StringWriter.)]
     (binding [*err* err]
       (is (thrown-with-msg? Exception #"deliberate"
-                           (native-call/call-with-output
-                            #(do (debug/print "before\n" [])
-                                 (throw (Exception. "deliberate"))))))
+                            (native-call/call-with-output
+                             #(do (debug/print "before\n" [])
+                                  (throw (Exception. "deliberate"))))))
       (debug/print "after\n" []))
     (is (values= "before\nafter\n" (str err)))))
 
@@ -1186,7 +1316,7 @@
       (is (values= "main in this JVM\n" (str out)))
       (is (values= 42 ((ns-resolve namespace 'ordinary) 42)))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"(?i)(arity|arguments)"
-                           ((ns-resolve namespace 'ordinary))))
+                            ((ns-resolve namespace 'ordinary))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest minimal-process-main-receives-argv
@@ -1226,8 +1356,8 @@
       (binding [*ns* namespace]
         (eval '(az/defconst Mode
                  (az/container {:kind :enum :argument :c_int}
-                   [(az/enum-field-decl :idle)
-                    (az/enum-field-decl :running)])))
+                               [(az/enum-field-decl :idle)
+                                (az/enum-field-decl :running)])))
         (eval '(az/defn running? :bool [[mode Mode]] (== mode :.running))))
       (let [running? (ns-resolve namespace 'running?)]
         (is (false? (running? :idle)))

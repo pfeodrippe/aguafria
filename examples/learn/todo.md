@@ -118,8 +118,10 @@
     - [x] pointer-arithmetic-with-many-item-pointer
     - [x] pointer-arithmetic-with-slices
   - [ ] test_slice_bounds.clj
-    - [ ] pointer-slicing body fucking slow
-  - [ ] test_comptime_pointers.clj
+    - [x] pointer-slicing body fucking slow
+      - by not recompiling same operators + types again and again
+    - [ ] are we able to generate the handlers beforehand in disk? so we can do a precompilation for all namespaces or whatever and we can reuse it across JVM restarts
+  - [x] test_comptime_pointers.clj
 
 - [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?
 - [ ] add assertions from the JVM as alternative to comptime assertions (e.g. inside test_arrays.clj)

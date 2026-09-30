@@ -4,6 +4,142 @@ pub const __aguafria_jvm = struct {
     const std = @import("std");
     const allocator = std.heap.page_allocator;
 
+    pub fn parseComptimeFloat(text: []const u8) f128 {
+        return std.fmt.parseFloat(f128, text) catch @panic("Invalid JVM float literal");
+    }
+
+    fn Borrowed(comptime Pointer: type) type {
+        return struct {
+            pub const aguafria_borrowed_view = true;
+            pointer: Pointer,
+        };
+    }
+
+    // Only emit schemas that reproduce the exact compiler type. Nominal types
+    // and pointer qualifiers not represented here retain their Zig expression.
+    fn hasStructuralType(comptime T: type) bool {
+        return switch (@typeInfo(T)) {
+            .int, .float, .bool, .void, .noreturn => true,
+            .array => |a| a.sentinel_ptr == null and hasStructuralType(a.child),
+            .vector => |v| hasStructuralType(v.child),
+            .optional => |o| hasStructuralType(o.child),
+            .pointer => |p| hasStructuralType(p.child) and p.size != .c and
+                p.sentinel_ptr == null and !p.is_volatile and !p.is_allowzero and
+                p.address_space == .generic and (p.alignment == null or p.alignment == @alignOf(p.child)),
+            else => false,
+        };
+    }
+
+    fn writeStructuralType(writer: *std.Io.Writer, comptime T: type) !void {
+        switch (@typeInfo(T)) {
+            .int, .float, .bool, .void, .noreturn => try writer.print(":{s}", .{@typeName(T)}),
+            inline .array, .vector => |a| {
+                try writer.print("[:{s} {d} ", .{ @tagName(@typeInfo(T)), a.len });
+                try writeStructuralType(writer, a.child);
+                try writer.writeAll("]");
+            },
+            .optional => |o| {
+                try writer.writeAll("[:optional ");
+                try writeStructuralType(writer, o.child);
+                try writer.writeAll("]");
+            },
+            .pointer => |p| {
+                const tag = switch (p.size) {
+                    .one => if (p.is_const) "*const" else "*",
+                    .many => if (p.is_const) "many-const" else "many",
+                    .slice => if (p.is_const) "slice-const" else "slice",
+                    .c => unreachable,
+                };
+                try writer.print("[:{s} ", .{tag});
+                try writeStructuralType(writer, p.child);
+                try writer.writeAll("]");
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn runtimeArraySlice(pointer: anytype, length: usize, start: usize, end: usize)
+        @TypeOf(pointer[0..length][start..end])
+    {
+        return pointer[0..length][start..end];
+    }
+
+    pub fn arrayIndexView(pointer: anytype, length: usize, index: usize)
+        if (fieldNeedsStorage(@TypeOf(pointer[index]))) Borrowed(@TypeOf(&pointer[index]))
+        else @TypeOf(pointer[index])
+    {
+        if (comptime fieldNeedsStorage(@TypeOf(pointer[index]))) {
+            return .{ .pointer = &pointer[0..length][index] };
+        } else {
+            return pointer[0..length][index];
+        }
+    }
+
+    pub fn indexRequiresComptime(comptime T: type) bool {
+        return @typeInfo(T) == .@"struct" and @typeInfo(T).@"struct".is_tuple;
+    }
+
+    pub fn tupleIndexView(pointer: anytype, comptime index: usize)
+        @TypeOf(fieldView(pointer, std.fmt.comptimePrint("{d}", .{index})))
+    {
+        return fieldView(pointer, std.fmt.comptimePrint("{d}", .{index}));
+    }
+
+    pub fn dereferenceView(pointer: anytype) Borrowed(@TypeOf(pointer)) {
+        std.debug.assert(@intFromPtr(pointer) != 0);
+        return .{ .pointer = pointer };
+    }
+
+    pub fn indexView(pointer: anytype, index: usize)
+        if (@typeInfo(@typeInfo(@TypeOf(pointer)).pointer.child) == .vector)
+            @typeInfo(@typeInfo(@TypeOf(pointer)).pointer.child).vector.child
+        else if (!fieldNeedsStorage(@TypeOf(pointer.*[index])))
+            @TypeOf(pointer.*[index])
+        else Borrowed(@TypeOf(&pointer.*[index]))
+    {
+        if (comptime @typeInfo(@typeInfo(@TypeOf(pointer)).pointer.child) == .vector) {
+            const info = @typeInfo(@typeInfo(@TypeOf(pointer)).pointer.child).vector;
+            const lanes: [info.len]info.child = pointer.*;
+            return lanes[index];
+        } else if (comptime !fieldNeedsStorage(@TypeOf(pointer.*[index]))) {
+            return pointer.*[index];
+        } else {
+            return .{ .pointer = &pointer.*[index] };
+        }
+    }
+
+    pub fn fieldView(pointer: anytype, comptime name: []const u8)
+        if (hasAddressableField(@typeInfo(@TypeOf(pointer)).pointer.child, name))
+            Borrowed(@TypeOf(&@field(pointer.*, name)))
+        else FieldValue(@typeInfo(@TypeOf(pointer)).pointer.child, name)
+    {
+        if (comptime hasAddressableField(@typeInfo(@TypeOf(pointer)).pointer.child, name)) {
+            return .{ .pointer = &@field(pointer.*, name) };
+        } else {
+            return lookupField(pointer.*, name);
+        }
+    }
+
+    pub fn borrowedResult(value: anytype) usize {
+        const T = @TypeOf(value);
+        if (comptime @typeInfo(T) != .@"struct" or !@hasDecl(T, "aguafria_borrowed_view")) return result(value);
+        const P = @typeInfo(@TypeOf(value.pointer)).pointer;
+        var writer: std.Io.Writer.Allocating = .init(allocator);
+        defer writer.deinit();
+        writer.writer.print("{{:aguafria.jvm/borrowed {{:address {d} :size {d} :alignment {d} :mutable? {s} :native-kind :{s}",
+            .{ @intFromPtr(value.pointer), @sizeOf(P.child), @alignOf(P.child), if (P.is_const) "false" else "true", @tagName(@typeInfo(P.child)) }) catch @panic("Cannot encode native view");
+        if (@typeInfo(P.child) == .int or @typeInfo(P.child) == .float) {
+            writer.writer.print(" :scalar-type :{s}", .{@typeName(P.child)}) catch @panic("Cannot encode native view type");
+        }
+        if (comptime hasStructuralType(P.child)) {
+            writer.writer.writeAll(" :native-type ") catch @panic("Cannot encode native view type");
+            writeStructuralType(&writer.writer, P.child) catch @panic("Cannot encode native view type");
+        }
+        writer.writer.writeAll("}}") catch @panic("Cannot encode native view");
+        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate native view result");
+        return @intFromPtr(encoded.ptr);
+    }
+
     fn isMethod(comptime T: type, comptime name: []const u8) bool {
         const Container = switch (@typeInfo(T)) {
             .pointer => |p| if (p.size == .one) p.child else T,
@@ -422,6 +558,10 @@ pub const __aguafria_jvm = struct {
                 if (@typeInfo(T) == .int or @typeInfo(T) == .float) {
                     try writer.writeAll(" :scalar-type :");
                     try writer.writeAll(@typeName(T));
+                }
+                if (comptime hasStructuralType(T)) {
+                    try writer.writeAll(" :native-type ");
+                    try writeStructuralType(writer, T);
                 }
                 try writer.writeAll("}}");
             },

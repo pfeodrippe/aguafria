@@ -149,14 +149,14 @@
   java.lang.AutoCloseable
   (close [this]
     (let [state (value-state this)]
-    (when-not (= :closed (:status @state))
-      (let [{:keys [close! cleanable]} (realize! this)]
-        (if cleanable
-          (.clean ^Cleaner$Cleanable cleanable)
-          (do
-            (when close! (close!))
-            (swap! state assoc :status :closed)))))
-    nil))
+      (when-not (= :closed (:status @state))
+        (let [{:keys [close! cleanable]} (realize! this)]
+          (if cleanable
+            (.clean ^Cleaner$Cleanable cleanable)
+            (do
+              (when close! (close!))
+              (swap! state assoc :status :closed)))))
+      nil))
 
   Object
   (toString [this]
@@ -259,7 +259,7 @@
   (let [modulus (.shiftLeft java.math.BigInteger/ONE bits)
         unsigned-value
         (.and (java.math.BigInteger. 1
-                                    (native-bytes-big-endian native-segment))
+                                     (native-bytes-big-endian native-segment))
               (.subtract modulus java.math.BigInteger/ONE))
         value (if (and signed? (pos? bits) (.testBit unsigned-value (dec bits)))
                 (.subtract unsigned-value modulus)
@@ -545,17 +545,17 @@
              active-field]
       {(field-key name)
        (if (or (= :void type) (zero? byte-size))
-       nil
-       (let [payload (if tagged?
-                       (payload-segment-fn native-segment)
-                       (.asSlice native-segment 0 byte-size))]
-         (when-not payload
-           (throw (ex-info "Tagged Zig union payload address is unavailable"
-                           {:field name :schema schema})))
-         (decode-value-segment payload type schema)))}
+         nil
+         (let [payload (if tagged?
+                         (payload-segment-fn native-segment)
+                         (.asSlice native-segment 0 byte-size))]
+           (when-not payload
+             (throw (ex-info "Tagged Zig union payload address is unavailable"
+                             {:field name :schema schema})))
+           (decode-value-segment payload type schema)))}
       (throw (ex-info "Tagged Zig union has no recognized active field"
                       {:schema (dissoc schema :fields)
-                      :known-fields (mapv (comp field-key :name) fields)})))))
+                       :known-fields (mapv (comp field-key :name) fields)})))))
 
 (defn- decode-optional
   [^MemorySegment native-segment
@@ -797,30 +797,30 @@
           (mapv #(bit-and 0xff %)
                 (.getBytes ^String values StandardCharsets/UTF_8))
           values)]
-  (when-not (sequential? values)
-    (throw (ex-info "Zig slices require a sequential Clojure value; u8 slices also accept UTF-8 strings"
-                    {:type zig-type :schema (dissoc schema :read-fn :set-fn)
-                     :value values})))
-  (when-not *allocation-arena*
-    (throw (ex-info
-            "Constructing a Zig slice requires owner-scoped native storage"
-            {:type zig-type
-             :hint "Pass the vector directly to an Aguafria function or construct it inside an owning Zig value."})))
-  (let [values (vec values)
-        element-size (long element-size)
-        element-alignment (long (max 1 element-alignment))
-        byte-size (Math/multiplyExact (long (count values)) element-size)
+    (when-not (sequential? values)
+      (throw (ex-info "Zig slices require a sequential Clojure value; u8 slices also accept UTF-8 strings"
+                      {:type zig-type :schema (dissoc schema :read-fn :set-fn)
+                       :value values})))
+    (when-not *allocation-arena*
+      (throw (ex-info
+              "Constructing a Zig slice requires owner-scoped native storage"
+              {:type zig-type
+               :hint "Pass the vector directly to an Aguafria function or construct it inside an owning Zig value."})))
+    (let [values (vec values)
+          element-size (long element-size)
+          element-alignment (long (max 1 element-alignment))
+          byte-size (Math/multiplyExact (long (count values)) element-size)
         ;; A Zig slice pointer is non-null even when its length is zero.
-        backing (.allocate ^Arena *allocation-arena*
-                           (long (max 1 byte-size))
-                           element-alignment)]
-    (doseq [[index value] (map-indexed vector values)]
-      (when (pos? element-size)
-        (write-value-segment!
-         (.asSlice backing (* index element-size) element-size)
-         element-type element-schema value {:index index :slice-type zig-type})))
-    (set-fn native-segment backing (count values)))
-  native-segment))
+          backing (.allocate ^Arena *allocation-arena*
+                             (long (max 1 byte-size))
+                             element-alignment)]
+      (doseq [[index value] (map-indexed vector values)]
+        (when (pos? element-size)
+          (write-value-segment!
+           (.asSlice backing (* index element-size) element-size)
+           element-type element-schema value {:index index :slice-type zig-type})))
+      (set-fn native-segment backing (count values)))
+    native-segment))
 
 (defn- write-error-union!
   [^MemorySegment native-segment zig-type
@@ -1043,13 +1043,13 @@
     (when-not (and (integer? index) (<= 0 index) (< index length))
       (throw (ex-info "Array element index is out of bounds" {:index index :length length})))
     (let [element-size (quot (.byteSize ^MemorySegment segment) length)]
-     (native-value
-     {:module (:module (info array-value)) :kind :const :type element-type}
-     (constantly {:representation :native
-                  :segment (.asSlice ^MemorySegment segment (* index element-size) element-size)
-                  :size element-size :alignment alignment
-                  :schema element-schema :generation generation
-                  :owners [array-value]})))))
+      (native-value
+       {:module (:module (info array-value)) :kind :const :type element-type}
+       (constantly {:representation :native
+                    :segment (.asSlice ^MemorySegment segment (* index element-size) element-size)
+                    :size element-size :alignment alignment
+                    :schema element-schema :generation generation
+                    :owners [array-value]})))))
 
 (defn retain-owners!
   "Keep borrowed-view owners alive for as long as the returned native value."
@@ -1084,30 +1084,46 @@
         (.close arena)
         (throw failure)))))
 
+(defn array-elements-pointer
+  "Borrow an ordinary array's element storage as a many-item pointer.
+  Length stays with the caller for native bounds checks; the owner stays live."
+  [owner]
+  (let [type (qualified-type owner)]
+    (when-not (and (vector? type) (= :array (first type)) (= 3 (count type)))
+      (throw (ex-info "Expected an ordinary native array" {:type type})))
+    (let [mutable? (= :var (:kind (info owner)))
+          pointer (address-value owner mutable?)
+          state (realize! pointer)]
+      (native-value
+       {:kind :const :type [(if mutable? :many :many-const) (nth type 2)]}
+       (constantly (-> (select-keys state [:representation :segment :size :alignment])
+                       (assoc :owners [owner pointer]
+                              :schema {:kind :pointer :child-type (nth type 2)})))))))
+
 (defn mutable-copy
   "Copy owned native storage into an independently mutable JVM handle.
   Slice/pointer owners remain reachable; new pointees live in the copy's arena."
   ([source zig-type schema] (mutable-copy source zig-type schema {}))
   ([source zig-type schema options]
-  (let [{:keys [segment size alignment]} (realize! source)
-        alignment (max alignment (long (get options :zig/align 1)))
-        arena (Arena/ofShared)]
-    (try
-      (let [storage (.allocate arena (long size) (long alignment))]
-        (.copyFrom storage segment)
-        (let [result (native-value
-                      (merge (select-keys (info source) [:module :execution-context])
-                             {:kind :var :type zig-type})
-                      (constantly {:representation :native
-                                   :segment storage :size size :alignment alignment
-                                   :owners [source]
-                                   :schema (assoc schema :allocation-arena arena)
-                                   :close! #(.close arena)}))]
-          (realize! result)
-          result))
-      (catch Throwable failure
-        (.close arena)
-        (throw failure))))))
+   (let [{:keys [segment size alignment]} (realize! source)
+         alignment (max alignment (long (get options :zig/align 1)))
+         arena (Arena/ofShared)]
+     (try
+       (let [storage (.allocate arena (long size) (long alignment))]
+         (.copyFrom storage segment)
+         (let [result (native-value
+                       (merge (select-keys (info source) [:module :execution-context])
+                              {:kind :var :type zig-type})
+                       (constantly {:representation :native
+                                    :segment storage :size size :alignment alignment
+                                    :owners [source]
+                                    :schema (assoc schema :allocation-arena arena)
+                                    :close! #(.close arena)}))]
+           (realize! result)
+           result))
+       (catch Throwable failure
+         (.close arena)
+         (throw failure))))))
 
 (defn slice-element-view
   "Borrow an element's native storage, retaining the slice and its library owner."
@@ -1142,7 +1158,7 @@
 (defmethod pprint/simple-dispatch ZigValue
   [value]
   (pprint/pprint-logical-block :prefix "#aguafria.zig.value.ZigValue[" :suffix "]"
-    (pprint/write-out (decoded value))))
+                               (pprint/write-out (decoded value))))
 
 (defmethod print-method ZigType
   [zig-type ^java.io.Writer writer]

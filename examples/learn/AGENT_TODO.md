@@ -1190,3 +1190,30 @@ also passed the named-getter, real REPL output, and mapped leak-location checks.
 - [ ] Generate source-spanned type reports for file forms and subforms, and
       expose them as Learn hover tooltips. Use only compiler/ZLS observations;
       report unavailable analysis explicitly, never guess from Clojure syntax.
+- [x] Reuse guarded Panama handlers generically across applicable `k/...` and
+      `az/...` calls, keyed by operation/native types instead of runtime values.
+      Preserve comptime specialization, native ownership, constness and safety.
+      Verify changed-value calls launch no compiler processes, rerun real lesson
+      bodies, measure cold/warm calls, and regenerate the entire Learn HTML.
+      Shared runtime plans and borrowed native views implemented; 18 bridge
+      regressions / 190 assertions passed. Coercion/Learn-body regressions:
+      eight tests / 139 assertions passed. Final reloaded-code checks: five
+      tests / 41 assertions passed. Learn acceptance: 288 matched outcomes +
+      four reviewed special cases, 202 regenerated REPL transcripts.
+      Served HTML SHA-256 matches the rebuilt file. New signatures and genuinely
+      comptime/source expressions still compile; see `NATIVE_HANDLERS_PLAN.md`.
+- [ ] Address macOS native-library TLS-key exhaustion during long-running,
+      high-specialization stress runs. The reused regression JVM aborted with
+      dyld's `could not create thread local variables pthread key`; it was not
+      a completed green broad-suite run.
+- [x] Reuse runtime array/slice handlers across array lengths. Canonicalize
+      structural result types from Zig reflection, retain exact array types and
+      pointer qualifiers, and verify the 10/11/12-element JVM bodies with compiler
+      call counts, bounds checks, constness, and fixed-length slice regressions.
+      New lengths now require only the array constructor build (~0.4 s locally),
+      not eight builds (~10 s). Full values-lesson changed-value evaluation
+      performs zero compiler calls after warm-up (~63 ms). Clean-session bridge
+      checks passed: 14 tests / 146 assertions, including zero-length arrays,
+      temporary pointer ownership, sentinel arrays, and typed overflow behavior.
+      Final Learn regeneration passed: 288 matched outcomes, four reviewed
+      special cases, 202 REPL transcripts; served HTML matches the rebuilt file.
