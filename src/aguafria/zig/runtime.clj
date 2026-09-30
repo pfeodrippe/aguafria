@@ -1,6 +1,8 @@
 (ns aguafria.zig.runtime
   "Compilation, loading, and invocation for generated Zig modules."
-  (:require [aguafria.zig.cache :as cache]
+  (:require [aguafria.zig.artifact :as artifact]
+            [aguafria.zig.bundle :as bundle]
+            [aguafria.zig.cache :as cache]
             [aguafria.zig.emitter :as emit]
             [aguafria.zig.debug :as debug]
             [aguafria.zig.explain :as explanation]
@@ -45,7 +47,6 @@
 (defonce ^:private compile-lock (Object.))
 (defonce ^:private artifact-locks (atom {}))
 (defonce ^:private module-compilation-locks (atom {}))
-(defonce ^:private external-file-fingerprints (atom {}))
 (defonce ^:private zig-version-cache (atom {}))
 (def ^:private declaration-reference-extraction-version 7)
 (defonce ^:private declaration-reference-index
@@ -409,9 +410,17 @@
   (contains? #{"1" "true" "yes" "on"}
              (some-> value str/lower-case str/trim)))
 
+(defn- checked-jvm-optimization [mode]
+  (when-not (contains? #{"Debug" "ReleaseSafe"} mode)
+    (throw (ex-info "JVM adapters require a safety-checked optimization mode"
+                    {:jvm-optimize mode :supported ["Debug" "ReleaseSafe"]})))
+  mode)
+
 (defonce ^:private config
   (atom {:cache-dir (cache/default-directory)
          :optimize (or (System/getProperty "aguafria.optimize") "Debug")
+         :jvm-optimize (checked-jvm-optimization
+                        (or (System/getProperty "aguafria.jvm-optimize") "ReleaseSafe"))
          :development-debug-info
          (keyword
          (or (System/getProperty "aguafria.development-debug-info")
@@ -452,7 +461,7 @@
 
 (defn configure!
   "Merge compiler configuration. Important keys are `:cache-dir`,
-  `:optimize`, `:development-debug-info`, `:development-panic`, `:target`,
+  `:optimize`, `:jvm-optimize`, `:development-debug-info`, `:development-panic`, `:target`,
   `:cpu`, `:zig-args`,
   `:zig-args-by-module`, `:modules`,
   `:module-dependencies`, `:module-zig-args`, `:module-cache-tokens`, and
@@ -467,6 +476,9 @@
   identities, allowing artifacts that select them to be reused safely.
   `:debug-output` selects az/debug! report destinations (#{:print :file} by
   default); `:debug-report-file` overrides .aguafria/debug/types.edn.
+  `:jvm-optimize` selects Debug or ReleaseSafe for generated JVM adapters only
+  (default ReleaseSafe), independently of user-code :optimize. Both preserve
+  runtime safety checks; adapter builds explicitly retain error tracing.
   Returns the resulting configuration."
   [options]
   (when-not (map? options)
@@ -490,6 +502,8 @@
       (throw (ex-info "Unsupported development debug-information mode"
                       {:development-debug-info debug-info
                        :supported [:none :full]}))))
+  (when (contains? options :jvm-optimize)
+    (checked-jvm-optimization (:jvm-optimize options)))
   (when-let [panic-profile (:development-panic options)]
     (when-not (contains? #{:shared :full} panic-profile)
       (throw (ex-info "Unsupported development panic profile"
@@ -657,7 +671,6 @@
       (reset! live-hosts {})
       (reset! state-migrations {})
       (reset! retirement-pending-modules #{})
-      (reset! external-file-fingerprints {})
       (reset! declaration-reference-index
               {:by-module {} :by-logical {} :references {} :revision 0
                :extraction-version
@@ -799,35 +812,6 @@
   (let [digest (doto (MessageDigest/getInstance "SHA-256")
                  (.update (.getBytes (str s) StandardCharsets/UTF_8)))]
     (.formatHex (HexFormat/of) (.digest digest))))
-
-(defn- file-sha256
-  [^File file]
-  (let [digest (MessageDigest/getInstance "SHA-256")]
-    (.update digest (Files/readAllBytes (.toPath file)))
-    (.formatHex (HexFormat/of) (.digest digest))))
-
-(defn- external-argument-fingerprint
-  [argument]
-  (let [file (io/file argument)]
-    (if-not (.isFile file)
-      [:argument argument]
-      (let [path (.getCanonicalPath file)
-            size (.length file)
-            modified (.lastModified file)
-            cache-key [path size modified]
-            fingerprint
-            (or (get @external-file-fingerprints cache-key)
-                (let [digest (file-sha256 file)]
-                  (swap! external-file-fingerprints
-                         (fn [cached]
-                           (assoc
-                            (into {}
-                                  (remove (fn [[[cached-path] _]]
-                                            (= path cached-path)))
-                                  cached)
-                            cache-key digest)))
-                  digest))]
-        [:file path size modified fingerprint]))))
 
 (def ^:private identity-reference-fingerprint-keys
   [:kind :module :zig-name :import-name :import-alias :logical-id
@@ -1937,8 +1921,7 @@
         (finally (Files/deleteIfExists (.toPath temporary)))))))
 
 (def ^:private development-panic-support-source
-  (str "const std = @import(\"std\");\n\n"
-       "extern fn aguafria_guard_panic([*]const u8, usize, usize) void;\n"
+  (str "extern fn aguafria_guard_panic([*]const u8, usize, usize) void;\n"
        "export fn aguafria_development_panic(\n"
        "    message: [*]const u8,\n"
        "    message_length: usize,\n"
@@ -1951,7 +1934,7 @@
        "    );\n"
        "}\n"))
 
-(def ^:private development-panic-support-version 3)
+(def ^:private development-panic-support-version 4)
 
 (def ^:private development-panic-forwarder-source
   (str "const __aguafria_panic_std = @import(\"std\");\n\n"
@@ -1973,13 +1956,18 @@
        "pub const panic = "
        "__aguafria_panic_std.debug.FullPanic(__aguafria_forward_panic);\n\n"))
 (defn- development-panic-support!
-  [{:keys [cache-dir optimize target cpu zig] :as options} compiler-version]
+  [{:keys [cache-dir target cpu zig] :as options} compiler-version]
   (let [guard-source (slurp (io/resource "aguafria/jvm_guard.c"))
+        support-source (str development-panic-support-source "\n"
+                            (slurp (io/resource "aguafria/jvm_support.zig")))
+        ;; Optimize common machinery once without changing the user's module
+        ;; optimization mode. Keep safety checks, unwind data and error traces.
+        support-arguments ["-OReleaseSafe" "-ferror-tracing" "-funwind-tables"]
         debug-format (native-debug-format options)
         support-hash
         (subs (sha256 [development-panic-support-version
-                       development-panic-support-source guard-source compiler-version
-                       optimize target cpu debug-format
+                       support-source guard-source compiler-version
+                       support-arguments target cpu debug-format
                        (System/getProperty "os.name")
                        (System/getProperty "os.arch")])
               0 24)
@@ -1994,15 +1982,16 @@
         operating-system
         (str/lower-case (System/getProperty "os.name"))
         install-name-arguments
-        (if (str/includes? operating-system "mac")
-          ["-install_name" library-path]
-          [(str "-fsoname=" library-path)])
+        (cond
+          (str/includes? operating-system "mac") ["-install_name" library-path]
+          (str/includes? operating-system "windows") []
+          :else [(str "-fsoname=" library-path)])
         command
         (vec
          (concat
           [zig "build-lib" "-dynamic"
-           (str "-femit-bin=" library-path)
-           (str "-O" optimize)]
+           (str "-femit-bin=" library-path)]
+          support-arguments
           install-name-arguments
           (when target ["-target" (str target)])
           (when cpu ["-mcpu" (str cpu)])
@@ -2010,9 +1999,9 @@
            (str "-Mroot=" (.getAbsolutePath source-file))]))]
     (.mkdirs ^File support-dir)
     (spit guard-file guard-source)
-    (when-not (= development-panic-support-source
+    (when-not (= support-source
                  (when (.isFile source-file) (slurp source-file)))
-      (spit source-file development-panic-support-source))
+      (spit source-file support-source))
     (let [path library-path
           artifact-lock
           (get (swap! artifact-locks
@@ -3505,7 +3494,8 @@
       (if-not (zero? (:exit compiled))
         compiled
         (let [link-command (vec (concat [(first command) "build-lib" bitcode "-dynamic"
-                                        "-lc" (str "-femit-bin=" output)] libraries))]
+                                        "-lc" (str "-femit-bin=" output)]
+                                       libraries))]
           (assoc (run-command link-command directory) :command link-command))))))
 
 (def ^:dynamic ^:private *validate-without-linking?* false)
@@ -3587,7 +3577,11 @@
                            ;; Zig's full native image; ordinary JVM-only hot
                            ;; reload still honors `:none`.
                            external-publication?
-                           (assoc :development-debug-info :full))
+                           (assoc :development-debug-info :full)
+                           (str/starts-with? (str module-name) "aguafria.jvm.")
+                           (assoc :optimize (:jvm-optimize @config))
+                           (str/starts-with? (str module-name) "aguafria.jvm.")
+                           (update :zig-args into ["-ferror-tracing" "-funwind-tables"]))
                          :development-dependencies? development-dependencies?
                          :development-root-source development-root-source
                          :development-root-dependencies
@@ -3623,11 +3617,9 @@
         (cond project-panic? :project
               shared-panic? :shared
               :else :full)
-        panic-support
-        (when shared-panic?
-          (development-panic-support! compiler-options compiler-version))
-        zig-argument-inputs
-        (mapv external-argument-fingerprint (:zig-args compiler-options))
+        ;; Storage/transport support is required even when a module supplies
+        ;; its own panic handler. Panic forwarding remains independently chosen.
+        panic-support (development-panic-support! compiler-options compiler-version)
         linkage-source
         (development-linkage-source
          dependency-snapshot development-linkage-logical-ids)
@@ -3635,17 +3627,17 @@
         (development-root-getter-linkage-source development-root-source)
         debug-format (native-debug-format compiler-options)
         hash-input [source compiler-version (boolean *native-test-context?*) debug-format
-                    (assoc (select-keys compiler-options
-                                         [:optimize :development-debug-info
-                                          :target :cpu :zig-args
-                                         :modules :module-dependencies
-                                         :module-zig-args
-                                         :module-cache-tokens])
+                    (assoc (artifact/compiler-options-identity
+                             (select-keys compiler-options
+                                          [:optimize :development-debug-info
+                                           :target :cpu :zig-args
+                                           :modules :module-dependencies
+                                           :module-zig-args
+                                           :module-cache-tokens]))
                            :development-compiler-arguments
                            (development-compiler-arguments compiler-options)
                            :development-panic effective-development-panic
                            :development-panic-support-hash (:hash panic-support)
-                           :zig-argument-inputs zig-argument-inputs
                            ;; Hash what Zig actually analyzes, not the larger
                            ;; runtime-only set used to select those references.
                            ;; A module becoming live must not invalidate an
@@ -3654,7 +3646,7 @@
                            :development-root-getter-linkage-source
                            root-getter-linkage-source)
                     (System/getProperty "os.name") (System/getProperty "os.arch")]
-        source-hash (subs (sha256 (pr-str hash-input)) 0 24)
+        source-hash (artifact/key-for :native-library hash-input)
         module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
         source-file (io/file module-dir "module.zig")
         module-container (emit/named-module-container module-name)
@@ -3708,7 +3700,11 @@
                        (str "-femit-bin=" (.getAbsolutePath library-file))]
                       (when panic-support [(:path panic-support)])
                       (development-compiler-arguments compiler-options)
-                      (root-module-arguments source-file compiler-options)))]
+                       (root-module-arguments source-file compiler-options)))
+        artifact {:module (str module-name) :hash source-hash :command command
+                  :development-panic effective-development-panic
+                  :development-panic-support-path (:path panic-support)
+                  :debug-format debug-format :native-test-context? *native-test-context?*}]
     (.mkdirs ^File module-dir)
     (when-not (= compiler-source
                  (when (.isFile source-file) (slurp source-file)))
@@ -3721,10 +3717,13 @@
                              (.getAbsolutePath library-file))]
       (locking artifact-lock
         (let [cache-safe? (:cache-safe? compiler-options)
-              cached? (and cache-safe? (usable-native-artifact? library-file debug-format))
+              bundled (when cache-safe? (bundle/find-artifact cache-dir artifact))
+              cached? (boolean (and cache-safe? (or bundled (usable-native-artifact? library-file debug-format))))
+              deferred? (and bundle/*preparing* (not cached?)
+                             (not *validate-without-linking?*) (bundle/candidate artifact))
               explain-start (System/nanoTime)
               result
-              (if *validate-without-linking?*
+              (if (or *validate-without-linking?* deferred?)
                 (let [validation-command (assoc command 3 "-fno-emit-bin")]
                   (assoc (run-command validation-command (.getAbsolutePath module-dir))
                          :command validation-command))
@@ -3755,11 +3754,13 @@
                       (Files/deleteIfExists (.toPath temporary-file)))))))]
           (explanation/event!
            {:event (cond (and result (not (zero? (:exit result)))) :compile-failed
-                         *validate-without-linking?* :validated
+                         (or *validate-without-linking?* deferred?) :validated
+                         bundled :bundle-cache-hit
                          cached? :disk-cache-hit
                          :else :compiled)
             :module module-name
-            :path (.getAbsolutePath (if *validate-without-linking?* source-file library-file))
+            :path (or (:library bundled)
+                      (.getAbsolutePath (if (or *validate-without-linking?* deferred?) source-file library-file)))
             :duration-ms (/ (- (System/nanoTime) explain-start) 1e6)})
           (when (and result (not (zero? (:exit result))))
             (let [command (or (:command result) command)
@@ -3781,21 +3782,21 @@
                  :stderr (:err result)
                  :diagnostics diagnostics}
                 location nil))))
-           {:hash source-hash
-            :cached? cached?
-            :zig-version compiler-version
-            :development-debug-info (:development-debug-info compiler-options)
-            :development-panic effective-development-panic
-            :development-panic-support-path (:path panic-support)
-            :development-panic-support-size-bytes (:size-bytes panic-support)
-            :compiled-source source
-            :source-path (.getAbsolutePath source-file)
-            :library-path (.getAbsolutePath library-file)
-            :debug-symbol-path (when debug-format
-                                 (.getAbsolutePath (native-debug-file library-file)))
-            :library-size-bytes (.length library-file)
-            :command command
-            :compiler-output result}))))))
+          (bundle/observe!
+           (merge artifact
+                  {:bundle bundled
+                   :cached? cached?
+                   :zig-version compiler-version
+                   :development-debug-info (:development-debug-info compiler-options)
+                   :development-panic-support-size-bytes (:size-bytes panic-support)
+                   :compiled-source source
+                   :source-path (.getAbsolutePath source-file)
+                   :library-path (or (:library bundled) (.getAbsolutePath library-file))
+                   :debug-symbol-path (or (:debug bundled)
+                                          (when debug-format
+                                            (.getAbsolutePath (native-debug-file library-file))))
+                   :library-size-bytes (if bundled (:library-bytes bundled) (.length library-file))
+                   :compiler-output result}))))))))
 
 (defn- scalar-key
   [type]
@@ -3850,9 +3851,17 @@
        :descriptor descriptor
        :handle handle}))))
 
+(defn- bind-error-name-set
+  [^Linker linker ^SymbolLookup lookup symbol-name]
+  (.downcallHandle
+   linker (.orElseThrow (.find lookup symbol-name))
+   (FunctionDescriptor/of ValueLayout/JAVA_BYTE
+                          (into-array MemoryLayout (repeat 3 ValueLayout/JAVA_LONG)))
+   (make-array Linker$Option 0)))
+
 (defn- bind-nested-storage-spec
   [spec {:keys [bind-long bind-present bind-address bind-optional-set
-                bind-slice-set bind-error-set]}]
+                bind-slice-set bind-error-set bind-error-name]}]
   (when spec
     (let [bound-child (bind-nested-storage-spec (:child spec)
                                                 {:bind-long bind-long
@@ -3861,7 +3870,8 @@
                                                  :bind-optional-set
                                                  bind-optional-set
                                                  :bind-slice-set bind-slice-set
-                                                 :bind-error-set bind-error-set})]
+                                                 :bind-error-set bind-error-set
+                                                 :bind-error-name bind-error-name})]
       (cond-> (assoc spec :child-storage-binding bound-child)
         (= :optional (:storage-kind spec))
         (assoc
@@ -3883,7 +3893,7 @@
         (= :error-union (:storage-kind spec))
         (assoc
          :error-set-ok-handle (bind-error-set (:error-set-ok spec))
-         :error-set-error-handle (bind-error-set (:error-set-error spec))
+         :error-set-error-handle (bind-error-name (:error-set-error spec))
          :error-present-handle (bind-present (:error-present spec))
          :error-code-handle (bind-address (:error-code spec))
          :error-name-pointer-handle (bind-address (:error-name-pointer spec))
@@ -4030,7 +4040,7 @@
                     error-union?
                     (assoc
                      :error-set-ok-handle (bind-error-set error-set-ok)
-                     :error-set-error-handle (bind-error-set error-set-error)
+                     :error-set-error-handle (bind-error-name-set linker lookup error-set-error)
                      :error-present-handle (bind-present error-present)
                      :error-code-handle (bind-address error-code)
                      :error-name-pointer-handle (bind-address error-name-pointer)
@@ -4047,7 +4057,8 @@
                        :bind-address bind-address
                        :bind-optional-set bind-optional-set
                        :bind-slice-set bind-slice-set
-                       :bind-error-set bind-error-set}))))]
+                       :bind-error-set bind-error-set
+                       :bind-error-name #(bind-error-name-set linker lookup %)}))))]
       (cond-> {:declaration declaration
                :descriptor descriptor
                :handle handle
@@ -4391,7 +4402,7 @@
          (:error-union? spec)
          (assoc
           :error-set-ok-handle (bind-error-set (:error-set-ok spec))
-          :error-set-error-handle (bind-error-set (:error-set-error spec))
+          :error-set-error-handle (bind-error-name-set linker lookup (:error-set-error spec))
           :error-present-handle
           (bind-one (:error-present spec) ValueLayout/JAVA_BYTE)
           :error-code-handle
@@ -4412,7 +4423,8 @@
                   :bind-address #(bind-one % ValueLayout/JAVA_LONG)
                   :bind-optional-set bind-optional-set
                   :bind-slice-set bind-slice-set
-                  :bind-error-set bind-error-set})))))))
+                  :bind-error-set bind-error-set
+                  :bind-error-name #(bind-error-name-set linker lookup %)})))))))
 
 (defn- bind-jvm-type
   [^Linker linker ^SymbolLookup lookup qualified-name
@@ -4535,7 +4547,7 @@
                      error-union?
                      (assoc
                       :error-set-ok-handle (bind-union-init error-set-ok)
-                      :error-set-error-handle (bind-union-init error-set-error)
+                      :error-set-error-handle (bind-error-name-set linker lookup error-set-error)
                       :error-present-handle (bind-union-active error-present)
                       :error-code-handle
                       (bind-address-from-address error-code)
@@ -4555,7 +4567,8 @@
                               :bind-address bind-address-from-address
                               :bind-optional-set bind-optional-set
                               :bind-slice-set bind-slice-set
-                              :bind-error-set bind-union-init}))))
+                              :bind-error-set bind-union-init
+                              :bind-error-name #(bind-error-name-set linker lookup %)}))))
                  field-specs)
            :enum-member-bindings
            (mapv (fn [{:keys [address-getter] :as member-spec}]
@@ -4577,8 +4590,10 @@
                     {:aguafria/phase :compile-only :library (:library-path compiled)})))
   (let [arena (Arena/ofShared)]
     (try
-      (let [lookup (SymbolLookup/libraryLookup
-                  ^Path (.toPath (io/file (:library-path compiled))) arena)
+      (let [lookup (if-let [entry (:bundle compiled)]
+                     (bundle/symbol-lookup entry)
+                     (SymbolLookup/libraryLookup
+                      ^Path (.toPath (io/file (:library-path compiled))) arena))
           linker (Linker/nativeLinker)
           functions (->> declarations
                          (filter #(and (= :fn (:kind %))
@@ -6002,10 +6017,20 @@
             ", @ptrFromInt(payload_address))).*;\n"))
      "}\n"
      "export fn " error-set-error
-     "(storage_address: usize, code: usize) callconv(.c) void {\n"
+     "(storage_address: usize, name_address: usize, name_length: usize) callconv(.c) bool {\n"
      "    const ErrorUnion = " error-union-type ";\n"
+     "    const ErrorSet = @typeInfo(ErrorUnion).error_union.error_set;\n"
      "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
-     "    storage.* = @errorCast(@errorFromInt(@as(u16, @intCast(code))));\n"
+     "    const name = @as([*]const u8, @ptrFromInt(name_address))[0..name_length];\n"
+     "    if (@typeInfo(ErrorSet).error_set) |errors| {\n"
+     "        inline for (errors) |member| {\n"
+     "            if (@import(\"std\").mem.eql(u8, name, member.name)) {\n"
+     "                storage.* = @field(ErrorSet, member.name);\n"
+     "                return true;\n"
+     "            }\n"
+     "        }\n"
+     "    }\n"
+     "    return false;\n"
      "}\n"
      "export fn " error-present
      "(storage_address: usize) callconv(.c) bool {\n"
@@ -11555,6 +11580,14 @@
         (.incrementAndGet ^AtomicLong (:jvm-active-calls function-binding))
         function-binding))))
 
+(defn- native-argument-schema [module expected-type argument-binding]
+  (or (native-optional-field-schema module #{} argument-binding)
+      (native-slice-field-schema module #{} argument-binding)
+      (native-error-union-field-schema module #{} argument-binding)
+      (native-storage-binding-schema
+       module #{} expected-type (:nested-storage-binding argument-binding))
+      (native-type-schema module expected-type)))
+
 (defn- native-argument-address
   [module qualified-name expected-type argument argument-binding
    ^Arena call-arena]
@@ -11578,17 +11611,20 @@
                          :expected-zig-type expected-type
                          :actual-zig-type actual-type
                          :actual-module actual-module})))
-      (.address ^MemorySegment (zig-value/segment argument)))
-    (if-let [schema (or (native-optional-field-schema module #{}
-                                                       argument-binding)
-                        (native-slice-field-schema module #{}
-                                                   argument-binding)
-                        (native-error-union-field-schema module #{}
-                                                         argument-binding)
-                        (native-storage-binding-schema
-                         module #{} expected-type
-                         (:nested-storage-binding argument-binding))
-                        (native-type-schema module expected-type))]
+      (let [source (zig-value/segment argument)
+            source-schema (:schema (zig-value/realize! argument))
+            schema (native-argument-schema module expected-type argument-binding)]
+        (if (or (zig-value/error-bearing-schema? source-schema)
+                (zig-value/error-bearing-schema? schema))
+          (let [size (long (.invokeWithArguments
+                            ^MethodHandle (:size-getter-handle argument-binding) (ArrayList.)))
+                alignment (long (.invokeWithArguments
+                                 ^MethodHandle (:align-getter-handle argument-binding) (ArrayList.)))
+                destination (.allocate call-arena size alignment)]
+            (zig-value/copy-native! destination schema source source-schema)
+            (.address destination))
+          (.address ^MemorySegment source))))
+    (if-let [schema (native-argument-schema module expected-type argument-binding)]
       (let [size (long (.invokeWithArguments
                         ^MethodHandle (:size-getter-handle argument-binding)
                         (ArrayList.)))
@@ -12179,11 +12215,21 @@
                        (long (if payload (.address payload) 0))]))
          storage)
        :set-error-fn
-       (fn [^MemorySegment storage code]
-         (.invokeWithArguments
-          ^MethodHandle error-set-error-handle
-          (ArrayList. ^java.util.Collection
-                      [(long (.address storage)) (long code)]))
+       (fn [^MemorySegment storage error-name]
+         (with-open [arena (Arena/ofConfined)]
+           (let [encoded (.getBytes (name error-name) StandardCharsets/UTF_8)
+                 text (.allocateFrom arena ValueLayout/JAVA_BYTE encoded)
+                 accepted (.invokeWithArguments
+                           ^MethodHandle error-set-error-handle
+                           (ArrayList. ^java.util.Collection
+                                       [(long (.address storage))
+                                        (long (.address text))
+                                        (long (alength encoded))]))]
+             (when (zero? (long accepted))
+               (throw (ex-info "Destination Zig error set cannot represent this named error"
+                               {:aguafria/phase :native-error-transport
+                                :error-name error-name :error-set error-set
+                                :reason :error-name-not-in-closed-set})))))
          storage)})))
 
 (defn- native-storage-binding-schema
@@ -12786,6 +12832,14 @@
            (and (= 1 (count arguments))
                 (vector? (first arguments))
                 (every? string? (first arguments))))))
+
+(defn finish-precompile-bundles!
+  "Link the collected, validated JVM adapters without opening any library."
+  [collected]
+  (when-not *compile-only?*
+    (throw (ex-info "Bundle publication requires compile-only preparation" {})))
+  (bundle/finish! (:cache-dir @config) collected
+                  {:run-command run-command :preserve-debug! preserve-native-debug!}))
 
 (defn precompile-function!
   "Prepare one concrete JVM callable without invoking its body."

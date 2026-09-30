@@ -2,6 +2,7 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]
+            [aguafria.zig.bundle :as bundle]
             [aguafria.zig.precompile :as precompile]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
@@ -25,13 +26,27 @@
                                (swap! commands conj (vec arguments)))
                              (apply original arguments))]
       (if prepare?
-        (let [fail! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))]
-          (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
-            (let [report (precompile/precompile!
-                          {:analyze ['aguafria.zig.discovery-error-union-fixture]
-                           :report-file (str cache "/report.edn")})]
-              (assert (zero? (get-in report [:coverage :operations :not-fully-prepared]))
-                      (pr-str (:coverage report))))))
+        (let [fail! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))
+              finish! bundle/finish!]
+          ;; Deliberately create independent preparations to exercise the ABI
+          ;; boundary. Production preparation always emits one library.
+          (with-redefs-fn {#'runtime/invoke! fail! #'runtime/invoke-with-result! fail!
+                           #'bundle/finish!
+                           (fn [cache collected callbacks]
+                             {:packs
+                              (vec (mapcat (fn [[id artifact]]
+                                              (:packs (finish! cache
+                                                               (atom {:artifacts {id artifact}})
+                                                               callbacks)))
+                                            (:artifacts @collected)))})}
+            (fn []
+              (let [report (precompile/precompile!
+                            {:analyze ['aguafria.zig.discovery-error-union-fixture]
+                             :report-file (str cache "/report.edn")})]
+                (assert (zero? (get-in report [:coverage :operations :not-fully-prepared]))
+                        (pr-str (:coverage report)))
+                (assert (> (count (get-in report [:bundles :packs])) 1)
+                        "Regression must cross separately compiled bundle images")))))
         (let [errors @(resolve 'aguafria.zig.discovery-error-union-fixture/Errors)]
           ;; The same JVM let body, not a call to the already-compiled main.
           ;; Both compiler-known members must reuse the prepared conversions.

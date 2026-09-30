@@ -127,6 +127,13 @@
                (re-find #"\(k/(!=|==)\s" source))
       (is (str/includes? source "[aguafria.keyword :as k]") (.getPath file)))))
 
+(deftest authored-examples-use-namespace-imports
+  (doseq [file (file-seq (io/file "resources/learn/example"))
+          :when (and (.isFile file) (str/ends-with? (.getName file) ".clj"))]
+    (is (not-any? #(and (seq? %) (= 'az/defimport (first %)))
+                  (inline/read-forms (slurp file)))
+        (.getPath file))))
+
 (defn- later-references
   ([form later] (later-references form later #{}))
   ([form later locals]
@@ -488,6 +495,26 @@
                  (ref/emit-clojure (str source "\n(no-such-macro)") namespace-symbol {})))
     (is (nil? (find-ns namespace-symbol)))
     (is (not (contains? (loaded-libs) namespace-symbol)))))
+
+(deftest translation-retires-only-the-lesson-dependencies-it-created
+  (let [dependency 'learn.example.translation-dependency-fixture
+        lesson 'learn.example.translation-cleanup-test
+        source (str "(ns " lesson
+                    " (:require [learn.example.translation-dependency-fixture]"
+                    " [aguafria.zig :as az]))\n(az/defconst answer 42)")]
+    (is (nil? (find-ns dependency)))
+    (is (str/includes? (ref/emit-clojure source lesson {}) "const answer = 42;"))
+    (is (nil? (find-ns dependency)))
+    (is (not (contains? (loaded-libs) dependency)))
+    (require dependency)
+    (let [existing (find-ns dependency)]
+      (try
+        (ref/emit-clojure source lesson {})
+        (is (identical? existing (find-ns dependency)))
+        (is (contains? (loaded-libs) dependency))
+        (finally
+          (remove-ns dependency)
+          (dosync (alter @#'clojure.core/*loaded-libs* disj dependency)))))))
 
 (deftest a-verified-lesson-can-be-required-and-called-normally
   (let [lesson 'learn.example.test-integer-pointer-conversion

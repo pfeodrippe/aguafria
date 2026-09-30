@@ -827,7 +827,7 @@
    {:keys [payload-type payload-schema payload-size set-ok-fn set-error-fn]}
    value]
   (when-not (and (map? value) (= 1 (count value)))
-    (throw (ex-info "Zig error unions require {:ok value} or {:error {:code n}}"
+    (throw (ex-info "Zig error unions require {:ok value} or {:error {:name keyword}}"
                     {:type zig-type :value value})))
   (let [[branch branch-value] (first value)]
     (case branch
@@ -844,16 +844,16 @@
           (set-ok-fn native-segment payload)))
 
       :error
-      (let [code (cond
-                   (integer? branch-value) branch-value
-                   (map? branch-value) (:code branch-value)
-                   :else nil)]
-        (when-not (and (integer? code) (pos? (biginteger code)))
+      (let [error-name (cond
+                         (keyword? branch-value) branch-value
+                         (map? branch-value) (:name branch-value)
+                         :else nil)]
+        (when-not (or (keyword? error-name) (string? error-name))
           (throw (ex-info
-                  "A Zig error value requires its positive native :code"
+                  "A Zig error value requires its :name; native error codes are image-local"
                   {:type zig-type :value value
-                   :hint "A decoded {:error {:name ... :code ...}} value can be passed back directly."})))
-        (set-error-fn native-segment code))
+                   :hint "Pass {:error {:name :ErrorName}}, not a numeric code."})))
+        (set-error-fn native-segment error-name))
 
       (throw (ex-info "Unknown Zig error-union branch"
                       {:type zig-type :branch branch
@@ -1000,6 +1000,70 @@
        not-found)
      (nth (decoded zig-value) index not-found))))
 
+(defn error-bearing-schema?
+  "Whether a compiler-reported storage schema contains image-local error IDs."
+  [schema]
+  (or (= :error-union (:kind schema))
+      (some error-bearing-schema?
+            (keep schema [:child-schema :element-schema :payload-schema]))
+      (some #(error-bearing-schema? (:schema %)) (:fields schema))))
+
+(defn copy-native!
+  "Copy native storage without transferring image-local error integers.
+  By-value aggregates retain pointer bytes and ownership. Error-bearing borrowed
+  storage requires a dedicated alias-preserving bridge, never a silent deep copy."
+  [^MemorySegment destination destination-schema
+   ^MemorySegment source source-schema]
+  (when-not (= (.byteSize destination) (.byteSize source))
+    (throw (ex-info "Native storage layouts differ across images"
+                    {:source-size (.byteSize source)
+                     :destination-size (.byteSize destination)})))
+  (if (or (identical? destination-schema source-schema)
+          (not (or (error-bearing-schema? source-schema)
+                   (error-bearing-schema? destination-schema))))
+    (.copyFrom destination source)
+    (let [kind (:kind source-schema)]
+      (when-not (= kind (:kind destination-schema))
+        (throw (ex-info "Missing compiler schema for cross-image error transport"
+                        {:source-kind kind :destination-kind (:kind destination-schema)})))
+      (case kind
+        :error-union
+        (if-let [error ((:error-fn source-schema) source)]
+          ((:set-error-fn destination-schema) destination (:name error))
+          (if (zero? (:payload-size source-schema))
+            ((:set-ok-fn destination-schema) destination nil)
+            (let [payload (.asSlice destination 0 (long (:payload-size destination-schema)))]
+              (copy-native! payload (:payload-schema destination-schema)
+                            ((:payload-segment-fn source-schema) source)
+                            (:payload-schema source-schema))
+              ((:set-ok-fn destination-schema) destination payload))))
+
+        :optional
+        (if-not ((:present-fn source-schema) source)
+          ((:set-fn destination-schema) destination false nil)
+          (let [payload (.asSlice destination 0 (long (:payload-size destination-schema)))]
+            (copy-native! payload (:child-schema destination-schema)
+                          ((:payload-segment-fn source-schema) source)
+                          (:child-schema source-schema))
+            ((:set-fn destination-schema) destination true payload)))
+
+        (:array :vector)
+        (let [length (long (or (:storage-length source-schema) (:length source-schema)))
+              from-size (or (:element-size source-schema)
+                            (when (pos? length) (quot (.byteSize source) length)))
+              to-size (or (:element-size destination-schema)
+                          (when (pos? length) (quot (.byteSize destination) length)))]
+          (doseq [index (range length)]
+            (copy-native! (.asSlice destination (* index to-size) to-size)
+                          (:element-schema destination-schema)
+                          (.asSlice source (* index from-size) from-size)
+                          (:element-schema source-schema))))
+
+        (throw (ex-info "Cross-image error transport requires an alias-preserving bridge for this storage"
+                        {:aguafria/phase :native-error-transport :kind kind
+                         :reason :unsupported-error-bearing-storage})))))
+  destination)
+
 (defn set-value!
   "Write a semantic Clojure value into a live native `az/defvar` and return
   its decoded value. This does not compile or publish code. Callers must obey
@@ -1018,7 +1082,9 @@
           (when-not (= (qualified-type zig-value) (qualified-type new-value))
             (throw (ex-info "Native assignment requires the target's Zig type"
                             {:expected (type zig-value) :actual (type new-value)})))
-          (.copyFrom ^MemorySegment segment (aguafria.zig.value/segment new-value))
+          (copy-native! segment schema
+                        (aguafria.zig.value/segment new-value)
+                        (:schema (realize! new-value)))
           (swap! (value-state zig-value) update :owners (fnil conj []) new-value))
         (binding [*allocation-arena* (:allocation-arena schema)]
           (write-value-segment! segment (:type descriptor) schema new-value

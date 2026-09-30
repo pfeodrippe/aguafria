@@ -7,6 +7,7 @@
             :exec-fn clojure.tools.deps.cli.api/prep
             :exec-args {:force true}}
   :precompile {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+               :exec-args {:ignore [learn.example.test-without-setEvalBranchQuota-builtin]}
                :exec-fn aguafria.zig.precompile/precompile!}
   :fmt {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.6"}}
         :main-opts ["-m" "cljfmt.main"]}

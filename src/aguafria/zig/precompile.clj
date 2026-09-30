@@ -1,13 +1,17 @@
 (ns aguafria.zig.precompile
   "Explicit, compile-only preparation of persistent native artifacts."
-  (:require [aguafria.zig.discovery :as discovery]
+  (:require [aguafria.zig.bundle :as bundle]
+            [aguafria.zig.discovery :as discovery]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.io :as io])
   (:import [java.util.concurrent Callable Executors]))
 
 (defn- validate-options! [options]
   (when-not (and (map? options)
-                 (every? #{:namespaces :calls :coercions :analyze :source-dirs :parallelism :report-file} (keys options))
+                 (every? #{:namespaces :calls :coercions :analyze :source-dirs :parallelism :report-file :bundle? :ignore} (keys options))
+                 (or (nil? (:ignore options)) (sequential? (:ignore options)) (set? (:ignore options)))
+                 (every? #(and (symbol? %) (nil? (namespace %))) (:ignore options))
+                 (or (not (contains? options :bundle?)) (boolean? (:bundle? options)))
                  (every? sequential? (vals (select-keys options [:namespaces :calls :coercions :analyze :source-dirs])))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:namespaces options))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:analyze options))
@@ -136,15 +140,38 @@
   runs on bounded virtual-thread workers. Reports persist under :report-file
   (default .aguafria/precompile/report.edn).
 
+  :ignore is a collection of namespace symbols excluded from explicit function,
+  call and source-directory analysis requests, before loading them. The report's
+  :ignored entries are not counted as prepared. This does not suppress imports
+  transitively required by another selected namespace or change normal execution.
+
+  Compatible generated JVM handlers, including cached ones, are compiled into
+  one immutable shared-cache library. Incompatible configurations fail instead
+  of silently splitting the bundle. :bundle? false keeps standalone artifacts.
+  The bundle is linked only after semantic validation; native code is never
+  loaded during preparation. Unsupported linker configurations stay standalone
+  and are listed in :bundles :standalone.
+
   Namespace loading still runs ordinary Clojure top-level code and macros; Zig
   performs its normal comptime analysis. No function/test/comment body is run.
   The normal cache invalidation rules apply; handles and state are not saved."
-  [{:keys [namespaces calls coercions analyze source-dirs parallelism report-file]
-    :or {parallelism 2 report-file ".aguafria/precompile/report.edn"}
+  [{:keys [namespaces calls coercions analyze source-dirs parallelism report-file bundle? ignore]
+    :or {parallelism 2 report-file ".aguafria/precompile/report.edn" bundle? true}
     :as options}]
   (validate-options! options)
-  (binding [runtime/*compile-only?* true]
-    (let [started (System/nanoTime)]
+  (binding [runtime/*compile-only?* true
+            bundle/*preparing* (when bundle? (atom {}))]
+    (let [started (System/nanoTime)
+          excluded (set ignore)
+          analysis-namespaces (vec (distinct (concat analyze (source-namespaces source-dirs))))
+          call-namespace (comp symbol namespace :function)
+          selected (distinct (concat namespaces analysis-namespaces (map call-namespace calls)))
+          ignored (mapv (fn [namespace]
+                          {:namespace namespace :status :ignored :reason :explicit-ignore})
+                        (filter excluded selected))
+          namespaces (remove excluded namespaces)
+          calls (remove #(excluded (call-namespace %)) calls)
+          analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)]
       (binding [runtime/*source-only-registration?* true]
         (doseq [namespace (distinct (concat namespaces
                                             (map (comp symbol namespace :function) calls)))]
@@ -152,10 +179,15 @@
       (let [report {:functions (into [] (mapcat runtime/precompile-functions!) (distinct namespaces))
                     :calls (mapv (requiring-resolve 'aguafria.zig.jvm/precompile-call!) calls)
                     :coercions (mapv (requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) coercions)
-                    :analysis (analyze-namespaces! (vec (distinct (concat analyze (source-namespaces source-dirs)))) parallelism report-file)
+                    :analysis (analyze-namespaces! analysis-namespaces parallelism report-file)
+                    :ignored ignored
                     :cache-dir (:cache-dir (runtime/configuration))
                     :duration-ms (/ (- (System/nanoTime) started) 1e6)}
-            report (assoc report :coverage (coverage (:analysis report)))]
+            report (assoc report :coverage (assoc-in (coverage (:analysis report))
+                                                     [:namespaces :ignored] (count ignored))
+                          :bundles (when bundle?
+                                     (runtime/finish-precompile-bundles! bundle/*preparing*))
+                          :duration-ms (/ (- (System/nanoTime) started) 1e6))]
         (io/make-parents report-file)
         (spit report-file (pr-str report))
         report))))

@@ -73,6 +73,13 @@ clojure -M:verify          # fail for missing, stale or mismatching evidence
 clojure -M:dev:nrepl       # dedicated local development REPL
 ```
 
+The Learn `:precompile` alias ignores
+`learn.example.test-without-setEvalBranchQuota-builtin`: that lesson deliberately
+exceeds Zig's compile-time evaluation quota. It remains in the documentation and
+outcome verification. Override with `:ignore []` when explicitly investigating it.
+Generic `az/precompile!` also accepts `:ignore [namespace ...]`; ignored selections
+are reported separately, never counted as prepared operations.
+
 `serve` reuses the existing HTML snapshot; restarting it does not invalidate
 recorded REPL output. After compiler or example changes, rerun the verification
 steps above before rebuilding the page. A first start without HTML builds it.

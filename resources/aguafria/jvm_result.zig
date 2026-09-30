@@ -2,7 +2,53 @@
 // The call runs in the live library; no child process or simulated evaluation.
 pub const __aguafria_jvm = struct {
     const std = @import("std");
-    const allocator = std.heap.page_allocator;
+    extern fn aguafria_jvm_allocator() *const std.mem.Allocator;
+    extern fn aguafria_jvm_writer_new() ?*anyopaque;
+    extern fn aguafria_jvm_writer_append(*anyopaque, [*]const u8, usize) bool;
+    extern fn aguafria_jvm_writer_destroy(*anyopaque) void;
+    extern fn aguafria_jvm_writer_finish(*anyopaque) usize;
+    extern fn aguafria_jvm_release(usize) void;
+    extern fn aguafria_jvm_release_native(usize, usize, usize) void;
+
+    fn allocator() std.mem.Allocator {
+        return aguafria_jvm_allocator().*;
+    }
+
+    // The shared library owns the byte buffer, not this image's Writer vtable.
+    // Its C ABI returns status flags; construct Zig errors in the caller image.
+    const NativeWriter = struct {
+        handle: *anyopaque,
+        writer: std.Io.Writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{} },
+
+        fn init() NativeWriter {
+            return .{ .handle = aguafria_jvm_writer_new() orelse @panic("Cannot allocate JVM writer") };
+        }
+
+        fn deinit(self: *NativeWriter) void {
+            aguafria_jvm_writer_destroy(self.handle);
+        }
+
+        fn finish(self: *NativeWriter) usize {
+            const address = aguafria_jvm_writer_finish(self.handle);
+            if (address == 0) @panic("Cannot allocate JVM result");
+            return address;
+        }
+
+        fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+            const self: *NativeWriter = @fieldParentPtr("writer", writer);
+            var written: usize = 0;
+            for (data[0 .. data.len - 1]) |bytes| {
+                if (!aguafria_jvm_writer_append(self.handle, bytes.ptr, bytes.len)) return error.WriteFailed;
+                written += bytes.len;
+            }
+            const last = data[data.len - 1];
+            for (0..splat) |_| {
+                if (!aguafria_jvm_writer_append(self.handle, last.ptr, last.len)) return error.WriteFailed;
+                written += last.len;
+            }
+            return written;
+        }
+    };
 
     pub fn parseComptimeFloat(text: []const u8) f128 {
         return std.fmt.parseFloat(f128, text) catch @panic("Invalid JVM float literal");
@@ -222,20 +268,20 @@ pub const __aguafria_jvm = struct {
         const T = @TypeOf(value);
         if (comptime @typeInfo(T) != .@"struct" or !@hasDecl(T, "aguafria_borrowed_view")) return result(value);
         const P = @typeInfo(@TypeOf(value.pointer)).pointer;
-        var writer: std.Io.Writer.Allocating = .init(allocator);
-        defer writer.deinit();
-        writer.writer.print("{{:aguafria.jvm/borrowed {{:address {d} :size {d} :alignment {d} :mutable? {s} :native-kind :{s}", .{ @intFromPtr(value.pointer), @sizeOf(P.child), @alignOf(P.child), if (P.is_const) "false" else "true", @tagName(@typeInfo(P.child)) }) catch @panic("Cannot encode native view");
-        writeTupleLength(&writer.writer, P.child) catch @panic("Cannot encode native tuple length");
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        const writer = &sink.writer;
+        writer.print("{{:aguafria.jvm/borrowed {{:address {d} :size {d} :alignment {d} :mutable? {s} :native-kind :{s}", .{ @intFromPtr(value.pointer), @sizeOf(P.child), @alignOf(P.child), if (P.is_const) "false" else "true", @tagName(@typeInfo(P.child)) }) catch @panic("Cannot encode native view");
+        writeTupleLength(writer, P.child) catch @panic("Cannot encode native tuple length");
         if (@typeInfo(P.child) == .int or @typeInfo(P.child) == .float) {
-            writer.writer.print(" :scalar-type :{s}", .{@typeName(P.child)}) catch @panic("Cannot encode native view type");
+            writer.print(" :scalar-type :{s}", .{@typeName(P.child)}) catch @panic("Cannot encode native view type");
         }
         if (comptime hasStructuralType(P.child)) {
-            writer.writer.writeAll(" :native-type ") catch @panic("Cannot encode native view type");
-            writeStructuralType(&writer.writer, P.child) catch @panic("Cannot encode native view type");
+            writer.writeAll(" :native-type ") catch @panic("Cannot encode native view type");
+            writeStructuralType(writer, P.child) catch @panic("Cannot encode native view type");
         }
-        writer.writer.writeAll("}}") catch @panic("Cannot encode native view");
-        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate native view result");
-        return @intFromPtr(encoded.ptr);
+        writer.writeAll("}}") catch @panic("Cannot encode native view");
+        return sink.finish();
     }
 
     fn isMethod(comptime T: type, comptime name: []const u8) bool {
@@ -342,8 +388,8 @@ pub const __aguafria_jvm = struct {
         if (comptime needsNativeStorage(T)) {
             const size = @sizeOf(T);
             const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
-            const bytes = allocator.rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
-            errdefer allocator.rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
+            const bytes = allocator().rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
+            errdefer allocator().rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
             @memcpy(bytes[0..size], std.mem.asBytes(&value));
             try writer.writeAll("{:aguafria.jvm/native {:address ");
             try writer.print("{d} :size {d} :alignment {d} :path ", .{ @intFromPtr(bytes), size, @alignOf(T) });
@@ -619,27 +665,27 @@ pub const __aguafria_jvm = struct {
     }
 
     pub fn describeResult(comptime T: type) usize {
-        var writer: std.Io.Writer.Allocating = .init(allocator);
-        defer writer.deinit();
-        describeType(&writer.writer, T) catch @panic("Cannot describe Zig type");
-        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate type description");
-        return @intFromPtr(encoded.ptr);
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        const writer = &sink.writer;
+        describeType(writer, T) catch @panic("Cannot describe Zig type");
+        return sink.finish();
     }
 
     pub fn inspectResult(value: anytype) usize {
-        var writer: std.Io.Writer.Allocating = .init(allocator);
-        defer writer.deinit();
-        inspect(&writer.writer, value) catch @panic("Cannot inspect JVM value");
-        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate JVM inspection");
-        return @intFromPtr(encoded.ptr);
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        const writer = &sink.writer;
+        inspect(writer, value) catch @panic("Cannot inspect JVM value");
+        return sink.finish();
     }
 
     pub fn result(value: anytype) usize {
-        var writer: std.Io.Writer.Allocating = .init(allocator);
-        defer writer.deinit();
-        writeResult(&writer.writer, value) catch @panic("Cannot encode JVM result");
-        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate JVM result");
-        return @intFromPtr(encoded.ptr);
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        const writer = &sink.writer;
+        writeResult(writer, value) catch @panic("Cannot encode JVM result");
+        return sink.finish();
     }
 
     // Reflect storage eligibility in Zig. A type value, function body or
@@ -774,11 +820,11 @@ pub const __aguafria_jvm = struct {
         // Booleans retain JVM truth semantics; a boxed false is truthy.
         if (@TypeOf(value) == type or @TypeOf(value) == bool) return result(value);
         if (@typeInfo(@TypeOf(value)) == .@"fn") return fieldResult(value);
-        var writer: std.Io.Writer.Allocating = .init(allocator);
-        defer writer.deinit();
-        writeComptimeExpression(&writer.writer, value) catch @panic("Cannot inspect comptime JVM result");
-        const encoded = allocator.dupeZ(u8, writer.written()) catch @panic("Cannot allocate JVM inspection");
-        return @intFromPtr(encoded.ptr);
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        const writer = &sink.writer;
+        writeComptimeExpression(writer, value) catch @panic("Cannot inspect comptime JVM result");
+        return sink.finish();
     }
 
     fn writeResult(writer: *std.Io.Writer, value: anytype) !void {
@@ -825,8 +871,8 @@ pub const __aguafria_jvm = struct {
         const T = @TypeOf(value);
         const size = @sizeOf(T);
         const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
-        const bytes = allocator.rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
-        errdefer allocator.rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
+        const bytes = allocator().rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
+        errdefer allocator().rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
         @memcpy(bytes[0..size], std.mem.asBytes(&value));
         try writer.print("{{:aguafria.jvm/native {{:address {d} :size {d} :alignment {d} :path []", .{ @intFromPtr(bytes), size, @alignOf(T) });
         try writeTupleLength(writer, T);
@@ -868,13 +914,11 @@ pub const __aguafria_jvm = struct {
     }
 
     pub fn release(address: usize) void {
-        const text = std.mem.span(@as([*:0]const u8, @ptrFromInt(address)));
-        allocator.free(text[0 .. text.len + 1]);
+        aguafria_jvm_release(address);
     }
 
     pub fn releaseNative(address: usize, size: usize, alignment: usize) void {
-        const bytes: [*]u8 = @ptrFromInt(address);
-        allocator.rawFree(bytes[0..@max(1, size)], .fromByteUnits(alignment), @returnAddress());
+        aguafria_jvm_release_native(address, size, alignment);
     }
 
     pub fn comptimeResult(comptime value: anytype) usize {

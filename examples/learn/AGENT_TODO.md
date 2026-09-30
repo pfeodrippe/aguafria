@@ -2,19 +2,209 @@
 
 ## Resume checkpoint — September 30
 
-- Latest scope: **values.clj only** so the user can test and iterate. Do not
-  restart the whole-Learn sweep or HTML rebuild for this iteration.
+- HTML regeneration after the single-library AOT change COMPLETED: refreshed
+  **292/292 outcomes (288 upstream / 4 reviewed special cases)**, blocks and
+  inline checks, then rebuilt the page with **202 REPL transcripts / 307 tabbed
+  figures / 356 sections**. Fresh acceptance check: **zero problems**. Browser
+  layout **4/4**, highlighting **6/6** pass. Live port 63979 serves exactly the
+  rebuilt file (SHA-256 `c4288e63b4c796d21458cd8130472f0f850ed889845fdd3f4fefb7e472a88027`).
+  Logs: `.aguafria/precompile/single-library-html-{outcomes,blocks,inlines,build}.log`.
+  This refresh does not change the outstanding AOT coverage figures below.
+
+- Single-library AOT correction COMPLETED: removed the arbitrary 64-handler
+  partition. One preparation now compiles all compatible candidates, including
+  handlers already indexed in previous packs, into one source-compiled library.
+  Incompatible configurations reject explicitly rather than silently splitting.
+  Added a real 65-handler native regression that consolidates two prior packs
+  and calls every exported handler. Final focused suite: **8 tests / 112
+  assertions pass**, including restart and boundary checks. Full Learn run:
+  **1,889 snapshots / exactly 1 AOT library**, 9,935,328 bytes plus 25,153,319
+  separate debug bytes; **653.34 s** wall including JVM startup. All 1,889
+  artifact indexes resolve to the same bundle. Fresh-JVM actual values bodies:
+  **1,201.30 ms / 34 bundle hits / 1 bundle loaded / 0 compilations**, correct
+  output. Coverage: **289 attempted / 287 analyzed / 2 load-failed / 1 explicitly
+  ignored**, **2,115/2,706 operations prepared / 591 incomplete**. Report prefix
+  `.aguafria/precompile/learn-single-library`; details and categories in
+  `SINGLE_AOT_LIBRARY_2026-09-30.md`. Old cache libraries were not deleted while
+  existing JVMs may still hold them; the new preparation's indexes are unified.
+
+- Cross-image error identity repair: native argument passing and assignment now
+  re-encode closed error sets by name, using Zig `@typeInfo` and `@field` in the
+  receiving image. Numeric error-code input is rejected. Arrays, optionals and
+  nested error-union payloads use compiler-bound codecs recursively. ABI version
+  is now 2, so old native artifacts cannot satisfy the new calling contract.
+  Fresh JVM with deliberately separate one-handler bundles: **1 test / 6
+  assertions passed**, no runtime compilation. Values actual JVM bodies passed
+  after re-preparation: **34 bundle hits / zero compilations**, 1,057.35 ms
+  before the additional shared-writer boundary repair below.
+- Shared writer boundary repaired too: shared support exports an opaque buffer
+  handle and C-ABI success flags, not a foreign `std.Io.Writer` error-returning
+  vtable. Adapter-local Writer callbacks construct local `error.WriteFailed`.
+  Allocation failures return null/zero to the adapter's guarded panic path.
+  Native failure injection, vector writes and zero-splat tests added.
+  Final combined native run: **55 tests / 314 assertions pass**. Actual values
+  body replay under final writer ABI: **1,815.21 ms / 34 bundle hits / 0 compiles**,
+  correct named error and successful mutation. Translation cleanup also now
+  retires newly required lesson dependencies without touching pre-existing user
+  namespaces; targeted cleanup/exact-source regressions pass.
+- Do not claim arbitrary cross-image transport is solved: open `anyerror` has
+  no reflectable member list; named-error construction into it rejects explicitly.
+  Error-bearing slices/unions/nominal aggregates without recipient-specific
+  codecs are rejected rather than silently copied. Raw borrowed pointers and
+  user callback error ABIs still require a separate provenance/aliasing audit.
+  Full Learn preparation figures below predate ABI 2; only values has been
+  re-prepared for this repair so far.
+- Final documentation regeneration COMPLETED: **292/292** outcomes accepted
+  (**288 upstream / 4 reviewed special cases**), **zero acceptance problems**.
+  HTML preserves all **356 sections**, with **307 tabbed figures**, **202
+  nonempty REPL transcripts**, and **1,362 matched inline references**. Browser
+  layout tests **4/4** and highlighting tests **6/6** pass. The live localhost
+  page shows Hello World and the correct named error in values' REPL output.
+
+- User-requested clean rebuild after key improvements COMPLETED. Validated exact
+  `/Users/pfeodrippe/.aguafria/zig` tree (27,935 entries, 15,138 files, no links or
+  cross-device entries) and removed it: 1,051,772,152 logical bytes. No project
+  caches or backup directories removed. Ran all Learn example namespaces via
+  `clojure -X:precompile :source-dirs ["resources/learn/example"] :parallelism 4`.
+  Separate report/log: `.aguafria/precompile/learn-key-v1-clean.edn` and `.log`.
+  **959.77 s (15m 59.77s)** wall; **1,067,300 KiB allocated** before postchecks.
+  **290 attempted / 288 analyzed / 2 load-failed; 2,115/2,708 operations prepared**,
+  593 incomplete; **3,051 prepared handler records / 1,889 snapshots / 30 bundles**.
+  Historical ABI-1 fresh-JVM values bodies: **34 bundle hits / 23 bundle loads /
+  14 memory hits / zero compilations**, 3,765.84 ms. That correctness check FAILED:
+  `error.BufferTooSmall` instead of `error.ExampleErrorVariant`. This is the same
+  cross-image error-identity issue repaired above, not a successful correctness
+  run. Retained here as historical evidence, not current repair status.
+- Added generic `:ignore [namespace ...]` to explicit precompilation. Skips direct
+  namespace/call/directory selections before loading, reports :ignored separately,
+  and does not affect ordinary execution, docs, or transitive imports. Learn alias
+  defaults to ignoring `learn.example.test-without-setEvalBranchQuota-builtin` at
+  user's request. **3 tests / 15 assertions pass in a fresh JVM**. The completed
+  clean run above predates this selection option; no evidence was retroactively
+  relabeled. HTML/output regeneration underway with current compiler fingerprints.
+
+- Artifact key improvements complete: canonical map/set encoding, full SHA-256,
+  explicit key/native-ABI versions; no incidental file timestamps. Relocatable
+  object inputs are content-identified, including per-module arguments, while
+  location-sensitive source/library/archive paths remain significant. Applied to
+  ordinary native artifacts and bundle indexes/packs, with no old-key fallback.
+  **12 tests / 68 assertions pass** across artifact, native-linker, cache and bundle
+  suites: printer settings/order, same-size/same-mtime byte replacement, relocated
+  objects, changed code, compiler settings, ABI versions and fresh-JVM bundle reuse.
+  Runtime regressions also pass: **32 tests / 156 assertions**; combined verification
+  **44 tests / 224 assertions, zero failures/errors**. Formatting/diff checks pass.
+  Native linker test confirms same library reused after touch/move; changing code
+  produces a different library and native result (7 → 9). README documents scope.
+  New key format requires one-time rebuilding/preparation; existing entries were
+  not deleted. This is not a fix for the separate error-identity blocker below,
+  and HTML has not been rebuilt for this focused key change.
+
+- Removed all **6 defimport usages from Learn example files**: four parser
+  dependencies now require `learn.example.error-union-parsing-u64`; two builtin
+  imports now require `aguafria.builtin`. Also migrated two builtin snippets.
+  All six namespaces load; native parser test passes; direct JVM parse returns
+  `{:ok 1234}` and all four dependent `do-a-thing` calls pass. Isolated test cache,
+  no whole-corpus rebuild or shared-cache reset. Added a regression preventing
+  defimport in example files. Two placeholder raw-file imports remain only in
+  the non-runnable `learn.snippet.style-example`; no fictional require targets
+  were invented. HTML has not been regenerated for these changes.
+- **New correctness blocker:** whole-Learn bundle cache fresh-JVM values check
+  prints `error.DiskQuota` instead of `error.ExampleErrorVariant`. It has 34 bundle
+  hits / 24 bundle loads / 14 memory hits / 0 compilations, 3,686.31 ms, but is
+  NOT a correctness pass. Existing checker only asserts no compilations. Suspect
+  error identity across separately linked packs; investigate generically and add
+  an actual error-identity regression before calling this cache ready.
+- Whole-Learn clean AOT measurement completed: **290 namespaces attempted**,
+  **2,110/2,703 operations fully prepared**, **593 incomplete**, **3,046 prepared
+  handler records**, **1,890 unique snapshots / 30 bundles**. Exit 0;
+  **975.43 s wall time (16m 15s)**, **1.019 GiB allocated** shared cache.
+  Cleared exactly the inspected shared cache (356 generated files) first.
+  Report `.aguafria/precompile/learn-clean-bundled.edn`; full breakdown and
+  two examples per gap category in `AOT_BUNDLED_LEARN_2026-09-30.md`.
+  Two load rejections are deliberate invalid lessons; other gaps are NOT all
+  harmless. Do not claim whole-corpus warming or redo this sweep without reason.
+- User questions answered: generated source/metadata directories remain after
+  packing. This clean run has **zero individual generated-handler dylibs**;
+  456 standalone libraries are ordinary module/support snapshots. `defimport`
+  is unnecessary for the translated parseU64 dependency; normal `:require` can
+  replace it. No example/compiler edits made during this measurement.
+- User requests clean starts: clear exactly `/Users/pfeodrippe/.aguafria/zig`
+  before final clean preparation/verification; inspect targets and symlinks first.
+  Do not touch project-local caches or treat a running old REPL as a fresh JVM.
+- Bundle integration complete through normal production paths. Regression suite:
+  **7 tests / 49 assertions, 0 failures/errors**, including fresh-JVM bundle reuse,
+  runtime miss → standalone reuse, native panic containment, mode invalidation,
+  error-union preparation and relative cache paths. Separate discovery tests:
+  **2 tests / 27 assertions pass**. cljfmt and diff checks pass.
+- Removed the inspected shared cache (270 generated files; project caches and
+  earlier backup untouched). Clean default-cache values AOT: **27/27 operations,
+  40 handler records, 1/1 function, 0 gaps**, **57 handler snapshots / 1 bundle**,
+  39,543.77 ms. Only **3 dylibs** remain: bundle, shared support and user module.
+  Fresh JVM: all **5 actual values body forms** produced expected output,
+  **34 bundle hits, 1 bundle load, 14 memory hits, 0 compilations**, 1,208.94 ms
+  excluding JVM startup. Cache **12.86 MiB** allocated. Restart user REPL to test.
+  Values-only iteration complete; no full-Learn/HTML rebuild claimed.
+- Bundle size measurement completed (isolated prototype, no production loader
+  change). All **57 generated values handler snapshots / 530 exports** combined
+  into one real ReleaseSafe dylib, same error traces/unwind/DWARF. Libraries +
+  debug: **9.92 → 1.81 MiB (81.8% smaller)**; including verbose prototype manifest:
+  **2.09 MiB (79.0% smaller)**. Shared support/user module unchanged. Five actual
+  body forms pass through bundle, all 530 exports present, **0 compilations,
+  34 disk hits, 14 memory hits**, 34 snapshots served by one bundle image opening.
+  Warm evaluation 1,102.85 ms, loading/binding 50.28 ms; no whole-evaluation
+  speedup claimed. Compile already prepared sources 2,820.20 ms + DWARF43.55 ms.
+  `.tmp/bundle-bench-YtobIc` holds scripts/artifacts; full details in values report.
+  Historical prototype results; production integration is tracked above.
+- ReleaseSmall comparison completed on values only in isolated caches:
+  both profiles **27/27 operations, 40 handlers, 1/1 function**, no gaps;
+  five body forms pass in two fresh JVMs per profile with **0 compilations,
+  34 disk hits, 14 memory hits**. Safe/Small preparation 31.81/27.41 s;
+  cache 17.11/11.69 MiB; dylibs 6.57/5.87 MiB. First evaluations 4.550/4.559 s,
+  second fresh-JVM evaluations 1.046/1.030 s (OS warm). No meaningful runtime
+  speedup demonstrated. **Keep ReleaseSafe**: Small disables default safety;
+  wrapper-local safety restoration does not protect arbitrary imported callees.
+  No production/cache-default changes made. Details and reproduction in
+  `VALUES_SHARED_CACHE_2026-09-30.md` (ReleaseSmall investigation).
+- Production aggregation now uses immutable explicit-AOT packs with handler-key
+  indexes and individual artifacts for later REPL misses. Snapshot ABI exports
+  are isolated without coalescing native state. Warm library opening alone measured
+  only 13.6–14.7 ms for 34 distinct libraries; no unmeasured bundle speedup claimed.
+- Previous iteration was values-only; the latest request explicitly expands
+  preparation to all Learn examples. HTML regeneration remains outside this run.
+- Compact shared-support implementation complete. Shared result writers,
+  page allocator and release functions now accompany the existing panic/guard
+  support. Common support and generated JVM adapters use ReleaseSafe; adapter
+  error tracing/unwind data are explicitly enabled, debug symbols retained.
+  Ordinary user-module `:optimize` remains unchanged. New `:jvm-optimize`
+  accepts Debug/ReleaseSafe only. No compiler-rt export workaround retained:
+  pinned Zig's built-in compiler/sanitizer routines remain linker-managed.
+- Replaced active `~/.aguafria/zig` after tests, preserving the old directory
+  at `~/.aguafria/zig-before-shared-support-20260930` (recoverable; still occupies
+  disk space, 284 MiB when measured after rotation). Prepared values only in
+  the clean default cache: **27/27 operations, 40 handlers, 1/1 function,
+  zero gaps**, 37,915.76 ms. New active footprint **17.70 MiB** allocated:
+  6.70 MiB libraries, 9.55 MiB DWARF, 1.45 MiB other. Fresh default-cache JVM:
+  all five body forms correct, **zero compilations, 34 disk hits, 14 memory
+  hits**, 4,643.67 ms. Restart user REPL before testing updated runtime.
+- Verification for compact support: 2 tests / **20 assertions pass** for
+  checked optimization modes and cross-adapter mutable storage/lifetimes;
+  PanicSmoke passes assertion, explicit panic, overflow and native deftest
+  containment with mapped Clojure source. Zig formatting and diff checks pass.
+  Isolated preparation/execution also passed before rotating the real cache.
+  Do not repeat these tests without a new relevant change. No cross-platform
+  verification or whole-Learn sweep claimed. Details in the values cache report.
 - Shared native cache default implemented: `~/.aguafria/zig` in runtime,
   converter helpers and extracted project assets. Explicit `:cache-dir` and
   `aguafria.cache-dir` overrides remain. Old project caches untouched. Reports
   such as `container-lessons.edn` remain project-local diagnostics, not keys.
-- Values-only shared preparation complete: **27/27 operations, 40 prepared
+- Historical pre-compact shared preparation: **27/27 operations, 40 prepared
   handler records, 1/1 function, zero gaps**, 78.02 seconds. Report:
   `.aguafria/precompile/values-shared-cache.edn`. Two fresh JVMs evaluated all
   five actual body forms (not native main), with correct output and **zero
   compilations, 34 disk hits, 14 memory hits** each. Learn cwd: 4,858.15 ms;
   repo-root cwd: 999.92 ms. Different OS page-cache warmth; not a speedup ratio.
-  Shared cache currently 222 MiB including compiler-analysis support.
+  Cache at that earlier snapshot was 222 MiB including compiler-analysis support;
+  the compact-support figures above supersede it and the report's current run.
 - Fixed the user's three error-union cache misses generically: finite error-set
   literal conversions prepared from compiler members; native error-set/union
   reflection retains structural schemas so TypeOf/print adapter keys match.

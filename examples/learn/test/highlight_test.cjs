@@ -12,10 +12,13 @@ class Node {
     this.text = text;
     this.tag = tag;
     this.children = [];
+    this.attributes = new Map();
     this.className = "";
     this.classList = {add: (...names) => { this.className += ` ${names.join(" ")}`; }};
   }
   appendChild(node) { this.children.push(node); }
+  setAttribute(name, value) { this.attributes.set(name, value); }
+  getAttribute(name) { return this.attributes.get(name); }
   replaceChildren(...nodes) { this.text = ""; this.children = nodes; }
   get textContent() { return this.text + this.children.map(n => n.textContent).join(""); }
 }
@@ -27,6 +30,8 @@ function highlight(source) {
     vm.runInContext(fs.readFileSync(path.join(resources, "vendor/prism", file), "utf8"), context);
   }
   context.document = {
+    body: new Node("", "body"),
+    addEventListener() {},
     getElementById: () => null,
     querySelectorAll: selector => selector.startsWith("code.language-clojure") ? [code] : [],
     createTextNode: text => new Node(text),
@@ -170,6 +175,8 @@ test("side-by-side is the default; explicit Zig links and per-example controls s
       URLSearchParams,
       location: {hash},
       document: {
+        body: new Node("", "body"),
+        addEventListener() {},
         createElement: tag => new Node("", tag),
         querySelectorAll: selector => selector === ".learn-example" ? examples : [],
         getElementById: id => elements.get(id)

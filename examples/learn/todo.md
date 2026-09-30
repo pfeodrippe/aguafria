@@ -125,6 +125,8 @@
   - [ ] improve precompilation
     - [x] move to ~/.aguafria/zig
     - [ ] store optimized
+      - [ ] check ReleaseSmall instead of ReleaseSafe
+      - [ ] we create many dylibs, could we have it being aggregated into one? or maybe it would be slower
     - [ ] test with values.clj
 
 - [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?

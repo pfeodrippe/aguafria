@@ -707,6 +707,11 @@ Learn is a coverage corpus, not a special precompilation path. For example:
                  :parallelism 4})
 ```
 
+Use `:ignore '[my.app.expensive-example]` to exclude selected namespaces before
+loading/precompiling them. Reports list `:ignored` separately, never as prepared.
+This excludes direct selections, not transitive imports required by another
+namespace, and does not disable ordinary evaluation or documentation tests.
+
 Zig's compile-time reflection supplies the observed operand
 types and literal values; emitter records link them to the existing JVM handler
 generators. There is no Clojure type inference. This uses compiler reflection,
@@ -759,6 +764,45 @@ Later JVMs and projects reuse
 those binaries when compiler, target, build options and dependencies match.
 Live values, function handles and native state are not persisted; first-use
 loading still costs time. New specializations or invalidated inputs still build.
+
+Native artifact and bundle keys use full SHA-256 with canonical map/set encoding
+and explicit key-format/native-ABI versions. Source, argument order, compiler,
+target, dependencies and build settings remain significant. External file inputs
+are hashed by content, not modification time; relocatable `.o`/`.obj` inputs can
+be reused after relocation. Source-module, shared-library and archive paths stay
+significant because location may affect `@src`, relative assets or linking.
+Key-version changes invalidate old entries without deleting them. There is no
+fallback to the old key format; binaries are rebuilt/prepared under the new keys.
+
+Explicit precompilation automatically packs compatible generated JVM handlers
+into one immutable native library per preparation, without a handler-count cap.
+Already cached handlers are included, so earlier packs do not leave the new
+preparation split across libraries. Incompatible compiler configurations produce
+an explicit error rather than silently creating multiple bundles. Fresh
+preparation validates each eligible handler without emitting a standalone binary,
+then links the pack; it does not load or execute the handlers. Use `:bundle? false`
+to disable creating a bundle. The report's `:bundles` entry records packed/reused
+handlers and reasons for keeping handlers standalone. Ordinary user modules,
+native test contexts, custom linker arguments and relative embedded/imported
+assets remain standalone.
+
+Runtime lookup checks a content-keyed bundle index first, then the individual
+artifact, then compiles a missing specialization normally. It never scans packs.
+Warm maps have expected constant-time lookup; hashing inputs, cold file reads,
+native loading and FFM binding still cost time. `az/explain!` reports
+`bundle-cache-hit` and `bundle-loaded` events. Later runtime misses populate the
+same shared cache as standalone artifacts; a subsequent explicit precompilation
+can pack them. Existing standalone binaries are not automatically pruned.
+Loaded bundle arenas remain alive until JVM exit so native pointers and cleaners
+cannot outlive their code. Restart the JVM after explicitly clearing the cache.
+
+Generated JVM adapters default to `ReleaseSafe`, with safety checks, error tracing
+and unwind information. Their allocation/result-buffer machinery and panic guard
+live in a shared, optimized support library. Debug symbols are retained by default.
+This does not change the `:optimize` setting for ordinary user modules or standalone
+builds. Use `(az/configure! {:jvm-optimize "Debug"})` (or the JVM property
+`aguafria.jvm-optimize`) when debugging adapters; only `Debug` and `ReleaseSafe`
+are accepted. Preparation and runtime use the same adapter configuration/cache keys.
 
 Kaocha configuration lives in [`tests.edn`](tests.edn). Release packaging uses
 the deps.edn-native [`build.clj`](build.clj) tasks through the

@@ -181,6 +181,7 @@
   An already-open lesson is inspected in a temporary namespace, never overwritten."
   [source namespace-symbol report]
   (let [original-source source
+        namespaces-before (set (map ns-name (all-ns)))
         occupied? (find-ns namespace-symbol)
         evaluation-ns (if occupied?
                         (symbol (str namespace-symbol ".inspection-" (random-uuid)))
@@ -228,11 +229,14 @@
               (:source mapped))
             rendered)))
       (finally
-        (remove-ns namespace-symbol)
-        ;; `ns` marks the temporary namespace as loaded. Remove that marker too,
-        ;; otherwise a later ordinary `require` skips its now-missing namespace.
-        (dosync
-          (alter @#'clojure.core/*loaded-libs* disj namespace-symbol))))))
+        ;; Ordinary requires can load other lessons while collecting descriptors.
+        ;; Retire only namespaces this translation created; never a user's REPL.
+        (doseq [created (map ns-name (all-ns))
+                :when (and (not (contains? namespaces-before created))
+                           (or (= created namespace-symbol)
+                               (str/starts-with? (str created) "learn.example.")))]
+          (remove-ns created)
+          (dosync (alter @#'clojure.core/*loaded-libs* disj created)))))))
 
 (defn require-structural! [report]
   (when (some pos? (map #(get report % 0)
