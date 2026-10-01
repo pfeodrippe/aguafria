@@ -410,6 +410,17 @@
            (reduce + (vals (:incomplete-operation-groups summary)))))
     (is (= 2 (get-in summary [:handler-records :failed])))))
 
+(deftest coverage-separates-declarations-without-counting-them-as-prepared
+  (let [summary (precompile/coverage
+                 [{:operations [{:status :unsupported :reason :type-declaration}
+                                {:status :unsupported :reason :compiler-directive}
+                                {:status :unsupported :reason :inspection-placement}
+                                {:status :observed :handlers [{:status :prepared}]}]}])]
+    (is (= 4 (get-in summary [:operations :total])))
+    (is (= 1 (get-in summary [:operations :fully-prepared])))
+    (is (= {:type-declaration 1 :compiler-directive 1} (:non-call-operations summary)))
+    (is (= {:total 2 :fully-prepared 1 :not-fully-prepared 1} (:runtime-candidates summary)))))
+
 (deftest compiler-observes-borrowed-dereferences-and-optional-unwraps
   (binding [runtime/*source-only-registration?* true]
     (require 'aguafria.zig.discovery-views-fixture))
@@ -565,7 +576,7 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"variadic argument count"
                         (c/printf))))
 
-(deftest result-context-gaps-do-not-compile-invalid-standalone-calls
+(deftest deferred-calls-do-not-compile-invalid-standalone-calls
   (with-redefs [discovery/analyze!
                 (fn [_]
                   {:operations [{:status :observed
@@ -575,9 +586,12 @@
                 jvm/precompile-call!
                 (fn [_] (throw (ex-info "Unexpected standalone compilation" {})))]
     (let [report (discovery/prepare! 'unused)]
-      (is (= [{:status :unsupported :reason :result-context-required :types [:i32]}]
+      (is (= [{:status :deferred :reason :result-context-required :types [:i32]}]
              (get-in report [:operations 0 :handlers])))
-      (is (zero? (get-in (precompile/coverage [report]) [:operations :fully-prepared]))))))
+      (let [coverage (precompile/coverage [report])]
+        (is (zero? (get-in coverage [:operations :fully-prepared])))
+        (is (= 1 (get-in coverage [:deferred-calls :total])))
+        (is (zero? (get-in coverage [:runtime-candidates :total])))))))
 
 (deftest nested-representation-alternatives-expand-before-preparation
   (let [native '(aguafria.keyword/Tuple (aguafria.keyword/& [:bool]))
@@ -953,21 +967,23 @@
         print-call (first (filter #(= 'aguafria.std.debug/print (:function %)) (:operations report)))]
     (is (zero? (get-in report [:baseline :exit])))
     (is (not (:compiler-errors? report)) (:diagnostics report))
-    (is (= [[nil {:tuple []}]] (:signatures print-call)))
-    (is (= [:unsupported] (mapv :status (:handlers print-call))))))
+    (is (= [[nil {:representations ['(aguafria.keyword/Tuple (aguafria.keyword/& []))
+                                    {:tuple []}]}]]
+           (:signatures print-call)))
+    (is (= [:unsupported :unsupported] (mapv :status (:handlers print-call))))))
 
-(deftest rejected-probes-do-not-hide-other-operations
+(deftest contextual-probes-retain-leaf-types-without-losing-result-context
   (binding [runtime/*source-only-registration?* true]
     (require 'aguafria.zig.discovery-context-fixture))
   (let [report (discovery/analyze! 'aguafria.zig.discovery-context-fixture)
         operations (:operations report)]
     (is (zero? (get-in report [:baseline :exit])))
-    (is (> (:inspection-attempts report) 1))
-    (is (seq (:probe-failures report)))
+    (is (= 1 (:inspection-attempts report)))
+    (is (empty? (:probe-failures report)))
     (is (some #(and (= 'aguafria.keyword/+ (:function %))
                     (= :observed (:status %))) operations))
     (is (some #(and (:contextual-input? %)
-                    (= [[:u8]] (:signatures %))) operations))))
+                    (= [[:u8 :u16]] (:signatures %))) operations))))
 
 (defn- discovery-jvm [cache prepare?]
   (let [code (pr-str

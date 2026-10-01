@@ -113,11 +113,11 @@
 
 (defn- capture-declaration
   [target-ns form]
-  (let [captured (atom [])]
+  (let [captured (runtime/registration-batch)]
     (binding [*ns* target-ns
               runtime/*registration-batch* captured]
       (eval form))
-    (or (first @captured)
+    (or (first (runtime/collected-declarations captured))
         (throw (ex-info "Aguafria form captured no declaration"
                         {:namespace (ns-name target-ns) :form form})))))
 
@@ -125,7 +125,7 @@
   (testing "defn is public, defn- is private, and both return their last expression"
     (let [module-symbol (symbol (str "aguafria.defn-defaults-" fixture-suffix))
           module-ns (create-ns module-symbol)
-          captured (atom [])]
+          captured (runtime/registration-batch)]
       (try
         (binding [*ns* module-ns
                   runtime/*registration-batch* captured]
@@ -138,7 +138,7 @@
                    (+ value 2)))
           (eval '(az/defn exported :i32
                    {:attrs #{:export}} [[value :i32]] value)))
-        (let [by-name (into {} (map (juxt :name identity)) @captured)
+        (let [by-name (into {} (map (juxt :name identity)) (runtime/collected-declarations captured))
               public (get by-name 'increment)
               private (get by-name 'increment-private)
               exported (get by-name 'exported)

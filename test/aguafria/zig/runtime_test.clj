@@ -4,6 +4,189 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest root-context-scan-requires-an-import-and-keeps-member-semantics
+  (let [members #'runtime/root-context-member-names
+        source (str "const root = @import(\"root\");\n"
+                    "const cycle = @import(\"app.special+name\").@\"container\";\n"
+                    "root.options; root.@\"quoted member\";\n"
+                    "@hasDecl(root, \"has_option\"); @field(root, \"field_option\");\n"
+                    "cycle.build_options; @field(cycle, \"cyclic_option\");\n"
+                    "@import(\"root\").direct;\n")
+        scanned (atom [])
+        re-seq* re-seq]
+    (is (= #{"options" "quoted member" "has_option" "field_option"
+             "build_options" "cyclic_option" "direct"}
+           (members "app.special+name" {"dep" {:source source}})))
+    (is (= #{"options" "quoted member" "has_option" "field_option" "direct"}
+           (members "another.module" {"dep" {:source source}})))
+    (is (= #{} (members "app.special+name" {})))
+    (with-redefs [re-seq (fn [pattern text]
+                          (swap! scanned conj text)
+                          (re-seq* pattern text))]
+      (is (= #{} (members "app.special+name"
+                           {"no-source" {}
+                            "unrelated" {:source "const dep = @import(\"other\"); dep.item;"}
+                            "similar-name" {:source "const dep = @import(\"app.specialXname\"); dep.item;"}})))
+      (is (empty? @scanned) "Sources without a matching import need no regex scans"))
+    (is (= #{"fresh"}
+           (members "app.special+name"
+                    {"dep" {:source "@import(\"root\").fresh;"}})))
+    (is (= #{} (members "app.special+name" {"dep" {:source ""}})))))
+
+(deftest fingerprint-sorting-preserves-order-and-prints-each-key-once
+  (let [sort-fingerprints #'runtime/sorted-fingerprints
+        inputs [nil [] [["module" :fn "only"]]
+                [[[:module :fn "z"] "abc" nil]
+                 [[:module :struct "a"] "def" "shape"]
+                 [[:module :fn "z"] "abc" nil]
+                 [[:module :fn "a"] "ghi"]]]]
+    (doseq [input inputs]
+      (let [expected (vec (sort-by pr-str input))
+            printed (atom [])
+            original pr-str
+            actual (with-redefs [pr-str (fn [value]
+                                         (swap! printed conj value)
+                                         (original value))]
+                     (sort-fingerprints input))]
+        (is (= expected actual))
+        (is (vector? actual))
+        (is (= (vec input) @printed))))))
+
+(deftest declaration-name-lookups-reuse-the-immutable-registry-index
+  (let [declarations (mapv (fn [n]
+                             {:module (str "fixture.names." (quot n 100))
+                              :name (symbol (str "item-" n))
+                              :zig-name (str "item_" n)
+                              :logical-id [:fixture n]})
+                           (range 1000))
+        names #'runtime/declaration-index-names
+        index {:by-logical (into {} (map (juxt :logical-id identity)) declarations)
+               :by-module (reduce (fn [index declaration]
+                                    (reduce #(assoc-in %1 [(:module declaration) :by-name %2] declaration)
+                                            index (names declaration)))
+                                  {} declarations)}
+        replacement (assoc (first declarations) :name 'renamed :zig-name "renamed_native")
+        added {:module "fixture.new" :name 'added :zig-name "added" :logical-id [:new 1]}
+        local [replacement added]
+        visited (atom [])
+        original @names
+        lookup (with-redefs-fn
+                 {names (fn [declaration]
+                          (swap! visited conj (:logical-id declaration))
+                          (original declaration))}
+                 #(#'runtime/declaration-name-lookup index local))
+        expected (into {}
+                       (mapcat (fn [declaration]
+                                 (map #(vector [(:module declaration) %] declaration)
+                                      (names declaration))))
+                       (vals (merge (:by-logical index)
+                                    (into {} (map (juxt :logical-id identity)) local))))]
+    (is (= (mapv :logical-id local) @visited)
+        "Only the local overlay may rebuild names, not all registered declarations")
+    (doseq [[key declaration] expected]
+      (is (= declaration (lookup key)) (pr-str key)))
+    (is (nil? (lookup [(:module replacement) "item-0"])))
+    (is (nil? (lookup [(:module replacement) "item_0"])))
+    (is (nil? (lookup ["absent" "item-1"])))
+    (let [changed (assoc-in index [:by-module "fixture.names.0" :by-name "item-1"] replacement)]
+      (is (= (second declarations) (lookup ["fixture.names.0" "item-1"])))
+      (is (= replacement ((#'runtime/declaration-name-lookup changed [])
+                          ["fixture.names.0" "item-1"]))))))
+
+(deftest batch-validation-preserves-declaration-order
+  (let [module (str "aguafria.batch-order-" (random-uuid))
+        context (create-ns (symbol module))
+        registry (var-get #'runtime/registry)
+        declaration (fn [order name value]
+                      {:module module :kind :const :name name :type :i32
+                       :value value :source-order order
+                       :declaration-key [:const name]})
+        initial [(declaration 0 'base 1)
+                 (declaration 1 'first-value 'base)
+                 (declaration 2 'second-value 'first-value)]]
+    (try
+      (is (= 3 (:declaration-count (runtime/register-batch! initial {}))))
+      (is (= 4 (:declaration-count
+                (runtime/register-batch! [(declaration 3 'appended 'second-value)]
+                                         {:replace? false}))))
+      (let [before (:definitions (get @registry module))]
+        (doseq [options [{:replace? true} {:replace? false}]]
+          (is (thrown-with-msg?
+               clojure.lang.ExceptionInfo #"[Uu]nresolved|[Uu]nknown"
+               (runtime/register-batch! [(declaration 4 'premature 'later)
+                                         (declaration 5 'later 2)] options))))
+        (is (identical? before (:definitions (get @registry module)))
+            "Rejected batches do not replace the registered definitions")
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo #"[Uu]nresolved|[Uu]nknown"
+             (runtime/register-batch! [(declaration 0 'replacement 'base)]
+                                      {:replace? true}))))
+      (finally
+        (swap! registry dissoc module)
+        (remove-ns (ns-name context))))))
+
+(deftest collection-scopes-validate-immediately-and-stay-module-local
+  (let [module (str "aguafria.collection-" (random-uuid))
+        other (str module ".other")
+        contexts (mapv #(create-ns (symbol %)) [module other])
+        registry (var-get #'runtime/registry)
+        batch (runtime/registration-batch)
+        declaration (fn [module name value]
+                      {:module module :kind :const :name name :type :i32
+                       :value value :declaration-key [:const name]})]
+    (try
+      (binding [runtime/*registration-batch* batch]
+        (runtime/register-declaration! (declaration module 'base 1))
+        (runtime/register-declaration! (declaration module 'next-value 'base))
+        (is (= '#{base next-value} (get-in @batch [:scopes module :names])))
+        (doseq [invalid [(declaration module 'premature 'later)
+                         (declaration other 'cross-module 'base)]]
+          (let [before @batch]
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                                  (runtime/register-declaration! invalid)))
+            (is (identical? before @batch) "Failed validation cannot add a name")))
+        (runtime/register-declaration! (declaration other 'local 2))
+        (is (= '#{local} (get-in @batch [:scopes other :names])))
+        ;; Registry changes during collection must invalidate the cached base.
+        (swap! registry assoc-in [module :definitions [:const 'external]]
+               (declaration module 'external 3))
+        (runtime/register-declaration! (declaration module 'uses-external 'external))
+        (swap! registry update-in [module :definitions] dissoc [:const 'external])
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                              (runtime/register-declaration!
+                               (declaration module 'stale-external 'external))))
+        (runtime/register-declaration! (declaration module 'still-known 'next-value)))
+      (is (= '[base next-value local uses-external still-known]
+             (mapv :name (runtime/collected-declarations batch))))
+      (finally
+        (swap! registry dissoc module other)
+        (doseq [context contexts] (remove-ns (ns-name context)))))))
+
+(deftest collection-scopes-reuse-unchanged-registered-definitions
+  (let [registry (var-get #'runtime/registry)
+        module (str "aguafria.collection-cost-" (random-uuid))
+        batch (runtime/registration-batch)
+        original-vals vals
+        scans (atom 0)
+        definitions {[:const 'existing] {:name 'existing}}
+        observed-scopes (atom [])]
+    (try
+      (swap! registry assoc-in [module :definitions] definitions)
+      (with-redefs [vals (fn [m]
+                          (when (identical? m definitions) (swap! scans inc))
+                          (original-vals m))
+                    emitter/validate-declaration-references!
+                    (fn [_ declaration names]
+                      (swap! observed-scopes conj (count names)) declaration)]
+        (binding [runtime/*registration-batch* batch]
+          (dotimes [i 1000]
+            (#'runtime/collect-declaration!
+             {:module module :name (symbol (str "item-" i))}))))
+      (is (= 1 @scans) "Do not scan every preceding declaration for every form")
+      (is (= (vec (range 1 1001)) @observed-scopes))
+      (is (= 1000 (count (runtime/collected-declarations batch))))
+      (finally (swap! registry dissoc module)))))
+
 (deftest function-signatures-do-not-materialize-parameter-storage
   (doseq [type [[:fn {} [{:type :i32}] :i32]
                 [:fn {:callconv :.c} [{:name :argument :type 'Missing}] 'Missing]
@@ -97,7 +280,8 @@
                   :value '(container {:kind :struct}
                                      [(field-decl :packet [:* Packet])])}]))
         refresh (fn [ds]
-                  (with-redefs-fn {#'runtime/registered-declarations-by-logical-id (constantly {})}
+                  (with-redefs-fn {#'runtime/registered-declaration-index
+                                  (constantly {:by-logical {} :by-module {}})}
                     #(#'runtime/refresh-live-declaration-references ds)))
         original (refresh (declarations 8))
         again (refresh original)
@@ -110,6 +294,101 @@
     (doseq [d again]
       (is (not-any? #(= (:logical-id d) (first %))
                     (:callable-dependency-fingerprints d))))))
+
+(deftest unchanged-reference-refresh-reuses-all-declaration-fingerprints
+  (let [describe runtime/declaration-info
+        calls (atom [])
+        refresh (fn [ds]
+                  (with-redefs-fn
+                    {#'runtime/registered-declaration-index
+                     (constantly {:by-logical {} :by-module {}})}
+                    #(#'runtime/refresh-live-declaration-references ds)))
+        initial (mapv describe
+                      [{:module "fixture.refresh" :kind :const :name 'capacity
+                        :declaration-key [:const 'capacity] :value 8}
+                       {:module "fixture.refresh" :kind :fn :name 'read-capacity
+                        :declaration-key [:fn 'read-capacity]
+                        :args [] :return :i32 :body '[capacity]}])
+        stable (refresh initial)
+        counted (fn [ds]
+                  (reset! calls [])
+                  (with-redefs [runtime/declaration-info
+                                (fn [d] (swap! calls conj (:name d)) (describe d))]
+                    (refresh ds)))
+        unchanged (counted stable)]
+    (is (empty? @calls) "Stable declarations are not serialized and hashed again")
+    (is (= (binding [*print-meta* true] (pr-str stable))
+           (binding [*print-meta* true] (pr-str unchanged))))
+    (let [changed (counted (assoc stable 0 (describe (assoc (first stable) :value 16))))]
+      (is (some #{'read-capacity} @calls))
+      (is (not= (:implementation-fingerprint (second stable))
+                (:implementation-fingerprint (second changed))))
+      (is (= (refresh (mapv describe
+                           (assoc initial 0 (assoc (first initial) :value 16))))
+             changed)))
+    (let [changed-abi (counted
+                       (update stable 1 assoc :abi-type-dependency-fingerprints
+                               [[[:external :struct "Changed"] "stale"]]))]
+      (is (some #{'read-capacity} @calls)
+          "ABI lineage changes must independently invalidate fingerprints")
+      (is (= stable changed-abi)))))
+
+(deftest preparation-reference-refresh-reuses-only-identical-snapshots
+  (let [index (atom {:by-logical {}})
+        calls (atom 0)
+        actual-refresh @#'runtime/refresh-live-declaration-references-uncached
+        declaration (runtime/declaration-info
+                      {:module "fixture.prepare-refresh" :kind :fn :name 'f
+                       :declaration-key [:fn 'f] :args [] :return :i32 :body [42]})
+        declarations [declaration]]
+    (with-redefs-fn
+      {#'runtime/preparation-reference-refresh (atom nil)
+       #'runtime/registered-declaration-index #(deref index)
+       #'runtime/refresh-live-declaration-references-uncached
+       (fn [ds targets] (swap! calls inc) (actual-refresh ds targets))}
+      (fn []
+        (binding [runtime/*compile-only?* true]
+          (let [result (#'runtime/refresh-live-declaration-references declarations)]
+            (is (identical? result (#'runtime/refresh-live-declaration-references
+                                    (vec (seq declarations)))))
+            (is (= 1 @calls))
+            (is (= (binding [*print-meta* true] (pr-str result))
+                   (binding [*print-meta* true]
+                     (pr-str (actual-refresh declarations nil))))))
+          (#'runtime/refresh-live-declaration-references declarations #{[:fn 'f]})
+          (is (= 2 @calls) "Different selected roots are not reused")
+          (#'runtime/refresh-live-declaration-references
+            [(update declaration :body #(with-meta % {:line 99}))] #{[:fn 'f]})
+          (is (= 3 @calls) "Metadata-only changes invalidate too")
+          (#'runtime/refresh-live-declaration-references declarations)
+          (swap! index assoc :by-logical {"new" declaration})
+          (#'runtime/refresh-live-declaration-references declarations)
+          (is (= 5 @calls) "Registered dependency changes invalidate")
+          (with-redefs-fn {#'runtime/config (atom (assoc @(var-get #'runtime/config)
+                                                      :reloadable? false))}
+            #(#'runtime/refresh-live-declaration-references declarations))
+          (is (= 6 @calls) "Configuration changes invalidate"))
+        (#'runtime/refresh-live-declaration-references declarations)
+        (#'runtime/refresh-live-declaration-references declarations)
+        (is (= 8 @calls) "Runtime refresh is never skipped")))))
+
+(deftest preparation-reference-refresh-does-not-cache-changing-inputs
+  (let [index (atom {:by-logical {}})
+        calls (atom 0)]
+    (with-redefs-fn
+      {#'runtime/preparation-reference-refresh (atom nil)
+       #'runtime/registered-declaration-index #(deref index)
+       #'runtime/refresh-live-declaration-references-uncached
+       (fn [ds _]
+         (swap! calls inc)
+         (swap! index update :by-logical assoc (str @calls) {})
+         ds)}
+      (fn []
+        (binding [runtime/*compile-only?* true]
+          (#'runtime/refresh-live-declaration-references [])
+          (#'runtime/refresh-live-declaration-references [])
+          (is (= 2 @calls))
+          (is (nil? @(var-get #'runtime/preparation-reference-refresh))))))))
 
 (deftest slice-storage-uses-the-compilers-pointer-type
   (doseq [slice-type [[:slice :i32]
@@ -409,7 +688,7 @@
                 :declaration-key [:const 'ma_sound]
                 :value '(field c-api ma_sound)})]
     (with-redefs-fn
-      {#'runtime/registered-declarations-by-logical-id (constantly {})}
+      {#'runtime/registered-declaration-index (constantly {:by-logical {} :by-module {}})}
       (fn []
         (let [first-pass (refresh [c-api alias])
               second-pass (refresh first-pass)
@@ -503,8 +782,9 @@
           :return :void
           :body []})]
     (with-redefs-fn
-      {#'aguafria.zig.runtime/registered-declarations-by-logical-id
-       (fn [] {(:logical-id same-named-function) same-named-function})}
+      {#'aguafria.zig.runtime/registered-declaration-index
+       (fn [] {:by-logical {(:logical-id same-named-function) same-named-function}
+               :by-module {"fixture.dependency" {:by-name {"dependency" same-named-function}}}})}
       (fn []
         (let [refreshed (first (refresh [alias]))
               reference (:aguafria/zig-reference
@@ -747,6 +1027,37 @@
         (is (<= (:entry-count cache-stats) (:entry-limit cache-stats)))
         (is (<= (:weight-chars cache-stats)
                 (:weight-limit-chars cache-stats))))
+      (finally
+        (reset! cache empty-cache)))))
+
+(deftest module-source-cache-tracks-expanded-callable-aliases-test
+  (let [cache (var-get #'aguafria.zig.runtime/module-source-cache)
+        empty-cache (var-get #'aguafria.zig.runtime/empty-module-source-cache)
+        module-sources (var-get #'aguafria.zig.runtime/module-sources)
+        declaration (runtime/declaration-info
+                     (assoc function-declaration
+                            :args [{:name 'value :type 'NativeResult}]))
+        expanded (atom 'NativeResult)]
+    (reset! cache empty-cache)
+    (try
+      (with-redefs-fn
+        {#'aguafria.zig.runtime/jvm-wrapper-requests
+         (fn [_ request]
+           (if (= :jvm-callable-declaration-keys request)
+             #{(:declaration-key declaration)} #{}))
+         #'aguafria.zig.runtime/bridge-storage-type
+         (fn [_ type _] (if (= 'NativeResult type) @expanded type))}
+        (fn []
+          (let [indirect (module-sources "fixture.live" [declaration])]
+            (reset! expanded :i32)
+            (let [direct (module-sources "fixture.live" [declaration])
+                  repeated (module-sources "fixture.live" [declaration])]
+              (is (not= (:compile-source indirect) (:compile-source direct)))
+              (is (= :indirect (-> indirect :jvm-callable-specs vals first :mode)))
+              (is (= :direct (-> direct :jvm-callable-specs vals first :mode)))
+              (is (= direct repeated))
+              (is (= 2 (:miss-count @cache)))
+              (is (= 1 (:hit-count @cache)))))))
       (finally
         (reset! cache empty-cache)))))
 

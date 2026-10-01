@@ -196,7 +196,7 @@
       (try
         (let [failure (binding [*ns* namespace
                                 runtime/*source-only-registration?* (= mode :source-only)
-                                runtime/*registration-batch* (when (= mode :batch) (atom []))]
+                                runtime/*registration-batch* (when (= mode :batch) (runtime/registration-batch))]
                         (try (eval form) nil (catch Exception error error)))]
           (is (some? failure) (str mode " " form))
           (is (str/includes? (ex-message (last (take-while some? (iterate ex-cause failure))))

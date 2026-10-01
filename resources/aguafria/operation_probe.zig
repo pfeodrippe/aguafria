@@ -65,6 +65,37 @@ pub fn Inspector(comptime declarations: anytype) type {
             };
         }
 
+        pub fn hasDeclaration(comptime Container: type, comptime name: []const u8) bool {
+            return switch (@typeInfo(Container)) {
+                .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(Container, name),
+                else => false,
+            };
+        }
+
+        pub fn declarationArgumentSchema(comptime Container: type, comptime name: []const u8, comptime member_form: []const u8) []const u8 {
+            const T = @TypeOf(@field(Container, name));
+            if (T == comptime_int or T == comptime_float) return literal(@field(Container, name));
+            if (T == type) return "{:comptime-type " ++ schema(@field(Container, name)) ++ "}";
+            switch (@typeInfo(Container)) {
+                .@"struct", .@"union", .@"enum", .@"opaque" => {},
+                else => return argumentSchema(T),
+            }
+            if (@hasDecl(Container, name)) {
+                switch (@typeInfo(T)) {
+                    .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.is_const) {
+                        const identity = schema(Container);
+                        const expression = if (identity[0] == '[' or identity[0] == '(')
+                            "(type " ++ identity ++ ")"
+                        else
+                            identity;
+                        return "{:comptime-expression (aguafria.zig/field " ++ expression ++ " " ++ member_form ++ ")}";
+                    },
+                    else => {},
+                }
+            }
+            return argumentSchema(T);
+        }
+
         pub fn argumentSchema(comptime T: type) []const u8 {
             @setEvalBranchQuota(10_000_000);
             // JVM boolean results are ordinary booleans, so syntax calls may
@@ -113,20 +144,55 @@ pub fn Inspector(comptime declarations: anytype) type {
 
         fn declarationSchema(comptime T: type) ?[]const u8 {
             switch (@typeInfo(T)) {
-                .@"struct", .@"enum", .@"union", .@"opaque" => {
+                .@"struct", .@"enum", .@"union", .@"opaque", .@"fn" => {
                     inline for (declarations) |declaration| {
-                        if (T == declaration[0]) return declaration[1];
+                        if (T == declaration[0].get()) return declaration[1];
                     }
                     inline for (declarations) |declaration| {
-                        if (nestedDeclarationSchema(T, declaration[0], declaration[1], 0)) |identity|
+                        if (wrappedDeclarationSchema(T, declaration[0].get(), declaration[1], 0)) |identity|
                             return identity;
-                        if (fieldDeclarationSchema(T, declaration[0], declaration[1])) |identity|
+                        if (nestedDeclarationSchema(T, declaration[0].get(), declaration[1], 0)) |identity|
+                            return identity;
+                        if (fieldDeclarationSchema(T, declaration[0].get(), declaration[1])) |identity|
                             return identity;
                     }
                 },
                 else => {},
             }
             return null;
+        }
+
+        fn wrappedDeclarationSchema(comptime T: type, comptime Root: type, comptime expression: []const u8, comptime depth: usize) ?[]const u8 {
+            if (depth == 16) return null;
+            const info = @typeInfo(Root);
+            if (info == .@"fn") {
+                const function_expression = "(aguafria.keyword/field (aguafria.keyword/typeInfo " ++ expression ++ ") \"fn\")";
+                if (info.@"fn".return_type) |Return| {
+                    const result_expression = "(aguafria.zig/unwrap (aguafria.zig/field " ++ function_expression ++ " \"return_type\"))";
+                    if (T == Return) return result_expression;
+                    if (wrappedDeclarationSchema(T, Return, result_expression, depth + 1)) |identity|
+                        return identity;
+                }
+                inline for (info.@"fn".params, 0..) |parameter, index| {
+                    if (parameter.type) |Parameter| {
+                        const parameter_expression = "(aguafria.zig/unwrap (aguafria.zig/field (aguafria.zig/index (aguafria.zig/field " ++ function_expression ++ " \"params\") " ++ std.fmt.comptimePrint("{d}", .{index}) ++ ") \"type\"))";
+                        if (T == Parameter) return parameter_expression;
+                        if (wrappedDeclarationSchema(T, Parameter, parameter_expression, depth + 1)) |identity|
+                            return identity;
+                    }
+                }
+                return null;
+            }
+            const Child = switch (info) {
+                .pointer => |p| p.child,
+                .optional => |o| o.child,
+                .array => |a| a.child,
+                .vector => |v| v.child,
+                else => return null,
+            };
+            const child_expression = "(aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++ expression ++ ") " ++ quoted(@tagName(info)) ++ ") \"child\")";
+            if (T == Child) return child_expression;
+            return wrappedDeclarationSchema(T, Child, child_expression, depth + 1);
         }
 
         fn fieldDeclarationSchema(comptime T: type, comptime Root: type, comptime expression: []const u8) ?[]const u8 {
@@ -141,13 +207,8 @@ pub fn Inspector(comptime declarations: anytype) type {
             inline for (fields) |field| {
                 const field_expression = "(aguafria.keyword/FieldType " ++ expression ++ " " ++ quoted(field.name) ++ ")";
                 if (T == field.type) return field_expression;
-                switch (@typeInfo(field.type)) {
-                    .pointer => |p| {
-                        if (T == p.child)
-                            return "(aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++ field_expression ++ ") \"pointer\") \"child\")";
-                    },
-                    else => {},
-                }
+                if (wrappedDeclarationSchema(T, field.type, field_expression, 0)) |identity|
+                    return identity;
             }
             return null;
         }
@@ -165,7 +226,24 @@ pub fn Inspector(comptime declarations: anytype) type {
                 .@"opaque" => |o| o.decls,
                 else => return null,
             };
+            const relative_name = @typeName(T)[@typeName(Root).len + 1 ..];
+            const has_named_member = comptime named: {
+                for (members) |member| {
+                    if (std.mem.eql(u8, relative_name, member.name) or
+                        std.mem.startsWith(u8, relative_name, member.name ++ ".")) break :named true;
+                }
+                break :named false;
+            };
+            // Reflection cannot safely evaluate every declaration: translated
+            // C macros and lazy Zig declarations may deliberately fail. Leave
+            // unnamed identities unresolved instead of forcing unrelated code.
+            if (!has_named_member) return null;
             inline for (members) |member| {
+                // C imports can contain declarations whose value is
+                // @compileError (unsupported macros). Prefer the matching name
+                // without evaluating unrelated declarations.
+                if (!std.mem.eql(u8, relative_name, member.name) and
+                    !std.mem.startsWith(u8, relative_name, member.name ++ ".")) continue;
                 if (@TypeOf(@field(Root, member.name)) == type) {
                     const Child = @field(Root, member.name);
                     const child_expression = "(aguafria.zig/field " ++ expression ++ " " ++ quoted(member.name) ++ ")";

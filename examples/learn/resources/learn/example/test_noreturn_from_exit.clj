@@ -5,8 +5,10 @@
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
+(az/defconst native-arch (:arch builtin/cpu))
+
 (az/defconst WINAPI builtin-types/CallingConvention
-  (if (k/== (:arch builtin/cpu) :.x86)
+  (if (k/== native-arch :.x86)
     (az/object [[:x86_stdcall (az/object [])]])
     :.c))
 

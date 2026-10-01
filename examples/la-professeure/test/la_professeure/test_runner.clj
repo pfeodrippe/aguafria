@@ -43,7 +43,10 @@
   (let [loaded (atom false) calls (atom [])]
     (with-redefs [build/native-loaded loaded
                   build/prepare! #(throw (ex-info "Asset preparation must not run during namespace loading" {}))
-                  aguafria-examples-native.build/prepare-shared! #(do (swap! calls conj :native) (Thread/sleep 20))
+                  clojure.core/requiring-resolve
+                  (fn [symbol]
+                    (is (= 'aguafria-examples-native.bindings/ensure-loaded! symbol))
+                    #(do (swap! calls conj :graphics) (Thread/sleep 20)))
                   build/native! (fn [_] (swap! calls conj :audio))
                   build/bindings! (constantly :test-bindings)
                   aguafria.c/load-bindings! #(swap! calls conj %)
@@ -52,14 +55,38 @@
       (let [requests (doall (repeatedly 12 #(future (build/load-native!))))]
         (doseq [request requests] @request))
       (is @loaded)
-      (is (= [:native :audio :test-bindings :configure] @calls))
+      (is (= [:graphics :audio :test-bindings :configure] @calls))
       (build/load-native!)
       (is (= 4 (count @calls)) "Later requires do not re-import native types")))
   (let [loaded (atom false)]
     (with-redefs [build/native-loaded loaded
-                  aguafria-examples-native.build/prepare-shared! #(throw (ex-info "Prepare failed" {}))]
+                  clojure.core/requiring-resolve
+                  (fn [_] #(throw (ex-info "Prepare failed" {})))]
       (is (thrown? clojure.lang.ExceptionInfo (build/load-native!)))
       (is (false? @loaded) "A failed preparation can be retried"))))
+
+(deftest native-link-order-does-not-depend-on-require-order
+  (let [prepare
+        (fn [graphics-first?]
+          (let [configuration (atom {:zig-args ["user-library"]})
+                graphics-loaded? (atom false)
+                graphics! (fn []
+                            (when (compare-and-set! graphics-loaded? false true)
+                              (swap! configuration update :zig-args conj "graphics-library")))]
+            (with-redefs [build/native-loaded (atom false)
+                          clojure.core/requiring-resolve (fn [_] graphics!)
+                          build/native! (constantly nil)
+                          build/bindings! (constantly :test-bindings)
+                          aguafria.c/load-bindings! (constantly nil)
+                          aguafria.zig/configuration #(deref configuration)
+                          aguafria.zig/configure! #(swap! configuration merge %)]
+              (when graphics-first? (graphics!))
+              (build/load-native!)
+              (graphics!)
+              @configuration)))]
+    (is (= (prepare true) (prepare false)))
+    (is (= ["user-library" "graphics-library"]
+           (subvec (:zig-args (prepare false)) 0 2)))))
 
 (deftest markdown-dialogue
   (let [doc (dialogue/parse "# Scène\n#∆V Bonjour. [id:hello]\n:: Entrer.\n  #∆M Entrez ! ^enter\n  :: Parler.\n    #M Oui.\n:: Partir.\n  Au revoir.")

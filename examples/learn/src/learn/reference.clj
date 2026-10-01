@@ -192,7 +192,7 @@
                                     (str "(ns " evaluation-ns))
                  source)
         namespace-symbol evaluation-ns
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (when-let [catalog-module (:catalog-module report)]
       (project/register-catalog!
        {:schema-version 1
@@ -223,7 +223,7 @@
                       ;; A first require may also register imported declarations
                       ;; in this batch. They belong to their own module, not to
                       ;; the lesson's root (notably builtin/os is not root.os).
-                      (filter #(= (str namespace-symbol) (:module %)) @declarations))))]
+                      (filter #(= (str namespace-symbol) (:module %)) (runtime/collected-declarations declarations)))))]
           (if spans
             (let [mapped (source-map/extract rendered @spans)]
               (reset! *type-source-map* mapped)
@@ -453,7 +453,7 @@
   [source]
   (let [[ns-form & forms] (inline/read-forms source)
         namespace-symbol (symbol (str "learn.fragment.inspection-" (random-uuid)))
-        imports (atom [])]
+        imports (runtime/registration-batch)]
     (try
       (binding [*ns* *ns* runtime/*registration-batch* imports]
         (eval (with-meta (list* 'ns namespace-symbol (drop 2 ns-form)) (meta ns-form)))
@@ -462,7 +462,7 @@
               (mapv
                (fn [form]
                  (if (= 'az/defimport (first form))
-                   (do (eval form) (last @imports))
+                   (do (eval form) (last (runtime/collected-declarations imports)))
                    (-> (emitter/container-description
                         context
                         (list 'container {:kind :struct}

@@ -145,7 +145,7 @@
   [zig-name]
   (contains? #{"@intCast" "@floatCast" "@ptrCast" "@alignCast" "@addrSpaceCast"
                "@bitCast" "@ptrFromInt" "@fieldParentPtr" "@splat" "@enumFromInt"
-               "@errorCast" "@intFromFloat" "@truncate"}
+               "@errorCast" "@intFromFloat" "@floatFromInt" "@truncate"}
              zig-name))
 
 (defn- reader-token

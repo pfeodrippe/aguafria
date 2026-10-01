@@ -151,7 +151,7 @@
                                    java.nio.charset.StandardCharsets/UTF_8))
         namespace-symbol (symbol (str "learn.inline.declarations-"
                                       (format "%064x" (java.math.BigInteger. 1 digest))))
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (when (or (find-ns namespace-symbol)
               (contains? (loaded-libs) namespace-symbol))
       (throw (ex-info "Refusing to replace an existing inline namespace"
@@ -174,7 +174,7 @@
                         (cond-> declaration
                           (nil? (:source-order declaration))
                           (assoc :source-order index)))
-                      @declarations)))
+                      (runtime/collected-declarations declarations))))
       (finally
         (remove-ns namespace-symbol)
         (dosync

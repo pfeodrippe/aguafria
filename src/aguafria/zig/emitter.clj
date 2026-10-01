@@ -1729,6 +1729,8 @@
                       (str "\n    : " (emit-expr clobbers)))))
              ")")))))
 
+(declare emit-expr-with-placement)
+
 (defn- emit-keyword-expr
   [token args form]
   (keyword/validate-call! token args form)
@@ -1741,9 +1743,30 @@
     :call
     (let [logical-type-name? (and *logical-type-names?*
                                   (= "@typeName" (:zig-name token)))
+          contextual? (and *inspection-placement*
+                           (keyword/result-context-required? (:zig-name token)))
+          inspected-arguments (when contextual? (mapv emit-expr-with-placement args))
+          contextual-source (fn [arguments]
+                              (str (:zig-name token) "(" (str/join ", " arguments) ")"))
+          _ (when contextual?
+              ;; Put inspection code in the operand, not between nested casts.
+              ;; Zig propagates result context through @ptrCast(@alignCast(x)),
+              ;; but not through a block inserted between those two builtins.
+              (reset! *inspection-placement*
+                      {:place-probe
+                       (fn [log label]
+                         (let [{:keys [source placement]} (first inspected-arguments)
+                               operand (if-let [place (:place-probe placement)]
+                                         (place log label)
+                                         (str "(" label ": { " log " break :" label " " source "; })"))]
+                           (contextual-source
+                            (assoc (mapv :source inspected-arguments) 0 operand))))}))
           call-source
-          (if (= "@as" (:zig-name token))
+          (cond
+            contextual? (contextual-source (mapv :source inspected-arguments))
+            (= "@as" (:zig-name token))
             (str "@as(" (emit-type (second args)) ", " (emit-expr (first args)) ")")
+            :else
             (str (if logical-type-name?
                    "__aguafria_type_name"
                    (:zig-name token))
@@ -2293,10 +2316,13 @@
     :else
     (fail! "Cannot emit Zig expression" form {:class (class form)})))
 
+(def ^:dynamic ^:private *emitting-declaration* nil)
+
 (def ^:dynamic *expression-observer*
   "Optional inspection-only emitter callback. Receives the original form, its
   resolved Var metadata, source location and plain Zig source. Normal builds
-  never bind this; observers must not infer types from the source form."
+  never bind this; observers must not infer types from the source form. Return
+  a source string, or {:source ... :place-probe ...} to compose operand probes."
   nil)
 
 (defn- observe-expression [form rendered placement]
@@ -2313,6 +2339,8 @@
                   {:method-call? true :receiver receiver :member member})))
             placement
             {:form form :source rendered
+             :declaration-name (:name *emitting-declaration*)
+             :declaration-kind (:kind *emitting-declaration*)
              :location (merge debug/*source* (select-keys (meta form) [:line :column]))
              :var-meta (some-> (or (resolve-context-var (or *keyword-context* *ns*) (first form))
                                    (when (and (symbol? (first form))
@@ -2324,12 +2352,22 @@
                          (emit-expr* expression)))}))
     rendered))
 
+(defn- emit-expr-with-placement [form]
+  (binding [*inspection-placement* (when *expression-observer* (atom nil))]
+    (let [rendered (emit-expr* form)
+          observed (observe-expression form rendered (some-> *inspection-placement* deref))
+          placement (some-> *inspection-placement* deref)]
+      (if (map? observed)
+        {:source (:source observed)
+         :placement (assoc placement :place-probe (:place-probe observed))}
+        {:source observed :placement placement}))))
+
 (defn emit-expr
   "Emit one Zig expression, resolving `aguafria.keyword` Vars directly."
   ([form]
-   (binding [*inspection-placement* (when *expression-observer* (atom nil))]
-     (let [rendered (emit-expr* form)]
-       (observe-expression form rendered (some-> *inspection-placement* deref)))))
+   (if *expression-observer*
+     (:source (emit-expr-with-placement form))
+     (emit-expr* form)))
   ([context-ns form]
    (binding [*keyword-context* context-ns]
      (emit-expr form))))
@@ -2954,7 +2992,8 @@
                         :place-probe (fn [log label]
                                        (str "(" label ": { " log "\n" rendered
                                             "\nbreak :" label "; });"))})
-                      rendered)]
+                      rendered)
+           rendered (if (map? rendered) (:source rendered) rendered)]
        (str (form-source-comment form) rendered)))))
 
 (defn emit-stmt-in
@@ -3246,7 +3285,8 @@
            has-value? align doc comments body-prefix-source
            dependency-default-export? import-container]
     :as declaration}]
-  (binding [debug/*source* source]
+  (binding [debug/*source* source
+            *emitting-declaration* declaration]
     (let [declaration-name (or zig-name name)]
       (str
        leading-source

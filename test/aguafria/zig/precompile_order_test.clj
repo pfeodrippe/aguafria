@@ -5,6 +5,28 @@
             [aguafria.zig.runtime :as runtime]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest prepared-inferred-error-results-use-the-native-storage-type
+  (let [context (create-ns (symbol (str "aguafria.precompile-error-result-" (random-uuid))))
+        module (str (ns-name context))
+        events (atom [])]
+    (try
+      (binding [*ns* context runtime/*source-only-registration?* true]
+        (refer 'clojure.core)
+        (alias 'az 'aguafria.zig)
+        (eval '(az/defn success :!u32 [] 42))
+        (eval '(az/defn empty-success :!void [])))
+      (doseq [name '[success empty-success]]
+        (is (= :prepared (:status (runtime/precompile-function! (symbol module (str name)))))))
+      (is (empty? (:native-generations (runtime/module-info module))))
+      (binding [explain/*reporter* #(swap! events conj %)]
+        (doseq [[name expected] [['success {:ok 42}] ['empty-success {:ok nil}]]]
+          (let [result ((ns-resolve context name))]
+            (try
+              (is (= expected (az/value result)))
+              (finally (az/close! result))))))
+      (is (empty? (filter #(= :compiled (:event %)) @events)) (pr-str @events))
+      (finally (remove-ns (ns-name context))))))
+
 (deftest prepared-imported-results-include-their-value-reader
   (let [context (create-ns (symbol (str "aguafria.precompile-imported-result-" (random-uuid))))
         module (str (ns-name context))

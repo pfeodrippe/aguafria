@@ -146,7 +146,8 @@
               (let [output (StringWriter.)]
                 (binding [*out* output *err* output]
                   (debug/print "1 + 1 = {}\n" [(ak/i32 (ak/+ a b))])
-                  (debug/print "7.0 / 3.0 = {}\n" [(ak/f32 (ak// numerator denominator))])
+                  (debug/print "7.0 / 3.0 = {}\n"
+                               [(ak/f32 (ak// (ak/f32 numerator) (ak/f32 denominator)))])
                   (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (ak/! flag)])
                   (with-open [optional-value (ak/var (ak/as nil [:optional [:slice-const :u8]]))]
                     (debug/assert (ak/== optional-value nil))
@@ -170,6 +171,19 @@
                           "value: null" "value: hello again" "value: error.ExampleErrorVariant"
                           "value: 5678"]]
           (is (str/includes? output expected)))))))
+
+(deftest computed-integer-conversions-reuse-checked-native-storage
+  (doseq [[type first-value next-value] [[:i32 2 5] [:u5 7 31] [:c_uint 8 9]
+                                        [:u128 18446744073709551616N 18446744073709551617N]]]
+    (with-open [first-result (ak/as (ak/+ first-value 0) type)]
+      (is (values= first-value first-result)))
+    (without-compilation
+     #(with-open [next-result (ak/as (ak/+ next-value 0) type)]
+        (is (values= next-value next-result)))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
+                       (ak/as (ak/+ 31 1) :u5)))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
+                       (ak/as (ak/- 0 1) :u32))))
 
 (deftest integer-operator-families-reuse-native-handlers
   (doseq [operation [ak/+% ak/-% ak/*% ak/+| ak/-| ak/*|]]
@@ -604,10 +618,11 @@
   (is (values= 3.0 (math/sqrt 9.0)))
   (is (values= 4.0 (math/sqrt 16.0)))
   (is (Double/isNaN (az/value (math/sqrt -1.0))))
+  (is (values= 3.0 (math/sqrt (ak/f64 9.0))))
   (let [adapters-before (count @@#'native-call/prepared-adapters)]
-    (is (values= 5.0 (math/sqrt 25.0)))
+    (is (values= 5.0 (math/sqrt (ak/f64 25.0))))
     (is (values= adapters-before (count @@#'native-call/prepared-adapters))
-        "changing an ordinary argument reuses the typed adapter")))
+        "changing a runtime-typed argument reuses its adapter")))
 
 (deftest value-expressions-use-the-shared-native-call-bridge
   (is (true? (ak/== \e (az/char-literal "'\\x65'"))))
@@ -1005,7 +1020,7 @@
                                  (let [constant 5678]
                                    (ak/+= constant 1))))
                         (catch clojure.lang.Compiler$CompilerException error error))]
-          (is (some? failure))
+          (is (instance? clojure.lang.Compiler$CompilerException failure))
           (is (str/includes? (or (:aguafria/report (runtime/error-data failure)) "")
                              "cannot assign to constant"))
           (is (nil? (ns-resolve namespace 'main)))))
@@ -1109,7 +1124,7 @@
   (let [namespace (fixture)
         body '(let [x (ak/i32 7)
                     y (let [x (ak/i32 9)] x)]
-                (+ x y))]
+                (ak/+ x y))]
     (try
       (binding [*ns* namespace]
         (is (values= 16 (eval body)))
@@ -1138,8 +1153,8 @@
       (is (values= "?[]const u8\n" (with-out-str (az/zig-source! [:optional [:slice-const :u8]]))))
       (is (values= "i32\n" (with-out-str (az/zig-source! ak/i32))))
       (is (values= "[2]i32\n" (with-out-str (az/zig-source! [:array 2 ak/i32]))))
-      (is (values= "[2]Point\n" (with-out-str
-                                  (az/zig-source! [:array 2 @(ns-resolve namespace 'Point)]))))
+      (is (values= (str "[2]@\"" (str/replace (str (ns-name namespace)) "-" "_") "\".Point\n") (with-out-str
+                                                                                                 (az/zig-source! [:array 2 @(ns-resolve namespace 'Point)]))))
       (is (values= "42\n" (with-out-str (az/zig-source! 42))))
       (is (values= "@import(\"std\").debug.print\n"
                    (with-out-str (az/zig-source! #'debug/print))))
@@ -1283,8 +1298,16 @@
         (eval '(az/defn use-external :i32 [[x :i32]]
                  (aguafria_missing_test_symbol x)))
         (is (:source-only? (runtime/module-info (ns-name namespace))))
+        (is (var? (eval '(az/defn identity-generic T
+                           [[T {:attrs #{ak/comptime}} :type] [x T]] x))))
         (let [failure (try
                         (eval '(az/defn invalid :i32 [[a :i32] [b :i32]] (/ a b)))
+                        (catch Throwable failure failure))]
+          (is (str/includes? (:aguafria/report (runtime/error-data failure))
+                             "signed integers must use")))
+        (let [failure (try
+                        (eval '(az/defn invalid-array [:array 1 :i32]
+                                 [[a :i32] [b :i32]] [(/ a b)]))
                         (catch Throwable failure failure))]
           (is (str/includes? (:aguafria/report (runtime/error-data failure))
                              "signed integers must use")))

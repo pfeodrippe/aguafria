@@ -1,6 +1,225 @@
 # Learn reference implementation
 
+## Latest verified checkpoint — October 1
+
+- [x] Final private-scope/cleanup revision: 292/292 outcomes, 99 tests / 12,983
+  assertions, 11 browser/highlighting checks, 290 HTML transcripts and no missing
+  outputs. AOT 2,172/2,708 in 4m43s, one additional private callback operation,
+  no lost IDs or prepared regressions. Four generated destructuring temporary
+  renamings explain 14 raw form-string differences; checked AST renaming proves
+  no semantic changes. Fresh ordinary values body 671 ms, 34 bundle hits, zero
+  compilations; normal require also zero. Current candidate gaps: 389, plus
+  34 deferred calls and 113 declarations/directives. Full categories, evidence
+  and separate fresh-proof limits are in `CORE_REGRESSION_CHECK_2026-09-30.md`.
+  Report: `.aguafria/precompile/learn-private-scope.edn`.
+  Both owned Learn JVMs are stopped; the preview on 63979 remains available.
+
+- [x] Checked member-argument adapters and compile-only refresh reuse:
+  292/292 outcomes; 99 tests / 12,983 assertions; 11/11 browser checks; all
+  290 HTML transcripts present. AOT 2,171/2,708 in 5m23s, zero gained/lost
+  operations or changed forms. Fresh owned nREPL values body 909 ms, 34 bundle
+  hits, zero compilations; normal require also zero compilations. Live page
+  reloaded and output confirmed. Completed Learn workers and REPL stopped.
+  Existing 390 native-candidate gaps remain, with full categories/examples in
+  `CORE_REGRESSION_CHECK_2026-09-30.md`.
+  Report: `.aguafria/precompile/learn-member-current.edn`.
+
+- [x] Callee-reflected JVM wrappers and preparation performance revision:
+  292/292 outcomes; 99 tests / 12,983 assertions; 11/11 browser checks; all
+  290 transcripts, zero missing outputs. AOT unchanged at 2,171/2,708 in
+  10m11s (concurrent game work and changed wrappers), zero lost/changed forms.
+  Fresh nREPL values body 971 ms, 34 bundle hits, zero compilations; normal
+  require also zero compilations. Existing 390 native-candidate gaps remain.
+  Evidence and limitations: newest `CORE_REGRESSION_CHECK_2026-09-30.md` section.
+  Report: `.aguafria/precompile/learn-reflected-current.edn`.
+
+- [x] Typed-call/deferred-assignment revision: 292/292 outcomes; 99 tests /
+  12,983 assertions; 11/11 browser checks; all 290 HTML transcripts present.
+  AOT 2,171/2,708 in 5m30s, zero lost/changed operations. Fresh owned nREPL:
+  values body 745 ms, 34 bundle hits, correct output, zero compilations;
+  ordinary require also zero compilations. Current candidate gaps: 390;
+  separately 34 deferred calls and 113 declarations/directives. Exact counts,
+  two examples per category, evidence and limitations are in the newest section
+  of `CORE_REGRESSION_CHECK_2026-09-30.md`.
+  Report: `.aguafria/precompile/learn-typed-current.edn`. Served/file SHA-256:
+  `31d09de1e15d23cb48b7b996601a6b65e11e7fe091929c8812f79c0adc29ec37`.
+
+- [x] Batch-validation revision: 292/292 outcomes; 99 tests / 12,983 assertions;
+  11/11 browser checks; rebuilt HTML has all 290 transcripts and no missing outputs. AOT remains
+  2,171/2,708, zero gained/lost/changed operations, in 5m27s. Fresh owned nREPL
+  values body 979 ms, zero compilations; normal require also zero. Details and
+  unchanged gap categories: `CORE_REGRESSION_CHECK_2026-09-30.md`.
+  Report: `.aguafria/precompile/learn-batch-current.edn`. Served/file SHA-256:
+  `26457ef279645fdba6e6419eca619fe28d8384fc2f5f1c76129ae308a844383d`.
+
+- [x] Argument-alias revision AOT: 2,171/2,708, zero gained/lost/changed forms,
+  5m48s. Fresh JVM normal require 2,760 ms and values body 986 ms, both with
+  zero compilations. Report: `.aguafria/precompile/learn-argument-alias.edn`.
+- [x] Final transcript/HTML refresh after the wrapper-cache key correction:
+  292/292 outcomes; 99 tests / 12,983 assertions; 11/11 browser checks; all 290
+  transcripts present. Served/file SHA-256:
+  `9572b02707bc321a81c96320d20c3c465bb90c56eba848f437f0feb48a2be812`.
+  The first HTML check rejected 251 stale outputs rather than publishing
+  missing panels; the final compiler-fingerprint refresh passes.
+
+- [x] Index/registry revision: 292/292 outcomes; 99 tests / 12,983 assertions;
+  11/11 browser checks; rebuilt HTML has 290 transcripts, zero missing outputs.
+  AOT 2,171/2,708 in 5m59s, zero lost operations or changed forms. Fresh JVM
+  values body 969 ms, zero compilations (normal require also zero). Report:
+  `.aguafria/precompile/learn-indexed-registry.edn`. Served/file SHA-256:
+  `337c101116fdb7449b55edc61721a2f145ee7a034d0d8ab3e0448a3d69e0b67d`.
+- [x] Shared-core index/registry checks: 39 tests / 2,257 assertions, zero
+  failures/errors, including native state preservation and hot reload.
+
+- [x] Composite-input revision: 292/292 outcomes; 99 tests / 12,983 assertions;
+  11/11 browser checks; rebuilt HTML has all 290 transcripts, none missing.
+  Served/file SHA-256:
+  `9a9b2e333dd1c963494f372f4ee30beacf8715939cbdfcfa5ed791d1e1cb114a`.
+- [x] `learn-composite-final` AOT: 2,171/2,708, 11 gained, zero lost or changed
+  forms, 6m52s. Fresh JVM values body 747 ms, zero compilations; require also
+  zero. Fix the broader suite's assignment-context regression; the extended
+  test plus two adjacent tests pass 36 assertions. Owned REPL stopped.
+- [ ] 537 entries remain (113 non-calls, 34 deferred calls, 390 runtime candidates); categories
+  and two examples each are recorded in `CORE_REGRESSION_CHECK_2026-09-30.md`.
+
+### Earlier function-alias checkpoint
+
+- [x] Function-alias revision: 292/292 outcomes; 99 tests / 12,983 assertions;
+  11/11 browser checks; HTML rebuilt with all 290 transcripts, none missing.
+  Served/file SHA-256:
+  `dc0dac2f033c8b98b380b1d0e4f962668928d4feb83caa288deccbd05c20e04d`.
+- [x] `learn-aliases` AOT: 2,160/2,708, zero lost operations or changed forms,
+  6m27s. Fresh JVM values body 864 ms, zero compilations; require also zero.
+  Broader core suite: 63 tests / 490 assertions, zero failures/errors. Owned
+  verification REPL stopped; live browser reloaded and checked.
+
+### Earlier integer-reuse checkpoint
+
+- [x] Latest integer-reuse/conditional-declaration revision: 292/292 outcomes,
+  99 tests / 12,983 assertions, 11/11 browser checks; rebuilt HTML has 290
+  transcripts, zero missing outputs. Served/file SHA-256:
+  `642b8460129fbc7e1754dcd93eb0610cdc8f7399ef65ae05d23684d2c42bbee8`.
+- [x] Latest AOT: 2,160/2,708, zero losses or changed forms, 4m58s. Fresh JVM
+  values body 1,248 ms, zero compilations (initial require also zero).
+  Report: `.aguafria/precompile/learn-integer-branches.edn`.
+- [x] Broader core regressions: 62 tests / 475 assertions, zero failures/errors.
+  Owned verification REPL stopped; live preview reloaded and checked.
+
+### Earlier transport checkpoint
+
+- [x] Final C-constant/error-set transport regression: 292/292 outcomes,
+  99 tests / 12,983 assertions, 11/11 browser checks; rebuilt and served HTML
+  has 290 transcripts and zero missing outputs. SHA-256:
+  `250b61619cb6f07ffe95f08f7c00cb4d6e78a2cba0f969f305602261bd6c6cae`.
+- [x] Final AOT: 2,160/2,708 prepared, no regressions, 7m24s. Fresh JVM:
+  require 2,732 ms (zero compilations), complete values body 728 ms (zero
+  compilations). Report: `.aguafria/precompile/learn-c-constants-final.edn`.
+- [x] Fix the isolated cold-cache changed-integer coercion miss: 2 tests /
+  23 assertions pass in a fresh JVM and empty cache, including range checks.
+  Conditional C-declaration/error-set tests pass 19 assertions. The broader
+  suite and full Learn verification are complete in the latest checkpoint above.
+
+- [x] Recheck local-type identity, constant/NaN transport and explicit private
+  definition validation changes:
+  292/292 outcomes; 99 tests / 12,983 assertions; 11/11 browser checks pass.
+- [x] Rebuild HTML: 290 actual REPL transcripts, zero missing outputs. Live page
+  reloaded; served/file hash is
+  `ad6a575b9ad8d6a038659c244ae35f0b18c7a7bb2ac6e2080b299cb26eb61f2a`.
+- [x] Full AOT: 2,160/2,708 operations prepared in 7m58s. Zero regressions across
+  the complete inventory. One 1,884-handler bundle. Fresh-JVM `values` body:
+  987 ms, zero compilations; initial require compiled one namespace module.
+- [x] Focused runtime regressions: two groups of 8 tests / 52 assertions each.
+  Discovery/identity suite: 58 tests / 441 assertions, including restart checks.
+- [ ] Native-library stress ceiling: macOS exhausted TLS pthread keys during
+  the single-JVM 75-test suite. Isolated tests pass, but the ceiling remains open.
+- [ ] The remaining AOT gaps are categorized with examples in
+  `CORE_REGRESSION_CHECK_2026-09-30.md`; this is not complete JVM-subform coverage.
+
 ## Resume checkpoint — September 30
+
+### Cache-key and computed-constructor follow-up
+
+- [x] Fix both cold-preparation/restart misses: nested tuple repetition and
+  container-variable accessor identity. Focused checks: 89 + 3 assertions pass;
+  preparation loads no native bodies and the fresh JVM compiles zero adapters.
+- [x] Preserve numeric precision: five tests / 28 assertions pass. Recognize
+  compiler primitive `undefined` for computed constructors: five assertions pass,
+  with no undefined-storage read and no call-time compilation.
+- [x] Refresh full Learn AOT, outcomes, HTML and browser checks after these fixes.
+  292/292 outcomes, 99 tests / 12,983 assertions, 11/11 browser checks pass.
+  AOT: 2,158/2,708 operations prepared in 4m32s, no coverage regressions.
+  Broader discovery/identity/pointer suite: 58 tests / 436 assertions pass.
+  Fresh-JVM `values` body: 659 ms, zero compilations. HTML has 290 transcripts,
+  zero missing outputs; served/file SHA-256:
+  `91f9c0763beaf90163fb872a911083ce8bd60f6a56a6c6b18ea4121042750c25`.
+  Logs: `.tmp/learn-cache-*.log` at the repository root. The 550 AOT gaps remain
+  categorized in `CORE_REGRESSION_CHECK_2026-09-30.md`.
+
+### Latest literal/type-equivalence regression check
+
+- [x] Current shared-code Learn recheck: 292/292 outcome comparisons; 99 tests /
+  12,983 assertions; 11/11 browser checks. HTML rebuilt with 290 REPL transcripts
+  and zero missing outputs. Served SHA-256:
+  `43c3081cfb6edfe2a06ec97e0ad0fcacd166dca4cd0ec2ed5167a0ccbd9d7638`.
+- [x] Full Learn AOT finished in 4m41s: 2,158/2,708 operations prepared, 550 gaps
+  (previously 2,157 prepared / 551 gaps). One 1,871-handler bundle produced.
+  No previously prepared operations regressed at this checkpoint.
+  Fresh-JVM `values` body: 688 ms, 34 bundle hits, zero compilations.
+- [ ] Two previously prepared `test_functions` observations are now missing
+  while its naked-function baseline fails; keep this coverage regression visible.
+- [x] Restore concrete body validation in unlinked extern modules. Expanded
+  regression passes 11 assertions, including scalar/aggregate invalid bodies
+  and generic declarations. Validation does not link unresolved externs.
+- [x] Preserve comptime literals and parameters in contextual AOT plans.
+  `fieldParentPtr` and literal `ptrFromInt` pass focused ordinary JVM checks
+  with zero compilation after preparation. Full Learn recount/HTML refresh
+  completed for these newer shared-core changes.
+- [x] Contextual integer/float/nested-pointer casts reuse persistent adapters
+  after restart: 478 ms, three disk hits, four bundle hits, zero compilations.
+- Detailed categories, examples, counts and logs:
+  `CORE_REGRESSION_CHECK_2026-09-30.md`. Verification JVMs stopped; preview stays up.
+
+### Current game-core regression recheck (completed; AOT gaps remain)
+
+- Initial complete Learn suite: 96 tests / 12,961 assertions, one failure and
+  two errors. The failure is the missing upstream `native_arch` binding in
+  `test_noreturn_from_exit.clj` (restored). Both errors are the HTML guard
+  rejecting 251 missing/stale current-compiler REPL transcripts.
+- Whole-Learn compile-only audit completed: 289 selected namespaces plus one
+  explicit quota-example exclusion; 2,117 / 2,708 operations prepared, 591 gaps.
+  The previous report had 2,115 / 2,706 and the same 591 gaps. Handler failures
+  (97) and declared-function failures (18) match that baseline; these are not
+  all silently considered expected. Individual prepared-operation comparison
+  differs only for the intentionally invalid constant-string-to-mutable-slice
+  call, now unobserved. Report: `.aguafria/precompile/learn-game-regression-fixed.edn`.
+  Duration: 229,684 ms. Current native outcome refresh: 292 / 292 comparisons
+  pass (288 upstream outcomes and four reviewed special cases).
+- The audit exposed inferred-error result readers emitting illegal `*const
+  !void` storage. Preparation now uses the same explicit bridge storage type
+  as invocation. Preparation/order/result-reader regressions: 4 tests / 38
+  assertions pass, including `!u32` and `!void` with no call-time compilation.
+- A separate cold-preparation/fresh-JVM check returned correct results but
+  compiled two missing artifacts (nested tuple repetition and container state).
+  This is not a zero-build pass. Fix/recheck before claiming preparation complete.
+- Actual `values.clj` in a fresh JVM: normal require 2,704 ms with one disk hit;
+  whole main body evaluated as ordinary Clojure in 863 ms, 34 bundle hits and
+  zero compilations. No hidden warmup. `.tmp/learn-aot-values-restart.log`.
+- Current fragment checks: 15 translated blocks, 9 Zig-only; 351 authored /
+  251 syntax-checked / 77 matching inline outputs.
+- [ ] Complete the current inventory and classify real vs expected failures.
+- [x] Refresh outcomes/fragments after the final shared-code fix, rebuild HTML,
+      rerun the Learn suite/browser checks and verify the served file.
+  Current Learn suite: 96 tests / 12,973 assertions, zero failures/errors.
+  Browser/highlighting: 11 / 11 pass, including output parity and widths from
+  640 to 2,600 px. Rebuilt HTML: 290 REPL transcripts, zero missing outputs.
+  A separate served-page hover check displays ZLS's `fn main() void`, without
+  a native title tooltip; Escape dismisses it. Both Hello World outputs are
+  visible in the inspected screenshot. Served port 63979 matches the file:
+  SHA-256 `005025a5dbdd98359696c3f68ea9d790268ff268d332d76b9f5998d44a7c90ed`.
+  Logs: `.tmp/learn-game-regression-outcomes-fixed.log`,
+  `.tmp/learn-game-regression-html.log`, `.tmp/learn-game-regression-tests-final.log`,
+  `.tmp/learn-game-regression-browser.log`. Screenshot:
+  `.tmp/learn-served-tooltip.png`. Verification JVMs stopped; preview remains up.
 
 - [x] Use `:align` consistently for native storage, fields and top-level
   declarations. No `:zig/align` uses remain in source, tests or examples.

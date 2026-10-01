@@ -406,11 +406,13 @@ pub const __aguafria_jvm = struct {
                 try writer.print("{d}", .{value});
                 if (std.math.cast(i64, value) == null) try writer.writeByte('N');
             },
-            .comptime_float => try writer.print("{e}", .{value}),
-            .float => {
+            .comptime_float, .float => {
                 if (std.math.isNan(value)) {
                     try writer.writeAll("##NaN");
-                } else if (std.math.isInf(value)) {
+                } else if (if (T == comptime_float)
+                    @abs(value) == @as(comptime_float, std.math.inf(f128))
+                else
+                    std.math.isInf(value)) {
                     try writer.writeAll(if (value < 0) "##-Inf" else "##Inf");
                 } else {
                     try writer.print("{e}", .{value});
@@ -923,6 +925,24 @@ pub const __aguafria_jvm = struct {
         return result(value);
     }
 
+    pub fn declarationFieldResult(value: anytype, comptime Container: type, comptime name: []const u8) usize {
+        // A typed container constant may coerce where a runtime value of the
+        // same type cannot. Keep its compiler-known expression across JVM calls.
+        switch (@typeInfo(Container)) {
+            .@"struct", .@"union", .@"enum", .@"opaque" => {},
+            else => return fieldResult(value),
+        }
+        if (@hasDecl(Container, name)) {
+            switch (@typeInfo(@TypeOf(value))) {
+                .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.is_const) {
+                    return comptimeExpressionResult(@field(Container, name));
+                },
+                else => {},
+            }
+        }
+        return fieldResult(value);
+    }
+
     pub fn release(address: usize) void {
         aguafria_jvm_release(address);
     }
@@ -932,9 +952,17 @@ pub const __aguafria_jvm = struct {
     }
 
     pub fn comptimeResult(comptime value: anytype) usize {
-        return switch (@typeInfo(@TypeOf(value))) {
-            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => inspectResult(.{ .comptime_value = value }),
-            else => result(null),
-        };
+        switch (@typeInfo(@TypeOf(value))) {
+            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => {},
+            else => return result(null),
+        }
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        const writer = &sink.writer;
+        // This is a transport envelope, not a field path in the source value.
+        writer.writeAll("{:comptime_value ") catch @panic("Cannot write comptime result");
+        write(writer, value) catch @panic("Cannot write comptime result");
+        writer.writeByte('}') catch @panic("Cannot write comptime result");
+        return sink.finish();
     }
 };

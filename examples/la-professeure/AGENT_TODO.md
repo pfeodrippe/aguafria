@@ -4,9 +4,427 @@ This is the working checklist, not a completion claim. Keep game and studio in
 separate windows. Preserve recordings, Markdown IDs and existing user edits.
 The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
 
+## October 1 — canonical inventory completed
+
+- [x] Complete all six namespace checkpoints and reconcile the unchanged
+  8,423-operation inventory. Repair the 21 GPU private-scope failures from saved
+  compiler observations, without repeating the full preparation pass or running
+  native bodies. Final coverage: 8,135/8,423 operations, 8,135/8,184 candidates,
+  374 functions prepared and one process entry skip; zero compiler/adapter
+  failures, changed/lost forms, or previously prepared regressions.
+- [x] Fix nested private reflection, constructor/reader/assignment scope,
+  callback address preparation and relocated result cleanup generically.
+  Preserve private game declarations. Cold isolated-cache regressions pass:
+  3 tests / 14 assertions. Keep the 49 disabled-music entries, 211 deferred
+  result-context expressions and 28 declarations/directives explicit.
+- [x] Publish the single eligible-handler bundle: 1,612 handlers, 16,265,152
+  library bytes plus 29,438,208 debug bytes; preserve the two reviewed Studio
+  external-export exclusions. Ordinary game-module images remain separate.
+- [x] Finish final-code fresh-JVM proof and shared bridge regressions: safe game
+  suite passes 3/51, zero compilations, one bundle loaded; explicitly account
+  for two setup-only disk hits. Bridge suite passes 76 tests / 739 assertions.
+  Final verifier evidence is `../../.tmp/game-fresh-final-{check,events}.edn`.
+- [x] Finish Learn HTML/AOT regression against stable final core sources:
+  292/292 outcomes, 99 tests / 12,983 assertions, 11 browser/highlighting checks,
+  all 290 transcripts and no missing outputs. AOT 2,172/2,708, no lost IDs,
+  semantic changes or prepared regressions. Fresh ordinary values body 671 ms,
+  seven output checks, zero compilations. Learn's separate 389 candidate gaps
+  remain recorded and are not part of a claim that all Learn subforms work.
+- [x] Finalize reports and stop all five owned preparation/test JVMs. Confirmed
+  their PIDs and listening ports are gone; preserve the live Learn preview on
+  63979. Older in-flight checklist entries below are historical and superseded
+  by this canonical inventory, not additional preparation jobs. The meaningful
+  game/Studio AOT-gap goal is complete; broader Learn gaps remain separate.
+
+## October 1 — shared-core regression checkpoint
+
+- [x] Fix game bootstrap dependency-order instability: always configure shared
+  graphics before audio. Two tests / eight assertions pass for concurrent load,
+  retry and both require orders; preserve linker argument order in cache keys.
+- [ ] Complete corrected six-namespace `game-canonical.edn` preparation and a
+  new fresh-JVM cache proof. Preliminary runtime verification found 25 compile
+  misses from the differently ordered configuration. The corrected safe test
+  suite passes 3 tests / 51 assertions in a warm JVM, not a fresh-cache proof.
+  The corrected job runs in owned nREPL 65282 (terminal 95826), script
+  `../../.tmp/game-canonical-preparation.clj`, two bounded workers. Its native
+  linker vector and module include map match the normal graphics-first JVM.
+  Preserve this job and its configuration; do not restart just for slow progress.
+  The completed warm verifier PID 48672 was stopped (exit 143). Final cache
+  verification needs a new JVM after this bundle finishes; account separately
+  for the two setup-only constructors not present in the game source.
+  Stopped the redundant GPU-only worker PID 54337 after confirming its live
+  configuration used obsolete audio-first linker arguments (exit 143).
+  The current six-namespace worker PID 63128 includes GPU; do not try port
+  64616 or combine its unfinished report. No cache or completed report removed.
+  Final audit script `../../.tmp/game-final-audit.clj` now checks all 8,423
+  operation identities/forms, previous successes, declared-function identities
+  and statuses, namespace analysis, and explicit gap categories. Only the known
+  recording-tool process entry may be skipped. The script is reader-checked;
+  it must run against the completed canonical report, not historical captures.
+- [x] Corrected-configuration Studio checkpoint: 4,190/4,190 native candidates,
+  230/230 functions, zero baseline/adapter failures, unchanged operation IDs
+  and forms, no prepared regressions. Canonical subtotal is now 5/6 namespaces:
+  7,063/7,328 operations, 7,063/7,112 candidates, 340 functions and one process
+  entry skip. GPU's 1,095 operations remain in flight in the same owned JVM.
+- [x] Studio: finish 4,187/4,190 native candidates and 230/230 functions;
+  repair its three adapter gaps using compiler-reflected member parameter
+  types and the existing reflected callback wrapper. Checked ordinary JVM
+  scalar conversion and adjacent bound/generic methods: 2/28 plus 5/48
+  tests/assertions pass. Stop the completed Studio JVM.
+- [x] Reconcile all five completed namespaces: 7,063/7,328 operations;
+  7,063/7,112 native candidates. Remaining 49 native observations are disabled
+  music paths; GPU's 1,095 operations remain pending. Keep old captures distinct
+  from final current-key bundle verification.
+- [x] Reuse identical compile-only reference refresh snapshots with strict
+  invalidation; 43/2,227 unit tests/assertions and 10/58 native pass. Corrected
+  counter: 34 of 73 real refresh requests avoided; runtime refresh is unchanged.
+- [x] Broad member-call regressions: 26 tests / 260 assertions, zero failures.
+  Stop the completed test JVM. Scene recapture also completed (976 candidates,
+  40 functions, 12m55s, zero standalone artifacts); its JVM is stopped.
+- [x] Review the two Studio external-export exclusions: callback-address
+  graphs include the actual exported `draw!` function. Preserve its linker
+  identity; do not silently rename user exports to force bundling.
+- [x] Current Learn regression: 292/292 outcomes, 99 tests / 12,983 assertions,
+  11 browser checks, 290 transcripts and zero missing outputs. AOT unchanged
+  at 2,171/2,708 in 5m23s; fresh JVM values body 909 ms with zero compilations.
+  Live page reloaded, completed Learn workers/REPL stopped. Existing Learn
+  coverage gaps remain explicitly reported in its regression report.
+- [ ] Finish GPU preparation and final current-code game bundle assembly
+  and fresh-JVM proof.
+- [x] Current-code five-namespace preparation completed with native execution
+  blocked and two bounded workers (`game-final.edn`). It excludes GPU's
+  operation inventory. This is historical audio-first configuration evidence;
+  preserve its capture, but do not combine it into the canonical final bundle.
+  Final result: 7,063/7,328 operations, 7,063/7,112 native candidates,
+  340 prepared functions and one skipped process entry; no failed adapters.
+  Studio: 4,190/4,190 candidates and 230/230 functions. The remaining 49
+  candidates are disabled music. One bundle: 1,156 handlers, 9,030,000 library
+  bytes plus 18,166,077 debug bytes; two justified external-export exclusions.
+  Duration 2,277,714 ms; completed worker PID 46839 stopped (exit 143).
+- [ ] Run the new persistent `jvm-preparation-test` safe checks after this
+  combined bundle finishes, from a fresh owned JVM. It covers pure game helpers,
+  read-only initial audio state, and local-buffer Unicode C calls. No windows,
+  devices, playback, recordings or game-file changes are involved.
+  Preliminary execution is now complete (3 tests / 51 assertions pass); the
+  configuration mismatch above requires a new fresh JVM after publication.
+- [x] Verify the old GPU worker's loaded code, not just its age: a pure
+  member-plan query omitted the new compiler-reflected parameter conversion,
+  while the current worker included it. Stop obsolete PID 97557 (exit 143)
+  rather than await a result that cannot prove final-key reuse. No cache was
+  removed. Its replacement uses current core and the same project configuration
+  as the five-namespace run; report `game-gpu-final.edn`, native invocation
+  blocked, one worker. The five-namespace job was not interrupted.
+
+- [x] Refresh the three support namespaces on current reflected wrappers:
+  1,897/1,897 native candidates, 1,897/1,948 total operations, 70 prepared
+  functions plus one process entry. Guarded preparation took 187,449 ms;
+  604 newly bundled handlers and 63 reused, no standalone artifacts. Capture
+  saved to `.tmp/game-support-current-artifacts.edn` for final assembly.
+- [x] Fresh owned JVM: recording-tool text hashes, recorder stopped-device
+  mask, and mixer loop-state return expected values in 989 ms, zero
+  compilations (four disk hits, four bundle hits, three memory hits). No
+  device/gameplay/file operations invoked. Verification JVM stopped.
+- [x] Reconcile support/Scene reports plus the two source-identity-checked
+  Scene repairs: 2,873/3,004 prepared; 49 disabled-music observations remain
+  unprepared, 68 deferred forms and 14 declarations/directives are separate.
+  GPU/Studio's 5,419 operations remain pending out of the full 8,423.
+- [x] Stop obsolete full-game comparison PID 41559, which used older core
+  code and duplicated dedicated GPU/Studio work. Preserve its four completed
+  checkpoints and log; do not use it as current verification.
+- [x] Scene finished: 974/1,056 operations and 40/40 functions, 18m19s.
+  Repair its two concrete adapter gaps without repeating all preparation:
+  nested contextual-cast arithmetic and imported callback parameter types.
+  Actual Scene observations and both prepared adapters are recorded separately
+  in `scene-repair-{observations,prepared}.edn`. That raises verified Scene
+  entries to 976; 49 unobserved paths are behind `background-music-enabled`
+  (false), not counted as prepared. The baseline report is preserved.
+- [x] Verify callee-reflected argument wrappers with native cross-namespace
+  callbacks and nested optional/slice schemas; 52 focused assertions, plus
+  five existing contextual-probe assertions and 2,217 runtime assertions.
+- [x] Finish Learn after the wrapper change: 292/292 outcomes, 99 tests /
+  12,983 assertions, 11/11 browser checks, 290 transcripts with no missing
+  outputs. AOT 2,171/2,708, zero lost/changed forms; fresh ordinary values body
+  971 ms with zero compilations. Full details in Learn's regression report.
+
+- [x] Reuse unchanged declaration fingerprints during reference refresh while
+  preserving changed source/type/callable/ABI/cyclic invalidation. Runtime:
+  41 tests / 2,217 assertions. Native state-preserving reload/error-union edits:
+  two tests / 35 assertions. Isolated refresh benchmark: 150 ms to 61 ms,
+  identical metadata and fingerprints. No whole-project timing claim yet.
+- [x] Add a current-report reconciliation script with namespace uniqueness and
+  exact 8,423-operation scope checks; do not merge old-job counts into current
+  coverage.
+- [ ] Collect current Scene/GPU/Studio reports, then assemble their validated
+  artifact descriptions into the final single bundle. Owned preparers capture
+  descriptors at finish to `.tmp/{scene,gpu,studio}-current-artifacts.edn`; this
+  avoids repeating their type analysis. Support capture is complete. GPU and
+  Studio started before reflected-parameter emission changed; their adapters
+  must be refreshed to current keys before final fresh-JVM reuse claims.
+- [ ] Verify the combined result from a fresh JVM, including safe ordinary
+  subforms and representative previously failing contexts, with no native
+  gameplay/recording bodies. Refresh Learn after shared core stabilizes.
+
+- [x] Skip root-member regex scans for dependency sources without a matching
+  import. 40 runtime tests / 2,210 assertions pass; 20 real GPU inspection
+  sources produce identical member sets, 64 ms to 1.2 ms for the isolated scan.
+- [x] Finish guarded current Scene preparation (1,056 operations), alongside
+  the already-live GPU/full-game jobs; classify disabled paths without counting
+  them as prepared.
+
+- [x] Remove repeated full-name-set rebuilding during declaration collection;
+  preserve immediate reference validation and isolate module scopes. Core:
+  70 tests / 2,528 assertions; converter: 5 / 45; affected Learn tooling: 8 / 68,
+  all passing. Collector-only 5,000-declaration benchmark: 850 ms to 7 ms,
+  identical scopes/order. Whole-game timing remains unmeasured for this change.
+- [ ] Reconcile running full-game/GPU preparation results with current code;
+  neither live job includes the latest collection optimization. Do not restart
+  merely for slowness or count in-flight operations as prepared.
+
+- [x] Refresh Learn after typed-call/deferred-assignment changes: 292/292
+  outcomes; 99 tests / 12,983 assertions; 11/11 browser checks. AOT remains
+  2,171/2,708, zero lost/changed operations, in 5m30s. HTML has all 290 REPL
+  transcripts, no missing outputs. Fresh nREPL values body: 745 ms, correct
+  output, zero compilations. Details in Learn's core regression report.
+
+- [x] Apply typed callees' parameter context to deferred JVM arguments, including
+  pointers and externs; prepare the identical adapter from Zig observations.
+  Focused checks: 36 assertions. Fresh JVM calls: 11 bundle hits, three disk
+  hits, zero compilations; normal namespace load still compiled one validation
+  artifact. Broad tests caught one stale extern assertion, corrected and
+  rechecked with nine passing assertions. See the AOT report for exact totals.
+- [x] Report deferred JVM syntax values separately without inflating compiled
+  operation counts. Current recording-tool/mixer/recorder report: 1,897/1,897
+  native candidates, 1,897/1,948 overall; 40 deferred calls, eight directives,
+  three type declarations; zero failed adapters. Finished in 83s, one
+  604-handler bundle. Report: `.aguafria/precompile/game-typed-context.edn`.
+
+- [x] Preserve deferred cast operands in assignment preparation; use Zig leaf
+  types and the ordinary JVM adapters. Assignment/conditional checks: 26
+  assertions; adjacent tests: 68. Fresh-process preparation and restart prove
+  five disk hits and zero compilations. Recording-tool AOT: 534/547 in 61s,
+  with 10 assignment observations (five distinct forms) corrected, no failed
+  adapters. Remaining: nine deferred casts, three directives, one declaration.
+- [x] Print fingerprint sort keys once, preserving exact ordering. Runtime:
+  37 tests / 2,192 assertions; native state/reload: 30 assertions, all pass.
+- [ ] Reconcile the full GPU/Studio inventory after its live comparison run;
+  validate latest contextual signatures and finish classifications. Refresh
+  Learn again only if further shared-core edits require it. Do not treat the older live run as proof of
+  the latest code. Details: `AOT_PREPARATION_REPORT_2026-09-30.md`.
+
+- [x] Expand imported argument aliases in JVM wrappers, as already done for
+  results. The `VkResult` integer calls exposed the gap. Alias/runtime suite:
+  36 tests / 2,189 assertions; alias calls compile nothing after preparation.
+- [x] Include resolved wrapper ABI in rendered-source cache identity. Without
+  it, reusing address-taking source with scalar metadata crashed the old test
+  REPL. Three cache tests / 17 assertions pass, including the ABI transition.
+- [x] Fresh six-namespace safe-helper check: 45/45 assertions, zero failures/
+  errors, 7,296 ms, 18 disk hits, 155 memory hits and one corrected GPU wrapper
+  compilation. Verification REPL stopped; full zero-build game proof is pending.
+- [x] New Learn refresh: 292/292 outcomes, 99 tests / 12,983 assertions,
+  11/11 browser checks, all 290 transcripts; AOT 2,171/2,708 unchanged,
+  5m48s. Fresh values body 986 ms, zero builds; normal require also zero.
+- [x] Batch validation now extends one preceding-name set, retaining strict
+  ordering/replacement checks. Runtime: 36 tests / 2,180 assertions; emitter,
+  native state and converted-C reload: 62 tests / 378 assertions. Synthetic
+  20K validation loop: 12,499 ms to 6.6 ms. Fresh real load: 334,304 ms;
+  45/45 helper assertions in 6,760 ms, 19 disk hits, 155 memory hits and zero
+  compilations. Verification REPL stopped. Ordinary macro loading and
+  fingerprinting remain separate costs; full game bundle is still pending.
+
+- [x] Contextual indices now use the same preparation plan and input readers as
+  JVM indexing. Empty-cache test: 28 assertions; two-JVM index check: zero
+  call-time compilations. This covers arrays, sentinel arrays, slices and
+  many-item pointers, including `intCast` and `intFromFloat` indices.
+- [x] Reuse the immutable registry name index instead of rebuilding all names
+  for each adapter. Native/state/hot-reload and focused regressions: 39 tests,
+  2,257 assertions, zero failures/errors. Owned verification REPL stopped.
+- [ ] Full latest six-namespace recount is running as `game-indexed-registry`;
+  do not substitute the older `game-studio-signatures` run for current results.
+- [x] Refresh Learn after index/registry changes: 292/292 outcomes; 99 tests /
+  12,983 assertions; 11/11 browser checks; 290 transcripts, none missing.
+  AOT unchanged at 2,171/2,708, zero losses, 5m59s. Fresh JVM values body
+  969 ms, zero builds; normal require also zero. No Learn source edits added.
+
+- [x] Composite-input preparation: 1,897/1,948 (+10), zero lost operations or
+  changed forms, 2m00s. All eight rejected probes and both constructors resolved
+  in recording-tool/mixer/recorder; 70 concrete functions prepared, one test skipped.
+- [x] Empty-cache regression: 23 assertions pass. Separate prepare/restart JVMs:
+  15 disk hits, one memory hit, zero builds; no game/audio/file side effects.
+- [x] Finish broader composite-input regression run; fix its one assignment
+  context failure. The extended test and two adjacent tests pass 36 assertions.
+  GPU/scene/Studio analysis is complete: 6,408 observed operations, 49 unobserved,
+  one rejected Studio index/intCast probe, and 17 non-calls. Preparation remains
+  pending; analysis alone is not counted as prepared.
+- [x] Current Learn refresh: 292/292 outcomes, 99 tests / 12,983 assertions,
+  11 browser checks, all 290 HTML outputs. AOT 2,171/2,708 (+11, zero losses),
+  6m52s; fresh JVM values body 747 ms, zero compilations. Owned REPL stopped.
+- [ ] Remaining focused inventory: 40 deferred result-context expressions,
+  eight compiler directives and three type declarations, still counted explicitly.
+
+- [x] Preserve Zig-confirmed immutable numeric C declarations across JVM calls;
+  use the same compiler expression during AOT. Focused test: 11/11 assertions,
+  zero call-time compilations, no native invocation during preparation.
+  Fix the related type-constant envelope path and lazy type operand handling.
+- [x] C-constant game recount: 1,875/1,948 prepared (+9), zero regressions,
+  4m30s. One conditional C-enum adapter still fails (recorder line 470).
+- [x] Final Learn verification after the error-set guard: 292/292 outcomes,
+  99 tests / 12,983 assertions, 11/11 browser checks; rebuilt HTML has 290 REPL
+  transcripts and zero missing. AOT stays 2,160/2,708, zero regressions, 7m24s.
+  Fresh values body: 728 ms and zero compilations. Initial require also compiled
+  zero modules on this run. The earlier two interrupted Learn runs are excluded.
+- [x] Error-set guard regression: 2 tests / 15 assertions pass. Both owned
+  test REPLs stopped after verification.
+- [x] Fix cold-cache explicit-integer coercion reuse without weakening range
+  checks: 2 tests / 23 assertions pass in a fresh JVM and empty cache.
+- [x] Prepare conditional C-declaration alternatives using compiler-observed
+  representations. Two focused tests / 19 assertions pass, with native
+  invocation forbidden during preparation and zero call-time compilations.
+- [x] Complete `learn-integer-branches` refresh: 292/292 outcomes, 99 tests /
+  12,983 assertions, 11 browser checks, 290 transcripts with none missing.
+  AOT 2,160/2,708, zero regressions, 4m58s; fresh values body 1,248 ms and zero
+  compilations. Broader core suite: 62 tests / 475 assertions, all passing.
+- [x] Recount conditional C-declarations and function aliases: 1,887/1,948
+  prepared (+12), zero lost operations or changed forms, 3m25s. Recording-tool
+  reaches 533/547, mixer 309/320, recorder 1,045/1,081.
+- [x] Call function-valued constants through the normal JVM bridge without
+  trying to read function storage. Compile-only regression: 15 assertions pass;
+  a separate restarted JVM has seven disk hits, eight memory hits, zero builds.
+- [x] Resolve the alias checkpoint's eight rejected probes and two nominal
+  constructors in the composite-input checkpoint above. The 40 deferred
+  expressions and 11 non-calls remain explicitly categorized.
+- [x] Alias-revision Learn refresh: 292/292 outcomes, 99 tests / 12,983
+  assertions, 11 browser checks, all 290 HTML transcripts present. AOT unchanged
+  at 2,160/2,708 with zero regressions, 6m27s; fresh values body 864 ms, zero
+  compilations. Broader core: 63 tests / 490 assertions; verification REPL stopped.
+
+- [x] Query local C-import/computed-type identities through Zig; avoid alias
+  initializer cycles and forcing unrelated translated C macros. Focused identity
+  suite: 14 tests / 102 assertions. C ABI numeric results prepare owned storage.
+- [x] Learn verification: 292/292 outcomes, 99 tests / 12,983 assertions, 11/11
+  browser checks. HTML rebuilt, 290 transcripts and zero missing outputs.
+  AOT improved to 2,160/2,708 (+2), zero prepared-operation regressions; fresh-JVM
+  `values` body 668 ms, zero compilations.
+- [x] Refine identities after probe isolation: recorder now has zero incomplete
+  identities (1,070/1,081 observed; six rejected and five unsupported).
+  Actual three-namespace preparation improved by 224 operations to 1,866/1,948:
+  recording-tool 522/547, mixer 307/320, recorder 1,037/1,081.
+- [x] Distinguish type declarations/compiler directives from executable calls
+  without counting them as prepared or removing them from the inventory.
+- [x] Recheck Learn after constant-envelope/NaN decoding and explicit private
+  definition validation fixes: 292/292 outcomes, 99 tests / 12,983 assertions,
+  11/11 browser checks; rebuilt/served HTML has 290 transcripts, zero missing.
+  AOT stays 2,160/2,708 with zero regressions. Fresh values body: 987 ms and zero
+  compilations; initial require compiled one namespace module. Core discovery
+  suite passes 58 tests / 441 assertions, plus two focused 8-test/52-assertion groups.
+- [ ] Resolve native-library loading pressure: an isolated JVM stress suite
+  reached 68/75 test starts before macOS exhausted TLS pthread keys. This is
+  not a passing suite; focused tests and the remaining tests run separately.
+- [ ] Complete the running older-code six-namespace comparison, then recount
+  affected game namespaces against the current core. Do not restart that job
+  solely because it is slow. Full goal remains active.
+
 ## September 30 — current API and live-reload verification
 
+### Follow-up active goal: remaining operation preparation gaps
+
+Baseline: 6,614 / 8,423 operations prepared; 1,809 gaps. Do not recount earlier
+passing checks as new evidence or execute game/audio bodies for type discovery.
+
+Latest focused follow-up: the two tuple/container-state restart cache misses are
+fixed (89 + 3 assertions; zero fresh-JVM builds). Numeric precision checks pass
+28 assertions. Computed `undefined` constructors now prepare without executing
+their bodies; five assertions pass, including zero call-time compilations.
+The running six-namespace recount started before these fixes and remains a
+comparison checkpoint, not verification of the newest implementation.
+
+- [ ] Preserve compiler-confirmed nominal/opaque identities (1,094 gaps).
+- [ ] Separate declaration/control syntax from callable operations (337 entries);
+      fix meaningful missing probe placements rather than hiding them.
+- [ ] Preserve compiler result context (276 gaps) and computed constructors (2).
+- [ ] Repair rejected probes (61) and investigate missing observations (39).
+- [ ] Add regressions and verify safe direct JVM calls plus fresh-JVM cache reuse.
+- [ ] Rerun the six-namespace report and record counts, reasons and examples.
+- [x] Recheck Learn tests and compile-only preparation after shared-code changes;
+      refresh outcomes, rebuild/verify HTML, and inspect served output/tooltips.
+- [ ] Update the investigation report and stop owned verification JVMs.
+
+Follow-up evidence (not full-goal completion): imported aliases now enter the
+type catalog according to Zig's `@TypeOf`, and reflection follows array/vector,
+optional and pointer children to retain opaque identity. A formerly failing
+`[:array 2 [:optional [:* nil]]]` regression now prepares without native calls
+and returns `[nil nil]` correctly through the JVM. Identity + result-reader
+regressions: 11 tests / 72 assertions. GPU compiler analysis completed in 33 s
+(after namespace loading): same 1,095 operations, 978 observed, six rejected
+probes. Missing type identities fell from 440 operations to five. Remaining:
+C `FILE` return types at lines 631/797 and function-pointer types at 998/1104.
+Report: `.aguafria/precompile/gpu-identity-analysis.edn`. This is improved
+observation coverage, not yet a new fully-prepared operation count.
+
+The requested Learn recheck exposed an inferred-error reader regression; fixed
+by preparing the actual JVM bridge result type. Whole-Learn AOT returned to
+2,117 / 2,708 prepared operations (591 gaps, same gap count as its prior report).
+Fresh JVM `values.clj`: normal require 2,704 ms, ordinary body 863 ms, zero
+compilations, 34 bundle hits. Two other restart fixture misses (nested tuple
+repetition and container-variable accessor identity) remain open; do not claim
+universal zero-build coverage. Current Learn verification: 96 tests / 12,973
+assertions pass; 292 / 292 native outcome comparisons match; HTML contains 290
+REPL transcripts with zero missing outputs; 11 / 11 browser checks pass. Served
+HTML matches the rebuilt file and the inspected ZLS tooltip has no duplicate
+native title. Owned verification JVMs stopped; Learn preview remains on 63979.
+See the Learn checklist for logs and the content hash.
+
 This new task supersedes the earlier physical-acceptance-only stopping point below.
+
+Current continuation evidence:
+- [x] Preserve nested cast result context without breaking adjacent Zig casts.
+  GPU analysis: 1,091 / 1,095 observed, zero rejected probes, four container
+  declarations; 24.0 s after loading. Nine explicit cast chains have compiler
+  result/operand signatures. Integer/float/pointer runtime regressions compile
+  zero artifacts after preparation. Combined suite: 72 tests / 435 assertions.
+- [x] Repair lazy-extern semantic validation: root the new concrete body in
+  no-link validation only. Expanded regression: 11 assertions pass, including
+  generic declarations and invalid aggregate-returning bodies.
+- [x] Refresh Learn preparation/outcomes/HTML after these contextual-cast changes:
+  2,157/2,708 prepared, 551 gaps (26 fewer), no previously prepared operation
+  regressed; 4m06s. Outcomes 292/292, tests 99/12,983, browser checks 11/11.
+  HTML has 290 transcripts and zero missing outputs. Fresh `values` body:
+  863 ms, 34 bundle hits, zero compilations. See Learn's regression report.
+- [x] Preserve literal operands and builtin comptime parameters in contextual
+  preparation. `fieldParentPtr` keeps its field name, and `ptrFromInt` keeps
+  its literal address. Focused contextual tests: 17 assertions pass; prepared
+  ordinary JVM calls compile zero artifacts. Whole-Learn recount completed:
+  2,158/2,708 prepared, 550 gaps, no preparation regressions; 4m41s.
+  Outcomes 292/292, tests 99/12,983, browser 11/11. Rebuilt HTML contains 290
+  transcripts, zero missing. Fresh `values` body: 688 ms, zero compilations.
+- Concrete extern calls now participate in inspection and explicit preparation;
+  lazy declaration loading is unchanged. Configured linkage is attempted rather
+  than silently skipping extern prototypes. Regression: seven assertions pass
+  without invoking native functions during preparation.
+- Type candidates are resolved lazily in Zig. Function types and opaque types
+  reachable through reflected return/parameter types retain their identities.
+  GPU recount: 1,095 operations, 1,085 observed (previously 978), four unsupported
+  placements (previously 111), six rejected probes, zero missing type identities
+  (previously five after the prior fix, originally 440). Compiler analysis took
+  49.8 seconds. Report: `.aguafria/precompile/gpu-signature-analysis.edn`.
+- Identity/extern suite: nine tests / 52 assertions pass. Extended callback
+  address check: one test / 13 assertions pass, including zero compilation while
+  obtaining the function pointer. Logs: `.tmp/professeure-signature-regressions.log`
+  and `.tmp/professeure-address-cache-regression.log` in the repository root.
+- [x] Ask Zig to compare native argument type expressions when their schemas
+  differ. Callback pointer spellings now interoperate; incompatible same-width
+  signatures remain rejected. Five assertions pass, including zero first-call
+  compilation after explicitly preparing the comparison adapter.
+- [ ] Automatically discover/precompile type-comparison adapters for differing
+  JVM representations. The callable is prepared, but a new schema pair can
+  still require a comparison adapter on its first ordinary JVM call.
+- [ ] Finish six-namespace preparation currently writing
+  `.aguafria/precompile/game-studio-signatures.edn`; log in the repository root:
+  `.tmp/professeure-precompile-signatures.log`. Do not replace the baseline
+  prepared count with observation counts.
+- Latest shared-code HTML/output fingerprints are refreshed and verified. The
+  broader discovery/identity/pointer suite has two remaining cache assertions:
+  tuple representation reuse and fresh-JVM tuple/container-variable reuse.
+  Two additional stale UTF-8 representation expectations were corrected.
 
 - [x] Migrate game/Studio/recorder/mixer source to `k`, concrete `k/var`,
   `k/=`, keyword fields, `az/get`, `az/array` and direct type arguments.

@@ -82,6 +82,11 @@
   [analysis]
   (let [functions (mapcat :functions analysis)
         operations (mapcat :operations analysis)
+        non-call? #(contains? #{:type-declaration :compiler-directive} (:reason %))
+        deferred? #(and (= :observed (:status %))
+                        (seq (:handlers %))
+                        (every? (fn [handler] (= :deferred (:status handler))) (:handlers %)))
+        runtime-operations (remove #(or (non-call? %) (deferred? %)) operations)
         handlers (mapcat :handlers operations)
         prepared? #(and (= :observed (:status %))
                         (seq (:handlers %))
@@ -95,6 +100,14 @@
                   :statuses (frequencies (map :status operations))
                   :fully-prepared (count (filter prepared? operations))
                   :not-fully-prepared (count (remove prepared? operations))}
+     :non-call-operations (frequencies (map :reason (filter non-call? operations)))
+     ;; These calls construct JVM syntax values; their enclosing native calls
+     ;; are separate operations and still have to be prepared successfully.
+     :deferred-calls {:total (count (filter deferred? operations))
+                      :reason :result-context-required}
+     :runtime-candidates {:total (count runtime-operations)
+                          :fully-prepared (count (filter prepared? runtime-operations))
+                          :not-fully-prepared (count (remove prepared? runtime-operations))}
      :incomplete-operation-groups
      (frequencies
       (map (fn [operation]

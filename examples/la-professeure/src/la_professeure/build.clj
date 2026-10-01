@@ -286,7 +286,9 @@
       ;; Loading declarations needs native dependencies, not runtime asset work.
       ;; In particular, compiling the story invokes the native parser and must
       ;; remain in :prepare/startup rather than compile-only precompilation.
-      (native/prepare-shared!)
+      ;; Install graphics before audio regardless of which namespace is required
+      ;; first, so preparation and a fresh REPL use the same linker arguments.
+      ((requiring-resolve 'aguafria-examples-native.bindings/ensure-loaded!))
       (native! :shared)
       (ac/load-bindings! (bindings!))
       (az/configure! {:module-zig-args

@@ -112,7 +112,7 @@
 (deftest first-require-does-not-emit-imported-declarations-in-the-lesson
   (let [source (str "(ns learn.cache.import-isolation (:require [aguafria.zig :as az]))\n"
                     "(az/defconst answer :u32 42)\n"
-                    "(swap! aguafria.zig.runtime/*registration-batch* conj "
+                    "(swap! aguafria.zig.runtime/*registration-batch* update :declarations conj "
                     "{:kind :const :module \"dependency\" :name 'os :value 99})")
         emitted (ref/emit-clojure source 'learn.cache.import-isolation {})]
     (is (str/includes? emitted "answer: u32 = 42"))

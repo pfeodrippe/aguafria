@@ -1,5 +1,6 @@
 (ns aguafria.zig-api-test
   (:require [aguafria.keyword :as ak]
+            [aguafria.zig :as az]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.emitter :as emitter]
             [clojure.string :as str]
@@ -18,7 +19,7 @@
   (let [namespace-symbol (gensym "aguafria.zig-api-test.attributes-")
         scratch (create-ns namespace-symbol)]
     (try
-      (binding [*ns* scratch runtime/*registration-batch* (atom [])]
+      (binding [*ns* scratch runtime/*registration-batch* (runtime/registration-batch)]
         (refer 'clojure.core)
         (require '[aguafria.zig :as az] '[aguafria.keyword :as ak])
         (doseq [form '[(az/defn invalid :void {:attrs [:public]} [])
@@ -31,7 +32,7 @@
 
 (deftest inferred-variable-initializers-are-not-mistaken-for-options-or-types
   (let [scratch (create-ns (gensym "aguafria.zig-api-test.inferred-"))
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
@@ -39,8 +40,8 @@
         (doseq [[name initializer] [['flag false] ['text "hello"] ['empty nil]
                                    ['record {:x 1}] ['tuple [1 2]]]]
           (eval (list 'az/defvar name initializer))
-          (is (nil? (:type (last @declarations))))
-          (is (= initializer (:value (last @declarations)))))
+          (is (nil? (:type (last (runtime/collected-declarations declarations)))))
+          (is (= initializer (:value (last (runtime/collected-declarations declarations))))))
         (doseq [form '[(az/defvar missing)
                       (az/defvar misplaced {:public true} :bool false)
                       (az/defvar misplaced "doc" :bool false)]]
@@ -50,7 +51,7 @@
 (deftest declaration-doc-attributes-and-inferred-types-test
   (let [namespace-symbol (gensym "aguafria.zig-api-test.scratch-")
         scratch (create-ns namespace-symbol)
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (try
       (binding [*ns* scratch
                 runtime/*registration-batch* declarations]
@@ -73,8 +74,8 @@
         (is (= '([[x :u32]]) (:arglists metadata)))
         (is (= :u32 (:aguafria/return-type metadata)))
         (is (= "Inspectable function.\n\nReturns: :u32" (:doc metadata))))
-      (let [by-name (into {} (map (juxt :name identity)) @declarations)]
-        (is (= 4 (count @declarations)))
+      (let [by-name (into {} (map (juxt :name identity)) (runtime/collected-declarations declarations))]
+        (is (= 4 (count (runtime/collected-declarations declarations))))
         (is (nil? (:type (get by-name 'clean-constant))))
         (is (= {:export false :public false :source-comment false}
                (:attributes (get by-name 'clean-constant))))
@@ -93,7 +94,7 @@
 (deftest canonical-functions-and-named-test-vars
   (let [namespace-symbol (gensym "aguafria.zig-api-test.canonical-")
         scratch (create-ns namespace-symbol)
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
@@ -123,7 +124,7 @@
                       (az/deftest old-test {:zig/test-name nil})
                       (az/deftest ^{:zig/test-name "old label"} old-test)]]
           (is (thrown? Exception (eval form)) (pr-str form))))
-      (let [by-name (into {} (map (juxt :name identity)) @declarations)]
+      (let [by-name (into {} (map (juxt :name identity)) (runtime/collected-declarations declarations))]
         (is (= :i32 (:return (by-name 'answer))))
         (is (false? (:implicit-return? (by-name 'answer))))
         (is (true? (:implicit-return? (by-name 'private-answer))))
@@ -135,7 +136,7 @@
 (deftest container-member-vector-semantics
   (let [namespace-symbol (gensym "aguafria.zig-api-test.members-")
         scratch (create-ns namespace-symbol)
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
@@ -151,8 +152,8 @@
                        (az/defstruct Bad [[:value {:var 1 :default 2} :i32]])
                        (az/defstruct Bad [[:value {:const 1 :default 2} :i32]])]]
           (is (thrown? Exception (eval form)))))
-      (is (= [:value] (mapv :name (:fields (first @declarations)))))
-      (let [source (emitter/emit-module (str namespace-symbol) @declarations)]
+      (is (= [:value] (mapv :name (:fields (first (runtime/collected-declarations declarations))))))
+      (let [source (emitter/emit-module (str namespace-symbol) (runtime/collected-declarations declarations))]
         (doseq [expected ["pub var counter: i32 = 1234;"
                           "pub const limit: i32 = 99;"
                           "/// A limit."
@@ -165,7 +166,7 @@
 
 (deftest named-unions-share-the-existing-container-semantics
   (let [scratch (create-ns (gensym "aguafria.zig-api-test.unions-"))
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
@@ -183,7 +184,7 @@
                        (az/defunion Bad [[:x :i32]] [[:y :i32]])
                        (az/defunion Bad {:attrs k/enum} [[:x :i32]])]]
           (is (thrown? Exception (eval form)) (pr-str form))))
-      (let [source (emitter/emit-module (str (ns-name scratch)) @declarations)
+      (let [source (emitter/emit-module (str (ns-name scratch)) (runtime/collected-declarations declarations))
             docs (:doc (meta (ns-resolve scratch 'Payload)))]
         (doseq [expected ["pub const Payload = union {" "/// Integer payload."
                           "pub const Tagged = union(enum) {" "pub fn answer() i32"
@@ -196,7 +197,7 @@
 (deftest vector-types-retain-fields-docs-names-defaults-and-methods
   (let [namespace-symbol (gensym "aguafria.zig-api-test.types-")
         scratch (create-ns namespace-symbol)
-        declarations (atom [])]
+        declarations (runtime/registration-batch)]
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
@@ -224,7 +225,7 @@
                        (az/defenum Old [:x] [:y])
                        (az/defenum Bad [[:x 1 2]])]]
           (is (thrown? Exception (eval form)) (pr-str form))))
-      (let [source (emitter/emit-module (str namespace-symbol) @declarations)]
+      (let [source (emitter/emit-module (str namespace-symbol) (runtime/collected-declarations declarations))]
         (doseq [expected ["enum(u8)" "red = 1" "/// Quoted tag." "@\"really red\" = 7"
                           "/// Seconds since the epoch." "seconds: i64 = 0"
                           "/// Nanoseconds." "/// Returns the epoch."
@@ -262,8 +263,10 @@
                  {:zig/name "aguafria_missing_extern_test_symbol"
                   :zig/prefix "pub extern \"c\""} [])))
       (let [absolute (ns-resolve scratch 'absolute)]
-        (is (= 42 (absolute -42)))
-        (is (= 7 (absolute 7)))
+        (doseq [[input expected] [[-42 42] [7 7]]]
+          (let [result (absolute input)]
+            (is (az/zig-value? result))
+            (is (= expected (az/value result)))))
         (is (= '([[n :c_int]]) (:arglists (meta absolute))))
         (is (= "Returns: :c_int" (:doc (meta absolute))))
         (is (thrown? clojure.lang.ExceptionInfo (absolute))))

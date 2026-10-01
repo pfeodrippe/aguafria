@@ -3282,7 +3282,7 @@
                                     (Math/abs (long (hash (str namespace-symbol
                                                                (gensym)))))))
         scratch (create-ns scratch-symbol)
-        collector (atom [])]
+        collector (runtime/registration-batch)]
     (try
       (binding [*ns* scratch
                 *file* (str namespace-symbol)]
@@ -3306,14 +3306,14 @@
             ;; hundreds of irrelevant shadowing warnings during a large
             ;; source-only bootstrap while preserving every other core Var.
             (let [declaration-name (second form)
-                  before-count (count @collector)]
+                  before-count (count (runtime/collected-declarations collector))]
               (when (and (symbol? declaration-name)
                          (nil? (namespace declaration-name))
                          (contains? (ns-refers scratch) declaration-name))
                 (ns-unmap scratch declaration-name))
               (eval form)
               (when-let [source-order (::source-order (meta form))]
-                (swap! collector
+                (swap! collector update :declarations
                        (fn [declarations]
                          (into (subvec (vec declarations) 0 before-count)
                                (map #(assoc % :source-order source-order))
@@ -3323,7 +3323,7 @@
                                    (nil? (:source-order declaration))
                                    (assoc :source-order index)))
                                (range)
-                               @collector)]
+                               (runtime/collected-declarations collector))]
         ;; Emit while scratch Vars still exist: qualified declaration/import
         ;; references resolve through their metadata, then the namespace can be
         ;; removed without leaking tooling state into the user's REPL.
@@ -3743,7 +3743,7 @@
   ([path {:keys [compile? replace?]
           :or {compile? false replace? true}}]
    (let [file (.getCanonicalFile (io/file path))
-         declarations (atom [])]
+         declarations (runtime/registration-batch)]
      (when-not (.isFile file)
        (throw (ex-info "Converted Clojure input is not a regular file"
                        {:path (str path) :resolved (.getAbsolutePath file)})))
@@ -3751,7 +3751,7 @@
        (binding [runtime/*registration-batch* declarations]
          (load-file (.getAbsolutePath file)))
        (let [module (str namespace)
-             grouped (group-by :module @declarations)
+             grouped (group-by :module (runtime/collected-declarations declarations))
              results
              (into {}
                    (map (fn [[loaded-module loaded-declarations]]

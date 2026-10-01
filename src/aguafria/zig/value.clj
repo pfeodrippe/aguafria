@@ -120,7 +120,27 @@
               (keyword (:name error)))
         (:type error)))
 
-(deftype ZigValue [descriptor state materialize]
+(defmacro ^:private def-native-value-type [name fields & body]
+  ;; IFn has a Java overload for every arity; all use the same native call path.
+  (let [invoke (fn [receiver arguments]
+                 `((requiring-resolve 'aguafria.zig.jvm/invoke-native-value!)
+                   ~receiver ~arguments))
+        receiver (gensym "value")
+        arguments (vec (repeatedly 20 #(gensym "argument")))
+        more (with-meta (gensym "more") {:tag 'objects})]
+    `(deftype ~name ~fields
+       clojure.lang.IFn
+       ~@(for [arity (range 21)
+               :let [parameters (subvec arguments 0 arity)]]
+           `(~'invoke [~receiver ~@parameters] ~(invoke receiver parameters)))
+       (~'invoke [~receiver ~@arguments ~more]
+         ~(invoke receiver `(into ~arguments ~more)))
+       (~'applyTo [~receiver ~'arguments] ~(invoke receiver 'arguments))
+       (~'call [~receiver] ~(invoke receiver []))
+       (~'run [~receiver] ~(invoke receiver []) nil)
+       ~@body)))
+
+(def-native-value-type ZigValue [descriptor state materialize]
   clojure.lang.ILookup
   (valAt [this key]
     (lookup-field this key))

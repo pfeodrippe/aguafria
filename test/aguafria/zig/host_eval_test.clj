@@ -23,7 +23,7 @@
 (deftest host-computed-types-and-values-are-equivalent
   (in-host-context!
    (fn []
-     (let [declarations (atom [])]
+     (let [declarations (runtime/registration-batch)]
        (binding [runtime/*registration-batch* declarations]
          (eval '(defn array-n [n] [:array n :u8]))
          (eval '(defn split [s] (vec (seq s))))
@@ -34,31 +34,31 @@
                      (az/clj! (array-n 5)) (az/clj! (split "hello")))]]
            (eval form))
          (is (= (repeat 3 {:type [:array 5 :u8] :value [\h \e \l \l \o]})
-                (map #(select-keys % [:type :value]) @declarations)))
+                (map #(select-keys % [:type :value]) (runtime/collected-declarations declarations))))
          (eval '(az/defconst aliased (az/clj! (string/upper-case "hello")))))
-       (is (= "HELLO" (:value (last @declarations))))))))
+       (is (= "HELLO" (:value (last (runtime/collected-declarations declarations)))))))))
 
 (deftest host-escapes-work-in-function-and-container-positions
   (in-host-context!
    (fn []
-     (let [declarations (atom [])]
+     (let [declarations (runtime/registration-batch)]
        (binding [runtime/*registration-batch* declarations]
          (eval '(def calls (atom 0)))
          (eval '(az/defn add :i32
                   [[x (az/clj! :i32)]]
                   (let [amount (az/clj! (+ 2 3))]
                     (k/+ x amount))))
-         (is (= :i32 (-> @declarations last :args first :type)))
-         (is (= 5 (-> @declarations last :body first second second)))
+         (is (= :i32 (-> (runtime/collected-declarations declarations) last :args first :type)))
+         (is (= 5 (-> (runtime/collected-declarations declarations) last :body first second second)))
          (eval '(az/defn answer (az/clj! :i32) [] (az/clj! 42)))
-         (is (= :i32 (:return (last @declarations))))
-         (is (= [42] (:body (last @declarations))))
+         (is (= :i32 (:return (last (runtime/collected-declarations declarations)))))
+         (is (= [42] (:body (last (runtime/collected-declarations declarations)))))
          (eval '(az/defstruct Point
                   [[:x (az/clj! (do (swap! calls inc) :i32))]
                    [:y {:default (az/clj! (+ 1 2))} :i32]]))
          (is (= 1 (eval '@calls)) "One field escape is not rerun for duplicated descriptor data")
-         (is (= [:i32 :i32] (mapv :type (:fields (last @declarations)))))
-         (is (str/includes? (emitter/emit-declaration (last @declarations)) "y: i32 = 3")))))))
+         (is (= [:i32 :i32] (mapv :type (:fields (last (runtime/collected-declarations declarations))))))
+         (is (str/includes? (emitter/emit-declaration (last (runtime/collected-declarations declarations))) "y: i32 = 3")))))))
 
 (deftest host-values-are-not-executable-returned-code
   (in-host-context!
@@ -86,7 +86,7 @@
        (is (= 27 (:line (meta (:form data)))))
        (is (some #(str/includes? (or (ex-message %) "") "host exploded")
                  (take-while some? (iterate ex-cause failure)))))
-     (binding [runtime/*registration-batch* (atom [])]
+     (binding [runtime/*registration-batch* (runtime/registration-batch)]
        (is (thrown? Exception
                     (eval '(az/defn unavailable :i32 [[native-x :i32]]
                              (az/clj! native-x)))))))))
@@ -100,15 +100,15 @@
        (eval form)
        (let [answer (ns-resolve *ns* 'answer)
              first-source (az/source (ns-name *ns*))]
-         (is (= 21 (answer)))
-         (is (= 21 (answer)))
+         (is (= 21 (az/value (answer))))
+         (is (= 21 (az/value (answer))))
          (is (= 1 (eval '@calls)))
          (eval '(defn host-answer [] (swap! calls inc) 42))
-         (is (= 21 (answer)))
+         (is (= 21 (az/value (answer))))
          (is (= first-source (az/source (ns-name *ns*))))
          (is (= 1 (eval '@calls)))
          (eval form)
-         (is (= 42 (answer)))
+         (is (= 42 (az/value (answer))))
          (is (= 2 (eval '@calls)))
          (is (not= first-source (az/source (ns-name *ns*)))))))))
 
@@ -138,7 +138,7 @@
 (deftest host-escapes-capture-surrounding-clojure-bindings
   (in-host-context!
    (fn []
-     (let [declarations (atom [])]
+     (let [declarations (runtime/registration-batch)]
        (binding [runtime/*registration-batch* declarations]
          (eval '(defn array-n [n] [:array n :u8]))
          (eval '(let [sss (fn [s] (vec (seq s)))]
@@ -146,7 +146,7 @@
                     (az/clj! (array-n 5))
                     (az/clj! (sss "hello")))))
          (is (= {:type [:array 5 :u8] :value [\h \e \l \l \o]}
-                (select-keys (last @declarations) [:type :value])))
+                (select-keys (last (runtime/collected-declarations declarations)) [:type :value])))
          (eval '(let [n 5
                       scalar :i32
                       initial 7]
@@ -156,8 +156,8 @@
                   (az/defstruct Captured [[:x (az/clj! scalar)]])
                   (az/defvar captured-state (az/clj! scalar) (az/clj! initial))))
          (is (= {:type :i32 :value 7}
-                (select-keys (last @declarations) [:type :value])))
-         (is (= :i32 (-> @declarations (nth 2) :fields first :type))))))))
+                (select-keys (last (runtime/collected-declarations declarations)) [:type :value])))
+         (is (= :i32 (-> (runtime/collected-declarations declarations) (nth 2) :fields first :type))))))))
 
 (deftest host-escapes-run-on-execution-not-macroexpansion
   (in-host-context!
@@ -168,11 +168,11 @@
      (eval '(defn install! [value]
               (az/defconst captured :i32 (az/clj! (do (swap! hits inc) value)))))
      (is (zero? (eval '@hits)) "Compiling a factory must not evaluate its escapes")
-     (let [declarations (atom [])]
+     (let [declarations (runtime/registration-batch)]
        (binding [runtime/*registration-batch* declarations]
          (eval '(install! 21))
          (eval '(install! 42)))
-       (is (= [21 42] (mapv :value @declarations)))
+       (is (= [21 42] (mapv :value (runtime/collected-declarations declarations))))
        (is (= 2 (eval '@hits)))))))
 
 (deftest lexical-native-functions-recapture-on-factory-invocation
@@ -184,8 +184,8 @@
                 (k/+ x (az/clj! value)))))
      (eval '(install! :i32 10))
      (let [captured (ns-resolve *ns* 'captured)]
-       (is (= 13 (captured 3)))
+       (is (= 13 (az/value (captured 3))))
        (eval '(install! :i32 20))
-       (is (= 23 (captured 3)))
+       (is (= 23 (az/value (captured 3))))
        (is (= :i32 (-> captured meta :aguafria/declaration :return)))
        (is (= :i32 (-> captured meta :aguafria/declaration :args first :type)))))))
