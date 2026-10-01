@@ -12,7 +12,7 @@
             :main-opts ["-m" "la-professeure.core"]}
   :tools {:extra-paths ["tools/src" "tools/resources"]
           :extra-deps {org.clojure/data.json {:mvn/version "2.5.2"}}}
-  :studio-test {:extra-paths ["tools/src" "tools/resources" "tools/test"]
+  :studio-test {:extra-paths ["test" "tools/src" "tools/resources" "tools/test"]
                 :extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
                 :main-opts ["-m" "la-professeure.studio-test"]}
   :tool {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
@@ -21,5 +21,17 @@
             :main-opts ["-m" "la-professeure.build" "prepare"]}
   :standalone {:jvm-opts ["--enable-native-access=ALL-UNNAMED" "-Djava.awt.headless=true"]
                :main-opts ["-m" "la-professeure.build" "standalone"]}
+  :fmt {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.6"}}
+        :main-opts ["-m" "cljfmt.main"]}
+  :precompile {:extra-paths ["tools/src" "tools/resources"]
+               :extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}
+                            org.clojure/data.json {:mvn/version "2.5.2"}}
+               :jvm-opts ["--enable-native-access=ALL-UNNAMED" "-Djava.awt.headless=true"]
+               :exec-fn aguafria.zig.precompile/precompile!
+               :exec-args {:analyze [la-professeure.gpu la-professeure.recording-tool
+                                     la-professeure.scene la-professeure.tools.mixer
+                                     la-professeure.tools.recorder la-professeure.tools.studio]
+                           :parallelism 2
+                           :report-file ".aguafria/precompile/game-studio.edn"}}
   :test {:extra-paths ["test"] :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
          :main-opts ["-m" "la-professeure.test-runner"]}}}

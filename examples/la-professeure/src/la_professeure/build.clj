@@ -21,7 +21,7 @@
 
 (defn run! [command]
   (let [p (-> (ProcessBuilder. ^java.util.List (mapv str command))
-               (.directory (root)) (.redirectErrorStream true) .start)
+              (.directory (root)) (.redirectErrorStream true) .start)
         output (slurp (.getInputStream p)) code (.waitFor p)]
     (when-not (zero? code)
       (throw (ex-info "La Professeure build failed" {:command command :exit code :output output})))
@@ -47,12 +47,12 @@
                (not (and (string? registry) (not (.isBlank ^String registry)))))
       (throw (ex-info "Set :recording-registry to a directory path" {:recording-registry registry})))
     (dialogue/compile! source
-                      (if registry
-                        (if (.isAbsolute (io/file registry))
-                          (io/file registry)
-                          (io/file (root) registry))
-                        (io/file (root) "build/dialogue" (subs (dialogue/digest (str source)) 0 16)))
-                      (io/file (root) "resources/demo/story.lpdialogue"))))
+                       (if registry
+                         (if (.isAbsolute (io/file registry))
+                           (io/file registry)
+                           (io/file (root) registry))
+                         (io/file (root) "build/dialogue" (subs (dialogue/digest (str source)) 0 16)))
+                       (io/file (root) "resources/demo/story.lpdialogue"))))
 
 (def miniaudio-revision "9634bedb5b5a2ca38c1ee7108a9358a4e233f14d")
 
@@ -91,10 +91,10 @@
   ;; expanding thousands of recursive C-type declarations into JVM metadata.
   (let [output (io/file (root) "generated/la_professeure/miniaudio.clj")
         source (str "(ns la-professeure.miniaudio\n"
-                    "  (:require [aguafria.std] [aguafria.keyword :as ak] [aguafria.zig :as az]))\n\n"
-                    "(az/defconst c-api (ak/cImport (ak/cInclude \"miniaudio.h\")))\n\n"
+                    "  (:require [aguafria.keyword :as k] [aguafria.zig :as az]))\n\n"
+                    "(az/defconst c-api (k/cImport (k/cInclude \"miniaudio.h\")))\n\n"
                     (apply str (for [name audio-api]
-                                 (str "(az/defconst " name " {:attrs #{:public}} (az/field c-api :" name "))\n\n"))))]
+                                 (str "(az/defconst " name " {:attrs #{k/pub}} (:" name " c-api))\n\n"))))]
     (io/make-parents output)
     (when (not= source (when (.isFile output) (slurp output))) (spit output source))
     output))
@@ -131,7 +131,6 @@
         (with-open [out (io/output-stream wav)] (.write out (.array b)))))
     {:sprite (str png) :audio (str wav)}))
 
-
 (defn animation-file []
   (io/file (or (System/getProperty "la-professeure.animation")
                (str (io/file (root) "resources/demo/animation.png")))))
@@ -146,9 +145,9 @@
   (let [image (BufferedImage. 2048 1536 BufferedImage/TYPE_INT_ARGB)
         g (.createGraphics image) output (io/file (root) "resources/demo/atlas.rgba")
         font (.deriveFont (Font/createFont Font/TRUETYPE_FONT
-                           (io/file (root) "resources/fonts/LibreBaskerville.ttf")) (float 44))
+                                           (io/file (root) "resources/fonts/LibreBaskerville.ttf")) (float 44))
         ui-font (.deriveFont (Font/createFont Font/TRUETYPE_FONT
-                              (io/file (root) "resources/fonts/IBMPlexSans-Regular.ttf")) (float 30))
+                                              (io/file (root) "resources/fonts/IBMPlexSans-Regular.ttf")) (float 30))
         advances (doto (ByteBuffer/allocate (* 256 4)) (.order ByteOrder/LITTLE_ENDIAN))
         ui-advances (doto (ByteBuffer/allocate (* 256 4)) (.order ByteOrder/LITTLE_ENDIAN))]
     (try
@@ -227,6 +226,7 @@
 (defonce native-loaded (atom false))
 
 (def utf8proc-revision "d7bf128df773c2a1a7242eb80e51e91a769fc985")
+
 (defonce ^:private studio-text-build-lock (Object.))
 
 (defn studio-native-library!
@@ -283,14 +283,18 @@
   ;; duplicate imports change native type identities as well as racing assets.
   (locking native-loaded
     (when-not @native-loaded
-      (prepare!)
+      ;; Loading declarations needs native dependencies, not runtime asset work.
+      ;; In particular, compiling the story invokes the native parser and must
+      ;; remain in :prepare/startup rather than compile-only precompilation.
+      (native/prepare-shared!)
+      (native! :shared)
       (ac/load-bindings! (bindings!))
       (az/configure! {:module-zig-args
                       (assoc (:module-zig-args (az/configuration)) "la-professeure.miniaudio"
                              [(str "-I" (io/file (root) "build/vendor/miniaudio"))])
-                     :zig-args (into (vec (:zig-args (az/configuration)))
-                                     (concat [(str (native-path :shared))
-                                              (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
+                      :zig-args (into (vec (:zig-args (az/configuration)))
+                                      (concat [(str (native-path :shared))
+                                               (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
       (reset! native-loaded true))))
 
 (defn standalone! []
@@ -315,13 +319,13 @@
         (Files/copy (.toPath file) (.toPath target)
                     (into-array StandardCopyOption [StandardCopyOption/REPLACE_EXISTING]))))
     (select-keys (az/build! 'la-professeure.scene
-                   {:kind :exe :name "la-professeure" :output output :optimize "ReleaseFast"
-                    :reloadable? false :async? false
-                    :module-zig-args {"la-professeure.miniaudio"
-                                      [(str "-I" (io/file (root) "build/vendor/miniaudio"))]}
-                    :zig-args (vec (concat (native/standalone-link-arguments)
-                                          [(str (native-path :static))
-                                           (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
+                            {:kind :exe :name "la-professeure" :output output :optimize "ReleaseFast"
+                             :reloadable? false :async? false
+                             :module-zig-args {"la-professeure.miniaudio"
+                                               [(str "-I" (io/file (root) "build/vendor/miniaudio"))]}
+                             :zig-args (vec (concat (native/standalone-link-arguments)
+                                                    [(str (native-path :static))
+                                                     (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
                  [:output-path :duration-ms :optimize])))
 
 (defn tool! []

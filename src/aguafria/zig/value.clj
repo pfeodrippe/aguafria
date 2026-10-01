@@ -1161,6 +1161,21 @@
     (swap! (value-state result) update :owners (fnil into []) owners))
   result)
 
+(defn retain-mutation-owners!
+  "Retain assigned pointer/slice backing storage on a mutable view and its
+  mutable parents. Updating a temporary nested view must outlive that view."
+  [target owners]
+  (let [visited (java.util.IdentityHashMap.)]
+    (letfn [(retain [v]
+              (when (and (zig-value? v) (= :var (:kind (info v)))
+                         (not (.containsKey visited v)))
+                (.put visited v true)
+                (let [parents (:owners (realize! v))]
+                  (retain-owners! v owners)
+                  (doseq [parent parents] (retain parent)))))]
+      (retain target)))
+  target)
+
 (defn address-value
   "Own a pointer to existing storage, retaining its pointee without copying it."
   [owner mutable?]

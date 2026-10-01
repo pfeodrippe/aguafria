@@ -4,6 +4,103 @@ This is the working checklist, not a completion claim. Keep game and studio in
 separate windows. Preserve recordings, Markdown IDs and existing user edits.
 The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
 
+## September 30 — current API and live-reload verification
+
+This new task supersedes the earlier physical-acceptance-only stopping point below.
+
+- [x] Migrate game/Studio/recorder/mixer source to `k`, concrete `k/var`,
+  `k/=`, keyword fields, `az/get`, `az/array` and direct type arguments.
+- [x] Game/parser, source-pattern and bootstrap regressions: 10 tests / 151 assertions pass.
+- [x] Invalidate generated C bindings when the Aguafria renderer changes;
+  keep the underlying Zig translate-c cache reusable. 2 tests / 17 assertions pass.
+- [x] Serialize shared binding publication. Avoid global namespace scans when
+  a keyword alias or fully qualified namespace is already known.
+- [x] Preserve caller-owned dependency storage during JVM inspection/reload;
+  retain its backing native library. Combined guard/state regression: 2 tests,
+  29 assertions pass; runtime unit suite: 32 tests, 158 assertions pass.
+- [x] Correct parameter-alias shadowing in dependent signatures and module-qualified
+  imported type identities. Emitter: 59 tests / 347 assertions; identity: 1 / 4.
+- [x] Fresh game and Studio launch; native mode switching and JVM live-state inspection.
+  Vulkan readbacks inspected for game, Edit, Record and fully loaded Takes views.
+- [x] Multiple live Zig edits: seven body/constant/failure/recovery scenarios
+  preserve window/world addresses. Cached recovery: 204 ms. Full results in report.
+- [x] Standalone ReleaseFast build: 6.0 seconds, 2.1 MB; launched and sampled in
+  native `module.main` → `vkQueueSubmit` (no JVM). Owned smoke process stopped.
+- [x] Full Studio regression suite: 129 tests / 2,853 assertions, zero failures/errors.
+- [x] Separate top-level forms: 343 blank-line separators across 13 source/test files.
+  Parser verification preserves every non-whitespace top-level node, including comments.
+- [x] Preserve the callee's Zig result context in probes of cast arguments;
+  imported-identity/cast-probe regression: 2 tests / 8 assertions passed.
+- [x] JVM aggregate transport regression (array/vector reflection, nominal struct
+  identity, idempotent type qualification and method markers): 2 new tests / 9
+  assertions and 8 existing tests / 53 assertions passed.
+- [x] Add ordinary JVM `az/assoc!` and `az/merge!`, sharing native batched
+  assignment emission. Validate swaps, indexed elements, nested boolean fields,
+  pointer/slice lifetime, immutable rejection and compile-error preservation.
+  Mutation + emitter: 61 tests / 371 assertions pass.
+- [x] Migrate six mixer/recorder audio configuration blocks. Use one entry per
+  line in multiline maps. Live reload preserves game window/world addresses;
+  frame rendering continues with zero game reload failures.
+- [x] Regression tests for imported result aliases, `floatFromInt` inspection
+  context and root-module C include flags: 4 tests / 12 assertions pass.
+  Large-array inspection uses runtime iteration (vectors keep comptime indices);
+  aggregate suite: 3 tests / 10 assertions pass within the combined run.
+- [x] Preserve Zig assignment/callee result context for runtime branches and
+  typed C constants during inspection. Combined context/identity/aggregate
+  regressions: 8 tests / 27 assertions pass.
+- [x] Re-run the affected Studio suite after audio configuration migration:
+  129 tests / 2,853 assertions pass. Mutation callback installation/call also
+  passes, as does signed C constant assignment into unsigned fields from both
+  JVM and native code; mutation suite now has 2 tests / 28 assertions.
+- [x] Extend bundling to preserve ReleaseFast/ReleaseSmall profiles, module-local
+  C include/define flags, and compatible global native libraries/frameworks.
+  Unknown options remain standalone; incompatible configurations still error.
+  Bundle suite: 9 tests / 117 assertions pass, including real native linking.
+- [x] Hoist the dependency-slice container-field scan out of its per-declaration
+  loop. 8,000-declaration microbenchmark: 1,400 ms → 100 ms, identical selection.
+  This is a selection benchmark, not whole-build timing.
+- [x] Preserve the caller's import on nominal members nested inside expanded
+  optional/pointer aliases, including opaque C handles and chains of aliases.
+  Combined runtime/identity regressions: 38 tests / 182 assertions pass.
+- [x] Make exact JVM wrapper artifacts independent of earlier preparation/call
+  requests; both preparation orders reuse disk artifacts and hot edits still work.
+- [x] Replace cross-library Zig allocator/vtable transport with C-ABI allocation
+  and release calls. Reproduced and fixed the ReleaseFast mutation crash; mixed
+  optimization profiles pass. Combined regressions: 40 tests / 249 assertions.
+- [x] Verify bundling after the support ABI change: 9 tests / 117 assertions,
+  including real fresh-JVM bundle reuse, cache misses and guarded native panics.
+  All test child JVMs exited; the owned verification REPL was then stopped.
+- [x] Remove repeated dependency-graph emission across probes within one analysis.
+  Live profiling identified this JVM-side cost. The snapshot is scoped to one
+  analysis, not a persistent cache; subsequent edits are recaptured. Compiler
+  observations match the uncached path: 6 tests / 28 assertions passed.
+- [x] Reuse successful validation of exact handler artifact keys within a single
+  precompile run. Changed types still validate; failures are retried. Bundle
+  regression: 10 tests / 129 assertions. Ten repeated requests measured
+  5.13–5.28 s before versus 0.49–0.55 s with reuse (not whole-project timing).
+- [x] Compile-only precompile of all six game/Studio namespaces: 374 functions
+  prepared, one process entry skipped; 6,614 / 8,423 operations fully prepared,
+  zero failed handlers/functions. Completed in 59m18s using the pre-optimization
+  path. One bundle contains 729 unique adapters: 4.26 MiB library, 9.43 MiB debug
+  symbols, 67 MiB including generated sources/metadata. No game/recording bodies ran.
+- [x] Verify current-ABI cache reuse from a fresh JVM with ordinary namespace
+  loading: ten calls returned correct results with zero call-time compilations;
+  warm calls 0.7–3.3 ms. Startup remains 181 s with one 227 ms module publication.
+- [x] Fix the remaining imported-result decoder preparation miss. An independent
+  `std.builtin.SourceLocation` regression fails before and passes after the fix;
+  preparation-order/imported-result suite: 3 tests / 32 assertions.
+- [x] Final current-ABI live smoke: game and settled Studio GPU readbacks inspected;
+  body edit/restoration preserved window/world addresses and frame progress,
+  with zero reload/worker failures. The display-asleep restoration warning was
+  traced to GLFW monitor filtering, not a failed native value decode.
+- [x] Finish `LIVE_RELOAD_REPORT_2026-09-30.md` with measured results and all six
+  operation-level coverage-gap categories. Physical-device acceptance stays separate.
+- [x] Stop all owned verification JVMs. Final desktop exited normally after
+  closing Studio and the game; no Java processes remained at cleanup.
+
+Owned desktop log: `.tmp/professeure-state-fixed-desktop.log` at repository root.
+Do not mistake parser/unit success for successful rendering or hot reload.
+
 ## Short status — what is actually left
 
 The dialogue-recording workflow is implemented; final platform/hardware acceptance

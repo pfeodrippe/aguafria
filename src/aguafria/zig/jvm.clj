@@ -414,6 +414,14 @@
                                      [{:name 'address :type :usize}] 'inspectResult)]
     (precompile-expression! adapter)))
 
+(defn precompile-result-reader!
+  "Prepare the ordinary native value reader in its producer's scope, without
+  calling the producer or allocating a result. Imported types need this reader
+  even when they have no Aguafria-owned layout declaration."
+  [module type]
+  (let [context (the-ns (symbol module))]
+    (precompile-inspection! context (emitter/qualify-type context type))))
+
 (defn inspect-value!
   "Decode an otherwise unschematized native value using Zig's own reflection.
   Read the current storage; retain the owner and never follow unbounded pointers."
@@ -859,6 +867,52 @@
         (runtime/invoke! qualified-name arguments)
         (finally (java.lang.ref.Reference/reachabilityFence storage))))))
 
+(defn- assoc-native! [target keyvals]
+  (when-not (even? (count keyvals))
+    (throw (ex-info "assoc! expects key/value pairs" {:keyvals keyvals})))
+  (when-not (and (value/zig-value? target) (= :var (:kind (value/info target))))
+    (throw (ex-info "assoc! requires mutable native storage; create it with k/var"
+                    {:target target})))
+  (when (seq keyvals)
+    (let [storage (value/address-value target true)
+          entries (partition 2 keyvals)
+          operands (into [storage] (mapcat (fn [[key v]]
+                                            (if (keyword? key) [v] [key v])) entries))
+          {:keys [parameters arguments expression-arguments]}
+          (call-inputs (repeat (count operands) {:type :anytype}) operands)
+          pairs (loop [entries entries inputs (next expression-arguments) out []]
+                  (if-let [[key _] (first entries)]
+                    (if (keyword? key)
+                      (recur (next entries) (next inputs) (conj out key (first inputs)))
+                      (recur (next entries) (nnext inputs)
+                             (conj out (first inputs) (second inputs))))
+                    out))
+          expression (apply list 'aguafria.zig/assoc!
+                            (list 'aguafria.zig/deref (first expression-arguments)) pairs)
+          module (symbol (str "aguafria.jvm.assoc-" (token [expression parameters])))
+          context (or (find-ns module) (create-ns module))
+          qualified-name (symbol (str module) "assign")]
+      (locking context
+        (when-not (contains? @prepared-adapters qualified-name)
+          (binding [runtime/*source-only-registration?* true]
+            (register! context {:kind :fn
+                                :name 'assign
+                                :qualified-name qualified-name
+                                :declaration-key [:fn 'assign]
+                                :return [:array 1 (:type (first parameters))]
+                                :args parameters
+                                :body [expression
+                                       (list 'aguafria.zig/array
+                                             [(first expression-arguments)]
+                                             (:type (first parameters)))]}))
+          (swap! prepared-adapters conj qualified-name))
+        (try
+          ;; The returned pointer holder retains the call arena as well as the
+          ;; inputs. Slice/string fields must not point into a closed call arena.
+          (value/retain-mutation-owners! target [(runtime/invoke! qualified-name arguments)])
+          (finally (java.lang.ref.Reference/reachabilityFence operands))))))
+  target)
+
 (defrecord ^:private PreparedOperand [type])
 (defrecord ^:private PreparedType [schema])
 
@@ -1197,9 +1251,7 @@
      ;; Zig file: an imported helper cannot see a private declaration.
      :expression (if context
                    (list 'if (list 'aguafria.keyword/comptime method?)
-                         '(aguafria.zig/init
-                           {:__aguafria_bound_method true}
-                           (aguafria.zig/struct [[:__aguafria_bound_method :bool]]))
+                         '((field __aguafria_jvm :boundMethod))
                          ordinary)
                    ordinary)
      :types [address]}))
@@ -1398,6 +1450,9 @@
                     {:function symbol :actual (count arguments)
                      :expected param-count :minimum minimum-param-count})))
   (cond
+    (= 'assoc! (:name syntax))
+    (assoc-native! (first arguments) (rest arguments))
+
     (keyword/result-context-required? (:zig-name syntax))
     (->ContextualCall syntax (vec arguments))
 

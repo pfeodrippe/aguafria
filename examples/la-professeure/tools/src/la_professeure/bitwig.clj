@@ -9,7 +9,9 @@
            [java.io DataOutputStream BufferedReader InputStreamReader]))
 
 (defonce connection (atom nil))
+
 (defonce pending (atom {}))
+
 (defonce status (atom {:state :stopped}))
 
 (defn- fail-pending! [message]

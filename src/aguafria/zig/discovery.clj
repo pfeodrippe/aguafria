@@ -15,7 +15,7 @@
   ;; discards that context; this is a syntax constraint, not type inference.
   #{"@intCast" "@floatCast" "@ptrCast" "@alignCast" "@addrSpaceCast"
     "@constCast" "@volatileCast" "@bitCast" "@ptrFromInt" "@fieldParentPtr"
-    "@splat" "@enumFromInt" "@errorCast" "@intFromFloat" "@truncate"})
+    "@splat" "@enumFromInt" "@errorCast" "@intFromFloat" "@floatFromInt" "@truncate"})
 
 (defn- needs-result-context? [source]
   (boolean (some contextual-builtins (re-seq #"@[A-Za-z0-9_]+(?=\()" source))))
@@ -70,6 +70,10 @@
           imported? (and (:aguafria/zig-reference var-meta)
                          (not (:aguafria/declaration var-meta)))
           declaration (:aguafria/declaration var-meta)
+          concrete-function? (and (= :fn (:kind declaration))
+                                  (not-any? #(or (contains? #{:type 'type :anytype 'anytype} (:type %))
+                                                 (= "comptime" (get-in % [:properties :zig/prefix])))
+                                            (:args declaration)))
           noreturn? (or (= :noreturn (:return declaration))
                         (some-> (or (:signature syntax)
                                     (get-in var-meta [:aguafria/zig-reference :signature]))
@@ -102,7 +106,7 @@
                                     (map render (rest form)))
                               source-literal? [(render form)]
                               (and assignment (= "=" (:zig-token syntax))
-                                   (needs-result-context? (render (nth form 2))))
+                                   (not (contains? #{:_ '_} (second form))))
                               [(render (second form))
                                (str "@as(@TypeOf(" (render (second form)) "), "
                                     (render (nth form 2)) ")")]
@@ -119,7 +123,16 @@
                               (and conversion? (not contextual-input?))
                               [(render form) (render (second form))]
                               constructor? [(render form)]
-                              :else (mapv render (rest form))))
+                              :else
+                              (mapv (fn [index argument]
+                                      (let [expression (render argument)]
+                                        (if concrete-function?
+                                          ;; Keep the original call's parameter context, including
+                                          ;; casts and runtime branches whose arms are literals.
+                                          (str "@as(@typeInfo(@TypeOf(" (render (first form))
+                                               ")).@\"fn\".params[" index "].type.?, " expression ")")
+                                          expression)))
+                                    (range) (rest form))))
               parameters (when (and probe? (not (or method-call? source-literal? storage? constructor? assignment operator?)))
                            ((requiring-resolve 'aguafria.zig.jvm/call-parameters)
                             var-meta (dec (count form))))
@@ -140,10 +153,7 @@
                                 :assignment assignment
                                 :literal-arguments (when source-literal? (vec (rest form)))
                                 :member (if method-call? member (when (= :field placement) (nth form 2)))
-                                :concrete-function? (and (= :fn (:kind declaration))
-                                                         (not-any? #(or (contains? #{:type 'type :anytype 'anytype} (:type %))
-                                                                        (= "comptime" (get-in % [:properties :zig/prefix])))
-                                                                   (:args declaration)))
+                                :concrete-function? concrete-function?
                                 :status (if probe? :unobserved :unsupported)
                                 :reason (when-not probe? :inspection-placement)})]
           (swap! operations conj operation)
@@ -246,10 +256,12 @@
                                        (ns-resolve (clojure.core/symbol (name symbol))))
                              reference (:aguafria/zig-reference (meta v))]
                        :when (and (:zig-name reference) (not= (str module) (namespace symbol)))]
-                   (if (= :container (:category reference))
-                     [(:zig-name reference) (str symbol)]
-                     [(str "@TypeOf(" (:zig-name reference) ")")
-                      (pr-str (list 'aguafria.keyword/TypeOf symbol))]))]
+                   (let [expression (emitter/emit-expr (the-ns (clojure.core/symbol (str module)))
+                                                       symbol)]
+                     (if (= :container (:category reference))
+                       [expression (str symbol)]
+                       [(str "@TypeOf(" expression ")")
+                        (pr-str (list 'aguafria.keyword/TypeOf symbol))])))]
     ;; These are existing declaration identities, not inferred schemas. The
     ;; inspector compares the observed type with each identity inside Zig.
     (str/join ", "
@@ -339,42 +351,44 @@
   Native test/function bodies are compiled, never executed."
   [module]
   (binding [runtime/*compile-only?* true]
-    (let [baseline (runtime/inspect-module!
-                    module (fn [declarations]
-                             {:source (str (emitter/emit-module module declarations) (roots declarations))}))
-          initial (inspect-operations! module nil)
-          identities (observed-type-identities initial)
-          result (if (seq identities)
-                   (binding [*observed-type-identities* identities]
-                     (inspect-operations! module nil))
-                   initial)
-          {:keys [observed failures attempts]}
-          (if (and (zero? (:exit baseline)) (compiler-errors? result))
-            (binding [*observed-type-identities* identities]
-              (isolate-probes! module result))
-            {:observed (:observed result) :failures {} :attempts 1})]
-      {:namespace (symbol (str module))
-       :basis :zig-compiler
-       :type-identities identities
-       :compiler-mode :test
-       :baseline {:exit (:exit baseline) :command (:command baseline)
-                  :diagnostics (:err baseline) :source-path (:source-path baseline)}
-       :command (:command result)
-       :source-path (:source-path result)
-       :diagnostics (:err result)
-       :compiler-errors? (compiler-errors? result)
-       :inspection-attempts (+ attempts (if (seq identities) 1 0))
-       :probe-failures failures
-       :operations
-       (mapv (fn [operation]
-               (if-let [types (get observed (:id operation))]
-                 (-> operation
-                     (assoc :status :observed :signatures (vec (sort-by pr-str types)))
-                     (dissoc :reason))
-                 (cond-> operation
-                   (contains? failures (:id operation))
-                   (assoc :status :inspection-failed :reason :compiler-rejected-probe))))
-             (:operations result))})))
+    (runtime/call-with-inspection-context module
+      (fn []
+        (let [baseline (runtime/inspect-module!
+                        module (fn [declarations]
+                                 {:source (str (emitter/emit-module module declarations) (roots declarations))}))
+              initial (inspect-operations! module nil)
+              identities (observed-type-identities initial)
+              result (if (seq identities)
+                       (binding [*observed-type-identities* identities]
+                         (inspect-operations! module nil))
+                       initial)
+              {:keys [observed failures attempts]}
+              (if (and (zero? (:exit baseline)) (compiler-errors? result))
+                (binding [*observed-type-identities* identities]
+                  (isolate-probes! module result))
+                {:observed (:observed result) :failures {} :attempts 1})]
+          {:namespace (symbol (str module))
+           :basis :zig-compiler
+           :type-identities identities
+           :compiler-mode :test
+           :baseline {:exit (:exit baseline) :command (:command baseline)
+                      :diagnostics (:err baseline) :source-path (:source-path baseline)}
+           :command (:command result)
+           :source-path (:source-path result)
+           :diagnostics (:err result)
+           :compiler-errors? (compiler-errors? result)
+           :inspection-attempts (+ attempts (if (seq identities) 1 0))
+           :probe-failures failures
+           :operations
+           (mapv (fn [operation]
+                   (if-let [types (get observed (:id operation))]
+                     (-> operation
+                         (assoc :status :observed :signatures (vec (sort-by pr-str types)))
+                         (dissoc :reason))
+                     (cond-> operation
+                       (contains? failures (:id operation))
+                       (assoc :status :inspection-failed :reason :compiler-rejected-probe))))
+                 (:operations result))})))))
 
 (defn- structural-type? [schema]
   (and (or (keyword? schema) (vector? schema) (qualified-symbol? schema)

@@ -9,6 +9,7 @@
             [la-professeure.scene :as scene]
             [la-professeure.gpu :as gpu]
             [la-professeure.core :as core]
+            [la-professeure.core-test]
             [la-professeure.recording-tool :as story]
             [la-professeure.miniaudio :as audio]
             [aguafria-examples-native.bindings.glfw :as glfw]
@@ -38,6 +39,7 @@
                    (not (some #{library} (:zig-args config))) (conj library))})))
 
 (configure-ime-probe!)
+
 (az/defconst ime-probe-api (ak/cImport (ak/cInclude "studio_ime_probe.h")))
 
 (az/defn ime-probe! :bool [[commit? :bool]]
@@ -84,10 +86,10 @@
     0))
 
 (deftest selected-output-mute-is-read-only-and-device-specific
-  (is (= -1 (studio/read-output-mute "")))
-  (is (= -1 (studio/read-output-mute "aguafria-nonexistent-output-qa")))
-  (is (= -1 (studio/read-output-mute (apply str (repeat 256 "x")))))
-  (is (zero? (output-mute-cache-contract!))))
+  (is (= -1 (az/value (studio/read-output-mute ""))))
+  (is (= -1 (az/value (studio/read-output-mute "aguafria-nonexistent-output-qa"))))
+  (is (= -1 (az/value (studio/read-output-mute (apply str (repeat 256 "x"))))))
+  (is (zero? (az/value (output-mute-cache-contract!)))))
 
 (az/defn focus-game-input-qa! :void
   "Opt-in: focus the existing game window without starting audio or a recording." []
@@ -211,7 +213,7 @@
   0)
 
 (deftest input-check-meters-without-recording
-  (is (zero? (input-check-meter-contract))))
+  (is (zero? (az/value (input-check-meter-contract)))))
 
 (az/defn interrupt-recorder-device-qa! :bool
   "Opt-in fault injection: stop only Studio's owned device, not an OS device." [[preflight? :bool]]
@@ -285,7 +287,7 @@
   0)
 
 (deftest swapchain-extent-and-result-contract
-  (is (= 0 (resize-extent-contract)) "Extent clamping, minimized surfaces and recoverable WSI results"))
+  (is (= 0 (az/value (resize-extent-contract))) "Extent clamping, minimized surfaces and recoverable WSI results"))
 
 ;; Explicit opt-in renderer QA; not part of the hardware-free unit suite.
 ;; Run only on core/on-render! and restore both window sizes afterwards.
@@ -339,7 +341,7 @@
       (throw (ex-info "Capture requires an initialized, visible renderer" snapshot)))
     (with-open [arena (java.lang.foreign.Arena/ofConfined)]
       (let [buffer (.allocate arena (long capacity) 16)
-            copied (capture-window-native! studio? buffer capacity)
+            copied (az/value (capture-window-native! studio? buffer capacity))
             after (az/value (if studio? (studio-renderer-snapshot) (gpu/renderer-snapshot)))
             renderer (if studio? (az/value studio/renderer) nil)]
         (when-not (= copied (* 4 (:width after) (:height after)))
@@ -348,7 +350,7 @@
         {:width (:width after)
          :height (:height after)
          :frames (:frames after)
-         :format (capture-format-native studio?)
+         :format (az/value (capture-format-native studio?))
          :mode (when studio? (az/value studio/workspace-mode))
          :selected (when studio? (az/value studio/selected))
          :vertices (if studio? (:mesh-vertex-count renderer) (az/value gpu/mesh-vertex-count))
@@ -452,7 +454,7 @@
   0)
 
 (deftest responsive-layout-and-pointer-contract
-  (is (= 0 (responsive-layout-contract)) "Fixed point-size primitives and shared layout/hit coordinates"))
+  (is (= 0 (az/value (responsive-layout-contract))) "Fixed point-size primitives and shared layout/hit coordinates"))
 
 (az/defn routing-collapse-contract :u32 []
   (let [old-w studio/window-width old-visible studio/routing-visible
@@ -496,7 +498,7 @@
   0)
 
 (deftest routing-panel-is-layout-only
-  (is (= 0 (routing-collapse-contract)) "Collapse reclaims space, dismisses old hits, preserves audio and selection"))
+  (is (= 0 (az/value (routing-collapse-contract))) "Collapse reclaims space, dismisses old hits, preserves audio and selection"))
 
 (az/defn editor-divider-contract :u32 []
   (let [old-mode studio/workspace-mode old-top studio/editor-top old-height studio/window-height old-width studio/window-width
@@ -552,8 +554,8 @@
   0)
 
 (deftest editor-divider-and-viewport-bounds
-  (is (= 0 (editor-divider-contract)) "Drag offset, release, reset, limits and popup exclusion")
-  (is (= 0 (clip-viewport-buffer-contract)) "32-row backing buffer rejects out-of-range slots/bins"))
+  (is (= 0 (az/value (editor-divider-contract))) "Drag offset, release, reset, limits and popup exclusion")
+  (is (= 0 (az/value (clip-viewport-buffer-contract))) "32-row backing buffer rejects out-of-range slots/bins"))
 
 (defn live-editor-viewport-qa!
   "Opt-in live viewport/caching test; changes only window/view state and restores it.
@@ -562,7 +564,7 @@
   (let [render (fn [f] (let [r (deref (core/on-render! f) 10000 ::timeout)]
                         (when (= r ::timeout) (throw (ex-info "Viewport QA render timeout" {})))
                         (when (:error r) (throw (:error r))) (:value r)))
-        snapshot #(render (fn [] {:top (az/value studio/editor-top) :rows (studio/visible-row-count)
+        snapshot #(render (fn [] {:top (az/value studio/editor-top) :rows (az/value (studio/visible-row-count))
                                   :offset (az/value studio/track-offset) :loaded-offset (az/value studio/track-snapshot)
                                   :loaded (az/value studio/track-snapshot-count) :uploads (az/value studio/clip-upload-revision)
                                   :selected (az/value studio/selected) :frames (az/value studio/rendered-frames)}))
@@ -605,15 +607,15 @@
                         (when (= r ::timeout) (throw (ex-info "Resize QA render timeout" {})))
                         (when (:error r) (throw (:error r))) (:value r)))
         native-map (fn [value] (try (az/value value) (finally (az/close! value))))
-        snapshot #(render (fn [] {:cursor (studio/cursor-seconds)
+        snapshot #(render (fn [] {:cursor (az/value (studio/cursor-seconds))
                                   :playing? (studio/playing-preview?)
                                   :paused (az/value studio/preview-paused)
                                   :selected (az/value studio/selected)
                                   :headphones (az/value studio/headphones)
-                                  :signal (studio/playback-signal-count)
+                                  :signal (az/value (studio/playback-signal-count))
                                   :game-frames (az/value scene/rendered-frames)
                                   :renderer (native-map (studio-renderer-snapshot))
-                                  :resizes (studio-resize-count)
+                                  :resizes (az/value (studio-resize-count))
                                   :top (az/value studio/editor-top)
                                   :offset (az/value studio/track-offset)
                                   :bounds (native-map (studio/window-bounds))}))
@@ -673,11 +675,11 @@
                 studio/workspace-mode studio/record-enabled studio/workspace-record-prior]
         values (render #(mapv az/value fields))
         ready? (render #(az/value studio/playback-ready))
-        state #(render (fn [] {:cursor (studio/cursor-seconds)
+        state #(render (fn [] {:cursor (az/value (studio/cursor-seconds))
                                :paused? (az/value studio/preview-paused)
                                :playing? (studio/playing-preview?)
                                :interrupted? (az/value studio/playback-interrupted)
-                               :signal (studio/playback-signal-count)}))
+                               :signal (az/value (studio/playback-signal-count))}))
         await-state (fn [predicate]
                       (let [deadline (+ (System/nanoTime) 5000000000)]
                         (loop []
@@ -728,7 +730,7 @@
                 studio/workspace-mode studio/record-enabled studio/workspace-record-prior
                 studio/mix-mode mixer/output-index]
         values (render #(mapv az/value fields))
-        state #(render (fn [] {:cursor (mixer/cursor-frame)
+        state #(render (fn [] {:cursor (az/value (mixer/cursor-frame))
                                :opened? (az/value mixer/opened)
                                :mix? (az/value studio/mix-mode)
                                :paused? (az/value studio/preview-paused)
@@ -785,12 +787,12 @@
                :voice-ready? (az/value studio/voice-ready)
                :duration (az/value studio/take-seconds)
                :seek (az/value studio/seek-seconds)
-               :cursor (studio/cursor-seconds)
-               :signal (studio/playback-signal-count)
+              :cursor (az/value (studio/cursor-seconds))
+              :signal (az/value (studio/playback-signal-count))
                :game-frames (az/value scene/rendered-frames)
                :studio-frames (az/value studio/rendered-frames)
                :record-enabled (az/value studio/record-enabled)
-               :capture-phase (studio/capture-phase-value))))
+              :capture-phase (az/value (studio/capture-phase-value)))))
 
 (defn- await-audition-state! [description predicate]
   (let [deadline (+ (System/nanoTime) 5000000000)]
@@ -819,10 +821,10 @@
                                                        (when (and (= id (:id card)) (:chosen? card)) slot))
                                                      (:cards @studio/take-grid-cache)))]
                         (assert (some? slot) "Selected take must have a matching grid card")
-                        (click! (audition-qa-render! #(+ (studio/take-card-x (mod slot 3)) 20.0))
+                        (click! (audition-qa-render! #(+ (az/value (studio/take-card-x (mod slot 3))) 20.0))
                                 (+ 186.0 (* 62.0 (quot slot 3)))))
                       :record-button
-                      (click! 325.0 (audition-qa-render! #(studio/bottom-y 699.0)))))
+                      (click! 325.0 (audition-qa-render! #(az/value (studio/bottom-y 699.0))))))
         step! (fn [stage action predicate]
                 (action)
                 (let [state (await-audition-state! (str "failed at " stage) predicate)]
@@ -833,8 +835,8 @@
         cue (* 0.25 (:duration loaded))]
     (step! :positioned
            #(audition-qa-render!
-              (fn [] (studio/click-at! (+ 242.0 (* 0.25 (studio/timeline-width)))
-                                      (studio/bottom-y 643.0))))
+             (fn [] (studio/click-at! (+ 242.0 (* 0.25 (az/value (studio/timeline-width))))
+                                      (az/value (studio/bottom-y 643.0)))))
            #(< (abs (- cue (:seek %))) 0.001))
     (when (= button-source :edit-row)
       (audition-qa-render!
@@ -969,8 +971,8 @@
                         (when (= r ::timeout) (throw (ex-info "QA render timeout" {})))
                         (when (:error r) (throw (:error r))) (:value r)))
         snapshot #(render (fn [] {:visible (az/value studio/routing-visible)
-                                  :width (studio/timeline-width) :playing? (studio/playing-preview?)
-                                  :cursor (studio/cursor-seconds) :signal (studio/playback-signal-count)
+                                  :width (az/value (studio/timeline-width)) :playing? (studio/playing-preview?)
+                                  :cursor (az/value (studio/cursor-seconds)) :signal (az/value (studio/playback-signal-count))
                                   :headphones (az/value studio/headphones) :selected (az/value studio/selected)
                                   :frames (az/value studio/rendered-frames)}))
         command (fn [op args]
@@ -994,7 +996,7 @@
       (Thread/sleep 100)
       (let [start (snapshot)
             samples (mapv (fn [visible]
-                            (render #(studio/click-at! (+ (studio/right-x 896.0) 40.0) 116.0))
+                            (render #(studio/click-at! (+ (az/value (studio/right-x 896.0)) 40.0) 116.0))
                             (Thread/sleep 150)
                             (let [s (snapshot)]
                               (assert (= visible (:visible s)) "Native routing button must consume the click")
@@ -1048,16 +1050,23 @@
        (ak/as 1 :u32) (ak/as 0 :u32))))
 
 (az/defn game-suppressed? :bool [] scene/studio-audio-suppressed)
+
 (az/defn game-muted? :bool [] scene/audio-muted)
+
 (az/defn set-game-muted! :void [[muted :bool]] (set! scene/audio-muted muted))
+
 (az/defconst volume-api (ak/cImport (ak/cInclude "miniaudio.h")))
 
 ;; Opt-in virtual audio source for real device/capture tests. Never uses a
 ;; physical microphone, speaker, system-default device, or the game audio graph.
 (az/defconst TestToneDevice (az/field volume-api ma_device))
+
 (az/defvar test-tone-device TestToneDevice ak/undefined)
+
 (az/defvar test-tone-running :bool false)
+
 (az/defvar test-tone-frame :u64 0)
+
 (az/defvar test-tone-offset :u32 0)
 
 (az/defn test-tone-callback :void {:zig/qualifiers "callconv(.c)"}
@@ -1114,9 +1123,11 @@
 (az/defn game-track-volume :f32 []
   (if scene/audio-ready
     ((az/field volume-api ma_sound_get_volume) (ak/ptrCast (ak/& (az/index scene/tracks scene/active-track)))) -1.0))
+
 (az/defn game-dialogue-volume :f32 []
   (if scene/voice-ready
     ((az/field volume-api ma_sound_get_volume) (ak/ptrCast (ak/& (az/index scene/voices scene/voice-slot)))) -1.0))
+
 (az/defn preview-volume :f32 []
   (if studio/voice-ready
     ((az/field volume-api ma_sound_get_volume) (ak/ptrCast (ak/& (az/index studio/voices studio/voice-slot)))) -1.0))
@@ -1273,7 +1284,7 @@
     (if (recorder/capture-held?) 5 0)))
 
 (deftest preparation-callbacks-neither-capture-nor-send
-  (is (= 0 (preparation-callback-gate-contract))
+  (is (= 0 (az/value (preparation-callback-gate-contract)))
       "Preparing callbacks output silence and retain no input/return PCM"))
 
 (deftest native-signal-meter-precision
@@ -1286,11 +1297,11 @@
       (doseq [field fields] (az/set-value! field 0))
       (recorder/update-signal-level! true 0.005265)
       (recorder/update-signal-level! false 0.000332)
-      (is (< (abs (- 0.005265 (recorder/signal-peak true true))) 0.000002))
-      (is (< (abs (- 0.000332 (recorder/signal-peak false true))) 0.000002))
+      (is (< (abs (- 0.005265 (az/value (recorder/signal-peak true true)))) 0.000002))
+      (is (< (abs (- 0.000332 (az/value (recorder/signal-peak false true)))) 0.000002))
       (recorder/update-signal-level! true 0.0)
-      (is (zero? (recorder/signal-peak true false)))
-      (is (pos? (recorder/signal-peak true true)))
+      (is (zero? (az/value (recorder/signal-peak true false))))
+      (is (pos? (az/value (recorder/signal-peak true true))))
       (is (false? (recorder/tail-active?)))
       (finally (doseq [[field value] (map vector fields values)] (az/set-value! field value))))))
 
@@ -1361,24 +1372,24 @@
 
 (deftest game-audio-focus-isolation
   ;; Render-thread test: no device is opened and no user mute setting is lost.
-  (let [suppressed (game-suppressed?) muted (game-muted?) preview (preview-volume)]
+  (let [suppressed (game-suppressed?) muted (game-muted?) preview (az/value (preview-volume))]
     (try
       (set-game-muted! false)
       (studio/suppress-game-audio! false)
       (studio/suppress-game-audio! true)
       (is (game-suppressed?)) (is (false? (game-muted?)))
-      (when (>= (game-track-volume) 0) (is (zero? (game-track-volume))))
-      (when (>= (game-dialogue-volume) 0) (is (zero? (game-dialogue-volume))))
-      (is (= preview (preview-volume)))
+      (when (>= (az/value (game-track-volume)) 0) (is (zero? (az/value (game-track-volume)))))
+      (when (>= (az/value (game-dialogue-volume)) 0) (is (zero? (az/value (game-dialogue-volume)))))
+      (is (= preview (az/value (preview-volume))))
       (set-game-muted! true)
       (studio/suppress-game-audio! false)
       (is (false? (game-suppressed?))) (is (game-muted?))
-      (when (>= (game-track-volume) 0) (is (zero? (game-track-volume))))
-      (when (>= (game-dialogue-volume) 0) (is (zero? (game-dialogue-volume))))
+      (when (>= (az/value (game-track-volume)) 0) (is (zero? (az/value (game-track-volume)))))
+      (when (>= (az/value (game-dialogue-volume)) 0) (is (zero? (az/value (game-dialogue-volume)))))
       (set-game-muted! false)
       (studio/suppress-game-audio! true) (studio/suppress-game-audio! false)
-      (when (>= (game-track-volume) 0) (is (< (abs (- 0.35 (game-track-volume))) 0.0001)))
-      (when (>= (game-dialogue-volume) 0) (is (< (abs (- 0.8 (game-dialogue-volume))) 0.0001)))
+      (when (>= (az/value (game-track-volume)) 0) (is (< (abs (- 0.35 (az/value (game-track-volume)))) 0.0001)))
+      (when (>= (az/value (game-dialogue-volume)) 0) (is (< (abs (- 0.8 (az/value (game-dialogue-volume)))) 0.0001)))
       (finally
         (set-game-muted! muted)
         (studio/suppress-game-audio! (not suppressed))
@@ -1391,10 +1402,10 @@
       (az/set-value! studio/timeline-start 0.0) (az/set-value! studio/timeline-seconds 30.0)
       (doseq [scale [1.0 1.5 2.0]]
         (az/set-value! studio/framebuffer-scale scale)
-        (let [xs (mapv studio/playhead-x [0.0 1.0 1.01 1.02 1.03 2.0 15.0 30.0])]
+        (let [xs (mapv (comp az/value studio/playhead-x) [0.0 1.0 1.01 1.02 1.03 2.0 15.0 30.0])]
           (is (apply <= xs))
           (doseq [x xs] (is (< (abs (- (* x scale) (Math/rint (* x scale)))) 0.0001)))
-          (is (= (studio/playhead-x 1.234) (studio/playhead-x 1.234)))))
+          (is (= (az/value (studio/playhead-x 1.234)) (az/value (studio/playhead-x 1.234))))))
       (finally (doseq [[field value] (map vector fields before)] (az/set-value! field value))))))
 
 (az/defn take-editor-playhead-contract :u32 []
@@ -1442,7 +1453,7 @@
     0))
 
 (deftest take-editor-renders-playhead-in-both-workspaces
-  (is (= 0 (take-editor-playhead-contract))
+  (is (= 0 (az/value (take-editor-playhead-contract)))
       "Edit and Record render one correctly positioned cursor; only Edit has trim handles"))
 
 (deftest french-typewriter-prefixes
@@ -1451,13 +1462,13 @@
       (doseq [[budget expected] [[0 0] [1 2] [2 4] [3 7] [4 8] [40 8]]]
         (az/set-value! scene/reveal-remaining budget)
         ;; é / œ / curly apostrophe / a: count characters, never cut UTF-8 bytes.
-        (is (= expected (scene/revealed-prefix! "éœ’a"))))
+        (is (= expected (az/value (scene/revealed-prefix! "éœ’a")))))
       (finally (az/set-value! scene/reveal-remaining before)))))
 
 (deftest leaf-dialogue-choices
   ;; Read-only with respect to visited flags and authored Markdown.
   (let [parent (az/value scene/story-parent)
-        indices (range (scene/passage-count))
+        indices (range (az/value (scene/passage-count)))
         node-text (fn [i] (#'studio/native-string (scene/story-text i)))
         find-node (fn [text] (first (filter #(= text (node-text %)) indices)))]
     (try
@@ -1468,8 +1479,8 @@
         (let [index (find-node text)]
           (is (some? index) text)
           (az/set-value! scene/story-parent index)
-          (is (= choices (mapv #(node-text (scene/story-choice %)) (range 1 (inc (count choices))))))
-          (is (= 4294967295 (scene/story-choice (inc (count choices)))))
+          (is (= choices (mapv #(node-text (az/value (scene/story-choice %))) (range 1 (inc (count choices))))))
+          (is (= 4294967295 (az/value (scene/story-choice (inc (count choices))))))
           (is (= index (az/value scene/story-parent)) "Resolving choices retains the response")))
       (is (false? (scene/story-choice-visited? 4294967295)))
       (finally (az/set-value! scene/story-parent parent)))))
@@ -1556,8 +1567,8 @@
   (is (scene/reload-story!))
   (let [count (az/value scene/passage-entity-count)
         ids (az/value scene/passage-entities)]
-    (is (= count (scene/passage-count)))
-    (dotimes [_ 3] (is (scene/reload-story!)) (is (= count (scene/passage-count))))
+    (is (= count (az/value (scene/passage-count))))
+    (dotimes [_ 3] (is (scene/reload-story!)) (is (= count (az/value (scene/passage-count)))))
     ;; First voiced passage keeps its identity across reloads.
     (is (= (nth ids 1) (nth (az/value scene/passage-entities) 1)))))
 
@@ -1593,12 +1604,12 @@
   (is (recorder/live-routing-test!))
   (let [file (java.nio.file.Files/createTempFile "professeure-checkpoint-" ".pcm"
                (make-array java.nio.file.attribute.FileAttribute 0))]
-    (is (= 2 (recorder/journal! (str file) false 0)))
+    (is (= 2 (az/value (recorder/journal! (str file) false 0))))
     (is (= 16 (.length (.toFile file))))
-    (is (= 2 (recorder/journal! (str file) false 2)))
+    (is (= 2 (az/value (recorder/journal! (str file) false 2))))
     (is (= 16 (.length (.toFile file))))
-    (is (= 0 (recorder/journal! (str file) false 5))))
-  (is (= 0.0 (recorder/wave-bin false 128)))
+    (is (= 0 (az/value (recorder/journal! (str file) false 5)))))
+  (is (= 0.0 (az/value (recorder/wave-bin false 128))))
   (recorder/reset-meters!) (recorder/meter-input! 1.2)
   (is (= 1 (az/value recorder/clipped)))
   (recorder/reset-meters!) (is (= 0 (az/value recorder/clipped))))
@@ -1613,14 +1624,14 @@
       (az/set-value! studio/routing-visible true)
       (az/set-value! studio/editor-top 444.0)
       (az/set-value! studio/timeline-start 0.0) (az/set-value! studio/timeline-seconds 30.0)
-      (is (= 0.0 (studio/time-at -100.0)))
-      (is (= 0.0 (studio/time-at 242.0)))
-      (is (= 15.0 (studio/time-at 563.0)))
-      (is (= 30.0 (studio/time-at 900.0)))
+      (is (= 0.0 (az/value (studio/time-at -100.0))))
+      (is (= 0.0 (az/value (studio/time-at 242.0))))
+      (is (= 15.0 (az/value (studio/time-at 563.0))))
+      (is (= 30.0 (az/value (studio/time-at 900.0))))
       (studio/zoom! 0.5) (is (= 15.0 (az/value studio/timeline-seconds)))
       (studio/zoom! 0.00001) (is (= 2.0 (az/value studio/timeline-seconds)))
       (az/set-value! studio/timeline-start 58.0)
-      (is (= 59.0 (studio/time-at 563.0)))
+      (is (= 59.0 (az/value (studio/time-at 563.0))))
       (studio/zoom! 1000.0)
       (is (= 60.0 (az/value studio/timeline-seconds)))
       (is (= 0.0 (az/value studio/timeline-start)))
@@ -1698,7 +1709,7 @@
                         studio/seek-seconds studio/preview-paused
                         studio/timeline-start studio/timeline-seconds studio/editor-top]
         session-before (mapv az/value session-fields)]
-    (is (= 0 (workspace-presentation-contract)) "Mode input is isolated and stale drags are dismissed")
+    (is (= 0 (az/value (workspace-presentation-contract))) "Mode input is isolated and stale drags are dismissed")
     (is (= session-before (mapv az/value session-fields)))))
 
 (deftest recording-workspace-phase-guidance
@@ -1717,11 +1728,11 @@
       (az/set-value! studio/routing-visible true)
       (doseq [scale [1.0 1.5 2.0]]
         (az/set-value! studio/framebuffer-scale scale)
-        (let [xs (mapv #(studio/take-playhead-x % 5.0) [0.0 1.001 1.02 4.99 5.0 99.0])]
+        (let [xs (mapv #(az/value (studio/take-playhead-x % 5.0)) [0.0 1.001 1.02 4.99 5.0 99.0])]
           (is (apply <= xs))
           (is (every? #(<= 242.0 % 883.0) xs))
           (is (every? #(< (abs (- (* scale %) (Math/rint (* scale %)))) 0.0001) xs))
-          (is (= 242.0 (studio/take-playhead-x 0.0 0.0)))))
+          (is (= 242.0 (az/value (studio/take-playhead-x 0.0 0.0))))))
       (finally (doseq [[field value] (map vector fields before)] (az/set-value! field value))))))
 
 (deftest zero-count-in-shows-device-preparation
@@ -1817,9 +1828,9 @@
       (az/set-value! studio/window-height 760.0)
       (az/set-value! studio/editor-top 444.0)
       (az/set-value! studio/routing-visible true)
-      (is (= 4 (studio/visible-row-count)))
-      (is (= [242.0 456.0 670.0] (mapv studio/take-card-x (range 3))))
-      (is (= 206.0 (studio/take-card-width)))
+      (is (= 4 (az/value (studio/visible-row-count))))
+      (is (= [242.0 456.0 670.0] (mapv (comp az/value studio/take-card-x) (range 3))))
+      (is (= 206.0 (az/value (studio/take-card-width))))
       (az/set-value! scene/passage-entity-count 20)
       (az/set-value! studio/track-offset 0)
       (az/set-value! studio/track-scroll 0.0)
@@ -1885,7 +1896,7 @@
   0)
 
 (deftest paragraph-clips-glyphs-with-fractional-scroll
-  (is (zero? (paragraph-clipping-contract))))
+  (is (zero? (az/value (paragraph-clipping-contract)))))
 
 (deftest paragraph-includes-last-line-at-scroll-boundary
   (is (studio/paragraph-line-visible? 204.0 33.8 204.0 550.0))
@@ -1903,7 +1914,7 @@
     (+ (* counter 10) observed)))
 
 (deftest grouped-state-preserves-native-evaluation-order
-  (is (= 65 (grouped-state-order-contract))))
+  (is (= 65 (az/value (grouped-state-order-contract)))))
 
 (az/defn focused-record-request-contract :u32 []
   (let [old-selected studio/selected
@@ -1954,7 +1965,7 @@
 (deftest focused-record-captures-the-selected-id
   ;; Native command construction only, consumed in this same render callback.
   ;; Never opens a microphone or sends the QA request to the real worker.
-  (is (= 0 (focused-record-request-contract))))
+  (is (= 0 (az/value (focused-record-request-contract)))))
 
 (defn os-studio-click-qa!
   "Opt-in macOS click in Studio content coordinates. Read current GLFW bounds
@@ -2077,7 +2088,7 @@
     (try
       (render #(do (studio/select-workspace! 0)
                    (az/set-value! studio/track-offset 0)))
-      (os-studio-click-qa! 70.0 (render #(studio/bottom-y 635.0)))
+       (os-studio-click-qa! 70.0 (render #(az/value (studio/bottom-y 635.0))))
       (os-name-input-qa! "key" "0" "1048576")
       (assert (render #(and (= 0 (az/value studio/name-anchor))
                             (= (az/value studio/name-caret) (az/value studio/name-length)))))
@@ -2146,7 +2157,7 @@
           (wait-for! #(= id (:id @studio/armed)))
           (let [target (render #(hash-map :selected (az/value studio/selected)
                                           :target (az/value studio/record-track)
-                                          :phase (studio/capture-phase-value)
+                                         :phase (az/value (studio/capture-phase-value))
                                           :rec-enabled (az/value studio/record-enabled)))]
             (assert (= index (:target target)))
             (assert (= 1 (:phase target)))
@@ -2397,8 +2408,8 @@
 (defn- await-capture-frames! [fx? minimum]
   (let [deadline (+ (System/nanoTime) 5000000000)]
     (loop []
-      (when (or (< (recorder/available-frames false) minimum)
-                (and fx? (< (recorder/available-frames true) minimum)))
+      (when (or (< (az/value (recorder/available-frames false)) minimum)
+                (and fx? (< (az/value (recorder/available-frames true)) minimum)))
         (assert (< (System/nanoTime) deadline) "No native capture frames")
         (Thread/sleep 10)
         (recur)))))
@@ -2408,7 +2419,7 @@
         {:keys [frames bins]} (files/waveform path)]
     (assert interrupted?)
     (assert (= fingerprint dialogue-hash))
-    (assert (= frames (recorder/available-frames (= kind :wet))))
+    (assert (= frames (az/value (recorder/available-frames (= kind :wet)))))
     (when (= kind :dry)
       (assert (recorder/validate-take! path) "Dry fixture must be audible/valid"))
     {:kind kind :path path :frames frames :peak (apply max bins)}))
@@ -2446,11 +2457,11 @@
       (assert (start-test-tone! output (if fx? 4 0)))
       (assert (start!))
       (await-capture-frames! fx? 48000)
-      (assert (zero? (recorder/stopped-device-mask)))
+       (assert (zero? (az/value (recorder/stopped-device-mask))))
       (assert (if (= kind :fx-source)
                 (interrupt-fx-source-device-qa!)
                 (interrupt-recorder-device-qa! false)))
-      (assert (= (if (= kind :fx-source) 2 1) (recorder/stopped-device-mask)))
+       (assert (= (if (= kind :fx-source) 2 1) (az/value (recorder/stopped-device-mask))))
       (with-redefs-fn
         {#'studio/session session
          #'studio/takes takes
@@ -2466,7 +2477,7 @@
             (#'studio/check-audio-devices!)
             (assert (= before [@takes @events @warnings]) "No duplicate save/event on the next poll"))))
       (assert (nil? @session))
-      (assert (zero? (recorder/stopped-device-mask)))
+       (assert (zero? (az/value (recorder/stopped-device-mask))))
       (let [history (get-in @takes ["voice-qa" :history])
             retained (mapv #(interrupted-take-evidence fingerprint %) history)]
         (assert (= (if fx? #{:dry :wet} #{:dry}) (set (map :kind retained))))
@@ -2550,7 +2561,7 @@
               (swap! captured conj {:id id :path path})
               (when dry-path
                 (swap! captured conj {:id id :path dry-path}))
-              (wait-for! "capture one second" #(>= (recorder/frames-recorded) 48000))
+              (wait-for! "capture one second" #(>= (az/value (recorder/frames-recorded)) 48000))
               (when during-capture!
                 ;; Optional off-render acceptance probe. The same finally block
                 ;; retains PCM and restores devices if a probe fails.
@@ -2577,16 +2588,16 @@
                                  (render
                                    (fn []
                                      (and (studio/selected-waveform?)
-                                          (< (abs (- (studio/selected-take-seconds) duration)) 0.0001))))))
-                (click! 325.0 (render #(studio/bottom-y 699.0)))
+                                         (< (abs (- (az/value (studio/selected-take-seconds)) duration)) 0.0001))))))
+                (click! 325.0 (render #(az/value (studio/bottom-y 699.0))))
                 ;; play-voice-file! resets this counter for each new take. A
                 ;; previous longer audition is not a baseline for this one.
                 (wait-for! "saved-take audition"
                            #(render (fn [] (and (studio/playing-preview?)
-                                                (> (studio/playback-signal-count) 500)))))
-                (let [audition (render #(hash-map :cursor (studio/cursor-seconds)
-                                                 :signal-frames (studio/playback-signal-count)
-                                                 :capture-phase (studio/capture-phase-value)))]
+                                                (> (az/value (studio/playback-signal-count)) 500)))))
+                (let [audition (render #(hash-map :cursor (az/value (studio/cursor-seconds))
+                                                  :signal-frames (az/value (studio/playback-signal-count))
+                                                  :capture-phase (az/value (studio/capture-phase-value))))]
                   (assert (zero? (:capture-phase audition)))
                   (click! 192.0 65.0)
                   (wait-for! "audition stop"
@@ -2663,7 +2674,7 @@
       (let [deadline (+ (System/nanoTime) 5000000000)
             stopped-phase
             (loop []
-              (let [phase (render #(let [phase (studio/capture-phase-value)]
+              (let [phase (render #(let [phase (az/value (studio/capture-phase-value))]
                                     (when (= phase 1)
                                       (studio/click-at! 192.0 65.0))
                                     phase))]
@@ -2736,7 +2747,7 @@
                    (render #(hash-map :selected (#'studio/native-string (studio/selected-id))
                                       :display-id (#'studio/native-string (studio/waveform-passage-id))
                                       :script (#'studio/native-string (studio/record-script))
-                                      :frames (recorder/frames-recorded))))
+                                      :frames (az/value (recorder/frames-recorded)))))
         captures
         (live-direct-record-capture-qa!
           [index] false
@@ -2874,7 +2885,7 @@
                        [studio/scroll 0.0] [studio/follow-playhead false]]]
                 (az/set-value! field value))
               {:size [width height] :mode mode :page page :menu menu
-               :vertices (dense-frame-vertices buffer)})
+              :vertices (az/value (dense-frame-vertices buffer))})
             [[1100.0 760.0 0 0 0]
              [1427.0 881.0 0 0 0]
              [2560.0 2160.0 0 0 1]
@@ -2915,7 +2926,7 @@
   0)
 
 (deftest selected-waveform-uses-its-own-position
-  (is (= 0 (selected-cursor-contract))
+  (is (= 0 (az/value (selected-cursor-contract)))
       "Unloaded seek, current preview, other passage and mix have explicit cursor ownership"))
 
 (az/defn reset-timing-storage-for-layout! :void {:attrs #{:export}}
@@ -2965,7 +2976,7 @@
   0)
 
 (deftest selected-waveform-belongs-to-its-passage
-  (is (= 0 (waveform-ownership-contract))
+  (is (= 0 (az/value (waveform-ownership-contract)))
       "Only the loaded, nonempty, idle selected take enables editing"))
 
 (az/defn comparison-readiness-contract :u32 []
@@ -3016,7 +3027,7 @@
   0)
 
 (deftest native-comparison-controls-reflect-reference-readiness
-  (is (= 0 (comparison-readiness-contract))
+  (is (= 0 (az/value (comparison-readiness-contract)))
       "Only a ready pair belonging to the loaded, idle selected passage enables comparison"))
 
 (az/defn capture-script-ownership-contract :u32 []
@@ -3073,13 +3084,13 @@
   0)
 
 (deftest recording-script-and-waveform-survive-selection-and-reordering
-  (is (= 0 (capture-script-ownership-contract))))
+  (is (= 0 (az/value (capture-script-ownership-contract)))))
 
 (deftest passage-status-badges-are-readable-and-bounded
   (doseq [[status label] [[0 "Checking"] [1 "No take"] [2 "Review"]
                           [3 "Recorded"] [4 "Unverified"] [5 "Interrupted"] [6 "Text only"]]]
     (let [text (studio/passage-status-badge status)]
-      (is (<= (studio/ui-text-width text 0.19) 64.0)
+      (is (<= (az/value (studio/ui-text-width text 0.19)) 64.0)
           "The badge text fits its fixed-width track header without overlapping")
       ;; native-string consumes/closes the returned slice after copying it.
       (is (= label (#'studio/native-string text))))))
@@ -3106,7 +3117,7 @@
   0)
 
 (deftest passage-freshness-rejects-stale-row-uploads
-  (is (= 0 (passage-freshness-contract))))
+  (is (= 0 (az/value (passage-freshness-contract)))))
 
 (az/defn frame-timing-ring-contract :u32 []
   (let [saved studio/frame-timings
@@ -3139,7 +3150,7 @@
   0)
 
 (deftest frame-timing-history-is-bounded-and-resets-cadence
-  (is (= 0 (frame-timing-ring-contract))))
+  (is (= 0 (az/value (frame-timing-ring-contract)))))
 
 (az/defn routing-tools-presentation-contract :u32 []
   (let [tools studio/routing-tools-visible
@@ -3172,7 +3183,7 @@
   0)
 
 (deftest routing-tools-disclosure-does-not-change-audio
-  (is (= 0 (routing-tools-presentation-contract))
+  (is (= 0 (az/value (routing-tools-presentation-contract)))
       "Disclosure only changes presentation; device controls distinguish idle/capture/check"))
 
 (az/defn monitor-level-control-contract :u32 []
@@ -3234,7 +3245,7 @@
   0)
 
 (deftest monitor-level-fader-is-bounded-and-independent
-  (is (= 0 (monitor-level-control-contract))
+  (is (= 0 (az/value (monitor-level-control-contract)))
       "Click/drag/release, off-track clamp, hidden/menu cancellation; no enable or take gain change"))
 
 (az/defn monitor-meter-contract :u32 []
@@ -3268,25 +3279,25 @@
   0)
 
 (deftest monitor-updates-return-meter-without-recording
-  (is (= 0 (monitor-meter-contract)) "Return 3/4, pre-monitor gain peak and silence reset"))
+  (is (= 0 (az/value (monitor-meter-contract))) "Return 3/4, pre-monitor gain peak and silence reset"))
 
 (deftest live-meter-display-not-held-history
-  (is (= 0.0 (studio/meter-fraction false 0.8)))
-  (is (= 0.0 (studio/meter-fraction true -1.0)))
-  (is (= 1.0 (studio/meter-fraction true 2.0)))
-  (is (= 0.5 (studio/meter-fraction true 0.25)))
+  (is (= 0.0 (az/value (studio/meter-fraction false 0.8))))
+  (is (= 0.0 (az/value (studio/meter-fraction true -1.0))))
+  (is (= 1.0 (az/value (studio/meter-fraction true 2.0))))
+  (is (= 0.5 (az/value (studio/meter-fraction true 0.25))))
   (doseq [input? [true false]]
     (when-not (studio/meter-active? input?)
-      (is (zero? (studio/live-meter-fraction input?))))))
+      (is (zero? (az/value (studio/live-meter-fraction input?)))))))
 
 (deftest timeline-ruler-uses-readable-bounded-time-steps
   (doseq [[span width expected] [[30.0 642.0 5.0] [18.2 642.0 2.0]
                                 [60.0 642.0 10.0] [2.0 642.0 0.2]
                                 [60.0 100000.0 5.0] [2.0 0.0 1.0]]]
-    (is (< (abs (- expected (studio/timeline-tick-step span width))) 0.00001)))
+    (is (< (abs (- expected (az/value (studio/timeline-tick-step span width)))) 0.00001)))
   (doseq [span [2.0 4.0 8.0 18.2 30.0 60.0]
           width [200.0 642.0 1200.0 5000.0]]
-    (is (< (/ span (studio/timeline-tick-step span width)) 32.0)
+    (is (< (/ span (az/value (studio/timeline-tick-step span width))) 32.0)
         "Every visible tick fits in the bounded render loop")))
 
 (deftest pinch-zooms-only-the-timeline-around-the-pointer
@@ -3301,11 +3312,11 @@
                             [studio/route-menu 0] [studio/timeline-start 10.0]
                             [studio/timeline-seconds 30.0] [studio/follow-playhead true]]]
         (az/set-value! field value))
-      (let [x (studio/timeline-center)
-            anchor (studio/time-at x)]
+      (let [x (az/value (studio/timeline-center))
+            anchor (az/value (studio/time-at x))]
         (is (true? (studio/pinch-at! 0.4 x 200.0)))
         (is (< (abs (- (* 30.0 (Math/exp -0.4)) (az/value studio/timeline-seconds))) 0.0001))
-        (is (< (abs (- anchor (studio/time-at x))) 0.0001))
+        (is (< (abs (- anchor (az/value (studio/time-at x)))) 0.0001))
         (is (false? (az/value studio/follow-playhead)))
         (is (true? (studio/pinch-at! -0.4 x 200.0)))
         (is (< (abs (- 30.0 (az/value studio/timeline-seconds))) 0.0001))
@@ -3363,9 +3374,9 @@
       (az/set-value! studio/editor-top 444.0)
       (az/set-value! studio/route-menu 0)
       (az/set-value! studio/timeline-start 10.0) (az/set-value! studio/timeline-seconds 30.0)
-      (let [anchor (studio/time-at 563.0)]
+      (let [anchor (az/value (studio/time-at 563.0))]
         (studio/zoom-at! 0.5 563.0)
-        (is (= anchor (studio/time-at 563.0)))
+        (is (= anchor (az/value (studio/time-at 563.0))))
         (is (= 15.0 (az/value studio/timeline-seconds))))
       (studio/pan! 1000.0) (is (= 45.0 (az/value studio/timeline-start)))
       (studio/pan! -1000.0) (is (= 0.0 (az/value studio/timeline-start)))
@@ -3383,14 +3394,14 @@
       (is (< 0.59 (az/value studio/timeline-start) 0.61))
       (az/set-value! studio/timeline-start 10.0) (az/set-value! studio/timeline-seconds 30.0)
       (az/set-value! studio/mouse-x 563.0)
-      (let [anchor (studio/time-at 563.0) offset (az/value studio/track-offset)]
+      (let [anchor (az/value (studio/time-at 563.0)) offset (az/value studio/track-offset)]
         (studio/scroll-by! 0.0 1.0 true false)
         (is (< (az/value studio/timeline-seconds) 30.0))
-        (is (< (abs (- anchor (studio/time-at 563.0))) 0.00001))
+        (is (< (abs (- anchor (az/value (studio/time-at 563.0)))) 0.00001))
         (is (= offset (az/value studio/track-offset)))
         (studio/scroll-by! 0.0 -1.0 true false)
         (is (< (abs (- 30.0 (az/value studio/timeline-seconds))) 0.00001))
-        (is (< (abs (- anchor (studio/time-at 563.0))) 0.00001))
+        (is (< (abs (- anchor (az/value (studio/time-at 563.0)))) 0.00001))
         (let [start (az/value studio/timeline-start)]
           (studio/scroll-by! 0.0 -1.0 false true)
           (is (> (az/value studio/timeline-start) start))
@@ -3457,13 +3468,13 @@
                 studio/seek-seconds studio/focus-scroll studio/record-scroll
                 studio/trim-drag scene/passage-entity-count]
         saved (mapv az/value fields)
-        focus (navigation-focus-qa! 4294967295)
+        focus (az/value (navigation-focus-qa! 4294967295))
         ownership [studio/record-enabled studio/record-track studio/preview-node
                    studio/voice-ready studio/preview-paused studio/mix-mode]
         owned (mapv az/value ownership)
         key! navigation-key-qa!]
     (try
-      (navigation-focus-qa! 0)
+      (az/value (navigation-focus-qa! 0))
       (doseq [[field value] [[studio/attached true]
                             [studio/route-menu 0] [studio/busy 0]
                             [studio/capture-phase 0] [studio/pending 0]
@@ -3481,7 +3492,7 @@
         (key! 264 1 8)
         (is (= 2 (az/value studio/selected)) "Release and modified arrows do not navigate")
         (dotimes [_ 30] (key! 264 2 0))
-        (let [rows (if (= mode 1) (studio/record-row-count) (studio/visible-row-count))]
+        (let [rows (if (= mode 1) (az/value (studio/record-row-count)) (az/value (studio/visible-row-count)))]
           (is (= 19 (az/value studio/selected)))
           (is (= (- 20 rows) (az/value studio/track-offset)))
           (is (= (double (- 20 rows)) (az/value studio/track-scroll)))
@@ -3493,10 +3504,10 @@
         (is (= [0 0] (mapv az/value [studio/selected studio/track-offset])))
         (is (= 0 (az/value studio/pending)) "Navigation schedules no recording or playback")
         (is (= owned (mapv az/value ownership))))
-      (navigation-focus-qa! 1)
+      (az/value (navigation-focus-qa! 1))
       (key! 264 1 0)
       (is (= 0 (az/value studio/selected)) "Text input retains its keys")
-      (navigation-focus-qa! 0)
+      (az/value (navigation-focus-qa! 0))
       (doseq [[field value] [[studio/busy 1] [studio/pending 38]
                             [studio/capture-phase 2] [scene/passage-entity-count 0]]]
         (let [old (az/value field)]
@@ -3509,7 +3520,7 @@
       (key! 264 1 0)
       (is (= 0 (az/value studio/selected)) "Script scrolling retains its own interaction")
       (finally
-        (navigation-focus-qa! focus)
+        (az/value (navigation-focus-qa! focus))
         (doseq [[field value] (map vector fields saved)] (az/set-value! field value))))))
 
 (az/defn name-editing-contract! :bool []
@@ -3617,7 +3628,7 @@
   0)
 
 (deftest name-edge-scroll-is-time-based
-  (is (zero? (name-edge-scroll-contract))
+  (is (zero? (az/value (name-edge-scroll-contract)))
       "30/120 FPS agree; both edges reach UTF-8 boundaries without blank overscroll"))
 
 (deftest unicode-name-editing
@@ -3634,10 +3645,10 @@
     (let [text (apply str clusters)
           boundaries (vec (reductions + 0 (map #(alength (.getBytes ^String % "UTF-8")) clusters)))]
       (studio/name! text)
-      (is (= (rest boundaries) (mapv studio/name-next (butlast boundaries))) text)
-      (is (= (butlast boundaries) (mapv studio/name-previous (rest boundaries))) text)
-      (is (= 0 (studio/name-previous 0)))
-      (is (= (last boundaries) (studio/name-next (last boundaries)))))))
+      (is (= (rest boundaries) (mapv (comp az/value studio/name-next) (butlast boundaries))) text)
+      (is (= (butlast boundaries) (mapv (comp az/value studio/name-previous) (rest boundaries))) text)
+      (is (= 0 (az/value (studio/name-previous 0))))
+      (is (= (last boundaries) (az/value (studio/name-next (last boundaries))))))))
 
 (deftest unicode-grapheme-conformance
   ;; Authoritative Unicode 17.0 test vectors, including Indic/RI/ZWJ state.
@@ -3661,9 +3672,9 @@
             length (alength (.getBytes ^String text "UTF-8"))
             positions (range (inc length))]
         (is (= (mapv #(or (last (filter (fn [b] (< b %)) boundaries)) 0) positions)
-               (mapv #(studio/text-boundary text % true) positions)) line)
+               (mapv #(az/value (studio/text-boundary text % true)) positions)) line)
         (is (= (mapv #(or (first (filter (fn [b] (> b %)) boundaries)) length) positions)
-               (mapv #(studio/text-boundary text % false) positions)) line)))))
+               (mapv #(az/value (studio/text-boundary text % false)) positions)) line)))))
 
 (az/defn composed-name-input-contract :u32 []
   (let [draft (studio/name-draft)
@@ -3720,10 +3731,10 @@
   0)
 
 (deftest composed-name-input-and-display
-  (is (zero? (composed-name-input-contract)))
+  (is (zero? (az/value (composed-name-input-contract))))
   (let [text (str (apply str (repeat 119 "a")) "é")]
-    (is (= 119 (studio/text-prefix text 120)))
-    (is (= 122 (studio/text-prefix text 122)))))
+    (is (= 119 (az/value (studio/text-prefix text 120))))
+    (is (= 122 (az/value (studio/text-prefix text 122))))))
 
 (az/defn name-undo-contract! :u32 []
   (let [draft (studio/name-draft) history studio/name-history
@@ -3770,7 +3781,7 @@
     0))
 
 (deftest name-draft-undo-redo
-  (is (zero? (name-undo-contract!))
+  (is (zero? (az/value (name-undo-contract!)))
       "Draft undo/redo preserves UTF-8 and selection, batches paste, bounds history and leaves project commands alone"))
 
 (deftest unicode-name-load-boundary
@@ -3794,9 +3805,11 @@
 
 (az/defn route-key! :void [[key :u32] [action :u32]]
   (studio/key-event! ak/null (ak/intCast key) 0 (ak/intCast action) 0))
+
 (az/defn route-test-flags :u32 []
   (+ (ak/as (if studio/name-focus 1 0) :u32) (ak/as (if studio/name-drag 2 0) :u32)
      (ak/as (if studio/clicked 4 0) :u32) (ak/as (if studio/route-click 8 0) :u32)))
+
 (az/defn restore-route-test-flags! :void [[flags :u32]]
   (set! studio/name-focus (ak/!= (& flags 1) 0))
   (set! studio/name-drag (ak/!= (& flags 2) 0))
@@ -3807,7 +3820,7 @@
   ;; Run on the render thread while capture is idle; no hardware is opened.
   (let [fields [studio/route-menu studio/route-focus studio/route-offset studio/microphone
                 studio/busy studio/trim-drag recorder/capture-count studio/pending]
-        before (mapv az/value fields) flags (route-test-flags)]
+        before (mapv az/value fields) flags (az/value (route-test-flags))]
     (try
       (az/set-value! studio/busy 0) (az/set-value! studio/pending 0)
       (az/set-value! recorder/capture-count 19) (az/set-value! studio/microphone 10)
@@ -3842,12 +3855,12 @@
     (try
       (az/set-value! studio/editor-top 444.0)
       (az/set-value! studio/bar-grab 23.0)
-      (is (= 4 (studio/visible-row-count)))
-      (is (= 8 (studio/track-offset-at (+ 169.0 23.0 (* 0.5 (- 262.0 (* 262.0 (/ 4.0 20.0))))) 20)))
-      (is (= 0 (studio/track-offset-at -500.0 20)))
-      (is (= 16 (studio/track-offset-at 1000.0 20)))
-      (is (= 0 (studio/track-offset-at 200.0 0)))
-      (is (= 0 (studio/track-offset-at 200.0 4)))
+      (is (= 4 (az/value (studio/visible-row-count))))
+      (is (= 8 (az/value (studio/track-offset-at (+ 169.0 23.0 (* 0.5 (- 262.0 (* 262.0 (/ 4.0 20.0))))) 20))))
+      (is (= 0 (az/value (studio/track-offset-at -500.0 20))))
+      (is (= 16 (az/value (studio/track-offset-at 1000.0 20))))
+      (is (= 0 (az/value (studio/track-offset-at 200.0 0))))
+      (is (= 0 (az/value (studio/track-offset-at 200.0 4))))
       (finally
         (az/set-value! studio/bar-grab before)
         (az/set-value! studio/editor-top editor-top)))))
@@ -3868,7 +3881,8 @@
     (throw (ex-info "Prepared dialogue could not load for native tests" {}))))
 
 (defn -main [& _]
+  (la-professeure.build/prepare!)
   (load-test-assets!)
-  (let [result (run-tests 'la-professeure.studio-test 'la-professeure.takes-test 'la-professeure.studio-api-test 'la-professeure.mixer-test)]
+  (let [result (run-tests 'la-professeure.core-test 'la-professeure.studio-test 'la-professeure.takes-test 'la-professeure.studio-api-test 'la-professeure.mixer-test)]
     (shutdown-agents)
     (when (pos? (+ (:fail result) (:error result))) (System/exit 1))))

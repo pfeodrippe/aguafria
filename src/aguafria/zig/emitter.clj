@@ -96,7 +96,7 @@
 
 (def ^:private structural-operators
   '#{raw raw-chunks raw-statements raw-statement-chunks
-     do block with-block object init array vector debug! op range type
+     do block with-block object init array vector assoc! merge! debug! op range type
      number-literal string-literal multiline-string char-literal
      identifier-literal enum-literal error-value
      pointer-capture else-clause else-expression catch-capture
@@ -722,7 +722,10 @@
                :else
                (mapv (fn [index argument]
                        (if (= :type (:type (nth parameters index nil)))
-                         (list 'type (qualify-type context-ns argument))
+                         (if (and (seq? argument)
+                                  (= 'type (resolved-syntax-operator context-ns (first argument))))
+                           (qualify-form context-ns argument)
+                           (list 'type (qualify-type context-ns argument)))
                          (qualify-form context-ns argument)))
                      (range) raw-args))
         qualified-op (cond
@@ -1150,7 +1153,9 @@
          (update :type #(when (some? %) (qualify-type context-ns %)))
 
          (contains? declaration :return)
-         (update :return #(qualify-type context-ns %))
+         (update :return #(binding [*lexical-bindings*
+                                   (into *lexical-bindings* (map :name (:args declaration)))]
+                            (qualify-type context-ns %)))
 
          (contains? declaration :value)
          (update :value
@@ -1167,9 +1172,14 @@
                     (mapv (partial qualify-form context-ns) %)))
 
          (contains? declaration :args)
-         (update :args #(mapv (fn [arg]
-                                (update arg :type (partial qualify-type context-ns)))
-                              %))
+         (update :args
+                 #(first
+                   (reduce (fn [[args locals] arg]
+                             [(conj args
+                                    (binding [*lexical-bindings* locals]
+                                      (update arg :type (partial qualify-type context-ns))))
+                              (conj locals (:name arg))])
+                           [[] *lexical-bindings*] %)))
 
          (contains? declaration :fields)
          (update :fields #(mapv (fn [field]
@@ -1793,6 +1803,41 @@
    (first args)
    (rest args)))
 
+(defn- mutation-entries [operator args form]
+  (if (= operator 'merge!)
+    (let [[_ updates] args]
+      (when-not (and (= 2 (count args)) (map? updates))
+        (fail! "merge! expects a receiver and a literal map of updates" form))
+      (seq updates))
+    (do
+      (when-not (and (seq args) (even? (count (rest args))))
+        (fail! "assoc! expects a receiver followed by key/value pairs" form))
+      (partition 2 (rest args)))))
+
+(defn- emit-mutation [operator args form result?]
+  (let [entries (mutation-entries operator args form)
+        prefix (str "__aguafria_assoc_" (Integer/toUnsignedString (hash form) 16))
+        target (str prefix "_target")
+        prepared (map-indexed
+                  (fn [i [key value]]
+                    (let [index (str prefix "_index_" i)
+                          field (if (keyword? key)
+                                  (str target ".*." (identifier-fragment key))
+                                  (str target ".*[" index "]"))
+                          temporary (str prefix "_value_" i)]
+                      {:prepare (str (when-not (keyword? key)
+                                       (str "const " index " = " (emit-expr key) ";\n"))
+                                     "const " temporary ": @TypeOf(" field ") = "
+                                     (emit-expr value) ";\n")
+                       :write (str field " = " temporary ";\n")}))
+                  entries)]
+    (str (when result? (str "(" prefix ": ")) "{\n"
+         "const " target " = &(" (emit-expr (first args)) ");\n"
+         (apply str (map :prepare prepared))
+         (apply str (map :write prepared))
+         (if result? (str "break :" prefix " " target ";\n}).*")
+             (str (when-not (seq entries) (str "_ = " target ";\n")) "}")))))
+
 (defn- emit-expr*
   [form]
   (cond
@@ -1961,6 +2006,9 @@
         (= op 'array)
         (str (emit-type (array-initializer-type args))
              (subs (emit-vector-literal (first args)) 1))
+
+        (contains? #{'assoc! 'merge!} op)
+        (emit-mutation op args form true)
 
         (= op 'vector)
         (str (emit-type (vector-initializer-type args))
@@ -2716,6 +2764,8 @@
                (= op 'const) (emit-local "const" args form)
                (= op 'var) (emit-local "var" args form)
                (= op 'let) (emit-let-stmt args level form)
+               (contains? #{'assoc! 'merge!} op)
+               (emit-mutation op args form false)
                (= op 'set!)
                (if (= 2 (count args))
                  (let [[target value] args]

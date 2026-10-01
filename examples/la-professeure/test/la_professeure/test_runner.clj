@@ -25,12 +25,26 @@
     (is (= (count build/audio-api) (count exports)))
     (doseq [[form native-name] (map vector exports build/audio-api)]
       (is (= native-name (second form)))
-      (is (= (list 'az/field 'c-api (keyword native-name)) (last form))))))
+      (is (= '{:attrs #{k/pub}} (nth form 2)))
+      (is (= (list (keyword native-name) 'c-api) (last form))))))
+
+(deftest native-sources-use-current-learn-patterns
+  (doseq [path ["src/la_professeure/gpu.clj" "src/la_professeure/scene.clj"
+                "src/la_professeure/recording_tool.clj"
+                "tools/src/la_professeure/tools/studio.clj"
+                "tools/src/la_professeure/tools/recorder.clj"
+                "tools/src/la_professeure/tools/mixer.clj"]
+          :let [source (slurp path)]
+          pattern [#"\bak/" #"\(set!\s" #"\^:var\b" #":zig/align\b"
+                   #"az/(?:field|index|array-init|labeled-block)\b"]]
+    (is (not (re-find pattern source)) (str path " still uses " pattern))))
 
 (deftest native-bootstrap-is-serialized
   (let [loaded (atom false) calls (atom [])]
     (with-redefs [build/native-loaded loaded
-                  build/prepare! #(do (swap! calls conj :prepare) (Thread/sleep 20))
+                  build/prepare! #(throw (ex-info "Asset preparation must not run during namespace loading" {}))
+                  aguafria-examples-native.build/prepare-shared! #(do (swap! calls conj :native) (Thread/sleep 20))
+                  build/native! (fn [_] (swap! calls conj :audio))
                   build/bindings! (constantly :test-bindings)
                   aguafria.c/load-bindings! #(swap! calls conj %)
                   aguafria.zig/configuration (constantly {})
@@ -38,12 +52,12 @@
       (let [requests (doall (repeatedly 12 #(future (build/load-native!))))]
         (doseq [request requests] @request))
       (is @loaded)
-      (is (= [:prepare :test-bindings :configure] @calls))
+      (is (= [:native :audio :test-bindings :configure] @calls))
       (build/load-native!)
-      (is (= 3 (count @calls)) "Later requires do not re-import native types")))
+      (is (= 4 (count @calls)) "Later requires do not re-import native types")))
   (let [loaded (atom false)]
     (with-redefs [build/native-loaded loaded
-                  build/prepare! #(throw (ex-info "Prepare failed" {}))]
+                  aguafria-examples-native.build/prepare-shared! #(throw (ex-info "Prepare failed" {}))]
       (is (thrown? clojure.lang.ExceptionInfo (build/load-native!)))
       (is (false? @loaded) "A failed preparation can be retried"))))
 

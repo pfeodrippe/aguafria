@@ -9,7 +9,8 @@
 
 (defn ensure-loaded!
   []
-  (when-not @loaded?
+  (locking loaded?
+   (when-not @loaded?
     (let [specs (generate/binding-specs)]
       ;; The translator's cache includes the compiler format version. File
       ;; existence alone would keep incompatible bindings after an upgrade.
@@ -24,7 +25,7 @@
       (az/configure! {:zig-args (into (vec (:zig-args (az/configuration)))
                                      (build/development-link-arguments))
                       :reloadable? true})
-      (reset! loaded? true)))
+      (reset! loaded? true))))
   {:loaded? @loaded?
    :flecs (when @loaded?
             (select-keys (ac/namespace-info

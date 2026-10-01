@@ -476,15 +476,15 @@
 
 (deftest grouped-state-assignment-expansion
   (let [expand #(apply #'studio/set-state! [nil nil %])]
-    (is (= '(do (set! selected next-selection)
-                (set! record-track selected)
-                (set! clicked false))
+    (is (= '(do (aguafria.keyword/= selected next-selection)
+                (aguafria.keyword/= record-track selected)
+                (aguafria.keyword/= clicked false))
            (expand '[selected next-selection
                      record-track selected
                      clicked false]))
         "Expressions occur once, in order; later assignments see earlier changes")
-    (is (= '(do (set! scene/vertices output)
-                (set! scene/vertex-count 0))
+    (is (= '(do (aguafria.keyword/= scene/vertices output)
+                (aguafria.keyword/= scene/vertex-count 0))
            (expand '[scene/vertices output
                      scene/vertex-count 0])))
     (doseq [invalid [nil [] '(selected 1) '[selected]
@@ -664,10 +664,12 @@
                           (swap! events conj [:render])
                           (f))
        #'az/value (fn [field]
-                    (let [key (key-for field)]
-                      (when-not (contains? @state key)
-                        (throw (AssertionError. (str "Uninitialized test field: " key))))
-                      (get @state key)))
+                    (if (number? field)
+                      field
+                      (let [key (key-for field)]
+                        (when-not (contains? @state key)
+                          (throw (AssertionError. (str "Uninitialized test field: " key))))
+                        (get @state key))))
        #'az/set-value! (fn [field value]
                          (let [key (key-for field)]
                            (swap! events conj [:set key value])

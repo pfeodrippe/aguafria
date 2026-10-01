@@ -2,17 +2,13 @@
 // The call runs in the live library; no child process or simulated evaluation.
 pub const __aguafria_jvm = struct {
     const std = @import("std");
-    extern fn aguafria_jvm_allocator() *const std.mem.Allocator;
+    extern fn aguafria_jvm_allocate(usize, usize) ?[*]u8;
     extern fn aguafria_jvm_writer_new() ?*anyopaque;
     extern fn aguafria_jvm_writer_append(*anyopaque, [*]const u8, usize) bool;
     extern fn aguafria_jvm_writer_destroy(*anyopaque) void;
     extern fn aguafria_jvm_writer_finish(*anyopaque) usize;
     extern fn aguafria_jvm_release(usize) void;
     extern fn aguafria_jvm_release_native(usize, usize, usize) void;
-
-    fn allocator() std.mem.Allocator {
-        return aguafria_jvm_allocator().*;
-    }
 
     // The shared library owns the byte buffer, not this image's Writer vtable.
     // Its C ABI returns status flags; construct Zig errors in the caller image.
@@ -296,8 +292,14 @@ pub const __aguafria_jvm = struct {
         };
     }
 
+    const BoundMethod = struct { __aguafria_bound_method: bool = true };
+
+    pub fn boundMethod() BoundMethod {
+        return .{};
+    }
+
     fn FieldValue(comptime T: type, comptime name: []const u8) type {
-        if (isMethod(T, name)) return struct { __aguafria_bound_method: bool = true };
+        if (isMethod(T, name)) return BoundMethod;
         const Container = switch (@typeInfo(T)) {
             .pointer => |p| if (p.size == .one) p.child else T,
             else => T,
@@ -374,7 +376,7 @@ pub const __aguafria_jvm = struct {
         return switch (@typeInfo(T)) {
             .optional => |info| containsNativeStorage(info.child),
             .error_union => |info| containsNativeStorage(info.payload),
-            .array, .vector => |info| containsNativeStorage(info.child),
+            inline .array, .vector => |info| containsNativeStorage(info.child),
             .pointer => |info| if (info.size == .slice) containsNativeStorage(info.child) else needsNativeStorage(T),
             else => needsNativeStorage(T),
         };
@@ -388,9 +390,8 @@ pub const __aguafria_jvm = struct {
         const T = @TypeOf(value);
         if (comptime needsNativeStorage(T)) {
             const size = @sizeOf(T);
-            const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
-            const bytes = allocator().rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
-            errdefer allocator().rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
+            const bytes = aguafria_jvm_allocate(size, @alignOf(T)) orelse return error.OutOfMemory;
+            errdefer aguafria_jvm_release_native(@intFromPtr(bytes), size, @alignOf(T));
             @memcpy(bytes[0..size], std.mem.asBytes(&value));
             try writer.writeAll("{:aguafria.jvm/native {:address ");
             try writer.print("{d} :size {d} :alignment {d} :path ", .{ @intFromPtr(bytes), size, @alignOf(T) });
@@ -541,10 +542,18 @@ pub const __aguafria_jvm = struct {
             },
             .array, .vector => {
                 const length = if (@typeInfo(T) == .array) @typeInfo(T).array.len else @typeInfo(T).vector.len;
+                const Child = if (@typeInfo(T) == .array) @typeInfo(T).array.child else @typeInfo(T).vector.child;
                 try writer.writeByte('[');
-                inline for (0..length) |index| {
-                    try inspect(writer, value[index]);
-                    try writer.writeByte(' ');
+                if (comptime @typeInfo(T) == .vector or requiresComptime(Child)) {
+                    inline for (0..length) |index| {
+                        try inspect(writer, value[index]);
+                        try writer.writeByte(' ');
+                    }
+                } else {
+                    for (0..length) |index| {
+                        try inspect(writer, value[index]);
+                        try writer.writeByte(' ');
+                    }
                 }
                 try writer.writeByte(']');
             },
@@ -830,6 +839,7 @@ pub const __aguafria_jvm = struct {
 
     fn writeResult(writer: *std.Io.Writer, value: anytype) !void {
         const T = @TypeOf(value);
+        if (T == BoundMethod) return write(writer, value);
         if (comptime requiresComptime(T) and switch (@typeInfo(T)) {
             .@"struct", .@"union", .array, .vector, .optional, .error_union, .@"fn" => true,
             else => false,
@@ -851,7 +861,7 @@ pub const __aguafria_jvm = struct {
                     }
                     try writer.writeByte(']');
                 } else {
-                    try write(writer, value);
+                    try writeNativeResult(writer, value);
                 }
             },
             .comptime_int, .comptime_float => {
@@ -871,9 +881,8 @@ pub const __aguafria_jvm = struct {
         // Inspection still produces ordinary EDN through write/inspectResult.
         const T = @TypeOf(value);
         const size = @sizeOf(T);
-        const alignment: std.mem.Alignment = .fromByteUnits(@alignOf(T));
-        const bytes = allocator().rawAlloc(@max(1, size), alignment, @returnAddress()) orelse return error.OutOfMemory;
-        errdefer allocator().rawFree(bytes[0..@max(1, size)], alignment, @returnAddress());
+        const bytes = aguafria_jvm_allocate(size, @alignOf(T)) orelse return error.OutOfMemory;
+        errdefer aguafria_jvm_release_native(@intFromPtr(bytes), size, @alignOf(T));
         @memcpy(bytes[0..size], std.mem.asBytes(&value));
         try writer.print("{{:aguafria.jvm/native {{:address {d} :size {d} :alignment {d} :path []", .{ @intFromPtr(bytes), size, @alignOf(T) });
         try writeTupleLength(writer, T);
@@ -901,7 +910,7 @@ pub const __aguafria_jvm = struct {
         // Static container functions become callable JVM closures, just like
         // instance methods. A function has no runtime value to serialize.
         if (@typeInfo(@TypeOf(value)) == .@"fn") {
-            return result(.{ .__aguafria_bound_method = true });
+            return result(BoundMethod{});
         }
         // A field may itself be an unbounded pointer. Return a typed borrowed
         // address, as inspection does; never read an unknown number of elements.
@@ -924,7 +933,7 @@ pub const __aguafria_jvm = struct {
 
     pub fn comptimeResult(comptime value: anytype) usize {
         return switch (@typeInfo(@TypeOf(value))) {
-            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => result(.{ .comptime_value = value }),
+            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => inspectResult(.{ .comptime_value = value }),
             else => result(null),
         };
     }

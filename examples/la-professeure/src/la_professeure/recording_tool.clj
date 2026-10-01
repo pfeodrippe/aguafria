@@ -4,247 +4,262 @@
             [aguafria.std.process :as process]
             [aguafria.std.process.Args.Iterator :as args]
             [aguafria.std.debug :as debug]
-            [aguafria.keyword :as ak] [aguafria.zig :as az]))
+            [aguafria.keyword :as k] [aguafria.zig :as az]))
 
 ;; Bitwig owns .bwproject serialization. This tool owns the Markdown → track plan.
-(az/defconst c (ak/cImport (do (ak/cInclude "stdio.h") (ak/cInclude "stdlib.h"))))
-(az/defconst fopen (az/field c fopen))
-(az/defconst fclose (az/field c fclose))
-(az/defconst fread (az/field c fread))
-(az/defconst fwrite (az/field c fwrite))
-(az/defconst rename-file (az/field c rename))
-(az/defconst FILE (az/field c FILE))
+(az/defconst c (k/cImport (do (k/cInclude "stdio.h") (k/cInclude "stdlib.h"))))
+
+(az/defconst fopen (:fopen c))
+
+(az/defconst fclose (:fclose c))
+
+(az/defconst fread (:fread c))
+
+(az/defconst fwrite (:fwrite c))
+
+(az/defconst rename-file (:rename c))
+
+(az/defconst FILE (:FILE c))
 
 (az/defstruct Node {:layout :extern}
-  [[:kind :u32] [:parent :u32] [:scene :u32] [:line :u32] [:indent :u32]
-   [:speaker :u8] [:id_len :u8] [:padding :u16] [:revision :u32]
-   [:offset :u32] [:length :u32] [:hash :u64] [:context :u64]
-   [:id [:array 64 :u8]]])
+              [[:kind :u32] [:parent :u32] [:scene :u32] [:line :u32] [:indent :u32]
+               [:speaker :u8] [:id_len :u8] [:padding :u16] [:revision :u32]
+               [:offset :u32] [:length :u32] [:hash :u64] [:context :u64]
+               [:id [:array 64 :u8]]])
 
 (az/defconst no-parent :u32 4294967295)
+
 (az/defconst max-nodes :usize 1024)
-(az/defvar nodes [:array 1024 Node] (mem/zeroes (az/type [:array 1024 Node])))
-(az/defvar text-arena [:array 262144 :u8] ak/undefined)
-(az/defvar source-buffer [:array 262144 :u8] ak/undefined)
-(az/defvar normalized-buffer [:array 262144 :u8] ak/undefined)
+
+(az/defvar nodes [:array 1024 Node] (mem/zeroes [:array 1024 Node]))
+
+(az/defvar text-arena [:array 262144 :u8] k/undefined)
+
+(az/defvar source-buffer [:array 262144 :u8] k/undefined)
+
+(az/defvar normalized-buffer [:array 262144 :u8] k/undefined)
+
 (az/defvar count-nodes :u32 0)
+
 (az/defvar text-used :u32 0)
+
 (az/defvar error-line :u32 0)
+
 (az/defvar error-code :u32 0)
 
 (az/defn- reject :bool [[line :u32] [code :u32]]
-  (set! error-line line) (set! error-code code) false)
+  (k/= error-line line) (k/= error-code code) false)
 
 (az/defn text-hash :u64 [[text [:slice-const :u8]]]
-  (let [^:var h (ak/u64 14695981039346656037)]
-    (dotimes [i (az/field text len)] (set! h (ak/*% (ak/bit-xor h (az/index text i)) 1099511628211)))
+  (let [h (k/var (k/u64 14695981039346656037))]
+    (dotimes [i (:len text)] (k/= h (k/*% (k/bit-xor h (az/get text i)) 1099511628211)))
     h))
 
 (az/defn node-at Node [[index :u32]]
-  (if (< index count-nodes) (az/index nodes index) (mem/zeroes (az/type Node))))
+  (if (k/< index count-nodes) (az/get nodes index) (mem/zeroes Node)))
 
 (az/defn node-text [:slice-const :u8] [[index :u32]]
-  (when (>= index count-nodes) (ak/return ""))
-  (let [n (az/index nodes index)]
-    (az/slice text-arena (az/field n offset) (+ (az/field n offset) (az/field n length)))))
+  (when (k/>= index count-nodes) (k/return ""))
+  (let [n (az/get nodes index)]
+    (az/slice text-arena (:offset n) (k/+ (:offset n) (:length n)))))
 
 (az/defn node-id [:slice-const :u8] [[index :u32]]
-  (when (>= index count-nodes) (ak/return ""))
-  (az/slice (az/field (az/index nodes index) id) 0 (az/field (az/index nodes index) id_len)))
+  (when (k/>= index count-nodes) (k/return ""))
+  (az/slice (:id (az/get nodes index)) 0 (:id_len (az/get nodes index))))
 
 (az/defn- append-text! :bool [[value [:slice-const :u8]]]
-  (when (> (+ text-used (az/field value len)) (az/field text-arena len))
-    (ak/return (reject error-line 2)))
-  (ak/memcpy (az/slice text-arena text-used (+ text-used (az/field value len))) value)
-  (set! text-used (ak/intCast (+ text-used (az/field value len)))) true)
+  (when (k/> (k/+ text-used (:len value)) (:len text-arena))
+    (k/return (reject error-line 2)))
+  (k/memcpy (az/slice text-arena text-used (k/+ text-used (:len value))) value)
+  (k/= text-used (k/intCast (k/+ text-used (:len value)))) true)
 
 (az/defn- id-character? :bool [[b :u8]]
-  (or (and (>= b 65) (<= b 90)) (and (>= b 97) (<= b 122))
-      (and (>= b 48) (<= b 57)) (ak/== b 45) (ak/== b 95)))
+  (or (and (k/>= b 65) (k/<= b 90)) (and (k/>= b 97) (k/<= b 122))
+      (and (k/>= b 48) (k/<= b 57)) (k/== b 45) (k/== b 95)))
 
 (az/defn set-recording-id! :bool [[index :u32] [id [:slice-const :u8]] [revision :u32]]
-  (when (or (>= index count-nodes) (ak/== (az/field id len) 0) (> (az/field id len) 63))
-    (ak/return false))
-  (dotimes [i (az/field id len)] (when (ak/! (id-character? (az/index id i))) (ak/return false)))
-  (let [node (ak/& (az/index nodes index))]
-    (ak/memcpy (az/slice (az/field node id) 0 (az/field id len)) id)
-    (set! (az/field node id_len) (ak/intCast (az/field id len)))
-    (set! (az/field node revision) revision)) true)
+  (when (or (k/>= index count-nodes) (k/== (:len id) 0) (k/> (:len id) 63))
+    (k/return false))
+  (dotimes [i (:len id)] (when (k/! (id-character? (az/get id i))) (k/return false)))
+  (let [node (k/& (az/get nodes index))]
+    (k/memcpy (az/slice (:id node) 0 (:len id)) id)
+    (k/= (:id_len node) (k/intCast (:len id)))
+    (k/= (:revision node) revision)) true)
 
 (az/defn- parse-normalized! :bool
   "Native Markdown parser. Errors leave diagnostics; caller publishes only after success.
   1=syntax, 2=capacity, 3=unknown voice, 4=indentation, 5=identity conflict." [[source [:slice-const :u8]]]
-  (set! count-nodes 0) (set! text-used 0) (set! error-line 0) (set! error-code 0)
-  (when (> (az/field source len) 262144) (ak/return (reject 1 2)))
-  (let [^:var start (ak/usize 0) ^:var line (ak/u32 0)
-        ^:var scene (ak/u32 no-parent) ^:var join false
-        ^:var stack (ak/as ak/undefined [:array 64 :u32]) ^:var depth (ak/usize 0)]
-    (ak/while (< start (az/field source len))
-      (set! line (+ line 1))
-      (let [^:var end (ak/usize start)]
-        (ak/while (and (< end (az/field source len)) (ak/!= (az/index source end) 10))
-          (set! end (+ end 1)))
+  (k/= count-nodes 0) (k/= text-used 0) (k/= error-line 0) (k/= error-code 0)
+  (when (k/> (:len source) 262144) (k/return (reject 1 2)))
+  (let [start (k/var (k/usize 0)) line (k/var (k/u32 0))
+        scene (k/var (k/u32 no-parent)) join (k/var false)
+        stack (k/var (k/as k/undefined [:array 64 :u32])) depth (k/var (k/usize 0))]
+    (k/while (k/< start (:len source))
+      (k/= line (k/+ line 1))
+      (let [end (k/var (k/usize start))]
+        (k/while (and (k/< end (:len source)) (k/!= (az/get source end) 10))
+          (k/= end (k/+ end 1)))
         (let [raw (az/slice source start end)
-              ^:var indent (ak/usize 0)]
-          (set! start (+ end 1))
-          (ak/while (and (< indent (az/field raw len)) (ak/== (az/index raw indent) 32))
-            (set! indent (+ indent 1)))
-          (let [^:var body (mem/trim (az/type :u8) (az/slice raw indent) " \r")]
-            (when (ak/== (az/field body len) 0) (set! join false) (ak/continue))
-            (when (>= count-nodes max-nodes) (ak/return (reject line 2)))
-            (let [^:var n (ak/as (mem/zeroes (az/type Node)) Node)]
-              (set! (az/field n line) line) (set! (az/field n indent) (ak/intCast indent))
-              (set! (az/field n kind) 2)
+              indent (k/var (k/usize 0))]
+          (k/= start (k/+ end 1))
+          (k/while (and (k/< indent (:len raw)) (k/== (az/get raw indent) 32))
+            (k/= indent (k/+ indent 1)))
+          (let [body (k/var (mem/trim :u8 (az/slice raw indent) " \r"))]
+            (when (k/== (:len body) 0) (k/= join false) (k/continue))
+            (when (k/>= count-nodes max-nodes) (k/return (reject line 2)))
+            (let [n (k/var (k/as (mem/zeroes Node) Node))]
+              (k/= (:line n) line) (k/= (:indent n) (k/intCast indent))
+              (k/= (:kind n) 2)
               ;; IDs are metadata at the end, never visible/spoken text.
-              (let [^:var id-start (ak/usize (az/field body len))
-                    ^:var id-end (ak/usize (az/field body len))
-                    ^:var text-end (ak/usize (az/field body len))
-                    ^:var j (ak/usize 0)]
-                (ak/while (< j (az/field body len))
-                  (when (and (> j 0) (ak/== (az/index body (- j 1)) 32))
+              (let [id-start (k/var (k/usize (:len body)))
+                    id-end (k/var (k/usize (:len body)))
+                    text-end (k/var (k/usize (:len body)))
+                    j (k/var (k/usize 0))]
+                (k/while (k/< j (:len body))
+                  (when (and (k/> j 0) (k/== (az/get body (k/- j 1)) 32))
                     (cond
-                      (ak/== (az/index body j) 94)
-                      (do (set! id-start (+ j 1)) (set! text-end (- j 1)))
+                      (k/== (az/get body j) 94)
+                      (do (k/= id-start (k/+ j 1)) (k/= text-end (k/- j 1)))
                       (and (mem/startsWith (az/type :u8) (az/slice body j) "[id:")
-                           (ak/== (az/index body (- (az/field body len) 1)) 93))
-                      (do (set! id-start (+ j 4)) (set! id-end (- (az/field body len) 1))
-                          (set! text-end (- j 1)))))
-                  (set! j (+ j 1)))
-                (when (< id-start (az/field body len))
+                           (k/== (az/get body (k/- (:len body) 1)) 93))
+                      (do (k/= id-start (k/+ j 4)) (k/= id-end (k/- (:len body) 1))
+                          (k/= text-end (k/- j 1)))))
+                  (k/= j (k/+ j 1)))
+                (when (k/< id-start (:len body))
                   (let [id (az/slice body id-start id-end)]
-                    (when (or (ak/== (az/field id len) 0) (> (az/field id len) 63))
-                      (ak/return (reject line 5)))
-                    (dotimes [i (az/field id len)]
-                      (when (ak/! (id-character? (az/index id i))) (ak/return (reject line 5))))
-                    (ak/memcpy (az/slice (az/field n id) 0 (az/field id len)) id)
-                    (set! (az/field n id_len) (ak/intCast (az/field id len)))
-                    (set! body (mem/trim (az/type :u8) (az/slice body 0 text-end) " ")))))
+                    (when (or (k/== (:len id) 0) (k/> (:len id) 63))
+                      (k/return (reject line 5)))
+                    (dotimes [i (:len id)]
+                      (when (k/! (id-character? (az/get id i))) (k/return (reject line 5))))
+                    (k/memcpy (az/slice (:id n) 0 (:len id)) id)
+                    (k/= (:id_len n) (k/intCast (:len id)))
+                    (k/= body (mem/trim :u8 (az/slice body 0 text-end) " ")))))
               (cond
                 (mem/startsWith (az/type :u8) body ":: ")
-                (do (set! (az/field n kind) 1) (set! body (az/slice body 3)))
-                (mem/startsWith (az/type :u8) body "::") (ak/return (reject line 1))
+                (do (k/= (:kind n) 1) (k/= body (az/slice body 3)))
+                (mem/startsWith (az/type :u8) body "::") (k/return (reject line 1))
                 (mem/startsWith (az/type :u8) body "#")
-                (let [^:var tag-end (ak/usize 1)]
-                  (ak/while (and (< tag-end (az/field body len)) (ak/== (az/index body tag-end) 35))
-                    (set! tag-end (+ tag-end 1)))
-                  (if (and (< tag-end (az/field body len)) (ak/== (az/index body tag-end) 32))
-                    (do (set! (az/field n kind) 0) (set! body (az/slice body (+ tag-end 1))))
+                (let [tag-end (k/var (k/usize 1))]
+                  (k/while (and (k/< tag-end (:len body)) (k/== (az/get body tag-end) 35))
+                    (k/= tag-end (k/+ tag-end 1)))
+                  (if (and (k/< tag-end (:len body)) (k/== (az/get body tag-end) 32))
+                    (do (k/= (:kind n) 0) (k/= body (az/slice body (k/+ tag-end 1))))
                     (do
-                      (set! tag-end 1)
-                      (when (mem/startsWith (az/type :u8) (az/slice body 1) "∆") (set! tag-end 4))
-                      (when (mem/startsWith (az/type :u8) (az/slice body 1) "Δ") (set! tag-end 3))
-                      (when (or (>= (+ tag-end 1) (az/field body len))
-                                (ak/!= (az/index body (+ tag-end 1)) 32)) (ak/return (reject line 1)))
-                      (set! (az/field n speaker) (az/index body tag-end))
-                      (when (and (ak/!= (az/field n speaker) 86) (ak/!= (az/field n speaker) 77))
-                        (ak/return (reject line 3)))
-                      (set! body (az/slice body (+ tag-end 2)))))))
-              (set! body (mem/trim (az/type :u8) body " "))
-              (when (ak/== (az/field body len) 0) (ak/return (reject line 1)))
-              (if (ak/== (az/field n kind) 0)
-                (do (set! scene count-nodes) (set! depth 0) (set! (az/field n parent) no-parent))
+                      (k/= tag-end 1)
+                      (when (mem/startsWith (az/type :u8) (az/slice body 1) "∆") (k/= tag-end 4))
+                      (when (mem/startsWith (az/type :u8) (az/slice body 1) "Δ") (k/= tag-end 3))
+                      (when (or (k/>= (k/+ tag-end 1) (:len body))
+                                (k/!= (az/get body (k/+ tag-end 1)) 32)) (k/return (reject line 1)))
+                      (k/= (:speaker n) (az/get body tag-end))
+                      (when (and (k/!= (:speaker n) 86) (k/!= (:speaker n) 77))
+                        (k/return (reject line 3)))
+                      (k/= body (az/slice body (k/+ tag-end 2)))))))
+              (k/= body (mem/trim :u8 body " "))
+              (when (k/== (:len body) 0) (k/return (reject line 1)))
+              (if (k/== (:kind n) 0)
+                (do (k/= scene count-nodes) (k/= depth 0) (k/= (:parent n) no-parent))
                 (do
-                  (when (ak/== scene no-parent) (ak/return (reject line 1)))
-                  (ak/while (and (> depth 0)
-                                (>= (az/field (az/index nodes (az/index stack (- depth 1))) indent) indent))
-                    (set! depth (- depth 1)))
-                  (when (and (> indent 0) (ak/== depth 0)) (ak/return (reject line 4)))
-                  (set! (az/field n parent) (if (> depth 0) (az/index stack (- depth 1)) scene))))
-              (set! (az/field n scene) scene)
-              (when (and join (> count-nodes 0) (ak/== (az/field n kind) 2)
-                         (ak/== (az/field n speaker) 0) (ak/== (az/field n id_len) 0))
-                (let [p (ak/& (az/index nodes (- count-nodes 1)))]
-                  (when (and (ak/== (az/field p parent) (az/field n parent))
-                             (ak/== (az/field p indent) indent))
-                    (when (ak/! (append-text! " ")) (ak/return false))
-                    (when (ak/! (append-text! body)) (ak/return false))
-                    (set! (az/field p length) (- text-used (az/field p offset)))
-                    (set! (az/field p hash) (text-hash (node-text (- count-nodes 1))))
-                    (ak/continue))))
-              (set! (az/field n offset) text-used)
-              (set! (az/field n length) (ak/intCast (az/field body len)))
-              (set! (az/field n hash) (text-hash body))
-              (set! (az/field n context)
-                    (if (ak/== (az/field n parent) no-parent) 0
-                      (ak/bit-xor (az/field (az/index nodes (az/field n parent)) hash)
-                                  (az/field (az/index nodes (az/field n parent)) context))))
-              (when (ak/! (append-text! body)) (ak/return false))
-              (set! (az/index nodes count-nodes) n)
-              (when (ak/== (az/field n kind) 1)
-                (when (>= depth 64) (ak/return (reject line 2)))
-                (set! (az/index stack depth) count-nodes) (set! depth (+ depth 1)))
-              (set! count-nodes (+ count-nodes 1))
-              (set! join (ak/== (az/field n kind) 2)))))))
-    (when (ak/== count-nodes 0) (ak/return (reject 1 1)))
+                  (when (k/== scene no-parent) (k/return (reject line 1)))
+                  (k/while (and (k/> depth 0)
+                                (k/>= (:indent (az/get nodes (az/get stack (k/- depth 1)))) indent))
+                    (k/= depth (k/- depth 1)))
+                  (when (and (k/> indent 0) (k/== depth 0)) (k/return (reject line 4)))
+                  (k/= (:parent n) (if (k/> depth 0) (az/get stack (k/- depth 1)) scene))))
+              (k/= (:scene n) scene)
+              (when (and join (k/> count-nodes 0) (k/== (:kind n) 2)
+                         (k/== (:speaker n) 0) (k/== (:id_len n) 0))
+                (let [p (k/& (az/get nodes (k/- count-nodes 1)))]
+                  (when (and (k/== (:parent p) (:parent n))
+                             (k/== (:indent p) indent))
+                    (when (k/! (append-text! " ")) (k/return false))
+                    (when (k/! (append-text! body)) (k/return false))
+                    (k/= (:length p) (k/- text-used (:offset p)))
+                    (k/= (:hash p) (text-hash (node-text (k/- count-nodes 1))))
+                    (k/continue))))
+              (k/= (:offset n) text-used)
+              (k/= (:length n) (k/intCast (:len body)))
+              (k/= (:hash n) (text-hash body))
+              (k/= (:context n)
+                   (if (k/== (:parent n) no-parent) 0
+                       (k/bit-xor (:hash (az/get nodes (:parent n)))
+                                  (:context (az/get nodes (:parent n))))))
+              (when (k/! (append-text! body)) (k/return false))
+              (k/= (az/get nodes count-nodes) n)
+              (when (k/== (:kind n) 1)
+                (when (k/>= depth 64) (k/return (reject line 2)))
+                (k/= (az/get stack depth) count-nodes) (k/= depth (k/+ depth 1)))
+              (k/= count-nodes (k/+ count-nodes 1))
+              (k/= join (k/== (:kind n) 2)))))))
+    (when (k/== count-nodes 0) (k/return (reject 1 1)))
     (dotimes [i count-nodes]
-      (when (and (ak/== (az/field (az/index nodes i) kind) 0)
-                 (ak/== (az/field (az/index nodes i) id_len) 0))
+      (when (and (k/== (:kind (az/get nodes i)) 0)
+                 (k/== (:id_len (az/get nodes i)) 0))
         (dotimes [j i]
-          (when (and (ak/== (az/field (az/index nodes j) kind) 0)
-                     (ak/== (az/field (az/index nodes j) id_len) 0)
-                     (mem/eql (az/type :u8) (node-text (ak/intCast i)) (node-text (ak/intCast j))))
-            (ak/return (reject (az/field (az/index nodes i) line) 7)))))
-      (when (> (az/field (az/index nodes i) id_len) 0)
+          (when (and (k/== (:kind (az/get nodes j)) 0)
+                     (k/== (:id_len (az/get nodes j)) 0)
+                     (mem/eql :u8 (node-text (k/intCast i)) (node-text (k/intCast j))))
+            (k/return (reject (:line (az/get nodes i)) 7)))))
+      (when (k/> (:id_len (az/get nodes i)) 0)
         (dotimes [j i]
-          (when (mem/eql (az/type :u8) (node-id (ak/intCast i)) (node-id (ak/intCast j)))
-            (ak/return (reject (az/field (az/index nodes i) line) 5))))))
+          (when (mem/eql :u8 (node-id (k/intCast i)) (node-id (k/intCast j)))
+            (k/return (reject (:line (az/get nodes i)) 5))))))
     true))
 
 (az/defn parse! :bool
   "Normalize every tab to four spaces before parsing; the source is never rewritten." [[source [:slice-const :u8]]]
-  (set! count-nodes 0) (set! text-used 0) (set! error-line 0) (set! error-code 0)
-  (let [^:var length (ak/usize 0) ^:var line (ak/u32 1)]
-    (dotimes [i (az/field source len)]
-      (let [b (az/index source i) width (ak/as (if (ak/== b 9) 4 1) :usize)]
-        (when (> (+ length width) (az/field normalized-buffer len)) (ak/return (reject line 2)))
+  (k/= count-nodes 0) (k/= text-used 0) (k/= error-line 0) (k/= error-code 0)
+  (let [length (k/var (k/usize 0)) line (k/var (k/u32 1))]
+    (dotimes [i (:len source)]
+      (let [b (az/get source i) width (k/as (if (k/== b 9) 4 1) :usize)]
+        (when (k/> (k/+ length width) (:len normalized-buffer)) (k/return (reject line 2)))
         (dotimes [j width]
-          (set! (az/index normalized-buffer (+ length j)) (if (ak/== b 9) 32 b)))
-        (set! length (+ length width))
-        (when (ak/== b 10) (set! line (+ line 1)))))
+          (k/= (az/get normalized-buffer (k/+ length j)) (if (k/== b 9) 32 b)))
+        (k/= length (k/+ length width))
+        (when (k/== b 10) (k/= line (k/+ line 1)))))
     (parse-normalized! (az/slice normalized-buffer 0 length))))
 
 (az/defn parse-file! :bool [[path [:slice-const :u8]]]
-  (when (>= (az/field path len) 4096) (ak/return (reject 0 6)))
-  (let [^:var name (ak/as (mem/zeroes (az/type [:array 4096 :u8])) [:array 4096 :u8])]
-    (ak/memcpy (az/slice name 0 (az/field path len)) path)
-    (let [file (fopen (ak/& name) "rb")]
-      (when (ak/== file ak/null) (ak/return (reject 0 6)))
-      (ak/defer (set! _ (fclose file)))
-      (let [n (fread (ak/& source-buffer) 1 (az/field source-buffer len) file)]
-        (when (or (ak/!= ((az/field c ferror) file) 0)
-                  (ak/!= ((az/field c fgetc) file) (az/field c EOF)))
-          (ak/return (reject 0 2)))
+  (when (k/>= (:len path) 4096) (k/return (reject 0 6)))
+  (let [name (k/var (k/as (mem/zeroes [:array 4096 :u8]) [:array 4096 :u8]))]
+    (k/memcpy (az/slice name 0 (:len path)) path)
+    (let [file (fopen (k/& name) "rb")]
+      (when (k/== file k/null) (k/return (reject 0 6)))
+      (k/defer (k/= :_ (fclose file)))
+      (let [n (fread (k/& source-buffer) 1 (:len source-buffer) file)]
+        (when (or (k/!= ((:ferror c) file) 0)
+                  (k/!= ((:fgetc c) file) (:EOF c)))
+          (k/return (reject 0 2)))
         (parse! (az/slice source-buffer 0 n))))))
 
 (az/defn write-document! :bool
   "Publish a complete native dialogue asset by rename. No Bitwig project or audio is touched." [[path [:slice-const :u8]]]
-  (when (> (az/field path len) 4090) (ak/return (reject 0 6)))
-  (let [^:var name (ak/as (mem/zeroes (az/type [:array 4096 :u8])) [:array 4096 :u8])
-        ^:var temporary (ak/as (mem/zeroes (az/type [:array 4096 :u8])) [:array 4096 :u8])]
-    (ak/memcpy (az/slice name 0 (az/field path len)) path)
-    (ak/memcpy (az/slice temporary 0 (az/field path len)) path)
-    (ak/memcpy (az/slice temporary (az/field path len) (+ (az/field path len) 4)) ".tmp")
-    (let [file (fopen (ak/& temporary) "wb")]
-      (when (ak/== file ak/null) (ak/return (reject 0 6)))
-      (let [ok (and (ak/== (fwrite "LPDIAG01" 1 8 file) 8)
-                    (ak/== (fwrite (ak/& count-nodes) 4 1 file) 1)
-                    (ak/== (fwrite (ak/& text-used) 4 1 file) 1)
-                    (ak/== (fwrite (ak/& nodes) (ak/sizeOf Node) count-nodes file) count-nodes)
-                    (ak/== (fwrite (ak/& text-arena) 1 text-used file) text-used))
-            closed (ak/== (fclose file) 0)]
-        (when (or (ak/! ok) (ak/! closed)) (ak/return (reject 0 6)))
-        (ak/== (rename-file (ak/& temporary) (ak/& name)) 0)))))
+  (when (k/> (:len path) 4090) (k/return (reject 0 6)))
+  (let [name (k/var (k/as (mem/zeroes [:array 4096 :u8]) [:array 4096 :u8]))
+        temporary (k/var (k/as (mem/zeroes [:array 4096 :u8]) [:array 4096 :u8]))]
+    (k/memcpy (az/slice name 0 (:len path)) path)
+    (k/memcpy (az/slice temporary 0 (:len path)) path)
+    (k/memcpy (az/slice temporary (:len path) (k/+ (:len path) 4)) ".tmp")
+    (let [file (fopen (k/& temporary) "wb")]
+      (when (k/== file k/null) (k/return (reject 0 6)))
+      (let [ok (and (k/== (fwrite "LPDIAG01" 1 8 file) 8)
+                    (k/== (fwrite (k/& count-nodes) 4 1 file) 1)
+                    (k/== (fwrite (k/& text-used) 4 1 file) 1)
+                    (k/== (fwrite (k/& nodes) (k/sizeOf Node) count-nodes file) count-nodes)
+                    (k/== (fwrite (k/& text-arena) 1 text-used file) text-used))
+            closed (k/== (fclose file) 0)]
+        (when (or (k/! ok) (k/! closed)) (k/return (reject 0 6)))
+        (k/== (rename-file (k/& temporary) (k/& name)) 0)))))
 
-(az/defn main :void {:zig/qualifiers "!"} [[init process/Init]]
-  (let [^:var iterator (ak/try (args/initAllocator (az/field (az/field init minimal) args) (az/field init gpa)))]
-    (ak/defer (args/deinit (ak/& iterator)))
-    (set! _ (args/next (ak/& iterator)))
-    (let [source (args/next (ak/& iterator)) output (args/next (ak/& iterator))]
-      (when (or (ak/== source ak/null) (ak/== output ak/null))
+(az/defn main :!void [[init process/Init]]
+  (let [iterator (k/var (k/try (args/initAllocator (:args (:minimal init)) (:gpa init))))]
+    (k/defer (args/deinit (k/& iterator)))
+    (k/= :_ (args/next (k/& iterator)))
+    (let [source (args/next (k/& iterator)) output (args/next (k/& iterator))]
+      (when (or (k/== source k/null) (k/== output k/null))
         (debug/print "Usage: dialogue-tool source.md output.lpdialogue\n" [])
-        ((az/field c exit) 2))
-      (when (or (ak/! (parse-file! (az/unwrap source)))
-                (ak/! (write-document! (az/unwrap output))))
+        ((:exit c) 2))
+      (when (or (k/! (parse-file! (az/unwrap source)))
+                (k/! (write-document! (az/unwrap output))))
         (debug/print "Dialogue line {d}: error {d}\n" [error-line error-code])
-        ((az/field c exit) 1))
+        ((:exit c) 1))
       (debug/print "Compiled {d} dialogue nodes.\n" [count-nodes]))))

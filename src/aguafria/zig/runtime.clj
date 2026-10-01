@@ -142,7 +142,7 @@
   include every pending edit, not only the form that triggers that build."
   #{})
 
-(def ^:dynamic *materialize-declaration-key*
+(def ^:dynamic *materialize-declaration*
   "When non-nil, compile the exact live slice for a Clojure-demanded Var.
   Registration still retains the complete namespace descriptor/source graph;
   only this native publication is deliberately partial."
@@ -3730,13 +3730,18 @@
               cached? (boolean (and cache-safe? (or bundled (usable-native-artifact? library-file debug-format))))
               deferred? (and bundle/*preparing* (not cached?)
                              (not *validate-without-linking?*) (bundle/candidate artifact))
+              prepared? (and cache-safe? deferred? (bundle/prepared-artifact artifact))
               explain-start (System/nanoTime)
               result
-              (if (or *validate-without-linking?* deferred?)
+              (cond
+                prepared? nil
+
+                (or *validate-without-linking?* deferred?)
                 (let [validation-command (assoc command 3 "-fno-emit-bin")]
                   (assoc (run-command validation-command (.getAbsolutePath module-dir))
                          :command validation-command))
-                (when-not cached?
+
+                (not cached?)
                 (let [temporary-file
                       (io/file module-dir
                                (str "." (java.util.UUID/randomUUID) "-" library-name))
@@ -3760,9 +3765,10 @@
                         (move-replacing! temporary-file library-file))
                       result)
                     (finally
-                      (Files/deleteIfExists (.toPath temporary-file)))))))]
+                      (Files/deleteIfExists (.toPath temporary-file))))))]
           (explanation/event!
            {:event (cond (and result (not (zero? (:exit result)))) :compile-failed
+                         prepared? :preparation-cache-hit
                          (or *validate-without-linking?* deferred?) :validated
                          bundled :bundle-cache-hit
                          cached? :disk-cache-hit
@@ -5148,8 +5154,38 @@
   [publishing]
   (set-dispatch-publication-epoch! (inc publishing)))
 
+(defn- register-dependency-state-owners!
+  []
+  ;; A caller can be the first loaded library containing a dependency's state.
+  ;; Register that storage before any call runs, rather than replacing it with
+  ;; a fresh initializer when the dependency is later inspected from the JVM.
+  (swap! registry
+         (fn [modules]
+           (reduce
+            (fn [modules [storage-module generation binding]]
+              (let [{:keys [logical-id]} binding
+                    owner (first logical-id)
+                    versions (get-in modules [owner :state-versions])]
+                (if (or (not (contains? modules owner))
+                        (some #(and (:active? %) (= logical-id (:logical-id %))) versions))
+                  modules
+                  (update-in modules [owner :state-versions] (fnil conj [])
+                             (assoc (select-keys binding
+                                                 [:version-key :logical-id :schema-fingerprint
+                                                  :address :size :alignment :pointer-alignment])
+                                    :active? true :status :initialized
+                                    :storage-owner {:module storage-module
+                                                    :generation generation})))))
+            modules
+            (for [[module state] (sort-by key modules)
+                  generation (:native-generations state)
+                  binding (vals (:state-bindings generation))
+                  :when (not (:owned? binding))]
+              [module (:generation generation) binding])))))
+
 (defn- refresh-project-dispatch-unguarded!
   []
+  (register-dependency-state-owners!)
   (let [active-versions
         (into {}
               (mapcat (comp seq :dispatch-state val))
@@ -5274,6 +5310,13 @@
           (keep :generation
                 (remove #(= :superseded (:status %))
                         (:state-versions module-state)))
+          ;; Dependency state may have first materialized in this module's
+          ;; library, even though its logical owner is a different namespace.
+          (for [state (vals @registry)
+                version (:state-versions state)
+                :when (and (not= :superseded (:status version))
+                           (= (:module module-state) (get-in version [:storage-owner :module])))]
+            (get-in version [:storage-owner :generation]))
           (keep :generation
                 (remove #(= :superseded (:status %))
                         (:type-versions module-state)))
@@ -5532,6 +5575,26 @@
         (nested-storage-wrapper-spec type prefix)
         nil))))
 
+(defn- imported-storage-schema
+  "Keep an expanded alias's local member types under the caller's existing
+  import. For example, vk.Handle's optional pointer must still name vk.Record."
+  [type schema]
+  (let [reference (:aguafria/zig-reference (meta type))]
+    (if-let [alias (:import-alias reference)]
+      (walk/postwalk
+       (fn [value]
+         (let [member (:aguafria/zig-reference (meta value))]
+           (if (and (symbol? value) (= (:module reference) (:module member))
+                    (nil? (:import-alias member)))
+             (vary-meta value assoc :aguafria/zig-reference
+                        (merge member
+                               (select-keys reference [:import-alias :import-name :import-namespace])
+                               {:kind :namespace-member
+                                :zig-name (str alias "." (:zig-name member))}))
+             value)))
+       schema)
+      schema)))
+
 (defn- bridge-storage-type
   "Expose explicit type aliases to the JVM storage helpers. Native declarations
   keep their named types; only bridge layout inspection expands the aliases."
@@ -5547,10 +5610,17 @@
       (if (and (= :const (:kind declaration)) (not (contains? seen identity)))
         (cond
           (and (seq? value) (= 'type (first value)) (= 2 (count value)))
-          (bridge-storage-type (:module declaration) (second value) (conj seen identity))
+          (imported-storage-schema
+           type
+           (bridge-storage-type (:module declaration)
+                                (emit/qualify-type (symbol (:module declaration)) (second value))
+                                (conj seen identity)))
 
           (symbol? value)
-          (bridge-storage-type (:module declaration) value (conj seen identity))
+          (let [expanded (bridge-storage-type (:module declaration) value (conj seen identity))]
+            ;; Nominal aliases already carry the caller's import path. Keep
+            ;; that name rather than leaking the provider's local type name.
+            (if (symbol? expanded) type (imported-storage-schema type expanded)))
 
           :else type)
         type))
@@ -5577,9 +5647,19 @@
       [:error-union :anyerror payload]
       (if (= :noreturn return) :void return))))
 
+(defn- jvm-wrapper-requests [module request-key]
+  (let [requested (get-in @registry [module request-key] #{})]
+    (if *materialize-declaration*
+      ;; A demand-loaded artifact needs only this declaration's JVM wrapper.
+      ;; Previously requested helpers must not change its disk-cache identity.
+      ;; Ordinary hot edits keep all requested wrappers for their live slice.
+      (let [{owner :module key :declaration-key} *materialize-declaration*]
+        (if (and (= (str module) owner) (contains? requested key)) #{key} #{}))
+      requested)))
+
 (defn- jvm-callable-wrapper-specs
   [module declarations]
-  (let [requested (get-in @registry [module :jvm-callable-declaration-keys] #{})]
+  (let [requested (jvm-wrapper-requests module :jvm-callable-declaration-keys)]
     (into {}
           (keep
            (fn [declaration]
@@ -5748,7 +5828,7 @@
 
 (defn- jvm-value-wrapper-specs
   [module declarations]
-  (let [requested (get-in @registry [module :jvm-value-declaration-keys] #{})]
+  (let [requested (jvm-wrapper-requests module :jvm-value-declaration-keys)]
     (into {}
           (keep
            (fn [{:keys [kind type] :as declaration}]
@@ -5814,7 +5894,7 @@
 
 (defn- jvm-type-wrapper-specs
   [module declarations]
-  (let [requested (get-in @registry [module :jvm-type-declaration-keys] #{})]
+  (let [requested (jvm-wrapper-requests module :jvm-type-declaration-keys)]
     (into {}
           (keep
            (fn [{:keys [kind] :as declaration}]
@@ -6497,8 +6577,7 @@
 
 (defn- module-source-cache-key
   [module declarations getter-declaration-keys]
-  (let [module-state (get @registry (str module))
-        declaration-fingerprints
+  (let [declaration-fingerprints
         (->> declarations
              (sort-by (juxt :source-order (comp str :name)))
              (mapv #(or (:source-fingerprint %)
@@ -6516,9 +6595,9 @@
      (boolean (:reloadable? @config))
      declaration-fingerprints
      (vec (sort-by pr-str getter-declaration-keys))
-     (vec (sort-by pr-str (:jvm-callable-declaration-keys module-state)))
-     (vec (sort-by pr-str (:jvm-value-declaration-keys module-state)))
-     (vec (sort-by pr-str (:jvm-type-declaration-keys module-state)))]))
+     (vec (sort-by pr-str (jvm-wrapper-requests module :jvm-callable-declaration-keys)))
+     (vec (sort-by pr-str (jvm-wrapper-requests module :jvm-value-declaration-keys)))
+     (vec (sort-by pr-str (jvm-wrapper-requests module :jvm-type-declaration-keys)))]))
 
 (def ^:private rendered-module-source-keys
   [:source :reload-source :dependency-source :compile-source])
@@ -7356,7 +7435,8 @@
   Building the lookup maps once for a root set matters during cold generated
   namespace loads: a retained container can contribute hundreds of roots."
   [declarations root-declarations]
-  (let [by-logical (into {} (map (juxt :logical-id identity)) declarations)
+  (let [container-fields? (boolean (some #(= :field (:kind %)) declarations))
+        by-logical (into {} (map (juxt :logical-id identity)) declarations)
         by-name
         (into {}
               (mapcat
@@ -7409,7 +7489,7 @@
                       ;; and methods, not merely its named constant. Preserve
                       ;; that container when the JVM calls one of its methods,
                       ;; just as dependency-live-slice-declarations does.
-                      (when (and (some #(= :field (:kind %)) declarations)
+                      (when (and container-fields?
                                  (let [value (:value declaration)]
                                    (and (seq? value) (symbol? (first value))
                                         (= "This" (name (first value))))))
@@ -7578,7 +7658,9 @@
         pending-declarations
         (keep declarations-by-key *pending-declaration-keys*)
         materialization?
-        (= *materialize-declaration-key* (:declaration-key declaration))
+        (and *materialize-declaration*
+             (= (select-keys *materialize-declaration* [:module :declaration-key])
+                (select-keys declaration [:module :declaration-key])))
         fallback-required?
         (or *exact-declaration-publication?*
             materialization?
@@ -10682,11 +10764,9 @@
          :dependencies (vec (keys dependencies))
          :compiler-options compiler-options}))))
 
-(defn inspect-module!
-  "Compile a separate inspection source with Zig's test frontend, never execute
-  it or load its native image. transform receives static declarations and returns
-  {:source string :files {filename contents}}. Uses actual dependency/build options."
-  [module transform]
+(def ^:private ^:dynamic *inspection-context* nil)
+
+(defn- inspection-context [module]
   (let [module (str module)
         declarations (native-test-declarations
                       (filterv (complement :jvm-adapter?)
@@ -10698,8 +10778,30 @@
           options (compiler-options-for-declarations
                    (assoc @config :transitive-dependencies? true
                                   :dependency-snapshot dependencies)
-                   declarations)
-          {:keys [source files]} (transform declarations)
+                   declarations)]
+      {:module module
+       :declarations declarations
+       ;; Inspection emits the selected module directly into the Zig root.
+       :options (update options :zig-args into (get-in options [:module-zig-args module]))})))
+
+(defn call-with-inspection-context
+  "Reuse one source/dependency snapshot across an analysis run's probes.
+  A later run captures current declarations and build options again."
+  [module f]
+  (binding [*inspection-context* (inspection-context module)]
+    (f)))
+
+(defn inspect-module!
+  "Compile a separate inspection source with Zig's test frontend, never execute
+  it or load its native image. transform receives static declarations and returns
+  {:source string :files {filename contents}}. Uses actual dependency/build options."
+  [module transform]
+  (let [module (str module)
+        {:keys [declarations options]}
+        (if (= module (:module *inspection-context*))
+          *inspection-context*
+          (inspection-context module))]
+    (let [{:keys [source files]} (transform declarations)
           runner-source (slurp (io/resource "aguafria/inspection_runner.zig"))
           directory (.getAbsoluteFile
                      (io/file (:cache-dir options) "inspection"
@@ -11939,7 +12041,7 @@
               (let [state (get @registry module)]
                 (binding [*propagate-dependent-changes?* false
                           *exact-declaration-publication?* true
-                          *materialize-declaration-key* (:declaration-key declaration)
+                          *materialize-declaration* declaration
                           *pending-declaration-keys*
                           (conj (set (:pending-declaration-keys state)) (:declaration-key declaration))]
                   (compilation-plan module state (vec (vals (:definitions state)))
@@ -11972,7 +12074,7 @@
                (fnil conj #{}) (:declaration-key declaration))))
     (binding [*propagate-dependent-changes?* false
               *exact-declaration-publication?* true
-              *materialize-declaration-key* (:declaration-key declaration)]
+              *materialize-declaration* declaration]
       (register-sync! declaration))
     (await-callable-generation! module))))
 
@@ -12886,7 +12988,12 @@
             (when (and (not (:jvm-adapter? declaration))
                        (not= :bool return-type)
                        (contains? scalar-layouts (scalar-key return-type)))
-              ((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) return-type)))
+              ((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) return-type))
+            (when (and (not (:jvm-adapter? declaration))
+                       (not= :void return-type)
+                       (not (contains? scalar-layouts (scalar-key return-type))))
+              ((requiring-resolve 'aguafria.zig.jvm/precompile-result-reader!)
+               module return-type)))
           {:function qualified-name :status :prepared})))))
 
 (defn precompile-functions!

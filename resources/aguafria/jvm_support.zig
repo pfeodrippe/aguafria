@@ -3,8 +3,8 @@
 const std = @import("std");
 const allocator = std.heap.page_allocator;
 
-export fn aguafria_jvm_allocator() *const std.mem.Allocator {
-    return &allocator;
+export fn aguafria_jvm_allocate(size: usize, alignment: usize) ?[*]u8 {
+    return allocator.rawAlloc(@max(1, size), .fromByteUnits(alignment), @returnAddress());
 }
 
 export fn aguafria_jvm_writer_new() ?*anyopaque {

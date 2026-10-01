@@ -4,6 +4,7 @@
             [aguafria.zig :as az]
             [aguafria.zig.bundle :as bundle]
             [aguafria.zig.explain :as explain]
+            [aguafria.zig.jvm :as jvm]
             [aguafria.zig.precompile :as precompile]
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
@@ -14,6 +15,38 @@
   (:import [java.lang.foreign Arena FunctionDescriptor Linker MemoryLayout SymbolLookup ValueLayout]
            [java.nio.file Files]
            [java.util ArrayList]))
+
+(deftest repeated-handlers-are-validated-once-per-preparation
+  (let [configuration (runtime/configuration)
+        cache (str (Files/createTempDirectory "aguafria-validation-reuse-"
+                                             (make-array java.nio.file.attribute.FileAttribute 0)))
+        events (atom [])
+        prepare (fn [type]
+                  (jvm/precompile-call! {:function 'aguafria.keyword/+
+                                        :args [type type]}))]
+    (try
+      (runtime/configure! {:cache-dir cache})
+      (binding [runtime/*compile-only?* true
+                bundle/*preparing* (atom {})
+                explain/*reporter* #(swap! events conj %)]
+        (is (= :prepared (:status (prepare :i32))))
+        (is (some #(= :validated (:event %)) @events))
+        (let [artifacts (count (:artifacts @bundle/*preparing*))]
+          (reset! events [])
+          (is (= :prepared (:status (prepare :i32))))
+          (is (not-any? #(#{:validated :compiled} (:event %)) @events))
+          (is (some #(= :preparation-cache-hit (:event %)) @events))
+          (is (= artifacts (count (:artifacts @bundle/*preparing*))))
+          (reset! events [])
+          (is (= :prepared (:status (prepare :i64))))
+          (is (some #(= :validated (:event %)) @events)))
+        (doseq [_ (range 2)]
+          (reset! events [])
+          (is (thrown? Exception
+                       (jvm/precompile-call! {:function 'aguafria.keyword//
+                                              :args [:i32 :i32]})))
+          (is (some #(= :compile-failed (:event %)) @events))))
+      (finally (runtime/configure! configuration)))))
 
 (deftest incompatible-configurations-do-not-silently-create-multiple-libraries
   (let [records [{:module "aguafria.jvm.first" :command ["zig"]
@@ -35,6 +68,68 @@
     (is (= "\"ends\\\\\"" (encode "ends\\")))
     (is (= "\"a\\\"b\"" (encode "a\"b")))
     (is (thrown? clojure.lang.ExceptionInfo (encode "can't-encode")))))
+
+(deftest native-link-options-remain-global-and-include-options-remain-per-module
+  (let [parse #'bundle/module-groups
+        base ["zig" "build-lib" "-dynamic" "-femit-bin=unused"]
+        graph (parse {:command (into base ["-OReleaseFast" "-lc" "-framework" "CoreAudio"
+                                          "-I/headers/root" "--dep" "child" "-Mroot=root.zig"
+                                          "-I/headers/child" "-Mchild=child.zig"])})]
+    (is (= ["-lc" "-framework" "CoreAudio"] (:link-args graph)))
+    (is (= [["-OReleaseFast" "-I/headers/root"] ["-I/headers/child"]]
+           (mapv :flags (:groups graph))))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (parse {:command (into base ["-framework"])})))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (parse {:command (into base ["-unknown-option" "-Mroot=root.zig"])})))))
+
+(deftest release-fast-c-import-and-external-library-handlers-share-one-bundle
+  (let [directory (.toFile (Files/createTempDirectory "aguafria native bundle "
+                                                      (make-array java.nio.file.attribute.FileAttribute 0)))
+        cache (str (io/file directory "cache"))
+        zig (runtime/zig-executable)
+        support-source (io/file directory "support.zig")
+        support (io/file directory (System/mapLibraryName "support"))
+        external-source (io/file directory "external.zig")
+        external (io/file directory (System/mapLibraryName "external"))
+        callbacks {:run-command (fn [command cwd]
+                                  (apply shell/sh (concat command [:dir cwd])))
+                   :preserve-debug! (fn [& _])}]
+    (spit support-source "export fn support() void {}\n")
+    (spit external-source "export fn fixture_value() i32 { return 40; }\n")
+    (spit (io/file directory "fixture.h") "#define FIXTURE_INCREMENT 2\n")
+    (doseq [[source library] [[support-source support] [external-source external]]]
+      (let [result (shell/sh zig "build-lib" "-dynamic" "-OReleaseFast"
+                             (str "-femit-bin=" library) (str source))]
+        (is (zero? (:exit result)) (pr-str result))))
+    (let [artifacts
+          (mapv (fn [n]
+                  (let [source (io/file directory (str "handler_" n ".zig"))]
+                    (spit source (str "// Aguafria development loader.\n"
+                                      "const c = @cImport(@cInclude(\"fixture.h\"));\n"
+                                      "extern fn fixture_value() i32;\n"
+                                      "export fn __aguafria_probe() i32 { return fixture_value() + c.FIXTURE_INCREMENT + " n "; }\n"))
+                    {:module (str "aguafria.jvm.external-bundle-test-" n)
+                     :hash (str n)
+                     :development-panic :shared
+                     :development-panic-support-path (str support)
+                     :command [zig "build-lib" "-dynamic" "-femit-bin=unused"
+                               (str support) "-OReleaseFast" "-lc" (str external)
+                               (str "-I" directory) (str "-Mroot=" source)]}))
+                (range 2))
+          result (bundle/finish! cache (atom {:artifacts (zipmap (range) artifacts)}) callbacks)
+          entries (mapv #(bundle/find-artifact cache %) artifacts)]
+      (is (= 1 (count (:packs result))))
+      (is (= 2 (:packed-handlers result)))
+      (is (= 1 (count (set (map :library entries)))))
+      (with-open [arena (Arena/ofConfined)]
+        (let [lookup (SymbolLookup/libraryLookup (.toPath (io/file (:library (first entries)))) arena)]
+          (doseq [[n entry] (map-indexed vector entries)]
+            (let [handle (.downcallHandle (Linker/nativeLinker)
+                                         (.get (.find lookup (str (:prefix entry) "__aguafria_probe")))
+                                         (FunctionDescriptor/of ValueLayout/JAVA_INT (make-array MemoryLayout 0))
+                                         (make-array java.lang.foreign.Linker$Option 0))]
+              (is (= (+ 42 n) (.invokeWithArguments handle (ArrayList.)))))))))))
 
 (deftest more-than-64-handlers-and-existing-packs-become-one-real-library
   (let [directory (.toFile (Files/createTempDirectory "aguafria single bundle "

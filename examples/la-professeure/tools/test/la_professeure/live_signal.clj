@@ -5,7 +5,9 @@
             [la-professeure.tools.recorder :as recorder]))
 
 (az/defvar device recorder/Device ak/undefined)
+
 (az/defvar running false)
+
 (az/defvar frame :u64 0)
 
 (az/defn callback :void {:zig/qualifiers "callconv(.c)"}

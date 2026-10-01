@@ -8,7 +8,9 @@
             [nrepl.server :as nrepl]))
 
 (defonce commands (java.util.concurrent.ConcurrentLinkedQueue.))
+
 (defonce status (atom {:state :starting}))
+
 (defonce startup-request (atom 0))
 
 (def shader-reload-enabled?
@@ -53,11 +55,11 @@
                 (when-not (true? (:value result))
                   (throw (ex-info "Vulkan rejected shader replacement; old pipeline retained" result)))
                 (swap! status assoc :shaders {:state :reloaded :at (System/currentTimeMillis)
-                                             :compile-ms (/ (- compiled started) 1e6)
-                                             :total-ms (/ (- (System/nanoTime) started) 1e6)}))
+                                              :compile-ms (/ (- compiled started) 1e6)
+                                              :total-ms (/ (- (System/nanoTime) started) 1e6)}))
               (catch Throwable e
                 (swap! status assoc :shaders {:state :error :message (.getMessage e)
-                                             :diagnostics (:output (ex-data e))})
+                                              :diagnostics (:output (ex-data e))})
                 (binding [*out* *err*]
                   (println "Shader reload failed; keeping working pipeline:" (.getMessage e))
                   (when-let [output (:output (ex-data e))] (println output))
@@ -67,6 +69,7 @@
 (defn- load-scene! []
   (loop [request @startup-request]
     (let [result (try
+                   (build/prepare!)
                    (require 'la-professeure.scene :reload)
                    (az/await! 'la-professeure.scene)
                    :ready
@@ -78,7 +81,7 @@
           (binding [*out* *err*]
             (loop [error result]
               (if-let [cause (.getCause error)] (recur cause)
-                (println (.getMessage error)))))
+                      (println (.getMessage error)))))
           (println "nREPL remains available. Fix code, then call (la-professeure.core/retry-startup!).")
           (flush)
           (while (= request @startup-request) (Thread/sleep 100))
@@ -92,27 +95,27 @@
   (when-let [previous @story-watcher] (future-cancel previous))
   (when (:reloadable? (az/configuration))
     (reset! story-watcher
-      (future
-        (loop [published nil]
-          (let [next-hash
-                (try
-                  (let [source (build/story-source)
-                        hash [(str source) (dialogue/digest (slurp source :encoding "UTF-8"))]]
-                    (when (not= hash published)
-                      (build/compile-story!)
-                      (let [result @(on-render! #((ns-resolve 'la-professeure.scene 'reload-story!)))]
-                        (when-not (true? (:value result))
-                          (throw (ex-info "Native game rejected dialogue replacement" result))))
-                      (swap! status assoc :dialogue {:state :reloaded :source (str source)
-                                                    :at (System/currentTimeMillis)}))
-                    hash)
-                  (catch InterruptedException e (throw e))
-                  (catch Throwable e
-                    (swap! status assoc :dialogue {:state :error :message (.getMessage e)
-                                                  :source (:source (ex-data e))})
-                    published))]
-            (Thread/sleep 500)
-            (recur next-hash)))))))
+            (future
+              (loop [published nil]
+                (let [next-hash
+                      (try
+                        (let [source (build/story-source)
+                              hash [(str source) (dialogue/digest (slurp source :encoding "UTF-8"))]]
+                          (when (not= hash published)
+                            (build/compile-story!)
+                            (let [result @(on-render! #((ns-resolve 'la-professeure.scene 'reload-story!)))]
+                              (when-not (true? (:value result))
+                                (throw (ex-info "Native game rejected dialogue replacement" result))))
+                            (swap! status assoc :dialogue {:state :reloaded :source (str source)
+                                                           :at (System/currentTimeMillis)}))
+                          hash)
+                        (catch InterruptedException e (throw e))
+                        (catch Throwable e
+                          (swap! status assoc :dialogue {:state :error :message (.getMessage e)
+                                                         :source (:source (ex-data e))})
+                          published))]
+                  (Thread/sleep 500)
+                  (recur next-hash)))))))
 
 (defn start-asset-watcher!
   "Development only. Watch a local/iPad-synced export; validate before publication."
@@ -154,7 +157,7 @@
                     (try (swap! status assoc :state :running :scene (az/value value))
                          (finally (az/close! value))))
                   true)
-                (catch clojure.lang.ExceptionInfo e
+                (catch Exception e
                   ;; A failed live declaration must not take down nREPL or release
                   ;; the native window. Fix/evaluate it and the next iteration retries.
                   (swap! status assoc :state :runtime-error :error e)

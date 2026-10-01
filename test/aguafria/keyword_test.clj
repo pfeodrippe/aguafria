@@ -5,6 +5,13 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest lexical-keyword-resolution-does-not-scan-all-namespaces
+  (with-redefs [clojure.core/all-ns
+                (fn [] (throw (ex-info "Unexpected global namespace scan" {})))]
+    (let [context (the-ns 'aguafria.keyword-test)]
+      (is (= 'aguafria.keyword/+ (:symbol (ak/resolve-token context 'ak/+))))
+      (is (= 'aguafria.keyword/+ (:symbol (ak/resolve-token context 'aguafria.keyword/+)))))))
+
 (deftest pointer-capture-is-in-multiplication-documentation
   (let [{:keys [doc arglists]} (meta #'ak/*)]
     (is (= '([capture] [argument-1 argument-2 & more]) arglists))

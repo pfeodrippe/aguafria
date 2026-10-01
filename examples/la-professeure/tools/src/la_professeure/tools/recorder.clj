@@ -1,625 +1,683 @@
 (ns la-professeure.tools.recorder
   "Native development recorder. Audio callbacks never enter the JVM or touch disk."
   (:require [aguafria.std] [aguafria.std.mem :as mem]
-            [aguafria.keyword :as ak] [aguafria.zig :as az]
+            [aguafria.keyword :as k] [aguafria.zig :as az]
             [la-professeure.build :as build]))
 
 (build/load-native!)
+
 (az/configure! {:module-zig-args
                 (assoc (:module-zig-args (az/configuration)) "la-professeure.tools.recorder"
                        [(str "-I" (clojure.java.io/file (build/root) "build/vendor/miniaudio"))])})
+
 (require '[la-professeure.miniaudio :as audio])
 
-(az/defconst api (ak/cImport (ak/cInclude "miniaudio.h")))
-(az/defconst file-api (ak/cImport (do (ak/cInclude "stdio.h") (ak/cInclude "unistd.h"))))
-(az/defconst Context (az/field api ma_context))
-(az/defconst Device (az/field api ma_device))
-(az/defconst DeviceInfo (az/field api ma_device_info))
-(az/defconst Decoder (az/field api ma_decoder))
-(az/defconst Encoder (az/field api ma_encoder))
+(az/defconst api (k/cImport (k/cInclude "miniaudio.h")))
+
+(az/defconst file-api (k/cImport (do (k/cInclude "stdio.h") (k/cInclude "unistd.h"))))
+
+(az/defconst Context (:ma_context api))
+
+(az/defconst Device (:ma_device api))
+
+(az/defconst DeviceInfo (:ma_device_info api))
+
+(az/defconst Decoder (:ma_decoder api))
+
+(az/defconst Encoder (:ma_encoder api))
+
 (az/defconst max-frames :usize 2880000)
-(az/defvar context Context ak/undefined)
-(az/defvar device Device ak/undefined)
+
+(az/defvar context Context k/undefined)
+
+(az/defvar device Device k/undefined)
+
 (az/defvar initialized false)
+
 (az/defvar running false)
+
 (az/defvar capture-enabled :u8 1)
 
 (az/defn hold-capture! :void []
   ;; Devices may open asynchronously while PREPARING remains cancellable.
   ;; Neither input samples nor effects sends belong to a take until committed.
-  (ak/atomicStore :u8 (ak/& capture-enabled) 0 :.release))
+  (k/atomicStore :u8 (k/& capture-enabled) 0 :.release))
 
 (az/defn release-capture! :void []
-  (ak/atomicStore :u8 (ak/& capture-enabled) 1 :.release))
+  (k/atomicStore :u8 (k/& capture-enabled) 1 :.release))
 
 (az/defn capture-held? :bool []
-  (ak/== (ak/atomicLoad :u8 (ak/& capture-enabled) :.acquire) 0))
+  (k/== (k/atomicLoad :u8 (k/& capture-enabled) :.acquire) 0))
 
 (az/defn- silence-preparing-output! :void
   [[output [:c-pointer :f32]] [frames :u32]]
-  (when (ak/!= output ak/null)
-    (dotimes [i (* frames 16)]
-      (set! (az/index output i) 0.0))))
-(az/defvar playback-info [:c-pointer DeviceInfo] ak/null)
-(az/defvar capture-info [:c-pointer DeviceInfo] ak/null)
+  (when (k/!= output k/null)
+    (dotimes [i (k/* frames 16)]
+      (k/= (az/get output i) 0.0))))
+
+(az/defvar playback-info [:c-pointer DeviceInfo] k/null)
+
+(az/defvar capture-info [:c-pointer DeviceInfo] k/null)
+
 (az/defvar playback-count :u32 0)
+
 (az/defvar capture-count :u32 0)
-(az/defvar dry [:array 5760000 :f32] ak/undefined)
-(az/defvar wet [:array 5760000 :f32] ak/undefined)
+
+(az/defn device-name [:slice-const :u8] [[capture :bool] [index :u32]]
+  (when (or (k/! initialized) (k/>= index (if capture capture-count playback-count))) (k/return ""))
+  (let [info (if capture (az/get capture-info index) (az/get playback-info index))
+        length (k/var (k/usize 0))]
+    (k/while (and (k/< length 256) (k/!= (az/get (:name info) length) 0))
+      (k/= length (k/+ length 1)))
+    ;; Return the context-owned array, not the local struct copy.
+    (let [entry
+          (k/as (k/ptrCast (az/unwrap (k/as (k/& (az/get (if capture capture-info playback-info) index)) [:c-pointer DeviceInfo]))) [:* DeviceInfo])]
+      (az/slice (:name entry) 0 length))))
+
+(az/defvar dry [:array 5760000 :f32] k/undefined)
+
+(az/defvar wet [:array 5760000 :f32] k/undefined)
+
 (az/defvar dry-frames :u64 0)
+
 (az/defvar recorded-frames :u64 0)
+
 (az/defvar limit-frames :u64 0)
+
 (az/defvar mode :u32 0)
+
 (az/defvar peak-milli :u32 0)
+
 (az/defvar finished :u8 0)
+
 (az/defvar error-code :i32 0)
-(az/defvar path-buffer [:array 4096 :u8] ak/undefined)
+
+(az/defvar path-buffer [:array 4096 :u8] k/undefined)
+
 (az/defvar measured-frames :u64 0)
+
 (az/defvar measured-peak :f32 0.0)
-(az/defvar source-device Device ak/undefined)
+
+(az/defvar source-device Device k/undefined)
+
 (az/defvar source-running false)
+
 (az/defvar source-channels :usize 2)
+
 (az/defvar source-offset :usize 0)
+
 (az/defvar source-frames :u64 0)
+
 (az/defvar source-stop :u8 0)
+
 (az/defvar source-ended :u8 0)
+
 (az/defvar live-tail :u64 48000)
+
 (az/defvar tail-started false)
+
 (az/defvar input-level :u32 0)
+
 (az/defvar clipped :u8 0)
-(az/defvar monitor-device Device ak/undefined)
+
+(az/defvar monitor-device Device k/undefined)
+
 (az/defvar monitoring false)
+
 (az/defvar monitor-gain :u32 15)
+
 (az/defvar input-peak-ppm :u32 0)
+
 (az/defvar return-peak-ppm :u32 0)
+
 (az/defvar input-held-ppm :u32 0)
+
 (az/defvar return-held-ppm :u32 0)
 
 ;; Preflight owns only a capture device and peak counters: no PCM retention or output.
-(az/defvar input-check-device Device ak/undefined)
+(az/defvar input-check-device Device k/undefined)
+
 (az/defvar input-check-running :u32 0)
+
 (az/defvar input-check-channels :u32 2)
+
 (az/defvar input-check-offset :u32 0)
+
 (az/defvar input-check-peak :u32 0)
+
 (az/defvar input-check-held :u32 0)
+
 (az/defvar input-check-frames :u64 0)
 
 (az/defn input-check-active? :bool []
-  (> (ak/atomicLoad :u32 (ak/& input-check-running) :.acquire) 0))
+  (k/> (k/atomicLoad :u32 (k/& input-check-running) :.acquire) 0))
 
 (az/defn stopped-device-mask :u32
   "Control-worker only. Owned devices that unexpectedly stopped: capture=1,
    FX source/send=2, monitor=4, input check=8. Never probes uninitialized storage." []
-  (let [stopped (az/field api ma_device_state_stopped)
-        ^:var result (ak/u32 0)]
+  (let [stopped (:ma_device_state_stopped api)
+        result (k/var (k/u32 0))]
     (when (and running
-               (ak/== ((az/field api ma_device_get_state) (ak/& device)) stopped))
-      (set! result (| result 1)))
+               (k/== ((:ma_device_get_state api) (k/& device)) stopped))
+      (k/= result (k/| result 1)))
     (when (and source-running
-               (ak/== ((az/field api ma_device_get_state) (ak/& source-device)) stopped))
-      (set! result (| result 2)))
+               (k/== ((:ma_device_get_state api) (k/& source-device)) stopped))
+      (k/= result (k/| result 2)))
     (when (and monitoring
-               (ak/== ((az/field api ma_device_get_state) (ak/& monitor-device)) stopped))
-      (set! result (| result 4)))
+               (k/== ((:ma_device_get_state api) (k/& monitor-device)) stopped))
+      (k/= result (k/| result 4)))
     (when (and (input-check-active?)
-               (ak/== ((az/field api ma_device_get_state) (ak/& input-check-device)) stopped))
-      (set! result (| result 8)))
+               (k/== ((:ma_device_get_state api) (k/& input-check-device)) stopped))
+      (k/= result (k/| result 8)))
     result))
 
 (az/defn process-input-check! :void
   [[input [:c-pointer :f32]] [frames :u32]]
-  (let [^:var peak (ak/f32 0.0)]
-    (when (ak/!= input ak/null)
+  (let [peak (k/var (k/f32 0.0))]
+    (when (k/!= input k/null)
       (dotimes [i frames]
         (dotimes [channel 2]
-          (let [sample (az/index input (+ (* i input-check-channels)
-                                         input-check-offset channel))]
-            (when (< (ak/abs sample) 100.0)
-              (set! peak (ak/max peak (ak/abs sample))))))))
-    (let [value (ak/as (ak/intFromFloat (* 1000000.0 (ak/min peak 1.0))) :u32)]
-      (ak/atomicStore :u32 (ak/& input-check-peak) value :.release)
-      (when (> value (ak/atomicLoad :u32 (ak/& input-check-held) :.acquire))
-        (ak/atomicStore :u32 (ak/& input-check-held) value :.release)))
-    (set! _ (ak/atomicRmw :u64 (ak/& input-check-frames) :.Add frames :.release))))
+          (let [sample (az/get input (k/+ (k/* i input-check-channels)
+                                          input-check-offset channel))]
+            (when (k/< (k/abs sample) 100.0)
+              (k/= peak (k/max peak (k/abs sample))))))))
+    (let [value (k/as (k/intFromFloat (k/* 1000000.0 (k/min peak 1.0))) :u32)]
+      (k/atomicStore :u32 (k/& input-check-peak) value :.release)
+      (when (k/> value (k/atomicLoad :u32 (k/& input-check-held) :.acquire))
+        (k/atomicStore :u32 (k/& input-check-held) value :.release)))
+    (k/= :_ (k/atomicRmw :u64 (k/& input-check-frames) :.Add frames :.release))))
 
 (az/defn input-check-callback :void {:zig/qualifiers "callconv(.c)"}
   [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
-  (set! _ pointer)
-  (set! _ output)
-  (process-input-check! (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
+  (k/= :_ pointer)
+  (k/= :_ output)
+  (process-input-check! (k/ptrCast (k/alignCast (k/constCast input))) frames))
 
 (az/defn stop-input-check! :void []
   ;; Lifecycle calls are serialized by the studio's control worker.
   (when (input-check-active?)
-    (ak/atomicStore :u32 (ak/& input-check-running) 0 :.release)
-    ((az/field api ma_device_uninit) (ak/& input-check-device))))
+    (k/atomicStore :u32 (k/& input-check-running) 0 :.release)
+    ((:ma_device_uninit api) (k/& input-check-device))))
 
 (az/defn start-input-check! :bool [[index :u32] [fx-source? :bool]]
   (when (or (input-check-active?) running source-running monitoring
-            (ak/! initialized) (>= index capture-count))
-    (ak/return false))
+            (k/! initialized) (k/>= index capture-count))
+    (k/return false))
   (let [loopback? (and fx-source?
                        (mem/eql :u8 (device-name true index) "BlackHole 16ch"))]
-    (set! input-check-channels (if loopback? 16 2))
-    (set! input-check-offset (if loopback? 4 0)))
-  (ak/atomicStore :u32 (ak/& input-check-peak) 0 :.release)
-  (ak/atomicStore :u32 (ak/& input-check-held) 0 :.release)
-  (ak/atomicStore :u64 (ak/& input-check-frames) 0 :.release)
-  (let [^:var config ((az/field api ma_device_config_init)
-                      (az/field api ma_device_type_capture))]
-    (set! (az/field config sampleRate) 48000)
-    (set! (az/field (az/field config capture) pDeviceID)
-          (ak/& (az/field (az/index capture-info index) id)))
-    (set! (az/field (az/field config capture) format) (az/field api ma_format_f32))
-    (set! (az/field (az/field config capture) channels) input-check-channels)
-    (set! (az/field config dataCallback) (ak/& input-check-callback))
-    (when (ak/!= ((az/field api ma_device_init)
-                  (ak/& context) (ak/& config) (ak/& input-check-device)) 0)
-      (ak/return false))
-    (when (ak/!= ((az/field api ma_device_start) (ak/& input-check-device)) 0)
-      ((az/field api ma_device_uninit) (ak/& input-check-device))
-      (ak/return false)))
-  (ak/atomicStore :u32 (ak/& input-check-running) 1 :.release)
+    (k/= input-check-channels (if loopback? 16 2))
+    (k/= input-check-offset (if loopback? 4 0)))
+  (k/atomicStore :u32 (k/& input-check-peak) 0 :.release)
+  (k/atomicStore :u32 (k/& input-check-held) 0 :.release)
+  (k/atomicStore :u64 (k/& input-check-frames) 0 :.release)
+  (let [config (k/var ((:ma_device_config_init api)
+                       (:ma_device_type_capture api)))]
+    (az/merge! config {:sampleRate 48000 :dataCallback (k/& input-check-callback)})
+    (az/merge! (:capture config)
+               {:pDeviceID (k/& (:id (az/get capture-info index)))
+                :format (:ma_format_f32 api)
+                :channels input-check-channels})
+    (when (k/!= ((:ma_device_init api)
+                 (k/& context) (k/& config) (k/& input-check-device)) 0)
+      (k/return false))
+    (when (k/!= ((:ma_device_start api) (k/& input-check-device)) 0)
+      ((:ma_device_uninit api) (k/& input-check-device))
+      (k/return false)))
+  (k/atomicStore :u32 (k/& input-check-running) 1 :.release)
   true)
 
 (az/defn update-signal-level! :void [[input? :bool] [peak :f32]]
-  (let [value (ak/as (ak/intFromFloat (* 1000000.0 (ak/min 1.0 (ak/max 0.0 peak)))) :u32)
-        current (if input? (ak/& input-peak-ppm) (ak/& return-peak-ppm))
-        held (if input? (ak/& input-held-ppm) (ak/& return-held-ppm))]
-    (ak/atomicStore :u32 current value :.release)
-    (when (> value (ak/atomicLoad :u32 held :.acquire))
-      (ak/atomicStore :u32 held value :.release))))
+  (let [value (k/as (k/intFromFloat (k/* 1000000.0 (k/min 1.0 (k/max 0.0 peak)))) :u32)
+        current (if input? (k/& input-peak-ppm) (k/& return-peak-ppm))
+        held (if input? (k/& input-held-ppm) (k/& return-held-ppm))]
+    (k/atomicStore :u32 current value :.release)
+    (when (k/> value (k/atomicLoad :u32 held :.acquire))
+      (k/atomicStore :u32 held value :.release))))
 
 (az/defn signal-peak :f32 [[input? :bool] [held? :bool]]
   (let [value (if input?
                 (if (input-check-active?)
-                  (if held? (ak/& input-check-held) (ak/& input-check-peak))
-                  (if held? (ak/& input-held-ppm) (ak/& input-peak-ppm)))
-                (if held? (ak/& return-held-ppm) (ak/& return-peak-ppm)))]
-    (* 0.000001 (ak/as (ak/floatFromInt (ak/atomicLoad :u32 value :.acquire)) :f32))))
+                  (if held? (k/& input-check-held) (k/& input-check-peak))
+                  (if held? (k/& input-held-ppm) (k/& input-peak-ppm)))
+                (if held? (k/& return-held-ppm) (k/& return-peak-ppm)))]
+    (k/* 0.000001 (k/as (k/floatFromInt (k/atomicLoad :u32 value :.acquire)) :f32))))
 
 (az/defn meter-input! :void [[value :f32]]
-  (when (ak/! (< (ak/abs value) 1.0)) (ak/atomicStore :u8 (ak/& clipped) 1 :.release)))
+  (when (k/! (k/< (k/abs value) 1.0)) (k/atomicStore :u8 (k/& clipped) 1 :.release)))
 
 (az/defn reset-meters! :void []
-  (ak/atomicStore :u32 (ak/& input-peak-ppm) 0 :.release)
-  (ak/atomicStore :u32 (ak/& return-peak-ppm) 0 :.release)
-  (ak/atomicStore :u32 (ak/& input-held-ppm) 0 :.release)
-  (ak/atomicStore :u32 (ak/& return-held-ppm) 0 :.release)
-  (ak/atomicStore :u8 (ak/& clipped) 0 :.release)
-  (ak/atomicStore :u32 (ak/& input-level) 0 :.release)
-  (ak/atomicStore :u32 (ak/& peak-milli) 0 :.release))
+  (k/atomicStore :u32 (k/& input-peak-ppm) 0 :.release)
+  (k/atomicStore :u32 (k/& return-peak-ppm) 0 :.release)
+  (k/atomicStore :u32 (k/& input-held-ppm) 0 :.release)
+  (k/atomicStore :u32 (k/& return-held-ppm) 0 :.release)
+  (k/atomicStore :u8 (k/& clipped) 0 :.release)
+  (k/atomicStore :u32 (k/& input-level) 0 :.release)
+  (k/atomicStore :u32 (k/& peak-milli) 0 :.release))
 
 (az/defn process-monitor! :void
   [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
-  (when (ak/== output ak/null) (ak/return))
-  (let [gain (* 0.01 (ak/as (ak/floatFromInt (ak/min 50 (ak/atomicLoad :u32 (ak/& monitor-gain) :.acquire))) :f32))
-        ^:var peak (ak/f32 0.0)]
+  (when (k/== output k/null) (k/return))
+  (let [gain (k/* 0.01 (k/as (k/floatFromInt (k/min 50 (k/atomicLoad :u32 (k/& monitor-gain) :.acquire))) :f32))
+        peak (k/var (k/f32 0.0))]
     (dotimes [i frames]
       (dotimes [c 2]
-        (let [v (if (ak/== input ak/null) 0.0 (az/index input (+ (* i 16) 2 c)))]
-          (when (< (ak/abs v) 100.0) (set! peak (ak/max peak (ak/abs v))))
-          (set! (az/index output (+ (* i 2) c))
-                (if (< (ak/abs v) 100.0) (* gain (ak/max -1.0 (ak/min 1.0 v))) 0.0)))))
+        (let [v (if (k/== input k/null) 0.0 (az/get input (k/+ (k/* i 16) 2 c)))]
+          (when (k/< (k/abs v) 100.0) (k/= peak (k/max peak (k/abs v))))
+          (k/= (az/get output (k/+ (k/* i 2) c))
+               (if (k/< (k/abs v) 100.0) (k/* gain (k/max -1.0 (k/min 1.0 v))) 0.0)))))
     ;; Monitoring also drives the return meter when no take is being captured.
     (update-signal-level! false peak)))
 
 (az/defn monitor-callback :void {:zig/qualifiers "callconv(.c)"}
   [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
-  (set! _ pointer)
-  (process-monitor! (ak/ptrCast (ak/alignCast output))
-                    (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
+  (k/= :_ pointer)
+  (process-monitor! (k/ptrCast (k/alignCast output))
+                    (k/ptrCast (k/alignCast (k/constCast input))) frames))
 
 (az/defn stop-monitor! :void []
-  (when monitoring ((az/field api ma_device_uninit) (ak/& monitor-device)) (set! monitoring false)))
+  (when monitoring ((:ma_device_uninit api) (k/& monitor-device)) (k/= monitoring false)))
 
 (az/defn headphone-device? :bool [[index :u32]]
   (let [name (device-name false index)]
-    (or (ak/!= (mem/indexOf (az/type :u8) name "Headphones") ak/null)
-        (ak/!= (mem/indexOf (az/type :u8) name "AirPods") ak/null)
-        (ak/!= (mem/indexOf (az/type :u8) name "Casque") ak/null))))
+    (or (k/!= (mem/indexOf :u8 name "Headphones") k/null)
+        (k/!= (mem/indexOf :u8 name "AirPods") k/null)
+        (k/!= (mem/indexOf :u8 name "Casque") k/null))))
 
 (az/defn start-monitor! :bool [[return-index :u32] [headphone-index :u32]]
-  (when (or monitoring (input-check-active?) (ak/! initialized) (>= return-index capture-count)
-            (>= headphone-index playback-count) (ak/! (headphone-device? headphone-index))
-            (ak/! (mem/eql (az/type :u8) (device-name true return-index) "BlackHole 16ch")))
-    (ak/return false))
-  (let [^:var config ((az/field api ma_device_config_init) (az/field api ma_device_type_duplex))]
-    (set! (az/field config sampleRate) 48000)
-    (set! (az/field (az/field config capture) pDeviceID) (ak/& (az/field (az/index capture-info return-index) id)))
-    (set! (az/field (az/field config capture) format) (az/field api ma_format_f32))
-    (set! (az/field (az/field config capture) channels) 16)
-    (set! (az/field (az/field config playback) pDeviceID) (ak/& (az/field (az/index playback-info headphone-index) id)))
-    (set! (az/field (az/field config playback) format) (az/field api ma_format_f32))
-    (set! (az/field (az/field config playback) channels) 2)
-    (set! (az/field config dataCallback) (ak/& monitor-callback))
-    (when (ak/!= ((az/field api ma_device_init) (ak/& context) (ak/& config) (ak/& monitor-device)) 0)
-      (ak/return false))
-    (when (ak/!= ((az/field api ma_device_start) (ak/& monitor-device)) 0)
-      ((az/field api ma_device_uninit) (ak/& monitor-device)) (ak/return false))
-    (set! monitoring true) true))
+  (when (or monitoring (input-check-active?) (k/! initialized) (k/>= return-index capture-count)
+            (k/>= headphone-index playback-count) (k/! (headphone-device? headphone-index))
+            (k/! (mem/eql :u8 (device-name true return-index) "BlackHole 16ch")))
+    (k/return false))
+  (let [config (k/var ((:ma_device_config_init api) (:ma_device_type_duplex api)))]
+    (az/merge! config {:sampleRate 48000 :dataCallback (k/& monitor-callback)})
+    (az/merge! (:capture config)
+               {:pDeviceID (k/& (:id (az/get capture-info return-index)))
+                :format (:ma_format_f32 api)
+                :channels 16})
+    (az/merge! (:playback config)
+               {:pDeviceID (k/& (:id (az/get playback-info headphone-index)))
+                :format (:ma_format_f32 api)
+                :channels 2})
+    (when (k/!= ((:ma_device_init api) (k/& context) (k/& config) (k/& monitor-device)) 0)
+      (k/return false))
+    (when (k/!= ((:ma_device_start api) (k/& monitor-device)) 0)
+      ((:ma_device_uninit api) (k/& monitor-device)) (k/return false))
+    (k/= monitoring true) true))
 
 (az/defn process-source! :void
   "Live source callback: retain dry stereo, send only 1/2. Never read the return bus." [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
   (when (capture-held?)
     (silence-preparing-output! output frames)
-    (ak/return))
-  (let [start (ak/atomicLoad :u64 (ak/& source-frames) :.monotonic)
-        stopping (ak/!= (ak/atomicLoad :u8 (ak/& source-stop) :.acquire) 0)
-        count (if stopping (ak/as 0 :u64) (ak/min (ak/as frames :u64) (- max-frames live-tail start)))
-        ^:var peak (ak/f32 0.0)]
+    (k/return))
+  (let [start (k/atomicLoad :u64 (k/& source-frames) :.monotonic)
+        stopping (k/!= (k/atomicLoad :u8 (k/& source-stop) :.acquire) 0)
+        count (if stopping (k/as 0 :u64) (k/min (k/as frames :u64) (k/- max-frames live-tail start)))
+        peak (k/var (k/f32 0.0))]
     (dotimes [i frames]
-      (when (ak/!= output ak/null)
-        (dotimes [channel 16] (set! (az/index output (+ (* i 16) channel)) 0.0)))
-      (when (< i count)
+      (when (k/!= output k/null)
+        (dotimes [channel 16] (k/= (az/get output (k/+ (k/* i 16) channel)) 0.0)))
+      (when (k/< i count)
         (dotimes [channel 2]
-          (let [value (if (ak/== input ak/null) 0.0
-                        (az/index input (+ (* i source-channels) source-offset channel)))]
-            (set! (az/index dry (+ (* (+ start i) 2) channel)) value)
-            (meter-input! value) (set! peak (ak/max peak (ak/abs value)))
-            (when (ak/!= output ak/null) (set! (az/index output (+ (* i 16) channel)) value))))))
-    (ak/atomicStore :u32 (ak/& input-level) (ak/intFromFloat (* 1000.0 (ak/sqrt (ak/min peak 1.0)))) :.release)
+          (let [value (if (k/== input k/null) 0.0
+                          (az/get input (k/+ (k/* i source-channels) source-offset channel)))]
+            (k/= (az/get dry (k/+ (k/* (k/+ start i) 2) channel)) value)
+            (meter-input! value) (k/= peak (k/max peak (k/abs value)))
+            (when (k/!= output k/null) (k/= (az/get output (k/+ (k/* i 16) channel)) value))))))
+    (k/atomicStore :u32 (k/& input-level) (k/intFromFloat (k/* 1000.0 (k/sqrt (k/min peak 1.0)))) :.release)
     (update-signal-level! true peak)
-    (ak/atomicStore :u64 (ak/& source-frames) (+ start count) :.release)
-    (when (or stopping (>= (+ start count) (- max-frames live-tail)))
-      (ak/atomicStore :u8 (ak/& source-ended) 1 :.release))))
+    (k/atomicStore :u64 (k/& source-frames) (k/+ start count) :.release)
+    (when (or stopping (k/>= (k/+ start count) (k/- max-frames live-tail)))
+      (k/atomicStore :u8 (k/& source-ended) 1 :.release))))
 
 (az/defn source-callback :void {:zig/qualifiers "callconv(.c)"}
   [[device-pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
-  (set! _ device-pointer)
-  (process-source! (ak/ptrCast (ak/alignCast output))
-                   (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
+  (k/= :_ device-pointer)
+  (process-source! (k/ptrCast (k/alignCast output))
+                   (k/ptrCast (k/alignCast (k/constCast input))) frames))
 
 (az/defn finish-live! :void []
-  (ak/atomicStore :u8 (ak/& source-stop) 1 :.release))
+  (k/atomicStore :u8 (k/& source-stop) 1 :.release))
 
 (az/defn tail-active? :bool []
   (and running
-       (or (and (ak/== mode 3)
-                (or (ak/!= (ak/atomicLoad :u8 (ak/& source-stop) :.acquire) 0)
-                    (ak/!= (ak/atomicLoad :u8 (ak/& source-ended) :.acquire) 0)))
-           (and (ak/== mode 2) (>= (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire) dry-frames)))))
+       (or (and (k/== mode 3)
+                (or (k/!= (k/atomicLoad :u8 (k/& source-stop) :.acquire) 0)
+                    (k/!= (k/atomicLoad :u8 (k/& source-ended) :.acquire) 0)))
+           (and (k/== mode 2) (k/>= (k/atomicLoad :u64 (k/& recorded-frames) :.acquire) dry-frames)))))
+
+(az/defn set-path! :bool [[path [:slice-const :u8]]]
+  (when (or (k/== (:len path) 0) (k/>= (:len path) 4096)) (k/return false))
+  (dotimes [i (:len path)] (when (k/== (az/get path i) 0) (k/return false)))
+  (k/memcpy (az/slice path-buffer 0 (:len path)) path)
+  (k/= (az/get path-buffer (:len path)) 0)
+  true)
 
 (az/defn validate-take! :bool
   "Offline bounded decode. Refuse silence, clipping and non-finite samples before publication." [[path [:slice-const :u8]]]
-  (when (or running (ak/! (set-path! path))) (ak/return false))
-  (set! measured-frames 0) (set! measured-peak 0.0)
-  (let [config ((az/field api ma_decoder_config_init) (az/field api ma_format_f32) 2 48000)
-        ^:var decoder (mem/zeroes (az/type Decoder))
-        ^:var length (ak/u64 0)
-        ^:var samples (ak/as ak/undefined [:array 4096 :f32])]
-    (when (ak/!= ((az/field api ma_decoder_init_file) (ak/& path-buffer) (ak/& config) (ak/& decoder)) 0)
-      (ak/return false))
-    (ak/defer (set! _ ((az/field api ma_decoder_uninit) (ak/& decoder))))
-    (when (or (ak/!= ((az/field api ma_decoder_get_length_in_pcm_frames) (ak/& decoder) (ak/& length)) 0)
-              (ak/== length 0) (> length max-frames)) (ak/return false))
-    (ak/while (< measured-frames length)
-      (let [^:var read (ak/u64 0)
-            wanted (ak/min (ak/as 2048 :u64) (- length measured-frames))]
-        (set! _ ((az/field api ma_decoder_read_pcm_frames) (ak/& decoder) (ak/& samples) wanted (ak/& read)))
-        (when (ak/!= read wanted) (ak/return false))
-        (dotimes [i (* read 2)]
-          (let [v (ak/abs (az/index samples i))]
+  (when (or running (k/! (set-path! path))) (k/return false))
+  (k/= measured-frames 0) (k/= measured-peak 0.0)
+  (let [config ((:ma_decoder_config_init api) (:ma_format_f32 api) 2 48000)
+        decoder (k/var (mem/zeroes Decoder))
+        length (k/var (k/u64 0))
+        samples (k/var (k/as k/undefined [:array 4096 :f32]))]
+    (when (k/!= ((:ma_decoder_init_file api) (k/& path-buffer) (k/& config) (k/& decoder)) 0)
+      (k/return false))
+    (k/defer (k/= :_ ((:ma_decoder_uninit api) (k/& decoder))))
+    (when (or (k/!= ((:ma_decoder_get_length_in_pcm_frames api) (k/& decoder) (k/& length)) 0)
+              (k/== length 0) (k/> length max-frames)) (k/return false))
+    (k/while (k/< measured-frames length)
+      (let [read (k/var (k/u64 0))
+            wanted (k/min (k/as 2048 :u64) (k/- length measured-frames))]
+        (k/= :_ ((:ma_decoder_read_pcm_frames api) (k/& decoder) (k/& samples) wanted (k/& read)))
+        (when (k/!= read wanted) (k/return false))
+        (dotimes [i (k/* read 2)]
+          (let [v (k/abs (az/get samples i))]
             ;; NaN fails this comparison too.
-            (when (ak/! (< v 1.0)) (ak/return false))
-            (set! measured-peak (ak/max measured-peak v))))
-        (set! measured-frames (+ measured-frames read))))
-    (> measured-peak 0.00001)))
-
-(az/defn set-path! :bool [[path [:slice-const :u8]]]
-  (when (or (ak/== (az/field path len) 0) (>= (az/field path len) 4096)) (ak/return false))
-  (dotimes [i (az/field path len)] (when (ak/== (az/index path i) 0) (ak/return false)))
-  (ak/memcpy (az/slice path-buffer 0 (az/field path len)) path)
-  (set! (az/index path-buffer (az/field path len)) 0)
-  true)
+            (when (k/! (k/< v 1.0)) (k/return false))
+            (k/= measured-peak (k/max measured-peak v))))
+        (k/= measured-frames (k/+ measured-frames read))))
+    (k/> measured-peak 0.00001)))
 
 (az/defn initialize! :bool []
-  (when initialized (ak/return true))
-  (set! error-code ((az/field api ma_context_init) ak/null 0 ak/null (ak/& context)))
-  (when (ak/!= error-code 0) (ak/return false))
-  (set! error-code ((az/field api ma_context_get_devices) (ak/& context)
-                    (ak/& playback-info) (ak/& playback-count) (ak/& capture-info) (ak/& capture-count)))
-  (when (ak/!= error-code 0)
-    (set! _ ((az/field api ma_context_uninit) (ak/& context))) (ak/return false))
-  (set! initialized true)
+  (when initialized (k/return true))
+  (k/= error-code ((:ma_context_init api) k/null 0 k/null (k/& context)))
+  (when (k/!= error-code 0) (k/return false))
+  (k/= error-code ((:ma_context_get_devices api) (k/& context)
+                                                 (k/& playback-info) (k/& playback-count) (k/& capture-info) (k/& capture-count)))
+  (when (k/!= error-code 0)
+    (k/= :_ ((:ma_context_uninit api) (k/& context))) (k/return false))
+  (k/= initialized true)
   true)
-
-(az/defn device-name [:slice-const :u8] [[capture :bool] [index :u32]]
-  (when (or (ak/! initialized) (>= index (if capture capture-count playback-count))) (ak/return ""))
-  (let [info (if capture (az/index capture-info index) (az/index playback-info index))
-        ^:var length (ak/usize 0)]
-    (ak/while (and (< length 256) (ak/!= (az/index (az/field info name) length) 0))
-      (set! length (+ length 1)))
-    ;; Return the context-owned array, not the local struct copy.
-    (let [entry
-          (ak/as (ak/ptrCast (az/unwrap (ak/as (ak/& (az/index (if capture capture-info playback-info) index)) (az/type [:c-pointer DeviceInfo])))) [:* DeviceInfo])]
-      (az/slice (az/field entry name) 0 length))))
 
 (az/defn process-block! :void
   "Mode 1 captures dry. Mode 2 sends a dry take. Modes 2/3 retain only return 3/4." [[output [:c-pointer :f32]] [input [:c-pointer :f32]] [frames :u32]]
   (when (capture-held?)
     (silence-preparing-output! output frames)
-    (ak/return))
-  (let [start (ak/atomicLoad :u64 (ak/& recorded-frames) :.monotonic)
-        ^:var peak (ak/f32 0.0)
-        ^:var sent-peak (ak/f32 0.0)]
-    (when (and (ak/== mode 3) (ak/! tail-started)
-               (ak/!= (ak/atomicLoad :u8 (ak/& source-ended) :.acquire) 0))
-      (set! tail-started true) (set! limit-frames (ak/min max-frames (+ start live-tail))))
+    (k/return))
+  (let [start (k/atomicLoad :u64 (k/& recorded-frames) :.monotonic)
+        peak (k/var (k/f32 0.0))
+        sent-peak (k/var (k/f32 0.0))]
+    (when (and (k/== mode 3) (k/! tail-started)
+               (k/!= (k/atomicLoad :u8 (k/& source-ended) :.acquire) 0))
+      (k/= tail-started true) (k/= limit-frames (k/min max-frames (k/+ start live-tail))))
     (dotimes [i frames]
-      (let [position (+ start i)]
-        (when (and (ak/== mode 2) (ak/!= output ak/null))
-          (dotimes [channel 16] (set! (az/index output (+ (* i 16) channel)) 0.0))
-          (when (and (< position dry-frames) (< position limit-frames))
-            (set! sent-peak (ak/max sent-peak (ak/abs (az/index dry (* position 2)))
-                                   (ak/abs (az/index dry (+ (* position 2) 1)))))
-            (set! (az/index output (* i 16)) (az/index dry (* position 2)))
-            (set! (az/index output (+ (* i 16) 1)) (az/index dry (+ (* position 2) 1)))))
-        (when (< position limit-frames)
+      (let [position (k/+ start i)]
+        (when (and (k/== mode 2) (k/!= output k/null))
+          (dotimes [channel 16] (k/= (az/get output (k/+ (k/* i 16) channel)) 0.0))
+          (when (and (k/< position dry-frames) (k/< position limit-frames))
+            (k/= sent-peak (k/max sent-peak (k/abs (az/get dry (k/* position 2)))
+                                  (k/abs (az/get dry (k/+ (k/* position 2) 1)))))
+            (k/= (az/get output (k/* i 16)) (az/get dry (k/* position 2)))
+            (k/= (az/get output (k/+ (k/* i 16) 1)) (az/get dry (k/+ (k/* position 2) 1)))))
+        (when (k/< position limit-frames)
           (dotimes [channel 2]
-            (let [value (if (ak/== input ak/null) 0.0
-                          (az/index input (+ (* i (if (>= mode 2) (ak/as 16 :usize) 2))
-                                             (if (>= mode 2) (ak/as 2 :usize) 0) channel)))]
-              (when (ak/== mode 1) (set! (az/index dry (+ (* position 2) channel)) value))
-              (when (>= mode 2) (set! (az/index wet (+ (* position 2) channel)) value))
+            (let [value (if (k/== input k/null) 0.0
+                            (az/get input (k/+ (k/* i (if (k/>= mode 2) (k/as 16 :usize) 2))
+                                               (if (k/>= mode 2) (k/as 2 :usize) 0) channel)))]
+              (when (k/== mode 1) (k/= (az/get dry (k/+ (k/* position 2) channel)) value))
+              (when (k/>= mode 2) (k/= (az/get wet (k/+ (k/* position 2) channel)) value))
               (meter-input! value)
-              (set! peak (ak/max peak (ak/abs value))))))))
+              (k/= peak (k/max peak (k/abs value))))))))
     ;; Square-root display scale keeps quiet returns visible; not a dB measurement.
-    (when (>= mode 2) (update-signal-level! false peak))
-    (when (< mode 3) (update-signal-level! true (if (ak/== mode 1) peak sent-peak)))
-    (ak/atomicStore :u32 (ak/& peak-milli) (ak/intFromFloat (* (ak/sqrt (ak/min peak 1.0)) 1000.0)) :.release)
-    (when (< mode 3)
-      (ak/atomicStore :u32 (ak/& input-level)
-        (ak/intFromFloat (* (ak/sqrt (ak/min (if (ak/== mode 1) peak sent-peak) 1.0)) 1000.0)) :.release))
-    (ak/atomicStore :u64 (ak/& recorded-frames) (ak/min (+ start frames) limit-frames) :.release)
-    (when (>= (+ start frames) limit-frames) (ak/atomicStore :u8 (ak/& finished) 1 :.release))))
+    (when (k/>= mode 2) (update-signal-level! false peak))
+    (when (k/< mode 3) (update-signal-level! true (if (k/== mode 1) peak sent-peak)))
+    (k/atomicStore :u32 (k/& peak-milli) (k/intFromFloat (k/* (k/sqrt (k/min peak 1.0)) 1000.0)) :.release)
+    (when (k/< mode 3)
+      (k/atomicStore :u32 (k/& input-level)
+                     (k/intFromFloat (k/* (k/sqrt (k/min (if (k/== mode 1) peak sent-peak) 1.0)) 1000.0)) :.release))
+    (k/atomicStore :u64 (k/& recorded-frames) (k/min (k/+ start frames) limit-frames) :.release)
+    (when (k/>= (k/+ start frames) limit-frames) (k/atomicStore :u8 (k/& finished) 1 :.release))))
 
 (az/defn data-callback :void {:zig/qualifiers "callconv(.c)"}
   [[device-pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
-  (set! _ device-pointer)
-  (process-block! (ak/ptrCast (ak/alignCast output))
-                  (ak/ptrCast (ak/alignCast (ak/constCast input))) frames))
+  (k/= :_ device-pointer)
+  (process-block! (k/ptrCast (k/alignCast output))
+                  (k/ptrCast (k/alignCast (k/constCast input))) frames))
 
 (az/defn stop! :void []
   (stop-input-check!)
   (stop-monitor!)
   (when source-running
-    ((az/field api ma_device_uninit) (ak/& source-device))
-    (set! source-running false)
-    (set! dry-frames (ak/atomicLoad :u64 (ak/& source-frames) :.acquire)))
+    ((:ma_device_uninit api) (k/& source-device))
+    (k/= source-running false)
+    (k/= dry-frames (k/atomicLoad :u64 (k/& source-frames) :.acquire)))
   (when running
-    ((az/field api ma_device_uninit) (ak/& device))
-    (set! running false)
-    (when (ak/== mode 1) (set! dry-frames (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire))))
+    ((:ma_device_uninit api) (k/& device))
+    (k/= running false)
+    (when (k/== mode 1) (k/= dry-frames (k/atomicLoad :u64 (k/& recorded-frames) :.acquire))))
   (release-capture!))
 
 (az/defn start! :bool
   "Explicit device indices only. Mode 1 microphone; mode 2 sixteen-channel effects round-trip." [[capture-index :u32] [playback-index :u32] [capture-mode :u32] [tail-frames :u32]]
-  (when (or running (input-check-active?) (ak/! initialized) (>= capture-index capture-count)
-            (and (ak/!= capture-mode 1) (ak/!= capture-mode 2))
-            (and (ak/== capture-mode 2)
-                 (or (>= playback-index playback-count) (ak/== dry-frames 0)
-                     (> (+ dry-frames tail-frames) max-frames)))) (ak/return false))
-  (when (and (ak/== capture-mode 2)
-             (or (ak/! (mem/eql (az/type :u8) (device-name true capture-index) "BlackHole 16ch"))
-                 (ak/! (mem/eql (az/type :u8) (device-name false playback-index) "BlackHole 16ch"))))
-    (ak/return false))
-  (set! mode capture-mode)
+  (when (or running (input-check-active?) (k/! initialized) (k/>= capture-index capture-count)
+            (and (k/!= capture-mode 1) (k/!= capture-mode 2))
+            (and (k/== capture-mode 2)
+                 (or (k/>= playback-index playback-count) (k/== dry-frames 0)
+                     (k/> (k/+ dry-frames tail-frames) max-frames)))) (k/return false))
+  (when (and (k/== capture-mode 2)
+             (or (k/! (mem/eql :u8 (device-name true capture-index) "BlackHole 16ch"))
+                 (k/! (mem/eql :u8 (device-name false playback-index) "BlackHole 16ch"))))
+    (k/return false))
+  (k/= mode capture-mode)
   (reset-meters!)
-  (set! limit-frames (if (ak/== mode 1) max-frames (+ dry-frames tail-frames)))
-  (ak/atomicStore :u64 (ak/& recorded-frames) 0 :.release)
-  (ak/atomicStore :u8 (ak/& finished) 0 :.release)
-  (let [^:var config ((az/field api ma_device_config_init)
-                       (if (ak/== mode 1) (az/field api ma_device_type_capture) (az/field api ma_device_type_duplex)))]
-    (set! (az/field config sampleRate) 48000)
-    (set! (az/field (az/field config capture) pDeviceID) (ak/& (az/field (az/index capture-info capture-index) id)))
-    (set! (az/field (az/field config capture) format) (az/field api ma_format_f32))
-    (set! (az/field (az/field config capture) channels) (if (ak/== mode 1) 2 16))
-    (when (ak/== mode 2)
-      (set! (az/field (az/field config playback) pDeviceID) (ak/& (az/field (az/index playback-info playback-index) id)))
-      (set! (az/field (az/field config playback) format) (az/field api ma_format_f32))
-      (set! (az/field (az/field config playback) channels) 16))
-    (set! (az/field config dataCallback) (ak/& data-callback))
-    (set! error-code ((az/field api ma_device_init) (ak/& context) (ak/& config) (ak/& device)))
-    (when (ak/!= error-code 0) (ak/return false))
-    (set! error-code ((az/field api ma_device_start) (ak/& device)))
-    (when (ak/!= error-code 0) ((az/field api ma_device_uninit) (ak/& device)) (ak/return false)))
-  (set! running true) true)
+  (k/= limit-frames (if (k/== mode 1) max-frames (k/+ dry-frames tail-frames)))
+  (k/atomicStore :u64 (k/& recorded-frames) 0 :.release)
+  (k/atomicStore :u8 (k/& finished) 0 :.release)
+  (let [config (k/var ((:ma_device_config_init api)
+                       (if (k/== mode 1) (:ma_device_type_capture api) (:ma_device_type_duplex api))))]
+    (az/merge! config {:sampleRate 48000 :dataCallback (k/& data-callback)})
+    (az/merge! (:capture config)
+               {:pDeviceID (k/& (:id (az/get capture-info capture-index)))
+                :format (:ma_format_f32 api)
+                :channels (if (k/== mode 1) 2 16)})
+    (when (k/== mode 2)
+      (az/merge! (:playback config)
+                 {:pDeviceID (k/& (:id (az/get playback-info playback-index)))
+                  :format (:ma_format_f32 api)
+                  :channels 16}))
+    (k/= error-code ((:ma_device_init api) (k/& context) (k/& config) (k/& device)))
+    (when (k/!= error-code 0) (k/return false))
+    (k/= error-code ((:ma_device_start api) (k/& device)))
+    (when (k/!= error-code 0) ((:ma_device_uninit api) (k/& device)) (k/return false)))
+  (k/= running true) true)
 
 (az/defn start-live! :bool
   "Capture source and effects return concurrently. BlackHole source uses 5/6 for safe virtual input." [[microphone-index :u32] [return-index :u32] [send-index :u32] [tail-frames :u32]]
-  (when (or running source-running (input-check-active?) (ak/! initialized)
-            (>= microphone-index capture-count) (>= return-index capture-count)
-            (>= send-index playback-count) (> tail-frames 480000)
-            (ak/! (mem/eql (az/type :u8) (device-name true return-index) "BlackHole 16ch"))
-            (ak/! (mem/eql (az/type :u8) (device-name false send-index) "BlackHole 16ch")))
-    (ak/return false))
-  (set! mode 3) (set! limit-frames max-frames) (set! live-tail tail-frames)
+  (when (or running source-running (input-check-active?) (k/! initialized)
+            (k/>= microphone-index capture-count) (k/>= return-index capture-count)
+            (k/>= send-index playback-count) (k/> tail-frames 480000)
+            (k/! (mem/eql :u8 (device-name true return-index) "BlackHole 16ch"))
+            (k/! (mem/eql :u8 (device-name false send-index) "BlackHole 16ch")))
+    (k/return false))
+  (k/= mode 3) (k/= limit-frames max-frames) (k/= live-tail tail-frames)
   (reset-meters!)
-  (set! tail-started false) (set! dry-frames 0)
-  (set! source-channels (if (mem/eql (az/type :u8) (device-name true microphone-index) "BlackHole 16ch") 16 2))
-  (set! source-offset (if (ak/== source-channels 16) 4 0))
-  (ak/atomicStore :u64 (ak/& source-frames) 0 :.release)
-  (ak/atomicStore :u64 (ak/& recorded-frames) 0 :.release)
-  (ak/atomicStore :u8 (ak/& source-stop) 0 :.release)
-  (ak/atomicStore :u8 (ak/& source-ended) 0 :.release)
-  (ak/atomicStore :u8 (ak/& finished) 0 :.release)
-  (let [^:var config ((az/field api ma_device_config_init) (az/field api ma_device_type_capture))]
-    (set! (az/field config sampleRate) 48000)
-    (set! (az/field (az/field config capture) pDeviceID) (ak/& (az/field (az/index capture-info return-index) id)))
-    (set! (az/field (az/field config capture) format) (az/field api ma_format_f32))
-    (set! (az/field (az/field config capture) channels) 16)
-    (set! (az/field config dataCallback) (ak/& data-callback))
-    (set! error-code ((az/field api ma_device_init) (ak/& context) (ak/& config) (ak/& device)))
-    (when (ak/!= error-code 0) (ak/return false))
-    (set! error-code ((az/field api ma_device_start) (ak/& device)))
-    (when (ak/!= error-code 0) ((az/field api ma_device_uninit) (ak/& device)) (ak/return false)))
-  (set! running true)
-  (let [^:var config ((az/field api ma_device_config_init) (az/field api ma_device_type_duplex))]
-    (set! (az/field config sampleRate) 48000)
-    (set! (az/field (az/field config capture) pDeviceID) (ak/& (az/field (az/index capture-info microphone-index) id)))
-    (set! (az/field (az/field config capture) format) (az/field api ma_format_f32))
-    (set! (az/field (az/field config capture) channels) (ak/intCast source-channels))
-    (set! (az/field (az/field config playback) pDeviceID) (ak/& (az/field (az/index playback-info send-index) id)))
-    (set! (az/field (az/field config playback) format) (az/field api ma_format_f32))
-    (set! (az/field (az/field config playback) channels) 16)
-    (set! (az/field config dataCallback) (ak/& source-callback))
-    (set! error-code ((az/field api ma_device_init) (ak/& context) (ak/& config) (ak/& source-device)))
-    (when (ak/!= error-code 0) (stop!) (ak/return false))
-    (set! error-code ((az/field api ma_device_start) (ak/& source-device)))
-    (when (ak/!= error-code 0)
-      ((az/field api ma_device_uninit) (ak/& source-device)) (stop!) (ak/return false)))
-  (set! source-running true) true)
+  (k/= tail-started false) (k/= dry-frames 0)
+  (k/= source-channels (if (mem/eql :u8 (device-name true microphone-index) "BlackHole 16ch") 16 2))
+  (k/= source-offset (if (k/== source-channels 16) 4 0))
+  (k/atomicStore :u64 (k/& source-frames) 0 :.release)
+  (k/atomicStore :u64 (k/& recorded-frames) 0 :.release)
+  (k/atomicStore :u8 (k/& source-stop) 0 :.release)
+  (k/atomicStore :u8 (k/& source-ended) 0 :.release)
+  (k/atomicStore :u8 (k/& finished) 0 :.release)
+  (let [config (k/var ((:ma_device_config_init api) (:ma_device_type_capture api)))]
+    (az/merge! config {:sampleRate 48000 :dataCallback (k/& data-callback)})
+    (az/merge! (:capture config)
+               {:pDeviceID (k/& (:id (az/get capture-info return-index)))
+                :format (:ma_format_f32 api)
+                :channels 16})
+    (k/= error-code ((:ma_device_init api) (k/& context) (k/& config) (k/& device)))
+    (when (k/!= error-code 0) (k/return false))
+    (k/= error-code ((:ma_device_start api) (k/& device)))
+    (when (k/!= error-code 0) ((:ma_device_uninit api) (k/& device)) (k/return false)))
+  (k/= running true)
+  (let [config (k/var ((:ma_device_config_init api) (:ma_device_type_duplex api)))]
+    (az/merge! config {:sampleRate 48000 :dataCallback (k/& source-callback)})
+    (az/merge! (:capture config)
+               {:pDeviceID (k/& (:id (az/get capture-info microphone-index)))
+                :format (:ma_format_f32 api)
+                :channels (k/intCast source-channels)})
+    (az/merge! (:playback config)
+               {:pDeviceID (k/& (:id (az/get playback-info send-index)))
+                :format (:ma_format_f32 api)
+                :channels 16})
+    (k/= error-code ((:ma_device_init api) (k/& context) (k/& config) (k/& source-device)))
+    (when (k/!= error-code 0) (stop!) (k/return false))
+    (k/= error-code ((:ma_device_start api) (k/& source-device)))
+    (when (k/!= error-code 0)
+      ((:ma_device_uninit api) (k/& source-device)) (stop!) (k/return false)))
+  (k/= source-running true) true)
 
 (az/defn load-dry! :bool [[path [:slice-const :u8]]]
-  (when (or running (ak/! (set-path! path))) (ak/return false))
-  (set! dry-frames 0)
-  (let [^:var config ((az/field api ma_decoder_config_init) (az/field api ma_format_f32) 2 48000)
-        ^:var decoder (mem/zeroes (az/type Decoder))
-        ^:var length (ak/u64 0)]
-    (when (ak/!= ((az/field api ma_decoder_init_file) (ak/& path-buffer) (ak/& config) (ak/& decoder)) 0)
-      (ak/return false))
-    (ak/defer (set! _ ((az/field api ma_decoder_uninit) (ak/& decoder))))
-    (when (or (ak/!= ((az/field api ma_decoder_get_length_in_pcm_frames) (ak/& decoder) (ak/& length)) 0)
-              (ak/== length 0) (> length (- max-frames 48000))) (ak/return false))
-    (set! error-code ((az/field api ma_decoder_read_pcm_frames) (ak/& decoder) (ak/& dry) length (ak/& dry-frames)))
-    (and (ak/== error-code 0) (ak/== length dry-frames))))
+  (when (or running (k/! (set-path! path))) (k/return false))
+  (k/= dry-frames 0)
+  (let [config (k/var ((:ma_decoder_config_init api) (:ma_format_f32 api) 2 48000))
+        decoder (k/var (mem/zeroes Decoder))
+        length (k/var (k/u64 0))]
+    (when (k/!= ((:ma_decoder_init_file api) (k/& path-buffer) (k/& config) (k/& decoder)) 0)
+      (k/return false))
+    (k/defer (k/= :_ ((:ma_decoder_uninit api) (k/& decoder))))
+    (when (or (k/!= ((:ma_decoder_get_length_in_pcm_frames api) (k/& decoder) (k/& length)) 0)
+              (k/== length 0) (k/> length (k/- max-frames 48000))) (k/return false))
+    (k/= error-code ((:ma_decoder_read_pcm_frames api) (k/& decoder) (k/& dry) length (k/& dry-frames)))
+    (and (k/== error-code 0) (k/== length dry-frames))))
 
 (az/defn write-take! :bool [[path [:slice-const :u8]] [processed :bool]]
-  (when (or running (ak/! (set-path! path))) (ak/return false))
-  (let [frames (if processed (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire) dry-frames)
-        ^:var config ((az/field api ma_encoder_config_init) (az/field api ma_encoding_format_wav)
-                        (az/field api ma_format_f32) 2 48000)
-        ^:var encoder (mem/zeroes (az/type Encoder)) ^:var written (ak/u64 0)]
-    (when (or (ak/== frames 0) (> frames max-frames) (and processed (< mode 2))) (ak/return false))
-    (when (ak/!= ((az/field api ma_encoder_init_file) (ak/& path-buffer) (ak/& config) (ak/& encoder)) 0)
-      (ak/return false))
-    (set! error-code ((az/field api ma_encoder_write_pcm_frames) (ak/& encoder)
-                       (if processed (ak/& wet) (ak/& dry)) frames (ak/& written)))
-    (set! _ ((az/field api ma_encoder_uninit) (ak/& encoder)))
-    (and (ak/== error-code 0) (ak/== written frames))))
+  (when (or running (k/! (set-path! path))) (k/return false))
+  (let [frames (if processed (k/atomicLoad :u64 (k/& recorded-frames) :.acquire) dry-frames)
+        config (k/var ((:ma_encoder_config_init api) (:ma_encoding_format_wav api)
+                                                     (:ma_format_f32 api) 2 48000))
+        encoder (k/var (mem/zeroes Encoder)) written (k/var (k/u64 0))]
+    (when (or (k/== frames 0) (k/> frames max-frames) (and processed (k/< mode 2))) (k/return false))
+    (when (k/!= ((:ma_encoder_init_file api) (k/& path-buffer) (k/& config) (k/& encoder)) 0)
+      (k/return false))
+    (k/= error-code ((:ma_encoder_write_pcm_frames api) (k/& encoder)
+                                                        (if processed (k/& wet) (k/& dry)) frames (k/& written)))
+    (k/= :_ ((:ma_encoder_uninit api) (k/& encoder)))
+    (and (k/== error-code 0) (k/== written frames))))
 
-(az/defn frames-recorded :u64 [] (ak/atomicLoad :u64 (ak/& recorded-frames) :.acquire))
-(az/defn done? :bool [] (ak/!= (ak/atomicLoad :u8 (ak/& finished) :.acquire) 0))
-(az/defn level :u32 [] (ak/atomicLoad :u32 (ak/& peak-milli) :.acquire))
+(az/defn frames-recorded :u64 [] (k/atomicLoad :u64 (k/& recorded-frames) :.acquire))
+
+(az/defn done? :bool [] (k/!= (k/atomicLoad :u8 (k/& finished) :.acquire) 0))
+
+(az/defn level :u32 [] (k/atomicLoad :u32 (k/& peak-milli) :.acquire))
 
 (az/defn available-frames :u64 [[processed :bool]]
   (if processed (frames-recorded)
-    (if (ak/== mode 3) (ak/atomicLoad :u64 (ak/& source-frames) :.acquire)
-      (if (ak/== mode 1) (frames-recorded) dry-frames))))
+      (if (k/== mode 3) (k/atomicLoad :u64 (k/& source-frames) :.acquire)
+          (if (k/== mode 1) (frames-recorded) dry-frames))))
 
 (az/defn journal! :u64
   "Worker-only durable PCM append. Read only the release-published, immutable prefix." [[path [:slice-const :u8]] [processed :bool] [from :u64]]
   (let [end (available-frames processed)]
-    (when (or (> end max-frames) (> from end) (ak/! (set-path! path))) (ak/return 0))
-    (when (ak/== from end) (ak/return end))
-    (let [file ((az/field file-api fopen) (ak/& path-buffer) "r+b")]
-      (when (ak/== file ak/null) (ak/return 0))
-      (ak/defer (set! _ ((az/field file-api fclose) file)))
-      (when (ak/!= ((az/field file-api fseek) file (ak/intCast (* from 8)) 0) 0) (ak/return 0))
-      (let [written ((az/field file-api fwrite)
-                      (ak/& (az/index (if processed wet dry) (* from 2))) 8 (ak/intCast (- end from)) file)]
-        (when (or (ak/!= written (- end from)) (ak/!= ((az/field file-api fflush) file) 0)
-                  (ak/!= ((az/field file-api fsync) ((az/field file-api fileno) file)) 0)) (ak/return 0))
+    (when (or (k/> end max-frames) (k/> from end) (k/! (set-path! path))) (k/return 0))
+    (when (k/== from end) (k/return end))
+    (let [file ((:fopen file-api) (k/& path-buffer) "r+b")]
+      (when (k/== file k/null) (k/return 0))
+      (k/defer (k/= :_ ((:fclose file-api) file)))
+      (when (k/!= ((:fseek file-api) file (k/intCast (k/* from 8)) 0) 0) (k/return 0))
+      (let [written ((:fwrite file-api)
+                     (k/& (az/get (if processed wet dry) (k/* from 2))) 8 (k/intCast (k/- end from)) file)]
+        (when (or (k/!= written (k/- end from)) (k/!= ((:fflush file-api) file) 0)
+                  (k/!= ((:fsync file-api) ((:fileno file-api) file)) 0)) (k/return 0))
         end))))
 
 (az/defn wave-bin :f32 [[processed :bool] [bin :u32]]
-  (when (>= bin 128) (ak/return 0.0))
+  (when (k/>= bin 128) (k/return 0.0))
   (let [frames (available-frames processed)
-        start (/ (* frames bin) 128)
-        end (/ (* frames (+ bin 1)) 128)
-        step (ak/max 1 (/ (- end start) 64))
-        ^:var peak (ak/f32 0.0) ^:var i start]
-    (ak/while (< i end)
-      (set! peak (ak/max peak (ak/abs (az/index (if processed wet dry) (* i 2)))))
-      (set! i (+ i step)))
-    (ak/min peak 1.0)))
+        start (k// (k/* frames bin) 128)
+        end (k// (k/* frames (k/+ bin 1)) 128)
+        step (k/max 1 (k// (k/- end start) 64))
+        peak (k/var (k/f32 0.0)) i (k/var start)]
+    (k/while (k/< i end)
+      (k/= peak (k/max peak (k/abs (az/get (if processed wet dry) (k/* i 2)))))
+      (k/= i (k/+ i step)))
+    (k/min peak 1.0)))
 
 (az/defn shutdown! :void []
   (stop!)
-  (when initialized (set! _ ((az/field api ma_context_uninit) (ak/& context))) (set! initialized false)))
+  (when initialized (k/= :_ ((:ma_context_uninit api) (k/& context))) (k/= initialized false)))
 
 (az/defn routing-test! :bool
   "No device/microphone: test channel isolation, tail silence and frame bounds." []
-  (when running (ak/return false))
-  (let [^:var input (ak/as (mem/zeroes (az/type [:array 64 :f32])) [:array 64 :f32])
-        ^:var output (ak/as ak/undefined [:array 64 :f32])]
-    (set! mode 2) (set! dry-frames 2) (set! limit-frames 3)
-    (set! (az/index dry 0) 0.1) (set! (az/index dry 1) 0.2)
-    (set! (az/index dry 2) 0.3) (set! (az/index dry 3) 0.4)
-    (set! (az/index input 0) 0.9) ; Send channel must never be mistaken for return.
-    (set! (az/index input 2) 0.125) (set! (az/index input 3) 0.25)
-    (set! (az/index wet 6) 0.75) ; Sentinel immediately after the capture bound.
-    (ak/atomicStore :u64 (ak/& recorded-frames) 0 :.release)
-    (ak/atomicStore :u8 (ak/& finished) 0 :.release)
-    (process-block! (ak/& output) (ak/& input) 4)
-    (when (or (ak/!= (az/index output 0) 0.1) (ak/!= (az/index output 1) 0.2)
-              (ak/!= (az/index wet 0) 0.125) (ak/!= (az/index wet 1) 0.25)
-              (ak/!= (az/index wet 6) 0.75) (ak/!= (frames-recorded) 3) (ak/! (done?)))
-      (ak/return false))
+  (when running (k/return false))
+  (let [input (k/var (k/as (mem/zeroes [:array 64 :f32]) [:array 64 :f32]))
+        output (k/var (k/as k/undefined [:array 64 :f32]))]
+    (k/= mode 2) (k/= dry-frames 2) (k/= limit-frames 3)
+    (k/= (az/get dry 0) 0.1) (k/= (az/get dry 1) 0.2)
+    (k/= (az/get dry 2) 0.3) (k/= (az/get dry 3) 0.4)
+    (k/= (az/get input 0) 0.9) ; Send channel must never be mistaken for return.
+    (k/= (az/get input 2) 0.125) (k/= (az/get input 3) 0.25)
+    (k/= (az/get wet 6) 0.75) ; Sentinel immediately after the capture bound.
+    (k/atomicStore :u64 (k/& recorded-frames) 0 :.release)
+    (k/atomicStore :u8 (k/& finished) 0 :.release)
+    (process-block! (k/& output) (k/& input) 4)
+    (when (or (k/!= (az/get output 0) 0.1) (k/!= (az/get output 1) 0.2)
+              (k/!= (az/get wet 0) 0.125) (k/!= (az/get wet 1) 0.25)
+              (k/!= (az/get wet 6) 0.75) (k/!= (frames-recorded) 3) (k/! (done?)))
+      (k/return false))
     (dotimes [i 4]
       (dotimes [channel 16]
-        (when (and (or (>= i 2) (>= channel 2))
-                   (ak/!= (az/index output (+ (* i 16) channel)) 0.0)) (ak/return false))))
-    (set! dry-frames 0) true))
+        (when (and (or (k/>= i 2) (k/>= channel 2))
+                   (k/!= (az/get output (k/+ (k/* i 16) channel)) 0.0)) (k/return false))))
+    (k/= dry-frames 0) true))
 
 (az/defn live-routing-test! :bool
   "Offline live callbacks: distinct buses, dry retention, stop silence, bounded return tail." []
-  (when (or running source-running) (ak/return false))
-  (let [^:var input (ak/as (mem/zeroes (az/type [:array 64 :f32])) [:array 64 :f32])
-        ^:var output (ak/as ak/undefined [:array 64 :f32])]
-    (set! mode 3) (set! source-channels 16) (set! source-offset 4)
-    (set! live-tail 2) (set! limit-frames max-frames) (set! tail-started false)
-    (ak/atomicStore :u64 (ak/& source-frames) 0 :.release)
-    (ak/atomicStore :u64 (ak/& recorded-frames) 0 :.release)
-    (ak/atomicStore :u8 (ak/& source-stop) 0 :.release)
-    (ak/atomicStore :u8 (ak/& source-ended) 0 :.release)
-    (ak/atomicStore :u8 (ak/& finished) 0 :.release)
+  (when (or running source-running) (k/return false))
+  (let [input (k/var (k/as (mem/zeroes [:array 64 :f32]) [:array 64 :f32]))
+        output (k/var (k/as k/undefined [:array 64 :f32]))]
+    (k/= mode 3) (k/= source-channels 16) (k/= source-offset 4)
+    (k/= live-tail 2) (k/= limit-frames max-frames) (k/= tail-started false)
+    (k/atomicStore :u64 (k/& source-frames) 0 :.release)
+    (k/atomicStore :u64 (k/& recorded-frames) 0 :.release)
+    (k/atomicStore :u8 (k/& source-stop) 0 :.release)
+    (k/atomicStore :u8 (k/& source-ended) 0 :.release)
+    (k/atomicStore :u8 (k/& finished) 0 :.release)
     (dotimes [i 4]
-      (set! (az/index input (* i 16)) 0.9)
-      (set! (az/index input (+ (* i 16) 2)) 0.125)
-      (set! (az/index input (+ (* i 16) 3)) 0.25)
-      (set! (az/index input (+ (* i 16) 4)) 0.5)
-      (set! (az/index input (+ (* i 16) 5)) 0.75))
-    (process-source! (ak/& output) (ak/& input) 4)
-    (process-block! ak/null (ak/& input) 4)
+      (k/= (az/get input (k/* i 16)) 0.9)
+      (k/= (az/get input (k/+ (k/* i 16) 2)) 0.125)
+      (k/= (az/get input (k/+ (k/* i 16) 3)) 0.25)
+      (k/= (az/get input (k/+ (k/* i 16) 4)) 0.5)
+      (k/= (az/get input (k/+ (k/* i 16) 5)) 0.75))
+    (process-source! (k/& output) (k/& input) 4)
+    (process-block! k/null (k/& input) 4)
     (dotimes [i 4]
-      (when (or (ak/!= (az/index dry (* i 2)) 0.5)
-                (ak/!= (az/index dry (+ (* i 2) 1)) 0.75)
-                (ak/!= (az/index wet (* i 2)) 0.125)
-                (ak/!= (az/index wet (+ (* i 2) 1)) 0.25)) (ak/return false))
+      (when (or (k/!= (az/get dry (k/* i 2)) 0.5)
+                (k/!= (az/get dry (k/+ (k/* i 2) 1)) 0.75)
+                (k/!= (az/get wet (k/* i 2)) 0.125)
+                (k/!= (az/get wet (k/+ (k/* i 2) 1)) 0.25)) (k/return false))
       (dotimes [channel 16]
-        (when (ak/!= (az/index output (+ (* i 16) channel))
-                    (ak/as (if (ak/== channel 0) 0.5 (if (ak/== channel 1) 0.75 0.0)) :f32))
-          (ak/return false))))
+        (when (k/!= (az/get output (k/+ (k/* i 16) channel))
+                    (k/as (if (k/== channel 0) 0.5 (if (k/== channel 1) 0.75 0.0)) :f32))
+          (k/return false))))
     (finish-live!)
-    (process-source! (ak/& output) (ak/& input) 4)
-    (dotimes [i 64] (when (ak/!= (az/index output i) 0.0) (ak/return false)))
-    (set! (az/index wet 12) 0.875)
-    (process-block! ak/null (ak/& input) 4)
-    (when (or (ak/!= (frames-recorded) 6) (ak/! (done?))
-              (ak/!= (az/index wet 12) 0.875)
-              (ak/!= (ak/atomicLoad :u64 (ak/& source-frames) :.acquire) 4))
-      (ak/return false))
+    (process-source! (k/& output) (k/& input) 4)
+    (dotimes [i 64] (when (k/!= (az/get output i) 0.0) (k/return false)))
+    (k/= (az/get wet 12) 0.875)
+    (process-block! k/null (k/& input) 4)
+    (when (or (k/!= (frames-recorded) 6) (k/! (done?))
+              (k/!= (az/get wet 12) 0.875)
+              (k/!= (k/atomicLoad :u64 (k/& source-frames) :.acquire) 4))
+      (k/return false))
     ;; Source at capacity must neither overrun nor keep sending after the limit.
-    (ak/atomicStore :u64 (ak/& source-frames) (- max-frames live-tail 1) :.release)
-    (ak/atomicStore :u8 (ak/& source-stop) 0 :.release)
-    (ak/atomicStore :u8 (ak/& source-ended) 0 :.release)
-    (process-source! (ak/& output) (ak/& input) 4)
-    (when (or (ak/!= (ak/atomicLoad :u64 (ak/& source-frames) :.acquire) (- max-frames live-tail))
-              (ak/== (ak/atomicLoad :u8 (ak/& source-ended) :.acquire) 0)) (ak/return false))
-    (dotimes [i 48] (when (ak/!= (az/index output (+ 16 i)) 0.0) (ak/return false)))
+    (k/atomicStore :u64 (k/& source-frames) (k/- max-frames live-tail 1) :.release)
+    (k/atomicStore :u8 (k/& source-stop) 0 :.release)
+    (k/atomicStore :u8 (k/& source-ended) 0 :.release)
+    (process-source! (k/& output) (k/& input) 4)
+    (when (or (k/!= (k/atomicLoad :u64 (k/& source-frames) :.acquire) (k/- max-frames live-tail))
+              (k/== (k/atomicLoad :u8 (k/& source-ended) :.acquire) 0)) (k/return false))
+    (dotimes [i 48] (when (k/!= (az/get output (k/+ 16 i)) 0.0) (k/return false)))
     ;; Real microphone configuration uses stereo 1/2, not the virtual source 5/6.
-    (set! source-channels 2) (set! source-offset 0)
-    (ak/atomicStore :u64 (ak/& source-frames) 0 :.release)
-    (process-source! (ak/& output) (ak/& input) 1)
-    (when (or (ak/!= (az/index dry 0) 0.9) (ak/!= (az/index dry 1) 0.0)
-              (ak/!= (az/index output 0) 0.9) (ak/!= (az/index output 1) 0.0)) (ak/return false))
-    (process-source! ak/null ak/null 1)
-    (when (or (ak/!= (az/index dry 2) 0.0) (ak/!= (az/index dry 3) 0.0)) (ak/return false))
+    (k/= source-channels 2) (k/= source-offset 0)
+    (k/atomicStore :u64 (k/& source-frames) 0 :.release)
+    (process-source! (k/& output) (k/& input) 1)
+    (when (or (k/!= (az/get dry 0) 0.9) (k/!= (az/get dry 1) 0.0)
+              (k/!= (az/get output 0) 0.9) (k/!= (az/get output 1) 0.0)) (k/return false))
+    (process-source! k/null k/null 1)
+    (when (or (k/!= (az/get dry 2) 0.0) (k/!= (az/get dry 3) 0.0)) (k/return false))
     ;; Retain a tiny valid paired take for the codec test.
-    (set! dry-frames 4) true))
+    (k/= dry-frames 4) true))

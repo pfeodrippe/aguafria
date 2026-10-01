@@ -6,10 +6,14 @@
             [la-professeure.takes-test :as fixtures]))
 
 (az/defvar output [:array 2048 :f32] ak/undefined)
+
 (az/defn block! :void [[frames :u32]]
   (when (<= frames 1024) (mixer/process! (ak/& output) frames)))
+
 (az/defn sample-at :f32 [[index :usize]] (az/index output index))
-(defn left [n] (mapv #(double (sample-at (* 2 %))) (range n)))
+
+(defn left [n] (mapv #(double (az/value (sample-at (* 2 %)))) (range n)))
+
 (defn approx [a b] (and (= (count a) (count b)) (every? #(< (abs %) 0.00001) (map - a b))))
 
 (defn loop-value [] (let [v (mixer/loop-state)] (try (az/value v) (finally (az/close! v)))))
@@ -28,15 +32,15 @@
       (is (false? (mixer/set-loop! 0 4294967296 true)))
       (is (= {:from 2 :to 5 :enabled true} (loop-value)))
       (mixer/play!) (block! 11)
-      (is (approx expected (left 11))) (is (= 4 (mixer/cursor-frame)))
+      (is (approx expected (left 11))) (is (= 4 (az/value (mixer/cursor-frame))))
       (mixer/seek! 2)
       (let [parts (reduce (fn [result size] (block! size) (into result (left size))) [] [1 4 6])]
         (is (approx expected parts)))
       (mixer/pause!) (mixer/seek! 7) (block! 5)
-      (is (= 7 (mixer/cursor-frame))) (is (every? zero? (left 5)))
+      (is (= 7 (az/value (mixer/cursor-frame)))) (is (every? zero? (left 5)))
       (mixer/play!) (block! 1) (is (approx [0.3] (left 1)))
       (is (mixer/set-loop! 4 5 true)) (block! 4)
-      (is (approx [0.5 0.5 0.5 0.5] (left 4))) (is (= 4 (mixer/cursor-frame)))
+      (is (approx [0.5 0.5 0.5 0.5] (left 4))) (is (= 4 (az/value (mixer/cursor-frame))))
       (is (mixer/set-loop! 0 0 false))
       (mixer/seek! 6) (block! 4) (is (approx [0.7 0.8 0 0] (left 4)))
       (is (false? (mixer/playing?)))
@@ -55,7 +59,7 @@
     (is (mixer/configure-clip! 1 2 1.0 0.0 0 false false))
     (mixer/play!) (block! 10)
     (is (approx [0.2 0.2 0.5 0.5 0.5 0.5 0.5 0.5 0.3 0.3] (left 10)))
-    (is (= 10 (mixer/cursor-frame))) (is (false? (mixer/playing?)))
+    (is (= 10 (az/value (mixer/cursor-frame)))) (is (false? (mixer/playing?)))
     ;; End-of-stream cannot cancel a later seek; desired Play still belongs to control.
     (mixer/seek! 0) (block! 1)
     (is (approx [0.2] (left 1))) (is (mixer/playing?))
@@ -64,11 +68,11 @@
       (block! 7)
       (is (approx [0.2 0.2 0.5 0.5 0.5 0.5 0.5 0.5 0.3 0.3] (into first-block (left 7)))))
     (mixer/seek! 0) (mixer/play!) (block! 3) (mixer/pause!) (block! 4)
-    (is (= 3 (mixer/cursor-frame))) (is (= [0.0 0.0 0.0 0.0] (left 4)))
-    (mixer/seek! 7) (block! 1) (is (= 7 (mixer/cursor-frame)))
+    (is (= 3 (az/value (mixer/cursor-frame)))) (is (= [0.0 0.0 0.0 0.0] (left 4)))
+    (mixer/seek! 7) (block! 1) (is (= 7 (az/value (mixer/cursor-frame))))
     (mixer/play!) (block! 6)
     (is (approx [0.5 0.3 0.3 0 0 0] (left 6)))
-    (is (= 10 (mixer/cursor-frame)))
+    (is (= 10 (az/value (mixer/cursor-frame))))
     (mixer/reset!)))
 
 (deftest fades-pan-mute-solo-and-bounds
@@ -84,7 +88,7 @@
     (mixer/configure-clip! 1 0 1.0 0.0 0 false false)
     (mixer/play!) (block! 8)
     (is (approx [0 0.4 0.8 0.8 0.8 0.8 0.4 0] (left 8)))
-    (is (every? zero? (map #(sample-at (inc (* 2 %))) (range 8))))
+    (is (every? zero? (map #(az/value (sample-at (inc (* 2 %)))) (range 8))))
     (mixer/configure-clip! 0 0 1.0 0.0 0 true false)
     (mixer/seek! 0) (mixer/play!) (block! 2) (is (approx [0.8 0.8] (left 2)))
     (mixer/configure-clip! 0 0 1.0 0.0 0 false false)

@@ -4,7 +4,7 @@
   Require this namespace as `az`. Declaration macros capture their bodies;
   the bodies are emitted as Zig. Explicit `clj!` escapes evaluate Clojure while
   preparing a declaration, before native compilation."
-  (:refer-clojure :exclude [cast comment defn defn- defstruct deref destructure
+  (:refer-clojure :exclude [assoc! cast comment defn defn- defstruct deref destructure
                             fn get get-in range struct type vector])
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.analysis :as analysis]
@@ -1351,7 +1351,7 @@
 ;; namespaces.
 (doseq [operator (emitter/syntax-operators)
         :when (and (not (contains? '#{let when when-not for dotimes case
-                                     array vector debug! range with-block}
+                                     array vector assoc! merge! debug! range with-block}
                                    operator))
                    (not (special-symbol? operator))
                    (or (= operator 'type)
@@ -1367,6 +1367,27 @@
                          "`. Value expressions also execute through the native JVM "
                          "bridge; scope-dependent forms need an enclosing declaration.")})
             (partial invoke-syntax! operator))))
+
+(clojure.core/defn assoc!
+  "Shallowly mutate native fields or indexed elements and return the receiver.
+  Keys are field keywords or indices, followed by their new values. All values
+  are evaluated before any writes, so (az/assoc! p :x (:y p) :y (:x p)) swaps
+  fields. Requires mutable storage; Zig checks field names and value types.
+  This is an ordinary JVM function and emits native assignments inside Zig."
+  {:aguafria/syntax '{:kind :syntax :name assoc! :symbol aguafria.zig/assoc!}}
+  [receiver & keyvals]
+  (apply invoke-syntax! 'assoc! receiver keyvals))
+
+(clojure.core/defn merge!
+  "Shallowly mutate a native receiver with map entries, using az/assoc!.
+  Returns the same receiver. Values are evaluated before writes; this is not
+  a recursive merge or an atomic transaction. Compiled forms require a literal
+  map; ordinary JVM calls accept any Clojure map."
+  {:aguafria/syntax '{:kind :syntax :name merge! :symbol aguafria.zig/merge!}}
+  [receiver updates]
+  (when-not (map? updates)
+    (throw (ex-info "merge! expects a map of updates" {:updates updates})))
+  (apply assoc! receiver (mapcat identity updates)))
 
 (clojure.core/defn array
   "Construct a native array, inferring its length: (az/array [1 2 3] :i32).

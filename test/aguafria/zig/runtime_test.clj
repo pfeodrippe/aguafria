@@ -134,6 +134,50 @@
     (is (= [:error-union :MyError :u32]
            (bridge-type {:return [:error-union :MyError :u32]})))))
 
+(deftest live-slice-checks-container-fields-once
+  (let [declarations (mapv (fn [n] {:kind :const
+                                   :name (symbol (str "item" n))
+                                   :declaration-key [:const n]
+                                   :logical-id (str n)
+                                   :source-order n
+                                   :value n})
+                           (range 100))
+        scans (atom 0)
+        original-some clojure.core/some]
+    (with-redefs [clojure.core/some
+                  (fn [predicate collection]
+                    (when (identical? collection declarations) (swap! scans inc))
+                    (original-some predicate collection))]
+      (is (= declarations (#'runtime/declarations-live-slice declarations declarations))))
+    (is (= 1 @scans)))
+  (let [declarations [{:kind :field
+                       :name 'x
+                       :logical-id "x"
+                       :declaration-key [:field 'x]
+                       :source-order 0
+                       :type :i32}
+                      {:kind :const
+                       :name 'Self
+                       :logical-id "Self"
+                       :declaration-key [:const 'Self]
+                       :source-order 1
+                       :value '(aguafria.keyword/This)}
+                      {:kind :fn
+                       :name 'method
+                       :logical-id "method"
+                       :declaration-key [:fn 'method]
+                       :source-order 2
+                       :args []
+                       :return :void
+                       :body []}
+                      {:kind :test
+                       :name 'test-only
+                       :logical-id "test-only"
+                       :declaration-key [:test 'test-only]
+                       :source-order 3}]]
+    (is (= ['x 'Self 'method]
+           (mapv :name (#'runtime/declarations-live-slice declarations [(second declarations)]))))))
+
 (deftest local-type-metadata-participates-in-hot-slices-test
   (doseq [key [:var :zig/type :tag]]
     (let [type-decl (runtime/declaration-info

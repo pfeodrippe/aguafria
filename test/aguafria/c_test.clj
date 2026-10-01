@@ -1,5 +1,6 @@
 (ns aguafria.c-test
   (:require [aguafria.c :as ac]
+            [aguafria.zig.convert :as convert]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -39,3 +40,21 @@
         (is (= :const (:kind point)))
         (is (= :extern-var (:kind counter)))
         (is (str/includes? (:doc add) "Add two signed integers"))))))
+
+(deftest rendered-c-bindings-follow-the-converter-identity
+  (let [directory (.toFile (java.nio.file.Files/createTempDirectory
+                            "aguafria-c-renderer-version-"
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
+        output (io/file directory "fixture.clj")
+        options {:namespace 'aguafria.generated.cache-fixture
+                 :cache-dir (str (io/file directory "cache")) :overwrite? true}
+        generate #(ac/translate-header! "test/fixtures/c_binding_fixture.h" output options)]
+    (with-redefs [convert/conversion-cache-identity (constantly "renderer-before")]
+      (generate)
+      (is (:conversion-cache-hit? (generate))))
+    (with-redefs [convert/conversion-cache-identity (constantly "renderer-after")]
+      (let [regenerated (generate)]
+        (is (:cache-hit? regenerated) "Unchanged C translation remains reusable.")
+        (is (false? (:conversion-cache-hit? regenerated))
+            "Changed Aguafria rendering must not reuse obsolete forms.")
+        (is (:conversion-cache-hit? (generate)))))))

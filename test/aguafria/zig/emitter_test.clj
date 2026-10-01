@@ -174,6 +174,22 @@
       (is (= '[(field az :value)] (:body declaration)))
       (is (empty? (emit/declaration-imports [declaration]))))))
 
+(deftest parameter-names-shadow-aliases-in-dependent-signatures
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration (emit/prepare-declaration
+                     context
+                     {:kind :fn :name 'identity-value
+                      :return '(ak/TypeOf ak)
+                      :args [{:name 'ak :type :anytype}
+                             {:name 'other :type '(ak/TypeOf ak)}]
+                      :body ['other]})]
+    (is (empty? (emit/declaration-imports [declaration])))
+    (is (= '(aguafria.keyword/TypeOf ak) (:return declaration)))
+    (is (= '(aguafria.keyword/TypeOf ak) (get-in declaration [:args 1 :type])))
+    (is (not (str/includes?
+              (emit/emit-static-dependency-module "signature-test" [declaration])
+              "@import(\"aguafria.keyword\")")))))
+
 (deftest anonymous-containers-use-one-member-vector
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[form expected]

@@ -4801,10 +4801,18 @@
 
 (def ^:private rendered-conversion-cache-version 19)
 
+(defn conversion-cache-identity
+  "Identify the code and catalogs that render C/Zig declarations as Aguafria."
+  []
+  (sha256 [rendered-conversion-cache-version
+           (mapv #(slurp (io/resource %))
+                 ["aguafria/zig/convert.clj" "aguafria/zig/emitter.clj" "aguafria/zig.clj"])
+           (keyword/catalog-info) (zig-std/catalog-info)]))
+
 (defn- rendered-conversion-key
   [parsed namespace plan source-display-path]
   (sha256
-   [rendered-conversion-cache-version
+   [(conversion-cache-identity)
     (:source-hash parsed)
     (:zig-version parsed)
     (:helper parsed)

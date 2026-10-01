@@ -93,28 +93,45 @@
                         {:reason :relative-or-dynamic-assets}))))))
 
 (defn- module-groups [{:keys [command development-panic-support-path]}]
-  (loop [remaining (drop 4 command), deps [], flags [], groups []]
+  (loop [remaining (drop 4 command), deps [], flags [], groups [], link-args []]
     (if-let [argument (first remaining)]
       (cond
         (= argument development-panic-support-path)
-        (recur (next remaining) deps flags groups)
+        (recur (next remaining) deps flags groups link-args)
 
         (= argument "--dep")
-        (recur (nnext remaining) (conj deps (second remaining)) flags groups)
+        (recur (nnext remaining) (conj deps (second remaining)) flags groups link-args)
 
         (str/starts-with? argument "-M")
         (let [[name path] (str/split (subs argument 2) #"=" 2)]
           (recur (next remaining) [] []
-                 (conj groups {:name name :path path :deps deps :flags flags})))
+                 (conj groups {:name name :path path :deps deps :flags flags}) link-args))
 
-        (#{"-ODebug" "-OReleaseSafe" "-ferror-tracing" "-funwind-tables" "-fPIC"} argument)
-        (recur (next remaining) deps (conj flags argument) groups)
+        (or (#{"-ODebug" "-OReleaseSafe" "-OReleaseFast" "-OReleaseSmall"
+               "-ferror-tracing" "-funwind-tables" "-fPIC"} argument)
+            (re-matches #"-(?:I|D).+" argument))
+        (recur (next remaining) deps (conj flags argument) groups link-args)
+
+        (#{"-I" "-isystem" "-D"} argument)
+        (if-let [value (second remaining)]
+          (recur (nnext remaining) deps (into flags [argument value]) groups link-args)
+          (throw (ex-info "Missing compiler argument" {:reason :compiler-arguments :argument argument})))
+
+        (= "-framework" argument)
+        (if-let [framework (second remaining)]
+          (recur (nnext remaining) deps flags groups (into link-args [argument framework]))
+          (throw (ex-info "Missing framework name" {:reason :compiler-arguments :argument argument})))
+
+        (or (re-matches #"-[lLF].+" argument)
+            (and (.isAbsolute (io/file argument)) (file? argument)
+                 (re-find #"\.(?:a|dylib|so(?:\.[0-9]+)*|lib|o|obj)$" argument)))
+        (recur (next remaining) deps flags groups (conj link-args argument))
 
         :else (throw (ex-info "Compiler configuration requires standalone linking"
                               {:reason :compiler-arguments :argument argument})))
       (if (or (seq deps) (seq flags) (empty? groups))
         (throw (ex-info "Incomplete module graph" {:reason :module-graph}))
-        groups))))
+        {:groups groups :link-args link-args}))))
 
 (defn candidate
   "Describe a packable emitted graph; unsupported configurations stay standalone."
@@ -124,19 +141,25 @@
       (when (or (not= :shared (:development-panic artifact)) (:native-test-context? artifact))
         (throw (ex-info "Handler requires standalone linking"
                         {:reason (if (:native-test-context? artifact) :native-test-context :panic-profile)})))
-      (let [groups (module-groups artifact)
+      (let [{:keys [groups link-args]} (module-groups artifact)
             groups (mapv #(assoc % :source (slurp (:path %))) groups)
             _ (doseq [group groups] (validate-imports! group))
             names (->> groups (mapcat #(exported-names (:source %))) distinct sort vec)
             forwarder (first (str/split (:source (first groups))
                                         #"// Aguafria development loader\." 2))]
         (when (seq names)
-          (assoc artifact :groups groups :exports names :forwarder forwarder)))
+          (assoc artifact :groups groups :link-args link-args :exports names :forwarder forwarder)))
       (catch clojure.lang.ExceptionInfo error
         (when *preparing*
           (swap! *preparing* assoc-in [:excluded (artifact-id artifact)]
                  {:module (:module artifact) :reason (:reason (ex-data error))}))
         nil))))
+
+(defn prepared-artifact
+  "Return an artifact already checked successfully in this preparation run."
+  [artifact]
+  (when *preparing*
+    (get-in @*preparing* [:artifacts (artifact-id artifact)])))
 
 (defn observe! [artifact]
   (when *preparing*
@@ -218,6 +241,7 @@
                   command (concat [(first (:command first-artifact)) "build-lib" "-dynamic"
                                    (str "-femit-bin=" temporary)
                                    (:development-panic-support-path first-artifact)]
+                                  (:link-args first-artifact)
                                   (get-in entries [0 :groups 0 :flags])
                                   (mapcat #(vector "--dep" (:entry %)) entries)
                                   [(str "-Mroot=" source)]
@@ -262,6 +286,7 @@
         groups (group-by #(vector (first (:command %))
                                         (:development-panic-support-path %)
                                         (:debug-format %) (:forwarder %)
+                                        (:link-args %)
                                         (get-in % [:groups 0 :flags])) candidates)
         _ (when (> (count groups) 1)
             (throw (ex-info "A single AOT bundle requires compatible compiler configurations"

@@ -306,6 +306,7 @@
       (let [value (edn/read-string (slurp cache-file))]
         (when (and (= rendered-binding-cache-version
                       (:cache-version value))
+                   (= (convert/conversion-cache-identity) (:converter-identity value))
                    (= cache-key (:cache-key value))
                    (string? (:clojure-source value))
                    (map? (:conversion value)))
@@ -318,6 +319,7 @@
   (Files/writeString
    (.toPath cache-file)
    (pr-str {:cache-version rendered-binding-cache-version
+            :converter-identity (convert/conversion-cache-identity)
             :cache-key cache-key
             :clojure-source clojure-source
             :conversion (dissoc conversion :elapsed-ms :written?

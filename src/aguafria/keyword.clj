@@ -246,18 +246,19 @@
   [context-ns sym]
   (when (and (symbol? sym) (namespace sym))
     (let [namespace-symbol (symbol (namespace sym))
-          aliased-targets (->> (all-ns)
-                               (keep #(get (ns-aliases %) namespace-symbol))
-                               distinct
-                               vec)
           target-ns (or (get (ns-aliases context-ns) namespace-symbol)
                         (find-ns namespace-symbol)
                         ;; Calls to az/emit-* may happen from a test runner or
                         ;; callback where `*ns*` is not the lexical namespace.
                         ;; An alias is still safe to recover when every loaded
                         ;; namespace maps it to the same target.
-                        (when (= 1 (count aliased-targets))
-                          (first aliased-targets)))]
+                        (let [aliased-targets (->> (all-ns)
+                                                  (keep #(get (ns-aliases %) namespace-symbol))
+                                                  distinct
+                                                  (take 2)
+                                                  vec)]
+                          (when (= 1 (count aliased-targets))
+                            (first aliased-targets))))]
       (when target-ns
         (ns-resolve target-ns (symbol (name sym)))))))
 

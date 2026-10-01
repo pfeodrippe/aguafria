@@ -5,6 +5,7 @@
   (:import [java.nio ByteBuffer ByteOrder] [java.nio.file Files]))
 
 (defn directory [] (str (Files/createTempDirectory "professeure-takes-" (make-array java.nio.file.attribute.FileAttribute 0))))
+
 (defn samples [values]
   (let [b (doto (ByteBuffer/allocate (* 8 (count values))) (.order ByteOrder/LITTLE_ENDIAN))]
     (doseq [v values] (.putFloat b (float v)) (.putFloat b (float (* 0.7 v)))) (.array b)))
