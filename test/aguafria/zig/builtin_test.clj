@@ -16,9 +16,9 @@
 (deftest compiler-builtin-values-are-real-jvm-values
   (is (false? @builtin/is_test))
   (is (true? (ak/== builtin/is_test false)))
-  (is (true? (ak/== builtin/mode :.Debug)))
-  (is (= (az/field builtin/cpu :arch)
-         (az/field (az/field builtin/target :cpu) :arch)))
+  (is (true? (ak/== builtin/mode :.debug)))
+  (is (= (az/value (az/field builtin/cpu :arch))
+         (az/value (az/field (az/field builtin/target :cpu) :arch))))
   (is (= "@import(\"builtin\").is_test"
          (:zig/name (meta #'builtin/is_test))))
   (is (str/includes? (with-out-str (az/zig-source! #'builtin/is_test))

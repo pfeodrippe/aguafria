@@ -1,9 +1,8 @@
 (ns aguafria-http.server
   "A small native HTTP server whose ordinary Zig functions stay live in nREPL."
-  (:require [aguafria.pkg]
-            [aguafria.pkg.uuid :as uuid]
-            [aguafria.keyword :as ak]
-            [aguafria.std]
+  (:require [aguafria.pkg.uuid :as uuid]
+            [aguafria.keyword :as k]
+            [aguafria.std :as std]
             [aguafria.std.Io.net :as net]
             [aguafria.std.Io.net.IpAddress :as ip-address]
             [aguafria.std.Io.net.Server :as net-server]
@@ -20,36 +19,32 @@
 
 (az/defvar requests-served :u64 0)
 
-(az/defn serve-connection! :void
-  {:zig/qualifiers "!"}
+(az/defn serve-connection! :!void
   [[stream net/Stream]
-   [io aguafria.std/Io]]
-  (ak/defer (net-stream/close (ak/& stream) io))
-  (let [^:var read-buffer (ak/as ak/undefined [:array 4096 :u8])
-        ^:var write-buffer (ak/as ak/undefined [:array 4096 :u8])
-        ^:var reader (net-stream/reader stream io (ak/& read-buffer))
-        ^:var writer (net-stream/writer stream io (ak/& write-buffer))
-        ^:var server
-        (http-server/init
-         (ak/& (az/field reader :interface))
-         (ak/& (az/field writer :interface)))
-        ^:var request (ak/try (http-server/receiveHead (ak/& server)))
+   [io std/Io]]
+  (k/defer (net-stream/close (k/& stream) io))
+  (let [read-buffer (k/var k/undefined [:array 4096 :u8])
+        write-buffer (k/var k/undefined [:array 4096 :u8])
+        reader (k/var (net-stream/reader stream io (k/& read-buffer)))
+        writer (k/var (net-stream/writer stream io (k/& write-buffer)))
+        server (k/var (http-server/init (k/& (:interface reader))
+                                        (k/& (:interface writer))))
+        request (k/var (try (http-server/receiveHead (k/& server))))
         request-id (uuid/v4-new io)
         request-id-text (uuid/urn-serialize request-id)]
-    (ak/try
-     (http-request/respond
-      (ak/& request)
-      "Hello from live Aguafria Zig!\n"
-      {:keep_alive false
-       :extra_headers (ak/& [{:name "x-request-id"
+    (try
+      (http-request/respond
+       (k/& request)
+       "Hello from live Aguafria Zig!\n"
+       {:keep_alive false
+        :extra_headers (k/& [{:name "x-request-id"
                               :value (az/slice request-id-text 0)}])}))
-    (set! requests-served (+ requests-served 1))))
-#_ (slurp server-url)
+    (k/+= requests-served 1)))
 
 (az/defn request-stop! :void
   "Ask the native accept loop to stop after its current connection."
   []
-  (set! running false))
+  (k/= running false))
 
 (az/defn- running? :bool
   []
@@ -59,22 +54,20 @@
   []
   requests-served)
 
-(az/defn main :void
-  "Listen on loopback and call the current response-body for every request."
-  {:zig/qualifiers "!"}
+(az/defn main :!void
+  "Listen on loopback and call the current connection handler for every request."
   [[process-init std-process/Init]]
-  (let [io (az/field process-init :io)
-        address (ak/try (ip-address/parseIp4 "127.0.0.1" port))
-        ^:var server (ak/try
-                      (ip-address/listen
-                       (ak/& address) io {:reuse_address true}))]
-    (ak/defer (net-server/deinit (ak/& server) io))
-    (set! requests-served 0)
-    (set! running true)
-    (ak/defer (set! running false))
-    (ak/while running
-      (let [stream (ak/try (net-server/accept (ak/& server) io))]
-        (ak/try (serve-connection! stream io))))))
+  (let [io (:io process-init)
+        address (try (ip-address/parseIp4 "127.0.0.1" port))
+        server (k/var (try (ip-address/listen
+                            (k/& address) io {:reuse_address true})))]
+    (k/defer (net-server/deinit (k/& server) io))
+    (k/= requests-served 0)
+    (k/= running true)
+    (k/defer (k/= running false))
+    (k/while running
+      (let [stream (try (net-server/accept (k/& server) io))]
+        (try (serve-connection! stream io))))))
 
 (def server-url "http://127.0.0.1:8787/")
 
@@ -86,7 +79,7 @@
   []
   (loop [attempt 0]
     (cond
-      (running?) true
+      (az/value (running?)) true
       (< attempt 500) (do (Thread/sleep 10) (recur (inc attempt)))
       :else (throw (ex-info "Native HTTP server did not start"
                             {:url server-url
@@ -120,8 +113,8 @@
   "Return inspectable server, compiler, and native-host state."
   []
   {:url server-url
-   :running (running?)
-   :requests (request-count)
+   :running (az/value (running?))
+   :requests (az/value (request-count))
    :host (some-> @active-host host/info)
    :compiler (:summary (az/stats))})
 
@@ -131,13 +124,11 @@
   (start!)
   (slurp server-url)
 
-  ;; Edit only the string inside `response-body`, evaluate that az/defn in
+  ;; Edit only the string inside `serve-connection!`, evaluate that az/defn in
   ;; Calva/CIDER, and make another request. No server-aware code or restart is
   ;; necessary: the already-running Zig loop calls the new function body.
   (az/await! 'aguafria-http.server)
   (slurp server-url)
 
   (status)
-  (stop!)
-
-  ())
+  (stop!))

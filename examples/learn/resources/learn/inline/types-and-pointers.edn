@@ -1,4 +1,16 @@
-{"a >= b"
+{"[a .. a + b]"
+ {:clojure-source "" :kind :syntax-note
+  :note "A slicing suffix: (az/slice value a (k/+ a b)), with value supplied by the surrounding expression."}
+
+ "[a..][0..b]"
+ {:clojure-source "" :kind :syntax-note
+  :note "A slicing suffix: (-> value (az/slice a) (az/slice 0 b)), with value supplied by the surrounding expression."}
+
+ ".len"
+ {:clojure-source "" :kind :syntax-note
+  :note "A field-access suffix: (:len value), with value supplied by the surrounding expression."}
+
+ "a >= b"
  {:clojure-source "(>= a b)"
   :kind :expr
   :note "Greater-than-or-equal comparison."}
@@ -80,7 +92,7 @@
   :standalone? true
   :note "Merging error sets produces the set containing both error names."}
 
- "x() x[] x.y x.* x.?\na!b\nx{}\n!x -x -%x ~x &x ?x\n* / % ** *% *| ||\n+ - ++ +% -% +| -|\n<< >> <<|\n& ^ | orelse catch\n== != < > <= >=\nand\nor\n= *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |="
+ "x() x[] x.y x.* x.?\na!b\nx{}\n!x -x -%x ~x &x ?x\n* / % *% *| ||\n+ - ++ +% -% +| -|\n<< >> <<|\n& ^ | orelse catch\n== != < > <= >=\nand\nor\n= *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |="
  {:clojure-source ""
   :kind :syntax-note
   :note "This precedence chart is Zig-specific. Aguafria uses prefix nesting instead of operator precedence: (+ a (* b c)) explicitly multiplies before adding."}
@@ -321,12 +333,6 @@
  {:clojure-source "(az/opaque [])"
   :kind :type
   :note "Declare an opaque type with unknown size and alignment."}
-
- "void{}"
- {:clojure-source "(az/init {} :void)"
-  :kind :expr
-  :standalone? true
-  :note "The sole void value is equivalent to an empty block."}
 
  "continue :sw .next_state"
  {:clojure-source "(k/continue sw :.next_state)"

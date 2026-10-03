@@ -214,16 +214,20 @@
         translations (inline/translate snippets)
         original (slurp "resources/upstream/index.html")
         annotated (inline/annotate original translations ref/decode-html ref/escape-html)
-        drift (first (filter :upstream-difference translations))]
-    (is (= 1362 (count (:matched-ids annotated))))
-    (is (= (mapv :id snippets) (:matched-ids annotated)))
+        drift (first (filter :rendered-source translations))]
+    (is (= 1340 (count (:matched-ids annotated))))
+    (is (= (mapv :id (remove #(= false (:published? %)) snippets)) (:matched-ids annotated)))
+    (is (= #{"try a" "a catch |err| return err"
+             "const value: anyerror!u32 = 5678;\ntry value == 5678"}
+           (set (map :source (:source-only annotated)))))
     (is (empty? (:unmatched annotated)))
     (is (= (re-seq #"(?s)<figure>.*?</figure>" original)
            (re-seq #"(?s)<figure>.*?</figure>" (:html annotated))))
-    (is (= "std.debug.dumpErrorReturnTrace" (:source drift)))
-    (is (= "std.debug.dumpStackTrace" (:rendered-source drift)))
+    (is (str/includes? (:source drift) "&x ?x try"))
+    (is (str/includes? (:rendered-source drift) "&x ?x\n"))
     (is (= :translated (:status drift)))
-    (is (= "aguafria.std.debug/dumpStackTrace" (:clojure-source drift)))
+    (is (= :syntax-note (:form-kind drift)))
+    (is (empty? (:clojure-source drift)))
     (is (every? #(not= :zig-only (:status %)) translations))))
 
 (deftest inline-html-does-not-guess-or-interpret-markup
@@ -241,11 +245,11 @@
 
 (deftest pinned-complete-inventory
   (let [{:keys [examples code-references sections snippets]} (ref/inventory)]
-    (is (= 292 (count examples)))
-    (is (= (set (map :file examples)) (set code-references)))
-    (is (= 356 (count sections)))
-    (is (= 1402 (count snippets)))
-    (is (every? :manifest examples))
+    (is (= 291 (count examples)))
+    (is (= (set (map :file (filter :manifest examples))) (set code-references)))
+    (is (= 354 (count sections)))
+    (is (= 1379 (count snippets)))
+    (is (= ["grammar.peg"] (mapv :file (remove :manifest examples))))
     (is (every? #(= :pending (:status %))
                 (remove #(= "shell_samp" (:kind %)) snippets)))))
 
@@ -385,7 +389,7 @@
                      :let [source (:source (get fragments id))]
                      :when source]
                  [source (second (str/split attributes #"\|" 2)) "snippet"])]
-    (is (= 305 (count (concat files blocks))))
+    (is (= 302 (count (concat files blocks))))
     (doseq [[group entries] [["example" files] ["snippet" blocks]]
             :let [declared (set (map (comp #(.getName %) io/file first) entries))
                   on-disk (filter #(.isFile %)
@@ -424,7 +428,7 @@
                 "Every nested std import must have a real classpath entry point."))))))
   (is (str/starts-with?
        (nth (read-string (slurp (io/resource "learn/example/tldoc_comments.clj"))) 2)
-       "This module provides functions")))
+       "Provides functions for retrieving the current date and time")))
 
 (deftest aguafria-panel-shows-its-actual-source-filename
   (let [path "resources/learn/example/test_comptime_variables.clj"
@@ -583,7 +587,7 @@
       (is (str/includes? emitted "return decoded_size;")))))
 
 (deftest larger-blocks-have-exact-source-syntax-checks
-  (let [block (first (filter #(= "snippet-646" (:id %))
+  (let [block (first (filter #(= "zig|performFn_3" (:attributes %))
                              (:snippets (ref/inventory))))
         result (ref/translate-block! block)]
     (is (= :translated (:status result)))
@@ -672,6 +676,20 @@
         (is (= expected (:status result)))
         (is (= original (get-in result [:comparison :original])))
         (is (= converted (get-in result [:comparison :aguafria])))))))
+
+(deftest non-program-artifacts-are-verified-without-executing-zig
+  (with-redefs [ref/run-doctest! (fn [& _] (throw (ex-info "Must not execute grammar" {})))
+                ref/sha256 (constantly "locked-source")]
+    (let [result (ref/verify-example! {}
+                                    {:file "grammar.peg" :sha256 "locked-source"}
+                                    {:status :zig-only :reason "Formal grammar"})]
+      (is (= :reviewed-special-case-passed (:status result)))
+      (is (= :source-artifact (get-in result [:original :verification])))
+      (is (nil? (get-in result [:original :exit]))))
+    (is (= :not-translated
+           (:status (ref/verify-example! {}
+                                         {:file "grammar.peg" :sha256 "different-source"}
+                                         {:status :zig-only}))))))
 
 (deftest outcome-command-fails-after-saving-all-comparison-reports
   (let [writes (atom [])
@@ -1069,8 +1087,8 @@
 (deftest authored-inline-examples-use-the-real-emitter
   (let [mappings (clojure.edn/read-string (slurp (io/resource "learn/inline/operators.edn")))
         translated (mapv inline/emit-mapping (vals mappings))]
-    (is (= 72 (count mappings)))
-    (is (= 32 (count (filter :standalone? translated))))
+    (is (= 77 (count mappings)))
+    (is (= 35 (count (filter :standalone? translated))))
     (is (every? #(= :emission-checked (:verification %)) translated))
     (is (every? :alternatives? (filter #(= :statements (:form-kind %)) translated)))
     (is (str/includes? (inline/syntax-unit translated) "<<|="))
@@ -1159,7 +1177,7 @@
 (deftest complete-inline-corpus-has-explicit-context
   (let [snippets (filterv #(= "syntax" (:kind %)) (:snippets (ref/inventory)))
         translated (inline/translate snippets)]
-    (is (= 1362 (count translated)))
+    (is (= 1343 (count translated)))
     (is (every? #(contains? #{:translated :reference-mapped} (:status %)) translated))
     (doseq [snippet translated]
       (is (not (str/blank? (:note snippet))) (:id snippet)))
@@ -1170,7 +1188,8 @@
 
 (deftest inline-enum-literals-are-not-bare-identifiers
   (doseq [[source mapping] (inline/authored-mappings)
-          :when (re-matches #"\.[A-Za-z_][A-Za-z0-9_]*" source)]
+          :when (and (= :expr (:kind mapping))
+                     (re-matches #"\.[A-Za-z_][A-Za-z0-9_]*" source))]
     (is (= source (:zig-source (inline/emit-mapping mapping))) source))
   (is (= "@Int(.unsigned, 18)"
          (:zig-source (inline/emit-mapping
@@ -1185,8 +1204,8 @@
         before-namespaces (namespaces)
         before-libraries (loaded-libs)
         mapping ((inline/authored-mappings) "pub const _start = {};")
-        first-result (inline/emit-mapping mapping)
-        second-result (inline/emit-mapping mapping)]
+        first-result (binding [*file* "first-caller.clj"] (inline/emit-mapping mapping))
+        second-result (binding [*file* "second-caller.clj"] (inline/emit-mapping mapping))]
     (is (= first-result second-result))
     (is (str/includes? (:zig-source first-result) "pub const _start = {};"))
     (is (str/includes? (inline/syntax-unit [first-result]) "const fragment_0 = struct {"))

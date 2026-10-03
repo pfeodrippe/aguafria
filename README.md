@@ -6,7 +6,7 @@ Aguafria is a `deps.edn` library for writing Zig with Clojure forms.
 - The same Vars are callable and inspectable from a Clojure REPL during development.
 - Re-evaluating a declaration compiles and publishes a new native generation without restarting the JVM.
 - Release builds are standalone Zig artifacts with no JVM or Aguafria runtime.
-- Aguafria includes its pinned Zig 0.16.0 compiler; it never selects an unrelated Zig from `PATH`.
+- Aguafria includes its pinned Zig 0.17.0 compiler; it never selects an unrelated Zig from `PATH`.
 
 ## Install
 
@@ -152,7 +152,7 @@ Named unions use `az/defunion`, with the same field vectors and constructor call
 (Payload {:int 42})
 ```
 
-Omit `ak/enum` for an untagged union. Use `{:argument Tag}` for a named tag
+Omit `ak/enum` for an untagged union. Use `{:type Tag}` for a named tag
 type, or `{:layout :packed}` / `{:layout :extern}` for an explicit layout.
 Field documentation and nested methods work just as they do in structs.
 
@@ -367,8 +367,11 @@ and subform without loading or evaluating that file. `(az/type-report!
 "path/to/example.clj")` writes the report under `.aguafria/types/`. Reports
 use only exact-revision Zig compiler observations or ZLS hover results mapped
 through the emitter. There is no Clojure-side type inference. Forms without a
-Zig-tool result remain unresolved. Learn builds require ZLS 0.16 on PATH and
-analyze generated Zig with Aguafria's pinned compiler. The original examples
+Zig-tool result remain unresolved. Learn builds require ZLS matching Zig 0.17.0;
+set `AGUAFRIA_ZLS` to its executable, or install it as `zls` on PATH. The
+verified source revision and build instructions are in the
+[migration report](ZIG_0_17_0_MIGRATION_2026-10-03.md#zls-for-zig-0170).
+It analyzes generated Zig with Aguafria's pinned compiler. The original examples
 are unchanged. Focus a code block and use Alt+Up/Down for keyboard inspection.
 
 Start the project through the nREPL alias used by CIDER, Calva, or another
@@ -617,12 +620,8 @@ clojure -M:standalone
   embedded inference, monitoring, and live development.
 - [TigerBeetle](examples/tigerbeetle-agua/README.md): large generated
   Aguafria project.
-- [TigerBeetle from pure Zig](examples/tigerbeetle-zig/README.md): editor
-  workflow for an existing Zig project.
-- [Ghostty](examples/ghostty/README.md) and
-  [Ghostty from pure Zig](examples/ghostty-zig/README.md): native application
-  conversion and editor reload workflows.
-- [Lightpanda](examples/lightpanda/README.md): another large Zig application.
+- [Ghostty](examples/ghostty/README.md): native application conversion and
+  editor reload workflows.
 - [Simple game](examples/simple-game): Flecs, graphics, physics, and audio.
 
 Each example owns its dependencies and generated output; examples do not

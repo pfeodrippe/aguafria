@@ -21,16 +21,6 @@
         (try (testing/expectEqual (az/type [:* [:array (:len array) :i32]])
                                   (k/TypeOf array-ptr))))
 
-      ;; You can perform a slice-by-length by slicing twice. This allows the compiler
-      ;; to perform some optimisations like recognising a comptime-known length when
-      ;; the start position is only known at runtime.
-      (let [runtime-start (k/var 1 :usize)
-            length 2]
-        (k/= :_ (k/& runtime-start))
-        (let [array-ptr-len (az/slice (az/slice array runtime-start) 0 length)]
-          (try (testing/expectEqual (az/type [:* [:array length :i32]])
-                                    (k/TypeOf array-ptr-len)))))
-
       ;; Using the address-of operator on a slice gives a single-item pointer.
       (try (testing/expectEqual (az/type [:* :i32])
                                 (k/TypeOf (k/& (az/get slice 0)))))

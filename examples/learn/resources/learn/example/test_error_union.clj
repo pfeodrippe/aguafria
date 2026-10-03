@@ -1,7 +1,7 @@
 (ns learn.example.test-error-union
   (:require [aguafria.keyword :as k]
-            [aguafria.std.builtin.Type :as type-info]
-            [aguafria.std.builtin.Type.ErrorUnion :as error-union-info]
+            [aguafria.std.lang.Type :as type-info]
+            [aguafria.std.lang.Type.ErrorUnion :as error-union-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

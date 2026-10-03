@@ -1,5 +1,145 @@
 # Learn reference implementation
 
+## Zig 0.17.0 migration — October 3 (in progress)
+
+- [x] Verify official release, compiler checksums and source tag; create the root
+  migration report `ZIG_0_17_0_MIGRATION_2026-10-03.md`.
+- [x] Import the official HTML and source snapshot: 291 files, 1,379 snippets;
+  23 changed files, 8 additions and 9 removals compared with 0.16.0.
+- [x] Regenerate keyword and std catalogs from the 0.17 compiler and compatible
+  ZLS: 128 builtins and 33,933 public std declarations.
+- [x] Replace reflection transport/probe APIs and removed array repetition.
+- [x] Rename five lessons, remove four obsolete lessons and the removed C-import
+  fragment, add two new executable lessons, remap authored fragment IDs.
+- [x] Use `{:type ...}` for enum/packed-struct backing types and union tag types;
+  migrate all eight remaining authored lessons and reject the old option.
+  Retain the backing type in ABI schema identity. Final API/emitter checks:
+  67 tests / 474 assertions; fresh native field-view checks: 1 test / 4 assertions.
+- [x] Full outcome checkpoint: 286 comparisons plus five reviewed special cases,
+  zero failing artifacts. Record four tagged-source/published-HTML differences
+  without changing either upstream input.
+- [ ] Finish core/native loader and affected project compatibility checks.
+- [x] Finish full Learn translation and native/JVM outcome comparisons.
+  Ordinary JVM body/subform checks: 3 tests / 84 assertions, no failures/errors.
+- [x] Run Learn 0.17 compile-only AOT and a fresh-JVM values cache proof:
+  2,147/2,670 operations, 2,147/2,523 runtime candidates, 6m35s. One library:
+  2,098 handlers, 12.8 MB code / 28.6 MB separate debug data. Fresh ordinary
+  values body: 928 ms, 34 bundle hits, zero compilations, seven output checks.
+  Report `.aguafria/precompile/learn-zig-017.edn`; exclusive remaining categories
+  are in the root migration report.
+- [x] Exact AOT reconciliation against the 0.16 checkpoint: 2,293 common
+  namespace/operation-ID/form identities, zero prepared-operation regressions.
+  Keep 415 old-only / 377 new-only identities separate from exact matches.
+- [x] Preserve published compilation snapshots when demand-loading JVM
+  adapters, including retained ABI versions. Keep adapter publication separate
+  from definition/type/state publication. Independent recovery declarations
+  can publish while an unrelated failed state edit remains pending.
+- [x] Fresh-JVM hot-reload group: 9 tests / 99 assertions, zero failures/errors.
+  Runtime unit suite: 45 tests / 2,234 assertions, zero failures/errors.
+  Includes host pinning, cyclic type adoption, retained callers/ABIs, in-flight
+  retirement, three state-migration scenarios and atomic component rollback.
+- [ ] Finish remaining core/project checks; refresh Learn output/HTML evidence
+  after the final runtime fixes. Do not rerun the completed targeted group
+  unless a relevant publication/adapter change requires it.
+  Current owned core nREPL is 53534 (PID 74952, exec session 52502);
+  53017 and 52297 were stopped.
+  Full historical failing
+  integration evidence is `/tmp/aguafria-zig-017-investigation.flC57s/integration-retry.edn`.
+- [x] Replace removed build-runner patching with the 0.17 build-server protocol.
+  Capture selected generated-module/path producers without running application
+  steps; test empty/unknown profiles, errors and independent build-file caches.
+- [x] Fix retained-root generated-module dependencies in JVM adapters, nested
+  converter declaration ordering and destructuring validation. Checked set:
+  38 converter + 46 runtime + 60 emitter tests / 2,850 distinct assertions.
+  One stale ordering assertion from the broad run was corrected and rerun;
+  targeted container + emitter proof is 61 tests / 364 assertions, all passing.
+  See root migration report and `/tmp/aguafria-zig-017-investigation.flC57s/converter-check*`.
+- [x] Correct generation-count expectations for separate native implementation
+  and first-call JVM adapters: two tests / 17 assertions. Port the bundle test
+  to a named translated-C module; update native-value test assertions and the
+  0.17 pointer-alignment reflection fixture.
+- [x] Fix quoted container-field emission and shared state lookup. Emitter,
+  converter-alignment and container-state checks pass 62 tests / 375 assertions;
+  a dedicated quoted/hyphenated shared-state regression passes 1 test / 4 assertions.
+- [x] Fix pure-Zig editor reference validation after conversion/re-homing.
+  Only parsed converted declarations and already registered same-module names
+  are accepted; unknown and unevaluated authored references remain errors.
+  The existing 13 editor tests and 60 emitter tests pass. Three added regressions
+  pass 10 assertions, including exact AST token spans with Unicode/comment
+  decoys and preservation of the actual error message.
+- [x] Evaluate preceding declarations before extracted pointer lesson bodies.
+  The new 0.17 endian switch revealed missing JVM scoped-switch support. Reuse
+  native scoped execution, with lazy branch selection, native result transport,
+  shared mutable captures and inline error propagation. Zig @TypeOf determines
+  payload types; type-only analysis never runs user branches. Final focused
+  pointer/switch/loop/block checks: 6 tests / 42 assertions, no failures/errors.
+  Evidence: `/tmp/aguafria-zig-017-investigation.flC57s/scope-final.edn`.
+- [ ] Continue remaining native suites and TigerBeetle/project upgrades:
+  fresh-child classpath/catalog loading, vendored 0.16 syntax and affected
+  project native builds/hot reload/AOT remain pending. Do not repeat completed
+  checks without relevant changes. La Professeure ordinary studio require now
+  succeeds in owned nREPL 53677 (PID 79651, exec session 33388); reuse it for
+  upcoming native checks. Core/dialogue: 11 tests / 162 assertions passed.
+  Disk is ~1.3 GiB free. An unanswered cleanup question concerns only the
+  regenerable `/Users/pfeodrippe/.cache/zig` compiler cache. Nothing was deleted;
+  preserve the prepared Aguafria cache. Defer large builds until space is available.
+- [x] Fix six TigerBeetle fresh-child classpaths to include the prepared std
+  catalog. The next failure is stale generated code (`counting_allocator/alloc`),
+  not missing std namespaces. Do not rerun that load test until regeneration.
+- [x] Port TigerBeetle's build configuration without reverting its current
+  source revision. Three configurations plus generated-source helper behavior:
+  2 tests / 27 assertions, zero failures/errors. Fetch helper compiles.
+  Evidence: `tiger-build-helpers-017.edn` under the investigation directory.
+- [ ] Finish TigerBeetle application-source migration, then regenerate and run
+  its fresh/native/hot-reload tests. Removed array repetition and errdefer
+  captures were ported. Latest compile-only first diagnostics were legacy
+  reflection in config/tabular; both patched, tabular native test passes.
+  Regeneration currently encounters removed `@cImport` in the C header test;
+  migrate all three import sites to translated-C build modules. Do not rerun
+  stale generated-code loading before regeneration succeeds.
+- [x] Merge current origin/default branches normally, without rebase/replay:
+  TigerBeetle merge `ab9e51a29` includes origin/main `6f8e6b58d`; Ghostty merge
+  `e1e7db31e` includes origin/main `befcdfd2c`. Both ancestry checks pass.
+  Tiger build/helpers rechecked after merge: 2 tests / 27 assertions pass.
+  Four conflicted Ghostty Swift files pass installed Swift 6.0 parser checks;
+  swiftlint is unavailable. No full application build or push is claimed.
+- [x] Remove Lightpanda, tigerbeetle-zig, ghostty-zig and Field Lab as requested.
+  Exact directories are recoverable under ~/.Trash/aguafria-<name>-2026-10-03.
+  Remove obsolete active links/submodule registration, preserve recovery data.
+- [ ] Verify each remaining runnable project with real owned nREPL and live
+  native hot reload; see PROJECT_NREPL_VERIFICATION_2026-10-03.md. Current HTTP
+  HTTP check completed in fresh nREPL 54946: 1 test / 19 assertions, all pass.
+  Both owned HTTP REPLs were stopped, listener closed. Package fetch fixes use
+  ZIG_GLOBAL_CACHE_DIR and separate stderr/hash output: 2 tests / 9 assertions.
+  Racing nREPL 54953 (exec 32533) is loading racing-game.core normally.
+- [x] Finish named translated-C module wiring and retained-root type closure.
+  Latest runtime suite: 47 tests / 2,239 assertions; C suite: 4 / 29; added
+  native retained-root/layout-change regression: 1 / 3. Game safe checks:
+  3 / 51; miniaudio generator check: 1 / 62. All pass. Earlier 31 game errors
+  reduced to four, then zero; final log is `game-safe-retained-017.log`.
+- [x] Persist matching ZLS from verified upstream commit
+  `eab2be0fd74443a27662da809b771c4ad0d2afcf`; it reports 0.17.0-dev (no tagged
+  0.17 ZLS release yet). Stable executable:
+  `/Users/pfeodrippe/Library/Caches/aguafria/zls/eab2be0fd74443a27662da809b771c4ad0d2afcf/bin/zls`.
+  Three real hover checks pass. README/report document the explicit
+  AGUAFRIA_ZLS setting and reproducible build; no editor config changed.
+- [ ] Refresh Learn outputs/HTML after the latest scoped-JVM, reference and
+  retained-root fixes; verify the live page. Use the stable AGUAFRIA_ZLS path
+  above for newly started processes. Current core REPL still inherits the
+  equivalent temporary executable. Disk is ~1.5 GiB free; cleanup question is
+  unanswered, no cache deleted. Do not start the large full rebuild yet.
+- [x] Update stale integration printing/function-doc expectations: 7 tests /
+  47 assertions passed. Compiler-diagnostic fixture: 1 test / 11 assertions passed.
+- [x] Final HTML: 291 artifact outcomes, 288 file transcripts, 1,340 exact
+  published inline matches and no missing REPL outputs. 77 reference tests /
+  11,600 assertions and 11 browser/highlighting tests passed after the final
+  shared field-view adapter correction and container option cleanup.
+- [x] Bind inline declaration source identity to mapping resources so CLI/REPL
+  callers produce identical generated source. Verify the live page and keep
+  the preview server independent of completed build JVMs.
+
+The October 1 results below describe 0.16.0, not this migration.
+
 ## Latest verified checkpoint — October 1
 
 - [x] Final private-scope/cleanup revision: 292/292 outcomes, 99 tests / 12,983

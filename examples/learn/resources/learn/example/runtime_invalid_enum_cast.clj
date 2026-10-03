@@ -3,16 +3,17 @@
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]))
 
-(az/defenum Foo
+(az/defenum Foo {:type :u2}
   [:a
    :b
    :c])
 
+(az/defn- foo :void [[a :u2]]
+  (let [b (k/as (k/fromBackingInt a) Foo)]
+    (debug/print "value: {s}\n" [(k/tagName b)])))
+
 (az/defn main :void []
-  (let [a (k/var 3 :u2)]
-    (k/= :_ (k/& a))
-    (let [b (k/as (k/enumFromInt a) Foo)]
-      (debug/print "value: {s}\n" [(k/tagName b)]))))
+  (foo 3))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

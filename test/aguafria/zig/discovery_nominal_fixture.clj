@@ -5,7 +5,7 @@
 (az/defenum Tag [:integer :empty])
 
 (az/defconst Payload
-  (az/union {:argument Tag} [[:integer :i32] [:empty :void]]))
+  (az/union {:type Tag} [[:integer :i32] [:empty :void]]))
 
 (az/defconst Raw
   (az/union [[:integer :i32] [:floating :f32]]))

@@ -1,5 +1,5 @@
 (ns racing-game.standalone
-  "JVM-free ReleaseFast entry point generated from the same Aguafria graph."
+  "JVM-free fast entry point generated from the same Aguafria graph."
   (:require [aguafria.keyword :as ak]
             [aguafria.zig :as az]
             [racing-game.monitor :as monitor]))

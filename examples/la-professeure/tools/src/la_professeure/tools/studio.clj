@@ -1,6 +1,7 @@
 (ns la-professeure.tools.studio
   "Native Vulkan recording workspace, attached to the game's existing render thread."
-  (:require [aguafria.std]
+  (:require [aguafria.c :as ac]
+            [aguafria.std]
             [aguafria.std.mem :as mem]
             [aguafria.std.unicode :as unicode]
             [aguafria.keyword :as k]
@@ -34,7 +35,10 @@
     :zig-args (cond-> (vec (:zig-args configuration))
                 (not (some #{library} (:zig-args configuration))) (conj library))}))
 
-(az/defconst text-api (k/cImport (k/cInclude "utf8proc.h")))
+(az/defconst text-api
+  (k/import (az/clj! (ac/import! "la_professeure_utf8proc"
+                                 (io/file (build/root) "build/vendor/utf8proc/utf8proc.h")
+                                 {:args ["-lc"]}))))
 
 (az/defconst grapheme-break? (:utf8proc_grapheme_break_stateful text-api))
 
@@ -47,7 +51,10 @@
     :zig-args (cond-> (vec (:zig-args configuration))
                 (not (some #{library} (:zig-args configuration))) (conj library))}))
 
-(az/defconst gestures-api (k/cImport (k/cInclude "studio_gestures.h")))
+(az/defconst gestures-api
+  (k/import (az/clj! (ac/import! "la_professeure_gestures"
+                                 (io/file (build/root) "tools/native/studio_gestures.h")
+                                 {:args ["-lc"]}))))
 
 (defn- state-assignment-forms [setter bindings]
   (when-not (and (vector? bindings)

@@ -144,7 +144,7 @@
   Zig syntax, not a guessed type for its operands or result."
   [zig-name]
   (contains? #{"@intCast" "@floatCast" "@ptrCast" "@alignCast" "@addrSpaceCast"
-               "@bitCast" "@ptrFromInt" "@fieldParentPtr" "@splat" "@enumFromInt"
+               "@bitCast" "@ptrFromInt" "@fieldParentPtr" "@splat" "@fromBackingInt"
                "@errorCast" "@intFromFloat" "@floatFromInt" "@truncate"}
              zig-name))
 
@@ -235,12 +235,13 @@
       v)))
 
 (defn- scoped-token-expansion
-  [form environment]
+  [form environment result?]
   (let [referenced (set (filter symbol? (tree-seq coll? seq form)))
         locals (filter referenced (keys environment))]
     `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
       '~(ns-name *ns*) '~form
-      (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals)))))
+      (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals))
+      ~result?)))
 
 (defn- resolve-qualified-var
   [context-ns sym]
@@ -391,12 +392,13 @@
         :zig/name (:zig-token token)
         :zig/source (get-in generated-catalog [:sources :tokenizer :path])
         :zig/version (:zig-version generated-catalog)})
-      (when (contains? #{"for" "while"} (:zig-token token))
+      (when (contains? #{"for" "while" "switch"} (:zig-token token))
         (let [v (ns-resolve *ns* (symbol (:name token)))]
           (alter-var-root v (constantly (fn [form environment & _]
-                                         (scoped-token-expansion form environment))))
+                                          (scoped-token-expansion form environment
+                                                                  (= "switch" (:zig-token token))))))
           (alter-meta! v assoc :macro true
-                       :doc "Native scoped loop. Executes eagerly both inside Aguafria declarations and from the JVM; captures lexical values and preserves mutable native storage."))))))
+                       :doc "Native scoped control form. Runs native Zig in the same process, captures lexical values and preserves mutable native storage. Only the selected switch branch executes; switch returns its native result."))))))
 
 (doseq [entry (:reader-tokens generated-catalog)]
   (let [token (reader-token entry)]

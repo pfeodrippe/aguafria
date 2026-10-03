@@ -1,5 +1,5 @@
 (ns racing-game.inference-performance-probe
-  "Bounded ReleaseFast proof for the exact native model graph."
+  "Bounded fast proof for the exact native model graph."
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
             [aguafria.std.debug :as std-debug]

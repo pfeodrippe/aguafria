@@ -1,5 +1,5 @@
 (ns aguafria.builtin
-  "Zig's compiler-provided @import(\"builtin\") module, not std.builtin.
+  "Zig's compiler-provided @import(\"builtin\") module, not std.lang.
   Require as builtin and refer to members such as builtin/is_test."
   (:refer-clojure :only [])
   (:require [aguafria.zig]

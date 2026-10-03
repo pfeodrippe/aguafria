@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defstruct GpioRegister
-  {:layout :packed, :argument :u8}
+  {:layout :packed, :type :u8}
   [[:GPIO0 :bool]
    [:GPIO1 :bool]
    [:GPIO2 :bool]

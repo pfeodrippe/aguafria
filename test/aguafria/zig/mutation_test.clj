@@ -102,8 +102,8 @@
 (deftest native-storage-crosses-optimization-profiles-through-c-abi
   (let [configuration (runtime/configuration)]
     (try
-      (doseq [optimize ["Debug" "ReleaseSafe" "ReleaseFast" "ReleaseSmall"]]
-        (runtime/configure! {:optimize optimize :jvm-optimize "ReleaseSafe"})
+      (doseq [optimize ["debug" "safe" "fast" "small"]]
+        (runtime/configure! {:optimize optimize :jvm-optimize "safe"})
         (let [context (create-ns (symbol (str "aguafria.storage-abi-" (random-uuid))))]
           (try
             (binding [*ns* context runtime/*source-only-registration?* true]

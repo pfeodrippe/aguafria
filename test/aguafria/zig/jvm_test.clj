@@ -355,6 +355,20 @@
         (ak/+= (:x pair) 5)
         (is (values= {:x 6 :y 2} (az/value pair)))))))
 
+(deftest container-backing-types-work-through-jvm-field-views
+  (binding [*ns* (fixture)]
+    (eval '(az/defstruct Packed {:layout :packed :type :u8}
+             [[:low :u4] [:high :u4]]))
+    (eval '(az/defenum Tag [:integer :empty]))
+    (eval '(az/defunion Tagged {:type Tag}
+             [[:integer :i32] [:empty :void]]))
+    (is (= 1 (eval '(az/value (ak/sizeOf Packed)))))
+    (with-open [packed (eval '(Packed {:low 3 :high 5}))
+                tagged (eval '(Tagged {:integer 42}))]
+      (is (= 3 (az/value (:low packed))))
+      (is (= 5 (az/value (:high packed))))
+      (is (= 42 (az/value (:integer tagged)))))))
+
 (deftest literal-arithmetic-retains-comptime-types
   (with-open [result (ak/i32 (ak/+ 1 1))]
     (is (values= 2 result)))
@@ -546,13 +560,13 @@
     (is (values= 1 (az/index left 0)))
     (is (values= 4 (az/field left :len)))
     (is (values= [1 2 3 4 5 6 7 8] (ak/++ left right)))
-    (is (values= [1 2 3 4 1 2 3 4] (ak/** left 2)))
-    (is (values= [] (ak/** left 0)))
+    (is (values= [0 0 0 0] (ak/as (ak/splat 0) [:array 4 :i32])))
+
     (is (values= [[1 2] [3 4]] (az/value nested)))
     (is (values= [] (az/value empty-array))))
   ;; Zig string operations return pointers to sentinel arrays, not array copies.
   (is (values= (mapv int "hello world") @(ak/++ "hello" " " "world")))
-  (is (values= (mapv int "ababab") @(ak/** "ab" 3)))
+
   (with-open [amount (ak/var 2 :u6)
               dividend (ak/var 10 :u64)
               divisor (ak/var 3 :u64)]
@@ -839,6 +853,25 @@
         (is (values= 4 (ak/sizeOf S)) "only instance fields occupy struct storage")
         (with-open [instance (S {})]
           (is (values= 12 (az/field instance :instance)))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest quoted-container-state-keeps-one-native-location
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(az/defstruct Counters
+                 [[:align {:var 10} :i32]
+                  [:total-count {:var 20} :i32]]))
+        (eval '(az/defn bump :i32 []
+                 (ak/+= (az/field Counters (az/identifier-literal "@\"align\"")) 1)
+                 (ak/+= (:total-count Counters) 2)
+                 (ak/+ (:align Counters) (:total-count Counters)))))
+      (let [Counters @(ns-resolve namespace 'Counters)]
+        (is (values= 33 ((ns-resolve namespace 'bump))))
+        (is (values= 11 (:align Counters)))
+        (is (values= 22 (:total-count Counters)))
+        (ak/= (:align Counters) 100)
+        (is (values= 125 ((ns-resolve namespace 'bump)))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest thread-local-values-resolve-on-the-calling-platform-thread
@@ -1277,6 +1310,43 @@
   (is (values= 209 (ak/+ \h \i)))
   (is (values= 6 (ak/* 2 3))))
 
+(deftest native-switch-selects-one-branch-and-returns-its-result
+  (with-open [choice (ak/var true :bool)
+              calls (ak/var 0 :i32)]
+    (doseq [[flag expected] [[true 21] [false 42]]]
+      (ak/= choice flag)
+      (is (values= expected
+                   (ak/switch choice
+                     (case [true] (az/with-block :selected
+                                    (ak/+= calls 1)
+                                    (ak/break :selected (ak/i32 21))))
+                     (case [false] (az/with-block :selected
+                                     (ak/+= calls 10)
+                                     (ak/break :selected (ak/i32 42))))))))
+    (is (values= 11 calls)))
+  (is (values= {:ok nil}
+               (ak/switch true
+                 (case [true] (try (zig-testing/expectEqual 1 1)))
+                 (case [false] (try (zig-testing/expectEqual 1 2))))))
+  (with-open [choice (ak/var true :bool)
+              calls (ak/var 0 :i32)]
+    (doseq [flag [true false]]
+      (ak/= choice flag)
+      (let [result (az/value
+                    (ak/switch choice
+                      (case [true]
+                        (az/with-block :selected
+                          (ak/+= calls 1)
+                          (ak/break :selected
+                                    (try (ak/as 7 [:error-union :anyerror :i32])))))
+                      (case [false]
+                        (try (ak/as (az/error-value :SwitchFailure)
+                                    [:error-union :anyerror :i32])))))]
+        (if flag
+          (is (= 7 (:ok result)))
+          (is (some? (:error result))))))
+    (is (values= 1 calls) "Return-type analysis never executes branch mutations")))
+
 (deftest untyped-jvm-integers-remain-lossless-beside-native-unsigned-values
   (with-open [unsigned (ak/var 532 :usize)]
     (is (values= {:ok nil} (zig-testing/expectEqual 532 unsigned)))
@@ -1473,7 +1543,7 @@
     (try
       (binding [*ns* namespace]
         (eval '(az/defconst Mode
-                 (az/container {:kind :enum :argument :c_int}
+                 (az/container {:kind :enum :type :c_int}
                                [(az/enum-field-decl :idle)
                                 (az/enum-field-decl :running)])))
         (eval '(az/defn running? :bool [[mode Mode]] (== mode :.running))))

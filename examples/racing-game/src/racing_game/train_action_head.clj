@@ -261,7 +261,7 @@
     values))
 
 (defn extract-features!
-  "Run every scenario through the actual ReleaseFast Granite graph. Twelve
+  "Run every scenario through the actual fast Granite graph. Twelve
   disjoint native sequence slots extract one batch concurrently while sharing
   the same read-only model mapping."
   [scenarios]

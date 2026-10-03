@@ -11,9 +11,9 @@ pub fn noop() align(4) void {}
 extern fn external() align(8) callconv(.c) void;
 
 test "declaration alignment" {
-    try std.testing.expectEqual(4, @typeInfo(@TypeOf(&foo)).pointer.alignment);
-    try std.testing.expectEqual(8, @typeInfo(@TypeOf(&bar)).pointer.alignment);
-    try std.testing.expectEqual(@sizeOf(usize) * 2, @typeInfo(@TypeOf(&derp)).pointer.alignment);
-    try std.testing.expectEqual(4, @typeInfo(@TypeOf(&noop)).pointer.alignment);
+    try std.testing.expectEqual(4, @typeInfo(@TypeOf(&foo)).pointer.attrs.@"align");
+    try std.testing.expectEqual(8, @typeInfo(@TypeOf(&bar)).pointer.attrs.@"align");
+    try std.testing.expectEqual(@sizeOf(usize) * 2, @typeInfo(@TypeOf(&derp)).pointer.attrs.@"align");
+    try std.testing.expectEqual(4, @typeInfo(@TypeOf(&noop)).pointer.attrs.@"align");
     try std.testing.expectEqual(1234, derp());
 }

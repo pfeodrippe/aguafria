@@ -12,7 +12,7 @@
   :dev
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"]}
+              "-Daguafria.optimize=fast"]}
 
   :local-aguafria
   {:override-deps
@@ -22,14 +22,14 @@
   {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
    :jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"]
+              "-Daguafria.optimize=fast"]
    :main-opts ["-m" "nrepl.cmdline"]}
 
   :desktop
   {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
    :jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"
+              "-Daguafria.optimize=fast"
               "-XstartOnFirstThread"
               "-Xdock:name=Aguafria LLM Racing"]
    :main-opts ["-m" "racing-game.desktop-main"]}
@@ -41,25 +41,25 @@
   :train-action-head
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"]
+              "-Daguafria.optimize=fast"]
    :main-opts ["-m" "racing-game.train-action-head"]}
 
   :train-team-head
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"]
+              "-Daguafria.optimize=fast"]
    :main-opts ["-m" "racing-game.train-team-head"]}
 
   :generate-replay-fixture
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"]
+              "-Daguafria.optimize=fast"]
    :main-opts ["-m" "racing-game.replay-fixture"]}
 
   :generate-decision-corpus
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"]
+              "-Daguafria.optimize=fast"]
    :main-opts ["-m" "racing-game.dataset"]}
 
   :test
@@ -67,5 +67,5 @@
    :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
    :jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Daguafria.async-compile=true"
-              "-Daguafria.optimize=ReleaseFast"]
+              "-Daguafria.optimize=fast"]
    :main-opts ["-m" "kaocha.runner"]}}}

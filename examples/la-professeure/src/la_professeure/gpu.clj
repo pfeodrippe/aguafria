@@ -180,7 +180,7 @@
                    (list 'k/= (list (keyword field) 'other) 'saved)))))
 
 (az/defn check :void
-  "Check Vulkan results even in ReleaseFast."
+  "Check Vulkan results even in fast."
   [[result vk/VkResult]]
   (when (k/!= result vk/VK_SUCCESS)
     (std-debug/panic "La Professeure Vulkan error: {d}" [result])))

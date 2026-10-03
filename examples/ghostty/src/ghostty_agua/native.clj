@@ -154,7 +154,7 @@
 (defn open!
   "Open a real libghostty-vt terminal in this JVM.
 
-  The library is the ReleaseFast artifact materialized from generated
+  The library is the fast artifact materialized from generated
   Aguafria sources. `cols` and `rows` default to 80 by 24."
   ([] (open! {}))
   ([{:keys [library-path cols rows]

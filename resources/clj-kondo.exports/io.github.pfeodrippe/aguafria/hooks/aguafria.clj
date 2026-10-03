@@ -14,6 +14,14 @@
   [operator children]
   (api/list-node (cons (token operator) children)))
 
+(defn c-bindings
+  "Expose native binding names while checking the ordinary Clojure import expression."
+  [{:keys [node]}]
+  (let [[_ api-name import-expression members] (:children node)]
+    {:node (call-node 'do
+                      (cons (call-node 'def [api-name import-expression])
+                            (map #(call-node 'def [% api-name]) (:children members))))}))
+
 (defn- native-expression
   [node]
   (let [operator (when (= :list (:tag node))
@@ -46,17 +54,17 @@
         pairs (partition 2 (:children bindings))
         binding-nodes
         (into [] (mapcat (fn [[capture input]]
-                  (let [pointer? (and (= :list (:tag capture))
-                                      (= {:ns 'aguafria.keyword :name '*}
-                                         (select-keys
-                                          (api/resolve {:name (sexpr (first (:children capture)))})
-                                          [:ns :name])))
-                        capture (if pointer? (second (:children capture)) capture)
-                        element (call-node 'first [(native-expression input)])]
-                    [capture (if pointer? (call-node 'atom [element]) element)])))
+                           (let [pointer? (and (= :list (:tag capture))
+                                               (= {:ns 'aguafria.keyword :name '*}
+                                                  (select-keys
+                                                   (api/resolve {:name (sexpr (first (:children capture)))})
+                                                   [:ns :name])))
+                                 capture (if pointer? (second (:children capture)) capture)
+                                 element (call-node 'first [(native-expression input)])]
+                             [capture (if pointer? (call-node 'atom [element]) element)])))
               pairs)]
     {:node (call-node 'let (cons (api/vector-node binding-nodes)
-                                (mapv native-expression body)))}))
+                                 (mapv native-expression body)))}))
 
 (defn- expression-node
   [nodes]
@@ -119,7 +127,7 @@
          (= 1 (count types))
          (symbol? type)
          (contains? '#{{:ns aguafria.std.process :name Init}
-                      {:ns aguafria.std.process.Init :name Minimal}}
+                       {:ns aguafria.std.process.Init :name Minimal}}
                     (select-keys (api/resolve {:name type}) [:ns :name])))))
 
 (defn function-declaration

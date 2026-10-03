@@ -27,7 +27,7 @@ export fn aguafria_jvm_writer_destroy(handle: *anyopaque) void {
 
 export fn aguafria_jvm_writer_finish(handle: *anyopaque) usize {
     const allocating: *std.Io.Writer.Allocating = @ptrCast(@alignCast(handle));
-    const encoded = allocator.dupeZ(u8, allocating.written()) catch return 0;
+    const encoded = allocator.dupeSentinel(u8, allocating.written(), 0) catch return 0;
     return @intFromPtr(encoded.ptr);
 }
 

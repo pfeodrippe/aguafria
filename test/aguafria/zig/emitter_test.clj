@@ -70,7 +70,7 @@
     (is (= "[_]i32{1, 2}" (emit/emit-expr context '(az/array [1 2] :i32))))
     (is (= "[2]i32{1, 2}" (emit/emit-expr context '(az/init [1 2] [:array 2 :i32]))))
     (doseq [[form source] [['(ak/++ left right) "(left ++ right)"]
-                           ['(ak/** items 3) "(items ** 3)"]
+
                            ['(ak/|| A B) "(A || B)"]
                            ['(ak/<<| a b) "(a <<| b)"]
                            ['(ak/... 2 8) "2 ... 8"]]]
@@ -196,12 +196,12 @@
             [['(az/struct [[:x {:doc "Coordinate" :default 3} :u8]
                            (az/fn-decl answer :u8 [] 42)])
               ["struct {" "/// Coordinate" "x: u8 = 3" "fn answer() u8" "return 42;"]]
-             ['(az/enum {:argument :u8}
+             ['(az/enum {:type :u8}
                  [:red [:blue {:doc "Blue" :zig/name "@\"deep blue\""} 4]])
               ["enum(u8)" "red," "/// Blue" "@\"deep blue\" = 4"]]
              ['(az/union {:enum? true} [[:value :u32] [:empty :void]])
               ["union(enum)" "value: u32" "empty: void"]]
-             ['(az/struct {:layout :packed :argument :u16}
+             ['(az/struct {:layout :packed :type :u16}
                  [[:low :u8] [:high :u8]])
               ["packed struct(u16)" "low: u8" "high: u8"]]
              ['(az/opaque [(az/fn-decl size :usize [] 0)])
@@ -237,7 +237,11 @@
       (is (= (str "information." expected)
              (emit/emit-expr (list 'field 'information field))))))
   (is (= "information.fields" (emit/emit-expr '(field information :fields))))
-  (is (= "tuple.@\"3\"" (emit/emit-expr '(field tuple :3)))))
+  (is (= "tuple.@\"3\"" (emit/emit-expr '(field tuple :3))))
+  (doseq [member ["@\"align\"" "@\"two words\"" "false"]]
+    (is (= (str "information." member)
+           (emit/emit-expr (list 'field 'information
+                                (list 'identifier-literal member)))))))
 
 (deftest clojure-local-names-can-use-zig-reserved-words
   (is (= "anytype" (emit/emit-type :anytype)))
@@ -421,6 +425,39 @@
         (remove-ns caller-symbol)
         (remove-ns provider-symbol)))))
 
+(deftest converted-references-require-a-parsed-declaration
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        module "aguafria.emitter-catalog-provider"
+        declaration {:kind :fn :name 'run :return :u32 :args []}]
+    (project/register-catalog!
+     {:schema-version 1
+      :modules {module {:source-orders {"answer" 0}}}})
+    (is (map? (emit/validate-declaration-references!
+               context (assoc declaration :body [(list (symbol module "answer"))]) #{})))
+    (doseq [reference [(symbol module "missing") 'answer]]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+           (emit/validate-declaration-references!
+            context (assoc declaration :body [(list reference)]) #{}))))
+    (project/register-catalog!
+     {:schema-version 1
+      :modules {module {:source-kind :aguafria :source-orders {"answer" 0}}}})
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+         (emit/validate-declaration-references!
+          context (assoc declaration :body [(list (symbol module "answer"))]) #{})))))
+
+(deftest rehomed-references-use-the-registered-module-scope
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :fn :module "editor.rehomed" :name 'read-counter
+                     :return :i32 :args [] :body '[editor.rehomed/counter]}]
+    (is (map? (emit/validate-declaration-references! context declaration '#{counter})))
+    (doseq [reference '[editor.rehomed/missing other.module/counter]]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+           (emit/validate-declaration-references!
+            context (assoc declaration :body [reference]) '#{counter}))))))
+
 (deftest clojure-macros-expand-in-declaration-test
   (let [context-ns (the-ns 'aguafria.zig.emitter-test)]
     (is (= '[(transform value 1)]
@@ -527,7 +564,7 @@
            (emit/emit-expr '(field (try ((field file stat) io)) size)))))
   (is (str/starts-with?
        (emit/emit-expr
-        '(container {:kind :struct :layout :packed :argument :u16}
+        '(container {:kind :struct :layout :packed :type :u16}
                     [(field-decl bits :u16)]))
        "packed struct(u16)"))
   (is (= (str "enum {\n"
@@ -1106,6 +1143,21 @@
                    '[(ak/= :_ value) (ak/var value 7 :u32)]]]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
                              (emit/prepare-declaration context (assoc declaration :body body))))))))
+
+(deftest destructuring-declarations-introduce-only-their-declared-locals
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :fn :name 'sum :return :u32 :args []}
+        good '[(const values [1 2])
+               (destructure {} [{:kind :const :name left}
+                                {:kind :var :name right :type :u32}] values)
+               (+ left right)]]
+    (is (map? (emit/prepare-declaration context (assoc declaration :body good))))
+    (doseq [body ['[(destructure {} [{:kind :const :name left}] left)]
+                 '[(destructure {} [{:kind :target :target left}] [1])]
+                 '[(destructure {} [{:kind :const :name left :type Missing}] [1])]
+                 '[(+ left 1) (destructure {} [{:kind :const :name left}] [1])]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                           (emit/prepare-declaration context (assoc declaration :body body)))))))
 
 (deftest modulo-operands-are-validated
   (let [context (the-ns 'aguafria.zig.emitter-test)

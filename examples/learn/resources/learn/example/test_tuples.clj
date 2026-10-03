@@ -6,7 +6,7 @@
 (az/deftest tuple
   (let [values (k/++
                 [(k/as 1234 :u32) (k/as 12.34 :f64) true "hi"]
-                (k/** [false] 2))]
+                [false false])]
     (try (testing/expectEqual 1234 (az/get values 0)))
     (try (testing/expectEqual false (az/get values 4)))
     (az/inline-for [v values i (az/range 0)]

@@ -1,19 +1,10 @@
 (ns learn.example.test-noreturn-from-exit
-  (:require [aguafria.builtin :as builtin]
-            [aguafria.keyword :as k]
-            [aguafria.std.builtin :as builtin-types]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
-(az/defconst native-arch (:arch builtin/cpu))
-
-(az/defconst WINAPI builtin-types/CallingConvention
-  (if (k/== native-arch :.x86)
-    (az/object [[:x86_stdcall (az/object [])]])
-    :.c))
-
 (az/defextern ExitProcess :noreturn
-  {:zig/prefix "extern \"kernel32\"" :zig/qualifiers "callconv(WINAPI)"}
+  {:zig/prefix "extern \"kernel32\"" :callconv :.winapi}
   [[exit-code :c_uint]])
 
 (az/defn- bar [:error-union :anyerror :u32] []

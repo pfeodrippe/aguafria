@@ -1,11 +1,14 @@
-{"Assembly Syntax Explained.zig"
+{"grammar.peg" {:status :zig-only :reason "ZIG_ONLY: the Zig language grammar, not application source."}
+ "slicing_by_length.zig" {:source "learn/example/slicing_by_length.clj"}
+ "test_packed_struct_backing_int.zig" {:source "learn/example/test_packed_struct_backing_int.clj"}
+ "Assembly Syntax Explained.zig"
  {:source "learn/example/Assembly_Syntax_Explained.clj"}
  "inline_assembly.zig"
  {:source "learn/example/inline_assembly.clj"}
  "test_global_assembly.zig"
  {:source "learn/example/test_global_assembly.clj"}
- "builtin.CallModifier struct.zig"
- {:source "learn/example/builtin_CallModifier_struct.clj"}
+ "lang.CallModifier struct.zig"
+ {:source "learn/example/lang_CallModifier_struct.clj"}
  "not_atomic_cmpxchgStrong.zig"
  {:source "learn/example/not_atomic_cmpxchgStrong.clj"}
  "packed_struct_mmio.zig"
@@ -76,12 +79,6 @@
  {:source "learn/example/export_builtin_equivalent_code.clj"}
  "libc_export_entry_point.zig"
  {:source "learn/example/libc_export_entry_point.clj"}
- "cImport_builtin.zig"
- {:source "learn/example/cImport_builtin.clj"}
- "macro.zig"
- {:source "learn/example/macro.clj"}
- "verbose_cimport_flag.zig"
- {:source "learn/example/verbose_cimport_flag.clj"}
  "test_comptime_call_extern_function.zig"
  {:source "learn/example/test_comptime_call_extern_function.clj"}
  "test_defining_variadic_function.zig"
@@ -202,14 +199,14 @@
  {:source "learn/example/test_comptime_evaluation.clj"}
  "test_comptime_variables.zig"
  {:source "learn/example/test_comptime_variables.clj"}
- "test_container-level_comptime_expressions.zig"
- {:source "learn/example/test_container_level_comptime_expressions.clj"}
- "test_container_level_variables.zig"
- {:source "learn/example/test_container_level_variables.clj"}
- "test_namespaced_container_level_variable.zig"
- {:source "learn/example/test_namespaced_container_level_variable.clj"}
- "test_static_local_variable.zig"
- {:source "learn/example/test_static_local_variable.clj"}
+ "test_namespace-level_comptime_expressions.zig"
+ {:source "learn/example/test_namespace_level_comptime_expressions.clj"}
+ "test_namespace_level_variables.zig"
+ {:source "learn/example/test_namespace_level_variables.clj"}
+ "test_namespaced_variable.zig"
+ {:source "learn/example/test_namespaced_variable.clj"}
+ "test_locally_scoped_global_variable.zig"
+ {:source "learn/example/test_locally_scoped_global_variable.clj"}
  "test_thread_local_variables.zig"
  {:source "learn/example/test_thread_local_variables.clj"}
  "runtime_vs_comptime.zig"
@@ -302,8 +299,6 @@
  {:source "learn/example/test_coerce_error_subset_to_superset.clj"}
  "test_coerce_error_superset_to_subset.zig"
  {:source "learn/example/test_coerce_error_superset_to_subset.clj"}
- "test_errdefer_capture.zig"
- {:source "learn/example/test_errdefer_capture.clj"}
  "test_error_union.zig"
  {:source "learn/example/test_error_union.clj"}
  "test_inferred_error_sets.zig"

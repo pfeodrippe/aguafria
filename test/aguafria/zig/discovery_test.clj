@@ -644,15 +644,15 @@
                                (when (= "build-lib" (second args))
                                  (swap! commands conj (vec args)))
                                (apply original args))]
-        (is (= [0 0 0 0 0] (snapshot (k/** [0] 5))))
-        (is (= (vec (repeat 4 [0 0 0 0 0])) (snapshot (k/** [(k/** [0] 5)] 4))))
-        (is (= [false false] (snapshot (k/** [false] 2))))
+        (is (= [0 0 0 0 0] (snapshot (k/as (k/splat 0) [:array 5 :i32]))))
+        (is (= (vec (repeat 4 [0 0 0 0 0])) (snapshot (k/as (k/splat (k/splat 0)) [:array 4 [:array 5 :i32]]))))
+        (is (= [false false] (snapshot (k/as (k/splat false) [:array 2 :bool]))))
         (is (= [1234 12.34 true "hi" false false]
-               (snapshot (k/++ [(k/u32 1234) (k/f64 12.34) true "hi"] (k/** [false] 2)))))
+               (snapshot (k/++ [(k/u32 1234) (k/f64 12.34) true "hi"] (k/as (k/splat false) [:array 2 :bool])))))
         (let [native-false (k/bool false)
               native-true (k/bool true)
               native-text (az/string-literal "\"hi\"")]
-          (is (= [false false] (snapshot (k/** [native-false] 2))))
+          (is (= [false false] (snapshot (k/as (k/splat native-false) [:array 2 :bool]))))
           (doseq [truth [true native-true]
                   text ["hi" native-text]
                   first-false [false native-false]
@@ -1039,11 +1039,11 @@
                            (assert (= [:*const 'aguafria.std/SemanticVersion]
                                       (aguafria.zig.value/qualified-type (aguafria.keyword/& version#)))))
                          (assert (= 30 (aguafria.zig/value (aguafria.keyword/+ x# y#))))
-                         (assert (= [0 0 0 0 0] (mapv aguafria.zig/value (aguafria.keyword/** [0] 5))))
+                         (assert (= [0 0 0 0 0] (mapv aguafria.zig/value (aguafria.keyword/as (aguafria.keyword/splat 0) [:array 5 :i32]))))
                          (assert (= (vec (repeat 4 [0 0 0 0 0]))
                                     (mapv (fn [row#] (mapv aguafria.zig/value row#))
-                                          (aguafria.keyword/** [(aguafria.keyword/** [0] 5)] 4))))
-                         (assert (= [false false] (aguafria.keyword/** [false] 2)))
+                                          (aguafria.keyword/as (aguafria.keyword/splat (aguafria.keyword/splat 0)) [:array 4 [:array 5 :i32]]))))
+                         (assert (= [false false] (aguafria.zig/value (aguafria.keyword/as (aguafria.keyword/splat false) [:array 2 :bool]))))
                          (let [native-false# (aguafria.keyword/bool false)
                                native-true# (aguafria.keyword/bool true)
                                native-text# (aguafria.zig/string-literal "\"hi\"")]

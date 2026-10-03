@@ -1,5 +1,5 @@
 (ns racing-game.build
-  "Prepare shaders and produce the JVM-free ReleaseFast racing executable."
+  "Prepare shaders and produce the JVM-free fast racing executable."
   (:require [aguafria.zig :as az]
             [aguafria.zig.build :as zig-build]
             [aguafria-examples-native.build :as native-build]
@@ -220,7 +220,7 @@
      {:kind :exe
       :name "racing-game"
       :output output
-      :optimize "ReleaseFast"
+      :optimize "fast"
       :reloadable? false
       :async? false
       :zig-args (conj (native-build/imgui-standalone-link-arguments)
@@ -237,7 +237,7 @@
   (az/build! 'racing-game.language-probe
     {:kind :exe :name "language-probe"
      :output (io/file (project-root) "build/standalone/language-probe")
-     :optimize "ReleaseFast" :reloadable? false :async? false :zig-args ["-lc"]}))
+     :optimize "fast" :reloadable? false :async? false :zig-args ["-lc"]}))
 
 (defn build-inference-probe!
   "Build the same native graph without a window for repeatable timing."
@@ -253,7 +253,7 @@
      {:kind :exe
       :name "inference-probe"
       :output output
-      :optimize "ReleaseFast"
+      :optimize "fast"
       :reloadable? false
       :async? false
       :zig-args (native-build/standalone-link-arguments)})))
@@ -274,7 +274,7 @@
      {:kind :exe
       :name "asset-probe"
       :output output
-      :optimize "ReleaseFast"
+      :optimize "fast"
       :reloadable? false
       :async? false
       :zig-args (native-build/standalone-link-arguments)})))
@@ -291,7 +291,7 @@
      {:kind :exe
       :name "replay-parity-probe"
       :output output
-      :optimize "ReleaseFast"
+      :optimize "fast"
       :reloadable? false
       :async? false
       :zig-args (native-build/standalone-link-arguments)})))

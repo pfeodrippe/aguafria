@@ -4,6 +4,32 @@ This is the working checklist, not a completion claim. Keep game and studio in
 separate windows. Preserve recordings, Markdown IDs and existing user edits.
 The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
 
+## October 3 — Zig 0.17 migration (in progress)
+
+- [x] Replace authored `k/cImport`/`k/cInclude` sites with explicit translated-C
+  modules. Reuse the audio module's C API in recorder and tests so native type
+  identity stays shared. Add small project-owned headers for libc imports.
+- [x] Exercise the actual miniaudio binding generator and ordinary studio
+  namespace loading, not source-only registration. Core/dialogue tests pass
+  11 tests / 162 assertions, including the revised generator regression.
+- [x] Safe JVM preparation checks: 3 tests / 51 assertions on 0.17, no
+  failures/errors. Named translated-C imports repair the initial absolute-path
+  import failures. Core `ac/import!` carries translation identity into artifact
+  keys; the generated miniaudio wrapper restores its own named-module setup.
+  Generator regression: 1 test / 62 assertions. This is warm-JVM evidence,
+  not the pending fresh-JVM AOT proof.
+- [x] Fix the first-call adapter retaining a native root but pruning foreign
+  types needed by its state. The runtime now retains those source dependencies
+  without expanding the adapter's FFM hooks. A small native regression also
+  checks an intervening provider layout edit before the first JVM call.
+- [ ] Run native game/editor builds, hot reload
+  scenarios and 0.17 AOT/fresh-JVM reuse checks. The October 1 evidence below
+  remains 0.16 evidence and is not a 0.17 completion claim.
+  Owned project nREPL 53677, PID 79651, exec session 33388 has studio loaded;
+  the require and safe native checks completed successfully. Core checks use
+  owned root nREPL 53534. Large builds await disk space (~1.5 GiB free).
+  Evidence: `/tmp/aguafria-zig-017-investigation.flC57s/game-safe-retained-017.log`.
+
 ## October 1 — canonical inventory completed
 
 - [x] Complete all six namespace checkpoints and reconcile the unchanged

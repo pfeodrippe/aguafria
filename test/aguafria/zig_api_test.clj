@@ -204,7 +204,7 @@
         (require '[aguafria.zig :as az])
         (eval '(az/defenum Color
                  "A documented enum."
-                 {:argument :u8}
+                 {:type :u8}
                  [[:red 1]
                   [:really-red {:doc "Quoted tag." :zig/name "@\"really red\""} 7]]))
         (eval '(az/defstruct Timestamp
@@ -223,6 +223,9 @@
                        (az/defstruct Old [:x :u8] [:y :u8])
                        (az/defstruct Bad [[:x]])
                        (az/defenum Old [:x] [:y])
+                       (az/defenum Bad {:argument :u8} [:x])
+                       (az/defstruct Bad {:layout :packed :argument :u8} [[:x :u8]])
+                       (az/defunion Bad {:argument :u8} [[:x :u8]])
                        (az/defenum Bad [[:x 1 2]])]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (let [source (emitter/emit-module (str namespace-symbol) (runtime/collected-declarations declarations))]

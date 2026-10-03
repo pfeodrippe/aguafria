@@ -5,7 +5,7 @@
 (ns-unmap *ns* 'Number)
 
 (az/defenum Number
-  {:argument :u8}
+  {:type :u8}
   [:one
    :two
    :three

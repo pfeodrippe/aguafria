@@ -20,7 +20,8 @@
       (testing lesson
         (is (some? body) "Evaluate the actual let, not the native test entry point")
         (binding [*ns* *ns* *file* file]
-          (eval (first forms))
+          (doseq [form (take-while #(not= declaration %) forms)]
+            (eval form))
           (is (= {:ok nil} (eval body)))
           (when (= 'k/comptime (first (nth declaration 2)))
             (is (= {:ok nil} (eval (nth declaration 2))))))

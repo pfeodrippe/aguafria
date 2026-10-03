@@ -15,7 +15,7 @@
       {:kind :exe
        :name "aguafria-http-server"
        :output output
-       :optimize "ReleaseFast"
+       :optimize "fast"
        :reloadable? false
        :async? false})))
   (shutdown-agents))

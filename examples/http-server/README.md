@@ -2,7 +2,7 @@
 
 A complete native HTTP server in one Aguafria namespace. The server code does
 not contain a reload callback, router proxy, or development-only indirection.
-Its ordinary call to `response-body` becomes live automatically in development.
+Its ordinary call to `serve-connection!` becomes live automatically in development.
 
 This project uses the published macOS ARM64 artifact by default. It does not
 need Zig on `PATH`; Aguafria extracts its bundled Zig 0.16.0 toolchain.
@@ -21,14 +21,14 @@ entry points in `generated/`, allowing direct package requires without a
 bootstrap import. To test that development version, run `clojure -X:deps prep
 :aliases '[:local-aguafria]'`, then `clojure -X:local-aguafria:prepare` before
 starting a new local REPL. The published 0.1.7 dependency remains the default;
-its server still uses its existing bootstrap import until the next release.
+the updated source should be tested with the local override during the 0.17 migration.
 
 ## Run and hot reload
 
 Start nREPL:
 
 ```sh
-clojure -M:nrepl
+clojure -M:local-aguafria:nrepl
 ```
 
 Connect Calva/CIDER to the printed port, open
@@ -41,7 +41,7 @@ Connect Calva/CIDER to the printed port, open
 ;; => "Hello from live Aguafria Zig!\n"
 ```
 
-Change the string in `response-body` and evaluate only that `az/defn`. After
+Change the string in `serve-connection!` and evaluate only that `az/defn`. After
 `az/await!` finishes its background native publication, the same listener and
 the same JVM serve the new result:
 
@@ -53,6 +53,12 @@ the same JVM serve the new result:
 
 Stop it with `(server/stop!)`. To work on Aguafria itself, start Clojure with
 `-M:local-aguafria:nrepl`; the local checkout is never selected by default.
+
+To run the HTTP/live-reload regression, start `clojure -M:local-aguafria:test:nrepl`
+and evaluate `(require 'aguafria-http.server-test)` followed by
+`(clojure.test/run-tests 'aguafria-http.server-test)`. It makes loopback requests,
+publishes two edits through ordinary `az/defn` evaluation, checks native host
+identity and retained request counts, restores the handler, and stops the server.
 
 ## Standalone
 

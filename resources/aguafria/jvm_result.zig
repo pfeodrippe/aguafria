@@ -68,10 +68,10 @@ pub const __aguafria_jvm = struct {
             .optional => |o| hasStructuralType(o.child),
             .error_union => |e| hasStructuralType(e.error_set) and hasStructuralType(e.payload),
             .error_set => |errors| errors: {
-                if (errors) |members| {
+                if (errors.error_names) |members| {
                     for (members) |member| {
-                        if (member.name.len == 0 or std.ascii.isDigit(member.name[0])) break :errors false;
-                        for (member.name) |c| {
+                        if (member.len == 0 or std.ascii.isDigit(member[0])) break :errors false;
+                        for (member) |c| {
                             if (!std.ascii.isAlphanumeric(c) and c != '_') break :errors false;
                         }
                     }
@@ -80,10 +80,10 @@ pub const __aguafria_jvm = struct {
             },
             .@"struct" => |s| tuple: {
                 if (!s.is_tuple) break :tuple false;
-                var types: [s.fields.len]type = undefined;
-                for (s.fields, 0..) |field, i| {
-                    if (field.is_comptime or !hasStructuralType(field.type)) break :tuple false;
-                    types[i] = field.type;
+                var types: [s.field_types.len]type = undefined;
+                for (s.field_types, s.field_attrs, 0..) |field_type, field_attrs, i| {
+                    if (field_attrs.@"comptime" or !hasStructuralType(field_type)) break :tuple false;
+                    types[i] = field_type;
                 }
                 break :tuple T == @Tuple(&types);
             },
@@ -136,9 +136,9 @@ pub const __aguafria_jvm = struct {
                 try writer.writeByte(']');
             },
             .error_set => |errors| {
-                if (errors) |members| {
+                if (errors.error_names) |members| {
                     try writer.writeAll("[:error-set [");
-                    for (members) |member| try writer.print(":{s} ", .{member.name});
+                    for (members) |member| try writer.print(":{s} ", .{member});
                     try writer.writeAll("]]");
                 } else {
                     try writer.writeAll(":anyerror");
@@ -146,13 +146,13 @@ pub const __aguafria_jvm = struct {
             },
             .@"struct" => |s| {
                 try writer.writeAll("(aguafria.keyword/Tuple (aguafria.keyword/& [");
-                inline for (s.fields) |field| {
-                    const schema_vector = switch (@typeInfo(field.type)) {
+                inline for (s.field_types) |field_type| {
+                    const schema_vector = switch (@typeInfo(field_type)) {
                         .array, .vector, .optional, .pointer, .error_union, .error_set => true,
                         else => false,
                     };
                     if (schema_vector) try writer.writeAll("(aguafria.zig/type ");
-                    try writeStructuralType(writer, field.type);
+                    try writeStructuralType(writer, field_type);
                     if (schema_vector) try writer.writeByte(')');
                     try writer.writeByte(' ');
                 }
@@ -160,31 +160,31 @@ pub const __aguafria_jvm = struct {
             },
             .pointer => |p| {
                 if (p.size == .many and p.sentinel_ptr != null and
-                    !p.is_volatile and !p.is_allowzero and p.address_space == .generic and
-                    p.alignment == null)
+                    !p.attrs.@"volatile" and !p.attrs.@"allowzero" and (p.attrs.@"addrspace" == null or p.attrs.@"addrspace" == .generic) and
+                    p.attrs.@"align" == null)
                 {
-                    try writer.print("[:{s} ", .{if (p.is_const) "sentinel-const" else "sentinel"});
+                    try writer.print("[:{s} ", .{if (p.attrs.@"const") "sentinel-const" else "sentinel"});
                     try writeStructuralType(writer, p.child);
                     try writer.writeAll(" ");
                     try writeSentinel(writer, p.sentinel().?);
                     try writer.writeAll("]");
                     return;
                 }
-                const qualified = p.sentinel_ptr != null or p.is_volatile or (p.is_allowzero and p.size != .c) or
-                    p.address_space != .generic or
-                    p.alignment != null or
-                    (p.size == .c and p.is_const);
+                const qualified = p.sentinel_ptr != null or p.attrs.@"volatile" or (p.attrs.@"allowzero" and p.size != .c) or
+                    (p.attrs.@"addrspace" != null and p.attrs.@"addrspace" != .generic) or
+                    p.attrs.@"align" != null or
+                    (p.size == .c and p.attrs.@"const");
                 if (qualified) {
                     try writer.writeAll("[:* {");
                     if (p.size != .one) try writer.print(":size :{s}", .{@tagName(p.size)});
-                    if (p.is_const) try writer.writeAll(" :const? true");
-                    if (p.is_volatile) try writer.writeAll(" :volatile? true");
-                    if (p.is_allowzero and p.size != .c) try writer.writeAll(" :allowzero? true");
-                    if (p.alignment) |alignment| {
+                    if (p.attrs.@"const") try writer.writeAll(" :const? true");
+                    if (p.attrs.@"volatile") try writer.writeAll(" :volatile? true");
+                    if (p.attrs.@"allowzero" and p.size != .c) try writer.writeAll(" :allowzero? true");
+                    if (p.attrs.@"align") |alignment| {
                         try writer.print(" :align {d}", .{alignment});
                     }
-                    if (p.address_space != .generic)
-                        try writer.print(" :addrspace :.{s}", .{@tagName(p.address_space)});
+                    if ((p.attrs.@"addrspace" != null and p.attrs.@"addrspace" != .generic))
+                        try writer.print(" :addrspace :.{s}", .{@tagName(p.attrs.@"addrspace".?)});
                     if (p.sentinel()) |sentinel| {
                         try writer.writeAll(" :sentinel ");
                         try writeSentinel(writer, sentinel);
@@ -195,9 +195,9 @@ pub const __aguafria_jvm = struct {
                     return;
                 }
                 const tag = switch (p.size) {
-                    .one => if (p.is_const) "*const" else "*",
-                    .many => if (p.is_const) "many-const" else "many",
-                    .slice => if (p.is_const) "slice-const" else "slice",
+                    .one => if (p.attrs.@"const") "*const" else "*",
+                    .many => if (p.attrs.@"const") "many-const" else "many",
+                    .slice => if (p.attrs.@"const") "slice-const" else "slice",
                     .c => "c-pointer",
                 };
                 try writer.print("[:{s} ", .{tag});
@@ -268,7 +268,7 @@ pub const __aguafria_jvm = struct {
         var sink = NativeWriter.init();
         defer sink.deinit();
         const writer = &sink.writer;
-        writer.print("{{:aguafria.jvm/borrowed {{:address {d} :size {d} :alignment {d} :mutable? {s} :native-kind :{s}", .{ @intFromPtr(value.pointer), @sizeOf(P.child), @alignOf(P.child), if (P.is_const) "false" else "true", @tagName(@typeInfo(P.child)) }) catch @panic("Cannot encode native view");
+        writer.print("{{:aguafria.jvm/borrowed {{:address {d} :size {d} :alignment {d} :mutable? {s} :native-kind :{s}", .{ @intFromPtr(value.pointer), @sizeOf(P.child), @alignOf(P.child), if (P.attrs.@"const") "false" else "true", @tagName(@typeInfo(P.child)) }) catch @panic("Cannot encode native view");
         writeTupleLength(writer, P.child) catch @panic("Cannot encode native tuple length");
         if (@typeInfo(P.child) == .int or @typeInfo(P.child) == .float) {
             writer.print(" :scalar-type :{s}", .{@typeName(P.child)}) catch @panic("Cannot encode native view type");
@@ -337,17 +337,17 @@ pub const __aguafria_jvm = struct {
         return switch (@typeInfo(Container)) {
             .@"struct" => |info| blk: {
                 if (info.layout == .@"packed") break :blk false;
-                inline for (info.fields) |field| {
-                    if (std.mem.eql(u8, field.name, name)) {
-                        break :blk !field.is_comptime and fieldNeedsStorage(field.type);
+                inline for (info.field_names, info.field_types, info.field_attrs) |field_name, field_type, field_attrs| {
+                    if (std.mem.eql(u8, field_name, name)) {
+                        break :blk !field_attrs.@"comptime" and fieldNeedsStorage(field_type);
                     }
                 }
                 break :blk false;
             },
             .@"union" => |info| blk: {
                 if (info.layout == .@"packed") break :blk false;
-                inline for (info.fields) |field| {
-                    if (std.mem.eql(u8, field.name, name)) break :blk fieldNeedsStorage(field.type);
+                inline for (info.field_names, info.field_types) |field_name, field_type| {
+                    if (std.mem.eql(u8, field_name, name)) break :blk fieldNeedsStorage(field_type);
                 }
                 break :blk false;
             },
@@ -362,8 +362,8 @@ pub const __aguafria_jvm = struct {
             .pointer => |p| p.size != .slice and
                 !(p.size == .one and @typeInfo(p.child) == .array and @typeInfo(p.child).array.child == u8),
             .@"struct" => |info| blk: {
-                inline for (info.fields) |field| {
-                    if (containsNativeStorage(field.type)) break :blk true;
+                inline for (info.field_types) |field_type| {
+                    if (containsNativeStorage(field_type)) break :blk true;
                 }
                 break :blk false;
             },
@@ -412,7 +412,8 @@ pub const __aguafria_jvm = struct {
                 } else if (if (T == comptime_float)
                     @abs(value) == @as(comptime_float, std.math.inf(f128))
                 else
-                    std.math.isInf(value)) {
+                    std.math.isInf(value))
+                {
                     try writer.writeAll(if (value < 0) "##-Inf" else "##Inf");
                 } else {
                     try writer.print("{e}", .{value});
@@ -434,10 +435,10 @@ pub const __aguafria_jvm = struct {
                 try writer.writeAll("{:aguafria.jvm/error {:name ");
                 try write(writer, @as([]const u8, @errorName(value)));
                 try writer.writeAll(" :members ");
-                if (errors) |members| {
+                if (errors.error_names) |members| {
                     try writer.writeByte('[');
                     inline for (members) |member| {
-                        try write(writer, @as([]const u8, member.name));
+                        try write(writer, @as([]const u8, member));
                         try writer.writeByte(' ');
                     }
                     try writer.writeByte(']');
@@ -490,12 +491,12 @@ pub const __aguafria_jvm = struct {
             },
             .@"struct" => |info| {
                 try writer.writeByte(if (info.is_tuple) '[' else '{');
-                inline for (info.fields) |field| {
+                inline for (info.field_names) |field_name| {
                     if (!info.is_tuple) {
-                        try write(writer, @as([]const u8, field.name));
+                        try write(writer, @as([]const u8, field_name));
                         try writer.writeByte(' ');
                     }
-                    try write(writer, @field(value, field.name));
+                    try write(writer, @field(value, field_name));
                     try writer.writeByte(' ');
                 }
                 try writer.writeByte(if (info.is_tuple) ']' else '}');
@@ -511,13 +512,13 @@ pub const __aguafria_jvm = struct {
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
                 try writer.writeAll(if (info.is_tuple) "[" else "{:aguafria.jvm/struct [");
-                inline for (info.fields) |field| {
+                inline for (info.field_names) |field_name| {
                     if (!info.is_tuple) {
                         try writer.writeByte('[');
-                        try write(writer, @as([]const u8, field.name));
+                        try write(writer, @as([]const u8, field_name));
                         try writer.writeByte(' ');
                     }
-                    try inspect(writer, @field(value, field.name));
+                    try inspect(writer, @field(value, field_name));
                     try writer.writeAll(if (info.is_tuple) " " else "] ");
                 }
                 try writer.writeAll(if (info.is_tuple) "]" else "]}");
@@ -609,17 +610,17 @@ pub const __aguafria_jvm = struct {
     fn describeFunction(writer: *std.Io.Writer, comptime T: type) !void {
         const info = @typeInfo(T).@"fn";
         try writer.writeAll(" :parameters [");
-        inline for (info.params) |param| {
+        inline for (info.param_types) |param| {
             try writer.writeAll("{:type ");
-            if (param.type) |P| try write(writer, @as([]const u8, @typeName(P))) else try writer.writeAll("nil");
+            if (param) |P| try write(writer, @as([]const u8, @typeName(P))) else try writer.writeAll("nil");
             try writer.writeAll(" :generic? ");
-            try write(writer, param.is_generic);
+            try write(writer, param == null);
             try writer.writeAll("} ");
         }
         try writer.writeAll("] :return ");
         if (info.return_type) |R| try write(writer, @as([]const u8, @typeName(R))) else try writer.writeAll("nil");
         try writer.writeAll(" :variadic? ");
-        try write(writer, info.is_var_args);
+        try write(writer, info.attrs.varargs);
     }
 
     fn describeType(writer: *std.Io.Writer, comptime T: type) !void {
@@ -636,8 +637,8 @@ pub const __aguafria_jvm = struct {
         if (@typeInfo(T) == .@"fn") try describeFunction(writer, T);
         try writer.writeAll(" :fields [");
         switch (@typeInfo(Container)) {
-            inline .@"struct", .@"union" => |info| inline for (info.fields) |field| {
-                try describeField(writer, field.name, field.type);
+            inline .@"struct", .@"union" => |info| inline for (info.field_names, info.field_types) |field_name, field_type| {
+                try describeField(writer, field_name, field_type);
             },
             .array => try describeField(writer, "len", @TypeOf(@as(Container, undefined).len)),
             .pointer => |p| if (p.size == .slice) {
@@ -649,10 +650,10 @@ pub const __aguafria_jvm = struct {
         try writer.writeAll("] :members [");
         switch (@typeInfo(Container)) {
             inline .@"struct", .@"union", .@"enum", .@"opaque" => |info| {
-                inline for (info.decls) |decl| {
-                    const D = @TypeOf(@field(Container, decl.name));
+                inline for (info.decl_names) |decl_name| {
+                    const D = @TypeOf(@field(Container, decl_name));
                     try writer.writeAll("{:name ");
-                    try write(writer, @as([]const u8, decl.name));
+                    try write(writer, @as([]const u8, decl_name));
                     try writer.writeAll(" :type ");
                     try write(writer, @as([]const u8, @typeName(D)));
                     try writer.writeAll(" :kind ");
@@ -662,7 +663,7 @@ pub const __aguafria_jvm = struct {
                         try writer.writeAll(":type");
                     } else if (@typeInfo(D) == .@"fn") {
                         try writer.writeAll(":function");
-                    } else if (@typeInfo(@TypeOf(&@field(Container, decl.name))).pointer.is_const) {
+                    } else if (@typeInfo(@TypeOf(&@field(Container, decl_name))).pointer.attrs.@"const") {
                         try writer.writeAll(":const");
                     } else {
                         try writer.writeAll(":var");
@@ -710,14 +711,14 @@ pub const __aguafria_jvm = struct {
             .optional => |info| requiresComptime(info.child),
             .error_union => |info| requiresComptime(info.payload),
             .@"struct" => |info| blk: {
-                inline for (info.fields) |field| {
-                    if (!field.is_comptime and requiresComptime(field.type)) break :blk true;
+                inline for (info.field_types, info.field_attrs) |field_type, field_attrs| {
+                    if (!field_attrs.@"comptime" and requiresComptime(field_type)) break :blk true;
                 }
                 break :blk false;
             },
             .@"union" => |info| blk: {
-                inline for (info.fields) |field| {
-                    if (requiresComptime(field.type)) break :blk true;
+                inline for (info.field_types) |field_type| {
+                    if (requiresComptime(field_type)) break :blk true;
                 }
                 break :blk false;
             },
@@ -733,13 +734,13 @@ pub const __aguafria_jvm = struct {
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
                 try writer.writeAll(if (info.is_tuple) "[" else "{:aguafria.jvm/struct [");
-                inline for (info.fields) |field| {
+                inline for (info.field_names) |field_name| {
                     if (!info.is_tuple) {
                         try writer.writeByte('[');
-                        try write(writer, @as([]const u8, field.name));
+                        try write(writer, @as([]const u8, field_name));
                         try writer.writeByte(' ');
                     }
-                    try inspectComptime(writer, @field(value, field.name));
+                    try inspectComptime(writer, @field(value, field_name));
                     try writer.writeAll(if (info.is_tuple) " " else "] ");
                 }
                 try writer.writeAll(if (info.is_tuple) "]" else "]}");
@@ -857,8 +858,8 @@ pub const __aguafria_jvm = struct {
                     // inspection snapshot. Retain each element's native type
                     // and ownership exactly as when returning it on its own.
                     try writer.writeByte('[');
-                    inline for (info.fields) |field| {
-                        try writeResult(writer, @field(value, field.name));
+                    inline for (info.field_names) |field_name| {
+                        try writeResult(writer, @field(value, field_name));
                         try writer.writeByte(' ');
                     }
                     try writer.writeByte(']');
@@ -902,7 +903,7 @@ pub const __aguafria_jvm = struct {
     fn writeTupleLength(writer: *std.Io.Writer, comptime T: type) !void {
         switch (@typeInfo(T)) {
             .@"struct" => |s| if (s.is_tuple) {
-                try writer.print(" :tuple-length {d}", .{s.fields.len});
+                try writer.print(" :tuple-length {d}", .{s.field_types.len});
             },
             else => {},
         }
@@ -934,7 +935,7 @@ pub const __aguafria_jvm = struct {
         }
         if (@hasDecl(Container, name)) {
             switch (@typeInfo(@TypeOf(value))) {
-                .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.is_const) {
+                .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.attrs.@"const") {
                     return comptimeExpressionResult(@field(Container, name));
                 },
                 else => {},

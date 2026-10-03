@@ -119,75 +119,51 @@
     (throw (ex-info (str "Aguafria's " description " resource is missing")
                     {:resource resource-name}))))
 
-(defn- zig-lib-directory
+(defn- zig-build-environment
   [zig directory]
   (let [result (run-command [zig "env"] directory)]
     (when-not (zero? (:exit result))
-      (throw (ex-info "Unable to query Zig's library directory"
+      (throw (ex-info "Unable to query Zig's build environment"
                       (assoc result :aguafria/phase :zig-build-graph))))
-    (or (second (re-find #"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]+)\""
-                         (:out result)))
-        (second (re-find #"\"lib_dir\"\s*:\s*\"([^\"]+)\""
-                         (:out result)))
-        (throw (ex-info "Zig env did not report a library directory"
-                        (assoc result :aguafria/phase :zig-build-graph))))))
+    (into {}
+          (for [field ["lib_dir" "global_cache_dir" "version"]]
+            [(keyword field)
+             (or (second (re-find
+                          (re-pattern (str "(?m)^\\s*\\." field
+                                           "\\s*=\\s*\"([^\"]+)\""))
+                          (:out result)))
+                 (throw (ex-info (str "Zig env did not report " field)
+                                 (assoc result :aguafria/phase :zig-build-graph))))]))))
 
-(defn- ensure-build-graph-runner!
+(defn- ensure-build-graph-inspector!
   [{:keys [cache-dir] :or {cache-dir (cache/default-directory)} :as options}
    directory]
   (locking build-graph-lock
     (let [zig (embedded-zig options)
-          lib-directory (zig-lib-directory zig directory)
-          upstream-file (io/file lib-directory "compiler" "build_runner.zig")
-          _ (when-not (.isFile upstream-file)
-              (throw (ex-info "Zig's standard build runner is missing"
-                              {:aguafria/phase :zig-build-graph
-                               :zig-lib-directory lib-directory
-                               :path (.getAbsolutePath upstream-file)})))
-          upstream (slurp upstream-file)
-          probe (resource-source build-graph-resource
-                                 "build-graph inspector")
-          configure-needle
-          (str "        try builder.runBuild(root);\n"
-               "        createModuleDependencies(builder) catch @panic(\"OOM\");")
-          configure-replacement
-          (str "        try builder.runBuild(root);\n"
-               "        const aguafria_build_graph = "
-               "@import(\"build-graph-dump.zig\");\n"
-               "        try aguafria_build_graph.prepare(builder, targets.items);\n"
-               "        targets.clearRetainingCapacity();\n"
-               "        try targets.append(aguafria_build_graph.capture_step_name);\n"
-               "        createModuleDependencies(builder) catch @panic(\"OOM\");")
-          exit-needle "    const code: u8 = code: {"
-          exit-replacement
-          (str "    @import(\"build-graph-dump.zig\").dumpResolved();\n\n"
-               exit-needle)
-          _ (when-not (and (str/includes? upstream configure-needle)
-                           (str/includes? upstream exit-needle))
-              (throw (ex-info
-                      "Installed Zig build runner is incompatible with Aguafria's inspector"
-                      {:aguafria/phase :zig-build-graph
-                       :zig-lib-directory lib-directory
-                       :hint "Use a supported Zig version or update the runner hook."})))
-          patched (-> upstream
-                      (str/replace-first configure-needle configure-replacement)
-                      (str/replace-first exit-needle exit-replacement))
-          hash (subs (sha256 [patched probe]) 0 24)
+          environment (zig-build-environment zig directory)
+          source (resource-source build-graph-resource "build-graph inspector")
+          hash (subs (sha256 [source (:version environment)]) 0 24)
           directory-file (io/file cache-dir "tools" "build-graph" hash)
-          runner-file (io/file directory-file "build-runner.zig")
-          probe-file (io/file directory-file "build-graph-dump.zig")]
+          source-file (io/file directory-file "build-graph-dump.zig")
+          executable (io/file directory-file (executable-name "build-graph-dump"))]
       (.mkdirs directory-file)
-      (doseq [[^File file source] [[runner-file patched] [probe-file probe]]]
-        (when-not (= source (when (.isFile file) (slurp file)))
-          (Files/writeString (.toPath file) source StandardCharsets/UTF_8
-                             (into-array StandardOpenOption
-                                         [StandardOpenOption/CREATE
-                                          StandardOpenOption/TRUNCATE_EXISTING
-                                          StandardOpenOption/WRITE]))))
-      {:runner-path (.getAbsolutePath runner-file)
-       :probe-path (.getAbsolutePath probe-file)
+      (when-not (= source (when (.isFile source-file) (slurp source-file)))
+        (Files/writeString (.toPath source-file) source StandardCharsets/UTF_8
+                           (into-array StandardOpenOption
+                                       [StandardOpenOption/CREATE
+                                        StandardOpenOption/TRUNCATE_EXISTING
+                                        StandardOpenOption/WRITE])))
+      (when-not (and (.isFile executable) (pos? (.length executable)))
+        (let [result (run-command
+                      [zig "build-exe" "-Ofast"
+                       (str "-femit-bin=" (.getAbsolutePath executable))
+                       (.getAbsolutePath source-file)] directory)]
+          (when-not (zero? (:exit result))
+            (throw (ex-info "Unable to compile Zig's build-graph inspector"
+                            (assoc result :aguafria/phase :zig-build-graph))))))
+      {:executable (.getAbsolutePath executable)
        :hash hash
-       :zig-lib-directory lib-directory})))
+       :environment environment})))
 
 (defn- decode-hex-text
   [text]
@@ -251,11 +227,12 @@
              (throw (ex-info ":build-steps must be a sequence of Zig build step names"
                              {:aguafria/phase :zig-build-graph
                               :build-steps build-steps})))
-         runner (ensure-build-graph-runner! options (.getAbsolutePath root))
-         command (vec (concat [zig "build"]
-                              (map str build-steps)
-                              ["--build-file" (.getAbsolutePath build-file)
-                               "--build-runner" (:runner-path runner)]))
+         inspector (ensure-build-graph-inspector! options (.getAbsolutePath root))
+         command (vec (concat [(:executable inspector) zig
+                               (.getAbsolutePath build-file)
+                               (get-in inspector [:environment :lib_dir])
+                               (get-in inspector [:environment :global_cache_dir])]
+                              (map str build-steps)))
          result (run-command command (.getAbsolutePath root))]
      (when-not (zero? (:exit result))
        (throw (ex-info (str "Unable to inspect Zig build-generated modules\n\n"
@@ -319,7 +296,7 @@
        {:project-root (.getAbsolutePath root)
         :build-file (.getAbsolutePath build-file)
         :build-steps (mapv str build-steps)
-        :runner-hash (:hash runner)
+        :inspector-hash (:hash inspector)
         :module-count (count records)
         :owner-count (count modules-by-path)
         :conflict-count (count conflicts)
@@ -360,7 +337,7 @@
                                           StandardOpenOption/WRITE])))
         (when-not (and (.isFile executable) (pos? (.length executable)))
           (let [result (run-command
-                        [zig "build-exe" "-OReleaseFast"
+                        [zig "build-exe" "-Ofast"
                          (str "-femit-bin=" (.getAbsolutePath executable))
                          (.getAbsolutePath source-file)]
                         (.getAbsolutePath directory))]
@@ -600,7 +577,7 @@
    :shl 'k/<< :shl_sat 'k/<<| :shr 'k/>>
    :bit_and 'k/& :bit_or 'k/| :bit_xor 'k/bit-xor
    :bool_and 'and :bool_or 'or
-   :array_cat 'k/++ :array_mult 'k/**
+   :array_cat 'k/++
    :merge_error_sets 'k/|| :orelse 'orelse :catch 'catch
    :switch_range 'k/... :for_range 'az/range})
 
@@ -1301,9 +1278,16 @@
   accidentally by a partially structural parent."
   [context node-index]
   (let [form (translate-expr* context node-index)]
-    (if (and (not (raw-boundary? form)) (contains-raw-boundary? form))
+    (cond
+      (and (not (raw-boundary? form)) (contains-raw-boundary? form))
       (record-fallback! context node-index :expression :nested-fallback)
-      form)))
+
+      (symbol? form)
+      (let [[start end] (node-range context node-index)]
+        (vary-meta form assoc :aguafria/zig-source
+                   {:file (:path context) :start-byte start :end-byte end}))
+
+      :else form)))
 
 (defn- simple-pointer-type
   [context node-index]
@@ -1763,6 +1747,11 @@
                      (conj forms (translate-container-member
                                   context kind member order leading))))
             forms))
+        ;; Clojure sees local type declarations before the fields using them.
+        ;; Field order is unchanged, preserving layout and enum tag values.
+        field? #(contains? #{'field-decl 'enum-field-decl 'tuple-field-decl}
+                            (first %))
+        translated (into (vec (remove field? translated)) (filter field? translated))
         trailing-start (if-let [member (last members)]
                          (node-end-after-separator context member)
                          opening-end)
@@ -1779,7 +1768,8 @@
                          :enum? (boolean enum-token)
                          :zig/trailing trailing}
                   argument-node
-                  (assoc :argument (translate-type context argument-node)))]
+                  (assoc :type
+                         (translate-type context argument-node)))]
     (list 'container options translated)))
 
 (defn- translate-for
@@ -2382,7 +2372,7 @@
           (apply list (case kind :struct 'az/defstruct :enum 'az/defenum :union 'az/defunion) name
                  (concat (when doc [doc])
                          [(cond-> (merge attributes
-                                         (select-keys options [:layout :argument :zig/trailing]))
+                                         (select-keys options [:layout :type :zig/trailing]))
                             (:enum? options) (update :attrs (fnil conj #{}) :enum))]
                          [(mapv (fn [member]
                                 (let [[operator field & tail] member]
@@ -3539,7 +3529,7 @@
 
 (defn- root-module-arguments
   [source-file {:keys [optimize target cpu zig-args modules]
-                :or {optimize "Debug" zig-args [] modules {}}}]
+                :or {optimize "debug" zig-args [] modules {}}}]
   (let [modules (sort-by (comp str key) modules)]
     (vec
      (concat
@@ -4425,6 +4415,26 @@
                  (conj visited module))))
       visited)))
 
+(defn- materialize-loader-libc!
+  [^Path loader-target]
+  (let [directory (.getParent loader-target)
+        header (.resolve directory "aguafria_hot_reload_libc.h")
+        target (.resolve directory "aguafria_hot_reload_libc.zig")]
+    (io/make-parents (.toFile header))
+    (Files/writeString header
+                       (resource-source "aguafria/development-loader.h"
+                                        "development listener C declarations")
+                       StandardCharsets/UTF_8
+                       (into-array StandardOpenOption
+                                   [StandardOpenOption/CREATE
+                                    StandardOpenOption/TRUNCATE_EXISTING
+                                    StandardOpenOption/WRITE]))
+    (let [translation ((requiring-resolve 'aguafria.c/translate-zig!)
+                       (.toFile header)
+                       {:cache-dir (str (.resolve directory ".aguafria/c-bindings"))})]
+      (Files/copy (.toPath (io/file (:translated-zig-path translation))) target
+                  (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING])))))
+
 (defn materialize-development-project!
   "Materialize a reloadable Zig development binary without editing its source.
 
@@ -4547,6 +4557,7 @@
           (sort closure))
          loader-source (resource-source development-loader-resource
                                         "development publication listener")
+         _ (materialize-loader-libc! loader-target)
          loader-source (if format?
                          (format-materialized-zig
                           zig (:zig-version report) loader-source output-root
@@ -4713,6 +4724,7 @@
          (sort instrumented-modules))
         loader-source (resource-source development-loader-resource
                                        "development publication listener")
+        _ (materialize-loader-libc! loader-target)
         loader-source (if format?
                         (format-materialized-zig
                          zig "editor-tree" loader-source output-root
@@ -5608,8 +5620,8 @@
          (into (vec build-graphs) source-module-build-graphs))
         ;; Re-resolve project imports with the authoritative named modules
         ;; captured from Zig's actual selected build graph. This disambiguates
-        ;; names such as `lightpanda` even when several project files share the
-        ;; same basename, while preserving the basename fallback for projects
+        ;; imports even when several project files share the same basename,
+        ;; while preserving the basename fallback for projects
         ;; without a build file.
         plans (mapv (fn [plan]
                       (let [import-bindings

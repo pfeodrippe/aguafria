@@ -26,6 +26,16 @@
 (defn- lint [source]
   (lint-with-config (io/file (io/resource export-path)) source))
 
+(deftest c-binding-macro-defines-vars-and-checks-host-code
+  (is (empty? (lint "(ns fixture (:require [aguafria.c :as ac]))
+                     (ac/defbindings api (ac/import! \"fixture\" \"fixture.h\" {})
+                       [native_point point_sum])
+                     (point_sum (native_point {:x 1 :y 2})) api")))
+  (let [findings (lint "(ns fixture (:require [aguafria.c :as ac]))
+                        (ac/defbindings api (missing-import) [native_point])")]
+    (is (= [:unresolved-symbol] (mapv :type findings)))
+    (is (re-find #"missing-import" (:message (first findings))))))
+
 (def prelude
   "(ns fixture
      (:require [aguafria.zig :as az]
@@ -129,8 +139,8 @@
 
 (deftest host-escape-uses-clojure-not-native-try-semantics
   (let [findings (lint
-                 (str prelude
-                      "(az/defn valid :i32 []
+                  (str prelude
+                       "(az/defn valid :i32 []
                          (az/clj! (try (inc 1) (catch Exception _ 0))))
                        (az/defn warning :i32 [] (az/clj! (try (inc 1))))
                        (az/defn unresolved :i32 [] (az/clj! (inc missing)))"))]
@@ -171,7 +181,7 @@
   (doseq [artifact ["aguafria-macos-aarch64" "aguafria-linux-x86-64"]]
     (testing artifact
       (let [directory (.toFile (Files/createTempDirectory
-                               "aguafria-kondo-" (make-array FileAttribute 0)))
+                                "aguafria-kondo-" (make-array FileAttribute 0)))
             jar (io/file directory (str artifact ".jar"))
             config (io/file directory ".clj-kondo")]
         (.mkdirs config)
@@ -189,8 +199,8 @@
           (is (= (slurp (io/resource (str export-path "/" file)))
                  (slurp (io/file config "imports" "io.github.pfeodrippe" "aguafria" file)))))
         (let [findings (lint-with-config config
-                         (str prelude
-                              "(az/defn main :!void [[init process/Init]]
+                                         (str prelude
+                                              "(az/defn main :!void [[init process/Init]]
                                  (try (identity init)))
                                (main)
                                (main [] [])"))]

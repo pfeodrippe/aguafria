@@ -153,15 +153,14 @@
 (deftest builtin-type-direct-requires-in-a-fresh-jvm
   (let [{:keys [exit output]}
         (fresh-clojure (directory)
-          (str "(require '[aguafria.std.builtin.Type :as t]"
-               " '[aguafria.std.builtin.Type.Union :as u]"
-               " '[aguafria.std.builtin.Type.Enum :as e]"
-               " '[aguafria.std.builtin.Type.EnumField :as f])"
+          (str "(require '[aguafria.std.lang.Type :as t]"
+               " '[aguafria.std.lang.Type.Union :as u]"
+               " '[aguafria.std.lang.Type.Enum :as e])"
                "(assert (nil? (find-ns 'aguafria.std)))"
                "(assert (var? #'t/-union))"
                "(assert (var? #'u/-tag_type))"
-               "(assert (var? #'e/-fields))"
-               "(assert (var? #'f/-value))"
+               "(assert (var? #'e/-field_names))"
+               "(assert (var? #'e/-field_values))"
                "(doseq [n (remove #{'aguafria.std} (aguafria.zig.std/namespaces))] (require n))"
                "(assert (nil? (find-ns 'aguafria.std)))"
                "(print :direct-builtin-types-ok)"))]

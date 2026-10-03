@@ -7,6 +7,17 @@ Finish and verify the current tracked step before switching to another one.
 Append new reports here rather than abandoning the current step. Passing code
 tests alone does not close visual QA items.
 
+## October 3 — Zig 0.17 project verification
+
+- [x] Ordinary core load in fresh owned nREPL 55162; real native snapshot with
+  20 racers. Fix ImGui-controls' stale timestamp-only C generation and move
+  racer-tint before wheel's use without changing either function.
+- [x] Native hot reload regression: 1 test / 15 assertions. Re-evaluate step!
+  twice, call through unchanged step-many!, retain world address/counter/PID,
+  restore original definition and shut down the world. Owned nREPL stopped.
+- [ ] Graphical race/model-worker QA, standalone and project precompilation on
+  0.17 remain separate from this headless live-native checkpoint.
+
 ## 1. Correct the visible race (in progress)
 
 - [ ] Performance priority: measure actual game FPS and frame phases with 20

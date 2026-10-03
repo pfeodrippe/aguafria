@@ -82,7 +82,7 @@ pub fn Inspector(comptime declarations: anytype) type {
             }
             if (@hasDecl(Container, name)) {
                 switch (@typeInfo(T)) {
-                    .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.is_const) {
+                    .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.attrs.@"const") {
                         const identity = schema(Container);
                         const expression = if (identity[0] == '[' or identity[0] == '(')
                             "(type " ++ identity ++ ")"
@@ -109,21 +109,22 @@ pub fn Inspector(comptime declarations: anytype) type {
             if (declarationSchema(T)) |identity| return identity;
             if (@typeInfo(T) == .@"struct" and @typeInfo(T).@"struct".is_tuple) {
                 var result: []const u8 = "{:tuple [";
-                for (@typeInfo(T).@"struct".fields) |field| {
+                const info = @typeInfo(T).@"struct";
+                for (info.field_types, info.field_attrs) |field_type, field_attrs| {
                     // A typed value remains a typed JVM operand even when Zig
                     // happened to constant-fold this particular tuple. Only
                     // storage-free types require embedding their actual value.
-                    const entry = if (field.is_comptime and
-                        (field.type == comptime_int or field.type == comptime_float or
-                            field.type == type or @typeInfo(field.type) == .enum_literal))
-                        comptimeValue(field.defaultValue().?)
-                    else if (field.is_comptime and field.type == bool)
-                        schema(field.type)
+                    const entry = if (field_attrs.@"comptime" and
+                        (field_type == comptime_int or field_type == comptime_float or
+                            field_type == type or @typeInfo(field_type) == .enum_literal))
+                        comptimeValue(field_attrs.defaultValue(field_type).?)
+                    else if (field_attrs.@"comptime" and field_type == bool)
+                        schema(field_type)
                     else
-                        argumentSchema(field.type);
-                    const constant = if (field.is_comptime and
-                        (field.type == bool or @typeInfo(field.type) == .pointer))
-                        comptimeValue(field.defaultValue().?)
+                        argumentSchema(field_type);
+                    const constant = if (field_attrs.@"comptime" and
+                        (field_type == bool or @typeInfo(field_type) == .pointer))
+                        comptimeValue(field_attrs.defaultValue(field_type).?)
                     else
                         "nil";
                     // A bool/string constant can arrive from the JVM as an
@@ -173,9 +174,9 @@ pub fn Inspector(comptime declarations: anytype) type {
                     if (wrappedDeclarationSchema(T, Return, result_expression, depth + 1)) |identity|
                         return identity;
                 }
-                inline for (info.@"fn".params, 0..) |parameter, index| {
-                    if (parameter.type) |Parameter| {
-                        const parameter_expression = "(aguafria.zig/unwrap (aguafria.zig/field (aguafria.zig/index (aguafria.zig/field " ++ function_expression ++ " \"params\") " ++ std.fmt.comptimePrint("{d}", .{index}) ++ ") \"type\"))";
+                inline for (info.@"fn".param_types, 0..) |parameter, index| {
+                    if (parameter) |Parameter| {
+                        const parameter_expression = "(aguafria.zig/unwrap (aguafria.zig/index (aguafria.zig/field " ++ function_expression ++ " \"param_types\") " ++ std.fmt.comptimePrint("{d}", .{index}) ++ "))";
                         if (T == Parameter) return parameter_expression;
                         if (wrappedDeclarationSchema(T, Parameter, parameter_expression, depth + 1)) |identity|
                             return identity;
@@ -197,17 +198,17 @@ pub fn Inspector(comptime declarations: anytype) type {
 
         fn fieldDeclarationSchema(comptime T: type, comptime Root: type, comptime expression: []const u8) ?[]const u8 {
             return switch (@typeInfo(Root)) {
-                .@"struct" => |s| fieldsDeclarationSchema(T, expression, s.fields),
-                .@"union" => |u| fieldsDeclarationSchema(T, expression, u.fields),
+                .@"struct" => |s| fieldsDeclarationSchema(T, expression, s.field_names, s.field_types),
+                .@"union" => |u| fieldsDeclarationSchema(T, expression, u.field_names, u.field_types),
                 else => null,
             };
         }
 
-        fn fieldsDeclarationSchema(comptime T: type, comptime expression: []const u8, comptime fields: anytype) ?[]const u8 {
-            inline for (fields) |field| {
-                const field_expression = "(aguafria.keyword/FieldType " ++ expression ++ " " ++ quoted(field.name) ++ ")";
-                if (T == field.type) return field_expression;
-                if (wrappedDeclarationSchema(T, field.type, field_expression, 0)) |identity|
+        fn fieldsDeclarationSchema(comptime T: type, comptime expression: []const u8, comptime names: []const [:0]const u8, comptime types: []const type) ?[]const u8 {
+            inline for (names, types) |field_name, field_type| {
+                const field_expression = "(aguafria.keyword/FieldType " ++ expression ++ " " ++ quoted(field_name) ++ ")";
+                if (T == field_type) return field_expression;
+                if (wrappedDeclarationSchema(T, field_type, field_expression, 0)) |identity|
                     return identity;
             }
             return null;
@@ -220,17 +221,17 @@ pub fn Inspector(comptime declarations: anytype) type {
             if (!std.mem.startsWith(u8, @typeName(T), @typeName(Root) ++ ".")) return null;
             const info = @typeInfo(Root);
             const members = switch (info) {
-                .@"struct" => |s| s.decls,
-                .@"union" => |u| u.decls,
-                .@"enum" => |e| e.decls,
-                .@"opaque" => |o| o.decls,
+                .@"struct" => |s| s.decl_names,
+                .@"union" => |u| u.decl_names,
+                .@"enum" => |e| e.decl_names,
+                .@"opaque" => |o| o.decl_names,
                 else => return null,
             };
             const relative_name = @typeName(T)[@typeName(Root).len + 1 ..];
             const has_named_member = comptime named: {
                 for (members) |member| {
-                    if (std.mem.eql(u8, relative_name, member.name) or
-                        std.mem.startsWith(u8, relative_name, member.name ++ ".")) break :named true;
+                    if (std.mem.eql(u8, relative_name, member) or
+                        std.mem.startsWith(u8, relative_name, member ++ ".")) break :named true;
                 }
                 break :named false;
             };
@@ -242,11 +243,11 @@ pub fn Inspector(comptime declarations: anytype) type {
                 // C imports can contain declarations whose value is
                 // @compileError (unsupported macros). Prefer the matching name
                 // without evaluating unrelated declarations.
-                if (!std.mem.eql(u8, relative_name, member.name) and
-                    !std.mem.startsWith(u8, relative_name, member.name ++ ".")) continue;
-                if (@TypeOf(@field(Root, member.name)) == type) {
-                    const Child = @field(Root, member.name);
-                    const child_expression = "(aguafria.zig/field " ++ expression ++ " " ++ quoted(member.name) ++ ")";
+                if (!std.mem.eql(u8, relative_name, member) and
+                    !std.mem.startsWith(u8, relative_name, member ++ ".")) continue;
+                if (@TypeOf(@field(Root, member)) == type) {
+                    const Child = @field(Root, member);
+                    const child_expression = "(aguafria.zig/field " ++ expression ++ " " ++ quoted(member) ++ ")";
                     if (T == Child) return child_expression;
                     if (Child != Root) {
                         if (nestedDeclarationSchema(T, Child, child_expression, depth + 1)) |identity|
@@ -266,13 +267,13 @@ pub fn Inspector(comptime declarations: anytype) type {
                 .undefined => ":undefined",
                 .@"struct" => |s| tuple: {
                     if (!s.is_tuple) break :tuple "nil";
-                    var types: [s.fields.len]type = undefined;
+                    var types: [s.field_types.len]type = undefined;
                     var result: []const u8 = "(aguafria.keyword/Tuple (aguafria.keyword/& [";
-                    for (s.fields, 0..) |field, i| {
-                        if (field.is_comptime) break :tuple "nil";
-                        const child = schema(field.type);
+                    for (s.field_types, s.field_attrs, 0..) |field_type, field_attrs, i| {
+                        if (field_attrs.@"comptime") break :tuple "nil";
+                        const child = schema(field_type);
                         if (std.mem.eql(u8, child, "nil")) break :tuple "nil";
-                        types[i] = field.type;
+                        types[i] = field_type;
                         result = result ++ if (std.mem.startsWith(u8, child, "["))
                             "(aguafria.zig/type " ++ child ++ ") "
                         else
@@ -295,45 +296,45 @@ pub fn Inspector(comptime declarations: anytype) type {
                 .optional => |o| "[:optional " ++ schema(o.child) ++ "]",
                 .error_union => |e| "[:error-union " ++ schema(e.error_set) ++ " " ++ schema(e.payload) ++ "]",
                 .error_set => |errors| errors: {
-                    const fields = errors orelse break :errors ":anyerror";
+                    const fields = errors.error_names orelse break :errors ":anyerror";
                     var result: []const u8 = "[:error-set [";
                     for (fields) |field| {
                         // Only canonical EDN keywords here; never lose an exact
                         // escaped Zig name by inventing a similar identifier.
-                        for (field.name) |c| {
+                        for (field) |c| {
                             if (!std.ascii.isAlphanumeric(c) and c != '_') break :errors "nil";
                         }
-                        if (std.ascii.isDigit(field.name[0])) break :errors "nil";
-                        result = result ++ ":" ++ field.name ++ " ";
+                        if (std.ascii.isDigit(field[0])) break :errors "nil";
+                        result = result ++ ":" ++ field ++ " ";
                     }
                     break :errors result ++ "]]";
                 },
                 .pointer => |p| pointer: {
                     if (p.size == .many and p.sentinel_ptr != null and
-                        !p.is_volatile and !p.is_allowzero and p.address_space == .generic and
-                        p.alignment == null)
+                        !p.attrs.@"volatile" and !p.attrs.@"allowzero" and (p.attrs.@"addrspace" == null or p.attrs.@"addrspace" == .generic) and
+                        p.attrs.@"align" == null)
                     {
                         const sentinel = switch (@typeInfo(p.child)) {
                             .int => std.fmt.comptimePrint("{d}", .{p.sentinel().?}),
                             .bool => if (p.sentinel().?) "true" else "false",
                             else => break :pointer "nil",
                         };
-                        return "[:" ++ (if (p.is_const) "sentinel-const" else "sentinel") ++ " " ++ schema(p.child) ++ " " ++ sentinel ++ "]";
+                        return "[:" ++ (if (p.attrs.@"const") "sentinel-const" else "sentinel") ++ " " ++ schema(p.child) ++ " " ++ sentinel ++ "]";
                     }
-                    const qualified = p.sentinel_ptr != null or p.is_volatile or (p.is_allowzero and p.size != .c) or
-                        p.address_space != .generic or
-                        p.alignment != null or
-                        (p.size == .c and p.is_const);
+                    const qualified = p.sentinel_ptr != null or p.attrs.@"volatile" or (p.attrs.@"allowzero" and p.size != .c) or
+                        (p.attrs.@"addrspace" != null and p.attrs.@"addrspace" != .generic) or
+                        p.attrs.@"align" != null or
+                        (p.size == .c and p.attrs.@"const");
                     if (qualified) {
                         var options: []const u8 = if (p.size == .one) "" else ":size :" ++ @tagName(p.size);
-                        if (p.is_const) options = options ++ " :const? true";
-                        if (p.is_volatile) options = options ++ " :volatile? true";
-                        if (p.is_allowzero and p.size != .c) options = options ++ " :allowzero? true";
-                        if (p.alignment) |alignment| {
+                        if (p.attrs.@"const") options = options ++ " :const? true";
+                        if (p.attrs.@"volatile") options = options ++ " :volatile? true";
+                        if (p.attrs.@"allowzero" and p.size != .c) options = options ++ " :allowzero? true";
+                        if (p.attrs.@"align") |alignment| {
                             options = options ++ std.fmt.comptimePrint(" :align {d}", .{alignment});
                         }
-                        if (p.address_space != .generic)
-                            options = options ++ " :addrspace :." ++ @tagName(p.address_space);
+                        if ((p.attrs.@"addrspace" != null and p.attrs.@"addrspace" != .generic))
+                            options = options ++ " :addrspace :." ++ @tagName(p.attrs.@"addrspace".?);
                         if (p.sentinel()) |sentinel| {
                             options = options ++ " :sentinel " ++ switch (@typeInfo(p.child)) {
                                 .int => std.fmt.comptimePrint("{d}", .{sentinel}),
@@ -344,9 +345,9 @@ pub fn Inspector(comptime declarations: anytype) type {
                         break :pointer "[:* {" ++ options ++ "} " ++ schema(p.child) ++ "]";
                     }
                     const tag = switch (p.size) {
-                        .one => if (p.is_const) "*const" else "*",
-                        .many => if (p.is_const) "many-const" else "many",
-                        .slice => if (p.is_const) "slice-const" else "slice",
+                        .one => if (p.attrs.@"const") "*const" else "*",
+                        .many => if (p.attrs.@"const") "many-const" else "many",
+                        .slice => if (p.attrs.@"const") "slice-const" else "slice",
                         .c => "c-pointer",
                     };
                     break :pointer "[:" ++ tag ++ " " ++ schema(p.child) ++ "]";

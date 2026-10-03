@@ -8,7 +8,7 @@
    :two
    :three])
 
-(az/defunion U {:argument E}
+(az/defunion U {:type E}
   [[:one :i32]
    [:two :f32]
    [:three :void]])

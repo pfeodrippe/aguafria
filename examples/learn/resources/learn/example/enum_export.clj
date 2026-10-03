@@ -3,7 +3,7 @@
             [aguafria.zig :as az]))
 
 (az/defenum Foo
-  {:argument :c_int}
+  {:type :c_int}
   [:a
    :b
    :c])

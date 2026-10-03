@@ -366,9 +366,9 @@
  {:clojure-source "" :kind :syntax-note
   :note "ZIG_ONLY: a source path inside the embedded Zig toolchain. Its startup code also serves Aguafria-generated native programs; it is not Clojure application code."}
 
- "std/builtin.zig"
+ "std/lang.zig"
  {:clojure-source "" :kind :syntax-note
-  :note "ZIG_ONLY: the toolchain source file defining builtin-related types. Use the corresponding aguafria.std.builtin Vars in application declarations."}
+  :note "ZIG_ONLY: the toolchain source file defining builtin-related types. Use the corresponding aguafria.std.lang Vars in application declarations."}
 
  "struct { ... }"
  {:clojure-source "" :kind :syntax-note
@@ -386,4 +386,4 @@
  {:clojure-source "(az/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (k/== (az/type [:* :u32])\n        (az/type [:* {:align (k/alignOf :u32)} :u32]))))"
   :kind :declarations
   :expected-compile-error "reached unreachable code"
-  :note "A module-level pointer-alignment assertion, preserved from the reference. The original and translated assertion both fail with the pinned 0.16.0 compiler on this target; it is not a successful compilation example."}}
+  :note "A module-level pointer-alignment assertion, preserved from the reference. The original and translated assertion both fail with the pinned compiler on this target; it is not a successful compilation example."}}

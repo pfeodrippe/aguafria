@@ -14,7 +14,7 @@
     (k/= y 100)
     ;; You can use _ to throw away unwanted values.
     (k/= [:_ x :_] tuple)
-    (debug/print "x = {}" [x])))
+    (debug/print "x = {}\n" [x])))
 
 (comment
   (main))

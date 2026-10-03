@@ -2,7 +2,8 @@
  :lint-as {aguafria.zig/explain! clojure.core/do}
  :hooks
  {:analyze-call
-  {aguafria.keyword/for hooks.aguafria/native-for
+  {aguafria.c/defbindings hooks.aguafria/c-bindings
+   aguafria.keyword/for hooks.aguafria/native-for
    aguafria.zig/with-block hooks.aguafria/native-block
    aguafria.zig/inline-for hooks.aguafria/native-for
    aguafria.zig/defn hooks.aguafria/function-declaration

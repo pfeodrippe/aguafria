@@ -1,6 +1,6 @@
 # Learn Aguafria Zig
 
-The complete [Zig 0.16.0 language reference](https://ziglang.org/documentation/0.16.0/),
+The complete [Zig 0.17.0 language reference](https://ziglang.org/documentation/0.17.0/),
 with its original HTML, sections and output preserved and per-example Zig/Aguafria
 tabs. Applicable file examples, contextual blocks and inline equivalents are
 hand-written and checked against the pinned reference.
@@ -40,6 +40,11 @@ deliberate panic/exit examples need care: a native panic can terminate the JVM.
 Their original Shell results are not copied into a pretend REPL transcript.
 
 From this directory:
+
+Type tooltips require ZLS matching Zig 0.17.0. Set `AGUAFRIA_ZLS` to its
+executable (otherwise `zls` is resolved on PATH). See the root
+[migration report](../../ZIG_0_17_0_MIGRATION_2026-10-03.md#zls-for-zig-0170)
+for the verified upstream revision and build instructions.
 
 HTML builds and translation/output verification automatically format modified
 examples with the pinned [cljfmt](https://github.com/weavejester/cljfmt) alias

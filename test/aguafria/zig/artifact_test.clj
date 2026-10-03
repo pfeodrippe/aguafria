@@ -12,11 +12,11 @@
 (defn- key-for [inputs] (artifact/key-for :native-library inputs))
 
 (deftest unordered-data-has-canonical-identity
-  (let [left (array-map :options (array-map :optimize "ReleaseSafe" :flags #{:a :b})
+  (let [left (array-map :options (array-map :optimize "safe" :flags #{:a :b})
                         :source "pub fn f() void {}")
         right (array-map :source "pub fn f() void {}"
                          :options (array-map :flags (sorted-set-by #(compare %2 %1) :a :b)
-                                             :optimize "ReleaseSafe"))]
+                                             :optimize "safe"))]
     (is (= (key-for left) (key-for right)))
     (is (re-matches #"[a-f0-9]{64}" (key-for left)))
     (is (= (key-for left)
@@ -27,11 +27,11 @@
 (deftest semantic-inputs-and-order-remain-significant
   (let [inputs {:source "pub fn f() i32 { return 1; }"
                 :compiler "0.16.0" :target "aarch64-macos" :cpu "native"
-                :optimize "ReleaseSafe" :dependencies {"lib" "content-A"}
+                :optimize "safe" :dependencies {"lib" "content-A"}
                 :flags ["-lfirst" "-lsecond"] :native-test? false}]
     (doseq [[k v] {:source "pub fn f() i32 { return 2; }"
                    :compiler "0.17.0" :target "x86_64-linux" :cpu "baseline"
-                   :optimize "Debug" :dependencies {"lib" "content-B"}
+                   :optimize "debug" :dependencies {"lib" "content-B"}
                    :flags ["-lsecond" "-lfirst"] :native-test? true}]
       (is (not= (key-for inputs) (key-for (assoc inputs k v))) (str k))))
   (doseq [[a b] [[{:x 1} [[:x 1]]] [#{1 2} [1 2]] ['(1 2) [1 2]]

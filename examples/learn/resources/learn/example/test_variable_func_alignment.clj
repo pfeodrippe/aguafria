@@ -1,7 +1,7 @@
 (ns learn.example.test-variable-func-alignment
   (:require [aguafria.keyword :as k]
-            [aguafria.std.builtin.Type :as type-info]
-            [aguafria.std.builtin.Type.Pointer :as pointer-info]
+            [aguafria.std.lang.Type :as type-info]
+            [aguafria.std.lang.Type.Pointer :as pointer-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -11,7 +11,8 @@
   (try (testing/expectEqual
         4 (-> (k/typeInfo (k/TypeOf (k/& foo)))
               type-info/-pointer
-              pointer-info/-alignment)))
+              pointer-info/-attrs
+              :align)))
   (try (testing/expectEqual (az/type [:* {:align 4} :u8])
                             (k/TypeOf (k/& foo))))
   (let [as-pointer-to-array (k/as (k/& foo) [:* {:align 4} [:array 1 :u8]])

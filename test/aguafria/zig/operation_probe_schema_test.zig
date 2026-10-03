@@ -21,10 +21,10 @@ test "nested declarations retain compiler-confirmed nominal identities" {
 }
 
 test "reflected std types use their exact declaration rather than a structural substitute" {
-    const Probe = Inspector(.{.{ std.builtin.Type, "fixture/Type" }});
+    const Probe = Inspector(.{.{ std.lang.Type, "fixture/Type" }});
     try std.testing.expectEqualStrings(
         "(aguafria.zig/field fixture/Type \"Enum\")",
-        comptime Probe.schema(std.builtin.Type.Enum),
+        comptime Probe.schema(std.lang.Type.Enum),
     );
 }
 

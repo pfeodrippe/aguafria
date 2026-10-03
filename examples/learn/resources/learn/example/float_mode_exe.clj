@@ -18,7 +18,7 @@
   (require 'learn.example.float-mode-obj)
   (let [object (az/build! 'learn.example.float-mode-obj
                           {:kind :object
-                           :optimize "ReleaseFast"
+                           :optimize "fast"
                            :zig-args ["-fPIC"]})
         config (az/configuration)]
     (try

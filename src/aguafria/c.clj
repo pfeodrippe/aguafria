@@ -6,7 +6,10 @@
   Generated namespaces contain the same documented, inspectable Vars as a
   hand-written or Zig-converted Aguafria module; no JVM-specific wrapper is
   introduced into standalone output."
-  (:require [aguafria.zig.convert :as convert]
+  (:require [aguafria.keyword :as k]
+            [aguafria.zig :as az]
+            [aguafria.zig.convert :as convert]
+            [aguafria.zig.runtime :as runtime]
             [aguafria.zig.toolchain :as toolchain]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -58,14 +61,14 @@
         ;; also uses agent pools, so a saturated REPL could starve both pipe
         ;; readers and deadlock a subprocess after its OS buffer fills.
         stdout-thread (doto (Thread. ^Runnable
-                                     #(reset! stdout
-                                              (slurp (.getInputStream process)))
+                             #(reset! stdout
+                                      (slurp (.getInputStream process)))
                                      "aguafria-c-binding-stdout")
                         (.setDaemon true)
                         (.start))
         stderr-thread (doto (Thread. ^Runnable
-                                     #(reset! stderr
-                                              (slurp (.getErrorStream process)))
+                             #(reset! stderr
+                                      (slurp (.getErrorStream process)))
                                      "aguafria-c-binding-stderr")
                         (.setDaemon true)
                         (.start))
@@ -103,8 +106,8 @@
         process (.start builder)
         stderr (atom nil)
         stderr-thread (doto (Thread. ^Runnable
-                                     #(reset! stderr
-                                              (slurp (.getErrorStream process)))
+                             #(reset! stderr
+                                      (slurp (.getErrorStream process)))
                                      "aguafria-c-binding-stderr")
                         (.setDaemon true)
                         (.start))
@@ -348,6 +351,96 @@
                     StandardOpenOption/WRITE])))
     (not= existing clojure-source)))
 
+(defn translate-zig!
+  "Translate a C header into a cached Zig module, without converting it to Clojure.
+  Accepts :cache-dir, :include-dirs, :defines, :target, :cpu and :args."
+  [header options]
+  (validate-options (assoc options :namespace 'aguafria.c.translation))
+  (let [header (canonical-file header "C translation input")
+        zig (toolchain/executable)
+        version (zig-version zig (.getParentFile header))
+        include-directories (mapv canonical-directory (:include-dirs options []))
+        inputs (header-inputs header include-directories)
+        cache-key (sha256 {:schema-version 1
+                           :zig-version version
+                           :inputs inputs
+                           :include-dirs (mapv #(.getAbsolutePath ^File %)
+                                               include-directories)
+                           :defines (:defines options)
+                           :target (:target options)
+                           :cpu (:cpu options)
+                           :args (:args options)})
+        directory (io/file (or (:cache-dir options) ".aguafria/c-bindings") cache-key)
+        output (io/file directory "translated.zig")
+        partial (io/file directory "translated.partial.zig")
+        cache-hit? (.isFile output)
+        command (vec (concat [zig "translate-c" "--color" "off"]
+                             (when-let [target (:target options)] ["-target" target])
+                             (when-let [cpu (:cpu options)] ["-mcpu" cpu])
+                             (map #(str "-I" (.getAbsolutePath ^File %)) include-directories)
+                             (definition-arguments (:defines options))
+                             (:args options)
+                             [(.getAbsolutePath header)]))
+        result (when-not cache-hit?
+                 (run-command-to-file command (.getParentFile header) partial))]
+    (when (and result (not (zero? (:exit result))))
+      (throw (ex-info (rust-style-translation-error header result)
+                      (assoc result :aguafria/phase :c-binding-translate))))
+    (when result
+      (Files/move (.toPath partial) (.toPath output)
+                  (into-array StandardCopyOption [StandardCopyOption/REPLACE_EXISTING])))
+    {:translated-zig-path (.getAbsolutePath output)
+     :cache-key cache-key
+     :cache-hit? cache-hit?
+     :zig-version version
+     :inputs inputs
+     :command command
+     :translation-duration-ms (or (:duration-ms result) 0.0)}))
+
+(defn import!
+  "Translate a C header and register it as a named Zig module.
+  Returns the import name for `(k/import (az/clj! (ac/import! ...)))`.
+  Options are the same as translate-zig!. The translation's content identity
+  participates in native artifact caching. Does not load a native library."
+  [import-name header options]
+  (when-not (and (string? import-name)
+                 (re-matches #"[A-Za-z_][A-Za-z0-9_.-]*" import-name)
+                 (not (contains? #{"root" "std" "builtin"} import-name)))
+    (throw (ex-info "C module import requires a non-reserved module name"
+                    {:import-name import-name})))
+  (let [{:keys [translated-zig-path cache-key]} (translate-zig! header options)
+        configuration (runtime/configuration)]
+    (runtime/configure!
+     {:modules (assoc (:modules configuration) import-name translated-zig-path)
+      :module-cache-tokens (assoc (:module-cache-tokens configuration) import-name cache-key)})
+    import-name))
+
+(defmacro defbindings
+  "Define a public Zig module reference and selected members in this namespace.
+
+      (ac/defbindings api
+        (ac/import! \"audio\" \"include/audio.h\" {:args [\"-lc\"]})
+        [audio_engine audio_start])
+
+  Evaluates the import expression once when this declaration is evaluated.
+  Each member becomes an ordinary public az/defconst referring to the original
+  Zig declaration. C layouts and implementation stay in the translated module."
+  [api-name import-expression members]
+  (when-not (and (simple-symbol? api-name)
+                 (vector? members)
+                 (every? simple-symbol? members)
+                 (= (count (distinct (cons api-name members))) (inc (count members))))
+    (throw (ex-info "defbindings requires an API name and a vector of distinct member names"
+                    {:api-name api-name :members members})))
+  (let [located #(with-meta % (meta &form))]
+    `(do
+       ~(located `(az/defconst ~api-name {:attrs #{k/pub}}
+                    (k/import (az/clj! ~import-expression))))
+       ~@(map (fn [member]
+                (located `(az/defconst ~member {:attrs #{k/pub}}
+                            (~(keyword member) ~api-name))))
+              members))))
+
 (defn translate-header!
   "Translate a C `header` into a well-formatted Aguafria namespace at `output`.
 
@@ -425,7 +518,7 @@
                    :source-display-path (.getAbsolutePath header)
                    :declaration-docs declaration-docs
                    :cache-dir (.getAbsolutePath (io/file cache-dir
-                                                          "zig-conversion"))
+                                                         "zig-conversion"))
                    :overwrite? (boolean (:overwrite? options))})]
              (write-rendered-binding-cache!
               rendered-cache-file cache-key (slurp output) conversion)

@@ -1,0 +1,8 @@
+{:source-only
+ {"try a" "The published 0.17.0 operator table omits the Forwarding Error Unwrap row."
+  "a catch |err| return err" "The published 0.17.0 operator table omits the Forwarding Error Unwrap row."
+  "const value: anyerror!u32 = 5678;\ntry value == 5678" "The published 0.17.0 operator table omits the Forwarding Error Unwrap row."}
+ :rendered
+ {"x() x[] x.y x.* x.?\na!b\nx{}\n!x -x -%x ~x &x ?x try\n* / % *% *| ||\n+ - ++ +% -% +| -|\n<< >> <<|\n& ^ | orelse catch\n== != < > <= >=\nand\nor\n= *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |="
+  {:source "x() x[] x.y x.* x.?\na!b\nx{}\n!x -x -%x ~x &x ?x\n* / % *% *| ||\n+ - ++ +% -% +| -|\n<< >> <<|\n& ^ | orelse catch\n== != < > <= >=\nand\nor\n= *= *%= *|= /= %= += +%= +|= -= -%= -|= <<= <<|= >>= &= ^= |="
+   :reason "The published 0.17.0 precedence chart omits try from the prefix row."}}}

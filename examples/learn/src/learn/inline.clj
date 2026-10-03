@@ -5,7 +5,7 @@
   expressions requiring their surrounding example pending until translated."
   (:require [aguafria.keyword :as k]
             [aguafria.std]
-            [aguafria.std.builtin]
+            [aguafria.std.lang]
             [aguafria.std.crypto]
             [aguafria.std.debug]
             [aguafria.std.heap]
@@ -18,23 +18,6 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]))
-
-(def rendered-differences
-  ;; Both files are SHA-256 pinned by the reference snapshot. Do not rewrite the
-  ;; published HTML to conceal a discrepancy with the tagged source template.
-  {"snippet-446"
-   {:template "std.debug.dumpErrorReturnTrace"
-    :rendered "std.debug.dumpStackTrace"
-    :reason "The published 0.16.0 page differs from the tagged template here."}})
-
-(defn- rendered-snippet [snippet]
-  (if-let [{:keys [template rendered] :as difference}
-           (get rendered-differences (:id snippet))]
-    (do
-      (when-not (= template (:source snippet))
-        (throw (ex-info "Reviewed upstream discrepancy no longer matches" snippet)))
-      (assoc snippet :rendered-source rendered :upstream-difference difference))
-    snippet))
 
 (defn- normalized-signature [text]
   (some-> text (str/replace #"\s+" "") (str/replace ",)" ")")))
@@ -131,12 +114,12 @@
                          (when (contains? all source)
                            (throw (ex-info "Duplicate authored inline mapping"
                                            {:source source :resource resource})))
-                         (assoc all source mapping))
+                         (assoc all source (assoc mapping :source-resource resource)))
                        all (edn/read-string (slurp (io/resource resource)))))
           {} mapping-resources))
 
 (defn- emit-declarations
-  [forms]
+  [forms source-resource]
   (when-not (every? #(and (seq? %)
                           (contains? #{'az/defconst 'az/defcomptime} (first %)))
                     forms)
@@ -158,6 +141,7 @@
                       {:namespace namespace-symbol})))
     (try
       (binding [*ns* *ns*
+                *file* (some-> source-resource io/resource .getPath)
                 *read-eval* false
                 runtime/*registration-batch* declarations
                 project/*catalog-namespace* namespace-symbol]
@@ -207,7 +191,7 @@
                   nil)
                 :expr (az/emit-expr (first forms))
                 :type (az/emit-type (first forms))
-                :declarations (emit-declarations forms)
+                :declarations (emit-declarations forms (:source-resource mapping))
                 :statements (str/join "\n" (map az/emit-stmt forms)))]
           (cond-> (-> mapping
                       (dissoc :kind)
@@ -249,8 +233,7 @@
 (defn translate
   "Each occurrence keeps its pinned source ID, including repeated snippets."
   [snippets]
-  (let [snippets (mapv rendered-snippet snippets)
-        catalog (references)
+  (let [catalog (references)
         authored (authored-mappings)
         source-of #(or (:rendered-source %) (:source %))
         by-source (into {}
@@ -284,7 +267,7 @@
   Only consume a snippet when its decoded source matches; unmatched nodes are
   reported, not guessed. Entire figures are skipped to preserve source/output."
   [html snippets decode-html escape-html]
-  (let [remaining (atom (vec snippets))
+  (let [remaining (atom (filterv #(not= false (:published? %)) snippets))
         matched (atom [])
         result
         (str/replace
@@ -306,4 +289,5 @@
                      (markup original snippet escape-html)
                      original))
                  original)))))]
-    {:html result :matched-ids @matched :unmatched @remaining}))
+    {:html result :matched-ids @matched :unmatched @remaining
+     :source-only (filterv #(= false (:published? %)) snippets)}))

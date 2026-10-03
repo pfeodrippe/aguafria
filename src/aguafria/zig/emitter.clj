@@ -13,7 +13,9 @@
 
 (defn- fail!
   [message form & [data]]
-  (throw (ex-info message (merge {:form form} data))))
+  (throw (ex-info message (merge {:form form}
+                                 (select-keys (meta form) [:aguafria/zig-source])
+                                 data))))
 
 (defn array-type-parts
   "Validate an array schema and expose its length, options, and element type."
@@ -910,6 +912,11 @@
       (keyword/resolve-token context-ns sym)
       (resolved-syntax-operator context-ns sym)
       (namespace-root-reference context-ns sym)
+      (when-let [qualifier (some-> sym namespace symbol)]
+        (let [module (or (some-> (get (ns-aliases context-ns) qualifier) ns-name)
+                         qualifier)]
+          (and (project/converted-module? module)
+               (contains? (:source-orders (project/module-data module)) (name sym)))))
       (when-let [v (resolve-context-var context-ns sym)]
         (or (:aguafria/zig-reference (meta v))
             (:aguafria/declaration (meta v))
@@ -957,6 +964,13 @@
                               (into scope (binding-symbols binding)))
                             names (partition 2 bindings))]
           (body scope forms))
+
+        (= 'destructure op)
+        (let [[options bindings value] args]
+          (check options)
+          (check value)
+          (doseq [binding bindings]
+            (check (dissoc binding :name :kind))))
 
         (contains? #{'do 'block 'comptime} op)
         (body names args)
@@ -1056,16 +1070,23 @@
 (defn- validate-reference-body! [context-ns names forms]
   (reduce (fn [scope form]
             (validate-reference-form! context-ns scope form)
-            (if (and (seq? form)
-                     (let [op (first form)
-                           token (keyword/resolve-token context-ns op)
-                           op (or (resolved-syntax-operator context-ns op)
-                                  (when (= :keyword (:kind token))
-                                    (symbol (:zig-token token))) op)]
-                       (or (contains? declaration-name-operators op)
-                           (contains? #{'const 'var} op))))
-              (conj scope (second form))
-              scope))
+            (if-not (seq? form)
+              scope
+              (let [op (first form)
+                    token (keyword/resolve-token context-ns op)
+                    op (or (resolved-syntax-operator context-ns op)
+                           (when (= :keyword (:kind token))
+                             (symbol (:zig-token token))) op)]
+                (cond
+                  (or (contains? declaration-name-operators op)
+                      (contains? #{'const 'var} op))
+                  (conj scope (second form))
+
+                  (= 'destructure op)
+                  (into scope (keep #(when (contains? #{:var :const} (:kind %))
+                                       (:name %))) (nth form 2))
+
+                  :else scope))))
           names forms))
 
 (defn validate-declaration-references!
@@ -1074,7 +1095,10 @@
   ([context-ns declaration]
    (validate-declaration-references! context-ns declaration *registered-declaration-names*))
   ([context-ns declaration names]
-   (let [scope (cond-> names (:name declaration) (conj (:name declaration)))
+   (let [names (if-let [module (:module declaration)]
+                 (into names (map #(symbol module (name %))) names)
+                 names)
+         scope (cond-> names (:name declaration) (conj (:name declaration)))
          scope (reduce (fn [scope {:keys [name type properties]}]
                          (when-not (:zig/variadic properties)
                            (validate-reference-form! context-ns scope type))
@@ -1394,7 +1418,7 @@
 
 (def ^:private infix-operators
   {"+" "+", "-" "-", "*" "*", "/" "/", "%" "%"
-   "++" "++", "**" "**", "||" "||", "<<|" "<<|"
+   "++" "++", "||" "||", "<<|" "<<|"
    ".." "..", "..." "..."
    "+%" "+%", "-%" "-%", "*%" "*%"
    "+|" "+|", "-|" "-|", "*|" "*|"
@@ -2184,14 +2208,14 @@
                 target (if (and (seq? target) (= 'type (first target)))
                          (second target) target)
                 reference (when (symbol? target) (current-zig-reference target))
-                accessor (get (:container-state-accessors reference) (name (second args)))]
+                member (identifier-fragment (second args))
+                accessor (get (:container-state-accessors reference) member)]
             (if (and *reloadable-state-references?* accessor
                      (or (:import-alias reference)
                          (contains? *reloadable-state-accessors* accessor)))
               (str (when-let [alias (:import-alias reference)] (str alias "."))
                    accessor "().*")
-              (let [receiver (postfix-source (first args))
-                    member (identifier-fragment (second args))]
+              (let [receiver (postfix-source (first args))]
                 (when *inspection-placement*
                   (reset! *inspection-placement*
                           {:placement :field
@@ -3732,11 +3756,11 @@
                 "}\n\n"
                 (when linkable? "pub ")
                 "export fn " align-getter "() callconv(.c) usize {\n"
-                "    return @typeInfo(@TypeOf(&" name ")).pointer.alignment orelse @alignOf(@TypeOf(" name "));\n"
+                "    return @typeInfo(@TypeOf(&" name ")).pointer.attrs.@\"align\" orelse @alignOf(@TypeOf(" name "));\n"
                 "}\n\n"
                 (when linkable? "pub ")
                 "export fn " pointer-align-getter "() callconv(.c) usize {\n"
-                "    return @typeInfo(@TypeOf(&" name ")).pointer.alignment orelse 0;\n"
+                "    return @typeInfo(@TypeOf(&" name ")).pointer.attrs.@\"align\" orelse 0;\n"
                 "}")))))
 
 (defn- emit-development-declaration
@@ -3956,6 +3980,8 @@
 (defn struct-container-form
   "Lower vector fields and nested declarations through the regular container emitter."
   [options members]
+  (when (contains? options :argument)
+    (fail! "Unsupported container option" options {:option :argument}))
   (list 'aguafria.zig/container (merge {:kind :struct} options)
         (mapv (fn [member]
                 (if-let [declaration (vector-container-declaration member)]
@@ -3980,6 +4006,8 @@
 (defn enum-container-form
   "Lower vector tags, preserving explicit values, names and documentation."
   [options members]
+  (when (contains? options :argument)
+    (fail! "Unsupported container option" options {:option :argument}))
   (list 'aguafria.zig/container (assoc options :kind :enum)
         (mapv (fn [member]
                 (if-let [declaration (vector-container-declaration member)]
@@ -4007,6 +4035,8 @@
   "Parse one explicit vector containing all fields/tags and nested declarations."
   [declaration]
   (let [[doc options tail] (type-declaration-prefix declaration)]
+    (when (contains? options :argument)
+      (fail! "Unsupported container option" declaration {:option :argument}))
     (when-not (and (= 1 (count tail)) (vector? (first tail)))
       (fail! "Container declarations require one member vector" declaration))
     [doc options (first tail)]))
@@ -4136,7 +4166,7 @@
                {:doc doc :layout (or (:layout attributes) :normal)
                 :fields (storage-fields members)
                 :value (struct-container-form
-                        (select-keys attributes [:layout :argument :zig/trailing]) members)}))
+                        (select-keys attributes [:layout :type :zig/trailing]) members)}))
 
       import-decl
       (let [[name import-name _members] declaration]
@@ -4249,8 +4279,10 @@
     (when-not (and (= 3 (count form)) (map? options)
                    (keyword? (:kind options)) (vector? members))
       (fail! "container expects an option map with :kind and one member vector" form))
-    (let [{:keys [kind layout enum? argument zig/trailing attrs]}
+    (let [{:keys [kind layout enum? type zig/trailing attrs]}
           (keyword/normalize-attributes *ns* options)
+          _ (when (contains? options :argument)
+              (fail! "Unsupported container option" form {:option :argument}))
           enum? (or enum? (contains? (set attrs) :enum))
           layout-source (case layout
                           :extern "extern "
@@ -4262,13 +4294,13 @@
           kind-source
           (case kind
             :struct (str "struct"
-                         (when argument (str "(" (emit-type argument) ")")))
-            :enum (str "enum" (when argument (str "(" (emit-type argument) ")")))
+                         (when type (str "(" (emit-type type) ")")))
+            :enum (str "enum" (when type (str "(" (emit-type type) ")")))
             :union (cond
                      enum? (str "union(enum"
-                                (when argument (str "(" (emit-type argument) ")"))
+                                (when type (str "(" (emit-type type) ")"))
                                 ")")
-                     argument (str "union(" (emit-type argument) ")")
+                     type (str "union(" (emit-type type) ")")
                      :else "union")
             :opaque "opaque"
             (fail! "container kind must be :struct, :enum, :union, or :opaque"

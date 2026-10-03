@@ -22,8 +22,9 @@
            [java.security MessageDigest]
            [java.util.concurrent Callable Executors ExecutionException TimeUnit]))
 
-(def upstream-commit "24fdd5b7a4c1c8b5deb5b56756b9dbc8e08c86a8")
-(def upstream-url "https://ziglang.org/documentation/0.16.0/")
+(def upstream-version "0.17.0")
+(def upstream-commit "7647adab80dd088f4de3610fd245915a912eb6ad")
+(def upstream-url (str "https://ziglang.org/documentation/" upstream-version "/"))
 (def upstream-dir "resources/upstream")
 
 (defn- checked-command! [& command]
@@ -92,7 +93,7 @@
                    (= upstream-commit (str/trim (:out revision)))
                    (zero? (:exit changes))
                    (str/blank? (:out changes)))
-      (throw (ex-info "Snapshot requires the clean Zig 0.16.0 checkout"
+      (throw (ex-info (str "Snapshot requires the clean Zig " upstream-version " checkout")
                       {:revision revision :changes changes})))
     (when (.exists (io/file upstream-dir))
       (throw (ex-info "Snapshot already exists; refusing overwrite" {})))
@@ -107,7 +108,7 @@
           (io/copy (io/file checkout relative) destination)))
       (write-text! (str upstream-dir "/index.html") (slurp upstream-url))
       (write-edn! (str upstream-dir "/lock.edn")
-                  {:version "0.16.0"
+                  {:version upstream-version
                    :commit upstream-commit
                    :repository "https://codeberg.org/ziglang/zig.git"
                    :html-url upstream-url
@@ -139,9 +140,10 @@
   (let [lock (verify-snapshot!)
         template (slurp (io/file upstream-dir "doc/langref.html.in"))
         html (slurp (io/file upstream-dir "index.html"))
+        publication (read-edn "resources/learn/publication.edn")
         references (mapv second (re-seq #"\{#code\|([^#]+)#\}" template))
         snippets (re-seq #"(?s)\{#(syntax|syntax_block|shell_samp)(?:\|([^#]+))?#\}(.*?)\{#end(?:syntax|_syntax_block|_shell_samp)#\}" template)]
-    {:version "0.16.0"
+    {:version upstream-version
      :sections (mapv (fn [[_ level id]] {:level level :id id})
                      (re-seq #"<h([1-6]) id=\"([^\"]+)\"" html))
      :code-references references
@@ -158,14 +160,20 @@
                 (map #(io/file upstream-dir %))))
      :snippets
      (mapv (fn [index [_ kind attributes source]]
-             {:id (str "snippet-" (inc index))
+             (cond-> {:id (str "snippet-" (inc index))
               :kind kind
               :attributes attributes
               :source source
               :source-sha256 (text-sha256 source)
               :status (if (= "shell_samp" kind) :zig-only :pending)
               :reason (when (= "shell_samp" kind)
-                        "ZIG_ONLY: compiler/shell command, not application source.")})
+                        "ZIG_ONLY: compiler/shell command, not application source.")}
+               (get-in publication [:source-only source])
+               (assoc :published? false
+                      :upstream-difference (get-in publication [:source-only source]))
+               (get-in publication [:rendered source])
+               (assoc :rendered-source (get-in publication [:rendered source :source])
+                      :upstream-difference (get-in publication [:rendered source :reason]))))
            (range) snippets)}))
 
 (defn example-id [filename]
@@ -259,6 +267,7 @@
      :harness (sha256 "resources/upstream/tools/doctest.zig")
      :verifier (sha256 "src/learn/reference.clj")
      :overrides (sha256 "resources/learn/overrides.edn")
+     :publication (sha256 "resources/learn/publication.edn")
      :reviews (sha256 "resources/learn/verification.edn")}))
 
 (defn example-source-inputs
@@ -517,7 +526,7 @@
                      (fragment-test-source source (:entry fixture) fixture)
                      (fragment-test-source (slurp emitted-path)
                                            (emitted-entry clojure-source) fixture))
-                    (= "snippet-1181" id)
+                    (= :discovery (:verification override))
                     (verify-discovery! source (slurp emitted-path)))]
               (when (and comparison
                          (not (contains? #{:output-matched :discovery-matched}
@@ -725,7 +734,7 @@
      :comparison comparison :original original :emitted emitted}))
 
 (defn verify-discovery!
-  "Compare snippet-1181's import discovery, not its intentionally different
+  "Compare the import-discovery fragment, not its intentionally different
   empty-test framing. Keep every process result, including compilation errors."
   [original emitted]
   (let [fixture-path "resources/learn/discovery-fixture.edn"
@@ -857,12 +866,13 @@
           snippets))))
 
 (defn doctest-tool! []
-  (let [binary (.getAbsolutePath (io/file "build/bin/doctest"))
-        source (.getAbsolutePath (io/file upstream-dir "tools/doctest.zig"))
-        zig (az/zig-executable)]
+  (let [source (.getAbsolutePath (io/file upstream-dir "tools/doctest.zig"))
+        zig (az/zig-executable)
+        identity (text-sha256 (pr-str [zig (sha256 source)]))
+        binary (.getAbsolutePath (io/file "build/bin" (str "doctest-" identity)))]
     (when-not (.isFile (io/file binary))
       (io/make-parents binary)
-      (let [result (run-command [zig "build-exe" source "-OReleaseSafe"
+      (let [result (run-command [zig "build-exe" source "-Osafe"
                                  (str "-femit-bin=" binary)] 120)]
         (when-not (zero? (:exit result))
           (throw (ex-info "Could not build pinned upstream doctest tool" result)))))
@@ -1301,7 +1311,11 @@
   outcome, not exhaustive equivalence for every possible program input."
   [tool example translation]
   (let [{:keys [file manifest]} example
-        original (run-doctest! tool file :zig)
+        source-artifact? (nil? manifest)
+        original (if source-artifact?
+                   {:verification :source-artifact
+                    :sha256 (sha256 (io/file upstream-dir "doc/langref" file))}
+                   (run-doctest! tool file :zig))
         front-end? (= :translated-front-end-error (:status translation))
         front-end-diagnostic
         (when front-end?
@@ -1313,7 +1327,9 @@
               (catch Exception failure (.getMessage failure))))))]
     (if-not (= :translated (:status translation))
       {:file file
-       :status (if (and (zero? (:exit original))
+       :status (if (and (if source-artifact?
+                         (= (:sha256 example) (:sha256 original))
+                         (zero? (:exit original)))
                         (or (= :zig-only (:status translation))
                             (and front-end?
                                  (= (:diagnostic translation) front-end-diagnostic))))

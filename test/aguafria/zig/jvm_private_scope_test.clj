@@ -18,16 +18,14 @@
             (aguafria.zig/field
              (aguafria.keyword/typeInfo
               (aguafria.zig/unwrap
-               (aguafria.zig/field
-                (aguafria.zig/index
+              (aguafria.zig/index
                  (aguafria.zig/field
                   (aguafria.zig/field
                    (aguafria.keyword/typeInfo
                     (aguafria.keyword/TypeOf aguafria.zig.jvm-private-scope-fixture/parameter-owner))
                    :fn)
-                  :params)
-                 0)
-                :type)))
+                  :param_types)
+                 0)))
              :optional)
             :child))
           :pointer)

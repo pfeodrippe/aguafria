@@ -1,6 +1,6 @@
 (ns learn.example.test-src-builtin
   (:require [aguafria.keyword :as k]
-            [aguafria.std.builtin.SourceLocation :as source-location]
+            [aguafria.std.lang.SourceLocation :as source-location]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))

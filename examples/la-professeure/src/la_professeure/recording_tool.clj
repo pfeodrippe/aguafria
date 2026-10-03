@@ -1,13 +1,18 @@
 (ns la-professeure.recording-tool
   "Native development tooling, authored in Aguafria Zig. The game doesn't call this entry point."
-  (:require [aguafria.std] [aguafria.std.mem :as mem]
+  (:require [aguafria.c :as ac]
+            [clojure.java.io :as io]
+            [aguafria.std] [aguafria.std.mem :as mem]
             [aguafria.std.process :as process]
             [aguafria.std.process.Args.Iterator :as args]
             [aguafria.std.debug :as debug]
             [aguafria.keyword :as k] [aguafria.zig :as az]))
 
 ;; Bitwig owns .bwproject serialization. This tool owns the Markdown → track plan.
-(az/defconst c (k/cImport (do (k/cInclude "stdio.h") (k/cInclude "stdlib.h"))))
+(az/defconst c
+  (k/import (az/clj! (ac/import! "la_professeure_recording_io"
+                                 (io/file (io/resource "native/recording_tool.h"))
+                                 {:args ["-lc"]}))))
 
 (az/defconst fopen (:fopen c))
 

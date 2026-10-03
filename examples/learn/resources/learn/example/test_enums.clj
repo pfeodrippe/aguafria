@@ -1,8 +1,7 @@
 (ns learn.example.test-enums
   (:require [aguafria.keyword :as k]
-            [aguafria.std.builtin.Type :as type-info]
-            [aguafria.std.builtin.Type.Enum :as enum-info]
-            [aguafria.std.builtin.Type.EnumField :as field-info]
+            [aguafria.std.lang.Type :as type-info]
+            [aguafria.std.lang.Type.Enum :as enum-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -17,7 +16,7 @@
 ;; If you want access to the ordinal value of an enum, you
 ;; can specify the tag type.
 (az/defenum Value
-  {:argument :u2}
+  {:type :u2}
   [:zero
    :one
    :two])
@@ -25,25 +24,25 @@
 ;; Now you can cast between u2 and Value.
 ;; The ordinal value starts from 0, counting up by 1 from the previous member.
 (az/deftest enum-ordinal-value
-  (try (testing/expectEqual 0 (k/intFromEnum (:zero Value))))
-  (try (testing/expectEqual 1 (k/intFromEnum (:one Value))))
-  (try (testing/expectEqual 2 (k/intFromEnum (:two Value)))))
+  (try (testing/expectEqual 0 (k/backingInt (:zero Value))))
+  (try (testing/expectEqual 1 (k/backingInt (:one Value))))
+  (try (testing/expectEqual 2 (k/backingInt (:two Value)))))
 
 ;; You can override the ordinal value for an enum.
 (az/defenum Value2
-  {:argument :u32}
+  {:type :u32}
   [[:hundred 100]
    [:thousand 1000]
    [:million 1000000]])
 
 (az/deftest set-enum-ordinal-value
-  (try (testing/expectEqual 100 (k/intFromEnum (:hundred Value2))))
-  (try (testing/expectEqual 1000 (k/intFromEnum (:thousand Value2))))
-  (try (testing/expectEqual 1000000 (k/intFromEnum (:million Value2)))))
+  (try (testing/expectEqual 100 (k/backingInt (:hundred Value2))))
+  (try (testing/expectEqual 1000 (k/backingInt (:thousand Value2))))
+  (try (testing/expectEqual 1000000 (k/backingInt (:million Value2)))))
 
 ;; You can also override only some values.
 (az/defenum Value3
-  {:argument :u4}
+  {:type :u4}
   [:a
    [:b 8]
    :c
@@ -51,11 +50,11 @@
    :e])
 
 (az/deftest enum-implicit-ordinal-values-and-overridden-values
-  (try (testing/expectEqual 0 (k/intFromEnum (:a Value3))))
-  (try (testing/expectEqual 8 (k/intFromEnum (:b Value3))))
-  (try (testing/expectEqual 9 (k/intFromEnum (:c Value3))))
-  (try (testing/expectEqual 4 (k/intFromEnum (:d Value3))))
-  (try (testing/expectEqual 5 (k/intFromEnum (:e Value3)))))
+  (try (testing/expectEqual 0 (k/backingInt (:a Value3))))
+  (try (testing/expectEqual 8 (k/backingInt (:b Value3))))
+  (try (testing/expectEqual 9 (k/backingInt (:c Value3))))
+  (try (testing/expectEqual 4 (k/backingInt (:d Value3))))
+  (try (testing/expectEqual 5 (k/backingInt (:e Value3)))))
 
 ;; Enums can have methods, the same as structs and unions.
 ;; Enum methods are not special, they are only namespaced
@@ -100,13 +99,20 @@
 
 ;; @typeInfo tells us the field count and the fields names:
 (az/deftest typeInfo
-  (try (testing/expectEqual 4 (:len (enum-info/-fields (type-info/-enum (k/typeInfo Small))))))
+  (try (testing/expectEqual 4 (:len (enum-info/-field_names (type-info/-enum (k/typeInfo Small))))))
   (try (testing/expectEqualStrings
-        (field-info/-name (az/get (enum-info/-fields (type-info/-enum (k/typeInfo Small))) 1)) "two")))
+        (az/get (enum-info/-field_names (type-info/-enum (k/typeInfo Small))) 1) "two")))
 
 ;; @tagName gives a [:0]const u8 representation of an enum value:
 (az/deftest tagName
   (try (testing/expectEqualStrings (k/tagName (:three Small)) "three")))
+
+;; Empty enums are uninstantiable, their tag type is always noreturn.
+(az/defenum Empty [])
+
+(az/deftest empty-enum
+  (try (testing/expectEqual (az/type :noreturn)
+                            (enum-info/-tag_type (type-info/-enum (k/typeInfo Empty))))))
 
 (comment
   (enum-ordinal-value)
@@ -116,4 +122,5 @@
   (enum-switch)
   (std-meta-Tag)
   (typeInfo)
-  (tagName))
+  (tagName)
+  (empty-enum))

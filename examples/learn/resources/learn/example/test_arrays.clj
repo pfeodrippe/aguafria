@@ -60,14 +60,8 @@
 (az/defcomptime concatenated-string
   (debug/assert (mem/eql :u8 hello-world "hello world")))
 
-;; ** does repeating patterns
-(az/defconst pattern (k/** "ab" 3))
-
-(az/defcomptime repeated-string
-  (debug/assert (mem/eql :u8 pattern "ababab")))
-
 ;; initialize an array to zero
-(az/defconst all-zero (k/** (az/array [0] :u16) 10))
+(az/defconst all-zero [:array 10 :u16] (k/splat 0))
 
 (az/defcomptime zero-initialization
   (debug/assert (k/== (:len all-zero) 10))
@@ -96,7 +90,7 @@
   (Point {:x x :y (k/* x 2)}))
 
 ;; call a function to initialize an array
-(az/defvar more-points (k/** (az/array [(make-point 3)] Point) 10))
+(az/defvar more-points [:array 10 Point] (k/splat (make-point 3)))
 
 (az/deftest array-initialization-with-function-calls
   (try (testing/expectEqual 3 (az/get-in more-points [4 :x])))

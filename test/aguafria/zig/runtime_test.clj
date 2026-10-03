@@ -1,8 +1,93 @@
 (ns aguafria.zig.runtime-test
   (:require [aguafria.zig.runtime :as runtime]
             [aguafria.zig.emitter :as emitter]
+            [aguafria.zig.project :as project]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
+
+(deftest adapter-compilation-retains-its-published-inputs
+  (let [local-type {:kind :const :name 'Local :module "fixture.adapter"
+                    :schema-fingerprint "local-v1" :value '(type :u32)}
+        imported-type {:kind :const :name 'Imported :module "fixture.types"
+                       :schema-fingerprint "imported-v1" :value '(type :u64)}
+        slice {:declarations [local-type]
+               :compile-source "adapter source"
+               :development-root-source "published root"
+               :development-root-declarations [local-type]
+               :development-root-dependencies ["fixture.types"]
+               :dependency-snapshot
+               {"fixture.types" {:source "published dependency"
+                                 :type-declarations [imported-type]}}}
+        inputs (atom nil)
+        compilation
+        (with-redefs-fn
+          {#'runtime/compile-source!
+           (fn [& arguments]
+             (reset! inputs arguments)
+             {:library-path "adapter.dylib"})}
+          #(#'runtime/compile-slice! "fixture.adapter" slice))
+        snapshot (get-in compilation [:compiled :compilation-snapshot])]
+    (is (= ["fixture.adapter" (:compile-source slice) (:declarations slice)
+            (:dependency-snapshot slice) (:development-root-source slice)
+            (:development-root-dependencies slice) (:development-root-declarations slice)]
+           @inputs))
+    (is (= (dissoc slice :compile-source)
+           (dissoc snapshot :materialization-type-declarations)))
+    (is (= {["fixture.adapter" 'Local] local-type
+            ["fixture.types" 'Imported] imported-type}
+           (:materialization-type-declarations snapshot)))
+    (is (= "adapter.dylib" (get-in compilation [:compiled :library-path])))
+    (with-bindings {#'runtime/*materialization-type-declarations*
+                    (:materialization-type-declarations snapshot)}
+      (with-redefs-fn
+        {#'runtime/referenced-declaration
+         (fn [& _] (throw (ex-info "Must not read a newer type declaration" {})))}
+        #(do
+           (is (= :u32 (#'runtime/bridge-storage-type "fixture.adapter" 'Local #{})))
+           (is (= :u64 (#'runtime/bridge-storage-type "fixture.adapter" 'fixture.types/Imported #{}))))))))
+
+(deftest retained-adapter-root-keeps-its-generated-module-imports
+  (let [caller {:module "fixture.adapter" :kind :fn :name 'answer
+                :args [] :return :u32 :body [42]}
+        imported {:module "fixture.adapter" :kind :const :name 'generated
+                  :value '(aguafria.keyword/import "generated")}
+        options
+        (with-redefs-fn
+          {#'project/generated-modules
+           (fn [module] (when (= module "fixture.adapter") {"generated" "pub const n = 7;"}))
+           #'runtime/materialize-module-source! (fn [module _] (str module ".zig"))}
+          #(#'runtime/compiler-options-for-declarations
+            {:development-dependencies? true
+             :development-root-source "published root"
+             :development-root-declarations [caller imported]
+             :development-root-dependencies []
+             :dependency-snapshot {}}
+            [caller]))]
+    (is (= "build-generated-generated.zig" (get-in options [:modules "generated"])))
+    (is (= ["generated"] (get-in options [:module-dependencies "fixture.adapter"])))
+    (is (not (contains? options :development-root-declarations)))))
+
+(deftest retained-adapter-root-keeps-its-type-dependencies
+  (let [callable {:module "fixture.adapter" :kind :fn :name 'answer}
+        retained {:module "fixture.adapter" :kind :var :name 'state}
+        observed (atom nil)
+        stop (ex-info "Captured compiler inputs" {})]
+    (with-redefs-fn
+      {#'runtime/extend-development-dependency-snapshot (fn [snapshot & _] snapshot)
+       #'runtime/development-linkage-logical-ids
+       (fn [declarations]
+         (cond-> #{:callable-dependency}
+           (some #{retained} declarations) (conj :retained-state-type)))
+       #'runtime/development-capsule-logical-ids
+       (fn [_ logical-ids]
+         (reset! observed logical-ids)
+         (throw stop))}
+      #(is (identical? stop
+                       (try
+                         (#'runtime/compile-source! "fixture.adapter" "adapter"
+                          [callable] {} "published root" [] [callable retained])
+                         (catch Exception error error)))))
+    (is (= #{:callable-dependency :retained-state-type} @observed))))
 
 (deftest root-context-scan-requires-an-import-and-keeps-member-semantics
   (let [members #'runtime/root-context-member-names
@@ -1103,6 +1188,20 @@
                 (:schema-fingerprint field-type-change)))
       (is (not= (:schema-fingerprint baseline)
                 (:schema-fingerprint field-order-change))))))
+
+(deftest enum-backing-type-participates-in-schema-identity
+  (let [declaration {:module "fixture.live"
+                     :kind :const
+                     :name 'Tag
+                     :declaration-key [:const 'Tag]
+                     :value '(aguafria.zig/container {:kind :enum :type :u8}
+                               [(aguafria.zig/enum-field-decl :ready {})])}
+        baseline (runtime/declaration-info declaration)
+        changed (runtime/declaration-info
+                 (assoc-in declaration [:value] (list 'aguafria.zig/container
+                                                     {:kind :enum :type :u32}
+                                                     (nth (:value declaration) 2))))]
+    (is (not= (:schema-fingerprint baseline) (:schema-fingerprint changed)))))
 
 (deftest converted-container-schema-ignores-method-bodies-test
   (let [declaration

@@ -2,6 +2,7 @@
   (:require [aguafria.zig.convert :as convert]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.value :as value]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -51,7 +52,7 @@
         source (:clojure-source (convert/convert-file path options))]
     (is (str/includes? source "(az/array [1 2] :i32)"))
     (is (str/includes? source "(k/++ left right)"))
-    (is (str/includes? source "(k/** left 2)"))
+    (is (str/includes? source "(k/splat 0)"))
     (is (str/includes? source "(az/array [1 2] {:sentinel 0} :u8)"))
     (is (not (str/includes? source "array-init")))
     (is (:success? (convert/verify-file path options)))))
@@ -377,6 +378,35 @@
            (#'convert/restore-module-imports
             module-imports "fixture.main" source)))))
 
+(deftest build-graph-inspection-runs-only-required-producers
+  (let [input "test/fixtures/build_options_project"
+        graph (convert/build-generated-modules input
+                                               {:build-steps ["inspection-only"]})]
+    (is (= 2 (:module-count graph)))
+    (is (= 2 (:path-value-count graph)))
+    (is (every? #(.isFile (io/file (:path %)))
+                (mapcat :paths (:path-modules graph))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown Zig build step: nonexistent"
+                          (convert/build-generated-modules input
+                                                           {:build-steps ["nonexistent"]})))))
+
+(deftest build-graph-inspection-reports-compiler-and-producer-failures
+  (let [input "test/fixtures/build_options_project"
+        empty-profile (convert/build-generated-modules input {:build-steps ["empty"]})]
+    (is (zero? (:module-count empty-profile)))
+    (is (zero? (:source-module-count empty-profile)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"missing-input.txt"
+                          (convert/build-generated-modules input
+                                                           {:build-steps ["broken-producer"]})))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Fixture build configuration is invalid"
+                          (convert/build-generated-modules "test/fixtures/invalid_build_graph")))))
+
+(deftest build-file-selection-does-not-reuse-another-files-configuration
+  (let [input "test/fixtures/invalid_build_graph"]
+    (is (zero? (:module-count (convert/build-generated-modules input {:build-file "alternate.zig"}))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Fixture build configuration is invalid"
+                          (convert/build-generated-modules input)))))
+
 (deftest build-generated-option-modules-are-captured-and-used-test
   (testing "Zig configure data becomes self-contained EDN and needs no manual module path"
     (let [input "test/fixtures/build_options_project"
@@ -467,8 +497,8 @@
               resolved-source
               (get (project/generated-modules (:namespace root-report))
                    "build_options")]
-          (is (= 42 value))
-          (is (= 7 (generated-answer)))
+          (is (= 42 (value/decoded value)))
+          (is (= 7 (value/decoded (generated-answer))))
           (is (some #(str/starts-with? % "-Mgenerated_code=")
                     (:command (runtime/module-info (:namespace root-report))))
               "the generated-answer slice includes its generated module")
@@ -478,14 +508,14 @@
                             (:bundle-relative
                              (some #(when (= "data_path" (:name %)) %)
                                    (:paths captured-module))))))
-                 (data-path-length)))
+                 (value/decoded (data-path-length))))
           (is (= (count
                   (.getCanonicalPath
                    (io/file output
                             (:bundle-relative
                              (some #(when (= "tool_path" (:name %)) %)
                                    (:paths captured-module))))))
-                 (tool-path-length)))
+                 (value/decoded (tool-path-length))))
           (is (str/includes? resolved-source (.getAbsolutePath output)))
           (is (not (str/includes? resolved-source
                                   (.getCanonicalPath (io/file input)))))
@@ -597,7 +627,12 @@
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
     (is (str/includes? clojure-source "(az/container"))
-    (is (str/includes? clojure-source "(az/enum-field-decl"))
+    (is (str/includes? clojure-source "(az/defenum BooleanName"))
+    (is (< (str/index-of clojure-source "Replica\n")
+           (str/index-of clojure-source "[replica Replica]")))
+    (is (< (str/index-of (:zig-source verification) "replica: Replica")
+           (str/index-of (:zig-source verification) "client,"))
+        "Declaring local types first preserves the emitted field/tag order")
     (is (str/includes? clojure-source "(az/fn"))
     (is (not (str/includes? clojure-source "(az/fn-decl")))
     (is (str/includes? clojure-source ":zig/name \"@\\\"127.0.0.1\\\"\""))
@@ -737,7 +772,7 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources"
+                       ["src" "resources" "generated"
                         "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
@@ -775,7 +810,7 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources"
+                       ["src" "resources" "generated"
                         "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
@@ -828,7 +863,7 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources"
+                       ["src" "resources" "generated"
                         "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
@@ -895,7 +930,7 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources"
+                       ["src" "resources" "generated"
                         "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
@@ -961,7 +996,7 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources"
+                       ["src" "resources" "generated"
                         "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"
@@ -1037,7 +1072,7 @@
         classpath
         (pr-str
          {:paths (mapv #(.getAbsolutePath (io/file %))
-                       ["src" "resources"
+                       ["src" "resources" "generated"
                         "examples/tigerbeetle-agua/generated"])})
         result (shell/sh "clojure"
                          "-J--enable-native-access=ALL-UNNAMED"

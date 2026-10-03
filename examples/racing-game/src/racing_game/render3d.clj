@@ -502,6 +502,10 @@
   (mod (/ (* (+ progress (ak/as (ak/floatFromInt lap) :f32)) 4309.0)
           (ak/max radius 0.01)) 6.2831855))
 
+(az/defn racer-tint Vec3 [[id :usize]]
+  (let [color (az/index colors (mod (ak/as id :usize) sim/racer-count))]
+    (Vec3 {:x (az/index color 0) :y (az/index color 1) :z (az/index color 2)})))
+
 (az/defn wheel! :usize
   "Wheel spin, steering and suspension all come from the independent wheel body."
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]
@@ -537,10 +541,6 @@
                        (Vec3 {:x 0.035 :y 0.045 :z 0.060}))))
           (ak/= next (+ next 3)))))
     next))
-
-(az/defn racer-tint Vec3 [[id :usize]]
-  (let [color (az/index colors (mod (ak/as id :usize) sim/racer-count))]
-    (Vec3 {:x (az/index color 0) :y (az/index color 1) :z (az/index color 2)})))
 
 (az/defn line! :usize
   [[out [:c-pointer mesh/GpuVertex]] [n :usize]

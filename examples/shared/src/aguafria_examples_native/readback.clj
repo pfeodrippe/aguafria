@@ -2,7 +2,6 @@
   "One bounded Vulkan frame readback, owned and completed by the render thread."
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
-            [aguafria.std.fmt :as fmt]
             [aguafria.std.mem :as mem]
             [aguafria.zig :as az]
             [aguafria-examples-native.bindings]
@@ -148,7 +147,7 @@
   "After the submission fence: PPM RGB bytes, with the actual mesh frame tag in its header."
   [[format vk/VkFormat] [frame :u64] [revision :u64] [tick :u64]]
   (let [^:var header-buffer (mem/zeroes (az/type [:array 256 :u8]))
-        header (catch (fmt/bufPrint (ak/& header-buffer)
+        header (catch (mem/print (ak/& header-buffer)
                         "P6\n# pitoco frame={d} revision={d} tick={d} vk_format={d}\n{d} {d}\n255\n"
                         [frame revision tick format width height])
                  (ak/return false))

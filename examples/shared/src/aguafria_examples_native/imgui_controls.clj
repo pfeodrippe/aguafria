@@ -13,18 +13,17 @@
   (let [library (str (build/imgui-controls-path :shared))]
     (when-not (= library @loaded?)
       (let [root (:root (build/paths))
-          header (io/file root "resources/aguafria_examples_native/imgui_controls.h")
-          output (io/file root "generated/aguafria_examples_native/bindings/imgui_controls.clj")]
-      (build/prepare-imgui-controls! :shared)
-      (when-not (and (.isFile output) (>= (.lastModified output) (.lastModified header)))
+            header (io/file root "resources/aguafria_examples_native/imgui_controls.h")
+            output (io/file root "generated/aguafria_examples_native/bindings/imgui_controls.clj")]
+        (build/prepare-imgui-controls! :shared)
         (ac/translate-header! header output
-          {:namespace 'aguafria-examples-native.bindings.imgui-controls
-           :cache-dir (str (io/file root ".aguafria/c-bindings")) :overwrite? true}))
-      (ac/load-bindings! output)
-      (az/configure!
-        {:zig-args (conj (vec (remove #(and (string? %)
-                                        (re-find #"[/\\](?:lib)?aguafria_imgui_controls\.(?:dylib|so|dll)$" %))
-                              (or (:zig-args (az/configuration)) []))) library)})
-      (reset! loaded? library)))))
+                              {:namespace 'aguafria-examples-native.bindings.imgui-controls
+                               :cache-dir (str (io/file root ".aguafria/c-bindings")) :overwrite? true})
+        (ac/load-bindings! output)
+        (az/configure!
+         {:zig-args (conj (vec (remove #(and (string? %)
+                                             (re-find #"[/\\](?:lib)?aguafria_imgui_controls\.(?:dylib|so|dll)$" %))
+                                       (or (:zig-args (az/configuration)) []))) library)})
+        (reset! loaded? library)))))
 
 (ensure-loaded!)

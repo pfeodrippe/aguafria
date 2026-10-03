@@ -220,8 +220,7 @@
                          (and (= :call (:kind syntax))
                               (not (contains? #{"@branchHint" "@compileError" "@compileLog"
                                                 "@setEvalBranchQuota" "@setRuntimeSafety"
-                                                "@setFloatMode" "@setCold"
-                                                "@cImport" "@cDefine" "@cInclude" "@cUndef"}
+                                                "@setFloatMode" "@setCold"}
                                               (:zig-name syntax)))))
               expressions (when probe?
                             (cond
@@ -259,7 +258,7 @@
                                           ;; Keep the original call's parameter context, including
                                           ;; casts and runtime branches whose arms are literals.
                                           (str "@as(@typeInfo(@TypeOf(" (render (first form))
-                                               ")).@\"fn\".params[" index "].type.?, " expression ")")
+                                               ")).@\"fn\".param_types[" index "].?, " expression ")")
                                           expression)))
                                     (range) (rest form))))
               parameters (cond
@@ -270,8 +269,7 @@
                             var-meta (dec (count form))))
               non-call-reason (cond
                                 (= 'aguafria.zig/container function) :type-declaration
-                                (contains? #{"@cImport" "@cDefine" "@cInclude" "@cUndef"
-                                             "@branchHint" "@compileError" "@compileLog"
+                                (contains? #{"@branchHint" "@compileError" "@compileLog"
                                              "@setEvalBranchQuota" "@setRuntimeSafety"
                                              "@setFloatMode" "@setCold"} (:zig-name syntax))
                                 :compiler-directive)
@@ -363,15 +361,15 @@
   (str "\nfn __aguafria_inspect_declarations(comptime T: type, comptime visited: anytype) void {\n"
        "    inline for (visited) |Seen| if (Seen == T) return;\n"
        "    const declarations = switch (@typeInfo(T)) {\n"
-       "        .@\"struct\" => |info| info.decls, .@\"enum\" => |info| info.decls,\n"
-       "        .@\"union\" => |info| info.decls, .@\"opaque\" => |info| info.decls, else => return,\n"
+       "        .@\"struct\" => |info| info.decl_names, .@\"enum\" => |info| info.decl_names,\n"
+       "        .@\"union\" => |info| info.decl_names, .@\"opaque\" => |info| info.decl_names, else => return,\n"
        "    };\n"
        "    inline for (declarations) |declaration| {\n"
-       "        const D = @field(T, declaration.name);\n"
+       "        const D = @field(T, declaration);\n"
        "        if (@TypeOf(D) == type) {\n"
        "            __aguafria_inspect_declarations(D, visited ++ .{T});\n"
        "        } else if (@typeInfo(@TypeOf(D)) == .@\"fn\" and !@typeInfo(@TypeOf(D)).@\"fn\".is_generic) {\n"
-       "            _ = &@field(T, declaration.name);\n"
+       "            _ = &@field(T, declaration);\n"
        "        }\n"
        "    }\n"
        "}\n"

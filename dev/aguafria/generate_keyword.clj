@@ -41,9 +41,6 @@
    {:name "++" :zig-token "++" :zig-tag "plus_plus"
     :kind :operator :minimum-param-count 2 :literal-arguments? true
     :documentation "Concatenate Zig arrays or tuples."}
-   {:name "**" :zig-token "**" :zig-tag "asterisk_asterisk"
-    :kind :operator :param-count 2 :literal-arguments? true
-    :documentation "Repeat a Zig array or tuple a comptime-known number of times."}
    {:name "||" :zig-token "||" :zig-tag "pipe_pipe"
     :kind :operator :minimum-param-count 2 :documentation "Merge Zig error sets."}
    {:name "<<|" :zig-token "<<|" :zig-tag "angle_bracket_angle_bracket_left_pipe"
@@ -428,7 +425,7 @@
   [zls zig-version]
   (try
     (let [zls-version (command-output! [zls "--version"])]
-      (if (= zig-version zls-version)
+      (if (= zig-version (first (str/split zls-version #"-")))
         {:version zls-version :completions (zls-completions zls)}
         (do
           (binding [*out* *err*]
@@ -806,8 +803,15 @@
       (throw (ex-info "Unknown keyword generator options"
                       {:unknown unknown :supported ["--check"]})))
     (let [catalog (generate-catalog {})
-          std-catalog (generate-std-catalog {})
           rendered (render-catalog catalog)
+          _ (when-not check?
+              ;; Std source conversion must use the new compiler's builtin
+              ;; catalog, including builtins introduced by this release.
+              (io/make-parents catalog-path)
+              (spit catalog-path rendered)
+              (require 'aguafria.keyword :reload)
+              (require 'aguafria.zig.convert :reload))
+          std-catalog (generate-std-catalog {})
           rendered-std (render-catalog std-catalog)
           output (io/file catalog-path)
           existing (when (.isFile output) (slurp output))

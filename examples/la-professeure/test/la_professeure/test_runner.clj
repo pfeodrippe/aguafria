@@ -8,25 +8,28 @@
 (def message {:version 1 :sequence 0 :revision 0 :clip "rain"
               :frames 8 :fps 8 :seconds 0 :playing? true})
 
-(deftest audio-bindings-use-literal-member-keywords
-  (let [directory (.toFile (java.nio.file.Files/createTempDirectory
-                            "professeure-bindings-"
-                            (make-array java.nio.file.attribute.FileAttribute 0)))
-        output (with-redefs [build/root (constantly directory)]
-                 (build/bindings!))
-        forms (with-open [reader (java.io.PushbackReader. (io/reader output))]
+(deftest audio-bindings-live-in-an-authored-namespace
+  (let [source (io/resource "la_professeure/miniaudio.clj")
+        forms (with-open [reader (java.io.PushbackReader. (io/reader source))]
                 (binding [*read-eval* false]
                   (loop [forms []]
                     (let [form (read {:eof ::eof} reader)]
                       (if (= ::eof form)
                         forms
                         (recur (conj forms form)))))))
-        exports (drop 2 forms)]
-    (is (= (count build/audio-api) (count exports)))
-    (doseq [[form native-name] (map vector exports build/audio-api)]
-      (is (= native-name (second form)))
-      (is (= '{:attrs #{k/pub}} (nth form 2)))
-      (is (= (list (keyword native-name) 'c-api) (last form))))))
+        [_ name import-expression members] (last forms)]
+    (is (.endsWith (.getPath source) "/src/la_professeure/miniaudio.clj"))
+    (is (= 'ac/defbindings (first (last forms))))
+    (is (= 'c-api name))
+    (is (= 'ac/import! (first import-expression)))
+    (is (every? (set members) '[ma_engine ma_decoder MA_SUCCESS ma_sound_start ma_sound_stop]))))
+
+(deftest audio-consumers-use-namespace-requires
+  (doseq [path ["src/la_professeure/scene.clj" "tools/src/la_professeure/tools/recorder.clj"]]
+    (with-open [reader (java.io.PushbackReader. (io/reader path))]
+      (let [ns-form (read reader)
+            dependencies (rest (first (filter #(and (seq? %) (= :require (first %))) ns-form)))]
+        (is (some #{'[la-professeure.miniaudio :as audio]} dependencies))))))
 
 (deftest native-sources-use-current-learn-patterns
   (doseq [path ["src/la_professeure/gpu.clj" "src/la_professeure/scene.clj"
@@ -36,7 +39,8 @@
                 "tools/src/la_professeure/tools/mixer.clj"]
           :let [source (slurp path)]
           pattern [#"\bak/" #"\(set!\s" #"\^:var\b" #":zig/align\b"
-                   #"az/(?:field|index|array-init|labeled-block)\b"]]
+                   #"az/(?:field|index|array-init|labeled-block)\b"
+                   #"k/c(?:Import|Include)\b"]]
     (is (not (re-find pattern source)) (str path " still uses " pattern))))
 
 (deftest native-bootstrap-is-serialized
@@ -48,16 +52,14 @@
                     (is (= 'aguafria-examples-native.bindings/ensure-loaded! symbol))
                     #(do (swap! calls conj :graphics) (Thread/sleep 20)))
                   build/native! (fn [_] (swap! calls conj :audio))
-                  build/bindings! (constantly :test-bindings)
-                  aguafria.c/load-bindings! #(swap! calls conj %)
                   aguafria.zig/configuration (constantly {})
                   aguafria.zig/configure! (fn [_] (swap! calls conj :configure))]
       (let [requests (doall (repeatedly 12 #(future (build/load-native!))))]
         (doseq [request requests] @request))
       (is @loaded)
-      (is (= [:graphics :audio :test-bindings :configure] @calls))
+      (is (= [:graphics :audio :configure] @calls))
       (build/load-native!)
-      (is (= 4 (count @calls)) "Later requires do not re-import native types")))
+      (is (= 3 (count @calls)) "Later requires do not reinitialize native libraries")))
   (let [loaded (atom false)]
     (with-redefs [build/native-loaded loaded
                   clojure.core/requiring-resolve
@@ -76,8 +78,6 @@
             (with-redefs [build/native-loaded (atom false)
                           clojure.core/requiring-resolve (fn [_] graphics!)
                           build/native! (constantly nil)
-                          build/bindings! (constantly :test-bindings)
-                          aguafria.c/load-bindings! (constantly nil)
                           aguafria.zig/configuration #(deref configuration)
                           aguafria.zig/configure! #(swap! configuration merge %)]
               (when graphics-first? (graphics!))

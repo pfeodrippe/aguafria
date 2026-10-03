@@ -12,6 +12,7 @@
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import [java.io BufferedInputStream File FileOutputStream InputStream
@@ -30,7 +31,7 @@
        "    .name = .aguafria_package_fetch,\n"
        "    .version = \"0.0.0\",\n"
        "    .fingerprint = 0x74d76e368f28958e,\n"
-       "    .minimum_zig_version = \"0.16.0\",\n"
+       "    .minimum_zig_version = \"0.17.0\",\n"
        "    .dependencies = .{},\n"
        "    .paths = .{ \"build.zig\", \"build.zig.zon\" },\n"
        "}\n"))
@@ -74,18 +75,18 @@
                   StandardOpenOption/WRITE]))))
 
 (defn- run-command
-  [arguments directory]
-  (let [builder (doto (ProcessBuilder. ^java.util.List (mapv str arguments))
-                  (.directory (io/file directory))
-                  (.redirectErrorStream true))
-        process (.start builder)
-        output (with-open [reader (io/reader (.getInputStream process))]
-                 (slurp reader))
-        exit (.waitFor process)]
-    {:command (mapv str arguments)
-     :directory (.getAbsolutePath (io/file directory))
-     :exit exit
-     :output output}))
+  ([arguments directory]
+   (run-command arguments directory {}))
+  ([arguments directory environment]
+   (let [result (apply shell/sh
+                       (concat (mapv str arguments)
+                               [:dir (io/file directory)
+                                :env (merge (into {} (System/getenv)) environment)]))]
+     {:command (mapv str arguments)
+      :directory (.getAbsolutePath (io/file directory))
+      :exit (:exit result)
+      :output (:out result)
+      :stderr (:err result)})))
 
 (defn- package-directories
   []
@@ -219,10 +220,9 @@
             _ (.mkdirs zig-cache)
             result (run-command [(runtime/zig-executable)
                                  "fetch"
-                                 "--global-cache-dir"
-                                 (.getAbsolutePath zig-cache)
                                  url]
-                                fetch-project)
+                                fetch-project
+                                {"ZIG_GLOBAL_CACHE_DIR" (.getAbsolutePath zig-cache)})
             actual-hash (str/trim (:output result))]
         (when-not (zero? (:exit result))
           (throw (ex-info "Embedded Zig could not fetch the package"
@@ -231,6 +231,7 @@
                            :expected-hash expected-hash
                            :command (:command result)
                            :exit (:exit result)
+                           :stderr (:stderr result)
                            :output (:output result)})))
         (when-not (= expected-hash actual-hash)
           (throw (ex-info "Fetched Zig package does not match its pinned hash"
@@ -600,9 +601,9 @@
                                               container-access container-clojure %)
                          visible)]
       (into (cond-> [] (seq members)
-              (conj (sorted-map :members members
-                                :name namespace-name
-                                :zig-path (str/join "." container-access))))
+                    (conj (sorted-map :members members
+                                      :name namespace-name
+                                      :zig-path (str/join "." container-access))))
             nested))))
 
 (defn- relative-source
@@ -781,10 +782,10 @@
           configuration (runtime/configuration)
           modules (merge (:modules configuration)
                          (into {} (map (fn [[name package]]
-                                        [name (:root-path package)])) resolved))
+                                         [name (:root-path package)])) resolved))
           cache-tokens (merge (:module-cache-tokens configuration)
                               (into {} (map (fn [[name package]]
-                                             [name (:hash package)])) resolved))
+                                              [name (:hash package)])) resolved))
           module-dependencies
           (merge (:module-dependencies configuration)
                  (into {} (keep (fn [[name spec]]
@@ -877,14 +878,14 @@
 (defn- catalog-reference
   [member]
   (cond-> {:category (:category member)
-   :signature (:signature member)
-   :import (:package member)
-   :kind :import-member
-   :member (:zig-name member)
-   :module (:zig-alias member)
-   :symbol (:symbol member)
-   :type-reference? (:type-reference? member)
-   :zig-name (str (:zig-alias member) "." (:zig-name member))}
+           :signature (:signature member)
+           :import (:package member)
+           :kind :import-member
+           :member (:zig-name member)
+           :module (:zig-alias member)
+           :symbol (:symbol member)
+           :type-reference? (:type-reference? member)
+           :zig-name (str (:zig-alias member) "." (:zig-name member))}
     (= :field (:category member))
     (assoc :field-accessor? true :member-name (:field-name member))))
 

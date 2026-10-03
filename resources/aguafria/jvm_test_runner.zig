@@ -19,7 +19,7 @@ fn runTest() u32 {
         std.debug.print("Expected one selected test, found {d}\n", .{builtin.test_functions.len});
         return 1;
     }
-    std.testing.allocator_instance = .{};
+    std.testing.allocator_instance = .init(std.heap.page_allocator, .{});
     std.testing.environ = .empty;
     std.testing.io_instance = .init(std.testing.allocator, .{});
     std.testing.log_level = .warn;
@@ -39,7 +39,7 @@ fn runTest() u32 {
     };
     if (status == 0) std.debug.print("OK\n", .{});
     std.testing.io_instance.deinit();
-    if (std.testing.allocator_instance.deinit() == .leak) {
+    if (std.testing.allocator_instance.deinit() != 0) {
         std.debug.print("1 test leaked memory.\n", .{});
         status = 1;
     }

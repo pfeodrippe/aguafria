@@ -4,11 +4,8 @@
             [aguafria.zig :as az]))
 
 (az/deftest empty-block-test
-  (let [a (az/block)
-        b (az/init (az/object []) :void)]
-    (try (testing/expectEqual :void (k/TypeOf a)))
-    (try (testing/expectEqual :void (k/TypeOf b)))
-    (try (testing/expectEqual a b))))
+  (let [a (az/block)]
+    (try (testing/expectEqual :void (k/TypeOf a)))))
 
 (comment
   (empty-block-test))

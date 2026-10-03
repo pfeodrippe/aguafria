@@ -81,9 +81,9 @@
           (is (= {:enabled false :number nil :packed {:low 7 :high 3}
                   :inner {:a 1234 :b 6}}
                  (az/value explicit))))
-        (is (= 1239 ((ns-resolve test-ns 'sum-fields) {:b 5})))
-        (is (= 1239 ((ns-resolve test-ns 'native-constructor-sum))))
-        (is (= 1240 ((ns-resolve test-ns 'local-constructor-sum)))))
+        (is (= 1239 (az/value ((ns-resolve test-ns 'sum-fields) {:b 5}))))
+        (is (= 1239 (az/value ((ns-resolve test-ns 'native-constructor-sum)))))
+        (is (= 1240 (az/value ((ns-resolve test-ns 'local-constructor-sum))))))
       (finally
         (az/configure! old-config)
         (remove-ns test-symbol)))))

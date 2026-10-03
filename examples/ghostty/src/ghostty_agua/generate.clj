@@ -164,7 +164,7 @@
     report))
 
 (defn build-standalone!
-  "Materialize then build libghostty-vt ReleaseFast with no JVM dependency."
+  "Materialize then build libghostty-vt fast with no JVM dependency."
   []
   (let [{:keys [standalone-root]} (project-paths)
         materialized (materialize!)
@@ -173,7 +173,7 @@
                 "-Demit-lib-vt=true"
                 "-Demit-xcframework=false"
                 "-Demit-macos-app=false"
-                "-Doptimize=ReleaseFast"]
+                "-Doptimize=fast"]
                standalone-root)
         libraries (->> (file-seq (io/file standalone-root "zig-out/lib"))
                        (filter #(.isFile ^java.io.File %))

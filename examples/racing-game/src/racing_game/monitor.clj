@@ -9,7 +9,6 @@
             [aguafria.std.debug :as std-debug]
             [aguafria.std.c :as std-c]
             [aguafria.std.mem :as std-mem]
-            [aguafria.std.fmt :as std-fmt]
             [aguafria.zig :as az]
             [aguafria-examples-native.bindings.glfw :as glfw]
             [aguafria-examples-native.renderer :as renderer]
@@ -491,7 +490,7 @@
         generation (az/field result generation)
         tint (render3d/racer-tint (az/field request actor))
         ^:var buffer (ak/as ak/undefined [:array 512 :u8])
-        header (catch (std-fmt/bufPrint (ak/& buffer)
+        header (catch (std-mem/print (ak/& buffer)
                         "R{d} | decision #{d} | race {d} | {s}\nInput {d} tokens, output {d} tokens | inference {d:.1} ms + queue {d:.1} ms = {d:.1} ms total"
                         [(az/field request actor) (az/field entry sequence) (az/field request epoch)
                          (protocol/driving-plan-rejection (az/field entry reason))
@@ -521,7 +520,7 @@
   (draw-language-exchange! latest)
   (when (> count 1)
     (let [^:var buffer (ak/as ak/undefined [:array 192 :u8])
-          text (catch (std-fmt/bufPrint (ak/& buffer)
+          text (catch (std-mem/print (ak/& buffer)
                         "Unchanged across {d} calls (#{d}-#{d}). Timings/token counts above are for the latest call."
                         [count oldest (az/field latest sequence)]) (ak/return))]
       (history-text! text 1.0 0.8 0.25))))
@@ -538,7 +537,7 @@
     (when (ak/== visible 0) (ak/return))
     (history-text! "Experimental driver AI. Accepted means valid and installed, NOT a good decision. Team text is not connected here yet." 1.0 0.8 0.25)
     (let [^:var buffer (ak/as ak/undefined [:array 128 :u8])
-          status (catch (std-fmt/bufPrint (ak/& buffer)
+          status (catch (std-mem/print (ak/& buffer)
                           "Current race: {d}. Retained replies below may belong to earlier races."
                           [simulation/race-epoch]) (ak/return))]
       (history-text! status 0.85 0.85 0.85))
@@ -546,7 +545,7 @@
       (ak/= language-history-racer -1))
     (dotimes [identifier simulation/racer-count]
       (let [^:var buffer (ak/as ak/undefined [:array 12 :u8])
-            label (catch (std-fmt/bufPrintZ (ak/& buffer) "R{d}" [identifier]) (ak/return))]
+            label (catch (std-mem/printSentinel (ak/& buffer) "R{d}" [identifier] 0) (ak/return))]
         (when (ak/!= (mod identifier 10) 0)
           (ui/aguafria_ui_same_line))
         (when (ak/!= (ui/aguafria_ui_button (az/field label ptr)) 0)
@@ -558,7 +557,7 @@
       (let [identifier (ak/as (ak/intCast language-history-racer) :usize)
             enabled (az/field (az/index simulation/language-drivers identifier) enabled)
             ^:var buffer (ak/as ak/undefined [:array 96 :u8])
-            status (catch (std-fmt/bufPrint (ak/& buffer) "Showing R{d}. Plain-English driver: {s}."
+            status (catch (std-mem/print (ak/& buffer) "Showing R{d}. Plain-English driver: {s}."
                             [identifier (if enabled "enabled" "disabled")]) (ak/return))]
         (history-text! status 1.0 1.0 1.0)
         (when (ak/!= (ui/aguafria_ui_button (if enabled "Disable text driver" "Enable text driver")) 0)
@@ -642,9 +641,9 @@
       (ak/= frame-report-tick tick)))
   (let [fps (measured-fps)
         ^:var buffer (ak/as ak/undefined [:array 128 :u8])
-        label (catch (std-fmt/bufPrintZ (ak/& buffer)
+        label (catch (std-mem/printSentinel (ak/& buffer)
                        "{d:.1} FPS | {d:.2} ms/frame\nTarget 120 FPS | last {d} frames"
-                       [fps (if (> fps 0.0) (/ 1000.0 fps) 0.0) frame-interval-count])
+                       [fps (if (> fps 0.0) (/ 1000.0 fps) 0.0) frame-interval-count] 0)
                      (ak/return))
         visible (imgui/aguafria_imgui_panel_begin "##frame-rate" 290.0 0.5 0.16)]
     (ak/defer (imgui/aguafria_imgui_panel_end))
@@ -682,7 +681,7 @@
                      (ak/== (az/field recovery gear) 0) "NEUTRAL"
                      :else "FORWARD") [:slice-const :u8])
         ^:var buffer (ak/as ak/undefined [:array 512 :u8])
-        text (catch (std-fmt/bufPrintZ (ak/& buffer)
+        text (catch (std-mem/printSentinel (ak/& buffer)
                       "R{d}  LIVE DRIVING\n{d:.0} km/h\nThrottle {d:.0}%   Brake {d:.0}%\nSteering {d:.1} deg\nGear: {s}\n{s}\nAI cruise request: {d:.0} km/h\nCorner planner cap: {d:.0} km/h"
                       [id (* (az/field racer speed) 3600.0)
                        (* (az/field control throttle) 100.0)
@@ -690,7 +689,7 @@
                        (* (az/field control steering) 57.29578) gear mode
                        (* (az/field racer target_speed) 3600.0)
                        (* (driver/braking-envelope (* (az/field racer progress) 4309.0)
-                                                   (* (az/field racer speed) 1000.0)) 3.6)])
+                                                   (* (az/field racer speed) 1000.0)) 3.6)] 0)
                     (ak/return))]
     (let [visible (imgui/aguafria_imgui_panel_begin "##driving-telemetry" 280.0 0.99 0.94)]
       (ak/defer (imgui/aguafria_imgui_panel_end))

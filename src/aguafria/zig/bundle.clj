@@ -107,7 +107,7 @@
           (recur (next remaining) [] []
                  (conj groups {:name name :path path :deps deps :flags flags}) link-args))
 
-        (or (#{"-ODebug" "-OReleaseSafe" "-OReleaseFast" "-OReleaseSmall"
+        (or (#{"-ODebug" "-Osafe" "-Ofast" "-Osmall"
                "-ferror-tracing" "-funwind-tables" "-fPIC"} argument)
             (re-matches #"-(?:I|D).+" argument))
         (recur (next remaining) deps (conj flags argument) groups link-args)

@@ -10,11 +10,8 @@
             [aguafria-examples-native.mesh :as mesh]
             [la-professeure.gpu :as gpu]
             [la-professeure.recording-tool :as story]
+            [la-professeure.miniaudio :as audio]
             [la-professeure.build :as build]))
-
-(build/load-native!)
-
-(require '[la-professeure.miniaudio :as audio])
 
 (az/defconst animation-fps :f32 8.0)
 

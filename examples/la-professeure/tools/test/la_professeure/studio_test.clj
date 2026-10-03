@@ -1,5 +1,6 @@
 (ns la-professeure.studio-test
-  (:require [aguafria.std]
+  (:require [aguafria.c :as ac]
+            [aguafria.std]
             [clojure.test :refer [deftest is run-tests]]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -40,7 +41,11 @@
 
 (configure-ime-probe!)
 
-(az/defconst ime-probe-api (ak/cImport (ak/cInclude "studio_ime_probe.h")))
+(az/defconst ime-probe-api
+  (ak/import (az/clj! (:translated-zig-path
+                       (ac/translate-zig!
+                        (io/file (la-professeure.build/root) "tools/test/studio_ime_probe.h")
+                        {:args ["-lc"]})))))
 
 (az/defn ime-probe! :bool [[commit? :bool]]
   (when (ak/== studio/studio-window ak/null) (ak/return false))
@@ -1055,7 +1060,7 @@
 
 (az/defn set-game-muted! :void [[muted :bool]] (set! scene/audio-muted muted))
 
-(az/defconst volume-api (ak/cImport (ak/cInclude "miniaudio.h")))
+(az/defconst volume-api audio/c-api)
 
 ;; Opt-in virtual audio source for real device/capture tests. Never uses a
 ;; physical microphone, speaker, system-default device, or the game audio graph.

@@ -14,7 +14,7 @@
 (defonce startup-request (atom 0))
 
 (def shader-reload-enabled?
-  "Separate from Zig optimization: dev can use ReleaseFast. No watcher exists in the standalone entry point."
+  "Separate from Zig optimization: dev can use fast. No watcher exists in the standalone entry point."
   (and (:reloadable? (az/configuration))
        (not= "false" (System/getProperty "la-professeure.shader-reload" "true"))))
 

@@ -81,7 +81,7 @@
     (spit source-file source)
     (let [result (shell/sh (runtime/zig-executable)
                           "test" (.getAbsolutePath source-file)
-                          "-OReleaseSafe"
+                          "-Osafe"
                           "--cache-dir" (.getAbsolutePath (io/file directory "cache")))]
       (is (zero? (:exit result))
           (str "Native destructuring regression failed at " source-file "\n"

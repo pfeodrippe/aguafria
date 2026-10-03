@@ -7,7 +7,7 @@
   [:ok
    :not_ok])
 
-(az/defunion ComplexType {:argument ComplexTypeTag}
+(az/defunion ComplexType {:type ComplexTypeTag}
   [[:ok :u8]
    [:not_ok :void]])
 

@@ -65,7 +65,7 @@
             (is (= :passed (:status ((ns-resolve *ns* (second declaration))))))))))))
 
 (deftest computed-type-options-use-native-results
-  (is (= "*align(@alignOf(i32)) i32"
+  (is (= (str "*align(" (az/value (k/alignOf :i32)) ") i32")
          (emitter/emit-type
           ((requiring-resolve 'aguafria.zig.jvm/constructor-type)
            [:* {:align (k/alignOf :i32)} :i32]))))

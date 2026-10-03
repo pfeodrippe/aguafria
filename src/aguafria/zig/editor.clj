@@ -723,6 +723,16 @@
 (defn- diagnostic
   [error context]
   (let [data (runtime/error-data error)
+        {:keys [start-byte end-byte]} (:aguafria/zig-source data)
+        source-bytes (when (and start-byte end-byte (:source context))
+                       (.getBytes ^String (:source context) StandardCharsets/UTF_8))
+        source-range (when source-bytes
+                       (let [position (fn [offset]
+                                        (offset-position
+                                         (:source context)
+                                         (.length (String. ^bytes source-bytes 0 (int offset)
+                                                           StandardCharsets/UTF_8))))]
+                         {:start (position start-byte) :end (position end-byte)}))
         first-error (first (:errors data))
         parsed-diagnostics (:diagnostics data)
         parsed-diagnostic (first parsed-diagnostics)
@@ -732,7 +742,8 @@
      :uri (:uri context)
      :document-version (:document-version context)
      :source-hash (:source-hash context)
-     :range (or (diagnostic-token-range (:source context) (:range context)
+     :range (or source-range
+                (diagnostic-token-range (:source context) (:range context)
                                         (:message parsed-diagnostic))
                 (some-> parsed-diagnostic :aguafria/source
                         (select-keys [:range]) :range)
@@ -747,7 +758,8 @@
                  :end {:line 0 :character 1}})
      :severity :error
      :code (str (or (:aguafria/phase data) :zig-editor-error))
-     :message (or (:aguafria/report data) (.getMessage ^Throwable error))
+     :message (or (:aguafria/report data) (:cause (Throwable->map error))
+                  (.getMessage ^Throwable error))
      :module (:module context)
      :active-generation retained-generation
      :old-behavior-retained? (some? retained-generation)

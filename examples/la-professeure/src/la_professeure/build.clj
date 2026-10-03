@@ -1,7 +1,7 @@
 (ns la-professeure.build
   "Embedded Zig builds, explicit Vulkan shaders, assets and packaging."
   (:refer-clojure :exclude [run!])
-  (:require [aguafria.c :as ac] [aguafria.zig :as az]
+  (:require [aguafria.zig :as az]
             [aguafria.zig.build :as zig-build]
             [aguafria-examples-native.build :as native]
             [la-professeure.dialogue :as dialogue]
@@ -73,30 +73,8 @@
     (when-not (and (.isFile output) (pos? (.length output)))
       (io/make-parents output)
       (run! (concat [(az/zig-executable) "build-lib" (if (= mode :static) "-static" "-dynamic")
-                     "-OReleaseFast" "-fPIC" (str "-I" vendor) (str "-femit-bin=" output)
+                     "-Ofast" "-fPIC" (str "-I" vendor) (str "-femit-bin=" output)
                      (io/file vendor "miniaudio.c")] audio-frameworks)))
-    output))
-
-(def audio-api
-  '[ma_engine ma_sound ma_decoder ma_data_source MA_SUCCESS
-    ma_engine_init ma_engine_uninit ma_sound_init_from_data_source
-    ma_sound_set_looping ma_sound_set_volume ma_sound_start ma_sound_uninit ma_sound_at_end
-    ma_sound_get_cursor_in_pcm_frames ma_sound_seek_to_pcm_frame
-    ma_sound_stop ma_sound_is_playing
-    ma_decoder_init_file ma_decoder_uninit])
-
-(defn bindings! []
-  ;; Keep the C implementation and layout authoritative in Zig's C importer.
-  ;; These ordinary Vars expose the native API used by this stage without
-  ;; expanding thousands of recursive C-type declarations into JVM metadata.
-  (let [output (io/file (root) "generated/la_professeure/miniaudio.clj")
-        source (str "(ns la-professeure.miniaudio\n"
-                    "  (:require [aguafria.keyword :as k] [aguafria.zig :as az]))\n\n"
-                    "(az/defconst c-api (k/cImport (k/cInclude \"miniaudio.h\")))\n\n"
-                    (apply str (for [name audio-api]
-                                 (str "(az/defconst " name " {:attrs #{k/pub}} (:" name " c-api))\n\n"))))]
-    (io/make-parents output)
-    (when (not= source (when (.isFile output) (slurp output))) (spit output source))
     output))
 
 (defn fixtures! []
@@ -220,7 +198,9 @@
 
 (defn prepare! []
   (compile-story!)
-  (native/prepare-shared!) (native! :shared) (bindings!) (fixtures!) (atlas!) (shaders!)
+  (native/prepare-shared!) (native! :shared)
+  (require 'la-professeure.miniaudio)
+  (fixtures!) (atlas!) (shaders!)
   :prepared)
 
 (defonce native-loaded (atom false))
@@ -270,7 +250,7 @@
         (throw (ex-info "Unexpected utf8proc checkout" {:path (str vendor)})))
       (when-not (and (.isFile output) (pos? (.length output)))
         (io/make-parents output)
-        (run! [(az/zig-executable) "build-lib" "-static" "-OReleaseFast" "-fPIC"
+        (run! [(az/zig-executable) "build-lib" "-static" "-Ofast" "-fPIC"
                "-DUTF8PROC_STATIC" "-lc" (str "-I" vendor)
                (str "-femit-bin=" candidate) (io/file vendor "utf8proc.c")])
         (Files/move (.toPath candidate) (.toPath output)
@@ -290,7 +270,6 @@
       ;; first, so preparation and a fresh REPL use the same linker arguments.
       ((requiring-resolve 'aguafria-examples-native.bindings/ensure-loaded!))
       (native! :shared)
-      (ac/load-bindings! (bindings!))
       (az/configure! {:module-zig-args
                       (assoc (:module-zig-args (az/configuration)) "la-professeure.miniaudio"
                              [(str "-I" (io/file (root) "build/vendor/miniaudio"))])
@@ -321,7 +300,7 @@
         (Files/copy (.toPath file) (.toPath target)
                     (into-array StandardCopyOption [StandardCopyOption/REPLACE_EXISTING]))))
     (select-keys (az/build! 'la-professeure.scene
-                            {:kind :exe :name "la-professeure" :output output :optimize "ReleaseFast"
+                            {:kind :exe :name "la-professeure" :output output :optimize "fast"
                              :reloadable? false :async? false
                              :module-zig-args {"la-professeure.miniaudio"
                                                [(str "-I" (io/file (root) "build/vendor/miniaudio"))]}
@@ -335,7 +314,7 @@
     (io/make-parents output)
     (select-keys (az/build! 'la-professeure.recording-tool
                             {:kind :exe :name "dialogue-tool" :output output
-                             :optimize "ReleaseFast" :reloadable? false :async? false
+                             :optimize "fast" :reloadable? false :async? false
                              :zig-args ["-lc"]}) [:output-path :duration-ms])))
 
 (defn -main [& [command]]

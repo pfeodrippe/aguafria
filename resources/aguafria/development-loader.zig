@@ -5,12 +5,7 @@
 //! Zig library API; the library starts and owns this listener itself.
 
 const std = @import("std");
-const c = @cImport({
-    @cInclude("dlfcn.h");
-    @cInclude("stdio.h");
-    @cInclude("stdlib.h");
-    @cInclude("unistd.h");
-});
+const c = @import("aguafria_hot_reload_libc.zig");
 
 pub export var __aguafria_external_publication_epoch: usize = 0;
 

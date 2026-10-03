@@ -7,7 +7,7 @@ const Ast = std.zig.Ast;
 const Io = std.Io;
 
 fn nodeInt(node: Ast.Node.Index) u32 {
-    return @intFromEnum(node);
+    return @backingInt(node);
 }
 
 fn optNodeInt(node: Ast.Node.OptionalIndex) ?u32 {
@@ -76,7 +76,6 @@ fn writeNodeData(tree: *const Ast, node: Ast.Node.Index, writer: *Io.Writer) !vo
         .mul,
         .div,
         .mod,
-        .array_mult,
         .mul_wrap,
         .mul_sat,
         .add,
@@ -154,7 +153,7 @@ fn writeNodeData(tree: *const Ast, node: Ast.Node.Index, writer: *Io.Writer) !vo
 fn writeNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":nodes [");
     for (0..tree.nodes.len) |raw_index| {
-        const index: Ast.Node.Index = @enumFromInt(raw_index);
+        const index: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         if (raw_index != 0) try writer.writeByte(' ');
         try writer.print("[:{s} {} {} {} ", .{
             @tagName(tree.nodeTag(index)),
@@ -197,7 +196,7 @@ fn writeFunctions(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":functions [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const decl: Ast.Node.Index = @enumFromInt(raw_index);
+        const decl: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         if (tree.nodeTag(decl) != .fn_decl) continue;
         const data = tree.nodeData(decl).node_and_node;
         var buffer: [1]Ast.Node.Index = undefined;
@@ -237,7 +236,7 @@ fn writeFunctions(tree: *const Ast, writer: *Io.Writer) !void {
             try writeOptional(writer, param.anytype_ellipsis3);
             try writer.writeByte(']');
         }
-        try writer.writeAll("]]" );
+        try writer.writeAll("]]");
     }
     try writer.writeAll("]\n");
 }
@@ -246,7 +245,7 @@ fn writeFunctionPrototypes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":function-prototypes [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const decl: Ast.Node.Index = @enumFromInt(raw_index);
+        const decl: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         if (tree.nodeTag(decl) == .fn_decl) continue;
         var buffer: [1]Ast.Node.Index = undefined;
         const proto = tree.fullFnProto(&buffer, decl) orelse continue;
@@ -285,7 +284,7 @@ fn writeFunctionPrototypes(tree: *const Ast, writer: *Io.Writer) !void {
             try writeOptional(writer, param.anytype_ellipsis3);
             try writer.writeByte(']');
         }
-        try writer.writeAll("]]" );
+        try writer.writeAll("]]");
     }
     try writer.writeAll("]\n");
 }
@@ -294,7 +293,7 @@ fn writeTests(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":tests [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const decl: Ast.Node.Index = @enumFromInt(raw_index);
+        const decl: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         if (tree.nodeTag(decl) != .test_decl) continue;
         const data = tree.nodeData(decl).opt_token_and_node;
         if (!first) try writer.writeByte(' ');
@@ -310,7 +309,7 @@ fn writeVarDecls(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":var-decls [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const decl = tree.fullVarDecl(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -345,7 +344,7 @@ fn writeAssignDestructures(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":assign-destructures [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         if (tree.nodeTag(node) != .assign_destructure) continue;
         const full = tree.assignDestructure(node);
         if (!first) try writer.writeByte(' ');
@@ -363,7 +362,7 @@ fn writeSemanticNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":blocks [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         var buffer: [2]Ast.Node.Index = undefined;
         const statements = tree.blockStatements(&buffer, node) orelse continue;
         if (!first) try writer.writeByte(' ');
@@ -375,7 +374,7 @@ fn writeSemanticNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:calls [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         var buffer: [1]Ast.Node.Index = undefined;
         const call = tree.fullCall(&buffer, node) orelse continue;
         if (!first) try writer.writeByte(' ');
@@ -387,7 +386,7 @@ fn writeSemanticNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:builtins [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         var buffer: [2]Ast.Node.Index = undefined;
         const params = tree.builtinCallParams(&buffer, node) orelse continue;
         if (!first) try writer.writeByte(' ');
@@ -399,7 +398,7 @@ fn writeSemanticNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:array-inits [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         var buffer: [2]Ast.Node.Index = undefined;
         const init = tree.fullArrayInit(&buffer, node) orelse continue;
         if (!first) try writer.writeByte(' ');
@@ -413,7 +412,7 @@ fn writeSemanticNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:struct-inits [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         var buffer: [2]Ast.Node.Index = undefined;
         const init = tree.fullStructInit(&buffer, node) orelse continue;
         if (!first) try writer.writeByte(' ');
@@ -431,7 +430,7 @@ fn writeControlNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":ifs [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullIf(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -450,7 +449,7 @@ fn writeControlNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:whiles [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullWhile(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -467,7 +466,7 @@ fn writeControlNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:fors [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullFor(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -482,7 +481,7 @@ fn writeControlNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:switches [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullSwitch(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -495,7 +494,7 @@ fn writeControlNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:switch-cases [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullSwitchCase(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -514,7 +513,7 @@ fn writeAsmNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":asms [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullAsm(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -538,7 +537,7 @@ fn writeTypeNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":array-types [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullArrayType(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -549,7 +548,7 @@ fn writeTypeNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:ptr-types [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullPtrType(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -572,7 +571,7 @@ fn writeTypeNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:slices [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullSlice(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -593,7 +592,7 @@ fn writeContainerNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll(":containers [");
     var first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         var buffer: [2]Ast.Node.Index = undefined;
         const full = tree.fullContainerDecl(&buffer, node) orelse continue;
         if (!first) try writer.writeByte(' ');
@@ -611,7 +610,7 @@ fn writeContainerNodes(tree: *const Ast, writer: *Io.Writer) !void {
     try writer.writeAll("]\n:container-fields [");
     first = true;
     for (0..tree.nodes.len) |raw_index| {
-        const node: Ast.Node.Index = @enumFromInt(raw_index);
+        const node: Ast.Node.Index = @fromBackingInt(@intCast(raw_index));
         const full = tree.fullContainerField(node) orelse continue;
         if (!first) try writer.writeByte(' ');
         first = false;
@@ -662,8 +661,8 @@ pub fn main(init: std.process.Init) !void {
         }
         break :source try arena.dupe(u8, result.items);
     };
-    const source = try arena.dupeZ(u8, source_bytes);
-    var tree = try Ast.parse(gpa, source, .zig);
+    const source = try arena.dupeSentinel(u8, source_bytes, 0);
+    var tree = try Ast.parse(gpa, source, .{ .mode = .zig });
     defer tree.deinit(gpa);
 
     var stdout_buffer: [64 * 1024]u8 = undefined;

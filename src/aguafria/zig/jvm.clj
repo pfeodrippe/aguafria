@@ -569,7 +569,10 @@
       ;; Dimensions and pointer options can be computed by native operations.
       ;; Preserve their Zig expression when available; otherwise embed the
       ;; compiler-produced scalar (for example @alignOf's usize result).
-      (or (comptime-expression type) (value/value type))
+      (let [resolved (or (comptime-expression type) (value/value type))]
+        (if (value/zig-type? resolved)
+          (constructor-type resolved)
+          resolved))
 
       (= :container (get-in (meta type) [:aguafria/zig-reference :category]))
       (emitter/qualify-type (the-ns 'aguafria.zig.jvm)
@@ -774,7 +777,12 @@
 (defn- coerce-raw!
   "Internal coercion; the public boundary below owns numeric scalar results."
   [argument type]
-  (let [type (constructor-type type)
+  (let [type-value (cond
+                     (value/zig-value? type) (value/value type)
+                     (var? type) (var-get type)
+                     :else type)
+        compiler-type? (value/zig-type? type-value)
+        type (constructor-type type)
         source (comptime-expression argument)
         ;; Zig already supplied this exact integer. An explicit integer target
         ;; can use the normal checked transport, without specializing its digits.
@@ -803,7 +811,8 @@
                      ;; A computed type has no JVM ABI until Zig resolves it.
                      ;; Supply ordinary data in its native result context instead
                      ;; of claiming the JVM operand already has that type.
-                     (and (seq? type)
+                     (and (or (seq? type)
+                              (and compiler-type? (coll? argument)))
                           (or (nil? argument) (boolean? argument) (number? argument)
                               (char? argument) (string? argument)
                               (map? argument) (vector? argument))))
@@ -1236,6 +1245,25 @@
       (invoke-expression! context expression parameters arguments)
       (finally (java.lang.ref.Reference/reachabilityFence callee)))))
 
+(defn- scoped-result-type-expression
+  [expression]
+  (let [propagates? (volatile! false)]
+    (letfn [(visit [form]
+              (cond
+                (and (seq? form) (#{'quote 'container 'fn-decl} (first form))) form
+                (and (seq? form) (= 'try (first form)) (= 2 (count form)))
+                (do
+                  (vreset! propagates? true)
+                  (list 'catch (visit (second form)) 'aguafria.keyword/undefined))
+                (coll? form) (walk/walk visit identity form)
+                :else form))]
+      (let [type-expression (visit expression)]
+        (when @propagates?
+          ;; @TypeOf cannot contain `try` outside a function body. The catch
+          ;; yields the same payload type without propagating an error; this
+          ;; expression is used only for type analysis, never execution.
+          (list 'aguafria.keyword/TypeOf type-expression))))))
+
 (defn invoke-scoped!
   "Execute native scoped syntax with JVM lexical captures in the same process.
   Mutable captures are passed by address, not silently copied into parameters."
@@ -1265,11 +1293,27 @@
                               emitter/*local-name-bindings* replacements]
                       (emitter/qualify-form (the-ns caller) form))
          context (the-ns caller)
-         name (symbol (str "__jvm_scope_" (token [expression parameters])))
+         name (symbol (str "__jvm_scope_"
+                           (token (cond-> [expression parameters]
+                                    result? (conj :result)))))
          qualified-name (symbol (str caller) (str name))]
      (if result?
        (try
-         (invoke-expression! context expression parameters arguments)
+         (if-let [result-type (scoped-result-type-expression expression)]
+           (do
+             (locking context
+               (when-not (contains? @prepared-adapters qualified-name)
+                 (binding [runtime/*source-only-registration?* true]
+                   (register! context {:kind :fn :name name :qualified-name qualified-name
+                                       :declaration-key [:fn name]
+                                       :zig-prefix "inline"
+                                       :return [:error-union :anyerror result-type]
+                                       :args parameters :body [(list 'return expression)]}))
+                 (swap! prepared-adapters conj qualified-name)))
+             (invoke-expression! context
+                                 (apply list name (map :name parameters))
+                                 parameters arguments))
+           (invoke-expression! context expression parameters arguments))
          (finally (java.lang.ref.Reference/reachabilityFence locals)))
        (locking context
          (when-not (contains? @prepared-adapters qualified-name)
@@ -1359,23 +1403,28 @@
         member-name (native-member-name member)
         ordinary (list '(field __aguafria_jvm :fieldView) 'input_0 member-name)
         type (list 'type container)
+        declaration-method? (list 'aguafria.keyword/==
+                                  (list 'aguafria.keyword/typeInfo
+                                        (list 'aguafria.keyword/TypeOf
+                                              (list 'aguafria.keyword/field type member-name)))
+                                  '(aguafria.zig/enum-literal ".@\"fn\""))
         method? (when context
                   (list 'aguafria.keyword/switch
                         (list 'aguafria.keyword/typeInfo type)
                         (list 'case
                               (mapv #(list 'aguafria.zig/enum-literal (str ".@\"" % "\""))
-                                    ["struct" "union" "enum" "opaque"])
-                              (list 'and
-                                    (list 'aguafria.keyword/hasDecl type member-name)
-                                    (list 'aguafria.keyword/==
-                                          (list 'aguafria.keyword/typeInfo
-                                                (list 'aguafria.keyword/TypeOf
-                                                      (list 'aguafria.keyword/field type member-name)))
-                                          '(aguafria.zig/enum-literal ".@\"fn\""))))
+                                    ["struct" "union" "enum"])
+                              (list 'if
+                                    (list 'aguafria.keyword/hasField type member-name)
+                                    false
+                                    declaration-method?))
+                        (list 'case ['(aguafria.zig/enum-literal ".@\"opaque\"")]
+                              declaration-method?)
                         (list 'aguafria.zig/case-else false)))]
     {:module (if context (ns-name context) 'aguafria.jvm.field-storage)
-     ;; @hasDecl and the method reference must be analyzed in their defining
-     ;; Zig file: an imported helper cannot see a private declaration.
+     ;; Zig 0.17 hides private declarations from @hasDecl even in their owner.
+     ;; Query the member's actual type in the owner after excluding fields.
+     ;; An unknown member is a compiler error, not an absent-method fallback.
      :expression (if context
                    (list 'if (list 'aguafria.keyword/comptime method?)
                          '((field __aguafria_jvm :boundMethod))
@@ -1408,7 +1457,7 @@
         (list 'aguafria.zig/field
               (list 'aguafria.zig/field
                     (list 'aguafria.keyword/typeInfo
-                          (list 'aguafria.keyword/TypeOf function-reference)) :fn) :params)
+                          (list 'aguafria.keyword/TypeOf function-reference)) :fn) :param_types)
         parameter-types (into {} (map (juxt :name :type)) parameters)
         arguments
         (mapv (fn [index argument]
@@ -1418,8 +1467,7 @@
                                           (list 'aguafria.keyword/< index
                                                 (list 'aguafria.zig/field function-parameters :len))
                                           (list 'aguafria.keyword/orelse
-                                                (list 'aguafria.zig/field
-                                                      (list 'aguafria.zig/index function-parameters index) :type)
+                                                (list 'aguafria.zig/index function-parameters index)
                                                 (list 'type input-type))
                                           (list 'type input-type))
                         target-name (symbol (str "__aguafria_parameter_type_" index))

@@ -149,7 +149,7 @@ test("every source and output pair stays matched across live resizing", async ()
             getComputedStyle(block).whiteSpace === 'pre'),
           outputMinimum: parseFloat(example.style.getPropertyValue('--learn-output-height'))};
       }));
-      assert.equal(pairs.length, 307);
+      assert.equal(pairs.length, 304);
       for (const {file, code, output, naturalCode, naturalOutput, outputMinimum, clojureLeft, midpoint, fits, unwrapped} of pairs) {
         assert.ok(fits, `${width}: ${file} columns stay inside viewport`);
         assert.ok(unwrapped, `${width}: ${file} code and output never wrap`);
@@ -183,18 +183,18 @@ test("URL view selection defaults to side-by-side and preserves independent tabs
       ["?view=invalid", "Side by side"]
     ]) {
       await page.goto(`${reference}${query}#Hello-World`);
-      assert.equal(await page.getByRole('tab', {name: label, exact: true, selected: true}).count(), 307);
+      assert.equal(await page.getByRole('tab', {name: label, exact: true, selected: true}).count(), 304);
     }
     await page.goto(`${reference}?view=side-by-side#Hello-World`);
     const example = page.getByRole('region', {name: 'hello_again.zig', exact: true});
     await example.getByRole('tab', {name: 'Aguafria Zig', exact: true}).click();
-    assert.equal(await page.getByRole('tab', {name: 'Side by side', exact: true, selected: true}).count(), 306);
+    assert.equal(await page.getByRole('tab', {name: 'Side by side', exact: true, selected: true}).count(), 303);
     await example.getByRole('tab', {name: 'Aguafria Zig', exact: true}).press('End');
-    assert.equal(await page.getByRole('tab', {name: 'Side by side', exact: true, selected: true}).count(), 307);
+    assert.equal(await page.getByRole('tab', {name: 'Side by side', exact: true, selected: true}).count(), 304);
     const zigPanel = await example.getByRole('tab', {name: 'Zig', exact: true}).getAttribute('aria-controls');
     await page.goto(`${reference}?view=side-by-side#${zigPanel}`);
     assert.equal(await example.getByRole('tab', {name: 'Zig', exact: true}).getAttribute('aria-selected'), 'true');
-    assert.equal(await page.getByRole('tab', {name: 'Side by side', exact: true, selected: true}).count(), 306);
+    assert.equal(await page.getByRole('tab', {name: 'Side by side', exact: true, selected: true}).count(), 303);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

@@ -158,12 +158,16 @@
   only this native publication is deliberately partial."
   nil)
 
+(def ^:dynamic ^:private *materialization-type-declarations*
+  "Type declarations from the compilation that a JVM adapter belongs to."
+  nil)
+
 (def ^:dynamic *file-load-registration?*
   "True only while a declaration is being registered by Clojure's file
   loader. File loads debounce/coalesce; an individual REPL form starts now."
   false)
 
-(declare register-batch! recompile-component!)
+(declare register-batch! recompile-component! type-producing-declaration?)
 
 (declare declaration-info declaration-type-value
          materialize-constant! materialize-state!
@@ -252,7 +256,14 @@
                 (= "container" (name (first value))))
        value)
      (when-let [{:keys [factory arguments]} (type-factory-call declaration)]
-       (let [parameters (mapv :name (:args factory))]
+       (let [parameters (mapv :name (:args factory))
+             arguments (mapv (fn [parameter argument]
+                               (if (and (= :type (:type parameter))
+                                        (seq? argument)
+                                        (= 'type (first argument)))
+                                 (second argument)
+                                 argument))
+                             (:args factory) arguments)]
          (when (= (count parameters) (count arguments))
            (let [returned (walk/postwalk-replace
                            (zipmap parameters arguments)
@@ -421,16 +432,16 @@
              (some-> value str/lower-case str/trim)))
 
 (defn- checked-jvm-optimization [mode]
-  (when-not (contains? #{"Debug" "ReleaseSafe"} mode)
+  (when-not (contains? #{"debug" "safe"} mode)
     (throw (ex-info "JVM adapters require a safety-checked optimization mode"
-                    {:jvm-optimize mode :supported ["Debug" "ReleaseSafe"]})))
+                    {:jvm-optimize mode :supported ["debug" "safe"]})))
   mode)
 
 (defonce ^:private config
   (atom {:cache-dir (cache/default-directory)
-         :optimize (or (System/getProperty "aguafria.optimize") "Debug")
+         :optimize (or (System/getProperty "aguafria.optimize") "debug")
          :jvm-optimize (checked-jvm-optimization
-                        (or (System/getProperty "aguafria.jvm-optimize") "ReleaseSafe"))
+                        (or (System/getProperty "aguafria.jvm-optimize") "safe"))
          :development-debug-info
          (keyword
          (or (System/getProperty "aguafria.development-debug-info")
@@ -486,8 +497,8 @@
   identities, allowing artifacts that select them to be reused safely.
   `:debug-output` selects az/debug! report destinations (#{:print :file} by
   default); `:debug-report-file` overrides .aguafria/debug/types.edn.
-  `:jvm-optimize` selects Debug or ReleaseSafe for generated JVM adapters only
-  (default ReleaseSafe), independently of user-code :optimize. Both preserve
+  `:jvm-optimize` selects Debug or safe for generated JVM adapters only
+  (default safe), independently of user-code :optimize. Both preserve
   runtime safety checks; adapter builds explicitly retain error tracing.
   Returns the resulting configuration."
   [options]
@@ -501,12 +512,12 @@
        :value (:zig options)
        :hint "Select the Aguafria Maven Central artifact matching the host; PATH and custom Zig executables are intentionally unsupported."})))
   (when-let [optimize (:optimize options)]
-    (when-not (contains? #{"Debug" "ReleaseFast" "ReleaseSafe" "ReleaseSmall"}
+    (when-not (contains? #{"debug" "fast" "safe" "small"}
                          optimize)
       (throw (ex-info "Unsupported Zig optimization mode"
                       {:optimize optimize
-                       :supported ["Debug" "ReleaseFast" "ReleaseSafe"
-                                   "ReleaseSmall"]}))))
+                       :supported ["debug" "fast" "safe"
+                                   "small"]}))))
   (when-let [debug-info (:development-debug-info options)]
     (when-not (contains? #{:none :full} debug-info)
       (throw (ex-info "Unsupported development debug-information mode"
@@ -1040,7 +1051,7 @@
   [form]
   (let [[_ options members] form]
     {:kind :container-schema
-     :container (select-keys options [:kind :layout :enum? :argument])
+     :container (select-keys options [:kind :layout :enum? :type])
      :fields
      (->> members
           (filter #(and (seq? %)
@@ -1987,7 +1998,7 @@
                             (slurp (io/resource "aguafria/jvm_support.zig")))
         ;; Optimize common machinery once without changing the user's module
         ;; optimization mode. Keep safety checks, unwind data and error traces.
-        support-arguments ["-OReleaseSafe" "-ferror-tracing" "-funwind-tables"]
+        support-arguments ["-Osafe" "-ferror-tracing" "-funwind-tables"]
         debug-format (native-debug-format options)
         support-hash
         (subs (sha256 [development-panic-support-version
@@ -2218,6 +2229,7 @@
                        :source-fingerprint
                        (when source (subs (sha256 source) 0 24))
                        :dependencies dependencies
+                       :type-declarations (filterv type-producing-declaration? declarations)
                        :named-module-imports
                        (declaration-named-module-imports declarations)
                        :dispatch-entries entries
@@ -2255,7 +2267,7 @@
           (recur (next pending) seen snapshot)
           (let [module-state (get module-states module)
                 {:keys [source dependencies named-module-imports
-                        dispatch-entries state-entries]}
+                        dispatch-entries state-entries type-declarations]}
                 (development-dependency-entry module module-state
                                               direct-dependencies)
                 snapshot
@@ -2268,6 +2280,7 @@
                   (assoc module {:module module
                                  :source source
                                  :dependencies dependencies
+                                 :type-declarations type-declarations
                                  :named-module-imports named-module-imports
                                  :dispatch-entries dispatch-entries
                                  :state-entries state-entries}))]
@@ -2314,7 +2327,7 @@
                   (assoc module
                          (select-keys entry
                                       [:module :source :source-fingerprint
-                                       :dependencies :named-module-imports
+                                       :dependencies :named-module-imports :type-declarations
                                        :dispatch-entries :state-entries])))]
             (recur (concat (next pending) dependencies)
                    (conj seen module)
@@ -3082,6 +3095,8 @@
         development-root-source (:development-root-source compiler-options)
         development-root-dependencies
         (:development-root-dependencies compiler-options)
+        development-root-declarations
+        (:development-root-declarations compiler-options)
         development-root-module (some-> declarations first :module str)
         development-profile-module (development-profile-module declarations)
         development-linkage-logical-ids
@@ -3107,6 +3122,7 @@
                                  :dependency-snapshot
                                  :development-root-source
                                  :development-root-dependencies
+                                 :development-root-declarations
                                  :module-dependencies)
         root-dependencies
         (->> (emit/declaration-imports declarations)
@@ -3117,7 +3133,8 @@
              sort
              vec)
         root-named-module-imports
-        (declaration-named-module-imports declarations)
+        (declaration-named-module-imports
+         (or development-root-declarations declarations))
         automatic
         (if transitive-dependencies?
           (into {}
@@ -3572,13 +3589,19 @@
           dependency-snapshot
           development-root-dependencies
           [(str module-name)])
+         retained-root-logical-ids
+         (when development-root-declarations
+           (development-linkage-logical-ids development-root-declarations))
          development-linkage-logical-ids
          (development-linkage-logical-ids declarations)
          development-capsule-logical-ids
          (development-capsule-logical-ids
           dependency-snapshot
-          (into development-linkage-logical-ids
-                profile-export-logical-ids))
+          ;; The retained native root can include state/types not referenced by
+          ;; this JVM trampoline. Their foreign declarations must remain in the
+          ;; compiler inputs, without adding them to the trampoline's FFM hooks.
+          (into (into development-linkage-logical-ids profile-export-logical-ids)
+                retained-root-logical-ids))
          dependency-snapshot
          (linkable-development-dependency-snapshot
           dependency-snapshot development-capsule-logical-ids)
@@ -3610,6 +3633,7 @@
                            (update :zig-args into ["-ferror-tracing" "-funwind-tables"]))
                          :development-dependencies? development-dependencies?
                          :development-root-source development-root-source
+                         :development-root-declarations development-root-declarations
                          :development-root-dependencies
                          development-root-dependencies)
             dependency-snapshot (assoc :dependency-snapshot dependency-snapshot))
@@ -4765,6 +4789,7 @@
    :jvm-active-calls (:jvm-active-calls loaded)
    :native-value-refs (:native-value-refs loaded)
    :hash (:hash loaded)
+   :compilation-snapshot (:compilation-snapshot loaded)
    :library-path (:library-path loaded)})
 
 (defn- set-all-active-call-tracking!
@@ -4996,7 +5021,7 @@
     (assoc :type-reference? true
            :container-state-accessors
            (into {} (map (fn [member]
-                           [(clojure.core/name (last (:state-path member)))
+                           [(emit/identifier (last (:state-path member)))
                             (:accessor (declaration-state-spec member))]))
                  (container-state-declarations declaration)))))
 
@@ -5149,6 +5174,12 @@
         generations (conj (vec (:native-generations current))
                           (native-generation generation loaded))]
     (merge {:dispatch-state dispatch-state
+            :declaration-compilation-snapshots
+            (reduce (fn [snapshots declaration]
+                      (assoc snapshots (:declaration-key declaration)
+                             (:compilation-snapshot loaded)))
+                    (:declaration-compilation-snapshots current)
+                    (:loaded-declarations loaded))
             :native-generations generations}
            (reconcile-state current loaded generation)
            (reconcile-type-versions current loaded generation))))
@@ -5629,7 +5660,9 @@
     (mapv #(bridge-storage-type module % seen) type)
 
     (symbol? type)
-    (let [declaration (referenced-declaration module type)
+    (let [declaration (or (get *materialization-type-declarations*
+                             [(or (namespace type) module) (symbol (name type))])
+                          (referenced-declaration module type))
           identity [(:module declaration) (:declaration-key declaration)]
           value (:value declaration)]
       (if (and (= :const (:kind declaration)) (not (contains? seen identity)))
@@ -5952,7 +5985,7 @@
                           (or (true? (get-in container-description
                                              [:options :enum?]))
                               (some? (get-in container-description
-                                             [:options :argument]))))
+                                             [:options :type]))))
                      fields (if (= :struct kind)
                               (:fields declaration)
                               (container-storage-fields container-description))
@@ -6146,10 +6179,10 @@
      "    const ErrorSet = @typeInfo(ErrorUnion).error_union.error_set;\n"
      "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
      "    const name = @as([*]const u8, @ptrFromInt(name_address))[0..name_length];\n"
-     "    if (@typeInfo(ErrorSet).error_set) |errors| {\n"
+     "    if (@typeInfo(ErrorSet).error_set.error_names) |errors| {\n"
      "        inline for (errors) |member| {\n"
-     "            if (@import(\"std\").mem.eql(u8, name, member.name)) {\n"
-     "                storage.* = @field(ErrorSet, member.name);\n"
+     "            if (@import(\"std\").mem.eql(u8, name, member)) {\n"
+     "                storage.* = @field(ErrorSet, member);\n"
      "                return true;\n"
      "            }\n"
      "        }\n"
@@ -6240,7 +6273,7 @@
        :as entry}]]
   (let [target (emit/identifier (or (:zig-name declaration) (:name declaration)))
         argument-type-sources
-        (mapv #(str "@typeInfo(@TypeOf(" target ")).@\"fn\".params[" % "].type.?")
+        (mapv #(str "@typeInfo(@TypeOf(" target ")).@\"fn\".param_types[" % "].?")
               (range (count (:args declaration))))
         argument-names (mapv #(str "argument_" %) (range (count (:args declaration))))
         bridge-arguments
@@ -6463,7 +6496,7 @@
                           "}\n"
                           (when-not union?
                             (str "export fn " default-getter "() callconv(.c) usize {\n"
-                                 "    const field = @typeInfo(" type-name ").@\"struct\".fields[" index "];\n"
+                                 "    const field = @typeInfo(" type-name ").@\"struct\".field_attrs[" index "];\n"
                                  "    return if (field.default_value_ptr) |value| @intFromPtr(value) else 0;\n"
                                  "}\n"))
                           (when union?
@@ -7730,6 +7763,9 @@
 (defn- compilation-plan
   [module module-state declarations old-declaration declaration]
   (let [declaration-key (:declaration-key declaration)
+        independent-recovery?
+        (and (:last-error module-state)
+             (not (contains? (set (:pending-declaration-keys module-state)) declaration-key)))
         partial-refresh-candidate?
         (and old-declaration
              (incremental-dispatch-publication?
@@ -7795,6 +7831,7 @@
                 (select-keys declaration [:module :declaration-key])))
         fallback-required?
         (or *exact-declaration-publication?*
+            independent-recovery?
             materialization?
             incremental-publication?
             concrete-caller-recompile?
@@ -7812,6 +7849,7 @@
           (->> (concat
                 (filter #(= :import (:kind %)) declarations)
                 (if (and (not *exact-declaration-publication?*)
+                         (not independent-recovery?)
                          (seq pending-declarations))
                   (declarations-live-slice
                    declarations
@@ -7852,7 +7890,7 @@
                  (some #{"root"} named-module-imports))
                (vals fallback-dependencies)))
         exact-cyclic-dispatch-slice?
-        (and *exact-declaration-publication?*
+        (and (or *exact-declaration-publication?* independent-recovery?)
              (dispatchable-declaration? refreshed-declaration))
         fallback-development-root-declarations
         (when fallback-declarations
@@ -7879,6 +7917,7 @@
              (not exact-cyclic-dispatch-slice?))
         prefer-fallback?
         (or *exact-declaration-publication?*
+            independent-recovery?
             materialization?
             (and incremental-publication?
                  (or (not (:partial-publication? module-state))
@@ -8095,41 +8134,47 @@
     (publication-plan-view module declaration-key module-state old-declaration
                            declaration definitions plan)))
 
+(defn- compile-slice!
+  [module slice]
+  (let [compiled (compile-source! module (:compile-source slice)
+                                  (:declarations slice)
+                                  (:dependency-snapshot slice)
+                                  (:development-root-source slice)
+                                  (:development-root-dependencies slice)
+                                  (:development-root-declarations slice))
+        type-declarations
+        (or (:materialization-type-declarations slice)
+            (into {}
+                  (comp (filter type-producing-declaration?)
+                        (map (fn [declaration]
+                               [[(:module declaration) (:name declaration)] declaration])))
+                  (concat (:declarations slice)
+                          (mapcat :type-declarations
+                                  (vals (:dependency-snapshot slice))))))]
+    (assoc slice :compiled
+           (assoc compiled :compilation-snapshot
+                  (assoc (select-keys slice
+                                      [:declarations :dependency-snapshot
+                                       :development-root-source
+                                       :development-root-declarations
+                                       :development-root-dependencies
+                                       :embedded-root-dispatch-entries
+                                       :embedded-root-state-entries])
+                         :materialization-type-declarations type-declarations)))))
+
 (defn- compile-plan!
   [module {:keys [primary fallback prefer-fallback?]}]
   (if prefer-fallback?
-    (assoc fallback :compiled
-           (assoc (compile-source! module (:compile-source fallback)
-                                   (:declarations fallback)
-                                   (:dependency-snapshot fallback)
-                                   (:development-root-source fallback)
-                                   (:development-root-dependencies fallback)
-                                   (:development-root-declarations fallback))
-                  :partial-publication? true))
+    (assoc-in (compile-slice! module fallback) [:compiled :partial-publication?] true)
     (try
-      (assoc primary :compiled
-             (compile-source! module (:compile-source primary)
-                              (:declarations primary)
-                              (:dependency-snapshot primary)
-                              (:development-root-source primary)
-                              (:development-root-dependencies primary)
-                              (:development-root-declarations primary)))
+      (compile-slice! module primary)
       (catch Throwable full-error
         (if-not fallback
           (throw full-error)
           (try
-            (let [compiled (compile-source! module (:compile-source fallback)
-                                            (:declarations fallback)
-                                            (:dependency-snapshot fallback)
-                                            (:development-root-source fallback)
-                                            (:development-root-dependencies
-                                             fallback)
-                                            (:development-root-declarations
-                                             fallback))]
-              (assoc fallback :compiled
-                     (assoc compiled
-                            :partial-publication? true
-                            :full-compile-error (ex-message full-error))))
+            (update (compile-slice! module fallback) :compiled assoc
+                    :partial-publication? true
+                    :full-compile-error (ex-message full-error))
             (catch Throwable fallback-error
               (throw
                (ex-info (ex-message fallback-error)
@@ -8277,6 +8322,9 @@
                       (into {}
                             (map (juxt :declaration-key identity))
                             compiled-declarations)
+                      remaining-pending-keys
+                      (into #{} (remove (set (keys compiled-definitions)))
+                            (:pending-declaration-keys current))
                       functions (if partial-publication?
                                   (merge (:functions current) (:functions loaded))
                                   (:functions loaded))
@@ -8327,10 +8375,11 @@
                                  :last-publication-transit-only? false
                                  :full-compile-error
                                  (:full-compile-error compiled)
-                                 :pending-declaration-keys #{}
+                                 :pending-declaration-keys
+                                 remaining-pending-keys
                                  :source-only? false
-                                 :last-error nil
-                                 :failed-generation nil
+                                 :last-error (when (seq remaining-pending-keys) (:last-error current))
+                                 :failed-generation (when (seq remaining-pending-keys) (:failed-generation current))
                                  :last-dependent-publication-failure nil
                                  :last-dependent-publication-error nil}))
                   (refresh-project-dispatch!)
@@ -8928,6 +8977,9 @@
               (into {}
                     (map (juxt :declaration-key identity))
                     compiled-declarations)
+              remaining-pending-keys
+              (into #{} (remove (set (keys compiled-definitions)))
+                    pending-declaration-keys)
               functions (if partial-publication?
                           (merge (:functions old-module) (:functions loaded))
                           (:functions loaded))
@@ -8965,12 +9017,13 @@
                       :partial-publication? partial-publication?
                       :last-publication-transit-only? false
                       :full-compile-error (:full-compile-error compiled)
-                      :pending-declaration-keys #{}
+                      :pending-declaration-keys
+                      remaining-pending-keys
                       :pending nil
                       :source-only? false
-                      :last-error nil
+                      :last-error (when (seq remaining-pending-keys) (:last-error old-module))
                       :last-dependent-publication-error nil
-                      :failed-generation nil
+                      :failed-generation (when (seq remaining-pending-keys) (:failed-generation old-module))
                       :last-dependent-publication-failure nil
                       :definitions
                       (if partial-publication?
@@ -12257,6 +12310,74 @@
       (register-sync! declaration))
     (await-callable-generation! module))))
 
+(defn- materialize-published-callable!
+  "Add a JVM trampoline to a published function without redefining its graph."
+  [declaration snapshot]
+  (let [{:keys [module qualified-name declaration-key]} declaration
+        current (get @registry module)
+        generation (inc (or (:requested-generation current) (:generation current) 0))
+        declarations (declaration-live-slice (:declarations snapshot) declaration)
+        version-key [(:logical-id declaration) (:abi-fingerprint declaration)]
+        getter-keys (if (get-in current [:dispatch-state version-key :implementation-address])
+                      #{} #{declaration-key})
+        _ (swap! registry update-in [module :jvm-callable-declaration-keys]
+                 (fnil conj #{}) declaration-key)
+        compilation
+        (binding [*materialize-declaration* declaration
+                  *materialization-type-declarations*
+                  (:materialization-type-declarations snapshot)]
+          (let [sources (module-sources module declarations getter-keys)
+                root-sources (module-sources module
+                                             (:development-root-declarations snapshot)
+                                             getter-keys)]
+            (compile-slice! module
+                            (merge snapshot sources
+                                   {:declarations declarations
+                                    :development-root-source (:compile-source root-sources)}))))
+        {:keys [compiled dispatch-specs jvm-callable-specs
+                jvm-value-specs jvm-type-specs]} compilation
+        loaded (-> (load-module compiled declarations dispatch-specs
+                                (compilation-dependency-dispatch-entries compilation)
+                                (compilation-dependency-state-entries compilation)
+                                jvm-callable-specs jvm-value-specs jvm-type-specs)
+                   (prepare-loaded-generation generation))
+        published? (atom false)]
+    (try
+      (let [dispatch-state
+            (reduce-kv
+             (fn [state key candidate]
+               (if (or (not (:owned? candidate))
+                       (get-in state [key :implementation-address])
+                       (nil? (:implementation-address candidate)))
+                 state
+                 (assoc state key
+                        (assoc (select-keys candidate
+                                            [:version-key :logical-id :abi-fingerprint
+                                             :implementation-fingerprint :implementation-address])
+                               :implementation-generation generation))))
+             (:dispatch-state current)
+             (:dispatch-bindings loaded))]
+        ;; Only adapter handles and previously lazy dispatch addresses change.
+        ;; Types, state ownership, definitions and editor metadata stay published
+        ;; at their existing generations until an explicit definition edit.
+        (swap! registry update module
+               (fn [state]
+                 (-> state
+                     (assoc :requested-generation generation :dispatch-state dispatch-state)
+                     (cond->
+                       (native-declaration-equivalent?
+                        declaration (current-function-declaration state qualified-name))
+                       (assoc-in [:functions qualified-name]
+                                 (get-in loaded [:functions qualified-name])))
+                     (update :native-generations conj (native-generation generation loaded)))))
+        (reset! published? true)
+        (refresh-project-dispatch!)
+        (schedule-module-generation-retirement! module))
+      (catch Throwable error
+        (when-not @published?
+          (.close ^Arena (:arena loaded)))
+        (throw error)))))
+
 (defn- materialize-jvm-callable!
   "Compile a development-only C ABI trampoline for a registered Zig Var whose
   original declaration is intentionally not `export`. Final/static Zig source
@@ -12270,15 +12391,26 @@
       (await! module))
     (if (function-loaded? qualified-name)
       (explanation/event! {:event :memory-cache-hit :function qualified-name})
-      (let [declaration
-            (locking compile-lock
-              (current-function-declaration (get @registry module)
-                                            qualified-name))]
+      (let [declaration (locking compile-lock
+                          (current-function-declaration (get @registry module)
+                                                        qualified-name))]
         (when-not declaration
           (throw (ex-info "Zig function is not registered"
                           {:function qualified-name :module module})))
-        (materialize-declaration-generation!
-         declaration :jvm-callable-declaration-keys)))))
+        (when-not
+          (locking compile-lock
+            (let [snapshot (get-in @registry [module :declaration-compilation-snapshots
+                                              (:declaration-key declaration)])
+                  published-declaration
+                  (some #(when (= (:declaration-key declaration) (:declaration-key %)) %)
+                        (:declarations snapshot))]
+              (when (and (not *compile-only?*) snapshot
+                         (native-declaration-equivalent? declaration published-declaration))
+                (when-not (function-loaded? qualified-name)
+                  (materialize-published-callable! published-declaration snapshot))
+                true)))
+          (materialize-declaration-generation!
+           declaration :jvm-callable-declaration-keys))))))
 
 (defn- current-value-binding
   [qualified-name]
@@ -13256,6 +13388,20 @@
   (let [qualified-name (qualified-function-name function)
         module (namespace qualified-name)
         _ (await-callable-generation! module)
+        _ (locking compile-lock
+            (let [state (get @registry module)
+                  binding (versioned-function-binding state qualified-name abi-fingerprint)]
+              (when-not (:panic-handle binding)
+                (when-let [[declaration snapshot]
+                           (some (fn [generation]
+                                   (let [snapshot (:compilation-snapshot generation)]
+                                     (when-let [declaration
+                                                (some #(when (and (= qualified-name (:qualified-name %))
+                                                                  (= abi-fingerprint (:abi-fingerprint %))) %)
+                                                      (:declarations snapshot))]
+                                       [declaration snapshot])))
+                                 (rseq (vec (:native-generations state))))]
+                  (materialize-published-callable! declaration snapshot)))))
         function-binding
         (acquire-function-binding! qualified-name arguments abi-fingerprint)]
     (invoke-binding! module function-binding arguments)))

@@ -2,7 +2,6 @@
   "Single source of truth for semantic prompts, actions, and provenance."
   (:require [aguafria.zig :as az]
             [aguafria.keyword :as ak]
-            [aguafria.std.fmt :as fmt]
             [aguafria.std.mem :as mem]))
 
 (az/defconst drivers-per-team :usize 2)
@@ -148,7 +147,7 @@
     (ak/return 0))
   (let [text
         (catch
-          (fmt/bufPrint (az/slice output 0 capacity)
+          (mem/print (az/slice output 0 capacity)
             "R{d}: {d:.0} km/h. {s}; {s}; {s}; {s}. Ahead {s}; left {s}; right {s}. Tires {d:.0}%, damage {d:.0}%. Pit {s}."
             [(az/field observation racer) (az/field observation speed_kmh)
              (if (az/field observation active) "Racing" "Inactive")

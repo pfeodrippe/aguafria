@@ -829,7 +829,8 @@
   `{:const value}` declare public container members without instance storage;
   `:private true` makes one private and `:_` permits inferred declaration types.
   The default is an ordinary Zig
-  `struct`; pass `{:layout :extern}` or `{:layout :packed}` to change it. A
+  `struct`; pass `{:layout :extern}` or `{:layout :packed}` to change it.
+  Use `{:layout :packed :type :u32}` for an explicit backing integer. A
   known struct Var is also a constructor form inside Zig code, so
   `(Vector2 {:x 1.0 :y 2.0})` emits `Vector2{ .x = 1.0, .y = 2.0 }`."
   [name & declaration]
@@ -847,7 +848,7 @@
                             :fields (emitter/storage-fields fields)
                             :layout layout
                             :value (emitter/struct-container-form
-                                    (assoc (select-keys attributes [:argument :zig/trailing])
+                                    (assoc (select-keys attributes [:type :zig/trailing])
                                            :layout layout)
                                     declaration)
                             :clojure-form &form
@@ -872,11 +873,11 @@
 
   One vector contains keyword tags, `[name properties]`,
   `[name properties value]`, and optional nested declarations.
-  Set `:argument` in the declaration attributes for an explicit tag type."
+  Pass `{:type :u32}` for an explicit backing type."
   [name & declaration]
   (let [[doc attributes members] (emitter/type-declaration-members declaration)
         value (emitter/enum-container-form
-               (select-keys attributes [:argument :zig/trailing]) members)]
+               (select-keys attributes [:type :zig/trailing]) members)]
     (with-meta
       (apply list `defconst name
              (concat (when doc [doc]) [attributes value]))
@@ -888,13 +889,13 @@
       (az/defunion Number [[:int :i32] [:float :f64]])
 
   Accepts a docstring and options before the member vector, like defstruct.
-  Use {:attrs #{k/enum}} for an inferred tag, {:argument Tag} for a named tag,
+  Use {:attrs #{k/enum}} for an inferred tag, {:type Tag} for a named tag,
   or {:layout :extern} / {:layout :packed} for an explicit layout. Field docs,
   member functions, and container constants use the same entries as defstruct.
   The resulting Var is a native type and constructor on both Zig and the JVM."
   [name & declaration]
   (let [[doc attributes members] (emitter/type-declaration-members declaration)
-        container-options (select-keys attributes [:layout :argument :enum? :attrs :zig/trailing])
+        container-options (select-keys attributes [:layout :type :enum? :attrs :zig/trailing])
         value (emitter/struct-container-form (assoc container-options :kind :union) members)]
     (with-meta
       (apply list `defconst name
@@ -920,7 +921,7 @@
 
 (defmacro enum
   "An anonymous Zig enum: (az/enum [:red [:green {:doc \"Green\"}] :blue]).
-  Pass {:argument :u8} before the member vector for an explicit tag type."
+  Pass {:type :u8} before the member vector for an explicit backing type."
   [& declaration]
   (anonymous-container-expansion :enum declaration &env &form))
 

@@ -59,7 +59,7 @@
                      (filter #(.endsWith (.getName ^java.io.File %) ".c"))
                      (sort-by #(.getName ^java.io.File %))
                      (map #(if (= "wheel_joint.c" (.getName ^java.io.File %)) wheel-source %)))
-        flags ["-OReleaseFast" "-fPIC" "-DB3_ENABLE_ASSERT=1"]
+        flags ["-Ofast" "-fPIC" "-DB3_ENABLE_ASSERT=1"]
         key (pr-str {:commit (get-in vendor/dependencies [:box3d :commit])
                      :wheel-motor-fix wheel-motor-fix
                      :mode mode :flags flags :zig (az/zig-executable)

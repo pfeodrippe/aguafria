@@ -2,6 +2,7 @@
   "Bounded JSON-RPC connection to ZLS. Hover contents are returned verbatim."
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [aguafria.zig.toolchain :as toolchain])
   (:import [java.io BufferedInputStream]
@@ -49,9 +50,18 @@
 
 (defn start!
   "Start a dedicated ZLS instance with Aguafria's pinned Zig compiler."
-  ([] (start! "zls"))
+  ([] (start! (or (System/getenv "AGUAFRIA_ZLS") "zls")))
   ([executable]
-   (let [process (.start (doto (ProcessBuilder. ^java.util.List [executable])
+   (let [{:keys [exit out err]} (shell/sh executable "--version")
+         version (str/trim out)
+         expected (:zig-version (toolchain/manifest))
+         _ (when-not (and (zero? exit)
+                          (= expected (first (str/split version #"-"))))
+             (throw (ex-info "ZLS must match Aguafria's pinned Zig version"
+                             {:aguafria/phase :zls-version
+                              :executable executable :expected expected
+                              :actual version :exit exit :stderr err})))
+         process (.start (doto (ProcessBuilder. ^java.util.List [executable])
                            (.redirectError ProcessBuilder$Redirect/INHERIT)))
          client {:process process :input (BufferedInputStream. (.getInputStream process))
                  :output (.getOutputStream process) :counter (atom 0)

@@ -1,6 +1,6 @@
 ;; Shared native context for both the original fragment and its emitted equivalent.
 ;; Results are printed for comparison between executions, not supplied as an oracle.
-{"snippet-424"
+{"snippet-431"
  {:zig-prefix
   "// The preceding parser spells OverFlow differently from these fragments.
 // Adapt that spelling at the fixture boundary, retaining its parsing algorithm.
@@ -55,7 +55,7 @@ for (inputs) |input| {
 }
 "}
 
- "snippet-426"
+ "snippet-433"
  {:zig-prefix
   "// Normalize the preceding parser's OverFlow spelling at this fixture boundary.
 fn fixture_parse_u64(bytes: []const u8, radix: u8) error{OverFlow, InvalidChar}!u64 {
@@ -111,7 +111,7 @@ for (inputs) |input| {
 }
 "}
 
- "snippet-429"
+ "snippet-436"
  {:zig-prefix
   "// Normalize the preceding parser's OverFlow spelling at this fixture boundary.
 fn fixture_parse_u64(bytes: []const u8, radix: u8) error{OverFlow, InvalidChar}!u64 {
@@ -164,7 +164,7 @@ for (inputs) |input| {
 }
 "}
 
- "snippet-431"
+ "snippet-438"
  {:zig-prefix
   "// Deterministic resource tokens model lifecycle calls, not a real allocator.
 const Foo = struct { id: u32 };
@@ -222,7 +222,7 @@ fn deallocate_tmp_buffer(buffer: FixtureTmpBuffer) void {
 }
 "}
 
- "snippet-644"
+ "snippet-649"
  {:zig-prefix
   "fn two(value: i32) i32 {
     return value + 2;
@@ -239,7 +239,7 @@ for (inputs) |input| {
 }
 "}
 
- "snippet-645"
+ "snippet-650"
  {:zig-prefix
   "fn one(value: i32) i32 {
     return value + 1;
@@ -253,7 +253,7 @@ for (inputs) |input| {
 }
 "}
 
- "snippet-646"
+ "snippet-651"
  {:zig-prefix ""
   :entry "performFn"
   :test-body
@@ -265,7 +265,7 @@ for (inputs) |input| {
 
  ;; The source explicitly models behavior without atomicity. The stub makes
  ;; its illustrative spurious-failure branch reproducible, not probabilistic.
- "snippet-777"
+ "snippet-770"
  {:zig-prefix
   "var fixture_predicate: bool = true;
 var fixture_predicate_calls: usize = 0;

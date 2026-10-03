@@ -1,6 +1,6 @@
 (ns aguafria.zig.precompile-order-test
   (:require [aguafria.zig :as az]
-            [aguafria.std.builtin]
+            [aguafria.std.lang]
             [aguafria.zig.explain :as explain]
             [aguafria.zig.runtime :as runtime]
             [clojure.test :refer [deftest is testing]]))
@@ -35,7 +35,7 @@
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
         (alias 'az 'aguafria.zig)
-        (alias 'builtin 'aguafria.std.builtin)
+        (alias 'builtin 'aguafria.std.lang)
         (eval '(az/defn location builtin/SourceLocation []
                  (az/init {:module "example" :file "example.clj" :fn_name "location" :line 42 :column 3}
                           builtin/SourceLocation))))

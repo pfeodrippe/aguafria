@@ -1,7 +1,7 @@
 (ns learn.example.test-optional-type
   (:require [aguafria.keyword :as k]
-            [aguafria.std.builtin.Type :as type-info]
-            [aguafria.std.builtin.Type.Optional :as optional-info]
+            [aguafria.std.lang.Type :as type-info]
+            [aguafria.std.lang.Type.Optional :as optional-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 

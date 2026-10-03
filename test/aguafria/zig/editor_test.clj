@@ -223,6 +223,24 @@
         (is (nil? (meta failed)) "unsaved source is released after completion")
         (is (= 43 (editor/invoke! project-id uri "caller" [])))))))
 
+(deftest early-reference-errors-retain-the-zig-ast-token-range
+  (let [project-id (str "editor-token-range-" (random-uuid))
+        uri (str (.toURI (.getCanonicalFile (File. "test/fixtures/token-range.zig"))))
+        source (str "// ☔ DoesNotExist is only a comment here.\n"
+                    "pub fn answer() u32 { return DoesNotExist; }\n")
+        expected-start (.lastIndexOf source "DoesNotExist")
+        line-start (inc (.lastIndexOf source "\n" expected-start))]
+    (editor/start-project! (.getCanonicalPath (File. "."))
+                           {:project-id project-id
+                            :namespace-prefix (symbol (str "editor.token." project-id))})
+    (let [result (editor/evaluate! {:project-id project-id :uri uri :source source
+                                    :mode :file :document-version 1})]
+      (is (= :failed (:status result)))
+      (is (= {:start {:line 1 :character (- expected-start line-start)}
+              :end {:line 1 :character (+ 12 (- expected-start line-start))}}
+             (get-in result [:diagnostics 0 :range])))
+      (is (str/includes? (get-in result [:diagnostics 0 :message]) "DoesNotExist")))))
+
 (deftest bootstraps-and-hot-reloads-across-pure-zig-files
   (let [workspace (.getCanonicalFile (File. "test/fixtures/import_tree"))
         project-id (str "editor-import-tree-test-" (random-uuid))

@@ -25,7 +25,7 @@
     (is (str/includes? (:doc (meta #'math/sqrt)) "square root")))
 
   (testing "calling a std Var executes Zig; quoted forms remain inspectable"
-    (is (= 3.0 (math/sqrt 9.0)))
+    (is (= 3.0 (az/value (math/sqrt 9.0))))
     (is (= "@import(\"std\").math.sqrt(x)"
            (az/emit-expr '(aguafria.std.math/sqrt x)))))
 
@@ -42,7 +42,7 @@
       (is (identical? sqrt-var (ns-resolve 'aguafria.std.math 'sqrt))))))
 
 (deftest generated-std-native-call-test
-  (is (= 3.0 (std-sqrt 9.0))))
+  (is (= 3.0 (az/value (std-sqrt 9.0)))))
 
 (deftest every-generated-namespace-loads-test
   (doseq [namespace-name (std/namespaces)]

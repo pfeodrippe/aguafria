@@ -1,7 +1,7 @@
 (ns learn.example.test-variadic-function
   (:require [aguafria.keyword :as k]
-            [aguafria.std.builtin.Type :as type-info]
-            [aguafria.std.builtin.Type.Fn :as fn-info]
+            [aguafria.std.lang.Type :as type-info]
+            [aguafria.std.lang.Type.Fn :as fn-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -12,7 +12,7 @@
 (az/deftest variadic-function
   (try (testing/expectEqual 14 (printf "Hello, world!\n")))
   (try (testing/expect
-        (-> (k/typeInfo (k/TypeOf printf)) type-info/-fn fn-info/-is_var_args))))
+        (-> (k/typeInfo (k/TypeOf printf)) type-info/-fn fn-info/-attrs :varargs))))
 
 (comment
   (variadic-function))

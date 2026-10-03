@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const tool_module = b.createModule(.{
         .root_source_file = b.path("src/tool.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     const tool = b.addExecutable(.{
         .name = "build-options-path-tool",
@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     root_module.addOptions("build_options", options);
     root_module.addAnonymousImport("generated_code", .{
@@ -47,13 +47,13 @@ pub fn build(b: *std.Build) void {
     const optional_module = b.createModule(.{
         .root_source_file = b.path("src/optional_module.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
 
     const alternate_module = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     alternate_module.addOptions("build_options", alternate_options);
     alternate_module.addAnonymousImport("generated_code", .{
@@ -67,4 +67,24 @@ pub fn build(b: *std.Build) void {
     });
     const alternate = b.step("alternate", "Build with alternate generated options");
     alternate.dependOn(&alternate_executable.step);
+
+    const inspection = b.step("inspection-only", "Inspect without compiling or running the application");
+    const forbidden = b.addFail("Application steps must not run during graph inspection");
+    executable.step.dependOn(&forbidden.step);
+    inspection.dependOn(&b.addRunArtifact(executable).step);
+
+    _ = b.step("empty", "A profile with no generated source");
+    const broken_options = b.addOptions();
+    broken_options.addOptionPath("missing", b.path("missing-input.txt"));
+    const broken_module = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = b.graph.host,
+        .optimize = .debug,
+    });
+    broken_module.addOptions("build_options", broken_options);
+    const broken_executable = b.addExecutable(.{
+        .name = "broken-producer-fixture",
+        .root_module = broken_module,
+    });
+    b.step("broken-producer", "Report a generated path failure").dependOn(&broken_executable.step);
 }

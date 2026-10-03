@@ -5,7 +5,6 @@
             [aguafria.keyword :as ak]
             [aguafria.std.Thread :as std-thread]
             [aguafria.std.c :as std-c]
-            [aguafria.std.fmt :as std-fmt]
             [aguafria.std.math :as std-math]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as az]
@@ -349,7 +348,7 @@
                :u8)
         rendered
         (catch
-         (std-fmt/bufPrint
+         (std-mem/print
           (ak/& bytes)
           "Driver {d}, {s}. Rank {d}/20; lap {d}; progress {d}%; speed {d}. Item {s}. Rival {d}: gap {d}, {s}. Track {s}. {s}."
           [(az/field request racer)
@@ -375,7 +374,7 @@
   (let [^:var bytes (std-mem/zeroes (az/type [:array 160 :u8]))
         rendered
         (catch
-         (std-fmt/bufPrint
+         (std-mem/print
          (ak/& bytes)
           "Team {d}. A{d}: rank {d}/20, tire {d}% {s}, damage {d}% {s}, {s}. B{d}: rank {d}/20, tire {d}% {s}, damage {d}% {s}, {s}. Box {s}."
           [(az/field request team)

@@ -67,7 +67,7 @@
         (run-command!
          ["zig" "build-lib"
           (case mode :shared "-dynamic" :static "-static")
-          "-OReleaseFast" "-fPIC" "-DFLECS_NO_CPP"
+          "-Ofast" "-fPIC" "-DFLECS_NO_CPP"
           (str "-I" (.getAbsolutePath include))
           (str "-femit-bin=" (.getAbsolutePath output))
           (.getAbsolutePath source) "-lc"])
@@ -104,7 +104,7 @@
           (concat
            ["zig" "build-lib"
             (case mode :shared "-dynamic" :static "-static")
-            "-OReleaseFast" "-fPIC" "-D_GLFW_COCOA"
+            "-Ofast" "-fPIC" "-D_GLFW_COCOA"
             (str "-I" (.getAbsolutePath include))
             (str "-I" (.getAbsolutePath source-root))
             (str "-femit-bin=" (.getAbsolutePath output))]
@@ -133,7 +133,7 @@
         (run-command!
          (vec
           (concat
-           ["zig" "build-lib" "-dynamic" "-OReleaseFast" "-fPIC"
+           ["zig" "build-lib" "-dynamic" "-Ofast" "-fPIC"
             (str "-I" (.getAbsolutePath imgui-root))
             (str "-I" (.getAbsolutePath (io/file imgui-root "backends")))
             (str "-I" (.getAbsolutePath (io/file glfw-root "include")))
@@ -169,7 +169,7 @@
         (run-command!
          (vec
           (concat
-           ["zig" "build-lib" "-static" "-OReleaseFast" "-fPIC"
+           ["zig" "build-lib" "-static" "-Ofast" "-fPIC"
             (str "-I" (.getAbsolutePath imgui-root))
             (str "-I" (.getAbsolutePath (io/file imgui-root "backends")))
             (str "-I" (.getAbsolutePath (io/file glfw-root "include")))
@@ -220,7 +220,7 @@
         (io/make-parents output)
         (run-command!
           (into ["zig" "build-lib" (case mode :shared "-dynamic" :static "-static")
-                 "-OReleaseFast" "-fPIC" (str "-I" imgui-root)
+                 "-Ofast" "-fPIC" (str "-I" imgui-root)
                  (str "-I" (io/file vulkan-root "include"))
                  (str "-femit-bin=" output) (str source)]
                 (case mode :shared [(str imgui-shared) (str glfw-shared) "-lc" "-lc++"]

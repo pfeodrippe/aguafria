@@ -25,9 +25,7 @@
         (try (testing/expectEqual 1.0 cell)))))
 
   ;; Initialize a multidimensional array to zeros.
-  (let [all-zero (-> [(k/** [0] 5)]
-                     (k/** 4)
-                     (k/as [:array 4 [:array 5 :f32]]))]
+  (let [all-zero (k/as (k/splat (k/splat 0)) [:array 4 [:array 5 :f32]])]
     (try (testing/expectEqual 0 (az/get-in all-zero [0 0])))))
 
 (comment

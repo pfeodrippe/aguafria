@@ -17,8 +17,10 @@ The example uses TigerBeetle's converted
 CLI client only as a convenient high-level transaction parser while a reusable
 direct transaction bridge is developed.
 
-Zig 0.16.0 must be available as `zig` (or pass `:zig` to `generate!`). ZLS is
-not needed to load, compile, run, or regenerate this project.
+Aguafria uses its embedded Zig 0.17.0 compiler. ZLS is not needed to load,
+compile, run, or regenerate this project. The vendored project's 0.17 migration
+is in progress; see the [migration report](../../ZIG_0_17_0_MIGRATION_2026-10-03.md)
+for the verified build configuration and remaining application-source failures.
 
 ## Calva / nREPL
 

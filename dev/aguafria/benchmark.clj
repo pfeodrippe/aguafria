@@ -79,7 +79,7 @@
     (try
       (az/configure! {:async? async?
                       :reloadable? true
-                      :optimize "ReleaseFast"
+                      :optimize "fast"
                       :modules {}
                       :zig-args []})
       (doseq [target namespaces]
@@ -124,7 +124,7 @@
     (try
       (az/configure! {:async? false
                       :reloadable? false
-                      :optimize "ReleaseFast"
+                      :optimize "fast"
                       :modules {}
                       :zig-args []})
       (binding [*ns* module-ns]
@@ -151,7 +151,7 @@
             build (az/build! module-symbol
                              {:kind :dynamic-lib
                               :output (.getAbsolutePath output)
-                              :optimize "ReleaseFast"})]
+                              :optimize "fast"})]
         (with-open [arena (Arena/ofConfined)]
           (let [linker (Linker/nativeLinker)
                 lookup (SymbolLookup/libraryLookup (.toPath output) arena)
@@ -313,7 +313,7 @@
      (try
        (az/configure! {:async? false
                        :reloadable? true
-                       :optimize "ReleaseFast"})
+                       :optimize "fast"})
        (binding [*ns* module-ns]
          (refer 'clojure.core)
          (alias 'az 'aguafria.zig))
@@ -386,7 +386,7 @@
                        :samples samples
                        :ffm-calls ffm-calls
                        :parallel-modules parallel-modules
-                       :optimize "ReleaseFast"}
+                       :optimize "fast"}
           :compilation {:clean clean
                         :cached cached
                         :incremental incremental}

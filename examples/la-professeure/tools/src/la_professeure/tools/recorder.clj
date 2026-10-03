@@ -1,20 +1,22 @@
 (ns la-professeure.tools.recorder
   "Native development recorder. Audio callbacks never enter the JVM or touch disk."
-  (:require [aguafria.std] [aguafria.std.mem :as mem]
+  (:require [aguafria.c :as ac]
+            [clojure.java.io :as io]
+            [aguafria.std] [aguafria.std.mem :as mem]
             [aguafria.keyword :as k] [aguafria.zig :as az]
+            [la-professeure.miniaudio :as audio]
             [la-professeure.build :as build]))
-
-(build/load-native!)
 
 (az/configure! {:module-zig-args
                 (assoc (:module-zig-args (az/configuration)) "la-professeure.tools.recorder"
                        [(str "-I" (clojure.java.io/file (build/root) "build/vendor/miniaudio"))])})
 
-(require '[la-professeure.miniaudio :as audio])
+(az/defconst api audio/c-api)
 
-(az/defconst api (k/cImport (k/cInclude "miniaudio.h")))
-
-(az/defconst file-api (k/cImport (do (k/cInclude "stdio.h") (k/cInclude "unistd.h"))))
+(az/defconst file-api
+  (k/import (az/clj! (ac/import! "la_professeure_recorder_io"
+                                 (io/file (io/resource "native/recorder_io.h"))
+                                 {:args ["-lc"]}))))
 
 (az/defconst Context (:ma_context api))
 
@@ -281,9 +283,9 @@
 
 (az/defn headphone-device? :bool [[index :u32]]
   (let [name (device-name false index)]
-    (or (k/!= (mem/indexOf :u8 name "Headphones") k/null)
-        (k/!= (mem/indexOf :u8 name "AirPods") k/null)
-        (k/!= (mem/indexOf :u8 name "Casque") k/null))))
+    (or (k/!= (mem/find :u8 name "Headphones") k/null)
+        (k/!= (mem/find :u8 name "AirPods") k/null)
+        (k/!= (mem/find :u8 name "Casque") k/null))))
 
 (az/defn start-monitor! :bool [[return-index :u32] [headphone-index :u32]]
   (when (or monitoring (input-check-active?) (k/! initialized) (k/>= return-index capture-count)

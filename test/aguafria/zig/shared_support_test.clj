@@ -21,9 +21,9 @@
 (deftest adapter-optimization-keeps-safety
   (let [previous (runtime/configuration)]
     (try
-      (is (= "ReleaseSafe" (:jvm-optimize (runtime/configure! {:jvm-optimize "ReleaseSafe"}))))
-      (is (= "Debug" (:jvm-optimize (runtime/configure! {:jvm-optimize "Debug"}))))
-      (doseq [mode ["ReleaseFast" "ReleaseSmall" "invalid" nil]]
+      (is (= "safe" (:jvm-optimize (runtime/configure! {:jvm-optimize "safe"}))))
+      (is (= "debug" (:jvm-optimize (runtime/configure! {:jvm-optimize "debug"}))))
+      (doseq [mode ["fast" "small" "invalid" nil]]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"safety-checked"
                               (runtime/configure! {:jvm-optimize mode}))))
       (finally (runtime/configure! previous)))))

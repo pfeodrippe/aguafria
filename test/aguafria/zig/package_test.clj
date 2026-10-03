@@ -12,6 +12,43 @@
 (def ^:private fixture-namespace
   'aguafria.pkg.catalog-fixture)
 
+(deftest fetch-uses-the-configured-global-cache-test
+  (let [directory (.toFile (java.nio.file.Files/createTempDirectory
+                            "aguafria-package-fetch-"
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
+        archive (io/file directory "package.tar.gz")
+        lookups (atom 0)
+        commands (atom [])
+        package-hash "fixture-0.0.0-hash"]
+    (with-redefs-fn
+      {#'package/package-directories (constantly {:fetch-project directory
+                                                  :zig-cache directory})
+       #'package/ensure-fetch-project! identity
+       #'package/archive-file (fn [cache hash]
+                                (is (= directory cache))
+                                (is (= package-hash hash))
+                                (when (> (swap! lookups inc) 1) archive))
+       #'runtime/zig-executable (constantly "zig")
+       #'package/run-command (fn [arguments cwd environment]
+                               (swap! commands conj [arguments cwd environment])
+                               {:exit 0 :output (str package-hash "\n")
+                                :stderr "warning(fetch): could not clean temporary files\n"})}
+      #(do
+         (is (= {:archive archive :cached? false}
+                (#'package/fetch-archive! "https://example.com/package.tar.gz"
+                                          package-hash)))
+         (is (= [[["zig" "fetch" "https://example.com/package.tar.gz"]
+                  directory {"ZIG_GLOBAL_CACHE_DIR" (.getAbsolutePath directory)}]]
+                @commands))))))
+
+(deftest subprocess-keeps-hash-output-separate-from-diagnostics-test
+  (let [result (#'package/run-command
+                ["sh" "-c" "printf '%s\\n' \"$AGUAFRIA_FETCH_TEST\"; printf 'warning\\n' >&2"]
+                "." {"AGUAFRIA_FETCH_TEST" "hash"})]
+    (is (zero? (:exit result)))
+    (is (= "hash\n" (:output result)))
+    (is (= "warning\n" (:stderr result)))))
+
 (deftest catalog-understands-canonical-function-declarations-test
   (let [public (#'package/declaration-parts
                 '(az/defn serialize [:array 36 :u8]
@@ -90,7 +127,7 @@
       (prepare/write-entrypoints! {:kind :packages :namespaces (:namespaces catalog)
                                    :generated-dir generated})
       (doseq [suffix [".Bytes" ".BytesAlias" ".Buffer.Slice" ".RowAlias.Slice"]]
-      (is (= 3 (az/value (call suffix '-len "abc"))))
+        (is (= 3 (az/value (call suffix '-len "abc"))))
         (is (value/zig-pointer? (call suffix '-ptr "abc")))
         (is (= '([self]) (:arglists (meta (ns-resolve (symbol (str prefix suffix)) '-len))))))
       (is (= 42 (az/value (call ".RowAlias" '-value (call "" 'row)))))

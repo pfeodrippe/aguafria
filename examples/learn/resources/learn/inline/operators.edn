@@ -314,6 +314,27 @@
   :alternatives? true
   :note "Alternative error handlers; the second makes err available to b."}
 
+ "try a"
+ {:clojure-source "(try a)" :kind :expr
+  :note "Unwrap a successful error union, returning any error to the caller."}
+
+ "a catch |err| return err"
+ {:clojure-source "(az/catch-capture [err] a (k/return err))" :kind :expr
+  :note "Propagate a's error to the caller."}
+
+ "const value: anyerror!u32 = 5678;\ntry value == 5678"
+ {:clojure-source "(let [value (k/as 5678 [:error-union :anyerror :u32])]\n  (k/== (try value) 5678))"
+  :kind :expr :standalone? true
+  :note "Unwrap the successful u32 payload before comparison."}
+
+ "@divCeil(5, 3) == 2"
+ {:clojure-source "(k/== (k/divCeil 5 3) 2)" :kind :expr :standalone? true
+  :note "Ceiling division rounds toward positive infinity."}
+
+ "@divCeil(-5, 3) == -1"
+ {:clojure-source "(k/== (k/divCeil -5 3) -1)" :kind :expr :standalone? true
+  :note "Ceiling division rounds a negative quotient toward positive infinity."}
+
  "const value: anyerror!u32 = error.Broken;\nconst unwrapped = value catch 1234;\nunwrapped == 1234"
  {:clojure-source "(let [value (k/as (az/error-value :Broken) [:error-union :anyerror :u32])\n      unwrapped (k/catch value 1234)]\n  (k/== unwrapped 1234))"
   :kind :expr

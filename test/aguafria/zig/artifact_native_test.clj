@@ -27,7 +27,7 @@
         build-object! (fn [n]
                         (spit source (str "export fn artifact_external() i32 { return " n "; }"))
                         (let [result (shell/sh (runtime/zig-executable) "build-obj" "-fPIC"
-                                               "-OReleaseSafe" (str "-femit-bin=" a) (str source))]
+                                               "-Osafe" (str "-femit-bin=" a) (str source))]
                           (assert (zero? (:exit result)) (pr-str result))))
         compile! (fn [object]
                    (runtime/configure! {:cache-dir (str (io/file directory "cache"))

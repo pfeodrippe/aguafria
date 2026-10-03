@@ -1,5 +1,6 @@
 (ns aguafria.zig.bundle-test
-  (:require [aguafria.keyword :as k]
+  (:require [aguafria.c :as c]
+            [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as az]
             [aguafria.zig.bundle :as bundle]
@@ -52,7 +53,7 @@
   (let [records [{:module "aguafria.jvm.first" :command ["zig"]
                  :groups [{:flags ["-ODebug"]}]}
                 {:module "aguafria.jvm.second" :command ["zig"]
-                 :groups [{:flags ["-OReleaseSafe"]}]}]]
+                 :groups [{:flags ["-Osafe"]}]}]]
     (with-redefs [bundle/candidate identity]
       (let [failure (try
                       (bundle/finish! "unused" (atom {:artifacts (zipmap (range) records)}) {})
@@ -72,18 +73,18 @@
 (deftest native-link-options-remain-global-and-include-options-remain-per-module
   (let [parse #'bundle/module-groups
         base ["zig" "build-lib" "-dynamic" "-femit-bin=unused"]
-        graph (parse {:command (into base ["-OReleaseFast" "-lc" "-framework" "CoreAudio"
+        graph (parse {:command (into base ["-Ofast" "-lc" "-framework" "CoreAudio"
                                           "-I/headers/root" "--dep" "child" "-Mroot=root.zig"
                                           "-I/headers/child" "-Mchild=child.zig"])})]
     (is (= ["-lc" "-framework" "CoreAudio"] (:link-args graph)))
-    (is (= [["-OReleaseFast" "-I/headers/root"] ["-I/headers/child"]]
+    (is (= [["-Ofast" "-I/headers/root"] ["-I/headers/child"]]
            (mapv :flags (:groups graph))))
     (is (thrown? clojure.lang.ExceptionInfo
                  (parse {:command (into base ["-framework"])})))
     (is (thrown? clojure.lang.ExceptionInfo
                  (parse {:command (into base ["-unknown-option" "-Mroot=root.zig"])})))))
 
-(deftest release-fast-c-import-and-external-library-handlers-share-one-bundle
+(deftest fast-translated-c-and-external-library-handlers-share-one-bundle
   (let [directory (.toFile (Files/createTempDirectory "aguafria native bundle "
                                                       (make-array java.nio.file.attribute.FileAttribute 0)))
         cache (str (io/file directory "cache"))
@@ -98,15 +99,19 @@
     (spit support-source "export fn support() void {}\n")
     (spit external-source "export fn fixture_value() i32 { return 40; }\n")
     (spit (io/file directory "fixture.h") "#define FIXTURE_INCREMENT 2\n")
+    (spit (io/file directory "fixture.zig")
+          (slurp (:translated-zig-path
+                  (c/translate-zig! (io/file directory "fixture.h")
+                                    {:cache-dir (str (io/file directory "c-cache"))}))))
     (doseq [[source library] [[support-source support] [external-source external]]]
-      (let [result (shell/sh zig "build-lib" "-dynamic" "-OReleaseFast"
+      (let [result (shell/sh zig "build-lib" "-dynamic" "-Ofast"
                              (str "-femit-bin=" library) (str source))]
         (is (zero? (:exit result)) (pr-str result))))
     (let [artifacts
           (mapv (fn [n]
                   (let [source (io/file directory (str "handler_" n ".zig"))]
                     (spit source (str "// Aguafria development loader.\n"
-                                      "const c = @cImport(@cInclude(\"fixture.h\"));\n"
+                                      "const c = @import(\"fixture\");\n"
                                       "extern fn fixture_value() i32;\n"
                                       "export fn __aguafria_probe() i32 { return fixture_value() + c.FIXTURE_INCREMENT + " n "; }\n"))
                     {:module (str "aguafria.jvm.external-bundle-test-" n)
@@ -114,8 +119,10 @@
                      :development-panic :shared
                      :development-panic-support-path (str support)
                      :command [zig "build-lib" "-dynamic" "-femit-bin=unused"
-                               (str support) "-OReleaseFast" "-lc" (str external)
-                               (str "-I" directory) (str "-Mroot=" source)]}))
+                               (str support) "-Ofast" "-lc" (str external)
+                               (str "-I" directory) "--dep" "fixture"
+                               (str "-Mroot=" source)
+                               (str "-Mfixture=" (io/file directory "fixture.zig"))]}))
                 (range 2))
           result (bundle/finish! cache (atom {:artifacts (zipmap (range) artifacts)}) callbacks)
           entries (mapv #(bundle/find-artifact cache %) artifacts)]
@@ -151,11 +158,11 @@
                              :hash (str n) :development-panic :shared
                              :development-panic-support-path (str support)
                              :command [zig "build-lib" "-dynamic" "-femit-bin=unused"
-                                       (str support) "-OReleaseSafe" (str "-Mroot=" source)]}))
+                                       (str support) "-Osafe" (str "-Mroot=" source)]}))
                         (range 65))
         collect #(atom {:artifacts (into {} (map (juxt :module identity)) %)})]
     (spit support-source "export fn bundle_test_support() void {}\n")
-    (let [built (shell/sh zig "build-lib" "-dynamic" "-OReleaseSafe"
+    (let [built (shell/sh zig "build-lib" "-dynamic" "-Osafe"
                           (str "-femit-bin=" support) (str support-source))]
       (is (zero? (:exit built)) (pr-str built)))
     ;; Two earlier, legitimate preparation requests must be consolidated when
@@ -247,7 +254,7 @@
               (assert (= 200 (az/value product))))
             :changed-mode
             (do
-              (runtime/configure! {:jvm-optimize "Debug"})
+              (runtime/configure! {:jvm-optimize "debug"})
               (with-open [x (k/i32 10) y (k/i32 20) sum (k/+ x y)]
                 (assert (= 30 (az/value sum)))))))]
     {:result result :events (frequencies (map :event @events))}))

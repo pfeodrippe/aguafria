@@ -1,9 +1,8 @@
 (ns learn.example.test-inline-else
   (:require [aguafria.keyword :as k]
-            [aguafria.std.builtin.Type :as type-info]
-            [aguafria.std.builtin.Type.Union :as union-info]
-            [aguafria.std.builtin.Type.Enum :as enum-info]
-            [aguafria.std.builtin.Type.EnumField :as field-info]
+            [aguafria.std.lang.Type :as type-info]
+            [aguafria.std.lang.Type.Union :as union-info]
+            [aguafria.std.lang.Type.Enum :as enum-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as az]))
 
@@ -17,7 +16,7 @@
   [[:ptr [:many SliceTypeA]]
    [:len :usize]])
 
-(az/defunion AnySlice {:enum? true}
+(az/defunion AnySlice {:enum? true :type :u8}
   [[:a SliceTypeA]
    [:b SliceTypeB]
    [:c [:slice-const :u8]]
@@ -25,13 +24,15 @@
 
 (az/defn- with-for :usize
   [[any AnySlice]]
-  (let [Tag (az/unwrap (-> (k/typeInfo AnySlice) type-info/-union union-info/-tag_type))]
-    (az/inline-for [field (-> (k/typeInfo Tag) type-info/-enum enum-info/-fields)]
+  (let [Tag (az/unwrap (-> (k/typeInfo AnySlice) type-info/-union union-info/-tag_type))
+        info (-> (k/typeInfo Tag) type-info/-enum)]
+    (az/inline-for [field-name (enum-info/-field_names info)
+                    field-value (enum-info/-field_values info)]
       ;; With `inline for` the function gets generated as
       ;; a series of `if` statements relying on the optimizer
       ;; to convert it to a switch.
-                   (when (k/== (field-info/-value field) (k/intFromEnum any))
-                     (k/return (:len (k/field any (field-info/-name field)))))))
+                   (when (k/== field-value (k/backingInt any))
+                     (k/return (:len (k/field any field-name))))))
   ;; When using `inline for` the compiler doesn't know that every
   ;; possible case has been handled requiring an explicit `unreachable`.
   (k/unreachable))
