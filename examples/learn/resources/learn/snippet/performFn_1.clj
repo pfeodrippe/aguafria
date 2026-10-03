@@ -1,6 +1,6 @@
 (ns learn.snippet.performFn-1
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defn- perform-fn :i32 [[start-value :i32]]
+(a/defn- perform-fn :i32 [[start-value :i32]]
   (let [after-two (two start-value)]
     (three after-two)))

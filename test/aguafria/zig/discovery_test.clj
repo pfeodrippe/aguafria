@@ -1,7 +1,7 @@
 (ns aguafria.zig.discovery-test
   (:require [aguafria.keyword :as k]
             [aguafria.std.c :as c]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.discovery :as discovery]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.jvm :as jvm]
@@ -59,17 +59,17 @@
                                (apply original arguments))]
         (let [x (k/i32 10)
               y (k/i32 20)]
-          (is (= 30 (az/value (k/+ x y))))
-          (is (= 17 (az/value (k/+ x 7))))
-          (is (= 63 (az/value (k/+ 31 32))))
-          (is (= (float (/ 7.0 3.0)) (float (az/value (k/f32 (k// 7.0 3.0))))))
-          (is (= [1 2] (az/value (k/as (az/array [1 2] :i32) [:vector 2 :i32]))))
-          (let [array (az/array [1 2] :i32)]
-            (is (= 2 (az/value (:len array))))
-            (is (= 1 (az/value (az/get array 0)))))
-          (let [array (k/var (az/array [1 2] :i32))]
-            (k/+= (az/get array 0) 1)
-            (is (= 2 (az/value (az/get array 0)))))))
+          (is (= 30 (a/value (k/+ x y))))
+          (is (= 17 (a/value (k/+ x 7))))
+          (is (= 63 (a/value (k/+ 31 32))))
+          (is (= (float (/ 7.0 3.0)) (float (a/value (k/f32 (k// 7.0 3.0))))))
+          (is (= [1 2] (a/value (k/as (a/array [1 2] :i32) [:vector 2 :i32]))))
+          (let [array (a/array [1 2] :i32)]
+            (is (= 2 (a/value (:len array))))
+            (is (= 1 (a/value (a/get array 0)))))
+          (let [array (k/var (a/array [1 2] :i32))]
+            (k/+= (a/get array 0) 1)
+            (is (= 2 (a/value (a/get array 0)))))))
       (is (empty? @commands) (str @commands)))))
 
 (deftest namespace-errors-do-not-abort-the-inventory
@@ -97,7 +97,7 @@
     (with-redefs [shell/sh (fn [& arguments]
                              (swap! commands conj (take 2 arguments))
                              (apply original arguments))]
-      (is (= 42 (az/value (function 35)))))
+      (is (= 42 (a/value (function 35)))))
     (is (empty? @commands) (str @commands))))
 
 (deftest declaration-only-imports-remain-explicitly-unsupported
@@ -137,8 +137,8 @@
                              (apply original arguments))]
       (doseq [[type number] [[:i32 42] [:u16 7] [:i32 15]]]
         (let [box-type ((ns-resolve 'aguafria.zig.discovery-generic-type-fixture 'Box) type)
-              box (az/init {:value number} box-type)]
-          (is (= number (az/value (:value box)))))))
+              box (a/init {:value number} box-type)]
+          (is (= number (a/value (:value box)))))))
     (is (empty? @commands) (str @commands))))
 
 (deftest type-identities-do-not-guess-the-type-of-anytype-constants
@@ -218,8 +218,8 @@
         (with-open [native (jvm/coerce! items tuple)
                     array (k/as native [:array 2 :u8])]
           (is (= tuple (value/qualified-type native)))
-          (is (= items (az/value native)))
-          (is (= items (az/value array)))))
+          (is (= items (a/value native)))
+          (is (= items (a/value array)))))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Wrong number of Zig tuple elements"
                             (jvm/coerce! [5] tuple))))
     (is (empty? @commands) (pr-str @commands))))
@@ -235,10 +235,10 @@
       (is (= :prepared (:status (jvm/precompile-coercion! type)))))
     (with-open [native (jvm/coerce! original type)
                 mutable (k/var native)]
-      (is (= original (az/value native)))
+      (is (= original (a/value native)))
       (k/= mutable changed)
-      (is (= changed (az/value mutable)))
-      (is (= original (az/value native))))))
+      (is (= changed (a/value mutable)))
+      (is (= original (a/value native))))))
 
 (defn- named-tuple-jvm [cache prepare?]
   (let [code (pr-str
@@ -446,14 +446,14 @@
             variable (k/var 20 :i32)
             mutable-pointer (k/& variable)
             optional (k/as 7 [:optional :i32])]
-        (is (= 12 (az/value @pointer)))
-        (is (= 12 (az/value (az/deref pointer))))
+        (is (= 12 (a/value @pointer)))
+        (is (= 12 (a/value (a/deref pointer))))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable native value"
-                              (k/+= (az/deref pointer) 1)))
+                              (k/+= (a/deref pointer) 1)))
         (k/+= @mutable-pointer 1)
-        (k/+= (az/deref mutable-pointer) 1)
-        (is (= 22 (az/value variable)))
-        (is (= 7 (az/value (az/unwrap optional))))))
+        (k/+= (a/deref mutable-pointer) 1)
+        (is (= 22 (a/value variable)))
+        (is (= 7 (a/value (a/unwrap optional))))))
     (is (empty? @commands) (str @commands))))
 
 (deftest storage-free-operands-and-source-literals-are-prepared
@@ -485,7 +485,7 @@
                                 "aguafria.zig.discovery-function-value-fixture"))
                           [:struct 'Command])))
       (is (= :prepared (:status (runtime/precompile-function! target)))))
-    (is (= 42 (az/value ((resolve target) 41))))))
+    (is (= 42 (a/value ((resolve target) 41))))))
 
 (deftest boolean-operator-literals-use-the-normal-call-cache
   (let [fail! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))]
@@ -537,10 +537,10 @@
                              (apply original args))]
       (let [number (k/u8 16)
             shift (k/u3 1)]
-        (is (= 64 (az/value (k/shlExact number 2))))
-        (is (= 4 (az/value (k/shrExact number 2))))
-        (is (= 32 (az/value (k/shlExact number shift))))
-        (is (= 8 (az/value (k/shrExact number shift))))))
+        (is (= 64 (a/value (k/shlExact number 2))))
+        (is (= 4 (a/value (k/shrExact number 2))))
+        (is (= 32 (a/value (k/shlExact number shift))))
+        (is (= 8 (a/value (k/shrExact number shift))))))
     (is (empty? @commands) (str @commands)))
   ;; An explicit native type must not silently become an untyped literal merely
   ;; because that literal would fit. Zig must reject the wider shift operand.
@@ -569,9 +569,9 @@
                              (when (= "build-lib" (second args))
                                (swap! commands conj (vec args)))
                              (apply original args))]
-      (is (= 0 (az/value (c/printf ""))))
-      (is (= 3 (az/value (c/printf "%d\n" (k/i32 12)))))
-      (is (= 9 (az/value (c/printf "%s=%d\n" "value" (k/i32 42))))))
+      (is (= 0 (a/value (c/printf ""))))
+      (is (= 3 (a/value (c/printf "%d\n" (k/i32 12)))))
+      (is (= 9 (a/value (c/printf "%s=%d\n" "value" (k/i32 42))))))
     (is (empty? @commands) (str @commands)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"variadic argument count"
                         (c/printf))))
@@ -636,7 +636,7 @@
           original shell/sh
           snapshot #(walk/postwalk
                      (fn [item]
-                       (let [item (if (value/zig-value? item) (az/value item) item)]
+                       (let [item (if (value/zig-value? item) (a/value item) item)]
                          (if (value/zig-pointer? item)
                            (.getString (value/pointer-segment item 3) 0)
                            item))) %)]
@@ -651,7 +651,7 @@
                (snapshot (k/++ [(k/u32 1234) (k/f64 12.34) true "hi"] (k/as (k/splat false) [:array 2 :bool])))))
         (let [native-false (k/bool false)
               native-true (k/bool true)
-              native-text (az/string-literal "\"hi\"")]
+              native-text (a/string-literal "\"hi\"")]
           (is (= [false false] (snapshot (k/as (k/splat native-false) [:array 2 :bool]))))
           (doseq [truth [true native-true]
                   text ["hi" native-text]
@@ -660,10 +660,10 @@
             (let [result (k/++ [(k/u32 1234) (k/f64 12.34) truth text]
                                [first-false second-false])]
               (is (= [1234 12.34 true "hi" false false] (snapshot result)))
-              (is (= 1234 (az/value (az/get result 0))))
-              (is (= false (az/value (az/get result 4))))
-              (is (= 6 (az/value (az/field result :len))))
-              (is (= 104 (az/value (az/get-in result [:3 0]))))))))
+              (is (= 1234 (a/value (a/get result 0))))
+              (is (= false (a/value (a/get result 4))))
+              (is (= 6 (a/value (a/field result :len))))
+              (is (= 104 (a/value (a/get-in result [:3 0]))))))))
       (is (empty? @commands) (str @commands)))))
 
 (deftest slice-probes-preserve-native-index-result-context
@@ -714,10 +714,10 @@
         (with-open [constant (counter {:value 10})
                     mutable (k/var (counter {:value 20}))
                     x (k/i32 3)]
-          (is (= 6 (az/value ((:twice counter) x))))
-          (is (= 13 (az/value ((:plus constant) x))))
+          (is (= 6 (a/value ((:twice counter) x))))
+          (is (= 13 (a/value ((:plus constant) x))))
           ((:increment mutable))
-          (is (= 24 (az/value ((:plus mutable) x))))))
+          (is (= 24 (a/value ((:plus mutable) x))))))
       (is (empty? @commands) (str @commands)))))
 
 (deftest member-plans-canonicalize-native-type-identities
@@ -803,7 +803,7 @@
           (is (true? ((:is-clubs suit))))
           (is (true? ((:truthy variant))))
           ((:increment counter))
-          (is (= 24 (az/value ((:plus counter) amount))))))
+          (is (= 24 (a/value ((:plus counter) amount))))))
       (is (empty? @commands) (str @commands)))))
 
 (deftest private-type-constructors-use-their-defining-scope
@@ -827,7 +827,7 @@
                              (apply original args))]
       (with-open [box (jvm/coerce! {:value 7}
                                    '(aguafria.zig.discovery-private-type-fixture/Box :i32))]
-        (is (= 7 (az/value (:value box))))))
+        (is (= 7 (a/value (:value box))))))
     (is (empty? @commands) (str @commands))))
 
 (defn- private-member-jvm [cache prepare?]
@@ -917,7 +917,7 @@
                                (apply original args))]
         (with-open [v ((resolve 'aguafria.zig.discovery-imported-fixture/make-version))]
           (is (= 'aguafria.std/SemanticVersion (value/qualified-type v)))
-          (is (= 1 (az/value (az/field v :major))))
+          (is (= 1 (a/value (a/field v :major))))
           (is (= [:*const 'aguafria.std/SemanticVersion]
                  (value/qualified-type (k/& v))))))
       (is (empty? @commands) (str @commands)))))
@@ -952,12 +952,12 @@
                       [:* {:size :c :const? true} :i32]]]
           (let [qualified (k/as pointer type)]
             (is (contains? pointer-types (value/qualified-type qualified)))
-            (is (pos? (az/value (k/intFromPtr qualified))))))
-        (let [array (az/array [1 2] {:sentinel 0} :u8)
+            (is (pos? (a/value (k/intFromPtr qualified))))))
+        (let [array (a/array [1 2] {:sentinel 0} :u8)
               sentinel (k/as (k/& array) [:sentinel-const :u8 0])]
           (is (= [:array 2 {:sentinel 0} :u8] (value/qualified-type array)))
           (is (contains? pointer-types (value/qualified-type sentinel)))
-          (is (pos? (az/value (k/intFromPtr sentinel))))))
+          (is (pos? (a/value (k/intFromPtr sentinel))))))
       (is (empty? @commands) (str @commands)))))
 
 (deftest invalid-utf8-is-not-substituted-in-comptime-strings

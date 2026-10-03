@@ -1,10 +1,10 @@
 (ns learn.example.test-shadowing
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst pi 3.14)
+(a/defconst pi 3.14)
 
-(az/deftest inside-test-block
+(a/deftest inside-test-block
   ;; Let's even go inside another block
   (let [pi (k/var 1234 :i32)]))
 

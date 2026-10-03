@@ -1,5 +1,5 @@
 (ns aguafria.zig.precompile-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.std.testing :as zig-testing]
@@ -17,13 +17,13 @@
                    {:namespaces 'somewhere} {:namespaces ['somewhere/function]}
                    {:warmup ['somewhere/run!]}
                    {:calls [{:function 'unqualified :args []}]}]]
-    (is (thrown? clojure.lang.ExceptionInfo (az/precompile! options)))))
+    (is (thrown? clojure.lang.ExceptionInfo (a/precompile! options)))))
 
 (deftest namespace-precompilation-does-not-run-bodies
   (let [fail! (fn [& _] (throw (ex-info "Precompilation invoked a native body" {})))
         report (with-redefs [runtime/invoke! fail!
                              runtime/invoke-with-result! fail!]
-                 (az/precompile! {:namespaces ['aguafria.zig.precompile-fixture]}))
+                 (a/precompile! {:namespaces ['aguafria.zig.precompile-fixture]}))
         statuses (into {} (map (juxt :function :status)) (:functions report))]
     (is (= :prepared (statuses 'aguafria.zig.precompile-fixture/do-not-call)))
     (is (= :prepared (statuses 'aguafria.zig.precompile-fixture/increment)))
@@ -37,7 +37,7 @@
   (let [fail! (fn [& _] (throw (ex-info "Precompilation invoked a native body" {})))
         report (with-redefs [runtime/invoke! fail!
                              runtime/invoke-with-result! fail!]
-                 (az/precompile!
+                 (a/precompile!
                   {:calls '[{:function aguafria.std.debug/assert :args [:bool]}
                             {:function aguafria.std.testing/expectEqual :args [:i32 :i32]}
                             {:function aguafria.zig.precompile-fixture/generic-identity
@@ -52,7 +52,7 @@
                              (apply original args))]
       (debug/assert true)
       (zig-testing/expectEqual argument argument)
-      (is (= 42 (az/value ((resolve 'aguafria.zig.precompile-fixture/generic-identity)
+      (is (= 42 (a/value ((resolve 'aguafria.zig.precompile-fixture/generic-identity)
                            :i32 argument)))))
     (is (empty? @commands) (str @commands))))
 
@@ -65,11 +65,11 @@
         fail! (fn [& _] (throw (ex-info "Precompilation invoked a native body" {})))
         report (with-redefs [runtime/invoke! fail!
                              runtime/invoke-with-result! fail!]
-                 (az/precompile! {:namespaces ['aguafria.zig.precompile-noreturn-fixture]}))]
+                 (a/precompile! {:namespaces ['aguafria.zig.precompile-noreturn-fixture]}))]
     (is (= 3 (count (:functions report))))
     (is (every? #(= :prepared (:status %)) (:functions report)))
     (is (= before (loaded)))
-    (is (str/includes? (az/source 'aguafria.zig.precompile-noreturn-fixture)
+    (is (str/includes? (a/source 'aguafria.zig.precompile-noreturn-fixture)
                        "fn never_run() noreturn"))))
 
 (deftest comptime-result-preparation-does-not-execute-or-load
@@ -81,7 +81,7 @@
         fail! (fn [& _] (throw (ex-info "Preparation executed a native body" {})))
         types [:u8 [:array 4 :u16] [:error-union :anyerror :i32]]
         report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
-                 (az/precompile!
+                 (a/precompile!
                   {:calls (mapv (fn [type]
                                   {:function 'aguafria.keyword/typeInfo
                                    :args [{:comptime-type type}]})
@@ -97,7 +97,7 @@
       (is (= [{:int {:signedness :unsigned :bits 8}}
               {:array {:len 4 :child {:type "u16"} :sentinel_ptr nil}}
               {:error_union {:error_set {:type "anyerror"} :payload {:type "i32"}}}]
-             (mapv #(az/value (k/typeInfo %)) types))))
+             (mapv #(a/value (k/typeInfo %)) types))))
     (is (empty? @commands) (str @commands))))
 
 (deftest unsupported-and-invalid-signatures-fail-explicitly
@@ -106,13 +106,13 @@
                  {:function aguafria.keyword/+ :args [{:comptime 1} {:comptime 2}]}
                  {:function aguafria.keyword/+ :args [:i32]}
                  {:function aguafria.keyword/+ :args [:not-a-type :i32]}]]
-    (is (thrown? Exception (az/precompile! {:calls [call]})))))
+    (is (thrown? Exception (a/precompile! {:calls [call]})))))
 
 (defn- fresh-jvm [cache-dir prepare?]
   (let [code
         (pr-str
          `(do
-            (require '~'[aguafria.zig :as az]
+            (require '~'[aguafria.zig :as a]
                      '~'[aguafria.keyword :as k]
                      '~'[aguafria.zig.runtime :as runtime]
                      '~'[clojure.java.shell :as shell])

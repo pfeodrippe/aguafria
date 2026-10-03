@@ -1,8 +1,8 @@
 (ns learn.example.Assembly-Syntax-Explained
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn syscall1 :usize [[number :usize] [arg1 :usize]]
+(a/defn syscall1 :usize [[number :usize] [arg1 :usize]]
   ;; Inline assembly is an expression which returns a value.
   ;; the `asm` keyword begins the expression.
   (k/asm
@@ -14,7 +14,7 @@
    ;; the below code, this is not used. A literal `%` can be
    ;; obtained by escaping it with a double percent: `%%`.
    ;; Often multiline string syntax comes in handy here.
-   (az/multiline-string ["syscall"])
+   (a/multiline-string ["syscall"])
    {;; `volatile` is an optional modifier that tells Zig this
     ;; inline assembly expression has side-effects. Without
     ;; `volatile`, Zig is allowed to delete the inline assembly

@@ -82,7 +82,7 @@ The Learn `:precompile` alias ignores
 `learn.example.test-without-setEvalBranchQuota-builtin`: that lesson deliberately
 exceeds Zig's compile-time evaluation quota. It remains in the documentation and
 outcome verification. Override with `:ignore []` when explicitly investigating it.
-Generic `az/precompile!` also accepts `:ignore [namespace ...]`; ignored selections
+Generic `a/precompile!` also accepts `:ignore [namespace ...]`; ignored selections
 are reported separately, never counted as prepared operations.
 
 `serve` reuses the existing HTML snapshot; restarting it does not invalidate
@@ -103,9 +103,9 @@ loading and native output capture are serialized so one lesson cannot consume
 another lesson's output. Results retain documentation order regardless of finish
 order. `verify-outcomes!` also accepts `examples` and `{:jobs n}` from the REPL.
 
-Container methods use `(az/fn name return-type ... [args] body...)`, public by
-default, or `az/fn-` for private methods. Named container values use ordinary
-constructor calls such as `(Timestamp {:seconds 0 :nanos 0})`; explicit `az/init`
+Container methods use `(a/fn name return-type ... [args] body...)`, public by
+default, or `a/fn-` for private methods. Named container values use ordinary
+constructor calls such as `(Timestamp {:seconds 0 :nanos 0})`; explicit `a/init`
 remains useful for anonymous/computed type expressions and non-container schemas.
 
 The example uses the library checkout so compiler fixes can be tested immediately.
@@ -121,17 +121,17 @@ Compiler-provided values use `[aguafria.builtin :as builtin]`, for example
 Error-returning functions use `:!void`, `:!u32`, or `:!MyType`; composite payloads
 use `[:! payload-type]` (equivalent to `[:error-union payload-type]`).
 
-Calling an `az/defn` or imported function Var executes native Zig from ordinary
+Calling an `a/defn` or imported function Var executes native Zig from ordinary
 Clojure or Java. Generic/comptime calls are specialized natively. For example,
 `(debug/print "Hello, {s}!\n" ["World"])` prints and returns `nil` (Zig `void`),
 while `(math/sqrt 9.0)` returns `3.0`. Bound Clojure output writers receive
 stdout/stderr from synchronous calls, including CIDER's output buffer.
-Use a quoted form with `az/emit-expr` when you want source instead of execution.
+Use a quoted form with `a/emit-expr` when you want source instead of execution.
 
 Generic container methods also have ordinary, completable Vars. Require
 `[aguafria.std.ArrayList :as array-list]`, then call
 `(array-list/append list allocator \☔)`. This is equivalent to
-`((az/field list :append) allocator \☔)`, in native code and from the JVM.
+`((a/field list :append) allocator \☔)`, in native code and from the JVM.
 The method mutates the original `ak/var` receiver, not a copied list. Use
 `array-list/deinit` with the same allocator to release the list's allocation;
 closing the native value handle alone only releases its container storage.
@@ -159,7 +159,7 @@ and do not use a pointer after its storage is resized or freed.
 Prepared, ignored namespace files expose declarations and documentation for
 static editor tooling; the live Vars also expose normal `:arglists` and `:doc`.
 `testing/allocator` is backed by a persistent native test context when used from
-the JVM. Native `az/deftest` execution still owns its usual leak-checking scope;
+the JVM. Native `a/deftest` execution still owns its usual leak-checking scope;
 an ordinary Clojure `let` does not itself create a native test scope.
 Thus a successful append/length check is not a promise that allocations were
 freed. Failed native tests retain their full Zig trace and add mapped Clojure
@@ -172,7 +172,7 @@ invented declarations or runnable entry points.
 
 Native handles print explicitly, for example
 `#aguafria.zig.value.ZigValue[{:items [], :capacity 0}]`. Dereference (`@list`)
-or `az/value` returns the decoded view without the tag. Inspection uses current
+or `a/value` returns the decoded view without the tag. Inspection uses current
 native fields, including generated generic structs; unbounded pointer fields
 display their addresses/types without being dereferenced. The tag is for
 inspection, not a readable serialization of native ownership.

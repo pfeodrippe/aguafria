@@ -1,10 +1,10 @@
 (ns learn.example.test-invalid-defer
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- deferInvalidExample [:error-union :void] []
-  (defer (k/return (az/error-value :DeferError)))
-  (az/error-value :DeferError))
+(a/defn- deferInvalidExample [:error-union :void] []
+  (defer (k/return (a/error-value :DeferError)))
+  (a/error-value :DeferError))
 
 (comment
   (deferInvalidExample))

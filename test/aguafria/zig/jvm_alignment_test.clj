@@ -1,6 +1,6 @@
 (ns aguafria.zig.jvm-alignment-test
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.runtime :as runtime]
@@ -58,28 +58,28 @@
         (eval (first forms))
         (binding [runtime/*source-only-registration?* true]
           (doseq [form (rest forms)] (eval form)))
-        (doseq [declaration (filter #(and (seq? %) (= 'az/deftest (first %))) forms)]
+        (doseq [declaration (filter #(and (seq? %) (= 'a/deftest (first %))) forms)]
           (testing (str lesson "/" (second declaration))
             (doseq [body (drop 2 declaration)]
               (is (some? (do (eval body) :completed)) (pr-str body)))
             (is (= :passed (:status ((ns-resolve *ns* (second declaration))))))))))))
 
 (deftest computed-type-options-use-native-results
-  (is (= (str "*align(" (az/value (k/alignOf :i32)) ") i32")
+  (is (= (str "*align(" (a/value (k/alignOf :i32)) ") i32")
          (emitter/emit-type
           ((requiring-resolve 'aguafria.zig.jvm/constructor-type)
            [:* {:align (k/alignOf :i32)} :i32]))))
   (doseq [type [:i32 [:array 3 :u32] [:* :i32]]]
-    (is (= (az/value (k/alignOf (az/type type)))
-           (az/value (k/alignOf type))))))
+    (is (= (a/value (k/alignOf (a/type type)))
+           (a/value (k/alignOf type))))))
 
 (deftest mutable-storage-supports-structured-alignment
   (doseq [alignment [4 (k/alignOf :u32)]]
     (let [v (k/var 100 :u8 {:align alignment})]
-      (is (= 4 (:align (az/value-info v))))
-      (is (zero? (mod (.address (az/native-segment v)) 4)))
+      (is (= 4 (:align (a/value-info v))))
+      (is (zero? (mod (.address (a/native-segment v)) 4)))
       (k/= v 101)
-      (is (= 101 (az/value v)))))
+      (is (= 101 (a/value v)))))
   (doseq [alignment [0 -1 3 nil]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"positive power of two"
                          (k/var 100 :u8 {:align alignment})))))

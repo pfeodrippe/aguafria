@@ -1,8 +1,8 @@
 (ns learn.example.comments
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void
+(a/defn main :void
   []
   ;; Comments in Zig start with "//" and end at the next LF byte (end of line).
   ;; The line below is a comment and won't be executed.

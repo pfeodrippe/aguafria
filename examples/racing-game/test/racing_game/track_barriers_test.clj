@@ -2,7 +2,7 @@
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
             [aguafria.std.math :as math]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [racing-game.circuit :as circuit]
             [racing-game.physics :as physics]
             [racing-game.physics-track :as terrain]
@@ -28,7 +28,7 @@
     (is (pos? (reduce + (map (fn [[a b c]] (dot (vertices a) (cross (vertices b) (vertices c)))) triangles)))
         "Closed barriers have outward winding, including their bottom faces")))
 
-(az/defn impact-probe [:array 4 :f32]
+(a/defn impact-probe [:array 4 :f32]
   "Controlled crash initial conditions, not driving code. Velocity is assigned
   once at setup; all subsequent contact/rotation/deceleration is solved by Box3D." [[progress :f32] [side :f32] [speed :f32]]
   (let [world (physics/create-world -9.81)
@@ -38,8 +38,8 @@
         ;; Blender-authored runoff narrows around an inside bend.
         p (circuit/at-distance (* progress 4309.0) (* side 4.0))
         body (physics/create-box world
-               (b3/b3Pos {:x (az/field p x) :y (az/field p y) :z (+ (az/field p z) 0.6)})
-               (b3/b3Vec3 {:x 2.5 :y 0.75 :z 0.2}) (az/field p heading) 700.0)
+               (b3/b3Pos {:x (a/field p x) :y (a/field p y) :z (+ (a/field p z) 0.6)})
+               (b3/b3Vec3 {:x 2.5 :y 0.75 :z 0.2}) (a/field p heading) 700.0)
         ^{:var :i32} hits 0
         ^{:var :f32} maximum-lane 0.0
         ^{:var :f32} minimum-z 1000.0]
@@ -47,23 +47,23 @@
     (ak/defer (terrain/destroy! surface))
     (ak/defer (physics/destroy-world! world))
     (b3/b3Body_SetLinearVelocity body
-      (b3/b3Vec3 {:x (* side speed (- (math/sin (az/field p heading))))
-                   :y (* side speed (math/cos (az/field p heading))) :z 0.0}))
+      (b3/b3Vec3 {:x (* side speed (- (math/sin (a/field p heading))))
+                   :y (* side speed (math/cos (a/field p heading))) :z 0.0}))
     (dotimes [_ physics/step-rate]
       (physics/step! world)
       (let [state (physics/body-state body)
-            projection (track/project (* (az/field state x) 0.001) (* (az/field state y) 0.001))]
-        (ak/= hits (+ hits (az/field (b3/b3World_GetContactEvents world) hitCount)))
-        (ak/= maximum-lane (ak/max maximum-lane (* 50.0 (ak/abs (az/field projection lane)))))
-        (ak/= minimum-z (ak/min minimum-z (az/field state z)))))
+            projection (track/project (* (a/field state x) 0.001) (* (a/field state y) 0.001))]
+        (ak/= hits (+ hits (a/field (b3/b3World_GetContactEvents world) hitCount)))
+        (ak/= maximum-lane (ak/max maximum-lane (* 50.0 (ak/abs (a/field projection lane)))))
+        (ak/= minimum-z (ak/min minimum-z (a/field state z)))))
     (let [state (physics/body-state body)]
-      (az/init [(ak/floatFromInt hits) maximum-lane minimum-z
-         (ak/sqrt (+ (* (az/field state vx) (az/field state vx))
-                      (* (az/field state vy) (az/field state vy))))] [:array 4 :f32]))))
+      (a/init [(ak/floatFromInt hits) maximum-lane minimum-z
+         (ak/sqrt (+ (* (a/field state vx) (a/field state vx))
+                      (* (a/field state vy) (a/field state vy))))] [:array 4 :f32]))))
 
 (deftest rigid-body-cannot-pass-through-authored-containment-test
   (doseq [progress [0.0 0.25 0.5 0.82] side [-1.0 1.0]]
-    (let [[hits lane minimum-z speed :as result] (az/value (impact-probe progress side 83.333))
+    (let [[hits lane minimum-z speed :as result] (a/value (impact-probe progress side 83.333))
           context (pr-str {:progress progress :side side :result result})]
       (is (pos? hits) context)
       (is (< lane 33.0) context)

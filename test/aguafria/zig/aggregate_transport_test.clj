@@ -1,7 +1,7 @@
 (ns aguafria.zig.aggregate-transport-test
   (:require [aguafria.keyword :as k]
             [aguafria.std.mem :as mem]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.jvm :as jvm]
             [aguafria.zig.runtime :as runtime]
@@ -14,7 +14,7 @@
 (deftest explicit-type-arguments-are-stable-under-qualification
   (let [context (the-ns 'aguafria.zig.aggregate-transport-test)]
     (doseq [form ['(mem/zeroes :u32)
-                  '(mem/zeroes (az/type [:array 4 :u8]))]]
+                  '(mem/zeroes (a/type [:array 4 :u8]))]]
       (let [qualified (emitter/qualify-form context form)]
         (is (= qualified (emitter/qualify-form context qualified)))
         (is (= (emitter/emit-expr context form)
@@ -25,18 +25,18 @@
     (try
       (binding [*ns* namespace runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
-        (eval '(az/defstruct Packet
+        (alias 'a 'aguafria.zig)
+        (eval '(a/defstruct Packet
                  [[:bytes [:array 4 :u8]]
                   [:lanes [:vector 2 :i32]]])))
       (let [packet-type (var-get (ns-resolve namespace 'Packet))
             packet (mem/zeroes packet-type)]
-        (is (= {:bytes [0 0 0 0] :lanes [0 0]} (az/value packet)))
-        (is (= [0 0 0 0] (az/value (:bytes packet))))
-        (is (= [0 0] (az/value (:lanes packet))))
+        (is (= {:bytes [0 0 0 0] :lanes [0 0]} (a/value packet)))
+        (is (= [0 0 0 0] (a/value (:bytes packet))))
+        (is (= [0 0] (a/value (:lanes packet))))
         (let [mutable (k/var packet)]
-          (k/= (az/get (:bytes mutable) 2) 7)
-          (is (= [0 0 7 0] (az/value (:bytes mutable))))
-          (is (= [0 0 0 0] (az/value (:bytes packet))))))
+          (k/= (a/get (:bytes mutable) 2) 7)
+          (is (= [0 0 7 0] (a/value (:bytes mutable))))
+          (is (= [0 0 0 0] (a/value (:bytes packet))))))
       (finally
         (remove-ns (ns-name namespace))))))

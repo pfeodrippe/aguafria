@@ -1,8 +1,8 @@
 (ns learn.example.multiline-string-literals
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defconst hello-world-in-c
-  (az/multiline-string
+(a/defconst hello-world-in-c
+  (a/multiline-string
    ["#include <stdio.h>"
     ""
     "int main(int argc, char **argv) {"

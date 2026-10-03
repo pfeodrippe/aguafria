@@ -2,9 +2,9 @@
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [x (k/var 2r10101010 :u8)] ; runtime-known
     (k/= :_ (k/& x))
     (let [y (k/shrExact x 2)]

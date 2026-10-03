@@ -46,6 +46,24 @@
            (is (= :u32 (#'runtime/bridge-storage-type "fixture.adapter" 'Local #{})))
            (is (= :u64 (#'runtime/bridge-storage-type "fixture.adapter" 'fixture.types/Imported #{}))))))))
 
+(deftest registered-empty-modules-remain-in-development-dependencies
+  (let [root {:kind :const :name 'empty-module :module "fixture.root"
+              :value (with-meta 'empty-module
+                       {:aguafria/zig-reference
+                        {:kind :namespace-root :module "fixture.empty"
+                         :zig-name "empty_module"
+                         :import-alias "empty_module"
+                         :import-name "fixture.empty"
+                         :import-namespace 'fixture.empty}})}
+        snapshot (#'runtime/development-dependency-snapshot
+                   [root] {"fixture.empty" {:definitions {}}})
+        entry (get snapshot "fixture.empty")]
+    (is (string? (:source entry)))
+    (is (str/includes? (:source entry) "__aguafria_type__fixture.empty"))
+    (is (empty? (:dependencies entry)))
+    (is (empty? (:dispatch-entries entry)))
+    (is (empty? (#'runtime/development-dependency-snapshot [root] {})))))
+
 (deftest retained-adapter-root-keeps-its-generated-module-imports
   (let [caller {:module "fixture.adapter" :kind :fn :name 'answer
                 :args [] :return :u32 :body [42]}
@@ -911,6 +929,14 @@
                :kind :const :name 'Types
                :declaration-key [:const 'Types]
                :value [root]})
+        alias (info {:module "fixture.reflecting-consumer"
+                     :kind :const :name 'Alias
+                     :declaration-key [:const 'Alias]
+                     :value root})
+        alias-use (info {:module "fixture.reflecting-consumer"
+                         :kind :const :name 'AliasedTypes
+                         :declaration-key [:const 'AliasedTypes]
+                         :value ['Alias]})
         static-member
         (info {:module "fixture.reflecting-consumer"
                :kind :const :name 'Api
@@ -924,7 +950,7 @@
               {module {:definitions
                        (definitions [self field js-api method zig-test])}
                "fixture.reflecting-consumer"
-               {:definitions (definitions [first-class static-member])}})
+               {:definitions (definitions [first-class alias alias-use static-member])}})
       (reset! reference-index
               {:by-module {} :by-logical {} :references {} :revision 0
                :extraction-version
@@ -944,11 +970,53 @@
         (is (not (contains? first-class-references (:logical-id self))))
         (is (contains? static-references (:logical-id js-api)))
         (is (not (contains? static-references (:logical-id self))))
+        (is (not (contains? (#'runtime/declaration-reference-logical-ids alias)
+                            (:logical-id js-api))))
+        (is (contains? (#'runtime/declaration-reference-logical-ids alias-use)
+                       (:logical-id js-api)))
+        (doseq [body [[(list 'set! '_ root)]
+                     [(list 'aguafria.keyword/= :_ 'Alias)]]]
+          (is (not (contains? (#'runtime/declaration-reference-logical-ids
+                               (assoc first-class :kind :comptime
+                                      :value nil :body body))
+                              (:logical-id js-api)))))
+        (is (contains? (#'runtime/declaration-reference-logical-ids
+                        (assoc first-class :kind :comptime :value nil
+                               :body [(list 'set! '_ (list 'reflect root))]))
+                       (:logical-id js-api)))
         (is (= #{'JsApi}
                (set (map :name retained)))))
       (finally
         (reset! registry old-registry)
         (reset! reference-index old-index)))))
+
+(deftest reexported-declarations-activate-native-hooks-only-when-used
+  (let [info runtime/declaration-info
+        module "fixture.reexport-consumer"
+        dependency (info {:module "fixture.reexport-dependency"
+                          :kind :fn :name 'answer :declaration-key [:fn 'answer]
+                          :args [] :return :u32 :body [42]})
+        reference (with-meta 'dependency/answer
+                    {:aguafria/zig-reference
+                     {:kind :fn :module (:module dependency)
+                      :logical-id (:logical-id dependency) :zig-name "answer"}})
+        alias (info {:module module :kind :const :name 'answer
+                     :declaration-key [:const 'answer] :value reference})
+        caller (info {:module module :kind :fn :name 'caller
+                      :declaration-key [:fn 'caller] :args [] :return :u32
+                      :body [(list (with-meta 'answer
+                                     {:aguafria/zig-reference
+                                      {:logical-id (:logical-id alias)}}))]})]
+    (is (empty? (#'runtime/development-linkage-logical-ids [alias])))
+    (is (empty? (#'runtime/development-linkage-logical-ids
+                 [(assoc alias :value (list reference))])))
+    (is (empty? (#'runtime/development-linkage-logical-ids
+                 [(assoc caller :kind :test)])))
+    (is (contains? (#'runtime/development-linkage-logical-ids [alias caller])
+                   (:logical-id dependency)))
+    (is (contains? (#'runtime/development-linkage-logical-ids
+                    [(assoc alias :value (list reference)) caller])
+                   (:logical-id dependency)))))
 
 (deftest external-generation-advertises-only-resolved-owned-getters-test
   (let [registry (var-get #'aguafria.zig.runtime/registry)

@@ -1,4 +1,4 @@
 (ns learn.example.null
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defconst optional-value [:optional :i32] nil)
+(a/defconst optional-value [:optional :i32] nil)

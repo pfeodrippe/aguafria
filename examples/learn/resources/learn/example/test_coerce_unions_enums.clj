@@ -1,27 +1,27 @@
 (ns learn.example.test-coerce-unions-enums
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defenum E
+(a/defenum E
   [:one
    :two
    :three])
 
-(az/defunion U {:type E}
+(a/defunion U {:type E}
   [[:one :i32]
    [:two :f32]
    [:three :void]])
 
-(az/defunion U2 {:attrs #{k/enum}}
+(a/defunion U2 {:attrs #{k/enum}}
   [[:a :void]
    [:b :f32]
-   (az/fn- tag :usize [[self U2]]
-           (switch self
-                   (case [:.a] 1)
-                   (case [:.b] 2)))])
+   (a/fn- tag :usize [[self U2]]
+          (switch self
+                  (case [:.a] 1)
+                  (case [:.b] 2)))])
 
-(az/deftest coercion-between-unions-and-enums
+(a/deftest coercion-between-unions-and-enums
   (let [u (U {:two 12.34})
         e (k/as u E)] ; coerce union to enum
     (try (testing/expectEqual (:two E) e)))

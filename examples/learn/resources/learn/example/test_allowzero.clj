@@ -1,9 +1,9 @@
 (ns learn.example.test-allowzero
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest allowzero
+(a/deftest allowzero
   (let [zero (k/var 0 :usize)] ; var to make to runtime-known
     (k/= :_ (k/& zero)) ; suppress 'var is never mutated' error
     (let [ptr (k/as (k/ptrFromInt zero) [:* {:allowzero? true} :i32])]

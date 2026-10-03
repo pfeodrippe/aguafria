@@ -1,6 +1,6 @@
 (ns aguafria.vopr-migration-hot-acceptance
   "Opt-in acceptance for breaking callable adoption and real VOPR state migration."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.host :as host]
             [aguafria.zig.runtime :as runtime]
             [clojure.walk :as walk]))
@@ -111,13 +111,13 @@
 (defn- migration-declaration
   []
   (capture-declaration
-   '(az/defn aguafria_migrate_log_performance_mode :void
+   '(a/defn aguafria_migrate_log_performance_mode :void
       [old_address :- :usize new_address :- :usize]
       (ak/const old_value [:*const :bool] (ak/ptrFromInt old_address))
       (ak/const new_value [:* AguafriaLogPerformanceState]
         (ak/ptrFromInt new_address))
-      (set! (az/field (az/deref new_value) enabled) (az/deref old_value))
-      (set! (az/field (az/deref new_value) migration_generation) 1))))
+      (set! (a/field (a/deref new_value) enabled) (a/deref old_value))
+      (set! (a/field (a/deref new_value) migration_generation) 1))))
 
 (defn- running?
   [handle]
@@ -131,12 +131,12 @@
   [& arguments]
   (let [requests (or (first arguments) "2000")
         seed (or (second arguments) "1")
-        old-config (az/configuration)
+        old-config (a/configuration)
         pid (.pid (java.lang.ProcessHandle/current))]
     (try
-      (az/configure! {:async? true})
+      (a/configure! {:async? true})
       (require vopr-module :reload)
-      (az/await! vopr-module)
+      (a/await! vopr-module)
       (let [original-main (registered-declaration vopr-module "main")
             original-full-core (registered-declaration vopr-module "full_core")
             original-log-override
@@ -157,9 +157,9 @@
         ;; module. The running old host has no dependency on it yet.
         (binding [*ns* (the-ns vopr-module)]
           (eval
-           '(az/defstruct AguafriaLogPerformanceState
+           '(a/defstruct AguafriaLogPerformanceState
               [[:enabled :bool] [:migration_generation :u32]])))
-        (az/await! vopr-module)
+        (a/await! vopr-module)
 
         ;; Request the breaking state schema while VOPR is running. The native
         ;; compiler prepares it, refuses unsafe reinterpretation, and leaves
@@ -167,7 +167,7 @@
         (runtime/register-declaration! state-v2)
         (let [migration-required
               (try
-                (az/await! vopr-module)
+                (a/await! vopr-module)
                 nil
                 (catch clojure.lang.ExceptionInfo error error))]
           (when-not (= :zig-state-migration-required
@@ -182,8 +182,8 @@
         ;; Publish a genuinely breaking signature for a function used by main.
         ;; Existing main and the running host retain full_core@v1.
         (runtime/register-declaration! full-core-v2)
-        (az/await! vopr-module)
-        (let [versions (az/function-versions
+        (a/await! vopr-module)
+        (let [versions (a/function-versions
                         (symbol (str vopr-module) "full_core"))]
           (when-not (and (= 2 (count versions))
                          (= 1 (count (filter :current? versions)))
@@ -204,29 +204,29 @@
            [main-v2 log-override-v2 migration]
            {:module vopr-module :compile? false :replace? false})
           (let [publication
-                (az/migrate-state!
+                (a/migrate-state!
                  (symbol (str vopr-module) "log_performance_mode")
                  (symbol (str vopr-module)
                          "aguafria_migrate_log_performance_mode"))]
             (binding [*ns* (the-ns vopr-module)]
               (eval
-               '(az/defn aguafria_log_state_generation :u32 []
-                  (az/field log_performance_mode migration_generation)))
+               '(a/defn aguafria_log_state_generation :u32 []
+                  (a/field log_performance_mode migration_generation)))
               (eval
-               '(az/defn aguafria_log_state_enabled :bool []
-                  (az/field log_performance_mode enabled))))
-            (az/await! vopr-module)
+               '(a/defn aguafria_log_state_enabled :bool []
+                  (a/field log_performance_mode enabled))))
+            (a/await! vopr-module)
             (let [generation
                   ((ns-resolve vopr-module 'aguafria_log_state_generation))
                   enabled? ((ns-resolve vopr-module
                                         'aguafria_log_state_enabled))
                   state-statuses
                   (mapv :status
-                        (az/state-versions
+                        (a/state-versions
                          (symbol (str vopr-module) "log_performance_mode")))
                   replacement (host/restart! handle)
                   second-result (host/await! replacement)
-                  all-stats (az/stats)
+                  all-stats (a/stats)
                   failed-builds
                   (->> (:builds all-stats)
                        (filter #(= :failed (:status %)))
@@ -243,7 +243,7 @@
                    :second-result second-result
                    :function-versions
                    (let [versions
-                         (az/function-versions
+                         (a/function-versions
                           (symbol (str vopr-module) "full_core"))]
                      {:count (count versions)
                       :current-count (count (filter :current? versions))
@@ -279,5 +279,5 @@
                 (throw (ex-info "Live VOPR migration acceptance failed"
                                 report)))))))
       (finally
-        (az/configure! old-config)
+        (a/configure! old-config)
         (shutdown-agents)))))

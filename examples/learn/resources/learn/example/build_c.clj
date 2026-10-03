@@ -4,9 +4,9 @@
             [aguafria.std.Build :as build]
             [aguafria.std.Build.Step.Compile :as compile-step]
             [aguafria.std.Build.Step.Run :as run-step]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn build :void
+(a/defn build :void
   [[b [:* std/Build]]]
   (let [lib ((:addLibrary b)
              {:linkage :.dynamic

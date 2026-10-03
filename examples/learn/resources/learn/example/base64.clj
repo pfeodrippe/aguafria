@@ -1,18 +1,18 @@
 (ns learn.example.base64
   (:require [aguafria.keyword :as k]
             [aguafria.std.base64 :as base64]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn decode-base-64 :usize
+(a/defn decode-base-64 :usize
   {:attrs #{k/export}}
   [[dest-ptr [:many :u8]] [dest-len :usize]
    [source-ptr [:many-const :u8]] [source-len :usize]]
-  (let [src (az/slice source-ptr 0 source-len)
-        dest (az/slice dest-ptr 0 dest-len)
+  (let [src (a/slice source-ptr 0 source-len)
+        dest (a/slice dest-ptr 0 dest-len)
         base64-decoder (:Decoder base64/standard)
         decoded-size (catch ((:calcSizeForSlice base64-decoder) src)
                             (k/unreachable))]
-    (catch ((:decode base64-decoder) (az/slice dest 0 decoded-size) src)
+    (catch ((:decode base64-decoder) (a/slice dest 0 decoded-size) src)
            (k/unreachable))
     decoded-size))
 

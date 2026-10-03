@@ -1,7 +1,7 @@
 (ns aguafria.c-test
   (:require [aguafria.c :as ac]
             [aguafria.keyword :as k]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.io :as io]
@@ -46,12 +46,12 @@
       (require 'aguafria.c-bindings-consumer-fixture :reload)
       (doseq [function '[sum sum-through-api]]
         (with-open [result ((ns-resolve 'aguafria.c-bindings-consumer-fixture function) 12 30)]
-          (is (= 42 (az/value result)))))
-      (let [point (az/init {:x 10 :y 20}
+          (is (= 42 (a/value result)))))
+      (let [point (a/init {:x 10 :y 20}
                            (var-get (ns-resolve 'aguafria.c-bindings-fixture 'native_point)))]
         (with-open [point point
                     result ((ns-resolve 'aguafria.c-bindings-fixture 'point_sum) point)]
-          (is (= 30 (az/value result)))))
+          (is (= 30 (a/value result)))))
       (doseq [name '[api native_point point_sum]
               :let [var (ns-resolve 'aguafria.c-bindings-fixture name)
                     declaration (:aguafria/declaration (meta var))]]
@@ -92,11 +92,11 @@
       (ac/import! "aguafria_c_module_fixture" header
                   {:cache-dir (str (io/file directory "translation"))})
       (binding [*ns* (the-ns 'aguafria.c-test)]
-        (eval '(az/defconst native-api (k/import "aguafria_c_module_fixture")))
-        (eval '(az/defn increment :c_int [[value :c_int]]
+        (eval '(a/defconst native-api (k/import "aguafria_c_module_fixture")))
+        (eval '(a/defn increment :c_int [[value :c_int]]
                  ((:increment native-api) value))))
       (with-open [result ((ns-resolve 'aguafria.c-test 'increment) 41)]
-        (is (= 42 (az/value result))))
+        (is (= 42 (a/value result))))
       (finally (runtime/configure! configuration)))))
 
 (deftest translate-header-and-inspect-bindings-test
@@ -120,7 +120,7 @@
       (is (true? (:conversion-cache-hit? second-report)))
       (is (false? (:written? second-report)))
       (is (zero? (:fallback-count first-report)))
-      (is (not (str/includes? (slurp output) "az/defraw"))))
+      (is (not (str/includes? (slurp output) "a/defraw"))))
 
     (testing "generated C declarations are ordinary documented Vars"
       (ac/load-bindings! output)

@@ -2,7 +2,7 @@
   "A small, REPL-first host for the Aguafria-generated TigerBeetle project."
   (:require
    [aguafria.keyword :as ak]
-   [aguafria.zig :as az]
+   [aguafria.zig :as a]
    [aguafria.zig.host :as host]
    [clojure.edn :as edn]
    [clojure.java.io :as io]
@@ -25,7 +25,7 @@
   "Return a compact view of one generated module's compiler state."
   ([] (module-summary tigerbeetle-main))
   ([module]
-   (when-let [info (az/module-info module)]
+   (when-let [info (a/module-info module)]
      {:module (:module info)
       :status (cond
                 (:error info) :failed
@@ -50,10 +50,10 @@
   ([] (load! {}))
   ([{:keys [async? reload?]
      :or {async? true reload? false}}]
-   (az/configure! {:async? async?})
+   (a/configure! {:async? async?})
    (when reload?
      (require tigerbeetle-main :reload))
-   (az/await! tigerbeetle-main)
+   (a/await! tigerbeetle-main)
    (or (module-summary)
        (throw (ex-info "TigerBeetle loaded without registering its Zig module"
                        {:module tigerbeetle-main})))))
@@ -179,7 +179,7 @@
 (defn await-module-reload!
   "Wait for one module's latest declarations and return compact status."
   [module]
-  (az/await! module)
+  (a/await! module)
   (module-summary module))
 
 (defn await-reload!
@@ -191,7 +191,7 @@
   "Return compiler and native-host statistics suitable for a future monitor."
   []
   {:module (module-summary)
-   :compiler (:summary (az/stats))
+   :compiler (:summary (a/stats))
    :hosts (host/stats)})
 
 (defn check!
@@ -257,7 +257,7 @@
   ;; Or run the whole sequence against a newly formatted data file:
   (run-demo!)
 
-  ;; Edit/evaluate an az/defn in any generated namespace with Calva, then wait
+  ;; Edit/evaluate an a/defn in any generated namespace with Calva, then wait
   ;; for publication. Compatible callers in the running replica swap live.
   (await-reload!)
   (status)
@@ -296,14 +296,14 @@
   ;; EDIT 1 OF 3 — SIMPLE FUNCTION BODY
   ;;
   ;; Evaluate this function and call it like an ordinary Clojure Var.
-  (az/defn live-transfer-amount :u128
+  (a/defn live-transfer-amount :u128
     []
     10)
 
   (live-transfer-amount)
   ;; => 10
   ;;
-  ;; Change only `10` above to `12`, evaluate that ONE az/defn again, then:
+  ;; Change only `10` above to `12`, evaluate that ONE a/defn again, then:
   (await-module-reload! 'tigerbeetle-agua.core)
   (live-transfer-amount)
   ;; => 12. The existing Var now dispatches to the new native body.
@@ -342,16 +342,16 @@
   ;;
   ;;   generated/tigerbeetle/src/repl/parser.clj
   ;;
-  ;; Find the `az/defn object_default` form and change only its
+  ;; Find the `a/defn object_default` form and change only its
   ;; `:.create_transfers` case from:
   ;;
-  ;;   (std-mem/zeroInit (az/field tb Transfer) (az/object []))
+  ;;   (std-mem/zeroInit (a/field tb Transfer) (a/object []))
   ;;
   ;; to:
   ;;
-  ;;   (std-mem/zeroInit (az/field tb Transfer) (az/object [[:amount 25]]))
+  ;;   (std-mem/zeroInit (a/field tb Transfer) (a/object [[:amount 25]]))
   ;;
-  ;; Evaluate that ONE complete `az/defn object_default` form with Calva/CIDER.
+  ;; Evaluate that ONE complete `a/defn object_default` form with Calva/CIDER.
   ;; It is a real comptime-dependent TigerBeetle parser function. Wait for its
   ;; new generation and all compatible dependents to publish:
   (await-module-reload! 'tigerbeetle.src.repl.parser)
@@ -389,23 +389,23 @@
   ;; returned struct has data plus a method. Its attrs make it a normal public
   ;; Zig declaration with an implicit return, without incorrectly C-exporting
   ;; a comptime signature. comptime-amount is an ordinary compiled caller.
-  (az/defn HotAmountType :type
+  (a/defn HotAmountType :type
     [[bonus {:zig/prefix "comptime"} :u64]]
-    (az/container
+    (a/container
       {:kind :struct}
-      [(az/field-decl base :u64)
-       (az/const-decl Self (ak/This))
-       (az/fn-decl amount :u64
+      [(a/field-decl base :u64)
+       (a/const-decl Self (ak/This))
+       (a/fn-decl amount :u64
          {:public false}
          [[self [:*const Self]]]
-         (+ (az/field self base) bonus))]))
+         (+ (a/field self base) bonus))]))
 
-  (az/defn comptime-amount :u64
+  (a/defn comptime-amount :u64
     [[base :u64]]
     (ak/var calculator
             (HotAmountType 5)
-            (az/object [[:base base]]))
-    ((az/field calculator amount)))
+            (a/object [[:base base]]))
+    ((a/field calculator amount)))
 
   (await-module-reload! 'tigerbeetle-agua.core)
   (comptime-amount 10)
@@ -413,20 +413,20 @@
   ;;
   ;; In HotAmountType, change only the method's final expression from:
   ;;
-  ;;   (+ (az/field self base) bonus)
+  ;;   (+ (a/field self base) bonus)
   ;;
   ;; to:
   ;;
-  ;;   (+ (az/field self base) (* bonus 2))
+  ;;   (+ (a/field self base) (* bonus 2))
   ;;
-  ;; Evaluate that ONE complete HotAmountType az/defn, not comptime-amount.
+  ;; Evaluate that ONE complete HotAmountType a/defn, not comptime-amount.
   (await-module-reload! 'tigerbeetle-agua.core)
   (comptime-amount 10)
   ;; => 20. The existing caller was republished against the compatible new
   ;; struct method; its public signature and the struct layout did not change.
 
   (mapv #(select-keys % [:generation :status :active? :schema-fingerprint])
-        (az/type-versions #'HotAmountType))
+        (a/type-versions #'HotAmountType))
   ;; => one active version whose :status is :compatible.
   ;;
   ;; Body-only function/method edits publish into existing live callers and

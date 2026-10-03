@@ -2,7 +2,7 @@
   (:require [aguafria.c :as c]
             [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.bundle :as bundle]
             [aguafria.zig.explain :as explain]
             [aguafria.zig.jvm :as jvm]
@@ -244,19 +244,19 @@
                             :report-file (str cache "/report.edn")}))))
             :run
             (with-open [x (k/i32 10) y (k/i32 20) sum (k/+ x y)]
-              (assert (= 30 (az/value sum)))
+              (assert (= 30 (a/value sum)))
               (let [panic (try (debug/assert (k/== x y)) nil
                                (catch clojure.lang.ExceptionInfo error (ex-data error)))]
                 (assert (= :native-panic (:aguafria/phase panic)) (pr-str panic)))
-              (with-open [again (k/+ x y)] (assert (= 30 (az/value again)))))
+              (with-open [again (k/+ x y)] (assert (= 30 (a/value again)))))
             :miss
             (with-open [x (k/i32 10) y (k/i32 20) product (k/* x y)]
-              (assert (= 200 (az/value product))))
+              (assert (= 200 (a/value product))))
             :changed-mode
             (do
               (runtime/configure! {:jvm-optimize "debug"})
               (with-open [x (k/i32 10) y (k/i32 20) sum (k/+ x y)]
-                (assert (= 30 (az/value sum)))))))]
+                (assert (= 30 (a/value sum)))))))]
     {:result result :events (frequencies (map :event @events))}))
 
 (defn- child! [cache action]

@@ -2,12 +2,12 @@
   "Owns a race world. Never load/run this fixture in the live game JVM."
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [racing-game.simulation :as sim]
             [racing-game.worker :as worker]
             [clojure.test :refer [deftest is]]))
 
-(az/defn clock-wiring-probe [:array 6 :u64]
+(a/defn clock-wiring-probe [:array 6 :u64]
   "Explicit clock/crossing fixture, not a claim that a physical lap was driven." []
   (sim/configure-countdown! 0)
   (sim/reset!)
@@ -23,11 +23,11 @@
       (ak/= sim/paused true)
       (sim/step!)
       (let [paused (sim/lap-timing-view 0)]
-        (az/init [(az/field first-lap last_ticks) (az/field first-lap samples)
-           (az/field fresh samples) (az/field fresh observed_tick)
-           (if (az/field fresh started) (ak/as 1 :u64) 0)
-           (if (az/field paused started) (ak/as 1 :u64) 0)] [:array 6 :u64])))))
+        (a/init [(a/field first-lap last_ticks) (a/field first-lap samples)
+           (a/field fresh samples) (a/field fresh observed_tick)
+           (if (a/field fresh started) (ak/as 1 :u64) 0)
+           (if (a/field paused started) (ak/as 1 :u64) 0)] [:array 6 :u64])))))
 
 (deftest sparse-timer-crossings-reset-and-paused-frame-test
   (worker/stop!)
-  (is (= [10800 1 0 0 0 0] (az/value (clock-wiring-probe)))))
+  (is (= [10800 1 0 0 0 0] (a/value (clock-wiring-probe)))))

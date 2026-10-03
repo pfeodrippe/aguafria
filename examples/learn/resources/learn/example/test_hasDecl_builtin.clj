@@ -1,14 +1,14 @@
 (ns learn.example.test-hasDecl-builtin
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defstruct Foo
+(a/defstruct Foo
   [[:nope :i32]
    [:blah {:var "xxx"} :_]
    [:hi {:const 1 :private true} :_]])
 
-(az/deftest hasDecl
+(a/deftest hasDecl
   (try (testing/expect (k/hasDecl Foo "blah")))
 
   ;; @hasDecl returns false for private declarations.

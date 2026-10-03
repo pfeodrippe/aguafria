@@ -5,7 +5,7 @@
   kernel, state transition, prompt feature, and action score measured here is
   executed by racing-game.inference—the same native code used by the game."
   (:refer-clojure :exclude [run!])
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [racing-game.inference :as inference]
@@ -40,10 +40,10 @@
           memory (.allocate arena (count bytes) 1)
           _ (.copyFrom memory
                        (java.lang.foreign.MemorySegment/ofArray bytes))
-          tokenized (az/value
+          tokenized (a/value
                      (inference/tokenize-compact-ascii memory (count bytes)))
           started (System/nanoTime)
-          report (az/value
+          report (a/value
                   (inference/forward-compact-prompt!
                    slot memory (count bytes) true))
           elapsed-ms (/ (- (System/nanoTime) started) 1000000.0)
@@ -92,7 +92,7 @@
           _ (.copyFrom memory
                        (java.lang.foreign.MemorySegment/ofArray bytes))
           started (System/nanoTime)
-          report (az/value
+          report (a/value
                   (inference/forward-compact-prompt!
                    slot memory (count bytes) true))
           latency-ms (/ (- (System/nanoTime) started) 1000000.0)]
@@ -149,7 +149,7 @@
   (model/verify-team-head!)
   (with-open [arena (Arena/ofConfined)]
     (let [loaded
-          (az/value
+          (a/value
            (inference/load-model!
             (.allocateFrom arena
                            (str (model/model-file :granite-350m-q4-0)))))]
@@ -158,11 +158,11 @@
                         {:summary loaded})))
       (try
         (let [driver-head
-              (az/value
+              (a/value
                (inference/load-action-head!
                 (.allocateFrom arena (str (model/action-head-file)))))
               team-head
-              (az/value
+              (a/value
                (inference/load-team-head!
                 (.allocateFrom arena (str (model/team-head-file)))))]
           (when-not (and (:valid driver-head) (:valid team-head))
@@ -176,8 +176,8 @@
                 team-scenarios (team/golden-scenarios)
                 driver-results (run-parallel-suite! driver-scenarios 0 8)
                 team-results (run-parallel-suite! team-scenarios
-                                                  (az/value protocol/racer-count) 4)
-                profile (az/value (inference/model-profile-summary))]
+                                                  (a/value protocol/racer-count) 4)
+                profile (a/value (inference/model-profile-summary))]
             {:model :granite-350m-q4-0
              :engine :aguafria-zig-native
              :external-inference false
@@ -201,7 +201,7 @@
   (with-open [arena (Arena/ofConfined)]
     (let [path (.allocateFrom arena (str (model/model-file model-key)))
           load-started (System/nanoTime)
-          loaded (az/value (inference/load-model! path))
+          loaded (a/value (inference/load-model! path))
           load-ms (/ (- (System/nanoTime) load-started) 1000000.0)]
       (when-not (:valid loaded)
         (throw (ex-info "Native engine rejected candidate"
@@ -215,7 +215,7 @@
               memory (.allocate arena (count bytes) 1)
               _ (.copyFrom memory
                            (java.lang.foreign.MemorySegment/ofArray bytes))
-              tokenized (az/value
+              tokenized (a/value
                          (inference/tokenize-compact-ascii memory (count bytes)))
               tokens (take 8 (:tokens tokenized))
               _ (inference/reset-sequence! 0)
@@ -223,7 +223,7 @@
               (mapv
                (fn [token]
                  (let [started (System/nanoTime)
-                       report (az/value (inference/forward-token! 0 token))]
+                       report (a/value (inference/forward-token! 0 token))]
                    {:valid (:valid report)
                     :latency-ms (/ (- (System/nanoTime) started) 1000000.0)}))
                tokens)
@@ -231,7 +231,7 @@
               median-token-ms (percentile per-token 0.50)
               estimated-prompt-ms (* median-token-ms (:token_count tokenized))
               rejected? (> estimated-prompt-ms representative-prompt-gate-ms)
-              profile (az/value (inference/model-profile-summary))]
+              profile (a/value (inference/model-profile-summary))]
           {:model model-key
            :engine :aguafria-zig-native
            :external-inference false
@@ -259,7 +259,7 @@
   (model/verify! model-key)
   (with-open [arena (Arena/ofConfined)]
     (let [loaded
-          (az/value
+          (a/value
            (inference/load-model!
             (.allocateFrom arena (str (model/model-file model-key)))))]
       (when-not (:valid loaded)
@@ -269,7 +269,7 @@
         (when-not (inference/initialize-sequences!)
           (throw (ex-info "Could not allocate candidate quality states"
                           {:model model-key})))
-        (let [profile (az/value (inference/model-profile-summary))
+        (let [profile (a/value (inference/model-profile-summary))
               input-count (* 8 (:hidden_size profile))
               driver-scenarios (driver/training-corpus)
               driver-balanced-count

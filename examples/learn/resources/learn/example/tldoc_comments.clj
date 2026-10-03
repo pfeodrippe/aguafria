@@ -1,11 +1,10 @@
 (ns learn.example.tldoc-comments
   "Provides functions for retrieving the current date and time with varying
   degrees of precision and accuracy."
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defstruct S
+(a/defstruct S
   ;; Top level comments are allowed inside namespaces other than the
   ;; implicit struct created by files, but it is not very useful. Currently,
-  ;; when producing the package
-  ;; documentation, these comments are ignored.
+  ;; when producing the package documentation, these comments are ignored.
   [])

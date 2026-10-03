@@ -13,7 +13,7 @@
 (def ^:private tiger-report
   "examples/tigerbeetle-agua/generated/tigerbeetle-report.edn")
 (def ^:private raw-boundary-pattern
-  #"\((?:az/defraw|raw|raw-chunks|raw-statements|raw-statement-chunks)(?:\s|\))")
+  #"\((?:a/defraw|raw|raw-chunks|raw-statements|raw-statement-chunks)(?:\s|\))")
 
 (defn- read-forms
   [source]
@@ -23,6 +23,9 @@
         (if (= ::eof form)
           forms
           (recur (conj forms form)))))))
+
+(defn- contains-form? [forms expected]
+  (boolean (some #{expected} (tree-seq coll? seq forms))))
 
 (deftest comptime-statements-use-the-same-public-keyword-as-expressions
   (let [result (convert/verify-file "test/fixtures/comptime_forms.zig"
@@ -36,24 +39,25 @@
   (let [{:keys [forms clojure-source]}
         (convert/convert-file "test/fixtures/inferred_variables.zig"
                               {:namespace 'fixture.inferred-variables})
-        variables (filter #(= 'az/defvar (first %)) forms)]
+        variables (filter #(= 'a/defvar (first %)) forms)]
     (is (= 2 (count variables)))
     (is (map? (nth (first variables) 2)))
     (is (= :bool (nth (second variables) 2)))
     (is (not (str/includes? clojure-source ":_"))))
   (is (= '(var-decl flag false)
-         (convert/nested-declaration-form '(az/defvar flag false))))
+         (convert/nested-declaration-form '(a/defvar flag false))))
   (is (= '(var-decl flag {:public false} :bool false)
-         (convert/nested-declaration-form '(az/defvar flag :bool {:public false} false)))))
+         (convert/nested-declaration-form '(a/defvar flag :bool {:public false} false)))))
 
 (deftest array-constructor-and-operators-use-the-public-api
   (let [path "test/fixtures/array_operators.zig"
         options {:namespace 'fixture.array-operators :mode :build-obj}
-        source (:clojure-source (convert/convert-file path options))]
-    (is (str/includes? source "(az/array [1 2] :i32)"))
-    (is (str/includes? source "(k/++ left right)"))
+        {:keys [forms clojure-source]} (convert/convert-file path options)
+        source clojure-source]
+    (is (str/includes? source "(a/array [1 2] :i32)"))
+    (is (contains-form? forms '(k/++ left right)))
     (is (str/includes? source "(k/splat 0)"))
-    (is (str/includes? source "(az/array [1 2] {:sentinel 0} :u8)"))
+    (is (str/includes? source "(a/array [1 2] {:sentinel 0} :u8)"))
     (is (not (str/includes? source "array-init")))
     (is (:success? (convert/verify-file path options)))))
 
@@ -62,9 +66,19 @@
                    "test/fixtures/qualified_equality.zig"
                    {:namespace 'fixture.qualified-equality})
         source (:clojure-source converted)]
-    (is (str/includes? source "(k/== a b)"))
-    (is (str/includes? source "(k/!= a b)"))
+    (is (contains-form? (:forms converted) '(k/== a b)))
+    (is (contains-form? (:forms converted) '(k/!= a b)))
+    (is (str/includes? source "[aguafria.zig :as a]"))
     (is (str/includes? source "[aguafria.keyword :as k]"))))
+
+(deftest null-sentinel-pointer-types-survive-conversion
+  (let [result (convert/verify-file "test/fixtures/sentinel_pointers.zig"
+                                    {:namespace 'fixture.sentinel-pointers
+                                     :mode :test :throw? false})]
+    (is (:success? result) (pr-str result))
+    (is (zero? (:fallback-count result)))
+    (is (str/includes? (:zig-source result) "[:null]const ?*const u8"))
+    (is (str/includes? (:zig-source result) "[*:null]align(8) const ?*const u8"))))
 
 (deftest saturating-left-shift-has-a-readable-assignment-operator
   (is (= "<<|=" (get @#'convert/assignment-tokens :assign_shl_sat)))
@@ -136,22 +150,22 @@
     (is (not (str/includes? container-source "Edit and reevaluate")))
     (is (not (str/includes? container-source ":attrs #{}")))
     (is (str/includes? container-source "[replica Replica]"))
-    (is (re-find #"\)\n\n\(az/defconst" container-source))))
+    (is (re-find #"\)\n\n\(a/defconst" container-source))))
 
 (deftest canonical-declaration-headers-stay-together-test
   (let [converted (convert/convert-file "test/fixtures/loop_else_labeled.zig"
                                         {:namespace 'fixture.canonical-format})
         source (:clojure-source converted)]
-    (is (not (re-find #"\(az/(?:defn-?|deftest)\s*\n" source)))
-    (is (every? symbol? (map second (filter #(= 'az/deftest (first %))
+    (is (not (re-find #"\(a/(?:defn-?|deftest)\s*\n" source)))
+    (is (every? symbol? (map second (filter #(= 'a/deftest (first %))
                                             (:forms converted)))))
     (is (not (str/includes? source "zig-test-")))
     (is (not (str/includes? source ":zig/test-name"))))
   (let [converted (convert/convert-file "test/fixtures/name_collisions.zig"
                                         {:namespace 'fixture.canonical-function-format})
         source (:clojure-source converted)]
-    (is (re-find #"\(az/defn-? [^\s]+ :[a-z0-9]+\n" source))
-    (is (not (re-find #"\(az/defn-? [^\n]* :-" source)))))
+    (is (re-find #"\(a/defn-? [^\s]+ :[a-z0-9]+\n" source))
+    (is (not (re-find #"\(a/defn-? [^\n]* :-" source)))))
 
 (deftest native-test-labels-follow-the-ast-test-declaration-order
   (let [parsed (convert/parse-file "test/fixtures/test_labels.zig")
@@ -168,7 +182,7 @@
   (let [{:keys [forms clojure-source]}
         (convert/convert-file "test/fixtures/test_labels.zig"
                               {:namespace 'fixture.symbol-test-names})
-        test-forms (filter #(= 'az/deftest (first %)) forms)]
+        test-forms (filter #(= 'a/deftest (first %)) forms)]
     (is (= '[named-example-test anonymous-test documented-test anonymous-test-2]
            (mapv second test-forms)))
     (is (not (str/includes? clojure-source ":zig/test-name")))
@@ -198,7 +212,7 @@
                       "test/fixtures/name_collisions.zig"
                       {:namespace 'fixture.name-collisions})]
     (is (zero? (:raw-declaration-count report)))
-    (is (= '[az/defn- az/defn- az/defn az/defn-] (mapv first forms)))
+    (is (= '[a/defn- a/defn- a/defn a/defn-] (mapv first forms)))
     (is (= 'assert (second (nth forms 3))))
     (is (not (str/includes? clojure-source "assert-zig")))
     (is demo)
@@ -216,11 +230,11 @@
                             :mode :ast-check})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (some #(and (seq? %) (= 'az/number-literal (first %)))
+    (is (some #(and (seq? %) (= 'a/number-literal (first %)))
               (tree-seq coll? seq forms)))
-    (is (some #(and (seq? %) (= 'az/multiline-string (first %)))
+    (is (some #(and (seq? %) (= 'a/multiline-string (first %)))
               (tree-seq coll? seq forms)))
-    (is (some #(and (seq? %) (= 'az/error-value (first %)))
+    (is (some #(and (seq? %) (= 'a/error-value (first %)))
               (tree-seq coll? seq forms)))
     (is (:success? verification))))
 
@@ -261,13 +275,13 @@
     (is (str/includes? clojure-source "(k/*"))
     (is (str/includes? clojure-source "else-clause"))
     (is (str/includes? clojure-source "else-expression"))
-    (is (str/includes? clojure-source "(az/inline-for"))
-    (is (str/includes? clojure-source "(az/for-loop"))
-    (is (str/includes? clojure-source "(az/while-loop"))
-    (is (re-find #"\(k/errdefer \(az/block\)\)\n\n  \(k/var total"
+    (is (str/includes? clojure-source "(a/inline-for"))
+    (is (str/includes? clojure-source "(a/for-loop"))
+    (is (str/includes? clojure-source "(a/while-loop"))
+    (is (re-find #"\(k/errdefer \(a/block\)\)\n\n  \(k/var total"
                  clojure-source))
     (is (re-find #"\)\n\n  \(k/for\n" clojure-source))
-    (is (str/includes? clojure-source "(az/range 0)"))
+    (is (str/includes? clojure-source "(a/range 0)"))
     (is (str/includes? clojure-source ":inline? true"))
     (is (:success? verification))))
 
@@ -281,8 +295,8 @@
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
     (is (str/includes? clojure-source "(k/switch"))
-    (is (str/includes? clojure-source "(az/inline-case"))
-    (is (str/includes? clojure-source "(az/case-else"))
+    (is (str/includes? clojure-source "(a/inline-case"))
+    (is (str/includes? clojure-source "(a/case-else"))
     (is (:success? verification))))
 
 (deftest ghostty-zig-syntax-is-structural-test
@@ -299,6 +313,44 @@
     (is (str/includes? clojure-source "exactIdentifier"))
     (is (str/includes? clojure-source "nestedExternValue"))
     (is (:success? verification))))
+
+(deftest project-imports-cannot-shadow-generated-api-aliases
+  (let [output (.toFile
+                (java.nio.file.Files/createTempDirectory
+                 "aguafria-short-alias-imports"
+                 (make-array java.nio.file.attribute.FileAttribute 0)))
+        report (convert/convert-tree!
+                "test/fixtures/reserved_import_aliases" output
+                {:namespace-prefix (symbol (str "fixture.short-alias-" (gensym)))
+                 :overwrite? true})
+        main (some #(when (str/ends-with? (str (:namespace %)) ".main") %)
+                   (:files report))
+        source (slurp (:output-path main))]
+    (is (str/includes? source "[aguafria.zig :as a]"))
+    (is (str/includes? source "[aguafria.keyword :as k]"))
+    (is (str/includes? source ":as module-value-"))
+    (convert/load-tree! output)
+    (is (= 84 (value/decoded ((ns-resolve (:namespace main) 'answer)))))))
+
+(deftest converted-library-keeps-test-only-dependencies-lazy
+  (let [output (.toFile
+                (java.nio.file.Files/createTempDirectory
+                 "aguafria-lazy-test-imports"
+                 (make-array java.nio.file.attribute.FileAttribute 0)))
+        report (convert/convert-tree!
+                "test/fixtures/lazy_test_dependency" output
+                {:namespace-prefix (symbol (str "fixture.lazy-test-" (gensym)))
+                 :overwrite? true})
+        module (:namespace (some #(when (str/ends-with? (str (:namespace %)) ".main") %)
+                                 (:files report)))]
+    (convert/load-tree! output)
+    (runtime/recompile! module)
+    (runtime/await! module)
+    (is (= 42 (value/decoded ((ns-resolve module 'answer)))))
+    (let [tests (filter #(= :test (:kind (:aguafria/declaration (meta %))))
+                        (vals (ns-publics module)))]
+      (is (= 1 (count tests)))
+      (is (= :passed (:status ((first tests))))))))
 
 (deftest converted-relative-imports-are-normal-requires-test
   (let [output (.toFile
@@ -332,12 +384,12 @@
     (is (= 3 (:file-count report)))
     (is (zero? (:conversion-cache-hit-count report)))
     (is (= 3 (:conversion-cache-hit-count repeat-report)))
-    (is (not (str/includes? main-source "az/defimport")))
+    (is (not (str/includes? main-source "a/defimport")))
     (is (str/includes? main-source
                        (str "[" namespace-prefix ".math :as math]")))
     ;; The imported module is both a normal require alias and an inspectable
     ;; Clojure Var; the emitter collapses both views to one Zig @import.
-    (is (re-find #"\(az/defconst\s+math\s+math\)" main-source))
+    (is (re-find #"\(a/defconst\s+math\s+math\)" main-source))
     (is (not (str/includes? main-source "math.zig")))
     (is (str/includes? main-source "math/double"))
     (is (not (str/includes? main-source ":aguafria/zig-imports")))
@@ -348,7 +400,7 @@
     (is (str/includes? (slurp (:catalog-path report)) ":require-mode :as"))
     (is (str/includes? bare-source
                        (str "[" namespace-prefix ".math :as math_module]")))
-    (is (re-find #"\(az/defconst\s+math_module\s+math_module\)"
+    (is (re-find #"\(a/defconst\s+math_module\s+math_module\)"
                  bare-source))
     (is (not (str/includes? bare-source "(k/import \"math\")")))
     ;; `main.clj` sorts before `math.clj`, so this proves a freshly generated
@@ -456,9 +508,13 @@
               (str "\\[" (java.util.regex.Pattern/quote (str namespace-prefix))
                    "\\.src\\.optional-module :as module-optional-[^]]+\\]"))
              root-source))
-        (is (re-find
-             #"\(if \(az/field build_options use_optional\) module-optional-[^)]+\)"
-             root-source))
+        (is (some (fn [form]
+                    (and (seq? form) (= 3 (count form))
+                         (= 'if (first form))
+                         (= '(a/field build_options use_optional) (second form))
+                         (symbol? (nth form 2))
+                         (str/starts-with? (str (nth form 2)) "module-optional-")))
+                  (tree-seq coll? seq (read-forms root-source))))
         (is (not (str/includes? root-source "(k/This)")))
         (is (not (str/includes? root-source "(k/import \"optional\")")))
         (is (= 2 (:generated-module-path-value-count report)))
@@ -539,11 +595,11 @@
                       path {:namespace 'fixture.compiler-import
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
-    (is (not (str/includes? clojure-source "az/defimport")))
+    (is (not (str/includes? clojure-source "a/defimport")))
     (is (str/includes? clojure-source "[aguafria.builtin :as builtin]"))
     (is (str/includes? clojure-source "builtin/is_test"))
     (is (not (str/includes? clojure-source "(k/import \"builtin\")")))
-    (is (= 'az/defconst (ffirst forms)))
+    (is (= 'a/defconst (ffirst forms)))
     (is (= 1 (count forms)))
     (is (:success? verification))))
 
@@ -551,7 +607,7 @@
   (doseq [path ["test/fixtures/ordered_object.zig" "test/fixtures/container.zig"]]
     (let [{:keys [forms]} (convert/convert-file path {:namespace 'fixture.member-vectors})
           types (filter #(and (seq? %)
-                              (contains? '#{az/defstruct az/defenum az/defunion az/struct-decl struct-decl}
+                              (contains? '#{a/defstruct a/defenum a/defunion a/struct-decl struct-decl}
                                          (first %)))
                         (tree-seq coll? seq forms))]
       (is (seq types) path)
@@ -560,20 +616,53 @@
         (is (= 1 (count members)) (str operator " " name " " (pr-str form)))
         (is (vector? (first members)) (pr-str form))))))
 
+(deftest converted-container-dependencies-retain-zig-scope
+  (let [path "test/fixtures/container_dependencies.zig"
+        options {:namespace 'fixture.container-dependencies :mode :test}
+        {:keys [forms]} (convert/convert-file path options)
+        container (first (filter #(= 'Example (second %)) forms))
+        members (last container)
+        verification (convert/verify-file path options)]
+    (is (= '[result Word bonus bump CycleA CycleB]
+           (mapv second (filter seq? members))))
+    (is (= '[value tail] (mapv first (filter vector? members))))
+    (is (:success? verification) (pr-str verification))))
+
+(deftest native-locals-and-captures-can-match-a-generated-alias
+  (let [result (convert/verify-file "test/fixtures/namespace_alias_capture.zig"
+                                    {:namespace 'fixture.namespace-alias-capture
+                                     :mode :test})]
+    (is (:success? result) (pr-str result))
+    (is (not (str/includes? (:zig-source result) "@import(\"aguafria.keyword\")")))))
+
+(deftest inferred-member-calls-roundtrip
+  (let [result (convert/verify-file "test/fixtures/inferred_member_calls.zig"
+                                    {:namespace 'fixture.inferred-member-calls
+                                     :mode :test})]
+    (is (:success? result) (pr-str result))
+    (is (str/includes? (:zig-source result) "return .init(7);"))))
+
+(deftest switch-tuple-results-are-not-capture-bindings
+  (let [result (convert/verify-file "test/fixtures/switch_tuple_results.zig"
+                                    {:namespace 'fixture.switch-tuple-results
+                                     :mode :test})]
+    (is (:success? result) (pr-str result))
+    (is (str/includes? (:zig-source result) ".{1, Helpers.extra()}"))))
+
 (deftest named-unions-convert-to-defunion
   (let [path "test/fixtures/named_unions.zig"
         converted (convert/convert-file path {:namespace 'fixture.named-unions})
-        unions (filter #(and (seq? %) (= 'az/defunion (first %))) (:forms converted))
+        unions (filter #(and (seq? %) (= 'a/defunion (first %))) (:forms converted))
         verification (convert/verify-file path {:namespace 'fixture.named-unions :mode :build-obj})]
     (is (= '#{Number-zig Tagged ExplicitTag Packed External} (set (map second unions))))
-    (is (str/includes? (:clojure-source converted) "(az/defunion Number"))
+    (is (str/includes? (:clojure-source converted) "(a/defunion Number"))
     (is (:success? verification) (pr-str verification))))
 
 (deftest struct-literal-field-order-is-explicit-test
   (let [{:keys [clojure-source zig-source]}
         (convert/render-zig "test/fixtures/ordered_object.zig"
                             {:namespace 'fixture.ordered-object})]
-    (is (str/includes? clojure-source "(az/object"))
+    (is (str/includes? clojure-source "(a/object"))
     (is (not (str/includes? clojure-source "{:z 1")))
     (is (str/includes?
          zig-source
@@ -626,18 +715,20 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "(az/container"))
-    (is (str/includes? clojure-source "(az/defenum BooleanName"))
+    (is (str/includes? clojure-source "(a/container"))
+    (is (str/includes? clojure-source "(a/defenum BooleanName"))
     (is (< (str/index-of clojure-source "Replica\n")
            (str/index-of clojure-source "[replica Replica]")))
     (is (< (str/index-of (:zig-source verification) "replica: Replica")
            (str/index-of (:zig-source verification) "client,"))
         "Declaring local types first preserves the emitted field/tag order")
-    (is (str/includes? clojure-source "(az/fn"))
-    (is (not (str/includes? clojure-source "(az/fn-decl")))
+    (is (str/includes? clojure-source "(a/fn"))
+    (is (not (str/includes? clojure-source "(a/fn-decl")))
     (is (str/includes? clojure-source ":zig/name \"@\\\"127.0.0.1\\\"\""))
     (is (str/includes? clojure-source ":zig/name \"@\\\"null-device\\\"\""))
-    (is (str/includes? clojure-source "^{:zig/name \"init\"} zig-init-"))
+    (is (some #(and (symbol? %) (= "init" (:zig/name (meta %)))
+                    (str/starts-with? (name %) "zig-init-"))
+              (tree-seq coll? seq forms)))
     (is (not-any? nil? (tree-seq coll? seq forms)))
     (is (:success? verification))))
 
@@ -646,9 +737,9 @@
         options {:namespace 'fixture.container-functions :mode :test}
         source (:clojure-source (convert/convert-file path options))
         verification (convert/verify-file path options)]
-    (is (str/includes? source "(az/fn reference Timestamp"))
-    (is (str/includes? source "(az/fn- base :i64"))
-    (is (not (str/includes? source "az/fn-decl")))
+    (is (str/includes? source "(a/fn reference Timestamp"))
+    (is (str/includes? source "(a/fn- base :i64"))
+    (is (not (str/includes? source "a/fn-decl")))
     (is (:success? verification) (pr-str verification))))
 
 (deftest error-sets-unions-and-qualified-pointers-are-structural-test
@@ -666,7 +757,7 @@
     (is (str/includes? clojure-source ":fn"))
     (is (str/includes? clojure-source ":callconv"))
     (is (str/includes? clojure-source "{:sentinel 0}"))
-    (is (str/includes? clojure-source "(az/slice-sentinel"))
+    (is (str/includes? clojure-source "(a/slice-sentinel"))
     (is (str/includes? clojure-source "k/bit-xor"))
     (is (str/includes? clojure-source "(k/-%"))
     (is (:success? verification))))
@@ -680,10 +771,10 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
-    (is (str/includes? clojure-source "(az/if-capture"))
-    (is (str/includes? clojure-source "(az/if-capture-stmt"))
-    (is (str/includes? clojure-source "(az/catch-capture"))
-    (is (str/includes? clojure-source "(az/while-loop"))
+    (is (str/includes? clojure-source "(a/if-capture"))
+    (is (str/includes? clojure-source "(a/if-capture-stmt"))
+    (is (str/includes? clojure-source "(a/catch-capture"))
+    (is (str/includes? clojure-source "(a/while-loop"))
     (is (str/includes? clojure-source ":continue"))
     (is (str/includes? clojure-source ":error"))
     (is (:success? verification))))
@@ -790,6 +881,9 @@
 
 (deftest generated-tigerbeetle-main-loads-lazily-in-a-fresh-repl-test
   (let [module 'tigerbeetle.src.tigerbeetle.main
+        expected-declarations
+        (some #(when (= module (:namespace %)) (:declaration-count %))
+              (:files (edn/read-string (slurp tiger-report))))
         expression
         (pr-str
          `(do
@@ -821,14 +915,14 @@
                     dispatch-version-count failed-build-count] :as loaded}
             (edn/read-string (str/trim (:out result)))]
         (is (= {:status :finished
-                :declaration-count 42
+                :declaration-count expected-declarations
                 :failed-build-count 0}
                (select-keys loaded
                             [:status :declaration-count
                              :failed-build-count])))
         ;; Async debounce boundaries are scheduler-dependent. Assert the lazy
         ;; contract instead of one accidental batching count: only a proper
-        ;; subset of this 42-declaration source root is materialized for native
+        ;; subset of this source root is materialized for native
         ;; dispatch, and at least one callable generation is usable.
         (is (<= 1 native-generation-count))
         (is (< native-generation-count declaration-count))

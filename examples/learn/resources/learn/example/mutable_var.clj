@@ -1,9 +1,9 @@
 (ns learn.example.mutable-var
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void
+(a/defn main :void
   []
   (let [y (k/var 5678 :i32)]
     (k/+= y 1)

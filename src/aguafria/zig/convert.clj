@@ -369,7 +369,7 @@
            (str " " gutter " |\n"
                 " " line " | " text "\n"
                 " " gutter " | " (apply str (repeat (max 0 (dec column)) " "))
-                "^ Zig 0.16 rejected this syntax\n")))))
+                "^ Zig rejected this syntax\n")))))
 
 (defn- index-by-first
   [entries]
@@ -579,7 +579,7 @@
    :bool_and 'and :bool_or 'or
    :array_cat 'k/++
    :merge_error_sets 'k/|| :orelse 'orelse :catch 'catch
-   :switch_range 'k/... :for_range 'az/range})
+   :switch_range 'k/... :for_range 'a/range})
 
 (def ^:private assignment-tokens
   {:assign "=" :assign_mul "*=" :assign_div "/=" :assign_mod "%="
@@ -913,7 +913,7 @@
     (if type-node
       (let [type (translate-type context type-node)]
         (if (and (vector? type) (= :array (first type)) (= :_ (second type)))
-          (apply list 'az/array elements (drop 2 type))
+          (apply list 'a/array elements (drop 2 type))
           (list 'init elements type)))
       elements)))
 
@@ -1600,17 +1600,17 @@
                       clauses))))))
 
 (def ^:private nested-declaration-operators
-  {'az/defn 'az/fn
-   'az/defn- 'az/fn-
-   'az/defconst 'const-decl
-   'az/defvar 'var-decl
-   'az/defexternvar 'extern-var-decl
-   'az/defstruct 'struct-decl
-   'az/defimport 'import-decl
-   'az/deffield 'field-decl
-   'az/defcomptime 'comptime-decl
-   'az/deftest 'test-decl
-   'az/defextern 'fn-proto-decl})
+  {'a/defn 'a/fn
+   'a/defn- 'a/fn-
+   'a/defconst 'const-decl
+   'a/defvar 'var-decl
+   'a/defexternvar 'extern-var-decl
+   'a/defstruct 'struct-decl
+   'a/defimport 'import-decl
+   'a/deffield 'field-decl
+   'a/defcomptime 'comptime-decl
+   'a/deftest 'test-decl
+   'a/defextern 'fn-proto-decl})
 
 (defn nested-declaration-form
   "Represent a declaration as syntax data, without registering or compiling it.
@@ -1618,7 +1618,7 @@
   [form]
   (if-let [operator (get nested-declaration-operators (first form))]
     (with-meta
-      (if (= 'az/defvar (first form))
+      (if (= 'a/defvar (first form))
         (let [[_ name & declaration] form
               typed? (and (next declaration)
                           (not (or (map? (first declaration))
@@ -2088,7 +2088,7 @@
                    (rest block-form)
                    [(record-statement-fallback! context body-node :non-block-function-body)])
             docstring (docstring-from-leading leading)]
-        (cond-> (apply list (if (:public metadata) 'az/defn 'az/defn-)
+        (cond-> (apply list (if (:public metadata) 'a/defn 'a/defn-)
                        declaration-name return
                        (concat (when docstring [docstring])
                                [attributes bindings]
@@ -2178,7 +2178,7 @@
                  (simple-struct-fields context init-node))]
         (cond
           (and extern-token (nil? init-node) type-node)
-          (apply list 'az/defexternvar declaration-name
+          (apply list 'a/defexternvar declaration-name
                  (concat (when docstring [docstring])
                          [attributes ':- (translate-type context type-node)]))
 
@@ -2188,7 +2188,7 @@
             (let [{:keys [alias namespace public?]}
                   (get (:import-bindings context) zig-name)]
               (swap! (:project-aliases context) assoc alias namespace)
-              (apply list 'az/defconst declaration-name
+              (apply list 'a/defconst declaration-name
                      (concat (when docstring [docstring])
                              [attributes alias])))
 
@@ -2197,7 +2197,7 @@
                   (get (:project-imports-by-node context) init-node)]
               (when-not self?
                 (swap! (:project-aliases context) assoc alias namespace))
-              (apply list 'az/defconst declaration-name
+              (apply list 'a/defconst declaration-name
                      (concat (when docstring [docstring])
                              [attributes (translate-expr context init-node)])))
 
@@ -2212,30 +2212,30 @@
             :else
             ;; Compiler/build-provided imports have no converted Clojure
             ;; namespace and therefore remain explicit external module data.
-            (apply list 'az/defconst declaration-name
+            (apply list 'a/defconst declaration-name
                    (concat (when docstring [docstring])
                            [(assoc attributes :zig/import-name import-name)
                             (translate-expr context init-node)])))
 
           simple-struct
           (let [{:keys [layout fields]} simple-struct]
-            (apply list 'az/defstruct declaration-name
+            (apply list 'a/defstruct declaration-name
                    (concat (when docstring [docstring])
                            [(cond-> attributes layout (assoc :layout layout))]
                            [fields])))
 
           :else
           (let [kind (if (= :keyword_const (first (token context mut-token)))
-                       'az/defconst 'az/defvar)
+                       'a/defconst 'a/defvar)
                 type (when type-node (translate-type context type-node))
                 qualifiers (variable-qualifiers context name-token type-node init-node align-node)
                 attributes (cond-> attributes
                              qualifiers (assoc :zig/qualifiers qualifiers))]
             (apply list kind declaration-name
-                   (concat (when (and (= kind 'az/defvar) type) [type])
+                   (concat (when (and (= kind 'a/defvar) type) [type])
                            (when docstring [docstring])
                            [attributes]
-                           (when (and (= kind 'az/defconst) type) [type])
+                           (when (and (= kind 'a/defconst) type) [type])
                            [(translate-expr context init-node)]))))))))
 
 (defn- translate-test-declaration
@@ -2246,7 +2246,7 @@
         body (if block-form
                (rest block-form)
                [(record-statement-fallback! context body-node :non-block-test-body)])]
-    (cond-> (apply list 'az/deftest
+    (cond-> (apply list 'a/deftest
                    {:zig/order order :zig/leading leading :source-comment false}
                    (get (:test-declaration-names context) node-index) body)
       (seq (:aguafria/trailing-comments (meta block-form)))
@@ -2264,7 +2264,7 @@
         name (symbol (str "zig-comptime-" order))
         attributes {:export false :public false :source-comment false
                     :zig/order order :zig/leading leading}]
-    (cond-> (apply list 'az/defcomptime name attributes body)
+    (cond-> (apply list 'a/defcomptime name attributes body)
       (seq (:aguafria/trailing-comments (meta block-form)))
       (vary-meta assoc :aguafria/trailing-comments
                  (:aguafria/trailing-comments (meta block-form))))))
@@ -2292,7 +2292,7 @@
           [declaration-name attributes]
           (declaration-name-and-attributes context zig-name metadata)
           docstring (docstring-from-leading leading)
-          form (vec (concat ['az/deffield declaration-name]
+          form (vec (concat ['a/deffield declaration-name]
                             (when docstring [docstring])
                             [attributes (translate-type context type-node)]))]
       (apply list (cond-> form
@@ -2323,7 +2323,7 @@
           [declaration-name attributes]
           (declaration-name-and-attributes context zig-name metadata)
           docstring (docstring-from-leading leading)]
-      (apply list 'az/defextern declaration-name (translate-type context return-node)
+      (apply list 'a/defextern declaration-name (translate-type context return-node)
              (concat (when docstring [docstring])
                      [attributes
                       (function-arguments context params)])))))
@@ -2357,7 +2357,7 @@
   "Give named structs/enums/unions the same public API as hand-written declarations.
   Anonymous, tuple and type-factory containers keep their expression form."
   [form]
-  (if-not (= 'az/defconst (first form))
+  (if-not (= 'a/defconst (first form))
     form
     (let [[_ name & tail] form
           [doc attributes values] (emitter/type-declaration-prefix tail)
@@ -2369,7 +2369,7 @@
                    (not-any? #(= 'tuple-field-decl (first %)) members))
         form
         (with-meta
-          (apply list (case kind :struct 'az/defstruct :enum 'az/defenum :union 'az/defunion) name
+          (apply list (case kind :struct 'a/defstruct :enum 'a/defenum :union 'a/defunion) name
                  (concat (when doc [doc])
                          [(cond-> (merge attributes
                                          (select-keys options [:layout :type :zig/trailing]))
@@ -2429,35 +2429,35 @@
       forms)))
 
 (def ^:private declaration-form-operators
-  '#{az/defn az/defn- az/defconst az/defvar az/defstruct az/defenum az/defunion az/defcomptime
-     az/defextern az/defexternvar az/deffield az/deftest
+  '#{a/defn a/defn- a/defconst a/defvar a/defstruct a/defenum a/defunion a/defcomptime
+     a/defextern a/defexternvar a/deffield a/deftest
      fn-decl fn-proto-decl const-decl var-decl struct-decl comptime-decl
      field-decl enum-field-decl tuple-field-decl test-decl container
-     az/fn az/fn- az/fn-decl az/fn-proto-decl az/const-decl az/var-decl az/struct-decl
-     az/comptime-decl az/field-decl az/enum-field-decl az/tuple-field-decl
-     az/test-decl az/container})
+     a/fn a/fn- a/fn-decl a/fn-proto-decl a/const-decl a/var-decl a/struct-decl
+     a/comptime-decl a/field-decl a/enum-field-decl a/tuple-field-decl
+     a/test-decl a/container})
 
 (defn- declaration-attributes-index
   [form]
   (let [operator (first form)]
     (when (contains? declaration-form-operators operator)
       (cond
-        (= 'az/deftest operator)
+        (= 'a/deftest operator)
         (cond (map? (second form)) 1
               (string? (nth form 2 nil)) 3
               :else 2)
-        (= 'az/defvar operator)
+        (= 'a/defvar operator)
         (let [declaration (drop 2 form)
               typed? (and (next declaration)
                           (not (or (map? (first declaration))
                                    (string? (first declaration)))))
               index (if typed? 3 2)]
           (if (string? (nth form index nil)) (inc index) index))
-        (#{'az/defn 'az/defn- 'az/defextern 'az/fn 'az/fn-
-           'fn-decl 'fn-proto-decl 'az/fn-decl 'az/fn-proto-decl} operator)
+        (#{'a/defn 'a/defn- 'a/defextern 'a/fn 'a/fn-
+           'fn-decl 'fn-proto-decl 'a/fn-decl 'a/fn-proto-decl} operator)
         (if (string? (nth form 3 nil)) 4 3)
         (#{'test-decl 'container 'tuple-field-decl
-           'az/test-decl 'az/container 'az/tuple-field-decl} operator) 1
+           'a/test-decl 'a/container 'a/tuple-field-decl} operator) 1
         (string? (nth form 2 nil)) 3
         :else 2))))
 
@@ -2491,8 +2491,8 @@
 
 (defn- readable-docstring
   [form]
-  (let [index (if (#{'az/defn 'az/defn- 'az/defextern 'az/fn 'az/fn-
-                     'fn-decl 'fn-proto-decl 'az/fn-decl 'az/fn-proto-decl} (first form)) 3 2)
+  (let [index (if (#{'a/defn 'a/defn- 'a/defextern 'a/fn 'a/fn-
+                     'fn-decl 'fn-proto-decl 'a/fn-decl 'a/fn-proto-decl} (first form)) 3 2)
         doc (nth form index nil)]
     (if (and (string? doc) (str/includes? doc "\n"))
       (apply list (assoc (vec form) index (MultilineDocstring. doc)))
@@ -2554,9 +2554,9 @@
         (pprint/pprint-newline :mandatory))
       (write-clojure-comments (concat leading-comments comments))
       (case (first form)
-        (az/defn az/defn- az/defextern az/fn az/fn- az/fn-decl az/fn-proto-decl
+        (a/defn a/defn- a/defextern a/fn a/fn- a/fn-decl a/fn-proto-decl
          fn-decl fn-proto-decl) (write-declaration-header form 3)
-        (az/deftest az/defstruct az/defenum az/defunion) (write-declaration-header form 2)
+        (a/deftest a/defstruct a/defenum a/defunion) (write-declaration-header form 2)
         (pprint/code-dispatch form)))
 
     :else
@@ -2596,7 +2596,7 @@
               alias])
            (sort-by (comp str key) project-aliases))
       [['aguafria.keyword :as 'k]
-       ['aguafria.zig :as 'az]]))))
+       ['aguafria.zig :as 'a]]))))
 
 (defn- namespace-form
   [namespace-symbol std-aliases project-aliases project-require-modes
@@ -2701,13 +2701,13 @@
         items (if (and doc? (map? (nth items attributes-index nil)))
                 (update items attributes-index dissoc :doc)
                 items)
-        items (if (and (= 'az/defextern (first items))
+        items (if (and (= 'a/defextern (first items))
                        (map? (nth items attributes-index nil))
                        (= "extern" (:zig/prefix (nth items attributes-index))))
                 (update items attributes-index dissoc :zig/prefix)
                 items)
         items (cond
-                (= 'az/deftest (first items))
+                (= 'a/deftest (first items))
                 (vec (concat [(first items) (nth items 2) (second items)]
                              (drop 3 items)))
 
@@ -2763,7 +2763,7 @@
       (symbol "k" (keyword/token-name (name operator)))
 
       (emitter/structural-operator? operator)
-      (symbol "az" (name operator))
+      (symbol "a" (name operator))
 
       ;; Local bindings and calls to declarations remain ordinary symbols.
       :else operator)))
@@ -3051,8 +3051,8 @@
                                 (map (fn [[kind count]] [(str kind) count]))
                                 kinds)
      :structural-declaration-count (- (count forms)
-                                      (get kinds 'az/defraw 0))
-     :raw-declaration-count (get kinds 'az/defraw 0)
+                                      (get kinds 'a/defraw 0))
+     :raw-declaration-count (get kinds 'a/defraw 0)
      :fallback-count (count fallbacks)
      :fallbacks fallbacks
      :unresolved-syntax-count (count unresolved-syntax-heads)
@@ -3090,14 +3090,14 @@
                                (some-> declaration-name str))
                   doc (or (get declaration-docs zig-name)
                           (get declaration-docs (some-> declaration-name str)))
-                  doc-index (if (contains? #{'az/defn 'az/defn- 'az/defextern}
+                  doc-index (if (contains? #{'a/defn 'a/defn- 'a/defextern}
                                            (first form))
                               3
                               2)]
               (if (and doc
                        (seq? form)
                        (symbol? declaration-name)
-                       (str/starts-with? (str (first form)) "az/def")
+                       (str/starts-with? (str (first form)) "a/def")
                        (not (string? (nth form doc-index nil))))
                 (with-meta
                   (apply list (concat (take doc-index form)
@@ -3143,7 +3143,7 @@
          (into
           {}
           (keep (fn [[translated form]]
-                  (when (= 'az/deftest (first form))
+                  (when (= 'a/deftest (first form))
                     (let [[_ presented-form] (presentational-form form)
                           attributes-index (declaration-attributes-index translated)
                           attributes (when attributes-index
@@ -3234,7 +3234,7 @@
                        {:path (str path)
                         :namespace namespace-symbol
                         :operators (:unresolved-syntax-heads report)
-                        :hint "Every syntax list head must resolve through az, k, or Clojure."})))
+                        :hint "Every syntax list head must resolve through a, k, or Clojure."})))
      (when (pos? (:fallback-count report))
        (throw
         (ex-info
@@ -3724,7 +3724,7 @@
 (defn load-converted!
   "Load a generated Clojure file while externally collecting its declarations.
 
-  The file itself remains completely ordinary—only `ns` and `az/...` forms—and
+  The file itself remains completely ordinary—only `ns` and `a/...` forms—and
   all Vars are interned in that declared namespace. This optional loader avoids
   compiling intermediate module snapshots for a large converted Zig file.
   `:compile?` defaults to false; reevaluating any declaration normally after
@@ -4988,7 +4988,9 @@
                                        source-modules-by-owner)]
              (when target
                (let [declaration-name (get (:declaration-names plan) zig-alias)
-                     alias (if public?
+                     alias (if (or public?
+                                   (contains? '#{a k builtin zig-std} declaration-name)
+                                   (str/starts-with? (str declaration-name) "std-"))
                              (generated-module-alias import-name
                                                      (:namespace target))
                              declaration-name)]

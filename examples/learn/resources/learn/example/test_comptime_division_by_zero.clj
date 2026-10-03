@@ -1,8 +1,8 @@
 (ns learn.example.test-comptime-division-by-zero
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defcomptime reject-zero-divisor
+(a/defcomptime reject-zero-divisor
   (let [a (k/i32 1)
         b (k/i32 0)
         c (k// a b)]

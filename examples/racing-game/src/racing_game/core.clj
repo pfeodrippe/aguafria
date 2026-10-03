@@ -1,6 +1,6 @@
 (ns racing-game.core
   "REPL dashboard for the same native state used by the live Vulkan window."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria-examples-native.renderer :as renderer]
             [racing-game.desktop :as desktop]
             [racing-game.inference :as inference]
@@ -64,7 +64,7 @@
   ([racer-id]
    (decision-outcome racer-id 0))
   ([racer-id offset]
-   (az/value (telemetry/outcome-at racer-id offset))))
+   (a/value (telemetry/outcome-at racer-id offset))))
 
 (defn- readable-entry
   [entry outcome include-raw?]
@@ -97,7 +97,7 @@
   ([racer-id]
    (decision-log racer-id {}))
   ([racer-id {:keys [include-raw?] :or {include-raw? false}}]
-   (readable-entry (az/value (telemetry/latest racer-id))
+   (readable-entry (a/value (telemetry/latest racer-id))
                    (decision-outcome racer-id)
                    include-raw?)))
 
@@ -113,7 +113,7 @@
                         (long telemetry/entries-per-racer)
                         (long limit))]
      (mapv (fn [offset]
-             (let [entry (az/value (telemetry/entry-at racer-id offset))]
+             (let [entry (a/value (telemetry/entry-at racer-id offset))]
                (readable-entry entry (decision-outcome racer-id offset)
                                include-raw?)))
            (range available)))))
@@ -121,7 +121,7 @@
 (defn capture-replay
   "Capture the currently retained accepted intents in deterministic install order."
   []
-  (->> (range (az/value simulation/racer-count))
+  (->> (range (a/value simulation/racer-count))
        (mapcat #(decision-logs % telemetry/entries-per-racer
                                {:include-raw? true}))
        (filter (every-pred :valid :accepted))
@@ -196,14 +196,14 @@
       (when-not (simulation/append-replay-intent! intent)
         (throw (ex-info "Native replay rejected an intent"
                         {:entry entry
-                         :replay (az/value (simulation/replay-summary))})))))
+                         :replay (a/value (simulation/replay-summary))})))))
   (when-not (simulation/start-replay!)
     (throw (ex-info "Cannot start an empty replay" {})))
-  (az/value (simulation/replay-summary)))
+  (a/value (simulation/replay-summary)))
 
 (defn replay-status
   []
-  (az/value (simulation/replay-summary)))
+  (a/value (simulation/replay-summary)))
 
 (defn- without-raw-protocol
   [trace]
@@ -327,12 +327,12 @@
 (defn cognition-status
   "Aggregate native LLM/fallback timing and validation counters."
   []
-  (az/value (telemetry/summary)))
+  (a/value (telemetry/summary)))
 
 (defn worker-status
   "Inspect the native inference workers and their eight bounded mailboxes."
   []
-  (az/value (worker/summary)))
+  (a/value (worker/summary)))
 
 (defn start-headless!
   "Load the pinned model and start the same native workers used by the desktop.
@@ -340,24 +340,24 @@
   []
   (let [existing (worker-status)]
     (if (:started existing)
-      {:model (az/value (inference/inference-summary))
-       :action-head (az/value (inference/action-head-status))
-       :team-head (az/value (inference/team-head-status))
+      {:model (a/value (inference/inference-summary))
+       :action-head (a/value (inference/action-head-status))
+       :team-head (a/value (inference/team-head-status))
        :worker existing
        :owned false}
       (do
         (model/verify-assets!)
         (with-open [arena (Arena/ofConfined)]
           (let [loaded-model
-                (az/value
+                (a/value
                  (inference/load-model!
                   (.allocateFrom arena (str (model/model-file)))))
                 loaded-head
-                (az/value
+                (a/value
                  (inference/load-action-head!
                   (.allocateFrom arena (str (model/action-head-file)))))
                 loaded-team-head
-                (az/value
+                (a/value
                  (inference/load-team-head!
                   (.allocateFrom arena (str (model/team-head-file)))))]
             (when-not (:valid loaded-model)
@@ -393,8 +393,8 @@
        (let [cognition (cognition-status)]
          (cond
            (> (:llm_entries cognition) initial)
-           {:race (az/value (simulation/snapshot))
-            :racer (az/value (simulation/racer-view 0))
+           {:race (a/value (simulation/snapshot))
+            :racer (a/value (simulation/racer-view 0))
             :decision (decision-log 0)
             :cognition cognition
             :worker (worker-status)}
@@ -421,21 +421,21 @@
   "Measured low-level manoeuvring state. This is the pedal/gear controller,
   not an additional AI decision or a replacement for the driver's lane intent."
   [racer-id]
-  (let [output (az/value (simulation/recovery-view racer-id))]
+  (let [output (a/value (simulation/recovery-view racer-id))]
     (assoc output :phase (get [:driving :reversing :braking :clearing :passing]
                               (get-in output [:state :phase]) :unknown))))
 
 (defn turnaround-status
   "Actual post-spin gear, pedals and turning state. Does not reset the race."
   [racer-id]
-  (az/value (simulation/turnaround-view racer-id)))
+  (a/value (simulation/turnaround-view racer-id)))
 
 (defn lap-times
   "Actual simulation seconds including pits/incidents, not distance/speed
   estimates. Nil last/best means no full lap has been measured. A live timer
   attached mid-race marks the current interval partial until the next crossing."
   [racer-id]
-  (let [entry (az/value (simulation/lap-timing-view racer-id))]
+  (let [entry (a/value (simulation/lap-timing-view racer-id))]
     {:lap (:lap entry)
      :measured-laps (:samples entry)
      :current-seconds (when (:started entry)
@@ -447,10 +447,10 @@
 
 (defn racers
   []
-  (->> (range (az/value simulation/racer-count))
+  (->> (range (a/value simulation/racer-count))
        (mapv (fn [id]
-               (assoc (az/value (simulation/racer-view id))
-                      :retirement (az/value (simulation/retirement-view id))
+               (assoc (a/value (simulation/racer-view id))
+                      :retirement (a/value (simulation/retirement-view id))
                       :recovery (recovery-status id)
                       :lap-times (lap-times id))))
        (sort-by :rank)
@@ -460,7 +460,7 @@
   "Edit one live racer for an inspectable REPL scenario. Omitted fields retain
   their current native values; `:item` accepts a keyword or numeric code."
   [racer-id {:keys [progress lane speed item shielded]}]
-  (let [current (az/value (simulation/racer-view racer-id))
+  (let [current (a/value (simulation/racer-view racer-id))
         item-code (if (keyword? item)
                     (get item-codes item ::unknown)
                     (or item (:item current)))]
@@ -474,13 +474,13 @@
      (float (or speed (:speed current)))
      item-code
      (if (nil? shielded) (:shielded current) (boolean shielded)))
-    (az/value (simulation/racer-view racer-id))))
+    (a/value (simulation/racer-view racer-id))))
 
 (defn configure-intent!
   "Install the same bounded intent fields consumed from model output."
   [racer-id {:keys [lane speed item-action target]
              :or {item-action :hold}}]
-  (let [current (az/value (simulation/racer-view racer-id))
+  (let [current (a/value (simulation/racer-view racer-id))
         action (get item-action-codes item-action ::unknown)]
     (when (= ::unknown action)
       (throw (ex-info "Unknown racing item action"
@@ -491,19 +491,19 @@
      (float (or speed (:target_speed current)))
      action
      (or target (:target current)))
-    (az/value (simulation/racer-view racer-id))))
+    (a/value (simulation/racer-view racer-id))))
 
 (defn hazards
   "Inspect every currently active native projectile or trap."
   []
   (->> (range simulation/hazard-capacity)
-       (mapv (comp az/value simulation/hazard-view))
+       (mapv (comp a/value simulation/hazard-view))
        (filterv :active)))
 
 (defn observation
   "Inspect the exact bounded semantic observation available to one racer now."
   [racer-id]
-  (let [view (az/value (simulation/current-observation racer-id))]
+  (let [view (a/value (simulation/current-observation racer-id))]
     (cond-> view
       (:valid view)
       (assoc :item-name (get item-names (:item view) :unknown)
@@ -516,15 +516,15 @@
   "Inspect all eight private racer observations without exposing more world
   state to any native agent."
   []
-  (mapv observation (range (az/value simulation/racer-count))))
+  (mapv observation (range (a/value simulation/racer-count))))
 
 (defn teams
   "Inspect all four Flecs-owned teams and their two fixed drivers."
   []
   (mapv (fn [team-id]
-          (assoc (az/value (simulation/team-view team-id))
+          (assoc (a/value (simulation/team-view team-id))
                  :name (nth team-names team-id)))
-        (range (az/value simulation/team-count))))
+        (range (a/value simulation/team-count))))
 
 (defn set-live-slowdown!
   "Set the live AI race slowdown (1x through 20x). Rendering stays responsive;
@@ -547,7 +547,7 @@
         (let [{:keys [source target code tire_condition damage latency_us
                       prompt_byte_count prompt_bytes model_action]
                :as entry}
-              (az/value (simulation/team-radio-entry team-id offset))
+              (a/value (simulation/team-radio-entry team-id offset))
               driver? (= source simulation/radio-source-driver)
               race-control? (= source simulation/radio-source-race-control)
               prompt (when (pos? (long prompt_byte_count))
@@ -599,10 +599,10 @@
      (into []
        (keep
          (fn [sequence]
-           (let [{:keys [valid reason result]} (az/value (simulation/language-exchange-at sequence))]
+           (let [{:keys [valid reason result]} (a/value (simulation/language-exchange-at sequence))]
              (when valid
                (let [{:keys [request generation queue_us inference_us total_us]} result
-                     reason-bytes (az/value (protocol/driving-plan-rejection reason))]
+                     reason-bytes (a/value (protocol/driving-plan-rejection reason))]
                  {:sequence sequence :racer (:actor request) :race (:epoch request)
                   :instructions (utf8-preview (:system_bytes request) (:system_byte_count request))
                   :observation (utf8-preview (:prompt_bytes request) (:prompt_byte_count request))
@@ -643,10 +643,10 @@
    :action-head (inference/action-head-status)
    :team-head (inference/team-head-status)
    :renderer (renderer/renderer-snapshot)
-   :compilation {:inference (az/stats 'racing-game.inference)
-                 :worker (az/stats 'racing-game.worker)
-                 :simulation (az/stats 'racing-game.simulation)
-                 :render (az/stats 'racing-game.render)}})
+   :compilation {:inference (a/stats 'racing-game.inference)
+                 :worker (a/stats 'racing-game.worker)
+                 :simulation (a/stats 'racing-game.simulation)
+                 :render (a/stats 'racing-game.render)}})
 
 (comment
   ;; Development: from examples/racing-game run `clojure -M:desktop`, then
@@ -687,7 +687,7 @@
   (step-until-llm!)
   (stop-headless!)
 
-  ;; P pauses; R explicitly resets. Evaluating one az/defn publishes it into
+  ;; P pauses; R explicitly resets. Evaluating one a/defn publishes it into
   ;; this running race without recreating the Flecs world or Vulkan window.
   ;; F1 toggles the native cognition overlay; the same can be done from nREPL.
   (simulation/toggle-paused!)

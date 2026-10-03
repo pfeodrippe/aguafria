@@ -1,10 +1,10 @@
 (ns learn.example.result-type-propagation
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest result-type-propagates-through-struct-initializer
-  (let [S (az/struct
+(a/deftest result-type-propagates-through-struct-initializer
+  (let [S (a/struct
            [[:x :u32]])
         val (k/u64 123)
         s (S {:x (k/intCast val)})]

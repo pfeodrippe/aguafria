@@ -3,11 +3,11 @@
             [aguafria.std.lang.SourceLocation :as source-location]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
 ;; k/src describes the generated Zig location, not the Clojure source line.
 ;; Adjacent let bindings become adjacent declarations in the generated file.
-(az/defn- doTheTest :!void
+(a/defn- doTheTest :!void
   []
   (let [src (k/src)
         next-location (k/src)]
@@ -19,7 +19,7 @@
     (try (testing/expect (mem/endsWith :u8 (source-location/-fn_name src) "doTheTest")))
     (try (testing/expect (mem/endsWith :u8 (source-location/-file src) "test_src_builtin.zig")))))
 
-(az/deftest src
+(a/deftest src
   (try (doTheTest)))
 
 (comment

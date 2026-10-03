@@ -1,7 +1,7 @@
 (ns aguafria.zig.jvm-private-scope-test
   (:require [aguafria.keyword :as k]
             [aguafria.std.mem :as mem]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.jvm :as jvm]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
@@ -67,10 +67,10 @@
                              (apply original arguments))]
       (with-open [handle (k/as nil reflected-handle)
                   array (mem/zeroes [:array 2 reflected-handle])]
-        (is (nil? (az/value handle)))
-        (is (= [nil nil] (az/value array))))
+        (is (nil? (a/value handle)))
+        (is (= [nil nil] (a/value array))))
       (with-open [native (k/& callback)]
-        (let [pointer (az/value native)]
+        (let [pointer (a/value native)]
           (is (value/zig-pointer? pointer))
           (is (pos? (value/pointer-address pointer))))))
     ;; The callback's address and typed constructors must use the same planner
@@ -110,5 +110,5 @@
                              (apply original arguments))]
       (with-open [slot (k/var (k/as 7 scalar))]
         (k/+= slot 1)
-        (is (= 8 (az/value slot)))))
+        (is (= 8 (a/value slot)))))
     (is (empty? @commands) (pr-str @commands))))

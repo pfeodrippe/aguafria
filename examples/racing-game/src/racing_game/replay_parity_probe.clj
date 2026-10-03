@@ -3,17 +3,17 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std]
             [aguafria.std.debug :as std-debug]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [racing-game.protocol :as protocol]
             [racing-game.simulation :as simulation]))
 
-(az/defn main :void
+(a/defn main :void
   []
   (let [loaded
         (simulation/load-replay-file! "resources/replay/golden-r4.bin")]
-    (std-debug/assert (az/field loaded valid))
+    (std-debug/assert (a/field loaded valid))
     (std-debug/assert
-     (ak/== (az/field loaded intent_count)
+     (ak/== (a/field loaded intent_count)
             protocol/replay-golden-intent-count))
     (std-debug/assert (simulation/start-replay!))
     (simulation/step-many! protocol/replay-golden-ticks)

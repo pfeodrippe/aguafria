@@ -1,12 +1,12 @@
 (ns learn.example.test-string-literal-to-slice
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn foo :void
+(a/defn foo :void
   [[s [:slice :u8]]]
   (k/= :_ s))
 
-(az/deftest string-literal-to-mutable-slice
+(a/deftest string-literal-to-mutable-slice
   (foo "hello"))
 
 (comment

@@ -1,7 +1,7 @@
 (ns aguafria-examples-native.imgui-controls
   "Optional generated bindings for controls in the existing native ImGui frame."
   (:require [aguafria.c :as ac]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria-examples-native.build :as build]
             [aguafria-examples-native.imgui-bindings]
             [clojure.java.io :as io]))
@@ -20,10 +20,10 @@
                               {:namespace 'aguafria-examples-native.bindings.imgui-controls
                                :cache-dir (str (io/file root ".aguafria/c-bindings")) :overwrite? true})
         (ac/load-bindings! output)
-        (az/configure!
+        (a/configure!
          {:zig-args (conj (vec (remove #(and (string? %)
                                              (re-find #"[/\\](?:lib)?aguafria_imgui_controls\.(?:dylib|so|dll)$" %))
-                                       (or (:zig-args (az/configuration)) []))) library)})
+                                       (or (:zig-args (a/configuration)) []))) library)})
         (reset! loaded? library)))))
 
 (ensure-loaded!)

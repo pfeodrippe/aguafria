@@ -1,8 +1,8 @@
 (ns learn.example.packed-struct-mmio
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defstruct GpioRegister
+(a/defstruct GpioRegister
   {:layout :packed, :type :u8}
   [[:GPIO0 :bool]
    [:GPIO1 :bool]
@@ -10,10 +10,10 @@
    [:GPIO3 :bool]
    [:reserved {:default 0} :u4]])
 
-(az/defconst gpio [:* {:volatile? true} GpioRegister]
+(a/defconst gpio [:* {:volatile? true} GpioRegister]
   (k/ptrFromInt 0x0123))
 
-(az/defn write-to-gpio :void [[new-states GpioRegister]]
+(a/defn write-to-gpio :void [[new-states GpioRegister]]
   ;; Example of what not to do:
   ;; BAD! gpio.GPIO0 = true; BAD!
 

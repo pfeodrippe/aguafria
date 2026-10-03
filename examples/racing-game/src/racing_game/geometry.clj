@@ -1,6 +1,6 @@
 (ns racing-game.geometry
   "Blender-exported triangles embedded into Zig; no asset runtime or JVM required."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
@@ -17,9 +17,9 @@
     (when-not (and (seq vertices) (zero? (mod (count vertices) 3))
                    (every? #(and (= 10 (count %)) (every? number? %)) vertices))
       (throw (ex-info "Invalid Blender triangle export" {:mesh name})))
-    (eval `(az/defconst ~(symbol (str (clojure.core/name name) "-vertices"))
+    (eval `(a/defconst ~(symbol (str (clojure.core/name name) "-vertices"))
              [:array ~(count vertices) [:array 10 :f32]] ~vertices))
-    (eval `(az/defconst ~(symbol (str (clojure.core/name name) "-revision"))
+    (eval `(a/defconst ~(symbol (str (clojure.core/name name) "-revision"))
              :u64 ~(mesh-revision vertices)))
     (when (.startsWith (clojure.core/name name) "wheel-")
       ;; An asymmetric hub must not move the axle. Blender exports the actual
@@ -28,5 +28,5 @@
         (when-not (and (= 3 (count center)) (every? number? center)
                        (number? radius) (pos? radius))
           (throw (ex-info "Missing Blender wheel axle" {:mesh name})))
-        (eval `(az/defconst ~(symbol (str (clojure.core/name name) "-axle"))
+        (eval `(a/defconst ~(symbol (str (clojure.core/name name) "-axle"))
                  [:array 4 :f32] ~(conj center radius)))))))

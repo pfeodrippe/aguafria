@@ -1,10 +1,10 @@
 (ns learn.example.anonymous-struct-name
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defstruct Node
+(a/defstruct Node
   [[:next [:optional [:* Node]]]
    [:name [:slice-const :u8]]])
 
-(az/defvar node-a (Node {:next nil :name "Node A"}))
-(az/defvar node-b (Node {:next (k/& node-a) :name "Node B"}))
+(a/defvar node-a (Node {:next nil :name "Node A"}))
+(a/defvar node-b (Node {:next (k/& node-a) :name "Node B"}))

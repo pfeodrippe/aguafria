@@ -1,6 +1,6 @@
 (ns aguafria-examples-native.vendor
   "Pinned, regenerable upstream sources shared by native examples."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.java.io :as io]))
 
 (def dependencies
@@ -39,7 +39,7 @@
 
 (defn run-command!
   [command directory]
-  (let [command (mapv #(if (= "zig" %) (az/zig-executable) %) command)
+  (let [command (mapv #(if (= "zig" %) (a/zig-executable) %) command)
         process (-> (ProcessBuilder. ^java.util.List command)
                     (doto (.directory directory)
                           (.redirectErrorStream true))

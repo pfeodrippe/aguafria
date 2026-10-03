@@ -1,17 +1,17 @@
 (ns learn.example.test-coerce-error-superset-to-subset
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defconst FileOpenError
-  (az/type [:error-set [:AccessDenied :OutOfMemory :FileNotFound]]))
+(a/defconst FileOpenError
+  (a/type [:error-set [:AccessDenied :OutOfMemory :FileNotFound]]))
 
-(az/defconst AllocationError
-  (az/type [:error-set [:OutOfMemory]]))
+(a/defconst AllocationError
+  (a/type [:error-set [:OutOfMemory]]))
 
-(az/defn- foo AllocationError [[err FileOpenError]]
+(a/defn- foo AllocationError [[err FileOpenError]]
   err)
 
-(az/deftest coerce-superset-to-subset
-  (catch (foo (:OutOfMemory FileOpenError)) (az/block)))
+(a/deftest coerce-superset-to-subset
+  (catch (foo (:OutOfMemory FileOpenError)) (a/block)))
 
 (comment
   (coerce-superset-to-subset))

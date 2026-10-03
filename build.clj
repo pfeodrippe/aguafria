@@ -248,18 +248,18 @@
                               artifacts)]
       (let [home (str target-dir "/verify-home")
             expression
-            (str "(require '[aguafria.zig :as az] '[aguafria.keyword :as ak])"
+            (str "(require '[aguafria.zig :as a] '[aguafria.keyword :as ak])"
                  "(assert (= \"jar\" (.getProtocol (clojure.java.io/resource \"aguafria/zig/toolchain.clj\"))))"
-                 "(assert (= :aes-256-gcm-v1 (:archive-encryption (az/toolchain-information))))"
-                 "(eval '(az/defn release-smoke :i64 "
+                 "(assert (= :aes-256-gcm-v1 (:archive-encryption (a/toolchain-information))))"
+                 "(eval '(a/defn release-smoke :i64 "
                  "[[a :i64] [b :i64] [c :i64]] (+ (* a b) c)))"
-                 "(assert (= 47 (az/value ((resolve 'user/release-smoke) 6 7 5))))"
-                 "(eval '(az/defn release-primitive-smoke :u8 [] "
+                 "(assert (= 47 (a/value ((resolve 'user/release-smoke) 6 7 5))))"
+                 "(eval '(a/defn release-primitive-smoke :u8 [] "
                  "(let [^{:var true :zig/type [:array 1 :u8]} buffer ak/undefined] "
-                 "(set! (az/index buffer 0) 42) (az/index buffer 0))))"
-                 "(assert (= 42 (az/value ((resolve 'user/release-primitive-smoke)))))"
+                 "(set! (a/index buffer 0) 42) (a/index buffer 0))))"
+                 "(assert (= 42 (a/value ((resolve 'user/release-primitive-smoke)))))"
                  "(assert (= \"" zig-version
-                 "\" (:zig-version (az/toolchain-information))))"
+                 "\" (:zig-version (a/toolchain-information))))"
                  "(println :embedded-zig-smoke-ok)"
                  "(shutdown-agents)(System/exit 0)")
             command (b/java-command

@@ -1,6 +1,6 @@
 (ns ghostty-agua.core
   "REPL-first host for the Aguafria-generated Ghostty terminal core."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.pprint :as pprint]
             [ghostty-agua.live :as live]
             [ghostty-agua.native :as native]))
@@ -95,8 +95,8 @@
 (defn await-reload!
   "Wait for the latest declaration publications in the example module."
   []
-  (az/await! 'ghostty-agua.live)
-  (select-keys (az/module-info 'ghostty-agua.live)
+  (a/await! 'ghostty-agua.live)
+  (select-keys (a/module-info 'ghostty-agua.live)
                [:module :pending? :error :requested-generation
                 :published-generation :native-generation-count]))
 
@@ -107,15 +107,15 @@
                {:address (.address
                           ^java.lang.foreign.MemorySegment (:terminal opened))
                 :state (native/state opened)})
-   :example-module (select-keys (az/module-info 'ghostty-agua.live)
+   :example-module (select-keys (a/module-info 'ghostty-agua.live)
                                 [:module :pending? :error
                                  :requested-generation :published-generation
                                  :native-generation-count])
-   :ghostty-module (select-keys (az/module-info ghostty-focus-module)
+   :ghostty-module (select-keys (a/module-info ghostty-focus-module)
                                 [:module :pending? :error
                                  :requested-generation :published-generation
                                  :native-generation-count])
-   :compiler (:summary (az/stats))})
+   :compiler (:summary (a/stats))})
 
 (defn check!
   "Exercise a real VT session without starting another process."
@@ -178,7 +178,7 @@
   ;; => {:terminal-address A, :title "... generation 1", :native-version 1}
   ;;
   ;; Open `src/ghostty_agua/live.clj`. Change only the final `1` in
-  ;; live/title-version to `2`, evaluate that ONE az/defn, and then evaluate:
+  ;; live/title-version to `2`, evaluate that ONE a/defn, and then evaluate:
   (await-reload!)
   (publish-hot-title!)
   ;; => the same :terminal-address A and all terminal contents are retained,
@@ -186,7 +186,7 @@
 
   ;; HOT EDIT 2: new function A, then existing function B starts using it.
   ;; In ghostty_agua/live.clj, add and evaluate this new declaration A:
-  ;;   (az/defn title-offset :u32 [] 40)
+  ;;   (a/defn title-offset :u32 [] 40)
   ;; Then change existing title-version (B)'s final expression to:
   ;;   (+ (title-offset) 2)
   ;; Evaluate only live-title-version and publish again:
@@ -197,10 +197,10 @@
 
   ;; HOT EDIT 3: edit converted Ghostty itself.
   ;; Open generated/ghostty/src/terminal/focus.clj, find its
-  ;; `az/defn encode`, change the gained sequence's final `I` byte to `X`, and
+  ;; `a/defn encode`, change the gained sequence's final `I` byte to `X`, and
   ;; evaluate only that form. Await that generated module and the bridge:
-  (az/await! 'ghostty.src.terminal.focus)
-  (az/await! 'ghostty-agua.bridge)
+  (a/await! 'ghostty.src.terminal.focus)
+  (a/await! 'ghostty-agua.bridge)
   (focus-final-byte true)
   ;; => 88 (`X`). Restore/evaluate the form and it returns to 73. The
   ;;    upstream value. The terminal above stays open across both publications.

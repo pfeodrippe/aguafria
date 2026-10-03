@@ -1,8 +1,8 @@
 (ns learn.example.entry-point
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void
+(a/defn main :void
   "`std.start` imports this file using `@import(\"root\")`, and uses this declaration as the program's
 user-provided entry point. It can return any of the following types:
 * `void`

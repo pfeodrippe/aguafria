@@ -1,9 +1,9 @@
 (ns learn.example.runtime-overflow
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [byte (k/var 255 :u8)]
     (k/+= byte 1)
     (debug/print "value: {}\n" [byte])))

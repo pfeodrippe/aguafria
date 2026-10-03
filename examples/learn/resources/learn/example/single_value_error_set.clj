@@ -1,5 +1,5 @@
 (ns learn.example.single-value-error-set
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defconst err
-  (:FileNotFound (az/type [:error-set [:FileNotFound]])))
+(a/defconst err
+  (:FileNotFound (a/type [:error-set [:FileNotFound]])))

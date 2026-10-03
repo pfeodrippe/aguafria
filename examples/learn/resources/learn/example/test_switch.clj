@@ -4,9 +4,9 @@
             [aguafria.std.Target :as target]
             [aguafria.std.Target.Os :as os]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest switch-simple
+(a/deftest switch-simple
   (let [a (k/u64 10)
         zz (k/u64 103)
         ;; All branches of a switch expression must be able to be coerced to a
@@ -22,13 +22,13 @@
                     (case [(k/... 5 100)] 1)
                  ;; Branches can be arbitrarily complex.
                     (case [101]
-                      (az/with-block :blk
+                      (a/with-block :blk
                         (let [c (k/u64 5)]
                           (k/break :blk (k/+ (k/* c 2) 1)))))
                  ;; Switching on arbitrary expressions is allowed as long as the
                  ;; expression is known at compile-time.
                     (case [zz] zz)
-                    (case [(az/with-block :blk
+                    (case [(a/with-block :blk
                              (let [d (k/u32 5)
                                    e (k/u32 100)]
                                (k/break :blk (k/+ d e))))]
@@ -36,24 +36,24 @@
                  ;; The else branch catches everything not already captured.
                  ;; Else branches are mandatory unless the entire range of values
                  ;; is handled.
-                    (az/case-else 9))]
+                    (a/case-else 9))]
     (try (testing/expectEqual 1 b))))
 
 ;; Switch expressions can be used outside a function:
-(az/defconst os-msg
+(a/defconst os-msg
   (k/switch (-> builtin/target target/-os os/-tag)
             (case [:.linux] "we found a linux user")
-            (az/case-else "not a linux user")))
+            (a/case-else "not a linux user")))
 
 ;; Inside a function, switch statements implicitly are compile-time
 ;; evaluated if the target expression is compile-time known.
-(az/deftest switch-inside-function
-  (az/switch-stmt (-> builtin/target target/-os os/-tag)
+(a/deftest switch-inside-function
+  (a/switch-stmt (-> builtin/target target/-os os/-tag)
     ;; On an OS other than fuchsia, block is not even analyzed,
     ;; so this compile error is not triggered.
     ;; On fuchsia this compile error would be triggered.
-                  (case [:.fuchsia] (do (k/compileError "fuchsia not supported")))
-                  (az/case-else (do))))
+                 (case [:.fuchsia] (do (k/compileError "fuchsia not supported")))
+                 (a/case-else (do))))
 
 (comment
   (switch-simple)

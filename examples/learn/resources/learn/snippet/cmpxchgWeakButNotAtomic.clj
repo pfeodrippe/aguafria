@@ -1,8 +1,8 @@
 (ns learn.snippet.cmpxchgWeakButNotAtomic
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- weak-compare-exchange [:optional T]
+(a/defn- weak-compare-exchange [:optional T]
   [[T {:attrs #{k/comptime}} :type]
    [pointer [:* T]] [expected T] [replacement T]]
   (let [previous @pointer]

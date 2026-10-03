@@ -1,16 +1,16 @@
 (ns learn.example.test-unhandled-enumeration-value
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defenum Color
+(a/defenum Color
   [:auto
    :off
    :on])
 
-(az/deftest exhaustive-switching
+(a/deftest exhaustive-switching
   (let [color (:off Color)]
-    (az/switch-stmt color
-                    (case [(:auto Color)] (az/block))
-                    (case [(:on Color)] (az/block)))))
+    (a/switch-stmt color
+                   (case [(:auto Color)] (a/block))
+                   (case [(:on Color)] (a/block)))))
 
 (comment
   (exhaustive-switching))

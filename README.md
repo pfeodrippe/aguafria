@@ -2,7 +2,7 @@
 
 Aguafria is a `deps.edn` library for writing Zig with Clojure forms.
 
-- `az/defn`, `az/defconst`, `az/defvar`, `az/defstruct`, `az/defenum`, and `az/defunion` emit ordinary Zig.
+- `a/defn`, `a/defconst`, `a/defvar`, `a/defstruct`, `a/defenum`, and `a/defunion` emit ordinary Zig.
 - The same Vars are callable and inspectable from a Clojure REPL during development.
 - Re-evaluating a declaration compiles and publishes a new native generation without restarting the JVM.
 - Release builds are standalone Zig artifacts with no JVM or Aguafria runtime.
@@ -55,9 +55,9 @@ rejected. Previously published JARs use their own older loader.
 ```clojure
 (ns example.core
   (:require [aguafria.keyword :as ak]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn add :i32
+(a/defn add :i32
   "Add two signed integers."
   [[a :i32]
    [b :i32]]
@@ -80,21 +80,21 @@ Use `ak/return` only for an early or explicit Zig return.
 
 ## Declarations
 
-`az/defn` creates a public Zig function. `az/defn-` creates a private Zig
+`a/defn` creates a public Zig function. `a/defn-` creates a private Zig
 function. Both are callable Clojure Vars in development. The return type follows
 the name, followed by an optional docstring, optional attributes, and typed arguments.
 
 ```clojure
-(az/defn public-value :u32 [] 42)
+(a/defn public-value :u32 [] 42)
 
-(az/defn- implementation-detail :u32 [] 7)
+(a/defn- implementation-detail :u32 [] 7)
 ```
 
 Public Zig visibility is not a C ABI export. Request a stable exported symbol
 only when an external native caller needs one:
 
 ```clojure
-(az/defn exported-entry :i32
+(a/defn exported-entry :i32
   {:attrs #{:export}}
   [[value :i32]]
   value)
@@ -103,22 +103,22 @@ only when an external native caller needs one:
 Constants and mutable Zig globals are normal Clojure Vars:
 
 ```clojure
-(az/defconst port :u16 8787)
+(a/defconst port :u16 8787)
 
-(az/defvar requests-served :u64 0)
+(a/defvar requests-served :u64 0)
 ```
 
 The type is optional when Zig can infer it:
 
 ```clojure
-(az/defconst answer 42)
+(a/defconst answer 42)
 ```
 
 Struct fields use a Malli-like vector schema. A field can carry a metadata map
 without changing the shape of the declaration:
 
 ```clojure
-(az/defstruct Point
+(a/defstruct Point
   "A position in world space."
   [[:x :f32]
    [:y {:doc "Vertical coordinate."} :f32]])
@@ -130,21 +130,21 @@ All container members share one vector, including nested methods. Enums accept
 bare tags or detailed tag vectors:
 
 ```clojure
-(az/defenum Color
+(a/defenum Color
   [:red [:blue {:doc "Blue channel"} 4]])
 
-(az/defn ShortList :type
+(a/defn ShortList :type
   [[T {:attrs #{ak/comptime}} :type]
    [length {:attrs #{ak/comptime}} :usize]]
-  (az/struct
+  (a/struct
     [[:items [:array length T]]
-     (az/fn- capacity :usize [] length)]))
+     (a/fn- capacity :usize [] length)]))
 ```
 
-Named unions use `az/defunion`, with the same field vectors and constructor calls:
+Named unions use `a/defunion`, with the same field vectors and constructor calls:
 
 ```clojure
-(az/defunion Payload
+(a/defunion Payload
   {:attrs #{ak/enum}}
   [[:int :i32]
    [:float :f64]])
@@ -156,15 +156,15 @@ Omit `ak/enum` for an untagged union. Use `{:type Tag}` for a named tag
 type, or `{:layout :packed}` / `{:layout :extern}` for an explicit layout.
 Field documentation and nested methods work just as they do in structs.
 
-Anonymous `az/struct`, `az/enum`, `az/union`, and `az/opaque` use the same member
+Anonymous `a/struct`, `a/enum`, `a/union`, and `a/opaque` use the same member
 vector, optionally preceded by a container options map.
 Evaluating them on the JVM returns an inspectable native type. For example,
-`(az/struct [[:value {:var 1234} :i32]])` retains its static member, which can
-be accessed with `az/field` and mutated with `ak/+=`.
+`(a/struct [[:value {:var 1234} :i32]])` retains its static member, which can
+be accessed with `a/field` and mutated with `ak/+=`.
 
-Use `az/fn` for public container methods and `az/fn-` for private ones. Their
+Use `a/fn` for public container methods and `a/fn-` for private ones. Their
 signature is name, return type, optional documentation/attributes, typed arguments,
-then body—just like `az/defn`. Named constructors also work inside their own
+then body—just like `a/defn`. Named constructors also work inside their own
 struct methods, e.g. `(Point {:x 0.0 :y 0.0})`.
 
 Container state uses `[:count {:var 0} :u32]`; container constants use
@@ -172,8 +172,8 @@ Container state uses `[:count {:var 0} :u32]`; container constants use
 specifies an instance-field default, not a container constant.
 
 Variable declarations put the type immediately after the name:
-`(az/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`. Omit the type when it can
-be inferred, e.g. `(az/defvar mouse-down false)`. `:attrs` always takes a set,
+`(a/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`. Omit the type when it can
+be inferred, e.g. `(a/defvar mouse-down false)`. `:attrs` always takes a set,
 even for one attribute; both native
 declarations and JVM calls reject single values. Local compile-time variables
 use `(ak/var 1 :i32 {:attrs #{ak/comptime}})`. Thread-local native storage is
@@ -184,7 +184,7 @@ Function Var metadata exposes the authored typed argument vectors and documents
 the return type, including private and external functions, using ordinary Clojure
 `doc` and editor documentation.
 
-`(az/defextern external-function :i32 [[x :i32]])` already implies `extern`.
+`(a/defextern external-function :i32 [[x :i32]])` already implies `extern`.
 Declaring an external function does not load its native library. Newly defined
 callers are checked by Zig without linking; provide their library/object inputs
 before invoking them. Native type errors still fail during definition, while
@@ -209,22 +209,22 @@ introduce a second runtime abstraction:
 | `while`, `doseq` | Zig loops |
 | `(ak/= x value)` | assignment |
 | `(ak/= [x y] pair)` | assign existing targets from one evaluated value in compiled code |
-| `(az/set-many! target value ...)` | ordered assignments; later values may read earlier writes |
-| `(az/field p :x)` | `p.x` |
-| `(az/index values i)` | `values[i]` |
+| `(a/set-many! target value ...)` | ordered assignments; later values may read earlier writes |
+| `(a/field p :x)` | `p.x` |
+| `(a/index values i)` | `values[i]` |
 | `(Point {:x 1.0 :y 2.0})` | typed struct literal |
-| `(az/init {:x 1.0 :y 2.0} Point)` | explicit value-first struct initializer |
-| `(az/array [4 5 6] :u32)` | typed array initializer with inferred length |
-| `(az/array [1 2] {:sentinel 0} :u8)` | sentinel array initializer with inferred length |
-| `(az/type [:array 4 {:sentinel 0} :u8])` | sentinel array type (`[4:0]u8`) |
-| `(az/init [1 2] [:array 2 :u8])` | initializer with an explicit type schema |
+| `(a/init {:x 1.0 :y 2.0} Point)` | explicit value-first struct initializer |
+| `(a/array [4 5 6] :u32)` | typed array initializer with inferred length |
+| `(a/array [1 2] {:sentinel 0} :u8)` | sentinel array initializer with inferred length |
+| `(a/type [:array 4 {:sentinel 0} :u8])` | sentinel array type (`[4:0]u8`) |
+| `(a/init [1 2] [:array 2 :u8])` | initializer with an explicit type schema |
 | `(k/++ left right)` / `(k/** values 3)` | native array concatenation / repetition |
-| `(az/with-block :result (k/break :result 42))` | labeled block returning a value; keyword labels are not variables |
-| `(az/get point :x)` / `(az/get points i)` | native field or indexed element access |
-| `(az/get-in points [4 :x])` | nested native access through a literal vector of indices and fields |
-| `(:x point)` / `(-> point :x)` | keyword field access, equivalent to `az/field` in native code and on JVM native handles; no default-value argument |
+| `(a/with-block :result (k/break :result 42))` | labeled block returning a value; keyword labels are not variables |
+| `(a/get point :x)` / `(a/get points i)` | native field or indexed element access |
+| `(a/get-in points [4 :x])` | nested native access through a literal vector of indices and fields |
+| `(:x point)` / `(-> point :x)` | keyword field access, equivalent to `a/field` in native code and on JVM native handles; no default-value argument |
 | `(let [{:keys [x y]} point] ...)` | native map destructuring; explicit renamed/nested bindings and `:as` are supported |
-| `(az/defn sum :i32 [[{:keys [x y]} Point]] (k/+ x y))` | destructuring typed function arguments without changing their native types |
+| `(a/defn sum :i32 [[{:keys [x y]} Point]] (k/+ x y))` | destructuring typed function arguments without changing their native types |
 | `(k/for [{:keys [x y]} points] ...)` | destructuring loop captures; also works for optional, while and switch captures |
 | `ak/...` | Zig operators, keywords, and `@builtins`; value calls also use the native JVM bridge |
 
@@ -238,7 +238,7 @@ semantics.
 For example:
 
 ```clojure
-(az/defn sum-to :u32
+(a/defn sum-to :u32
   [[limit :u32]]
   (let [^{:var true :zig/type :u32} total 0
         ^{:var true :zig/type :u32} index 0]
@@ -260,34 +260,34 @@ thousands of generated source files:
 ```clojure
 (ns example.math
   (:require [aguafria.std.math :as std-math]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn maximum :u32
+(a/defn maximum :u32
   [[a :u32]
    [b :u32]]
   (std-math/max a b))
 ```
 
-`az/cast` is a small source-rewriting macro and is thread-friendly:
+`a/cast` is a small source-rewriting macro and is thread-friendly:
 
 ```clojure
 (-> iterator
     (flecs/ecs_field_w_size (ak/sizeOf Circle) 1)
-    (az/cast [:c-pointer Circle]))
+    (a/cast [:c-pointer Circle]))
 ```
 
 ### Clojure-computed types and values
 
-Use `az/clj!` to evaluate a Clojure expression in the caller's namespace and
+Use `a/clj!` to evaluate a Clojure expression in the caller's namespace and
 embed its result as literal data inside an Aguafria declaration:
 
 ```clojure
 (defn array-n [n] [:array n :u8])
 (defn characters [s] (vec s))
 
-(az/defconst message
-  (az/clj! (array-n 5))
-  (az/clj! (characters "hello")))
+(a/defconst message
+  (a/clj! (array-n 5))
+  (a/clj! (characters "hello")))
 ```
 
 This emits the same `[5]u8` constant as a handwritten type and character vector.
@@ -302,9 +302,9 @@ bindings, but not native locals:
 
 ```clojure
 (let [sss (fn [s] (vec (seq s)))]
-  (az/defconst local-message
-    (az/clj! (array-n 5))
-    (az/clj! (sss "hello"))))
+  (a/defconst local-message
+    (a/clj! (array-n 5))
+    (a/clj! (sss "hello"))))
 ```
 
 This also works inside a Clojure function: each invocation that executes the
@@ -314,15 +314,15 @@ data. There is no generated-code mode or options argument.
 
 ## REPL and hot reload
 
-`az/vector` constructs a typed SIMD vector on either side of the JVM/native
-boundary: `(az/vector [1 2 3 4] :i32)` emits `@Vector(4, i32){1, 2, 3, 4}`.
+`a/vector` constructs a typed SIMD vector on either side of the JVM/native
+boundary: `(a/vector [1 2 3 4] :i32)` emits `@Vector(4, i32){1, 2, 3, 4}`.
 
 Result-context builtins such as `k/ptrFromInt`, `k/ptrCast` and `k/bitCast`
 need a destination type in Zig. From the JVM their unresolved calls retain
 their operands until `(k/as call type)` supplies that context, then execute
 native Zig. Printing an unresolved call reports that a result type is required;
 it is not a pointer with a guessed pointee type. For explicitly aligned array
-storage, use `(az/array bytes {:align (k/alignOf :u32)} :u8)`.
+storage, use `(a/array bytes {:align (k/alignOf :u32)} :u8)`.
 Unlike binding metadata, this requests aligned storage on the JVM too.
 
 Pointer schemas use `[:* child-type]` or `[:* options child-type]`, for example
@@ -330,28 +330,28 @@ Pointer schemas use `[:* child-type]` or `[:* options child-type]`, for example
 single-item; use `:size :many`, `:size :slice`, or `:size :c` when needed.
 Alignment expressions can use native results such as `(k/alignOf :i32)`.
 `k/alignOf` accepts type schemas directly, including arrays and pointers; no
-`az/type` wrapper is needed.
+`a/type` wrapper is needed.
 
 Numeric constructors, native arithmetic and numeric function results retain
 their Zig type as `ZigValue`s. Use `k/+` and other native operations to keep
 working with them, and `k/&` for an owned pointer to their storage. `k/var`
-provides mutable storage; taking its address does not copy it. `(az/value x)`
+provides mutable storage; taking its address does not copy it. `(a/value x)`
 explicitly extracts a JVM snapshot. Predicates remain ordinary JVM booleans,
 so `false` behaves correctly in Clojure conditionals. Comptime-only numbers
 retain their type but need a concrete runtime type before taking an address.
 
-Use `(az/debug! expression)` (including as a `->` step) to inspect its Zig type
+Use `(a/debug! expression)` (including as a `->` step) to inspect its Zig type
 with a Clojure file, line and column. In native declarations it adds an opt-in
 compiler inspection pass, not runtime logging; the expression still executes
 once. From the JVM it returns the identical value after native reflection.
-You can also inspect a top-level declaration with `(az/debug! #'my-function)`
-or `(az/debug! (az/defn answer :i32 [] 42))`.
+You can also inspect a top-level declaration with `(a/debug! #'my-function)`
+or `(a/debug! (a/defn answer :i32 [] 42))`.
 
-`(az/debug-reports)` returns structured reports. The same data is written
+`(a/debug-reports)` returns structured reports. The same data is written
 atomically to `.aguafria/debug/types.edn`. For tooling-only output:
 
 ```clojure
-(az/configure! {:debug-output #{:file}})
+(a/configure! {:debug-output #{:file}})
 ```
 
 Compiler reports cover expressions Zig actually analyzes, including generic
@@ -362,8 +362,8 @@ a guessed type. This is a reporting API/data file, not an installed nREPL/LSP or
 clj-kondo integration. ZIR is untyped, whereas AIR is produced after semantic
 analysis per function.
 
-`(az/type-report "path/to/example.clj")` returns source spans for every form
-and subform without loading or evaluating that file. `(az/type-report!
+`(a/type-report "path/to/example.clj")` returns source spans for every form
+and subform without loading or evaluating that file. `(a/type-report!
 "path/to/example.clj")` writes the report under `.aguafria/types/`. Reports
 use only exact-revision Zig compiler observations or ZLS hover results mapped
 through the emitter. There is no Clojure-side type inference. Forms without a
@@ -382,21 +382,21 @@ clojure -M:dev:nrepl
 ```
 
 Require the namespace and call its Vars normally. Re-evaluate only the changed
-`az/defn`, `az/defconst`, `az/defvar`, or type declaration. Aguafria compiles
+`a/defn`, `a/defconst`, `a/defvar`, or type declaration. Aguafria compiles
 the affected native units and publishes their new dispatch targets.
 
 Compilation can run asynchronously. Wait for a namespace or for all pending
 work when a deterministic boundary is needed:
 
 ```clojure
-(az/await! 'example.core)
-(az/await!)
+(a/await! 'example.core)
+(a/await!)
 ```
 
 Inspect compilation and publication state at any time:
 
 ```clojure
-(az/stats)
+(a/stats)
 ```
 
 The returned data includes queued, compiling, finished, cached, failed, and
@@ -409,11 +409,11 @@ generation until callers migrate or the application restarts. This is the same
 kind of practical boundary encountered when redefining Java-backed state in a
 Clojure REPL.
 
-`az/set-value!` changes a live `az/defvar` through its native storage without
+`a/set-value!` changes a live `a/defvar` through its native storage without
 compilation:
 
 ```clojure
-(az/set-value! requests-served 0)
+(a/set-value! requests-served 0)
 ```
 
 ## Native values
@@ -426,7 +426,7 @@ code. `ak/as` takes the value first and accepts the same type data as signatures
 (ak/f32 (/ 7.0 3.0))              ;; => 2.3333333
 (-> 42 (ak/as :i32))              ;; => 42
 (with-open [items (ak/as [1 2 3] [:array 3 :u8])]
-  (az/value items))               ;; => [1 2 3]
+  (a/value items))               ;; => [1 2 3]
 ```
 
 Inside Zig these emit checked `@as(type, value)` coercions. JVM calls use cached
@@ -499,13 +499,13 @@ borrowed native pointers with explicit lifetime rules.
 Print a declaration or value as Zig with the pinned Zig formatter:
 
 ```clojure
-(az/zig-source! #'main)                     ;; function declaration, without calling it
-(az/zig-source! #'limit)                    ;; constant declaration, including its name
-(az/zig-source! Point)                      ;; named type and its members/documentation
-(az/zig-source! [:optional [:slice-const :u8]]) ;; ?[]const u8
-(az/zig-source! #'debug/print)               ;; @import("std").debug.print
+(a/zig-source! #'main)                     ;; function declaration, without calling it
+(a/zig-source! #'limit)                    ;; constant declaration, including its name
+(a/zig-source! Point)                      ;; named type and its members/documentation
+(a/zig-source! [:optional [:slice-const :u8]]) ;; ?[]const u8
+(a/zig-source! #'debug/print)               ;; @import("std").debug.print
 (with-open [items (ak/as [1 2 3] [:array 3 :u32])]
-  (az/zig-source! items))                   ;; typed value expression
+  (a/zig-source! items))                   ;; typed value expression
 ```
 
 `zig-source!` writes to Clojure's `*out*` and returns `nil`; use `with-out-str`
@@ -520,29 +520,29 @@ This prints source; it does not execute the inspected declaration.
 
 ```clojure
 (k/for [(k/* item) (k/& some-integers)
-        index (az/range 0)]
+        index (a/range 0)]
   (k/= @item (k/intCast index)))
 ```
 
 `(k/* item)` is a pointer capture in this binding position only; elsewhere `k/*`
-is multiplication and needs at least two operands. `(az/range start)` emits an
-open-ended `start..`, while `(az/range start end)` excludes `end`. These loops
+is multiplication and needs at least two operands. `(a/range start)` emits an
+open-ended `start..`, while `(a/range start end)` excludes `end`. These loops
 also execute natively when evaluated directly on the JVM. Use typed native
 arrays/slices for runtime iteration; heterogeneous tuples require inline loops.
 The former nested `[[capture input] ...]` binding layout is rejected.
 
 ### Discover fields and functions
 
-`az/describe` returns ordinary Clojure data about a native value, type constructor,
+`a/describe` returns ordinary Clojure data about a native value, type constructor,
 or Var. It uses Zig's type reflection, including specialized generic types:
 
 ```clojure
-(select-keys (az/describe message) [:type :kind :fields])
+(select-keys (a/describe message) [:type :kind :fields])
 ;; For a [5]u8 array:
 ;; {:type "[5]u8", :kind :array,
 ;;  :fields [{:name :len, :type "usize"}]}
 
-(let [description (az/describe (std/ArrayList :u21))]
+(let [description (a/describe (std/ArrayList :u21))]
   (:fields description)     ;; items: []u21; capacity: usize
   (:functions description)) ;; append, deinit, initCapacity, ... with signatures
 ```
@@ -556,7 +556,7 @@ Constants and variables are identified without reading their values.
 Entries include documentation when available. Prepared accessor/function Vars
 appear as qualified symbols under `:accessor` / `:var`, for example
 `aguafria.std.ArrayList/-items` and `aguafria.std.ArrayList/append`. Resolve those
-symbols to call them, or use `(az/field receiver :member)` directly.
+symbols to call them, or use `(a/field receiver :member)` directly.
 
 Inspection does not read field contents, dereference receiver pointers, or call
 the discovered functions. The first inspection of a type may compile a native
@@ -574,11 +574,11 @@ container's members still follows Zig's public-declaration reflection rules.
 A byte array and a string literal retain different native types. For example,
 `[5]u8` decodes to `[104 101 108 108 111]`, while the literal `"hello"` has type
 `*const [5:0]u8` and prints as a pointer. Pointer printing does not implicitly
-dereference it. For a known-valid literal pointer, `(az/deref same-message)`
-reads its array and `(az/slice same-message 0 5)` returns `"hello"`.
+dereference it. For a known-valid literal pointer, `(a/deref same-message)`
+reads its array and `(a/slice same-message 0 5)` returns `"hello"`.
 
 The converter translates a Zig file or tree into formatted Clojure namespaces
-made from Aguafria declarations. It does not rely on `az/defraw`. The resulting
+made from Aguafria declarations. It does not rely on `a/defraw`. The resulting
 namespaces emit behaviorally equivalent Zig and can participate in the same
 REPL workflow.
 
@@ -595,7 +595,7 @@ See the complete published-dependency workflow in
 
 ## Standalone builds
 
-`az/build!` emits and builds an ordinary Zig library or executable. Release
+`a/build!` emits and builds an ordinary Zig library or executable. Release
 artifacts contain neither Clojure nor the JVM, so FFM and hot-reload machinery
 do not affect their runtime performance or size.
 
@@ -663,7 +663,7 @@ in an `aguafria-project.edn` classpath resource:
 ```
 
 Here `native/helper.zig` is copied beside the compiled module for
-`(az/defimport helper "helper.zig" [...])`. `:source-kind :aguafria` retains
+`(a/defimport helper "helper.zig" [...])`. `:source-kind :aguafria` retains
 normal hand-written declaration semantics; the catalog only supplies assets.
 Raw `defimport` members currently work inside native declarations, not as
 standalone JVM calls. Preparation reports those calls as unsupported while
@@ -671,12 +671,12 @@ preparing their concrete enclosing functions.
 
 ### Explain native compilation and cache reuse
 
-Wrap ordinary evaluations with `az/explain!`:
+Wrap ordinary evaluations with `a/explain!`:
 
 ```clojure
-(az/explain!
-  (az/defn add :i32 [[x :i32]] (k/+ x 1)))
-(az/explain! (add 41))
+(a/explain!
+  (a/defn add :i32 [[x :i32]] (k/+ x 1)))
+(a/explain! (add 41))
 ```
 
 The forms execute normally, once, with their usual side effects. The wrapper
@@ -696,7 +696,7 @@ Run this explicitly when desired, never as part of `:prepare`:
 clojure -X:precompile :namespaces '[my.app.audio my.app.math]'
 ```
 
-Or from Clojure: `(az/precompile! {:namespaces '[my.app.audio my.app.math]})`.
+Or from Clojure: `(a/precompile! {:namespaces '[my.app.audio my.app.math]})`.
 This requires the namespaces and compiles concrete native function bodies and
 JVM wrappers without invoking those functions. Ordinary Clojure top-level code
 still runs during `require`. The report lists declarations skipped because they
@@ -717,7 +717,7 @@ be on the classpath. The same API works for application and library namespaces;
 Learn is a coverage corpus, not a special precompilation path. For example:
 
 ```clojure
-(az/precompile! {:analyze '[my.app.audio my.app.math]
+(a/precompile! {:analyze '[my.app.audio my.app.math]
                  :parallelism 4})
 ```
 
@@ -781,7 +781,7 @@ Your project can define a `:precompile` alias with
 the root and Learn projects already include it.
 
 Both paths populate the shared `~/.aguafria/zig` cache by default. Override it
-with `-Daguafria.cache-dir=...` or `az/configure!`'s `:cache-dir` option.
+with `-Daguafria.cache-dir=...` or `a/configure!`'s `:cache-dir` option.
 Preparation reports remain project-local under `.aguafria/precompile`;
 they are not the binary cache. Existing project-local caches are not moved or deleted.
 Later JVMs and projects reuse
@@ -813,7 +813,7 @@ assets remain standalone.
 Runtime lookup checks a content-keyed bundle index first, then the individual
 artifact, then compiles a missing specialization normally. It never scans packs.
 Warm maps have expected constant-time lookup; hashing inputs, cold file reads,
-native loading and FFM binding still cost time. `az/explain!` reports
+native loading and FFM binding still cost time. `a/explain!` reports
 `bundle-cache-hit` and `bundle-loaded` events. Later runtime misses populate the
 same shared cache as standalone artifacts; a subsequent explicit precompilation
 can pack them. Existing standalone binaries are not automatically pruned.
@@ -824,7 +824,7 @@ Generated JVM adapters default to `ReleaseSafe`, with safety checks, error traci
 and unwind information. Their allocation/result-buffer machinery and panic guard
 live in a shared, optimized support library. Debug symbols are retained by default.
 This does not change the `:optimize` setting for ordinary user modules or standalone
-builds. Use `(az/configure! {:jvm-optimize "Debug"})` (or the JVM property
+builds. Use `(a/configure! {:jvm-optimize "Debug"})` (or the JVM property
 `aguafria.jvm-optimize`) when debugging adapters; only `Debug` and `ReleaseSafe`
 are accepted. Preparation and runtime use the same adapter configuration/cache keys.
 

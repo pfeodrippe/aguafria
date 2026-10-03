@@ -943,7 +943,7 @@
 (defn write-value!
   "Write one checked semantic value into caller-owned native Zig storage.
   Public for Aguafria runtime bridges; users normally call constructors or
-  `az/set-value!`."
+  `a/set-value!`."
   ([^MemorySegment native-segment zig-type schema value]
    (write-value-segment! native-segment zig-type schema value {}))
   ([^MemorySegment native-segment zig-type schema value arena]
@@ -1085,13 +1085,13 @@
   destination)
 
 (defn set-value!
-  "Write a semantic Clojure value into a live native `az/defvar` and return
+  "Write a semantic Clojure value into a live native `a/defvar` and return
   its decoded value. This does not compile or publish code. Callers must obey
   Zig's normal synchronization rules when native threads access the same var."
   [^ZigValue zig-value new-value]
   (let [descriptor (.-descriptor zig-value)]
     (when-not (= :var (:kind descriptor))
-      (throw (ex-info "Only an az/defvar Zig value is mutable"
+      (throw (ex-info "Only an a/defvar Zig value is mutable"
                       (merge (info zig-value) {:value new-value}))))
     (let [{:keys [representation segment schema]} (realize! zig-value)]
       (when-not (= :native representation)
@@ -1148,7 +1148,7 @@
 
 (defn native-value
   "Create a lazy Zig value. Public for tooling; normal users receive these
-  from `az/defconst` and function results."
+  from `a/defconst` and function results."
   [descriptor materialize]
   (let [descriptor (cond-> descriptor
                      (:threadlocal? descriptor)

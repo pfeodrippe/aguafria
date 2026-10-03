@@ -1,14 +1,14 @@
 (ns learn.example.test-TypeOf-builtin
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- foo T
+(a/defn- foo T
   [[T {:attrs #{k/comptime}} :type] [ptr [:* T]]]
   (k/+= @ptr 1)
   @ptr)
 
-(az/deftest no-runtime-side-effects
+(a/deftest no-runtime-side-effects
   (let [data (k/var 0 :i32)
         T (k/TypeOf (foo :i32 (k/& data)))]
     (try (k/comptime (testing/expectEqual :i32 T)))

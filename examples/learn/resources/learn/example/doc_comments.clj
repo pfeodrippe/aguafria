@@ -1,7 +1,7 @@
 (ns learn.example.doc-comments
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defstruct Timestamp
+(a/defstruct Timestamp
   "A structure for storing a timestamp, with nanosecond precision (this is a
 multiline doc comment)."
   [[:seconds
@@ -10,7 +10,7 @@ multiline doc comment)."
    [:nanos
     {:doc "The number of nanoseconds past the second (doc comment again)."}
     :u32]
-   (az/fn unix-epoch Timestamp
+   (a/fn unix-epoch Timestamp
      "Returns a `Timestamp` struct representing the Unix epoch; that is, the
 moment of 1970 Jan 1 00:00:00 UTC (this is a doc comment too)."
      []

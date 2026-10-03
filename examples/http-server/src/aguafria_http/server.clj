@@ -10,16 +10,16 @@
             [aguafria.std.http.Server :as http-server]
             [aguafria.std.http.Server.Request :as http-request]
             [aguafria.std.process :as std-process]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.host :as host]))
 
-(az/defconst port :u16 8787)
+(a/defconst port :u16 8787)
 
-(az/defvar running false)
+(a/defvar running false)
 
-(az/defvar requests-served :u64 0)
+(a/defvar requests-served :u64 0)
 
-(az/defn serve-connection! :!void
+(a/defn serve-connection! :!void
   [[stream net/Stream]
    [io std/Io]]
   (k/defer (net-stream/close (k/& stream) io))
@@ -38,23 +38,23 @@
        "Hello from live Aguafria Zig!\n"
        {:keep_alive false
         :extra_headers (k/& [{:name "x-request-id"
-                              :value (az/slice request-id-text 0)}])}))
+                              :value (a/slice request-id-text 0)}])}))
     (k/+= requests-served 1)))
 
-(az/defn request-stop! :void
+(a/defn request-stop! :void
   "Ask the native accept loop to stop after its current connection."
   []
   (k/= running false))
 
-(az/defn- running? :bool
+(a/defn- running? :bool
   []
   running)
 
-(az/defn- request-count :u64
+(a/defn- request-count :u64
   []
   requests-served)
 
-(az/defn main :!void
+(a/defn main :!void
   "Listen on loopback and call the current connection handler for every request."
   [[process-init std-process/Init]]
   (let [io (:io process-init)
@@ -79,7 +79,7 @@
   []
   (loop [attempt 0]
     (cond
-      (az/value (running?)) true
+      (a/value (running?)) true
       (< attempt 500) (do (Thread/sleep 10) (recur (inc attempt)))
       :else (throw (ex-info "Native HTTP server did not start"
                             {:url server-url
@@ -91,7 +91,7 @@
   (if (some-> @active-host host/info :active?)
     (status)
     (do
-      (az/await! 'aguafria-http.server)
+      (a/await! 'aguafria-http.server)
       (reset! active-host
               (host/start! #'main [] {:argv0 "aguafria-http-server"}))
       (await-running!)
@@ -113,10 +113,10 @@
   "Return inspectable server, compiler, and native-host state."
   []
   {:url server-url
-   :running (az/value (running?))
-   :requests (az/value (request-count))
+   :running (a/value (running?))
+   :requests (a/value (request-count))
    :host (some-> @active-host host/info)
-   :compiler (:summary (az/stats))})
+   :compiler (:summary (a/stats))})
 
 (comment
 
@@ -124,10 +124,10 @@
   (start!)
   (slurp server-url)
 
-  ;; Edit only the string inside `serve-connection!`, evaluate that az/defn in
+  ;; Edit only the string inside `serve-connection!`, evaluate that a/defn in
   ;; Calva/CIDER, and make another request. No server-aware code or restart is
   ;; necessary: the already-running Zig loop calls the new function body.
-  (az/await! 'aguafria-http.server)
+  (a/await! 'aguafria-http.server)
   (slurp server-url)
 
   (status)

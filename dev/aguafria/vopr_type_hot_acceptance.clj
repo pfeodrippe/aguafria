@@ -1,6 +1,6 @@
 (ns aguafria.vopr-type-hot-acceptance
   "Opt-in, long-running acceptance for a live converted TigerBeetle type edit."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.host :as host]
             [aguafria.zig.runtime :as runtime]
             [clojure.walk :as walk]))
@@ -54,11 +54,11 @@
   [& arguments]
   (let [requests (or (first arguments) "2000")
         seed (or (second arguments) "1")
-        old-config (az/configuration)]
+        old-config (a/configuration)]
     (try
-      (az/configure! {:async? true})
+      (a/configure! {:async? true})
       (require vopr-module :reload)
-      (az/await! vopr-module)
+      (a/await! vopr-module)
       (let [options-var (ns-resolve workload-module 'OptionsType)
             original (:aguafria/declaration (meta options-var))
             registered-before
@@ -89,9 +89,9 @@
           (throw (ex-info "Converted VOPR did not enter its native run"
                           {:host (host/info handle)})))
         (runtime/register-declaration! changed)
-        (az/await! workload-module)
+        (a/await! workload-module)
         (let [status-after-publication (host/info handle)
-              type-versions (az/type-versions options-var)
+              type-versions (a/type-versions options-var)
               type-statuses (mapv :status type-versions)
               active-type (some #(when (:active? %) %) type-versions)
               retained-original?
@@ -142,11 +142,11 @@
                  :type-statuses type-statuses
                  :result result
                  :failed-build-count
-                 (get-in (az/stats) [:summary :failed-build-count])}]
+                 (get-in (a/stats) [:summary :failed-build-count])}]
             (prn report)
             (when-not (and (zero? (:exit-code result))
                            (zero? (:failed-build-count report)))
               (throw (ex-info "Live converted VOPR acceptance failed" report))))))
       (finally
-        (az/configure! old-config)
+        (a/configure! old-config)
         (shutdown-agents)))))

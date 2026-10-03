@@ -29,7 +29,7 @@
   (let [resource (io/resource "learn/example/values.clj")
         forms (audit/read-forms (slurp resource))
         namespace (second (first forms))
-        main (first (filter #(and (seq? %) (= 'az/defn (first %))
+        main (first (filter #(and (seq? %) (= 'a/defn (first %))
                                  (= 'main (second %))) forms))
         body (rest (drop-while #(not (vector? %)) (drop 2 main)))]
     (require namespace)

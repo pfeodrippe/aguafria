@@ -1,9 +1,9 @@
 (ns learn.example.runtime-division-by-zero
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [a (k/var 1 :u32)
         b (k/var 0 :u32)]
     (k/= :_ [(k/& a) (k/& b)])

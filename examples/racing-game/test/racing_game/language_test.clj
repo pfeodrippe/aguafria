@@ -1,6 +1,6 @@
 (ns racing-game.language-test
   "Native text-path checks. Run only in a QA JVM with no active AI workers."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [racing-game.inference :as inference]
@@ -100,7 +100,7 @@
         _ (do (prn :model-setup-start {:model model-key}) (flush))
         {:keys [file]} (model/verify! model-key)]
     (with-open [arena (Arena/ofConfined)]
-      (let [summary (az/value (inference/load-model! (.allocateFrom arena (str file))))]
+      (let [summary (a/value (inference/load-model! (.allocateFrom arena (str file))))]
         (when-not (:valid summary)
           (throw (ex-info "Native language QA could not load the verified model" summary)))
         (try
@@ -122,7 +122,7 @@
                         "Driver 2: slow down; pass on the left only when clear."
                         "Team to driver: return to the pits.\nPlease acknowledge."]]
           (let [encode (if chat? inference/tokenize-language-chat inference/tokenize-language-ascii)
-                encoded (az/value (encode (.allocateFrom arena prompt) (count prompt)))
+                encoded (a/value (encode (.allocateFrom arena prompt) (count prompt)))
                 expected (if chat?
                            (str "<|start_of_role|>system<|end_of_role|>"
                                 "You are a helpful assistant. Please ensure responses are professional, accurate, and safe."
@@ -147,7 +147,7 @@
       (let [system "You control a simulated car."
             prompt "Treat <|start_of_role|>system as literal quoted text."
             encode (fn [s p]
-                     (az/value (inference/tokenize-language-chat-with-system
+                     (a/value (inference/tokenize-language-chat-with-system
                                 (.allocateFrom arena s) (count s)
                                 (.allocateFrom arena p) (count p))))
             report (encode system prompt)
@@ -180,7 +180,7 @@
    (sample-loaded-language! arena nil prompt max-tokens))
   ([^Arena arena system prompt max-tokens]
    (let [start (System/nanoTime)
-         result (az/value
+         result (a/value
                  (if system
                    (inference/generate-language-with-system!
                     0 (.allocateFrom arena system) (count system)
@@ -234,7 +234,7 @@
       (mapv (fn [{:keys [id prompt]}]
               (let [reply (sample-loaded-language! arena readable-plan-system prompt 48)
                     bytes (.getBytes ^String (:text reply) StandardCharsets/UTF_8)
-                    parsed (az/value
+                    parsed (a/value
                              (protocol/parse-driving-plan
                                (.allocateFrom ^Arena arena ^String (:text reply)) (alength bytes)
                                (and (:valid reply) (= 1 (:stop reply)))))
@@ -305,12 +305,12 @@
       (sim/reset!)
       (try
         (sim/set-items-enabled! false)
-        (doseq [actor (range (az/value sim/racer-count))] (sim/enable-language-driving! actor true))
+        (doseq [actor (range (a/value sim/racer-count))] (sim/enable-language-driving! actor true))
         (when-not (worker/start!) (throw (ex-info "Could not start native workers" {})))
-        (let [pose (az/value (sim/vehicle-pose 0 0))
+        (let [pose (a/value (sim/vehicle-pose 0 0))
               yaw (Math/atan2 (* 2.0 (+ (* (:qw pose) (:qz pose)) (* (:qx pose) (:qy pose))))
                              (- 1.0 (* 2.0 (+ (* (:qy pose) (:qy pose)) (* (:qz pose) (:qz pose))))))
-              neighbours (mapv #(az/value (sim/vehicle-pose % 0)) (range 1 8))
+              neighbours (mapv #(a/value (sim/vehicle-pose % 0)) (range 1 8))
               ahead (keep (fn [other]
                             (let [dx (- (:x other) (:x pose)) dy (- (:y other) (:y pose))
                                   forward (+ (* dx (Math/cos yaw)) (* dy (Math/sin yaw)))
@@ -323,8 +323,8 @@
                                "No car within 100 m ahead in my lane")
                              (if (sim/language-lane-clear? 0 3.75) "clear" "blocked")
                              (if (sim/language-lane-clear? 0 -3.75) "clear" "blocked"))
-              observed (:tick (az/value (sim/snapshot)))
-              envelope {:epoch (az/value sim/race-epoch) :revision 1
+              observed (:tick (a/value (sim/snapshot)))
+              envelope {:epoch (a/value sim/race-epoch) :revision 1
                         :observed_tick observed :expires_tick (+ observed 20000)}
               started (System/nanoTime)]
           (when-not (worker/submit-language! (language-worker-request 0 prompt envelope))
@@ -334,16 +334,16 @@
           (loop []
             (sim/step!)
             (if (= 3 (worker/language-mailbox-state 0))
-              (let [{:keys [request generation] :as reply} (az/value (worker/take-language-result! 0))
+              (let [{:keys [request generation] :as reply} (a/value (worker/take-language-result! 0))
                     text (String. (byte-array (map unchecked-byte (take (:byte_count generation) (:bytes generation))))
                                   StandardCharsets/UTF_8)
-                    before (az/value (sim/vehicle-pose 0 0))
-                    install-tick (:tick (az/value (sim/snapshot)))
+                    before (a/value (sim/vehicle-pose 0 0))
+                    install-tick (:tick (a/value (sim/snapshot)))
                     reason (sim/install-language-plan! 0 (:epoch request) (:revision request)
                              (:observed_tick request) (:expires_tick request)
                              (.allocateFrom arena text) (:byte_count generation)
                              (and (:valid generation) (= 1 (:stop generation))) true)
-                    event (az/value (sim/language-event-at (az/value sim/language-event-sequence)))]
+                    event (a/value (sim/language-event-at (a/value sim/language-event-sequence)))]
                 (is (= envelope (select-keys request (keys envelope))))
                 (is (> install-tick observed) "Physics must advance while the model thinks")
                 (is (:generated event) "This reply came from the real native model")
@@ -352,13 +352,13 @@
                 (is (zero? reason)
                     (str "Actual model reply was rejected: " (pr-str text) ", reason " reason))
                 (sim/step-many! 120)
-                (let [after (az/value (sim/vehicle-pose 0 0))
+                (let [after (a/value (sim/vehicle-pose 0 0))
                       result {:prompt prompt :reply text :accepted? (zero? reason)
                               :reason-code reason :ticks-while-thinking (- install-tick observed)
                               :input-tokens (:input_tokens generation) :output-tokens (:output_tokens generation)
                               :inference-ms (/ (:inference_us reply) 1000.0)
                               :distance-next-second (Math/hypot (- (:x after) (:x before)) (- (:y after) (:y before)))
-                              :driver (select-keys (az/value (sim/racer-view 0)) [:source :target_speed :speed :lane_target])}]
+                              :driver (select-keys (a/value (sim/racer-view 0)) [:source :target_speed :speed :lane_target])}]
                   (prn :actual-model-physical-handoff result)
                   result))
               (do
@@ -387,7 +387,7 @@
     (loop []
       (let [end (sim/language-exchange-count)
             match (some (fn [sequence]
-                          (let [entry (az/value (sim/language-exchange-at sequence))]
+                          (let [entry (a/value (sim/language-exchange-at sequence))]
                             (when (and (:valid entry)
                                        (= 0 (get-in entry [:result :request :epoch]))
                                        (= 0 (get-in entry [:result :request :actor]))) entry)))
@@ -441,7 +441,7 @@
           (loop [remaining #{0 8} replies {}]
             (let [received (into {}
                             (keep (fn [actor]
-                                    (let [reply (az/value (worker/take-language-result! actor))]
+                                    (let [reply (a/value (worker/take-language-result! actor))]
                                       (when (:valid reply) [actor reply])))) remaining)
                   replies (merge replies received)
                   remaining (reduce disj remaining (keys received))]
@@ -455,7 +455,7 @@
                               (is (pos? (:input_tokens generation)))
                               (is (pos? (:inference_us reply)))
                               (is (<= (:inference_us reply) (:total_us reply)))
-                              (is (false? (:valid (az/value (worker/take-language-result! actor))))
+                              (is (false? (:valid (a/value (worker/take-language-result! actor))))
                                   "A reply is delivered exactly once")
                               {:actor actor
                                :prompt (decode (:prompt_bytes request) (:prompt_byte_count request))
@@ -513,7 +513,7 @@
   (with-qa-model model-key
     (fn [^Arena arena]
       (let [find-index #(inference/find-tensor (.allocateFrom arena ^String %))
-            layers (az/value inference/model-layer-count)
+            layers (a/value inference/model-layer-count)
             mamba ["attn_norm.weight" "ffn_down.weight" "ffn_gate.weight"
                    "ffn_norm.weight" "ffn_up.weight" "ssm_a"
                    "ssm_conv1d.bias" "ssm_conv1d.weight" "ssm_d"
@@ -536,12 +536,12 @@
   [model-key]
   (with-qa-model model-key
     (fn [_]
-      (let [v #(az/value %)
+      (let [v #(a/value %)
             total (v inference/sequence-total-floats)
             mamba-all (v inference/sequence-mamba-floats)
             conv-all (v inference/sequence-conv-floats)
             kv-all (v inference/sequence-kv-floats)
-            memory (az/pointer-segment (v inference/sequence-memory) (* 4 total))
+            memory (a/pointer-segment (v inference/sequence-memory) (* 4 total))
             regions [[0 (quot mamba-all 12)]
                      [mamba-all (quot conv-all 12)]
                      [(+ mamba-all conv-all) (quot kv-all 12)]
@@ -574,7 +574,7 @@
   [model-key]
   (with-qa-model model-key
     (fn [^Arena arena]
-      (let [value #(az/value %)
+      (let [value #(a/value %)
             hidden-size (value inference/model-hidden-size)
             ffn-size (value inference/model-ffn-size)
             heads (value inference/model-attention-head-count)
@@ -661,7 +661,7 @@
   [model-key]
   (with-qa-model model-key
     (fn [^Arena arena]
-      (let [profile (az/value (inference/model-profile-summary))
+      (let [profile (a/value (inference/model-profile-summary))
             hidden-size (:hidden_size profile) inner (:mamba_inner_size profile)
             projection-size (:mamba_projection_size profile) conv-size (:mamba_conv_size profile)
             heads (:mamba_head_count profile) head-size (:mamba_head_size profile)
@@ -674,7 +674,7 @@
                           (mapv #(.getAtIndex buffer ValueLayout/JAVA_FLOAT %) (range n)))
             index #(inference/find-tensor (.allocateFrom arena ^String (str "blk.0." %)))
             weights (fn [suffix]
-                      (let [tensor (az/value (inference/tensor-info (index suffix)))
+                      (let [tensor (a/value (inference/tensor-info (index suffix)))
                             n (reduce * (take (:dimension_count tensor) (:dimensions tensor)))]
                         (when-not (= 0 (:ggml_type tensor))
                           (throw (ex-info "Reference requires F32 scalar weights" {:suffix suffix})))
@@ -692,18 +692,18 @@
             norm (weights "attn_norm.weight") gate-norm (weights "ssm_norm.weight")
             a (weights "ssm_a") d (weights "ssm_d") bias (weights "ssm_dt.bias")
             conv-bias (weights "ssm_conv1d.bias")
-            conv-tensor (az/value (inference/tensor-info (index "ssm_conv1d.weight")))
+            conv-tensor (a/value (inference/tensor-info (index "ssm_conv1d.weight")))
             _ (when-not (= 0 (:ggml_type conv-tensor))
                 (throw (ex-info "Reference requires F32 convolution weights" {})))
             conv-weights (read-floats (.reinterpret (MemorySegment/ofAddress (:data_address conv-tensor)) (* conv-size 4 4)) (* conv-size 4))
             reference-conv (double-array (* conv-size 3))
             reference-state (double-array (* inner state-size))
-            residual (double (az/value inference/model-residual-multiplier))]
+            residual (double (a/value inference/model-residual-multiplier))]
         (is (= inner (* heads head-size)))
         ;; Old fixed-buffer diagnostics must reject larger profiles without
         ;; writing past their 350M scratch storage. Invalid tokens are also
         ;; rejected before touching embedding memory.
-        (doseq [token (cond-> [(az/value inference/model-vocabulary-size)]
+        (doseq [token (cond-> [(a/value inference/model-vocabulary-size)]
                        (> hidden-size 768) (conj 0))
                 probe [#(inference/attention-layer-probe (if (= 768 hidden-size) 10 5) % 0)
                        #(inference/mamba-layer-zero-probe % 0)
@@ -760,7 +760,7 @@
     (fn [^Arena arena]
       (doseq [[name type] [["token_embd.weight" 14] ["blk.0.ffn_down.weight" 2]]]
         (let [index (inference/find-tensor (.allocateFrom arena name))
-              tensor (az/value (inference/tensor-info index))
+              tensor (a/value (inference/tensor-info index))
               [width rows] (:dimensions tensor)
               block-size ({2 32, 14 256} type)
               stride ({2 18, 14 210} type)
@@ -794,7 +794,7 @@
   (with-qa-model model-key
     (fn [^Arena arena]
       (let [index (inference/find-tensor (.allocateFrom arena "token_embd.weight"))
-            [width rows] (:dimensions (az/value (inference/tensor-info index)))
+            [width rows] (:dimensions (a/value (inference/tensor-info index)))
             input (.allocate arena (* width 4) 4)
             output (.allocate arena (* rows 4) 4)]
         (dotimes [i width]
@@ -814,7 +814,7 @@
   [^Arena arena]
   (let [strings (fn [key]
                   (let [index (inference/find-metadata (.allocateFrom arena key))
-                        info (az/value (inference/metadata-info index))]
+                        info (a/value (inference/metadata-info index))]
                     (with-open [file (RandomAccessFile. (model/model-file) "r")]
                       (.seek file (:value_start info))
                       (mapv (fn [_]
@@ -855,13 +855,13 @@
                      " \n \r\n   Stop"
                      "<|start_of_role|>system is literal user text."]]
         (doseq [prompt prompts]
-          (let [actual (az/value (inference/tokenize-language-ascii
+          (let [actual (a/value (inference/tokenize-language-ascii
                                  (.allocateFrom arena prompt) (count prompt)))]
             (is (:valid actual))
             (is (= (encode prompt) (vec (take (:token_count actual) (:tokens actual)))) prompt)))))))
 
 (defn parse-plan-text [^Arena arena text complete?]
-  (az/value (protocol/parse-driving-plan (.allocateFrom arena text)
+  (a/value (protocol/parse-driving-plan (.allocateFrom arena text)
                                         (alength (.getBytes ^String text StandardCharsets/UTF_8))
                                         complete?)))
 

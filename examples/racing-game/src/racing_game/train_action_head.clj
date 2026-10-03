@@ -5,7 +5,7 @@
   expert-labelled R4 semantic observations, runs the real native model, learns a linear
   softmax head, evaluates a held-out split, and writes the fixed binary artifact
   consumed by racing-game.inference. It is never part of the release runtime."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [racing-game.inference :as inference]
             [racing-game.model :as model]
             [racing-game.protocol :as protocol])
@@ -116,9 +116,9 @@
 
 (defn- random-scenario
   [^Random random]
-  {:target (.nextInt random (az/value protocol/racer-count))
+  {:target (.nextInt random (a/value protocol/racer-count))
    :persona (.nextInt random 3)
-   :rank (inc (.nextInt random (az/value protocol/racer-count)))
+   :rank (inc (.nextInt random (a/value protocol/racer-count)))
    :lap (.nextInt random 3)
    :item (.nextInt random 7)
    :progress (/ (inc (.nextInt random 19)) 20.0)
@@ -266,10 +266,10 @@
   the same read-only model mapping."
   [scenarios]
   (model/verify!)
-  (az/await! 'racing-game.inference)
+  (a/await! 'racing-game.inference)
   (with-open [arena (Arena/ofConfined)]
     (let [path (.allocateFrom arena (str (model/model-file)))
-          summary (az/value (inference/load-model! path))]
+          summary (a/value (inference/load-model! path))]
       (when-not (:valid summary)
         (throw (ex-info "Granite rejected its verified GGUF" {:summary summary})))
       (when-not (inference/initialize-sequences!)
@@ -298,7 +298,7 @@
                                 bytes
                                 (java.lang.foreign.MemorySegment/ofArray prompt))
                                (let [report
-                                     (az/value
+                                     (a/value
                                       (inference/forward-compact-prompt!
                                        slot bytes (count prompt) true))]
                                  (when-not (:valid report)

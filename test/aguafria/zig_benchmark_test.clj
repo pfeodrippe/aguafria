@@ -1,5 +1,5 @@
 (ns aguafria.zig-benchmark-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.benchmark :as benchmark]
             [aguafria.zig.runtime :as runtime]
             [clojure.test :refer [deftest is testing]]))
@@ -84,16 +84,16 @@
 
 (deftest fresh-edit-series-measures-real-native-publications
   (testing "unique contexts produce fresh, behaviorally verified dylibs"
-    (let [old-config (az/configuration)
+    (let [old-config (a/configuration)
           module-symbol
           (symbol (str "aguafria.benchmark-native-" (random-uuid)))
           target-ns (create-ns module-symbol)]
       (try
-        (az/configure! {:async? false :modules {}})
+        (a/configure! {:async? false :modules {}})
         (binding [*ns* target-ns]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)
-          (eval '(az/defn leaf :i32 [] 1)))
+          (alias 'a 'aguafria.zig)
+          (eval '(a/defn leaf :i32 [] 1)))
         (let [leaf-var (ns-resolve target-ns 'leaf)
               expected (fn [context]
                          (+ 100 (mod (:fresh-value context) 1000000)))
@@ -125,5 +125,5 @@
                             [:distribution :p95 :observable-ms])))
           (is (= 1 ((var-get leaf-var)))))
         (finally
-          (az/configure! old-config)
+          (a/configure! old-config)
           (remove-ns module-symbol))))))

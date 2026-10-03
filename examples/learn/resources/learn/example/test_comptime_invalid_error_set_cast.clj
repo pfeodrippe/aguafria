@@ -1,9 +1,9 @@
 (ns learn.example.test-comptime-invalid-error-set-cast
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst Set1 (az/type [:error-set [:A :B]]))
-(az/defconst Set2 (az/type [:error-set [:A :C]]))
+(a/defconst Set1 (a/type [:error-set [:A :B]]))
+(a/defconst Set2 (a/type [:error-set [:A :C]]))
 
-(az/defcomptime reject-incompatible-error
+(a/defcomptime reject-incompatible-error
   (k/= :_ (k/as (k/errorCast (:B Set1)) Set2)))

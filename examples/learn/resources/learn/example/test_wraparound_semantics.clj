@@ -2,9 +2,9 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std.math :as math]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest wraparound-addition-and-subtraction
+(a/deftest wraparound-addition-and-subtraction
   (let [x (k/i32 (math/maxInt :i32))
         min-val (k/+% x 1)]
     (try (testing/expectEqual (math/minInt :i32) min-val))

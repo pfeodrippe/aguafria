@@ -4,7 +4,7 @@
             [aguafria.zig.prepare :as prepare]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
@@ -51,13 +51,13 @@
 
 (deftest catalog-understands-canonical-function-declarations-test
   (let [public (#'package/declaration-parts
-                '(az/defn serialize [:array 36 :u8]
+                '(a/defn serialize [:array 36 :u8]
                    "Serialize a UUID."
                    {:zig/name "serialize", :attrs #{:public}}
                    [[uuid Uuid]]
                    uuid))
-        default-public (#'package/declaration-parts '(az/defn ready :bool [] true))
-        private (#'package/declaration-parts '(az/defn- helper :u8 [] 0))]
+        default-public (#'package/declaration-parts '(a/defn ready :bool [] true))
+        private (#'package/declaration-parts '(a/defn- helper :u8 [] 0))]
     (is (#'package/public-declaration? public))
     (is (#'package/public-declaration? default-public))
     (is (false? (#'package/public-declaration? private)))
@@ -127,24 +127,24 @@
       (prepare/write-entrypoints! {:kind :packages :namespaces (:namespaces catalog)
                                    :generated-dir generated})
       (doseq [suffix [".Bytes" ".BytesAlias" ".Buffer.Slice" ".RowAlias.Slice"]]
-        (is (= 3 (az/value (call suffix '-len "abc"))))
+        (is (= 3 (a/value (call suffix '-len "abc"))))
         (is (value/zig-pointer? (call suffix '-ptr "abc")))
         (is (= '([self]) (:arglists (meta (ns-resolve (symbol (str prefix suffix)) '-len))))))
-      (is (= 42 (az/value (call ".RowAlias" '-value (call "" 'row)))))
+      (is (= 42 (a/value (call ".RowAlias" '-value (call "" 'row)))))
       (let [items (call ".Buffer" '-items (call "" 'buffer))]
         (is (value/zig-value? items))
-        (is (= [97 98 99] (mapv #(az/value (az/get items %)) (range 3)))))
+        (is (= [97 98 99] (mapv #(a/value (a/get items %)) (range 3)))))
       (is (str/includes? (:doc (meta (ns-resolve prefix 'Buffer))) "Fields:"))
       (is (str/includes? (:doc (meta (ns-resolve (symbol (str prefix ".Buffer")) '-items)))
                          "items: aguafria.pkg.type-fields-fixture.Buffer/Slice"))
       (is (str/includes? (slurp (io/file generated "aguafria/pkg/type_fields_fixture/Buffer.clj"))
                          "items: aguafria.pkg.type-fields-fixture.Buffer/Slice"))
       (binding [*ns* (the-ns prefix)]
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'slice (symbol (str prefix ".BytesAlias")))
-        (eval '(az/defn native-length :usize [[input [:slice-const :u8]]]
+        (eval '(a/defn native-length :usize [[input [:slice-const :u8]]]
                  (slice/-len input)))
-        (is (= 3 (az/value ((ns-resolve prefix 'native-length) "abc"))))
+        (is (= 3 (a/value ((ns-resolve prefix 'native-length) "abc"))))
         (is (= "input.len" (emitter/emit-expr *ns* '(slice/-len input)))))
       (finally
         (runtime/configure! original-config)

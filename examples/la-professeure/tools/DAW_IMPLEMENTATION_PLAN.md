@@ -179,7 +179,7 @@ macro expansion and keyword-name support rather than adding a parallel mechanism
 The JVM control side follows the same rule: guarded execution and dispatch are
 separate from named mix, history, selection/arming, routing and take-edit helpers,
 all in this same namespace. `set-native-state!` uses the same pair validation to
-expand ordered `az/set-value!` calls; it does not schedule work or make updates
+expand ordered `a/set-value!` calls; it does not schedule work or make updates
 atomic. Keep it inside an explicit render callback. Expanded API regression:
 27 tests / 208 assertions, including mutation order and invalid-route/UTF-8 guards.
 

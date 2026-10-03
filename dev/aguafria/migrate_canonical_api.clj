@@ -13,7 +13,7 @@
             [rewrite-clj.parser :as parser]))
 
 (def ^:private operators
-  #{'az/defn 'az/defn- 'aguafria.zig/defn 'aguafria.zig/defn-
+  #{'a/defn 'a/defn- 'aguafria.zig/defn 'aguafria.zig/defn-
     'zig/defn 'zig/defn-})
 
 (defn- trivia? [n]
@@ -66,7 +66,7 @@
 
       (and (= :token (node/tag n))
            (string? (value n))
-           (re-find #"\((?:az|zig|aguafria\.zig)/defn-?\s" (value n)))
+           (re-find #"\((?:a|zig|aguafria\.zig)/defn-?\s" (value n)))
       (let [original (value n)
             migrated (try (migrate-source original counts)
                           (catch Exception _ original))]

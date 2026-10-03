@@ -1,7 +1,7 @@
 (ns aguafria.zig
   "Define ordinary Zig declarations with Clojure data.
 
-  Require this namespace as `az`. Declaration macros capture their bodies;
+  Require this namespace as `a`. Declaration macros capture their bodies;
   the bodies are emitted as Zig. Explicit `clj!` escapes evaluate Clojure while
   preparing a declaration, before native compilation."
   (:refer-clojure :exclude [assoc! cast comment defn defn- defstruct deref destructure
@@ -32,8 +32,8 @@
     :else
     (throw (ex-info
             (if (seq? value)
-              "az/clj! embeds values, not code: convert lists to vectors for literal data"
-              "az/clj! requires literal data, not a live JVM object")
+              "a/clj! embeds values, not code: convert lists to vectors for literal data"
+              "a/clj! requires literal data, not a live JVM object")
             {:form form :value-type (some-> value class .getName)
              :aguafria/phase :clojure-escape}))))
 
@@ -43,14 +43,14 @@
   (try
     (clj-literal (thunk) form)
     (catch Throwable cause
-      (throw (ex-info (str "az/clj! evaluation failed: " (ex-message cause))
+      (throw (ex-info (str "a/clj! evaluation failed: " (ex-message cause))
                       {:form form :aguafria/phase :clojure-escape}
                       cause)))))
 
 (defmacro ^{:aguafria/host-escape true} clj!
   "Evaluate Clojure when the enclosing declaration executes.
 
-  `(az/clj! (array-n 5))` embeds the resulting literal type/value data.
+  `(a/clj! (array-n 5))` embeds the resulting literal type/value data.
 
   Helpers run once per declaration evaluation, not during native builds or calls.
   Reevaluate the containing declaration to observe changed Clojure helpers.
@@ -63,8 +63,8 @@
 (defmacro explain!
   "Evaluate forms normally and print native compilation/cache activity to stdout.
 
-  (az/explain! (az/defn add :i32 [[x :i32]] (k/+ x 1)))
-  (az/explain! (add 41))
+  (a/explain! (a/defn add :i32 [[x :i32]] (k/+ x 1)))
+  (a/explain! (add 41))
 
   Returns the last form's result unchanged; exceptions still propagate.
   Reports actual compilation, disk-cache and already-loaded native reuse.
@@ -218,7 +218,7 @@
   (:function, :type, :const, :var). Callable members include parameter
   types and :return (nil means generic/unspecified). :functions selects those
   callable members. Prepared field/function Vars are identified by :accessor
-  and :var symbols when available; otherwise use `(az/field value :name)`.
+  and :var symbols when available; otherwise use `(a/field value :name)`.
   Uses Zig reflection without reading field contents or invoking discovered
   functions. The first inspection may compile an in-process reflection adapter.
   Pass a Var to preserve its declared Zig type and docs for plain JVM scalars."
@@ -258,7 +258,7 @@
   (value/zig-type? candidate))
 
 (clojure.core/defn zig-pointer?
-  "True for a typed borrowed Zig pointer returned by az/value."
+  "True for a typed borrowed Zig pointer returned by a/value."
   [candidate]
   (value/zig-pointer? candidate))
 
@@ -311,12 +311,12 @@
   nil)
 
 (clojure.core/defn set-value!
-  "Write a checked Clojure value into an az/defvar's actual native storage.
+  "Write a checked Clojure value into an a/defvar's actual native storage.
   This is an in-place REPL operation, not a compilation. Coordinate with
   running native threads exactly as ordinary Zig code must."
   [zig-var value]
   (when-not (value/zig-value? zig-var)
-    (throw (ex-info "az/set-value! expects the value of an az/defvar Var"
+    (throw (ex-info "a/set-value! expects the value of an a/defvar Var"
                     {:value zig-var
                      :clojure-type (clojure.core/type zig-var)})))
   (value/set-value! zig-var value))
@@ -384,7 +384,7 @@
   (runtime/recompile-affected! module))
 
 (clojure.core/defn state-versions
-  "Return the retained native state generations for an az/defvar."
+  "Return the retained native state generations for an a/defvar."
   [state]
   (runtime/state-versions state))
 
@@ -394,7 +394,7 @@
   (runtime/type-versions type))
 
 (clojure.core/defn migrate-state!
-  "Apply an explicit Zig migration to a breaking az/defvar schema change."
+  "Apply an explicit Zig migration to a breaking a/defvar schema change."
   [state migration]
   (runtime/migrate-state! state migration))
 
@@ -432,11 +432,11 @@
     (throw
      (ex-info
       (str (:symbol reference)
-           " is a Zig import member and can only be called inside az/defn")
+           " is a Zig import member and can only be called inside a/defn")
       {:reference reference :arguments arguments}))))
 
 (clojure.core/defn ^:no-doc install-import-references!
-  "Install the real Vars backing an `az/defimport` alias. Public only because
+  "Install the real Vars backing an `a/defimport` alias. Public only because
   macro expansions must restore the aliases when source is loaded or reloaded."
   [context-ns import-alias zig-alias import-name members]
   (let [context-ns (if (instance? clojure.lang.Namespace context-ns)
@@ -483,16 +483,16 @@
           member
           :else
           (throw (ex-info
-                  "az/defimport members must be symbols or [clojure-name \"zig.path\"] pairs"
+                  "a/defimport members must be symbols or [clojure-name \"zig.path\"] pairs"
                   {:form form :member member})))
         clojure-name-text (name clojure-name)]
     (when (or (namespace clojure-name)
               (str/includes? clojure-name-text "."))
       (throw (ex-info
-              "az/defimport member Var names must be unqualified and cannot contain dots"
+              "a/defimport member Var names must be unqualified and cannot contain dots"
               {:form form :member member :clojure-name clojure-name})))
     (when (or (str/blank? zig-name) (re-find #"[\r\n]" zig-name))
-      (throw (ex-info "az/defimport Zig member paths must be non-empty single-line strings"
+      (throw (ex-info "a/defimport Zig member paths must be non-empty single-line strings"
                       {:form form :member member :zig-name zig-name})))
     {:clojure-name clojure-name :zig-name zig-name}))
 
@@ -522,6 +522,7 @@
       :leading-source (:zig/leading m)
       :zig-prefix (:zig/prefix m)
       :zig-qualifiers (:zig/qualifiers m)
+      :callconv (:callconv m)
       :align (:align m)
       :zig-name (:zig/name m)
       :implicit-return? (cond
@@ -617,7 +618,7 @@
                    (not (map? return))
                    (not (string? return))
                    (vector? bindings))
-      (throw (ex-info "az/defn expects: name return-type [optional docstring] [optional attributes] [typed args] body..."
+      (throw (ex-info "a/defn expects: name return-type [optional docstring] [optional attributes] [typed args] body..."
                       {:form form :name name :declaration declaration})))
     (let [qualified-name (symbol (str *ns*) (str name))
           args (emitter/parse-typed-bindings bindings)
@@ -704,7 +705,7 @@
 (defmacro defn
   "Define, compile, and expose a Zig function.
 
-      (az/defn add :i32
+      (a/defn add :i32
         [a :- :i32 b :- :i32]
         (+ a b))
 
@@ -726,7 +727,7 @@
 (defmacro defn-
   "Define a private, hot-reloadable Zig function.
 
-      (az/defn- add-internal :i32
+      (a/defn- add-internal :i32
         [[a :i32] [b :i32]]
         (+ a b))
 
@@ -750,7 +751,7 @@
           1 [nil (first declaration)]
           2 [(first declaration) (second declaration)]
           (throw (ex-info
-                  "az/defconst expects name, optional doc/attr-map, optional type, and value"
+                  "a/defconst expects name, optional doc/attr-map, optional type, and value"
                   {:form &form :name name :declaration declaration})))
         descriptor (emitter/prepare-declaration
                     *ns*
@@ -777,8 +778,8 @@
 
 (defmacro defvar
   "Define a Zig variable with an optional type, documentation, and attributes.
-  `(az/defvar mouse-down false)` infers its type. An explicit type immediately
-  follows the name: `(az/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`."
+  `(a/defvar mouse-down false)` infers its type. An explicit type immediately
+  follows the name: `(a/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`."
   [name & declaration]
   (let [typed? (and (next declaration)
                     (not (or (map? (first declaration))
@@ -789,7 +790,7 @@
         _ (when-not (and (or (not typed?)
                             (and (some? type) (not (contains? #{':- '_} type))))
                          (= 1 (count tail)))
-            (throw (ex-info "az/defvar expects name [type] [docstring] [attributes] value; an explicit type must precede attributes"
+            (throw (ex-info "a/defvar expects name [type] [docstring] [attributes] value; an explicit type must precede attributes"
                             {:form &form :name name})))
         value (first tail)
         descriptor (emitter/prepare-declaration
@@ -818,7 +819,7 @@
 (defmacro defstruct
   "Define a Zig struct from Malli-style field entries.
 
-      (az/defstruct Vector2
+      (a/defstruct Vector2
         [[:x :f32]
          [:y {:doc \"Vertical component\"} :f32]])
 
@@ -868,7 +869,7 @@
 (defmacro defenum
   "Define a named Zig enum with vector tags and optional nested declarations.
 
-      (az/defenum Color
+      (a/defenum Color
         [:red [:really-red {:zig/name \"@\\\"really red\\\"\"}]])
 
   One vector contains keyword tags, `[name properties]`,
@@ -886,7 +887,7 @@
 (defmacro defunion
   "Define a named Zig union using one vector of fields and nested declarations.
 
-      (az/defunion Number [[:int :i32] [:float :f64]])
+      (a/defunion Number [[:int :i32] [:float :f64]])
 
   Accepts a docstring and options before the member vector, like defstruct.
   Use {:attrs #{k/enum}} for an inferred tag, {:type Tag} for a named tag,
@@ -914,25 +915,25 @@
           (hash-map ~@(mapcat (clojure.core/fn [local] [(list 'quote local) local]) locals)))))))
 
 (defmacro struct
-  "An anonymous Zig struct: (az/struct [[:x :f32] [:y :f32]]).
+  "An anonymous Zig struct: (a/struct [[:x :f32] [:y :f32]]).
   Accepts an optional options map; nested declarations share the member vector."
   [& declaration]
   (anonymous-container-expansion :struct declaration &env &form))
 
 (defmacro enum
-  "An anonymous Zig enum: (az/enum [:red [:green {:doc \"Green\"}] :blue]).
+  "An anonymous Zig enum: (a/enum [:red [:green {:doc \"Green\"}] :blue]).
   Pass {:type :u8} before the member vector for an explicit backing type."
   [& declaration]
   (anonymous-container-expansion :enum declaration &env &form))
 
 (defmacro union
-  "An anonymous Zig union: (az/union {:enum? true} [[:value :i32] [:empty :void]]).
+  "An anonymous Zig union: (a/union {:enum? true} [[:value :i32] [:empty :void]]).
   Fields and nested declarations share one member vector."
   [& declaration]
   (anonymous-container-expansion :union declaration &env &form))
 
 (defmacro opaque
-  "An anonymous Zig opaque type: (az/opaque []).
+  "An anonymous Zig opaque type: (a/opaque []).
   Optional nested declarations belong in the member vector."
   [& declaration]
   (anonymous-container-expansion :opaque declaration &env &form))
@@ -940,24 +941,24 @@
 (defmacro defimport
   "Import a Zig module and expose its named members as real Clojure Vars.
 
-      (az/defimport extra-math \"extra_math\" [quadruple])
-      (az/defn four-times :i32 [x :- :i32]
+      (a/defimport extra-math \"extra_math\" [quadruple])
+      (a/defn four-times :i32 [x :- :i32]
         (extra-math/quadruple x))
 
   A member can be `[clojure-name \"zig.nested.path\"]` when its Zig path is not
   a valid Clojure Var name. The module root path is still supplied separately
-  through `az/configure!`'s `:modules` map when it is not Zig's `std`."
+  through `a/configure!`'s `:modules` map when it is not Zig's `std`."
   [name import-name members]
   (when-not (and (symbol? name) (nil? (namespace name)))
-    (throw (ex-info "az/defimport expects an unqualified Clojure alias"
+    (throw (ex-info "a/defimport expects an unqualified Clojure alias"
                     {:form &form :name name})))
   (when-not (and (string? import-name)
                  (not (str/blank? import-name))
                  (not (re-find #"[\r\n]" import-name)))
-    (throw (ex-info "az/defimport expects a non-empty single-line import name"
+    (throw (ex-info "a/defimport expects a non-empty single-line import name"
                     {:form &form :import-name import-name})))
   (when-not (vector? members)
-    (throw (ex-info "az/defimport expects a vector of member Vars"
+    (throw (ex-info "a/defimport expects a vector of member Vars"
                     {:form &form :members members})))
   (let [normalized-members (mapv (partial normalize-import-member &form) members)
         zig-alias (emitter/identifier name)
@@ -971,7 +972,7 @@
                     :source (source-location &form)}
         descriptor (merge descriptor (declaration-options name))
         descriptor-form (descriptor-expression descriptor)]
-    ;; Install during macro expansion so following az/defn forms resolve the
+    ;; Install during macro expansion so following a/defn forms resolve the
     ;; alias, and again in the expansion so compiled/reloaded source restores it.
     (install-import-references! *ns* name zig-alias import-name normalized-members)
     `(let [descriptor# ~descriptor-form]
@@ -993,7 +994,7 @@
   represented by the data emitter. Use `defimport` for imports."
   [name code]
   (when-not (string? code)
-    (throw (ex-info "az/defraw code must be a string literal"
+    (throw (ex-info "a/defraw code must be a string literal"
                     {:form &form :name name :code code})))
   (let [descriptor {:kind :raw
                     :name name
@@ -1017,7 +1018,7 @@
 (defmacro deffield
   "Define a field of a Zig file/container root.
 
-      (az/deffield count :u64 0)
+      (a/deffield count :u64 0)
 
   An optional docstring and attr-map follow the name. The initializer is
   optional. Converted files that use Zig's file-as-struct pattern emit this
@@ -1027,10 +1028,10 @@
         (leading-doc-and-attributes declaration)
         [type & initializer] declaration]
     (when-not type
-      (throw (ex-info "az/deffield requires a type"
+      (throw (ex-info "a/deffield requires a type"
                       {:form &form :name name :declaration declaration})))
   (when (> (count initializer) 1)
-    (throw (ex-info "az/deffield accepts at most one initializer"
+    (throw (ex-info "a/deffield accepts at most one initializer"
                     {:form &form :name name :initializer initializer})))
   (let [options (merge (meta name) attributes)
         descriptor (emitter/prepare-declaration
@@ -1091,11 +1092,11 @@
 (defmacro defextern
   "Declare an external Zig function prototype without a body.
 
-      (az/defextern GetCommandLineW windows/LPWSTR [])
+      (a/defextern GetCommandLineW windows/LPWSTR [])
 
   Prefix/library/calling-convention spelling is retained in the optional
   attr-map. The extern prefix is implicit. Calls from Clojure/Java use the same
-  native bridge as az/defn; native symbol linking is deferred until invocation.
+  native bridge as a/defn; native symbol linking is deferred until invocation.
   The external library must supply the symbol with the declared ABI on the
   current platform; declaring a prototype does not implement the function."
   [name & declaration]
@@ -1109,7 +1110,7 @@
   (when-not (and (symbol? name) return
                  (not (or (= return ':-) (map? return) (string? return)))
                  (= 1 (count declaration)) (vector? bindings))
-    (throw (ex-info "az/defextern expects: name return-type optional-doc optional-attributes [typed args]"
+    (throw (ex-info "a/defextern expects: name return-type optional-doc optional-attributes [typed args]"
                     {:form &form :name name})))
   (let [qualified-name (symbol (str *ns*) (str name))
         descriptor (emitter/prepare-declaration
@@ -1145,13 +1146,13 @@
   its storage. The resulting Var is an inspectable Zig reference; standalone
   and development links resolve the symbol from the configured native input.
 
-      (az/defexternvar errno :- :c_int)"
+      (a/defexternvar errno :- :c_int)"
   [name & declaration]
   (let [[docstring attributes declaration]
         (leading-doc-and-attributes declaration)
         [marker type] declaration]
     (when-not (and (= marker ':-) type (= 2 (count declaration)))
-      (throw (ex-info "az/defexternvar expects: name :- type"
+      (throw (ex-info "a/defexternvar expects: name :- type"
                       {:form &form :name name})))
     (let [descriptor (emitter/prepare-declaration
                       *ns*
@@ -1181,7 +1182,7 @@
 (defmacro deftest
   "Define a named Zig test as a zero-argument callable Clojure Var.
 
-      (az/deftest pointer-arithmetic-test
+      (a/deftest pointer-arithmetic-test
         (try (testing/expect true)))
       (pointer-arithmetic-test)
 
@@ -1196,7 +1197,7 @@
   native memory corruption are not contained."
   [name & declaration]
   (when-not (and (symbol? name) (nil? (namespace name)))
-    (throw (ex-info "az/deftest requires an unqualified symbol name"
+    (throw (ex-info "a/deftest requires an unqualified symbol name"
                     {:name name :form &form})))
   (let [[docstring declaration] (if (string? (first declaration))
                                  [(first declaration) (next declaration)]
@@ -1206,7 +1207,7 @@
                          [{} declaration])
         _ (when (or (contains? options :zig/test-name)
                     (contains? (meta name) :zig/test-name))
-            (throw (ex-info "az/deftest does not support :zig/test-name; the test label comes from its symbol"
+            (throw (ex-info "a/deftest does not support :zig/test-name; the test label comes from its symbol"
                             {:name name :form &form})))
         declaration-options (declaration-options name options)
         descriptor (emitter/prepare-declaration
@@ -1274,10 +1275,10 @@
 (defmacro set-many!
   "Assign target/value pairs in order inside an Aguafria declaration.
 
-      (az/set-many!
+      (a/set-many!
         x (+ x 1)
         y (* x 2)
-        (az/field state total) (+ x y))
+        (a/field state total) (+ x y))
 
   Expands to a `do` containing ordinary `set!` forms. Each assignment completes
   before the next target and value are evaluated, so later pairs observe earlier
@@ -1295,9 +1296,9 @@
     (meta &form)))
 
 (defmacro get
-  "Access a native field or element: (az/get point :x), (az/get points index).
+  "Access a native field or element: (a/get point :x), (a/get points index).
   A literal keyword selects a field; an index expression selects an element.
-  Expands to az/field or az/index and works in native declarations and the JVM.
+  Expands to a/field or a/index and works in native declarations and the JVM.
   Missing fields and invalid indices are errors, not default-valued lookups."
   [value key]
   (with-meta
@@ -1305,15 +1306,15 @@
     (meta &form)))
 
 (defmacro get-in
-  "Access a nested native value: (az/get-in points [4 :x]).
+  "Access a nested native value: (a/get-in points [4 :x]).
   The path is a literal vector: keywords select fields; other forms are indices.
   Index expressions may use runtime values. An empty path returns the input.
-  Expands to nested az/get calls, so native code is unchanged and the same
+  Expands to nested a/get calls, so native code is unchanged and the same
   expression works from the JVM. Missing fields and invalid indices follow
   those operations' errors; this is not Clojure map lookup with a default."
   [value path]
   (when-not (vector? path)
-    (throw (ex-info "az/get-in requires a literal path vector"
+    (throw (ex-info "a/get-in requires a literal path vector"
                     {:form &form :path path})))
   (reduce (clojure.core/fn [target step]
             (with-meta
@@ -1327,7 +1328,7 @@
   Inside an Aguafria declaration:
 
       (-> optional-pointer
-          (az/cast [:* Widget]))
+          (a/cast [:* Widget]))
 
   rewrites to existing Aguafria forms for Zig's optional unwrap, `@alignCast`,
   `@ptrCast`, and `@as`. It creates no runtime wrapper or new emitter syntax."
@@ -1372,7 +1373,7 @@
 (clojure.core/defn assoc!
   "Shallowly mutate native fields or indexed elements and return the receiver.
   Keys are field keywords or indices, followed by their new values. All values
-  are evaluated before any writes, so (az/assoc! p :x (:y p) :y (:x p)) swaps
+  are evaluated before any writes, so (a/assoc! p :x (:y p) :y (:x p)) swaps
   fields. Requires mutable storage; Zig checks field names and value types.
   This is an ordinary JVM function and emits native assignments inside Zig."
   {:aguafria/syntax '{:kind :syntax :name assoc! :symbol aguafria.zig/assoc!}}
@@ -1380,7 +1381,7 @@
   (apply invoke-syntax! 'assoc! receiver keyvals))
 
 (clojure.core/defn merge!
-  "Shallowly mutate a native receiver with map entries, using az/assoc!.
+  "Shallowly mutate a native receiver with map entries, using a/assoc!.
   Returns the same receiver. Values are evaluated before writes; this is not
   a recursive merge or an atomic transaction. Compiled forms require a literal
   map; ordinary JVM calls accept any Clojure map."
@@ -1391,12 +1392,12 @@
   (apply assoc! receiver (mapcat identity updates)))
 
 (clojure.core/defn array
-  "Construct a native array, inferring its length: (az/array [1 2 3] :i32).
+  "Construct a native array, inferring its length: (a/array [1 2 3] :i32).
   Options support :sentinel and explicit :align storage alignment. Alignment
   applies to the native let binding and to owned JVM storage alike.
   The final argument is the element type, including nested type schemas.
-  Add a sentinel with (az/array [1 2 3] {:sentinel 0} :u8).
-  Executes from the JVM too. For explicit lengths use (az/init elements type)."
+  Add a sentinel with (a/array [1 2 3] {:sentinel 0} :u8).
+  Executes from the JVM too. For explicit lengths use (a/init elements type)."
   {:aguafria/syntax '{:kind :syntax :name array :symbol aguafria.zig/array}}
   ([elements element-type]
    (invoke-syntax! 'array elements element-type))
@@ -1404,9 +1405,9 @@
    (invoke-syntax! 'array elements options element-type)))
 
 (clojure.core/defn vector
-  "Construct a native SIMD vector: (az/vector [1 2 3 4] :i32).
+  "Construct a native SIMD vector: (a/vector [1 2 3 4] :i32).
   Infers the lane count from the element vector. Executes from the JVM too;
-  emits the same Zig initializer as (az/init elements (k/Vector n type))."
+  emits the same Zig initializer as (a/init elements (k/Vector n type))."
   {:aguafria/syntax '{:kind :syntax :name vector :symbol aguafria.zig/vector}}
   [elements element-type]
   (invoke-syntax! 'vector elements element-type))
@@ -1438,7 +1439,7 @@
   Inside native code, a separate compiler probe inspects @TypeOf without running
   the expression. Context-dependent expressions need an explicit type (k/as).
   From Clojure, evaluates once and reflects its native type; accepts Vars/types
-  as well as values. Reports are available through az/debug-reports."
+  as well as values. Reports are available through a/debug-reports."
   {:aguafria/syntax '{:kind :syntax :name debug! :symbol aguafria.zig/debug!}}
   [expression]
   `(let [value# ~expression]
@@ -1456,7 +1457,7 @@
   ([start end] (invoke-syntax! 'range start end)))
 
 (defmacro with-block
-  "A scoped, labeled Zig block: (az/with-block :result ... (k/break :result value)).
+  "A scoped, labeled Zig block: (a/with-block :result ... (k/break :result value)).
   Labels are keywords, not variables. Returns the value of the matching break.
   Inside Aguafria emits a native labeled block; from the JVM executes the same
   block in process, capturing lexical values."
@@ -1489,14 +1490,14 @@
       (meta form))))
 
 (defmacro ^{:aguafria/container-function true} fn
-  "Declare a public container method: (az/fn name return-type [typed-args] body...).
-  An optional docstring and attributes follow the return type. Like az/defn,
+  "Declare a public container method: (a/fn name return-type [typed-args] body...).
+  An optional docstring and attributes follow the return type. Like a/defn,
   non-void methods return their final expression. Use inside a container's
-  member vector; use az/fn- for a private method."
+  member vector; use a/fn- for a private method."
   [name return & declaration]
   (container-function-form &form name return declaration true))
 
 (defmacro fn-
-  "Declare a private container method, with the same signature as az/fn."
+  "Declare a private container method, with the same signature as a/fn."
   [name return & declaration]
   (container-function-form &form name return declaration false))

@@ -1,6 +1,6 @@
 (ns aguafria.zig.shared-support-test
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -29,18 +29,18 @@
       (finally (runtime/configure! previous)))))
 
 (deftest shared-storage-survives-adapter-boundaries
-  (with-open [array (k/var (az/array [1 2 3 4] :i32))]
-    (let [slice (az/slice array 1 3)]
-      (k/+= (az/get slice 0) 40)
-      (is (= 42 (az/value (az/get array 1))))
-      (is (= 2 (az/value (:len slice))))))
+  (with-open [array (k/var (a/array [1 2 3 4] :i32))]
+    (let [slice (a/slice array 1 3)]
+      (k/+= (a/get slice 0) 40)
+      (is (= 42 (a/value (a/get array 1))))
+      (is (= 2 (a/value (:len slice))))))
   ;; Writers and native values are allocated/released through shared support,
   ;; including results created by several distinct specialized libraries.
   (dotimes [index 10]
     (with-open [value (k/i32 index)
                 increment (k/i32 2)
                 result (k/+ value increment)]
-      (is (= (+ index 2) (az/value result)))))
+      (is (= (+ index 2) (a/value result)))))
   (when (str/includes? (System/getProperty "os.name") "Mac")
     (let [root (io/file (:cache-dir (runtime/configuration)))
           support (filter #(and (.isFile %) (str/ends-with? (.getName %) ".dylib"))

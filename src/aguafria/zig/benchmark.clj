@@ -4,9 +4,9 @@
   This namespace is intentionally separate from `aguafria.zig`: applications
   do not pay for workflow/reporting helpers unless they explicitly require
   them. Measurements register the same declaration descriptor produced by an
-  `az/defn`/type macro, await the complete publication boundary, verify native
+  `a/defn`/type macro, await the complete publication boundary, verify native
   behavior, and optionally restore the original descriptor."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.runtime :as runtime]))
 
 (defn- elapsed-ms
@@ -110,10 +110,10 @@
                     {:value declaration})))
   (let [module (str (:module declaration))
         compiler-profile
-        (select-keys (az/configuration)
+        (select-keys (a/configuration)
                      [:zig :optimize :development-debug-info
                       :development-panic :target :cpu])
-        before (az/stats)
+        before (a/stats)
         started-ns (System/nanoTime)
         publication-plan-capture (atom nil)]
     (try
@@ -123,13 +123,13 @@
               (runtime/register-declaration! declaration))
             registration-ms (elapsed-ms started-ns)
             plan-ms (:planning-duration-ms registration)
-            publication (az/await! module)
+            publication (a/await! module)
             publication-ms (elapsed-ms started-ns)
             verification-started-ns (System/nanoTime)
             verification (when verify (verify))
             verification-ms (elapsed-ms verification-started-ns)
             observable-ms (elapsed-ms started-ns)
-            after (az/stats)
+            after (a/stats)
             builds (new-builds before after)
             publication-plan (some-> @publication-plan-capture force)
             artifact-freshness (artifact-freshness builds)]

@@ -1,13 +1,13 @@
 (ns learn.example.destructuring-block
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void
+(a/defn main :void
   []
-  (let [digits (az/array [3 8 9 0 7 4 1] :i8)
+  (let [digits (a/array [3 8 9 0 7 4 1] :i8)
         [min max]
-        (az/with-block :blk
+        (a/with-block :blk
           (let [min (k/var 127 :i8)
                 max (k/var -128 :i8)]
             (k/for [digit digits]

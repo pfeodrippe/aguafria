@@ -163,7 +163,7 @@
 
 (defn plan
   "Inventory authored declarations and direct JVM forms. No source translation,
-  wrapper az/defn, native file runner, or guessed function arguments are used."
+  wrapper a/defn, native file runner, or guessed function arguments are used."
   [source]
   (let [{:keys [forms read-error]}
         (try {:forms (read-forms source)}

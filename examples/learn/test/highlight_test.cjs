@@ -47,7 +47,7 @@ function highlight(source) {
 function nodes(node) { return [node, ...node.children.flatMap(nodes)]; }
 
 test("Clojure forms, keywords, metadata, comments, literals and qualified calls have tokens", () => {
-  const source = `(az/defn hello :i32
+  const source = `(a/defn hello :i32
   {:attrs #{:explicit-return}}
   []
   ;; A real Clojure comment
@@ -56,7 +56,7 @@ test("Clojure forms, keywords, metadata, comments, literals and qualified calls 
     (println "hello <world>")))`;
   const code = highlight(source);
   assert.equal(code.textContent, source);
-  for (const [type, text] of [["function", "az/defn"], ["keyword", "let"],
+  for (const [type, text] of [["function", "a/defn"], ["keyword", "let"],
                             ["symbol", ":i32"], ["symbol", ":var"],
                             ["operator", "^"], ["number", "42"],
                             ["boolean", "true"], ["string", '"hello <world>"']]) {

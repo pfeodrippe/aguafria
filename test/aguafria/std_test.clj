@@ -3,13 +3,13 @@
             [aguafria.std.math :as math]
             [aguafria.std.mem :as mem]
             [aguafria.std.mem.Allocator :as allocator]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.std :as std]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
-(az/defn std-sqrt :f64
+(a/defn std-sqrt :f64
   [x :- :f64]
   (math/sqrt x))
 
@@ -25,9 +25,9 @@
     (is (str/includes? (:doc (meta #'math/sqrt)) "square root")))
 
   (testing "calling a std Var executes Zig; quoted forms remain inspectable"
-    (is (= 3.0 (az/value (math/sqrt 9.0))))
+    (is (= 3.0 (a/value (math/sqrt 9.0))))
     (is (= "@import(\"std\").math.sqrt(x)"
-           (az/emit-expr '(aguafria.std.math/sqrt x)))))
+           (a/emit-expr '(aguafria.std.math/sqrt x)))))
 
   (testing "the generated catalog exposes the complete namespace graph"
     (is (> (:member-count (std/catalog-info)) 20000))
@@ -42,7 +42,7 @@
       (is (identical? sqrt-var (ns-resolve 'aguafria.std.math 'sqrt))))))
 
 (deftest generated-std-native-call-test
-  (is (= 3.0 (az/value (std-sqrt 9.0)))))
+  (is (= 3.0 (a/value (std-sqrt 9.0)))))
 
 (deftest every-generated-namespace-loads-test
   (doseq [namespace-name (std/namespaces)]

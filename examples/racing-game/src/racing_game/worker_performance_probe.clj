@@ -1,6 +1,6 @@
 (ns racing-game.worker-performance-probe
   "JVM-hosted proof that the native workers publish real learned decisions."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [racing-game.inference :as inference]
             [racing-game.model :as model]
             [racing-game.protocol :as protocol]
@@ -11,7 +11,7 @@
   [racer revision timeout-ms]
   (let [deadline (+ (System/nanoTime) (* timeout-ms 1000000))]
     (loop []
-      (let [result (az/value (worker/result-for racer (dec revision)))]
+      (let [result (a/value (worker/result-for racer (dec revision)))]
         (cond
           (= revision (:revision result)) result
           (< (System/nanoTime) deadline) (do (Thread/sleep 5) (recur))
@@ -20,7 +20,7 @@
            (ex-info "Native inference worker timed out"
                     {:racer racer
                      :revision revision
-                     :worker (az/value (worker/summary))})))))))
+                     :worker (a/value (worker/summary))})))))))
 
 (defn request
   [racer revision]
@@ -32,7 +32,7 @@
     :rank (inc racer)
     :lap 0
     :item (mod racer 5)
-    :target (mod (inc racer) (az/value protocol/racer-count))
+    :target (mod (inc racer) (a/value protocol/racer-count))
     :persona (mod racer 3)
     :target_distance (min 9 (inc racer))
     :target_lane (mod racer 3)
@@ -69,7 +69,7 @@
              results)
        :wall-ms wall-ms
        :decisions-per-second (/ (* racer-count 1000.0) wall-ms)
-       :worker (az/value (worker/summary))})))
+       :worker (a/value (worker/summary))})))
 
 (defn percentile
   "Nearest-rank percentile over a non-empty numeric collection."
@@ -95,9 +95,9 @@
   "Measure fresh consecutive full-field decisions. The warm-up batch is
   reported separately and excluded from the latency distribution."
   [batch-count]
-  (let [warm-up (run-batch! 1 (az/value protocol/racer-count) true)
+  (let [warm-up (run-batch! 1 (a/value protocol/racer-count) true)
         started (System/nanoTime)
-        batches (mapv #(run-batch! (+ 2 %) (az/value protocol/racer-count) false) (range batch-count))
+        batches (mapv #(run-batch! (+ 2 %) (a/value protocol/racer-count) false) (range batch-count))
         elapsed-ms (/ (- (System/nanoTime) started) 1000000.0)
         results (mapcat :results batches)
         total-ms (map #(/ (double (:total_us %)) 1000.0) results)
@@ -119,7 +119,7 @@
      :decision-latency-ms (distribution total-ms)
      :queue-latency-ms (distribution queue-ms)
      :batch-latency-ms (distribution batch-ms)
-     :worker (az/value (worker/summary))}))
+     :worker (a/value (worker/summary))}))
 
 (defn -main
   [& [mode batch-count-text]]
@@ -127,13 +127,13 @@
     (try
       (model/verify-assets!)
       (let [loaded
-            (az/value
+            (a/value
              (inference/load-model!
               (.allocateFrom arena (str (model/model-file)))))]
         (assert (:valid loaded))
         (println :loaded (select-keys loaded [:valid :tensor_count])))
       (let [loaded
-            (az/value
+            (a/value
              (inference/load-action-head!
               (.allocateFrom arena (str (model/action-head-file)))))]
         (assert (:valid loaded))
@@ -142,7 +142,7 @@
                               [:valid :input_count :output_count
                                :observation_schema :action_schema])))
       (assert (worker/start!))
-      (println :started (az/value (worker/summary)))
+      (println :started (a/value (worker/summary)))
       (if (= mode "sustained")
         (let [batch-count (if batch-count-text
                             (Long/parseLong batch-count-text)
@@ -151,9 +151,9 @@
             (throw (ex-info "Sustained batch count must be positive"
                             {:batch-count batch-count})))
           (println :sustained (run-sustained! batch-count)))
-        (let [racer-count (if (= mode "all") (az/value protocol/racer-count) 1)]
-          (println :first-batch (run-batch! 1 racer-count (= racer-count (az/value protocol/racer-count))))
-          (when (= racer-count (az/value protocol/racer-count))
+        (let [racer-count (if (= mode "all") (a/value protocol/racer-count) 1)]
+          (println :first-batch (run-batch! 1 racer-count (= racer-count (a/value protocol/racer-count))))
+          (when (= racer-count (a/value protocol/racer-count))
             (println :warm-batch (run-batch! 2 racer-count false)))))
       (finally
         (worker/stop!)

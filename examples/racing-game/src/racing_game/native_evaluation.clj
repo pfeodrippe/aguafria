@@ -1,6 +1,6 @@
 (ns racing-game.native-evaluation
   "Paired policy evaluation through current native Granite, without physics or UI."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [racing-game.inference :as inference]
@@ -23,15 +23,15 @@
 
 (defn- with-model [f]
   (when-let [summary (some-> (find-ns 'racing-game.worker) (ns-resolve 'summary))]
-    (when (:started (az/value (summary)))
+    (when (:started (a/value (summary)))
       (throw (ex-info "Native evaluation requires stopped game workers" {}))))
   (model/verify-assets!)
   (with-open [arena (Arena/ofConfined)]
     (try
-      (when-not (:valid (az/value (inference/load-model!
+      (when-not (:valid (a/value (inference/load-model!
                                    (.allocateFrom arena (str (model/model-file))))))
         (throw (ex-info "Native model failed to load" {})))
-      (when-not (:valid (az/value (inference/load-action-head!
+      (when-not (:valid (a/value (inference/load-action-head!
                                    (.allocateFrom arena (str (model/action-head-file))))))
         (throw (ex-info "Driver head failed to load" {})))
       (when-not (inference/initialize-sequences!)
@@ -48,7 +48,7 @@
           memory (.allocate arena (alength prompt) 1)
           _ (.copyFrom memory (MemorySegment/ofArray prompt))
           started (System/nanoTime)
-          result (az/value (inference/forward-compact-prompt!
+          result (a/value (inference/forward-compact-prompt!
                             slot memory (alength prompt) true))
           elapsed (/ (- (System/nanoTime) started) 1e6)
           action (- (:best_token result) 32)
@@ -67,7 +67,7 @@
    (with-model
      (fn []
        (with-open [arena (Arena/ofConfined)]
-         (when-not (:valid (az/value (inference/load-team-head!
+         (when-not (:valid (a/value (inference/load-team-head!
                                      (.allocateFrom arena (str (model/team-head-file))))))
            (throw (ex-info "Team head failed to load" {})))
          (let [pool (Executors/newFixedThreadPool concurrency)
@@ -78,7 +78,7 @@
                         (.submit ^ExecutorService pool
                                  ^Callable (reify Callable
                                              (call [_] (native-one slot case)))))
-               team-offset (az/value protocol/racer-count)]
+               team-offset (a/value protocol/racer-count)]
            (try
              (let [warmups (mapv (fn [kind]
                                   (.get (submit (if (= kind :team) team-offset 0)

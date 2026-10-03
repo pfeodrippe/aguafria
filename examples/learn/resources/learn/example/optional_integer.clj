@@ -1,8 +1,8 @@
 (ns learn.example.optional-integer
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
 ;; normal integer
-(az/defconst normal-int :i32 1234)
+(a/defconst normal-int :i32 1234)
 
 ;; optional integer
-(az/defconst optional-int [:optional :i32] 5678)
+(a/defconst optional-int [:optional :i32] 5678)

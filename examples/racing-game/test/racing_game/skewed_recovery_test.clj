@@ -4,7 +4,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.mem :as mem]
             [aguafria.std.math :as math]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria-examples-native.box3d]
             [aguafria-examples-native.bindings.box3d :as b3]
             [racing-game.circuit :as circuit]
@@ -19,7 +19,7 @@
 
 ;; Actual measured poses, metres and quaternion XYZW. R2 then R3; chassis,
 ;; front-left/right and rear-left/right. Transforms are INITIAL CONDITIONS only.
-(az/defconst captured-poses [:array 2 [:array 5 [:array 7 :f32]]]
+(a/defconst captured-poses [:array 2 [:array 5 [:array 7 :f32]]]
   [[[-519.4334 113.18194 42.103687 0.15617628 0.98694754 0.013542733 -0.036881413]
     [-520.7595 114.64739 42.458508 -0.16371362 -0.9864303 -0.0058765584 -0.010892344]
     [-521.3711 112.76482 42.42466 0.008226383 0.10983346 0.15080467 -0.9824087]
@@ -31,22 +31,22 @@
     [-526.2649 114.29889 42.82655 0.024500271 0.08444735 0.029857343 0.9956792]
     [-526.1572 112.32173 42.733444 0.035371397 -0.63074493 0.008667751 0.77513534]]])
 
-(az/defn create-captured-car physics/Vehicle [[world b3/b3WorldId] [index :usize]]
-  (let [p (az/index (az/index captured-poses index) 0)
+(a/defn create-captured-car physics/Vehicle [[world b3/b3WorldId] [index :usize]]
+  (let [p (a/index (a/index captured-poses index) 0)
         car (physics/create-vehicle world
-              (b3/b3Pos {:x (az/index p 0) :y (az/index p 1) :z (az/index p 2)}) 0.0)]
+              (b3/b3Pos {:x (a/index p 0) :y (a/index p 1) :z (a/index p 2)}) 0.0)]
     (dotimes [i 5]
-      (let [pose (az/index (az/index captured-poses index) i)
-            body (if (ak/== i 0) (az/field car chassis)
-                   (az/index (az/field car wheels) (- i 1)))]
+      (let [pose (a/index (a/index captured-poses index) i)
+            body (if (ak/== i 0) (a/field car chassis)
+                   (a/index (a/field car wheels) (- i 1)))]
         (b3/b3Body_SetTransform body
-          (b3/b3Pos {:x (az/index pose 0) :y (az/index pose 1) :z (az/index pose 2)})
-          (b3/b3Quat {:v {:x (az/index pose 3) :y (az/index pose 4) :z (az/index pose 5)}
-                       :s (az/index pose 6)}))))
+          (b3/b3Pos {:x (a/index pose 0) :y (a/index pose 1) :z (a/index pose 2)})
+          (b3/b3Quat {:v {:x (a/index pose 3) :y (a/index pose 4) :z (a/index pose 5)}
+                       :s (a/index pose 6)}))))
     car))
 
 
-(az/defn skewed-probe [:array 6 :f32]
+(a/defn skewed-probe [:array 6 :f32]
   "Captured ten-body initial conditions, no transforms/velocity writes after
   setup. Fixed -3.75m lane intent isolates manoeuvring from model variability.
   Returns forward metres, max lane, min upright, reverse metres, phase mask,
@@ -55,8 +55,8 @@
         surface (terrain/create! world)
         other (create-captured-car world 0)
         car (create-captured-car world 1)
-        start (az/field (driver/follow car 8.0 -3.75) progress)
-        ^:var state (mem/zeroes (az/type recovery/State))
+        start (a/field (driver/follow car 8.0 -3.75) progress)
+        ^:var state (mem/zeroes (a/type recovery/State))
         ^{:var :u8} phases 0
         ^{:var :f32} lane 0.0
         ^{:var :f32} up 1.0
@@ -66,48 +66,48 @@
     (dotimes [_ (* seconds 120)]
       (let [normal (driver/follow car 8.0 -3.75)
             blocked (driver/follow other 0.0 -2.1)
-            gap (* 4309.0 (mod (- (az/field blocked progress) (az/field normal progress)) 1.0))
-            side (- (az/field blocked lane) (az/field normal lane))
-            body (physics/body-state (az/field car chassis))
-            other-body (physics/body-state (az/field other chassis))
-            route (circuit/at-distance (* 4309.0 (az/field normal progress)) 0.0)
+            gap (* 4309.0 (mod (- (a/field blocked progress) (a/field normal progress)) 1.0))
+            side (- (a/field blocked lane) (a/field normal lane))
+            body (physics/body-state (a/field car chassis))
+            other-body (physics/body-state (a/field other chassis))
+            route (circuit/at-distance (* 4309.0 (a/field normal progress)) 0.0)
             close? (< (ak/abs side) (turnaround/recovery-side-clearance body other-body
-                                     (az/field route heading)))
-            traffic (if close? (driver/yield-to-offset-obstacle normal gap (az/field blocked speed) side) normal)
-            heading (math/atan2 (* 2.0 (+ (* (az/field body qw) (az/field body qz))
-                                           (* (az/field body qx) (az/field body qy))))
-                       (- 1.0 (* 2.0 (+ (* (az/field body qy) (az/field body qy))
-                                         (* (az/field body qz) (az/field body qz))))))
-            enabled (and (> (math/cos (- heading (az/field route heading))) 0.8)
-                           (< (ak/abs (az/field normal lane)) road-margin))
+                                     (a/field route heading)))
+            traffic (if close? (driver/yield-to-offset-obstacle normal gap (a/field blocked speed) side) normal)
+            heading (math/atan2 (* 2.0 (+ (* (a/field body qw) (a/field body qz))
+                                           (* (a/field body qx) (a/field body qy))))
+                       (- 1.0 (* 2.0 (+ (* (a/field body qy) (a/field body qy))
+                                         (* (a/field body qz) (a/field body qz))))))
+            enabled (and (> (math/cos (- heading (a/field route heading))) 0.8)
+                           (< (ak/abs (a/field normal lane)) road-margin))
             output (recovery/step state normal traffic body -3.75
                      (if close? gap 1000.0) 1000.0 0.0 enabled)
-            ^:var bodies (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState]))]
-        (ak/= (az/index bodies 0) body)
-        (ak/= (az/index bodies 1) other-body)
-        (ak/= state (az/field output state))
-        (ak/= phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (az/field state phase)))))
-        (ak/= lane (ak/max lane (ak/abs (az/field normal lane))))
-        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
-                                            (* (az/field body qy) (az/field body qy)))))))
-        (ak/= reverse-travel (ak/max reverse-travel (* 4309.0 (- start (az/field normal progress)))))
-        (let [control (if (ak/!= (az/field (az/field output state) phase) 0)
-                        (turnaround/guard-recovery-control (az/field output control) body
-                          bodies 2 0 (az/field output gear) world road-margin)
-                        (az/field output control))]
+            ^:var bodies (mem/zeroes (a/type [:array protocol/racer-count physics/BodyState]))]
+        (ak/= (a/index bodies 0) body)
+        (ak/= (a/index bodies 1) other-body)
+        (ak/= state (a/field output state))
+        (ak/= phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (a/field state phase)))))
+        (ak/= lane (ak/max lane (ak/abs (a/field normal lane))))
+        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (a/field body qx) (a/field body qx))
+                                            (* (a/field body qy) (a/field body qy)))))))
+        (ak/= reverse-travel (ak/max reverse-travel (* 4309.0 (- start (a/field normal progress)))))
+        (let [control (if (ak/!= (a/field (a/field output state) phase) 0)
+                        (turnaround/guard-recovery-control (a/field output control) body
+                          bodies 2 0 (a/field output gear) world road-margin)
+                        (a/field output control))]
         (dotimes [_ (ak/divTrunc physics/step-rate 120)]
-          (physics/drive-in-gear! car (az/field control throttle)
-            (az/field control brake) (az/field control steering)
-            (az/field output gear))
+          (physics/drive-in-gear! car (a/field control throttle)
+            (a/field control brake) (a/field control steering)
+            (a/field output gear))
           (physics/drive! other 0.0 1.0 0.0)
           (physics/step! world)))))
     (let [final (driver/follow car 8.0 -3.75)]
-      (az/init [(* 4309.0 (- (az/field final progress) start)) lane up reverse-travel
-         (ak/as (ak/floatFromInt phases) :f32) (az/field final speed)] [:array 6 :f32]))))
+      (a/init [(* 4309.0 (- (a/field final progress) start)) lane up reverse-travel
+         (ak/as (ak/floatFromInt phases) :f32) (a/field final speed)] [:array 6 :f32]))))
 
 (deftest skewed-wreck-clearance-test
   (let [[forward lane up reverse-distance phases speed]
-        (az/value (skewed-probe 40 recovery/corridor-half-width))]
+        (a/value (skewed-probe 40 recovery/corridor-half-width))]
     (is (> forward 30.0) "Escape the captured obstruction and resume progress")
     (is (< lane 7.5) "Stay within the supported low-speed recovery corridor")
     (is (> up 0.9) "Remain upright through the manoeuvre")

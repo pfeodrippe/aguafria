@@ -1,6 +1,6 @@
 (ns aguafria.zig.constructor-test
   (:require [aguafria.keyword]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.emitter :as emit]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -30,39 +30,39 @@
                          "f(.{.x = 7})")))))
 
 (deftest constructors-preserve-zig-defaults
-  (let [old-config (az/configuration)
+  (let [old-config (a/configuration)
         test-symbol (symbol (str "aguafria.constructor-defaults-"
                                  (or (System/getProperty "aguafria.test.fixture-suffix")
                                      (random-uuid))))
         test-ns (create-ns test-symbol)]
     (try
-      (az/configure! {:async? false :modules {}})
+      (a/configure! {:async? false :modules {}})
       (binding [*ns* test-ns]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
-        (eval '(az/defn- default-number :i32 [] (+ 1200 34)))
-        (eval '(az/defstruct Foo
+        (alias 'a 'aguafria.zig)
+        (eval '(a/defn- default-number :i32 [] (+ 1200 34)))
+        (eval '(a/defstruct Foo
                  [[:a {:default (default-number)} :i32]
                   [:b :i32]]))
-        (eval '(az/defstruct Packed {:layout :packed}
+        (eval '(a/defstruct Packed {:layout :packed}
                  [[:low {:default 7} :u4]
                   [:high :u4]]))
-        (eval '(az/defstruct Options
+        (eval '(a/defstruct Options
                  [[:enabled {:default true} :bool]
                   [:number {:default 9} [:optional :i32]]
                   [:packed {:default (Packed {:high 2})} Packed]
                   [:inner {:default (Foo {:b 5})} Foo]]))
-        (eval '(az/defn sum-fields :i32 [[value Foo]]
-                 (+ (az/field value :a) (az/field value :b))))
-        (eval '(az/defn native-constructor-sum :i32 []
+        (eval '(a/defn sum-fields :i32 [[value Foo]]
+                 (+ (a/field value :a) (a/field value :b))))
+        (eval '(a/defn native-constructor-sum :i32 []
                  (let [value (Foo {:b 5})]
                    (sum-fields value))))
-        (eval '(az/defn local-constructor-sum :i32 []
-                 (let [Local (az/struct [[:a {:default 1234} :i32] [:b :i32]])
+        (eval '(a/defn local-constructor-sum :i32 []
+                 (let [Local (a/struct [[:a {:default 1234} :i32] [:b :i32]])
                        Alias Local
                        ^:var value (Alias {:b 5})]
-                   (set! (az/field value :b) 6)
-                   (+ (az/field value :a) (az/field value :b))))))
+                   (set! (a/field value :b) 6)
+                   (+ (a/field value :a) (a/field value :b))))))
       (let [Foo (var-get (ns-resolve test-ns 'Foo))
             Packed (var-get (ns-resolve test-ns 'Packed))
             Options (var-get (ns-resolve test-ns 'Options))]
@@ -72,18 +72,18 @@
                     options (Options {})
                     explicit (Options {:enabled false :number nil
                                        :packed {:high 3} :inner {:b 6}})]
-          (is (= {:a 1234 :b 5} (az/value value)))
-          (is (= {:a 0 :b 5} (az/value overridden)))
-          (is (= {:low 7 :high 2} (az/value packed)))
+          (is (= {:a 1234 :b 5} (a/value value)))
+          (is (= {:a 0 :b 5} (a/value overridden)))
+          (is (= {:low 7 :high 2} (a/value packed)))
           (is (= {:enabled true :number 9 :packed {:low 7 :high 2}
                   :inner {:a 1234 :b 5}}
-                 (az/value options)))
+                 (a/value options)))
           (is (= {:enabled false :number nil :packed {:low 7 :high 3}
                   :inner {:a 1234 :b 6}}
-                 (az/value explicit))))
-        (is (= 1239 (az/value ((ns-resolve test-ns 'sum-fields) {:b 5}))))
-        (is (= 1239 (az/value ((ns-resolve test-ns 'native-constructor-sum)))))
-        (is (= 1240 (az/value ((ns-resolve test-ns 'local-constructor-sum))))))
+                 (a/value explicit))))
+        (is (= 1239 (a/value ((ns-resolve test-ns 'sum-fields) {:b 5}))))
+        (is (= 1239 (a/value ((ns-resolve test-ns 'native-constructor-sum)))))
+        (is (= 1240 (a/value ((ns-resolve test-ns 'local-constructor-sum))))))
       (finally
-        (az/configure! old-config)
+        (a/configure! old-config)
         (remove-ns test-symbol)))))

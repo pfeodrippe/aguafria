@@ -4,42 +4,42 @@
   (:require [aguafria.keyword :as ak]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [racing-game.physics :as physics]
             [racing-game.render3d :as camera]
             [racing-game.simulation :as sim]))
 
-(az/defstruct Frame {:layout :extern}
+(a/defstruct Frame {:layout :extern}
   [[:time :f64] [:tick :u64] [:x :f32] [:y :f32] [:heading :f32]
    [:speed :f32] [:lane :f32] [:progress :f32]
    [:camera_x :f32] [:camera_y :f32] [:camera_yaw :f32]
    [:screen_x :f32] [:screen_y :f32]])
 
-(az/defvar frames [:array 8192 Frame] ak/undefined)
+(a/defvar frames [:array 8192 Frame] ak/undefined)
 
 ;; Separate buffers preserve Frame's existing live ABI. Every sample is
 ;; written by the frame thread and protected by the same capture/read lock.
-(az/defstruct PoseContext {:layout :extern}
+(a/defstruct PoseContext {:layout :extern}
   [[:world :u64] [:racer :u32] [:zoom :f32] [:phase :f32]
    [:camera_z :f32] [:body_screen_x :f32] [:body_screen_y :f32]])
 
-(az/defvar pose-contexts [:array 8192 PoseContext] ak/undefined)
+(a/defvar pose-contexts [:array 8192 PoseContext] ak/undefined)
 
-(az/defvar body-frames [:array 8192 [:array 10 physics/BodyState]] ak/undefined)
+(a/defvar body-frames [:array 8192 [:array 10 physics/BodyState]] ak/undefined)
 
-(az/defvar frame-count :u32 0)
+(a/defvar frame-count :u32 0)
 
-(az/defvar capturing false)
+(a/defvar capturing false)
 
-(az/defvar start-time :f64 -1.0)
+(a/defvar start-time :f64 -1.0)
 
-(az/defvar capture-state :u8 0)
+(a/defvar capture-state :u8 0)
 
-(az/defn start! :bool
+(a/defn start! :bool
   "Request capture on the render thread; false if capturing/exporting already." []
   (ak/== (ak/cmpxchgStrong :u8 (ak/& capture-state) 0 1 :.acq_rel :.acquire) ak/null))
 
-(az/defn record! :void [[now :f64]]
+(a/defn record! :void [[now :f64]]
   (when (ak/== (ak/atomicLoad :u8 (ak/& capture-state) :.acquire) 1)
     (ak/= frame-count 0)
     (ak/= start-time now)
@@ -52,51 +52,51 @@
           (ak/atomicStore :u8 (ak/& capture-state) 0 :.release))
       (let [r (sim/racer-view camera/camera-racer)
             shown (camera/presentation-view camera/camera-racer)
-            screen (camera/project (az/field shown x) (az/field shown y) camera/camera-z)]
-        (ak/= (az/index frames frame-count)
-              (Frame {:time now :tick (az/field (sim/snapshot) tick)
-                      :x (az/field r x) :y (az/field r y)
-                      :heading (az/field r heading) :speed (az/field r speed)
-                      :lane (az/field r lane) :progress (az/field r progress)
+            screen (camera/project (a/field shown x) (a/field shown y) camera/camera-z)]
+        (ak/= (a/index frames frame-count)
+              (Frame {:time now :tick (a/field (sim/snapshot) tick)
+                      :x (a/field r x) :y (a/field r y)
+                      :heading (a/field r heading) :speed (a/field r speed)
+                      :lane (a/field r lane) :progress (a/field r progress)
                       :camera_x camera/camera-x :camera_y camera/camera-y
                       :camera_yaw camera/camera-yaw
-                      :screen_x (az/field screen x) :screen_y (az/field screen y)}))
+                      :screen_x (a/field screen x) :screen_y (a/field screen y)}))
         (let [chassis (camera/presentation-pose camera/camera-racer 0)
-              actual-screen (camera/project (* 0.001 (az/field chassis x))
-                                            (* 0.001 (az/field chassis y))
-                                            (* 0.001 (az/field chassis z)))]
-          (ak/= (az/index pose-contexts frame-count)
-                (PoseContext {:world (az/field (sim/snapshot) world_address)
+              actual-screen (camera/project (* 0.001 (a/field chassis x))
+                                            (* 0.001 (a/field chassis y))
+                                            (* 0.001 (a/field chassis z)))]
+          (ak/= (a/index pose-contexts frame-count)
+                (PoseContext {:world (a/field (sim/snapshot) world_address)
                               :racer camera/camera-racer :zoom camera/camera-zoom
                               :phase camera/presentation-alpha :camera_z camera/camera-z
-                              :body_screen_x (az/field actual-screen x)
-                              :body_screen_y (az/field actual-screen y)})))
+                              :body_screen_x (a/field actual-screen x)
+                              :body_screen_y (a/field actual-screen y)})))
         (dotimes [part 5]
-          (ak/= (az/index (az/index body-frames frame-count) part)
+          (ak/= (a/index (a/index body-frames frame-count) part)
                 (sim/vehicle-pose camera/camera-racer (ak/intCast part)))
-          (ak/= (az/index (az/index body-frames frame-count) (+ part 5))
+          (ak/= (a/index (a/index body-frames frame-count) (+ part 5))
                 (camera/presentation-pose camera/camera-racer (ak/intCast part))))
         (ak/= frame-count (+ frame-count 1))))))
 
-(az/defn ready? :bool []
+(a/defn ready? :bool []
   (ak/== (ak/atomicLoad :u8 (ak/& capture-state) :.acquire) 0))
 
-(az/defn begin-read! :bool []
+(a/defn begin-read! :bool []
   (ak/== (ak/cmpxchgStrong :u8 (ak/& capture-state) 0 3 :.acq_rel :.acquire) ak/null))
 
-(az/defn end-read! :void []
+(a/defn end-read! :void []
   (ak/atomicStore :u8 (ak/& capture-state) 0 :.release))
 
-(az/defn count-frames :u32 [] frame-count)
+(a/defn count-frames :u32 [] frame-count)
 
-(az/defn frame-at Frame [[index :u32]]
-  (az/index frames (ak/min index (- (ak/max frame-count 1) 1))))
+(a/defn frame-at Frame [[index :u32]]
+  (a/index frames (ak/min index (- (ak/max frame-count 1) 1))))
 
-(az/defn context-at PoseContext [[index :u32]]
-  (az/index pose-contexts (ak/min index (- (ak/max frame-count 1) 1))))
+(a/defn context-at PoseContext [[index :u32]]
+  (a/index pose-contexts (ak/min index (- (ak/max frame-count 1) 1))))
 
-(az/defn body-at physics/BodyState [[index :u32] [part :u32]]
-  (az/index (az/index body-frames (ak/min index (- (ak/max frame-count 1) 1)))
+(a/defn body-at physics/BodyState [[index :u32] [part :u32]]
+  (a/index (a/index body-frames (ak/min index (- (ak/max frame-count 1) 1)))
             (ak/min part 9)))
 
 (def body-fields [:x :y :z :vx :vy :vz :qx :qy :qz :qw :wx :wy :wz])
@@ -121,9 +121,9 @@
     (with-open [writer (io/writer path)]
       (.write writer (str (str/join "," columns) "\n"))
       (dotimes [i n]
-        (let [frame (az/value (frame-at i))
-              context (az/value (context-at i))
-              bodies (mapcat #(let [body (az/value (body-at i %))]
+        (let [frame (a/value (frame-at i))
+              context (a/value (context-at i))
+              bodies (mapcat #(let [body (a/value (body-at i %))]
                                 (map body body-fields)) (range 10))]
           (.write writer (str (str/join "," (concat (map frame fields)
                                                     (map context context-fields) bodies)) "\n")))))

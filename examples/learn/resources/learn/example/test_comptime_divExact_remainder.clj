@@ -1,8 +1,8 @@
 (ns learn.example.test-comptime-divExact-remainder
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defcomptime reject-inexact-division
+(a/defcomptime reject-inexact-division
   (let [a (k/u32 10)
         b (k/u32 3)
         c (k/divExact a b)]

@@ -248,7 +248,7 @@
 
  "@extern(T: type, comptime options: std.lang.ExternOptions) T"
  {:clojure-source "k/extern" :kind :reference
-  :note "Builtin external-symbol reference signature; the catalog abbreviates ExternOptions. This is distinct from az/defextern's declaration syntax."}
+  :note "Builtin external-symbol reference signature; the catalog abbreviates ExternOptions. This is distinct from a/defextern's declaration syntax."}
 
  "@reduce(comptime op: std.lang.ReduceOp, value: anytype) E"
  {:clojure-source "k/reduce" :kind :reference
@@ -291,6 +291,6 @@
   :note "SPIR-V type-construction builtin reference."}
 
  "@import(\"builtin\").target.os.tag"
- {:clojure-source "(az/get-in (k/import \"builtin\") [:target :os :tag])"
+ {:clojure-source "(a/get-in (k/import \"builtin\") [:target :os :tag])"
   :kind :expr
   :note "The operating-system tag of this compilation's target."}}

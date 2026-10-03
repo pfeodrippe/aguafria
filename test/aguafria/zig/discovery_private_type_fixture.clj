@@ -1,12 +1,12 @@
 (ns aguafria.zig.discovery-private-type-fixture
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- Box :type
+(a/defn- Box :type
   [[T {:attrs #{k/comptime}} :type]]
-  (az/struct [[:value T]]))
+  (a/struct [[:value T]]))
 
-(az/deftest never-run
-  (let [box (az/init {:value 7} (Box :i32))]
+(a/deftest never-run
+  (let [box (a/init {:value 7} (Box :i32))]
     (k/= :_ (:value box)))
   (k/unreachable))

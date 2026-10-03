@@ -863,7 +863,7 @@
 
 (defn coerce!
   "Coerce while preserving the exact Zig type and addressable numeric storage.
-  Use az/value for explicit conversion back to a plain JVM value."
+  Use a/value for explicit conversion back to a plain JVM value."
   [argument type]
   (let [result (coerce-raw! argument type)]
     (if (number? result)

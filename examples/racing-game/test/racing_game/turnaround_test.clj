@@ -4,7 +4,7 @@
             [aguafria.keyword :as ak]
             [aguafria.std.mem :as mem]
             [aguafria.std.math :as math]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria-examples-native.box3d]
             [aguafria-examples-native.bindings.box3d :as b3]
             [racing-game.circuit :as circuit]
@@ -16,32 +16,32 @@
             [racing-game.vehicle-turnaround :as turnaround]
             [clojure.test :refer [deftest is]]))
 
-(az/defconst captured-poses [:array 2 [:array 5 [:array 7 :f32]]]
+(a/defconst captured-poses [:array 2 [:array 5 [:array 7 :f32]]]
   [[[239.07066 100.60667 12.330057 0.010830929 -0.024548784 0.7238942 0.6893891] [237.99895 102.29502 12.238902 -0.291926 0.2979404 -0.6539227 -0.6311861] [239.9763 102.39069 12.280365 0.18615709 -0.19653536 0.6901038 0.67117524] [238.16727 98.883736 12.085426 -0.3201211 0.2928096 0.64930904 0.6246462] [240.14474 98.97973 12.123013 -0.71786517 0.68569946 -0.09361024 -0.07565011]] [[241.1403 105.060394 12.220322 0.9637829 0.26582584 0.013523881 -0.016625404] [243.131 105.088715 12.4703245 -0.43988946 -0.13522616 0.8551066 -0.23875518] [242.11319 106.78764 12.524979 0.8974655 0.2525304 0.34382737 -0.1121022] [240.19768 103.339226 12.329735 0.7301177 0.20983216 -0.62904036 0.16494523] [239.18176 105.03795 12.386536 0.81584334 0.21938118 0.5128923 -0.15235792]]])
 
-(az/defconst shoulder-poses [:array 2 [:array 5 [:array 7 :f32]]]
+(a/defconst shoulder-poses [:array 2 [:array 5 [:array 7 :f32]]]
   [[[236.51576 104.95712 12.487901 0.022861531 -0.015041484 0.04570522 0.9985801] [238.15266 106.1077 12.416257 0.10468561 0.9876084 0.01483992 0.1159758] [238.33517 104.13764 12.33113 0.088701814 0.47930133 -0.10428547 0.86690646] [234.75026 105.796074 12.334389 0.039767064 -0.9709303 -0.031420324 -0.23393528] [234.93213 103.82625 12.248111 -0.04760181 0.68253446 -0.018546827 -0.72906584]] [[241.17311 105.46368 12.227535 0.9989593 0.03757832 0.012053156 -0.022867471] [242.97003 104.59672 12.441915 -0.43879184 -0.039063368 0.8972387 -0.029976575] [242.8208 106.56844 12.531493 0.91918236 0.03390523 0.39043772 -0.038893823] [239.56331 104.34283 12.361019 0.8104603 0.03928843 -0.5844737 9.268892E-4] [239.41182 106.31381 12.448287 0.9248255 0.02792381 0.37775308 -0.03493922]]])
 
-(az/defvar recovery-trace [:array 120 [:array 12 :f32]] ak/undefined)
+(a/defvar recovery-trace [:array 120 [:array 12 :f32]] ak/undefined)
 
-(az/defn recovery-trace-at [:array 12 :f32] [[index :usize]]
-  (az/index recovery-trace index))
+(a/defn recovery-trace-at [:array 12 :f32] [[index :usize]]
+  (a/index recovery-trace index))
 
-(az/defn create-car physics/Vehicle [[world b3/b3WorldId] [index :usize] [shoulder? :bool]]
+(a/defn create-car physics/Vehicle [[world b3/b3WorldId] [index :usize] [shoulder? :bool]]
   (let [poses (if shoulder? shoulder-poses captured-poses)
-        p (az/index (az/index poses index) 0)
+        p (a/index (a/index poses index) 0)
         car (physics/create-vehicle world
-              (b3/b3Pos {:x (az/index p 0) :y (az/index p 1) :z (az/index p 2)}) 0.0)]
+              (b3/b3Pos {:x (a/index p 0) :y (a/index p 1) :z (a/index p 2)}) 0.0)]
     (dotimes [i 5]
-      (let [pose (az/index (az/index poses index) i)
-            body (if (ak/== i 0) (az/field car chassis) (az/index (az/field car wheels) (- i 1)))]
+      (let [pose (a/index (a/index poses index) i)
+            body (if (ak/== i 0) (a/field car chassis) (a/index (a/field car wheels) (- i 1)))]
         (b3/b3Body_SetTransform body
-          (b3/b3Pos {:x (az/index pose 0) :y (az/index pose 1) :z (az/index pose 2)})
-          (b3/b3Quat {:v {:x (az/index pose 3) :y (az/index pose 4) :z (az/index pose 5)}
-                       :s (az/index pose 6)}))))
+          (b3/b3Pos {:x (a/index pose 0) :y (a/index pose 1) :z (a/index pose 2)})
+          (b3/b3Quat {:v {:x (a/index pose 3) :y (a/index pose 4) :z (a/index pose 5)}
+                       :s (a/index pose 6)}))))
     car))
 
-(az/defn turn-probe [:array 9 :f32]
+(a/defn turn-probe [:array 9 :f32]
   "Forward metres, max lane, min upright, final alignment, gear mask, speed,
   maximum speed when changing direction, and whether turnaround remains active." [[seconds :usize] [turn? :bool] [shoulder? :bool]]
   (let [world (physics/create-world -9.81)
@@ -49,9 +49,9 @@
         containment (barriers/create! world)
         car (create-car world 0 shoulder?)
         other (create-car world 1 shoulder?)
-        start (az/field (driver/follow car 8.0 -3.75) progress)
-        ^:var state (mem/zeroes (az/type turnaround/State))
-        ^:var bodies (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState]))
+        start (a/field (driver/follow car 8.0 -3.75) progress)
+        ^:var state (mem/zeroes (a/type turnaround/State))
+        ^:var bodies (mem/zeroes (a/type [:array protocol/racer-count physics/BodyState]))
         ^{:var :u8} gears 0
         ^{:var :i8} previous-gear 0
         ^{:var :f32} gear-change-speed 0.0
@@ -62,49 +62,49 @@
     (ak/defer (physics/destroy-world! world))
     (dotimes [tick (* seconds 120)]
       (let [normal (driver/follow car 8.0 -3.75)
-            body (physics/body-state (az/field car chassis))]
-        (ak/= (az/index bodies 0) body)
-        (ak/= (az/index bodies 1) (physics/body-state (az/field other chassis)))
+            body (physics/body-state (a/field car chassis))]
+        (ak/= (a/index bodies 0) body)
+        (ak/= (a/index bodies 1) (physics/body-state (a/field other chassis)))
         (let [output (turnaround/step state normal body bodies 2 0 turn? world)
-              gear (if (az/field (az/field output state) active)
-                     (az/field (az/field output state) gear) (ak/as 1 :i8))]
-          (ak/= state (az/field output state))
+              gear (if (a/field (a/field output state) active)
+                     (a/field (a/field output state) gear) (ak/as 1 :i8))]
+          (ak/= state (a/field output state))
           (when (and (< tick 14400) (ak/== (mod tick 120) 0))
-            (let [sign (az/field state turn_sign)
-                  limit (az/field state lane_limit)]
-              (ak/= (az/index recovery-trace (ak/divTrunc tick 120))
-                (az/init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
-                   (az/field body x) (az/field body y) (turnaround/heading body)
-                   (az/field normal lane) (ak/as (ak/floatFromInt (az/field state gear)) :f32)
+            (let [sign (a/field state turn_sign)
+                  limit (a/field state lane_limit)]
+              (ak/= (a/index recovery-trace (ak/divTrunc tick 120))
+                (a/init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
+                   (a/field body x) (a/field body y) (turnaround/heading body)
+                   (a/field normal lane) (ak/as (ak/floatFromInt (a/field state gear)) :f32)
                    sign limit
                    (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 1 sign world limit)) :f32)
                    (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 -1 sign world limit)) :f32)
                    (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 1 (- sign) world limit)) :f32)
                    (ak/as (ak/floatFromInt (turnaround/clearance-reasons body bodies 2 0 -1 (- sign) world limit)) :f32)] [:array 12 :f32]))))
           (when (and (ak/!= previous-gear 0) (ak/!= gear 0) (ak/!= gear previous-gear))
-            (ak/= gear-change-speed (ak/max gear-change-speed (az/field normal speed))))
+            (ak/= gear-change-speed (ak/max gear-change-speed (a/field normal speed))))
           (ak/= previous-gear gear)
           (ak/= gears (ak/| gears (ak/<< (ak/as 1 :u8) (ak/intCast (+ gear 1)))))
-          (ak/= lane (ak/max lane (ak/abs (az/field normal lane))))
-          (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (az/field body qx) (az/field body qx))
-                                              (* (az/field body qy) (az/field body qy)))))))
+          (ak/= lane (ak/max lane (ak/abs (a/field normal lane))))
+          (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (a/field body qx) (a/field body qx))
+                                              (* (a/field body qy) (a/field body qy)))))))
           (dotimes [_ (ak/divTrunc physics/step-rate 120)]
-            (physics/drive-in-gear! car (az/field (az/field output control) throttle)
-              (az/field (az/field output control) brake) (az/field (az/field output control) steering) gear)
+            (physics/drive-in-gear! car (a/field (a/field output control) throttle)
+              (a/field (a/field output control) brake) (a/field (a/field output control) steering) gear)
             (physics/drive! other 0.0 1.0 0.0)
             (physics/step! world)))))
     (let [final (driver/follow car 8.0 -3.75)
-          body (physics/body-state (az/field car chassis))
-          road (circuit/at-distance (* 4309.0 (az/field final progress)) 0.0)]
-      (az/init [(* 4309.0 (- (az/field final progress) start)) lane up
-         (math/cos (- (turnaround/heading body) (az/field road heading)))
-         (ak/as (ak/floatFromInt gears) :f32) (az/field final speed)
-         gear-change-speed (if (az/field state active) (ak/as 1.0 :f32) 0.0)
-         (az/field final lane)] [:array 9 :f32]))))
+          body (physics/body-state (a/field car chassis))
+          road (circuit/at-distance (* 4309.0 (a/field final progress)) 0.0)]
+      (a/init [(* 4309.0 (- (a/field final progress) start)) lane up
+         (math/cos (- (turnaround/heading body) (a/field road heading)))
+         (ak/as (ak/floatFromInt gears) :f32) (a/field final speed)
+         gear-change-speed (if (a/field state active) (ak/as 1.0 :f32) 0.0)
+         (a/field final lane)] [:array 9 :f32]))))
 
 (deftest captured-wrong-way-wreck-turnaround-test
   (let [[distance lane up alignment gears speed gear-change-speed active :as result]
-        (az/value (turn-probe 90 true false))]
+        (a/value (turn-probe 90 true false))]
     (is (> distance 100.0) (pr-str result))
     (is (< lane 7.5) (pr-str result))
     (is (> up 0.9) (pr-str result))
@@ -116,7 +116,7 @@
 
 (deftest captured-shoulder-turnaround-with-containment-test
   (let [[distance lane up alignment gears speed change-speed active final-lane :as result]
-        (az/value (turn-probe 90 true true))]
+        (a/value (turn-probe 90 true true))]
     (is (> distance 100.0) (pr-str result))
     (is (< lane 12.0) (pr-str result))
     (is (> up 0.9) (pr-str result))
@@ -127,25 +127,25 @@
     (is (zero? active) (pr-str result))
     (is (< (abs final-lane) 4.5) "Return from the shoulder to the racing corridor")))
 
-(az/defn disabled-probe turnaround/Output [[speed :f32] [active :bool]]
+(a/defn disabled-probe turnaround/Output [[speed :f32] [active :bool]]
   (let [p (circuit/at-distance 0.0 0.0)
-        yaw (+ (az/field p heading) 3.14159265)
-        ^:var body (mem/zeroes (az/type physics/BodyState))
+        yaw (+ (a/field p heading) 3.14159265)
+        ^:var body (mem/zeroes (a/type physics/BodyState))
         normal (driver/Control {:throttle 0.7 :brake 0.0 :steering 0.1
                                  :progress 0.0 :lane 0.0 :speed speed})
         state (turnaround/State {:active active :gear -1 :turn_sign 1.0 :lane_limit 7.0})]
-    (ak/= (az/field body x) (az/field p x))
-    (ak/= (az/field body y) (az/field p y))
-    (ak/= (az/field body qw) (math/cos (* yaw 0.5)))
-    (ak/= (az/field body qz) (math/sin (* yaw 0.5)))
+    (ak/= (a/field body x) (a/field p x))
+    (ak/= (a/field body y) (a/field p y))
+    (ak/= (a/field body qw) (math/cos (* yaw 0.5)))
+    (ak/= (a/field body qz) (math/sin (* yaw 0.5)))
     (turnaround/step state normal body
-      (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState])) 0 0 false
-      (mem/zeroes (az/type b3/b3WorldId)))))
+      (mem/zeroes (a/type [:array protocol/racer-count physics/BodyState])) 0 0 false
+      (mem/zeroes (a/type b3/b3WorldId)))))
 
 (deftest disabled-turnaround-does-not-drive-test
-  (let [moving (az/value (disabled-probe 1.0 true))
-        stopped (az/value (disabled-probe 0.0 true))
-        inactive (az/value (disabled-probe 1.0 false))]
+  (let [moving (a/value (disabled-probe 1.0 true))
+        stopped (a/value (disabled-probe 0.0 true))
+        inactive (a/value (disabled-probe 1.0 false))]
     (is (true? (get-in moving [:state :active])))
     (is (= -1 (get-in moving [:state :gear])))
     (is (= 0.0 (get-in moving [:control :throttle])))
@@ -184,6 +184,6 @@
                   (planar-body {:x 2.0}) 1.0 0.0 1.0)))))
 
 (deftest disabled-trace-has-no-invalid-arc-test
-  (is (every? #(Double/isFinite (double %)) (az/value (turn-probe 1 false true))))
+  (is (every? #(Double/isFinite (double %)) (a/value (turn-probe 1 false true))))
   (is (= [32.0 32.0 32.0 32.0]
-         (mapv double (subvec (az/value (recovery-trace-at 0)) 8 12)))))
+         (mapv double (subvec (a/value (recovery-trace-at 0)) 8 12)))))

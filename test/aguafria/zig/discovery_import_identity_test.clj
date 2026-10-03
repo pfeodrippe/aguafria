@@ -41,13 +41,13 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defn narrow :u8 [[value :u16]]
+        (eval '(a/defn narrow :u8 [[value :u16]]
                  (k/as (k/intCast value) :u8)))
-        (eval '(az/defn to-float :f32 [[value :u16]]
+        (eval '(a/defn to-float :f32 [[value :u16]]
                  (k/as (k/floatFromInt value) :f32)))
-        (eval '(az/defn cast-pointer [:*const :u32] [[ptr [:*const [:array 1 :u32]]]]
+        (eval '(a/defn cast-pointer [:*const :u32] [[ptr [:*const [:array 1 :u32]]]]
                  (k/as (k/ptrCast (k/alignCast ptr)) [:*const :u32]))))
       (let [fail! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))
             report (binding [runtime/*compile-only?* true]
@@ -83,12 +83,12 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defstruct Point [[:x :u32]]))
-        (eval '(az/defn parent [:* Point] [[x [:* :u32]]]
+        (eval '(a/defstruct Point [[:x :u32]]))
+        (eval '(a/defn parent [:* Point] [[x [:* :u32]]]
                  (k/as (k/fieldParentPtr "x" x) [:* Point])))
-        (eval '(az/defn fixed-pointer [:* :u32] []
+        (eval '(a/defn fixed-pointer [:* :u32] []
                  (k/as (k/ptrFromInt 4096) [:* :u32]))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
@@ -121,10 +121,10 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defextern abs :c_int {:zig/prefix "extern \"c\""} [[n :c_int]]))
-        (eval '(az/defn magnitude :c_int [[n :i64]] (abs (k/intCast n)))))
+        (eval '(a/defextern abs :c_int {:zig/prefix "extern \"c\""} [[n :c_int]]))
+        (eval '(a/defn magnitude :c_int [[n :i64]] (abs (k/intCast n)))))
       (let [fail! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))
             report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
                      (discovery/prepare! (ns-name context)))
@@ -153,18 +153,18 @@
       (doseq [n [provider consumer]]
         (binding [*ns* n]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)
+          (alias 'a 'aguafria.zig)
           (alias 'k 'aguafria.keyword)))
       (binding [*ns* provider runtime/*source-only-registration?* true]
-        (eval '(az/defconst Opaque (az/opaque [])))
-        (eval '(az/defn open-handle [:optional [:* Opaque]] [] nil)))
+        (eval '(a/defconst Opaque (a/opaque [])))
+        (eval '(a/defn open-handle [:optional [:* Opaque]] [] nil)))
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
-        (eval '(az/defn callback :i32 [[n :i32]] (k/+ n 1)))
-        (eval '(az/defn call-callback :i32 [[f [:*const (k/TypeOf callback)]]]
+        (eval '(a/defn callback :i32 [[n :i32]] (k/+ n 1)))
+        (eval '(a/defn call-callback :i32 [[f [:*const (k/TypeOf callback)]]]
                  (f 41)))
-        (eval '(az/defn run :i32 [] (call-callback (k/& callback))))
-        (eval '(az/defn absent? :bool [] (k/== (provider/open-handle) nil))))
+        (eval '(a/defn run :i32 [] (call-callback (k/& callback))))
+        (eval '(a/defn absent? :bool [] (k/== (provider/open-handle) nil))))
       (let [fail! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))
             report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
                      (discovery/prepare! (ns-name consumer)))
@@ -196,13 +196,13 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defn callback :i32 [[n :i32]] (k/+ n 1)))
-        (eval '(az/defn incompatible :u32 [[n :u32]] n))
-        (eval '(az/defn call-callback :i32 [[f [:*const (k/TypeOf callback)]]]
+        (eval '(a/defn callback :i32 [[n :i32]] (k/+ n 1)))
+        (eval '(a/defn incompatible :u32 [[n :u32]] n))
+        (eval '(a/defn call-callback :i32 [[f [:*const (k/TypeOf callback)]]]
                  (f 41)))
-        (eval '(az/defn run :i32 [] (call-callback (k/& callback)))))
+        (eval '(a/defn run :i32 [] (call-callback (k/& callback)))))
       (binding [runtime/*compile-only?* true]
         (discovery/prepare! (ns-name context)))
       (with-open [pointer (aguafria.keyword/& (var-get (ns-resolve context 'callback)))
@@ -232,11 +232,11 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defn Box :type [[T {:attrs #{k/comptime}} :type]]
-                 (az/struct [[:value T]])))
-        (eval '(az/defn construct (Box :u32) []
+        (eval '(a/defn Box :type [[T {:attrs #{k/comptime}} :type]]
+                 (a/struct [[:value T]])))
+        (eval '(a/defn construct (Box :u32) []
                  (k/as k/undefined (Box :u32)))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
@@ -264,14 +264,14 @@
       (doseq [n [provider consumer]]
         (binding [*ns* n]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)))
+          (alias 'a 'aguafria.zig)))
       (binding [*ns* provider runtime/*source-only-registration?* true]
-        (eval '(az/defconst Opaque (az/opaque [])))
-        (eval '(az/defconst Handle (az/type [:optional [:* Opaque]]))))
+        (eval '(a/defconst Opaque (a/opaque [])))
+        (eval '(a/defconst Handle (a/type [:optional [:* Opaque]]))))
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
         (alias 'mem 'aguafria.std.mem)
-        (eval '(az/defn handles [:array 2 provider/Handle] []
+        (eval '(a/defn handles [:array 2 provider/Handle] []
                  (mem/zeroes [:array 2 provider/Handle]))))
       (let [fail! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))
             report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
@@ -301,13 +301,13 @@
       (doseq [n [provider consumer]]
         (binding [*ns* n]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)
+          (alias 'a 'aguafria.zig)
           (alias 'k 'aguafria.keyword)))
       (binding [*ns* provider runtime/*source-only-registration?* true]
-        (eval '(az/defconst amount :i32 1)))
+        (eval '(a/defconst amount :i32 1)))
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
-        (eval '(az/defn value :i32 [] (k/+ provider/amount 41))))
+        (eval '(a/defn value :i32 [] (k/+ provider/amount 41))))
       (with-redefs-fn
         {#'runtime/static-dependency-snapshot
          (fn [& args]
@@ -326,7 +326,7 @@
               (is (< 1 (count @snapshots)))
               (is (= (observe cached) (observe uncached))))
             (binding [*ns* provider runtime/*source-only-registration?* true]
-              (eval '(az/defconst amount :i32 2)))
+              (eval '(a/defconst amount :i32 2)))
             (reset! snapshots [])
             (let [updated (discovery/analyze! (ns-name consumer))]
               (is (= 1 (count @snapshots)))
@@ -343,14 +343,14 @@
       (doseq [n [provider consumer]]
         (binding [*ns* n]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)
+          (alias 'a 'aguafria.zig)
           (alias 'k 'aguafria.keyword)))
       (binding [*ns* provider runtime/*source-only-registration?* true]
-        (eval '(az/defstruct Device [[:number :i32]]))
-        (eval '(az/defvar count :i32 7)))
+        (eval '(a/defstruct Device [[:number :i32]]))
+        (eval '(a/defvar count :i32 7)))
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
-        (eval '(az/defn read-device :i32 [[device provider/Device]]
+        (eval '(a/defn read-device :i32 [[device provider/Device]]
                  (k/+ (:number device) provider/count))))
       (let [report (discovery/analyze! (ns-name consumer))]
         (is (zero? (get-in report [:baseline :exit])) (get-in report [:baseline :diagnostics]))
@@ -371,10 +371,10 @@
                [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
-        (eval '(az/defn answer :i32 [] (:AGUAFRIA_INSPECTION_VALUE api))))
+        (eval '(a/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
+        (eval '(a/defn answer :i32 [] (:AGUAFRIA_INSPECTION_VALUE api))))
       (let [report (discovery/analyze! (ns-name context))]
         (is (zero? (get-in report [:baseline :exit])) (get-in report [:baseline :diagnostics]))
         (is (false? (:compiler-errors? report)) (:diagnostics report)))
@@ -392,15 +392,15 @@
                [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
-        (eval '(az/defn read-format :c_uint []
+        (eval '(a/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
+        (eval '(a/defn read-format :c_uint []
                  ((:inspection_format_value api) (:INSPECTION_FORMAT api))))
-        (eval '(az/defn read-selected :c_uint [[flag :bool]]
+        (eval '(a/defn read-selected :c_uint [[flag :bool]]
                  ((:inspection_format_value api)
                   (if flag (:INSPECTION_FORMAT api) (:INSPECTION_ALTERNATE_FORMAT api)))))
-        (eval '(az/defn read-mutable :c_uint []
+        (eval '(a/defn read-mutable :c_uint []
                  ((:inspection_format_value api) (:inspection_mutable_format api)))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
@@ -448,15 +448,15 @@
                [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
-        (eval '(az/defconst read-format (:inspection_format_value api)))
-        (eval '(az/defn- answer :u32 [] 42))
-        (eval '(az/defconst read-answer answer))
-        (eval '(az/defn call-format :c_uint [[format :c_uint]] (read-format format)))
-        (eval '(az/defn call-literal :c_uint [] (read-format 9)))
-        (eval '(az/defn call-answer :u32 [] (read-answer))))
+        (eval '(a/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
+        (eval '(a/defconst read-format (:inspection_format_value api)))
+        (eval '(a/defn- answer :u32 [] 42))
+        (eval '(a/defconst read-answer answer))
+        (eval '(a/defn call-format :c_uint [[format :c_uint]] (read-format format)))
+        (eval '(a/defn call-literal :c_uint [] (read-format 9)))
+        (eval '(a/defn call-answer :u32 [] (read-answer))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
                                    (fn [& _] (throw (ex-info "Executed a body" {})))]
@@ -498,18 +498,18 @@
                [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
-        (eval '(az/defstruct Pair [[:x :i64] [:enabled :bool]]))
-        (eval '(az/defn make-pair Pair [[x :i64]]
+        (eval '(a/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
+        (eval '(a/defstruct Pair [[:x :i64] [:enabled :bool]]))
+        (eval '(a/defn make-pair Pair [[x :i64]]
                  (k/as {:x x :enabled (k/!= x 0)} Pair)))
-        (eval '(az/defn branch :f32 [[choice :i32]]
+        (eval '(a/defn branch :f32 [[choice :i32]]
                  (k/as (if (k/== choice 0) 0.5 (if (k/== choice 1) 0.75 0.0)) :f32)))
-        (eval '(az/defn width :usize [[choice :bool]] (k/as (if choice 4 1) :usize)))
-        (eval '(az/defn store :void [[ptr [:* :u32]] [number :f64]]
+        (eval '(a/defn width :usize [[choice :bool]] (k/as (if choice 4 1) :usize)))
+        (eval '(a/defn store :void [[ptr [:* :u32]] [number :f64]]
                  (k/atomicStore :u32 ptr (k/intFromFloat number) :.release)))
-        (eval '(az/defn convert :c_uint [[number :i64]]
+        (eval '(a/defn convert :c_uint [[number :i64]]
                  ((:inspection_format_value api) (k/intCast number)))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
@@ -563,10 +563,10 @@
                 [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
-        (eval '(az/defn combine :c_uint []
+        (eval '(a/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
+        (eval '(a/defn combine :c_uint []
                  (let [options (k/| (:INSPECTION_FORMAT api) (:INSPECTION_ALTERNATE_FORMAT api))]
                    ((:inspection_format_value api) options)))))
       (let [report (binding [runtime/*compile-only?* true]
@@ -594,11 +594,11 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
-        (eval '(az/defstruct CastTargets
-                 [(az/fn integer :u8 [[value :u8]] value)
-                  (az/fn real :f32 [[value :f32]] value)
-                  (az/fn generic :i64 [[value :anytype]] value)])))
+        (alias 'a 'aguafria.zig)
+        (eval '(a/defstruct CastTargets
+                 [(a/fn integer :u8 [[value :u8]] value)
+                  (a/fn real :f32 [[value :f32]] value)
+                  (a/fn generic :i64 [[value :anytype]] value)])))
       (let [target (var-get (ns-resolve context 'CastTargets))]
         (with-open [input (aguafria.keyword/i64 7)
                     integer ((:integer target) input)
@@ -624,10 +624,10 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst Errors (az/type [:error-set [:Failure]])))
-        (eval '(az/defn same :bool []
+        (eval '(a/defconst Errors (a/type [:error-set [:Failure]])))
+        (eval '(a/defn same :bool []
                  (k/== (:Failure Errors) (:Failure Errors)))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
@@ -650,17 +650,17 @@
                [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
-        (eval '(az/defconst Point (:InspectionPoint api)))
-        (eval '(az/defconst Size (:InspectionSize api)))
-        (eval '(az/defconst number :i32 42))
-        (eval '(az/defn make-point Point [] (az/init {:x 3 :y 4} Point)))
-        (eval '(az/defn make-size Size [] (az/init {:width 5} Size)))
-        (eval '(az/defn read-size :c_uint [[size Size]] (:width size)))
-        (eval '(az/defn read-point :c_int [[point Point]] (:x point)))
-        (eval '(az/defn callback-address (k/TypeOf (k/& read-point)) []
+        (eval '(a/defconst api (k/cImport (k/cInclude "inspection_options.h"))))
+        (eval '(a/defconst Point (:InspectionPoint api)))
+        (eval '(a/defconst Size (:InspectionSize api)))
+        (eval '(a/defconst number :i32 42))
+        (eval '(a/defn make-point Point [] (a/init {:x 3 :y 4} Point)))
+        (eval '(a/defn make-size Size [] (a/init {:width 5} Size)))
+        (eval '(a/defn read-size :c_uint [[size Size]] (:width size)))
+        (eval '(a/defn read-point :c_int [[point Point]] (:x point)))
+        (eval '(a/defn callback-address (k/TypeOf (k/& read-point)) []
                  (k/& read-point))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
@@ -701,9 +701,9 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defn position :f32 [[page :u32]]
+        (eval '(a/defn position :f32 [[page :u32]]
                  (k/f32 (k/- 217.0 (k/* (k/as (k/floatFromInt page) :f32) 208.0))))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
@@ -727,21 +727,21 @@
       (doseq [n [provider consumer]]
         (binding [*ns* n]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)))
+          (alias 'a 'aguafria.zig)))
       (binding [*ns* provider runtime/*source-only-registration?* true]
-        (eval '(az/defstruct Point {:layout :extern} [[:x :i32]])))
+        (eval '(a/defstruct Point {:layout :extern} [[:x :i32]])))
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
-        (eval '(az/defconst Callback
-                 (az/type [:*const [:fn {:callconv :.c}
+        (eval '(a/defconst Callback
+                 (a/type [:*const [:fn {:callconv :.c}
                                    [{:name :point :type [:*const provider/Point]}] :i32]])))
-        (eval '(az/defn read-point :i32 {:zig/qualifiers "callconv(.c)"}
+        (eval '(a/defn read-point :i32 {:zig/qualifiers "callconv(.c)"}
                  [[point [:*const provider/Point]]]
                  (:x @point)))
-        (eval '(az/defn invoke-callback :i32 [[callback Callback]]
+        (eval '(a/defn invoke-callback :i32 [[callback Callback]]
                  (let [point (provider/Point {:x 42})]
                    (callback (aguafria.keyword/& point)))))
-        (eval '(az/defn ignore-nested :i32 [[callbacks [:slice [:optional Callback]]]]
+        (eval '(a/defn ignore-nested :i32 [[callbacks [:slice [:optional Callback]]]]
                  (aguafria.keyword/= :_ callbacks)
                  7)))
       (doseq [function ['invoke-callback 'ignore-nested]]
@@ -806,20 +806,20 @@
       (doseq [n [provider consumer]]
         (binding [*ns* n]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)))
+          (alias 'a 'aguafria.zig)))
       (binding [*ns* provider runtime/*source-only-registration?* true]
-        (eval '(az/defstruct NativeRecord [[:number :i32]]))
-        (eval '(az/defconst Record NativeRecord))
-        (eval '(az/defconst Handle (az/type [:optional [:* NativeRecord]])))
-        (eval '(az/defconst Opaque (az/opaque [])))
-        (eval '(az/defconst OpaquePointer (az/type [:optional [:* Opaque]])))
-        (eval '(az/defconst OpaqueHandle OpaquePointer)))
+        (eval '(a/defstruct NativeRecord [[:number :i32]]))
+        (eval '(a/defconst Record NativeRecord))
+        (eval '(a/defconst Handle (a/type [:optional [:* NativeRecord]])))
+        (eval '(a/defconst Opaque (a/opaque [])))
+        (eval '(a/defconst OpaquePointer (a/type [:optional [:* Opaque]])))
+        (eval '(a/defconst OpaqueHandle OpaquePointer)))
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
-        (eval '(az/defn make-record provider/Record []
+        (eval '(a/defn make-record provider/Record []
                  (provider/Record {:number 42})))
-        (eval '(az/defn absent-handle provider/Handle [] nil))
-        (eval '(az/defn absent-opaque-handle provider/OpaqueHandle [] nil)))
+        (eval '(a/defn absent-handle provider/Handle [] nil))
+        (eval '(a/defn absent-opaque-handle provider/OpaqueHandle [] nil)))
       (is (= :prepared (:status (runtime/precompile-function!
                                  (ns-resolve consumer 'make-record)))))
       (is (= {:number 42}
@@ -841,22 +841,22 @@
       (doseq [n [provider consumer]]
         (binding [*ns* n]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)))
+          (alias 'a 'aguafria.zig)))
       (binding [*ns* provider runtime/*source-only-registration?* true]
-        (eval '(az/defconst NativeResult (az/type :c_int)))
-        (eval '(az/defconst Result NativeResult))
-        (eval '(az/defconst Flag (az/type :bool)))
-        (eval '(az/defconst Amount (az/type :f64)))
-        (eval '(az/defconst Text (az/type [:slice-const :u8])))
-        (eval '(az/defstruct Record [[:number :i32]]))
-        (eval '(az/defconst Handle (az/type [:optional [:* Record]]))))
+        (eval '(a/defconst NativeResult (a/type :c_int)))
+        (eval '(a/defconst Result NativeResult))
+        (eval '(a/defconst Flag (a/type :bool)))
+        (eval '(a/defconst Amount (a/type :f64)))
+        (eval '(a/defconst Text (a/type [:slice-const :u8])))
+        (eval '(a/defstruct Record [[:number :i32]]))
+        (eval '(a/defconst Handle (a/type [:optional [:* Record]]))))
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
-        (eval '(az/defn result :c_int [[value provider/Result]] value))
-        (eval '(az/defn flag :bool [[value provider/Flag]] value))
-        (eval '(az/defn amount :f64 [[value provider/Amount]] value))
-        (eval '(az/defn text-length :usize [[value provider/Text]] (:len value)))
-        (eval '(az/defn handle provider/Handle [[value provider/Handle]] value)))
+        (eval '(a/defn result :c_int [[value provider/Result]] value))
+        (eval '(a/defn flag :bool [[value provider/Flag]] value))
+        (eval '(a/defn amount :f64 [[value provider/Amount]] value))
+        (eval '(a/defn text-length :usize [[value provider/Text]] (:len value)))
+        (eval '(a/defn handle provider/Handle [[value provider/Handle]] value)))
       (doseq [name '[result flag amount text-length handle]]
         (is (= :prepared (:status (runtime/precompile-function! (ns-resolve consumer name))))))
       (let [events (atom [])]
@@ -878,11 +878,11 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defconst channel-count :c_int 16))
-        (eval '(az/defn take-count :u32 [[n :u32]] n))
-        (eval '(az/defn branch-count :u32 [[flag :bool]]
+        (eval '(a/defconst channel-count :c_int 16))
+        (eval '(a/defn take-count :u32 [[n :u32]] n))
+        (eval '(a/defn branch-count :u32 [[flag :bool]]
                  (let [n (k/var 0 :u32)]
                    (k/= n channel-count)
                    (k/= n (if flag 16 2))
@@ -911,17 +911,17 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
-        (eval '(az/defn assign-integer :u32 [[input :u64]]
+        (eval '(a/defn assign-integer :u32 [[input :u64]]
                  (let [target (k/var 0 :u32)]
                    (k/= target (k/intCast input))
                    target)))
-        (eval '(az/defn assign-float :i32 [[input :f64]]
+        (eval '(a/defn assign-float :i32 [[input :f64]]
                  (let [target (k/var 0 :i32)]
                    (k/= target (k/intFromFloat input))
                    target)))
-        (eval '(az/defn add-integer :u32 [[input :u64]]
+        (eval '(a/defn add-integer :u32 [[input :u64]]
                  (let [target (k/var 0 :u32)]
                    (k/+= target (k/intCast input))
                    target))))
@@ -961,14 +961,14 @@
     (try
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
+        (alias 'a 'aguafria.zig)
         (alias 'k 'aguafria.keyword)
         (doseq [[index schema] (map-indexed vector schemas)]
-          (eval (list 'az/defn (symbol (str "at-" index)) :i32
+          (eval (list 'a/defn (symbol (str "at-" index)) :i32
                       [['items schema] ['index :i32]]
-                      '(az/get items (k/intCast index)))))
-        (eval '(az/defn float-index :i32 [[items [:slice-const :i32]] [index :f64]]
-                 (az/get items (k/intFromFloat index)))))
+                      '(a/get items (k/intCast index)))))
+        (eval '(a/defn float-index :i32 [[items [:slice-const :i32]] [index :f64]]
+                 (a/get items (k/intFromFloat index)))))
       (let [report (binding [runtime/*compile-only?* true]
                      (with-redefs [runtime/invoke!
                                    (fn [& _] (throw (ex-info "Executed a body" {})))]

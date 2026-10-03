@@ -1,17 +1,17 @@
 (ns learn.example.test-switch-non-exhaustive
   (:require [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
 (ns-unmap *ns* 'Number)
 
-(az/defenum Number
+(a/defenum Number
   {:type :u8}
   [:one
    :two
    :three
    :_])
 
-(az/deftest switch-on-non-exhaustive-enum
+(a/deftest switch-on-non-exhaustive-enum
   (let [number (:one Number)
         result (switch number
                        (case [:.one] true)
@@ -20,7 +20,7 @@
     (try (testing/expect result))
     (let [is-one (switch number
                          (case [:.one] true)
-                         (az/case-else false))]
+                         (a/case-else false))]
       (try (testing/expect is-one)))))
 
 (comment

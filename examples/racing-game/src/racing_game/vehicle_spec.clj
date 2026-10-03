@@ -1,6 +1,6 @@
 (ns racing-game.vehicle-spec
   "Small Blender-authored physical dimensions, without importing render meshes."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
@@ -13,10 +13,10 @@
                        (throw (ex-info "Invalid Blender wheel dimensions" {:part part})))
                      (into center [radius width])))
                  [:wheel-front-left :wheel-front-right :wheel-rear-left :wheel-rear-right])]
-  (eval `(az/defconst ~'wheel-geometry
+  (eval `(a/defconst ~'wheel-geometry
            "Four rows: model-space axle X/Y/Z, rolling radius and tire width (metres)."
            [:array 4 [:array 5 :f32]] ~rows)))
 
-(az/defconst chassis-origin-z
+(a/defconst chassis-origin-z
   "Model-space height of the chassis collider centre; subtract when posing art."
   :f32 0.66)

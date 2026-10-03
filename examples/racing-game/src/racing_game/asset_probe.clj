@@ -3,11 +3,11 @@
   (:require [aguafria.std]
             [aguafria.std.debug :as std-debug]
             [aguafria.std.process :as std-process]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [racing-game.assets :as assets]
             [racing-game.inference :as inference]))
 
-(az/defn main :void
+(a/defn main :void
   []
   (if (assets/load-and-verify!)
     (do

@@ -1,8 +1,8 @@
 (ns learn.example.test-intCast-builtin
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest integer-cast-panic
+(a/deftest integer-cast-panic
   (let [a (k/var 0xabcd :u16)] ; runtime-known
     (k/= :_ (k/& a))
     (let [b (k/u8 (k/intCast a))]

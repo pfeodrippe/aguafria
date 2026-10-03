@@ -1,10 +1,10 @@
 (ns learn.example.test-comptime-reaching-unreachable
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- assert :void [[ok :bool]]
+(a/defn- assert :void [[ok :bool]]
   (when (k/! ok)
     (k/unreachable))) ; assertion failure
 
-(az/defcomptime reject-false-condition
+(a/defcomptime reject-false-condition
   (assert false))

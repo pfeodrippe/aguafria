@@ -2,9 +2,9 @@
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as k]
             [aguafria.std.Target.Os :as os]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst separator
+(a/defconst separator
   (if (k/== (os/-tag builtin/os) :.windows)
     \\
     \/))

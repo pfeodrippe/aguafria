@@ -127,7 +127,7 @@
            "` is Zig syntax and can only be used inside an Aguafria form")
       {:arguments arguments
        :token token
-       :example (str "(az/defn example :i32 [[x :i64]] (k/"
+       :example (str "(a/defn example :i32 [[x :i64]] (k/"
                      (:name token) " x))")}))))
 
 (defn- call-token
@@ -249,7 +249,7 @@
     (let [namespace-symbol (symbol (namespace sym))
           target-ns (or (get (ns-aliases context-ns) namespace-symbol)
                         (find-ns namespace-symbol)
-                        ;; Calls to az/emit-* may happen from a test runner or
+                        ;; Calls to a/emit-* may happen from a test runner or
                         ;; callback where `*ns*` is not the lexical namespace.
                         ;; An alias is still safe to recover when every loaded
                         ;; namespace maps it to the same target.

@@ -1,5 +1,10 @@
 # Aguafria LLM Racing
 
+Shaders are authored in `src/racing_game/shaders.clj`. Preparation uses embedded
+Zig and SPIRV-Tools (`spirv-opt`, `spirv-val`) to produce one validated module.
+Desktop development watches saved changes to that source and queues GPU replacement at a frame
+boundary. Both active pipelines are retained if either replacement fails.
+
 Twenty Flecs racers run a 120 Hz native simulation while a real, local Granite
 350M model makes independent tactical decisions on fixed native workers that
 share one immutable model.
@@ -133,7 +138,7 @@ character meanings, and token IDs never appear unless raw export is requested.
 ## Live native edit
 
 Open `src/racing_game/worker.clj`, change the `0.076` base in
-`action-target-speed`, and evaluate only that `az/defn` with Calva/CIDER. Do not
+`action-target-speed`, and evaluate only that `a/defn` with Calva/CIDER. Do not
 reload the namespace. The model, native thread, race, Flecs world, and JVM stay
 alive; the next completed decision uses the new speed mapping.
 

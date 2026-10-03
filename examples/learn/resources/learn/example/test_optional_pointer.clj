@@ -1,15 +1,15 @@
 (ns learn.example.test-optional-pointer
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest optional-pointers
+(a/deftest optional-pointers
   ;; Pointers cannot be null. If you want a null pointer, use the optional
   ;; prefix `?` to make the pointer type optional.
   (let [ptr (k/var nil [:optional [:* :i32]])
         x (k/var 1 :i32)]
     (k/= ptr (k/& x))
-    (try (testing/expectEqual 1 (deref (az/unwrap ptr))))
+    (try (testing/expectEqual 1 (deref (a/unwrap ptr))))
     ;; Optional pointers are the same size as normal pointers, because pointer
     ;; value 0 is used as the null value.
     (try (testing/expectEqual (k/sizeOf [:optional [:* :i32]])

@@ -1,19 +1,19 @@
 (ns learn.example.test-while-nested-break
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest nested-break
-  (az/while-loop {:label outer} true
-                 (k/while true
-                   (az/break-label outer))))
+(a/deftest nested-break
+  (a/while-loop {:label outer} true
+                (k/while true
+                  (a/break-label outer))))
 
-(az/deftest nested-continue
+(a/deftest nested-continue
   (let [i (k/var 0 :usize)]
-    (az/while-loop {:label outer
-                    :continue (az/assign-expr "+=" i 1)}
-                   (k/< i 10)
-                   (k/while true
-                     (k/continue outer)))))
+    (a/while-loop {:label outer
+                   :continue (a/assign-expr "+=" i 1)}
+                  (k/< i 10)
+                  (k/while true
+                    (k/continue outer)))))
 
 (comment
   (nested-break)

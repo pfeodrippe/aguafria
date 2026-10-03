@@ -1,7 +1,8 @@
 (ns la-professeure.build
   "Embedded Zig builds, explicit Vulkan shaders, assets and packaging."
   (:refer-clojure :exclude [run!])
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
+            [aguafria.spirv :as spirv]
             [aguafria.zig.build :as zig-build]
             [aguafria-examples-native.build :as native]
             [la-professeure.dialogue :as dialogue]
@@ -72,7 +73,7 @@
       (throw (ex-info "Unexpected miniaudio checkout" {:path (str vendor)})))
     (when-not (and (.isFile output) (pos? (.length output)))
       (io/make-parents output)
-      (run! (concat [(az/zig-executable) "build-lib" (if (= mode :static) "-static" "-dynamic")
+      (run! (concat [(a/zig-executable) "build-lib" (if (= mode :static) "-static" "-dynamic")
                      "-Ofast" "-fPIC" (str "-I" vendor) (str "-femit-bin=" output)
                      (io/file vendor "miniaudio.c")] audio-frameworks)))
     output))
@@ -182,19 +183,8 @@
     output))
 
 (defn shaders! []
-  ;; Compile both stages before replacing either published binary.
-  (let [pairs (mapv (fn [name]
-                      (let [source (io/file (root) "resources/shaders" name)]
-                        [source (io/file (str source ".candidate.spv")) (io/file (str source ".spv"))]))
-                    ["mesh.vert" "mesh.frag"])]
-    (when (some (fn [[source _ target]]
-                  (or (not (.isFile target)) (< (.lastModified target) (.lastModified source)))) pairs)
-      (doseq [[source candidate _] pairs]
-        (run! ["glslc" "--target-env=vulkan1.2" source "-o" candidate]))
-      (doseq [[_ candidate target] pairs]
-        (Files/move (.toPath candidate) (.toPath target)
-                    (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING])))))
-  :prepared)
+  (spirv/compile! 'la-professeure.shaders
+                  (io/file (root) "resources/shaders/game.spv")))
 
 (defn prepare! []
   (compile-story!)
@@ -222,7 +212,7 @@
       (when-not (and (.isFile output) (pos? (.length output)))
         (io/make-parents output)
         (let [sdk (.trim (run! ["xcrun" "--sdk" "macosx" "--show-sdk-path"]))]
-          (run! [(az/zig-executable) "cc" "-dynamiclib" "-O2" "-fobjc-arc" "-fblocks"
+          (run! [(a/zig-executable) "cc" "-dynamiclib" "-O2" "-fobjc-arc" "-fblocks"
                  "-isysroot" sdk "-framework" "AppKit" "-framework" "Foundation"
                  "-framework" "CoreAudio"
                  (str "-DLP_STUDIO_IME_CLASS=LPStudioComposition_" hash)
@@ -250,7 +240,7 @@
         (throw (ex-info "Unexpected utf8proc checkout" {:path (str vendor)})))
       (when-not (and (.isFile output) (pos? (.length output)))
         (io/make-parents output)
-        (run! [(az/zig-executable) "build-lib" "-static" "-Ofast" "-fPIC"
+        (run! [(a/zig-executable) "build-lib" "-static" "-Ofast" "-fPIC"
                "-DUTF8PROC_STATIC" "-lc" (str "-I" vendor)
                (str "-femit-bin=" candidate) (io/file vendor "utf8proc.c")])
         (Files/move (.toPath candidate) (.toPath output)
@@ -270,10 +260,10 @@
       ;; first, so preparation and a fresh REPL use the same linker arguments.
       ((requiring-resolve 'aguafria-examples-native.bindings/ensure-loaded!))
       (native! :shared)
-      (az/configure! {:module-zig-args
-                      (assoc (:module-zig-args (az/configuration)) "la-professeure.miniaudio"
+      (a/configure! {:module-zig-args
+                      (assoc (:module-zig-args (a/configuration)) "la-professeure.miniaudio"
                              [(str "-I" (io/file (root) "build/vendor/miniaudio"))])
-                      :zig-args (into (vec (:zig-args (az/configuration)))
+                      :zig-args (into (vec (:zig-args (a/configuration)))
                                       (concat [(str (native-path :shared))
                                                (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
       (reset! native-loaded true))))
@@ -299,7 +289,7 @@
         (io/make-parents target)
         (Files/copy (.toPath file) (.toPath target)
                     (into-array StandardCopyOption [StandardCopyOption/REPLACE_EXISTING]))))
-    (select-keys (az/build! 'la-professeure.scene
+    (select-keys (a/build! 'la-professeure.scene
                             {:kind :exe :name "la-professeure" :output output :optimize "fast"
                              :reloadable? false :async? false
                              :module-zig-args {"la-professeure.miniaudio"
@@ -312,7 +302,7 @@
 (defn tool! []
   (let [output (io/file (root) "build/tools/dialogue-tool")]
     (io/make-parents output)
-    (select-keys (az/build! 'la-professeure.recording-tool
+    (select-keys (a/build! 'la-professeure.recording-tool
                             {:kind :exe :name "dialogue-tool" :output output
                              :optimize "fast" :reloadable? false :async? false
                              :zig-args ["-lc"]}) [:output-path :duration-ms])))

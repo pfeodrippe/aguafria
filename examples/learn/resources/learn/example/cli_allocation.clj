@@ -2,9 +2,9 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.std.heap :as heap]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main [:error-union :void] []
+(a/defn main [:error-union :void] []
   (let [arena (k/var ((:init heap/ArenaAllocator) heap/page_allocator))]
     (k/defer ((:deinit arena)))
     (let [allocator ((:allocator arena))

@@ -3,7 +3,7 @@
   (:require [aguafria.std]
             [aguafria.keyword :as ak]
             [aguafria.std.mem :as mem]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria-examples-native.box3d]
             [aguafria-examples-native.bindings.box3d :as b3]
             [racing-game.physics :as physics]
@@ -14,7 +14,7 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
 
-(az/defn static-query-probe [:array 3 :bool] []
+(a/defn static-query-probe [:array 3 :bool] []
   (let [world (physics/create-world 0.0)
         box (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.0})
               (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0}) 0.0 10.0)]
@@ -24,16 +24,16 @@
           clear (turnaround/static-clearance world 10.0 0.0 0.0 0.0)]
       ;; Dynamic objects are handled by the separate oriented/swept tests.
       (b3/b3Body_SetType box b3/b3_dynamicBody)
-      (az/init [blocked clear (turnaround/static-clearance world 0.0 0.0 0.0 0.0)] [:array 3 :bool]))))
+      (a/init [blocked clear (turnaround/static-clearance world 0.0 0.0 0.0 0.0)] [:array 3 :bool]))))
 
 (deftest static-world-query-rejects-obstacles-test
-  (is (= [false true true] (az/value (static-query-probe)))))
+  (is (= [false true true] (a/value (static-query-probe)))))
 
-(az/defn corridor-query-probe :u8
+(a/defn corridor-query-probe :u8
   "Read-only motion prediction in an isolated empty world. Only tests the
   fixed recovery corridor; it is not a full physical recovery simulation." [[body physics/BodyState] [gear :i8] [steering :f32] [limit :f32]]
   (let [world (physics/create-world 0.0)
-        others (mem/zeroes (az/type [:array protocol/racer-count physics/BodyState]))]
+        others (mem/zeroes (a/type [:array protocol/racer-count physics/BodyState]))]
     (ak/defer (physics/destroy-world! world))
     (turnaround/motion-clearance-reasons body others 0 0 gear steering world limit)))
 
@@ -93,7 +93,7 @@
 (deftest requested-steering-predicts-forward-and-reverse-yaw-test
   (doseq [steering [-0.45 -0.16 0.0 0.16 0.45]
           distance [-0.35 0.35]]
-    (let [[x y yaw] (az/value (turnaround/motion-pose (test-body 0.0 0.0 0.0)
+    (let [[x y yaw] (a/value (turnaround/motion-pose (test-body 0.0 0.0 0.0)
                                                    steering distance))]
       (is (pos? (* distance x)) "Reverse must actually predict backwards travel")
       (if (zero? steering)
@@ -103,13 +103,13 @@
                 "The same steering produces opposite yaw changes in reverse")
             (is (pos? (* steering y))))))))
 
-(az/defn captured-pedal-guard-probe driver/Control
+(a/defn captured-pedal-guard-probe driver/Control
   "Pure measured-pose query in an empty Box3D world: isolate dynamic footprint
   vetoes from ground/wall queries. This does NOT simulate a cleared pile-up."
   [[bodies [:array protocol/racer-count physics/BodyState]] [self :usize] [control driver/Control] [gear :i8]]
   (let [world (physics/create-world 0.0)]
     (ak/defer (physics/destroy-world! world))
-    (turnaround/guard-recovery-control control (az/index bodies self)
+    (turnaround/guard-recovery-control control (a/index bodies self)
       bodies 8 self gear world 35.0)))
 
 (deftest captured-pileup-does-not-allow-r0-to-push-through-test
@@ -117,18 +117,18 @@
         racers (:racers capture)
         bodies (mapv #(first (:poses %)) racers)
         {:keys [control gear]} (:recovery (first racers))
-        padded (into bodies (repeat (- (az/value protocol/racer-count) (count bodies)) (first bodies)))
-        guarded (az/value (captured-pedal-guard-probe padded 0 (driver/Control control) gear))
+        padded (into bodies (repeat (- (a/value protocol/racer-count) (count bodies)) (first bodies)))
+        guarded (a/value (captured-pedal-guard-probe padded 0 (driver/Control control) gear))
         ;; Counterfactual QUERY inputs only: no real race transforms are changed.
         empty-corridor (mapv (fn [i body] (if (zero? i) body (update body :x + 100.0)))
-                            (range (az/value protocol/racer-count)) padded)
-        clear (az/value (captured-pedal-guard-probe empty-corridor 0 (driver/Control control) gear))]
+                            (range (a/value protocol/racer-count)) padded)
+        clear (a/value (captured-pedal-guard-probe empty-corridor 0 (driver/Control control) gear))]
     (is (= 8 (count bodies)))
     (is (pos? (:throttle control)) "Reproduce the real captured unsafe request")
     (is (zero? (:throttle guarded)) "Reject forward motion into the neighbouring footprint")
     (is (= 1.0 (:brake guarded)))
-    (is (= (select-keys (az/value (driver/Control control)) [:steering :progress :lane :speed])
+    (is (= (select-keys (a/value (driver/Control control)) [:steering :progress :lane :speed])
            (select-keys guarded [:steering :progress :lane :speed]))
         "Safety must not rewrite the model's destination or measured state")
-    (is (= (az/value (driver/Control control)) clear)
+    (is (= (a/value (driver/Control control)) clear)
         "An empty forward corridor must not acquire an artificial brake")))

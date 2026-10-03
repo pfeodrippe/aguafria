@@ -9,6 +9,26 @@ tests alone does not close visual QA items.
 
 ## October 3 — Zig 0.17 project verification
 
+- [x] Authored SPIR-V GPU check: normal desktop command
+  `clojure -M:local-aguafria:desktop`, owned nREPL 61024, PID 23400,
+  exec 31213. Three shader entry points compile/validate (23,316 bytes).
+  Actual successful swap, invalid-build retention, GPU rejection of the
+  instanced entry with rollback of both pipelines, and original restoration
+  verified. Native publication count 0→1→1→1→2; final result 1. Twelve
+  instanced draw groups active. Framebuffer PNGs: build/shader-qa/. All temporary
+  shader edits restored; three old GLSL sources removed, Git-recoverable.
+  Readback helper: root `.tmp/racing-shader-live-qa.clj`.
+  Stopped through desktop/request-stop! after restoration; native shutdown
+  completed and owned JVM 23400 exited cleanly (exit 0).
+  Old idle renderer-test nREPL 56905, PID 14057, exec 87813 is stopped.
+  Fresh desktop startup spent several minutes in converted binding registration
+  (17,071 GLFW/Vulkan, 5,697 Flecs, 406 runtime Vars). Main-thread samples show
+  batch declaration/reference validation, serialization and emission. It then
+  progressed into renderer, desktop, inference, worker and monitor namespaces.
+  Track this startup cost separately from shader edit/reload latency.
+  Readback's direct JVM String argument to a canonical C pointer was rejected;
+  the helper used explicit NUL-terminated native allocation. Generic marshalling
+  follow-up remains; do not claim that case was fixed by shader migration.
 - [x] Ordinary core load in fresh owned nREPL 55162; real native snapshot with
   20 racers. Fix ImGui-controls' stale timestamp-only C generation and move
   racer-tint before wheel's use without changing either function.

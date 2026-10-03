@@ -3,13 +3,13 @@
             [aguafria.std.lang.Type :as type-info]
             [aguafria.std.lang.Type.Fn :as fn-info]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defextern printf :c_int
+(a/defextern printf :c_int
   {:zig/prefix "pub extern \"c\""}
   [[format [:sentinel-const :u8 0]] [... {:zig/variadic true} _]])
 
-(az/deftest variadic-function
+(a/deftest variadic-function
   (try (testing/expectEqual 14 (printf "Hello, world!\n")))
   (try (testing/expect
         (-> (k/typeInfo (k/TypeOf printf)) type-info/-fn fn-info/-attrs :varargs))))

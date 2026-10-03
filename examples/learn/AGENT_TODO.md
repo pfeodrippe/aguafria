@@ -2,6 +2,137 @@
 
 ## Zig 0.17.0 migration — October 3 (in progress)
 
+- Scope update: the user does not care about Windows for these projects. Do not
+  spend more migration/test time on Windows. Prioritize macOS/JVM/hot reload.
+- Tiger allocator follow-up: fetched origin's default main at 6f8e6b58d, already
+  merged. Preserved its all-build-mode safety allocator policy and original
+  backings; all 11 DebugAllocator sites now use SafeAllocator. Fixed parent
+  alignment recovery in Context. No fast allocator policy was introduced.
+  Targeted client unit 13/13, integration 14/14, existing three client script
+  scenarios against a real server, ReleaseSafe server version, and fresh-JVM
+  main loading/native-host tests 2/8 pass. Scripts are always Debug; passing
+  -Drelease does not turn that script into release-client runtime evidence.
+  Fuzz/VOPR/scripts/Vortex-driver builds pass. Before the scope change, C client
+  static/dynamic builds passed for all seven targets (20/20 steps). Windows
+  SEH required retaining target-default unwind tables; fixed, no follow-up.
+  Regeneration: 245 files / 4,443 structural declarations, no fallback forms,
+  112.42s including setup. Main's removed allocator alias explains the -1.
+  Final generated build.clj refresh also completed: 15.41s wall / 12.35s
+  conversion, same 245 / 4,443 counts. No unchanged native tests repeated.
+  Current primary work is Ghostty.
+
+- Current checkpoint: the previous shader turn made verified progress; actual
+  game, Studio and Racing GPU replacements passed, with compiler/GPU failure
+  retention and restoration. See root SHADER_MIGRATION_REPORT_2026-10-03.md.
+  Three finished test JVMs and Racing desktop stopped; La Professeure remains
+  live on 60588. The old ports/disk blockers below are historical, superseded:
+  user-approved cleanup freed 169.05 GiB, preserving the shared Aguafria cache.
+- [x] Post-core/shader Learn regeneration and live-page verification complete.
+  Completed owned nREPLs 61429 and 61249 are stopped. Current report:
+  `build/refresh-zig-017-corrected.edn`: 291/291 outcomes, 288 real REPL
+  transcripts, zero missing outputs, 14 translated blocks, 7 Zig-only blocks,
+  1,340 published inline matches, HTML acceptance passed. All 11 browser tests
+  passed; inspected the rebuilt custom-panic REPL panel in the actual browser.
+  Preview runs independently on port 63979, Python PID 48021 (exec 42931).
+  The five Learn suites checked 99 tests / 12,900 assertions and found only
+  two comment-fidelity failures. Restored those upstream comments; the complete
+  fidelity suite then passed 2 tests / 1,158 assertions. Unaffected passing
+  suites were not repeated. Incremental refresh reran only the two changed
+  lessons and the affected block, retaining valid outcome records.
+  The earlier `build/refresh-zig-017-final.edn` records the original failures;
+  `build/source-fidelity-017-final.edn` records the successful repair check.
+  Custom panic calls process.exit(1): the disposable worker now checkpoints
+  its active evaluation and recovers actual native output from its own temp
+  directory. HTML labels the isolated exit; no invented Clojure exception,
+  copied Zig output, or runtime change. Focused recorder checks: 4 / 39 pass.
+  Three state-mutating lessons required one fresh JVM after a repeated full
+  pass; no hidden resets were added. Remaining migration work is below.
+
+- [ ] Current TigerBeetle follow-up (supersedes old diagnostics below): full
+  native unit suite 344 passed / 1 skipped; integration 266 passed / 3 skipped.
+  VOPR, fuzz, scripts and all seven Node targets now build; Node 26/26 steps.
+  Logs: `/tmp/aguafria-tiger-017.7IRt8K/{unit,integration,node-final3}.log`.
+  Converted containers may reference their actual parsed members, including
+  mutually recursive types; unknown names and authored ordering remain strict.
+  Fixed inferred `.init()` calls, tuple-valued switch branches, sequential
+  while-option scopes and nested local/namespace-alias collisions.
+  Latest emitter: 67 tests / 392 assertions. Runtime: 49 / 2,254. Non-Tiger
+  converter checks: 44 / 280 across the full run and new focused deltas.
+  API, clj-kondo and SPIR-V suites: 26 / 203. All pass. These include null
+  sentinel pointers, callback parameter names as lexical data, reserved import
+  aliases and native math instruction disassembly.
+  Latest completed conversion: 245 files / 4,444 structural declarations,
+  no raw/unresolved/fallback forms; 117.37 seconds including setup.
+  Ordinary require and generated native `version!` now succeed (exit 0).
+  Callee reload now passes two assertions: result changes true -> false while
+  the caller generation stays unchanged. Three generic linkage corrections:
+  discarded module imports do not seed all public hooks; ordinary libraries
+  do not seed test-body references; computed const initializers remain lazy
+  until consumed, just like simple re-exports. The last case was stdx's private
+  `snap = Snap.snap_fn(...)`. No builtin.is_test assertion was weakened.
+  New converted native fixture passes three assertions: library load, ordinary
+  answer call, and explicit Zig test execution. Full runtime 49 / 2,253 passed;
+  the subsequent consumed-computed-constant assertion also passes (2,254 total).
+  All six fresh Tiger loading/host/type-reload checks now pass 16 assertions.
+  The five-test group found one stale expected declaration count (42): current
+  conversion report and source have 41. Corrected that fixture expectation;
+  its targeted rerun passes all five assertions. Native host exits 0.
+  Owned root nREPL 61748 (PID 51448, exec 50720) and Tiger nREPL 62198
+  (PID 58064, exec 14827) was used for diagnosis and has now been stopped.
+  Do not repeat the unaffected 610 native tests.
+  Post-linkage Learn refresh is complete: 291 passing outcomes, 288 transcripts,
+  zero missing outputs, all 11 browser/highlighter checks pass. The real browser
+  was reloaded and Hello Again's a/ source plus output inspected.
+  nREPL63239 initially picked up system ZLS0.16 and correctly rejected it at the
+  HTML stage. Its successful outcome results were retained; only HTML was run
+  in nREPL63374 with AGUAFRIA_ZLS pointing at the installed 0.17 binary:
+  `/Users/pfeodrippe/Library/Caches/aguafria/zls/eab2be0fd74443a27662da809b771c4ad0d2afcf/bin/zls`.
+  Combined evidence remains build/refresh-after-tiger-017.edn. Completed Learn
+  nREPL63239 and nREPL63374/PID14160 are stopped. Core61748 remains useful.
+- [x] Use `a/` as the maintained API alias: 533 authored/config/test/doc files,
+  converter output and formatter configuration. Preserve the user's hello.clj
+  and scratch.clj. Existing fixture alias `a` became `dependency-a`; generated
+  Zig modules named a/k cannot shadow API aliases. Native regression returns 84.
+- [x] Final post-alias Learn HTML refresh completed in fresh owned nREPL 62707
+  (PID82840, exec30242), using `/tmp/aguafria-zig-017-investigation.flC57s/learn-after-tiger.clj`.
+  Evidence: build/refresh-after-tiger-017.edn. All 291 outcomes pass, including
+  286 native comparisons and five reviewed special cases. HTML contains 288
+  actual REPL transcripts, zero missing outputs, 304 tabbed figures and 1,340
+  matching published inlines. Translation, blocks and inline checks pass.
+  Earlier Learn nREPLs 62200 and 62581 were stopped because source changed.
+  All 11 browser/highlighter tests pass, including the new `a/` HTML assertion.
+  Reloaded the actual app browser and verified hello_again's a/defn plus real
+  Hello World REPL output. Protected hello.clj intentionally retains az/.
+  Browser tests need NODE_PATH set to the bundled Node modules:
+  `/Users/pfeodrippe/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules`.
+  Run test/layout_test.cjs and test/highlight_test.cjs; the first bare Node
+  invocation lacked Playwright, then the configured run passed all five tests.
+  Keep the preview server available independently of the finished build JVM.
+  Completed Learn build JVM 62707/PID82840 was stopped after verification;
+  preview PID48021 on 63979 remains up. Normal `clojure -X:prepare` completed
+  successfully; the ignored std catalog now also uses the new alias and has
+  no remaining az/ references. No generated metadata was committed.
+- [ ] Ghostty now uses bundled `b.addTranslateC`, replacing the external
+  Codeberg translator dependency. Ported Build.root access, optional findProgram,
+  feature reflection field_names, sentinel formatting and initial lazy install
+  paths. Removed obsolete Apple math.h shim: 0.17's float.h implements the
+  __need_infinity_nan protocol; removed file is recoverable from vendor Git.
+  Feature parsing native tests: 2/2 pass. All 16 changed vendor files format.
+  Full build still fails with nine diagnostics in two current categories:
+  seven build-graph API errors (GhosttyResources install_prefix; libxev's
+  findProgram; four z2d install_prefix sites; zf's b.args), and two reflection/C
+  type errors (vaxis std.meta.fields; Oniguruma optional cTypeBitSize).
+  Dependencies under zig-pkg are untouched content-addressed packages; migrate
+  them through reproducible source dependencies, not edits to package caches.
+  More diagnostics may follow after configuration succeeds. No successful full
+  0.17 Ghostty build, conversion or JVM/reload evidence yet. Latest build command:
+  `zig build -Demit-lib-vt=true -Demit-xcframework=false -Demit-macos-app=false --summary all`.
+
+- [x] Added project request: migrate authored game/shared shaders to Aguafria
+  Zig with SpirvType and embedded-Zig SPIR-V builds, remove replaced GLSL,
+  and verify actual render-thread GPU pipeline hot reload with visible output,
+  bad edits and recovery. Keep this separate from CPU hot-reload evidence.
+
 - [x] Verify official release, compiler checksums and source tag; create the root
   migration report `ZIG_0_17_0_MIGRATION_2026-10-03.md`.
 - [x] Import the official HTML and source snapshot: 291 files, 1,379 snippets;

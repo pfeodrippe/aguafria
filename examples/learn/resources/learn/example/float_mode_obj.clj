@@ -1,15 +1,15 @@
 (ns learn.example.float-mode-obj
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst big (k/as (k/<< 1 40) :f64))
+(a/defconst big (k/as (k/<< 1 40) :f64))
 
-(az/defn foo_strict :f64
+(a/defn foo_strict :f64
   {:attrs #{k/export}}
   [[x :f64]]
   (k/- (k/+ x big) big))
 
-(az/defn foo_optimized :f64
+(a/defn foo_optimized :f64
   {:attrs #{k/export}}
   [[x :f64]]
   (k/setFloatMode :.optimized)

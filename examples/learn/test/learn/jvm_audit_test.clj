@@ -24,9 +24,9 @@
   (let [{:keys [cases]}
         (audit/plan
          "(ns fixture.audit)
-          (az/defconst a 1)
-          (az/defn- add :i32 [[x :i32]] (+ x a))
-          (az/deftest check
+          (a/defconst a 1)
+          (a/defn- add :i32 [[x :i32]] (+ x a))
+          (a/deftest check
             (let [x (k/var 0 :i32) y (+ a 2)]
               (k/= x y)
               (debug/assert (k/== x 3))))")]
@@ -44,8 +44,8 @@
 (deftest intentionally-invalid-and-control-dependent-forms-remain-visible
   (let [cases (:cases (audit/plan
                        "(ns fixture.invalid)
-                       (az/defn main :void [] (let [x] (k/= x 1)))
-                       (az/deftest branching (if condition (danger!) (safe!)))"))]
+                       (a/defn main :void [] (let [x] (k/= x 1)))
+                       (a/deftest branching (if condition (danger!) (safe!)))"))]
     (is (some #(= '(let [x] (k/= x 1)) (:expression %)) cases))
     (is (some #(= :requires-control-context (:status %)) cases))
     (is (not-any? #(= '(danger!) (:form %)) cases))))
@@ -61,7 +61,7 @@
 (deftest threaded-steps-are-not-evaluated-with-their-input-missing
   (let [cases (:cases (audit/plan
                        "(ns fixture.threaded)
-                       (az/defn main :void []
+                       (a/defn main :void []
                          (let [n (-> 1 (k/as :i32) k/var)] n))"))]
     (is (some #(and (= '(k/as 1 :i32) (:expression %)) (:form %)) cases))
     (is (some #(and (= '(k/var (k/as 1 :i32)) (:expression %)) (:form %)) cases))
@@ -70,7 +70,7 @@
 (deftest thread-last-steps-keep-their-input
   (let [cases (:cases (audit/plan
                        "(ns fixture.threadlast)
-                       (az/defn main :void []
+                       (a/defn main :void []
                          (let [xs [1 2]] (->> xs (map inc) vec)))"))]
     (is (some #(= '(map inc xs) (:expression %)) cases))
     (is (some #(= '(vec (map inc xs)) (:expression %)) cases))
@@ -79,9 +79,9 @@
 (deftest dependent-descendants-are-inventoried-without-detaching-bindings
   (let [cases (:cases (audit/plan
                        "(ns fixture.context)
-                       (az/defn f :i32 [[x :i32]] (k/+ x (k/* x 2)))
-                       (az/deftest branching
-                         (az/if-capture-stmt [value] optional
+                       (a/defn f :i32 [[x :i32]] (k/+ x (k/* x 2)))
+                       (a/deftest branching
+                         (a/if-capture-stmt [value] optional
                            (debug/assert (k/== value 2))))"))]
     (is (some #(and (= '(k/* x 2) (:expression %))
                     (= :requires-arguments (:status %))) cases))
@@ -93,19 +93,19 @@
 (deftest sequential-forms-retain-their-own-prefix-and-native-block
   (let [cases (:cases (audit/plan
                        "(ns fixture.sequence)
-                       (az/deftest check
+                       (a/deftest check
                          (do (prepare!) (inspect!)))
-                       (az/deftest scoped
-                         (az/block (prepare!) (inspect!)))"))]
+                       (a/deftest scoped
+                         (a/block (prepare!) (inspect!)))"))]
     (is (some #(= '(do (do (prepare!) (inspect!))) (:form %)) cases))
-    (is (some #(= '(do (az/block (do (prepare!) (inspect!)))) (:form %)) cases))))
+    (is (some #(= '(do (a/block (do (prepare!) (inspect!)))) (:form %)) cases))))
 
 (deftest comment-entrypoints-and-container-descendants-are-visible
   (let [cases (:cases (audit/plan
                        "(ns fixture.entries)
-                       (az/defstruct Point
+                       (a/defstruct Point
                          [[:x {:default (k/+ 1 2)} :i32]
-                          (az/fn get-x :i32 [[self Point]] (az/field self :x))])
+                          (a/fn get-x :i32 [[self Point]] (a/field self :x))])
                        (comment (require 'fixture.setup) (main))"))]
     (is (some #(and (= '(k/+ 1 2) (:expression %))
                     (= :requires-declaration-context (:status %))) cases))
@@ -115,8 +115,8 @@
 (deftest source-read-errors-preserve-the-readable-inventory
   (let [{:keys [namespace cases]} (audit/plan
                                    "(ns fixture.invalid-source)
-                                  (az/defconst good 1)
-                                  (az/defconst broken [")]
+                                  (a/defconst good 1)
+                                  (a/defconst broken [")]
     (is (= 'fixture.invalid-source namespace))
     (is (some #(= 'good (:declaration %)) cases))
     (is (= :source-read-failed (:status (last cases))))))
@@ -124,13 +124,13 @@
 (deftest map-value-expressions-are-inventoried
   (let [cases (:cases (audit/plan
                        "(ns fixture.map)
-                       (az/defconst point (Point {:x (k/+ 1 2)}))"))]
+                       (a/defconst point (Point {:x (k/+ 1 2)}))"))]
     (is (some #(= '(k/+ 1 2) (:expression %)) cases))))
 
 (deftest handlerless-try-retains-context-for-assertion-operands
   (let [cases (:cases (audit/plan
                        "(ns fixture.assertion)
-                       (az/deftest check
+                       (a/deftest check
                          (let [n (k/var 1 :i32)]
                            (k/+= n 1)
                            (try (testing/expectEqual 2 n))))"))]
@@ -142,8 +142,8 @@
 (deftest callee-expressions-and-native-symbol-operands-are-inventoried
   (let [cases (:cases (audit/plan
                        "(ns fixture.callee)
-                       (az/deftest check
+                       (a/deftest check
                          (let [list (make-list)]
-                           ((az/field list :append) testing/allocator 3)))"))]
-    (is (some #(and (= '(az/field list :append) (:expression %)) (:form %)) cases))
+                           ((a/field list :append) testing/allocator 3)))"))]
+    (is (some #(and (= '(a/field list :append) (:expression %)) (:form %)) cases))
     (is (some #(and (= 'testing/allocator (:expression %)) (:form %)) cases))))

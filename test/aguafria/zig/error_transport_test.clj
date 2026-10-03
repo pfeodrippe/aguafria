@@ -1,7 +1,7 @@
 (ns aguafria.zig.error-transport-test
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
@@ -15,31 +15,31 @@
     (str output)))
 
 (deftest native-error-names-survive-calls-and-assignment
-  (with-open [first-error (k/as (az/error-value :First) result-type)
-              second-error (k/as (az/error-value :Second) result-type)
+  (with-open [first-error (k/as (a/error-value :First) result-type)
+              second-error (k/as (a/error-value :Second) result-type)
               target (k/var first-error)]
     (is (str/includes? (printed target) "error.First"))
     (k/= target second-error)
-    (is (= :Second (get-in (az/value target) [:error :name])))
+    (is (= :Second (get-in (a/value target) [:error :name])))
     (is (str/includes? (printed target) "error.Second"))
     (k/= target 1234)
-    (is (= {:ok 1234} (az/value target)))
+    (is (= {:ok 1234} (a/value target)))
     (is (str/includes? (printed target) "1234"))
     (k/= target first-error)
-    (is (= :First (get-in (az/value target) [:error :name])))))
+    (is (= :First (get-in (a/value target) [:error :name])))))
 
 (deftest nested-errors-survive-array-optional-and-success-payload-transport
   (let [type [:array 3 [:optional result-type]]]
     (with-open [values (k/as [{:error {:name :Second}} {:ok 42} nil] type)
                 target (k/var values)]
       (is (str/includes? (printed target) "error.Second"))
-      (is (= :Second (get-in (az/value target) [0 :error :name])))
-      (is (= {:ok 42} (get (az/value target) 1)))
-      (is (nil? (get (az/value target) 2)))
+      (is (= :Second (get-in (a/value target) [0 :error :name])))
+      (is (= {:ok 42} (get (a/value target) 1)))
+      (is (nil? (get (a/value target) 2)))
       (with-open [replacement (k/as [{:ok 5} {:error {:name :First}} nil] type)]
         (k/= target replacement)
-        (is (= {:ok 5} (get (az/value target) 0)))
-        (is (= :First (get-in (az/value target) [1 :error :name])))
+        (is (= {:ok 5} (get (a/value target) 0)))
+        (is (= :First (get-in (a/value target) [1 :error :name])))
         (is (str/includes? (printed target) "error.First")))))
   (with-open [outer (k/as {:ok {:error {:name :First}}}
                           [:error-union errors result-type])]

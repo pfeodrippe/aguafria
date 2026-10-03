@@ -50,7 +50,7 @@ without reading the original Ghostty `.zig` files.
 
 The verified conversion contains 764 Ghostty-owned Zig files, 13,832
 structural declarations, five build-generated modules, and 5,072 bundled
-assets. It reports zero `az/defraw`, zero fallbacks, and zero unresolved syntax.
+assets. It reports zero `a/defraw`, zero fallbacks, and zero unresolved syntax.
 A warm full-tree generation takes about 18.6 seconds.
 
 ## Development host and hot reload

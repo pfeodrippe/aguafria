@@ -1,7 +1,7 @@
 (ns racing-game.jev-evaluation
   "Evaluation only: paired native Granite/Jev decisions, never training data.
   Load with the :jev-evaluation alias. Credentials are read only inside run-jev!."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.data.json :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -94,7 +94,7 @@
        (simulation/set-race-seed! race-seed)
        (simulation/reset!)
        (simulation/step-many! tick)
-       (let [o (az/value (simulation/current-observation racer))
+       (let [o (a/value (simulation/current-observation racer))
              acceptable (dataset/acceptable-actions o)
              row {:source :native-race :seed race-seed :tick tick :racer racer
                   :observation o :acceptable-actions acceptable}]
@@ -113,9 +113,9 @@
         (fresh-team-cases))))
 
 (defn prepare! []
-  (az/await! 'racing-game.simulation)
-  (az/await! 'racing-game.inference)
-  (when (:started (az/value (worker/summary)))
+  (a/await! 'racing-game.simulation)
+  (a/await! 'racing-game.inference)
+  (when (:started (a/value (worker/summary)))
     (throw (ex-info "Use an isolated REPL with stopped game workers" {})))
   (let [cases (into (policy-cases) (rollout-cases!))
         manifest {:created (str (Instant/now)) :seed seed

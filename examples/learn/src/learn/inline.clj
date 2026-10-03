@@ -11,7 +11,7 @@
             [aguafria.std.heap]
             [aguafria.std.math]
             [aguafria.std.testing]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
@@ -60,7 +60,7 @@
           (throw (ex-info "Primitive type spelling changed" {:source source})))
         {:clojure-source (pr-str type-form)
          :verification :type-emission-matched
-         :note "Type-position syntax. Use (az/type ...) when the type itself is a value."})
+         :note "Type-position syntax. Use (a/type ...) when the type itself is a value."})
 
       (contains? #{"true" "false"} source)
       {:clojure-source source
@@ -121,9 +121,9 @@
 (defn- emit-declarations
   [forms source-resource]
   (when-not (every? #(and (seq? %)
-                          (contains? #{'az/defconst 'az/defcomptime} (first %)))
+                          (contains? #{'a/defconst 'a/defcomptime} (first %)))
                     forms)
-    (throw (ex-info "Inline declarations must be az/defconst or az/defcomptime forms"
+    (throw (ex-info "Inline declarations must be a/defconst or a/defcomptime forms"
                     {:forms forms})))
   (let [printed-forms (binding [*print-meta* true
                                *print-length* nil
@@ -147,7 +147,7 @@
                 project/*catalog-namespace* namespace-symbol]
         (eval (list 'ns namespace-symbol
                     '(:require [aguafria.keyword :as k]
-                               [aguafria.zig :as az])))
+                               [aguafria.zig :as a])))
         (doseq [form forms]
           (eval form)))
       (binding [*ns* (the-ns namespace-symbol)
@@ -189,10 +189,10 @@
                   (when-not (every? #(and (symbol? %) (var? (resolve %))) forms)
                     (throw (ex-info "Inline reference must name an existing Var" mapping)))
                   nil)
-                :expr (az/emit-expr (first forms))
-                :type (az/emit-type (first forms))
+                :expr (a/emit-expr (first forms))
+                :type (a/emit-type (first forms))
                 :declarations (emit-declarations forms (:source-resource mapping))
-                :statements (str/join "\n" (map az/emit-stmt forms)))]
+                :statements (str/join "\n" (map a/emit-stmt forms)))]
           (cond-> (-> mapping
                       (dissoc :kind)
                       (assoc :form-kind kind

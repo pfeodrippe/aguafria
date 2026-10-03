@@ -1,8 +1,8 @@
 (ns learn.example.test-scopes
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest separate-scopes
+(a/deftest separate-scopes
   (let [pi 3.14]
     (k/= :_ pi))
   (let [pi (k/var true :bool)]

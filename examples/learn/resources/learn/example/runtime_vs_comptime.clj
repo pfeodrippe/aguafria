@@ -1,8 +1,8 @@
 (ns learn.example.runtime-vs-comptime
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- divide :i32
+(a/defn- divide :i32
   [[a :i32] [b :i32]]
   (k// a b))
 

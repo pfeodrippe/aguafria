@@ -1,11 +1,11 @@
 (ns learn.example.test-print-too-many-args
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst a-number :i32 1234)
-(az/defconst a-string "foobar")
+(a/defconst a-number :i32 1234)
+(a/defconst a-string "foobar")
 
-(az/deftest print-too-many-arguments
+(a/deftest print-too-many-arguments
   (debug/print "here is a string: '{s}' here is a number: {}\n"
                [a-string a-number a-number]))
 

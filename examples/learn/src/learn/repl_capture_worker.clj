@@ -5,6 +5,18 @@
 (defn -main [request-path result-path]
   (try
     (let [{:keys [source source-path]} (reference/read-edn request-path)
-          result (reference/capture-comment-repl! source nil source-path)]
+          progress (atom {:evaluations []})
+          checkpoint! (fn [event evaluation]
+                        (swap! progress
+                               (fn [state]
+                                 (case event
+                                   :started (assoc state :active evaluation)
+                                   :finished
+                                   (cond-> (dissoc state :active)
+                                     (not= :load (:stage evaluation))
+                                     (update :evaluations conj (dissoc evaluation :stage))))))
+                        (reference/write-edn! result-path @progress))
+          result (binding [reference/*repl-capture-progress* checkpoint!]
+                   (reference/capture-comment-repl! source nil source-path))]
       (reference/write-edn! result-path result))
     (finally (shutdown-agents))))

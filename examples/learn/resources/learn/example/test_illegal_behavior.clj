@@ -1,8 +1,8 @@
 (ns learn.example.test-illegal-behavior
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest safety-check
+(a/deftest safety-check
   (k/unreachable))
 
 (comment

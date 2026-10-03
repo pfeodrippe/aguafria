@@ -1,17 +1,17 @@
 (ns learn.example.test-namespaced-variable
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defstruct S
+(a/defstruct S
   [[:x {:var 1234} :i32]])
 
-(az/defn- foo :i32
+(a/defn- foo :i32
   []
   (k/+= (:x S) 1)
   (:x S))
 
-(az/deftest namespaced-container-level-variable
+(a/deftest namespaced-container-level-variable
   (try (testing/expectEqual 1235 (foo)))
   (try (testing/expectEqual 1236 (foo))))
 

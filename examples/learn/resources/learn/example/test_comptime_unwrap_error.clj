@@ -1,10 +1,10 @@
 (ns learn.example.test-comptime-unwrap-error
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- getNumberOrFail [:error-union :i32] []
-  (az/error-value :UnableToReturnNumber))
+(a/defn- getNumberOrFail [:error-union :i32] []
+  (a/error-value :UnableToReturnNumber))
 
-(az/defcomptime reject-unexpected-error
+(a/defcomptime reject-unexpected-error
   (let [number (catch (getNumberOrFail) (k/unreachable))]
     (k/= :_ number)))

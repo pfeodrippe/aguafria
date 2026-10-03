@@ -41,8 +41,8 @@ Connect Calva/CIDER to the printed port, open
 ;; => "Hello from live Aguafria Zig!\n"
 ```
 
-Change the string in `serve-connection!` and evaluate only that `az/defn`. After
-`az/await!` finishes its background native publication, the same listener and
+Change the string in `serve-connection!` and evaluate only that `a/defn`. After
+`a/await!` finishes its background native publication, the same listener and
 the same JVM serve the new result:
 
 ```clojure
@@ -57,7 +57,7 @@ Stop it with `(server/stop!)`. To work on Aguafria itself, start Clojure with
 To run the HTTP/live-reload regression, start `clojure -M:local-aguafria:test:nrepl`
 and evaluate `(require 'aguafria-http.server-test)` followed by
 `(clojure.test/run-tests 'aguafria-http.server-test)`. It makes loopback requests,
-publishes two edits through ordinary `az/defn` evaluation, checks native host
+publishes two edits through ordinary `a/defn` evaluation, checks native host
 identity and retained request counts, restores the handler, and stops the server.
 
 ## Standalone

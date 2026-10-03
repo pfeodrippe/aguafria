@@ -51,7 +51,7 @@ Preserve the Zig MIT notice alongside copied documentation and examples.
    offline, with Zig content available when JavaScript is disabled.
 3. **Structural translation.** Reuse `aguafria.zig.convert` and the embedded
    compiler's AST parser. Store readable Aguafria forms and per-example reports.
-   Use normal `az`/`ak` forms and existing std/package namespace Vars. Preserve
+   Use normal `a`/`ak` forms and existing std/package namespace Vars. Preserve
    visibility, types, comptime behavior, errors, tests, comments and dependencies.
    Use reviewed overrides when a teaching example needs clearer presentation.
    No raw Zig source strings count as converted code; reports must detect raw
@@ -99,7 +99,7 @@ Planned commands from `examples/learn`:
 - `clojure -M:verify` — strict complete-coverage and executable compatibility checks.
 - `clojure -M:test` — deterministic inventory/build/UI-contract regressions.
 - A local development/nREPL alias for working on translations/compiler support;
-  all native compilation uses `az/zig-executable`, never `zig` from `PATH`.
+  all native compilation uses `a/zig-executable`, never `zig` from `PATH`.
 
 Generated site/test/cache files are ignored. Keep upstream notices, provenance,
 reviewed translations, overrides and tests in Git. No publication or commit is

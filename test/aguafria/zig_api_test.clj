@@ -1,6 +1,6 @@
 (ns aguafria.zig-api-test
   (:require [aguafria.keyword :as ak]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.emitter :as emitter]
             [clojure.string :as str]
@@ -21,12 +21,12 @@
     (try
       (binding [*ns* scratch runtime/*registration-batch* (runtime/registration-batch)]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az] '[aguafria.keyword :as ak])
-        (doseq [form '[(az/defn invalid :void {:attrs [:public]} [])
-                      (az/defvar invalid :i32 {:attrs ak/threadlocal} 0)
-                      (az/defstruct Invalid {:attrs :public} [])
-                      (az/defstruct Invalid
-                        [(az/fn method :void {:attrs [:public]} [])])]]
+        (require '[aguafria.zig :as a] '[aguafria.keyword :as ak])
+        (doseq [form '[(a/defn invalid :void {:attrs [:public]} [])
+                      (a/defvar invalid :i32 {:attrs ak/threadlocal} 0)
+                      (a/defstruct Invalid {:attrs :public} [])
+                      (a/defstruct Invalid
+                        [(a/fn method :void {:attrs [:public]} [])])]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (finally (remove-ns namespace-symbol)))))
 
@@ -36,15 +36,15 @@
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az])
+        (require '[aguafria.zig :as a])
         (doseq [[name initializer] [['flag false] ['text "hello"] ['empty nil]
                                    ['record {:x 1}] ['tuple [1 2]]]]
-          (eval (list 'az/defvar name initializer))
+          (eval (list 'a/defvar name initializer))
           (is (nil? (:type (last (runtime/collected-declarations declarations)))))
           (is (= initializer (:value (last (runtime/collected-declarations declarations))))))
-        (doseq [form '[(az/defvar missing)
-                      (az/defvar misplaced {:public true} :bool false)
-                      (az/defvar misplaced "doc" :bool false)]]
+        (doseq [form '[(a/defvar missing)
+                      (a/defvar misplaced {:public true} :bool false)
+                      (a/defvar misplaced "doc" :bool false)]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (finally (remove-ns (ns-name scratch))))))
 
@@ -56,17 +56,17 @@
       (binding [*ns* scratch
                 runtime/*registration-batch* declarations]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az])
-        (eval '(az/defconst clean-constant
+        (require '[aguafria.zig :as a])
+        (eval '(a/defconst clean-constant
                  "Inspectable constant."
                  {:export false :public false :source-comment false}
                  42))
-        (eval '(az/defvar clean-variable :u32 {:public false}  1))
-        (eval '(az/defn clean-function :u32
+        (eval '(a/defvar clean-variable :u32 {:public false}  1))
+        (eval '(a/defn clean-function :u32
                  "Inspectable function."
                  {:export false :public true} [[x :u32]]
                  (+ x clean-variable)))
-        (eval '(az/defstruct CleanPoint
+        (eval '(a/defstruct CleanPoint
                  "Inspectable struct."
                  {:public false}
                  [[:x :f32] [:y {:doc "Vertical"} :f32]])))
@@ -98,31 +98,31 @@
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az])
+        (require '[aguafria.zig :as a])
         (require '[aguafria.keyword :as ak])
-        (eval '(az/defn answer :i32
+        (eval '(a/defn answer :i32
                  "Canonical return-type-first function."
                  {:attrs #{:explicit-return}}
                  []
                  (ak/return 42)))
-        (eval '(az/defn- private-answer :i32 [] 42))
-        (let [first-var (eval '(az/deftest answer-test "A named test Var."))
-              second-var (eval '(az/deftest answer-test "A named test Var."))]
+        (eval '(a/defn- private-answer :i32 [] 42))
+        (let [first-var (eval '(a/deftest answer-test "A named test Var."))
+              second-var (eval '(a/deftest answer-test "A named test Var."))]
           (is (var? first-var))
           (is (identical? first-var second-var))
           (is (= 'answer-test (:name (meta first-var))))
           (is (= "A named test Var." (:doc (meta first-var))))
           (is (:aguafria/test (meta first-var))))
-        (doseq [form '[(az/defn old :- :i32 [] 1)
-                      (az/defn old {:attrs #{}} :- :i32 [] 1)
-                      (az/defn old {:attrs #{}} :i32 [] 1)
-                      (az/deftest "string name")
-                      (az/deftest nil)
-                      (az/deftest {:attrs #{}} old-test)
-                      (az/deftest old-test {:zig/test-name "old label"})
-                      (az/deftest old-test {:zig/test-name another-name})
-                      (az/deftest old-test {:zig/test-name nil})
-                      (az/deftest ^{:zig/test-name "old label"} old-test)]]
+        (doseq [form '[(a/defn old :- :i32 [] 1)
+                      (a/defn old {:attrs #{}} :- :i32 [] 1)
+                      (a/defn old {:attrs #{}} :i32 [] 1)
+                      (a/deftest "string name")
+                      (a/deftest nil)
+                      (a/deftest {:attrs #{}} old-test)
+                      (a/deftest old-test {:zig/test-name "old label"})
+                      (a/deftest old-test {:zig/test-name another-name})
+                      (a/deftest old-test {:zig/test-name nil})
+                      (a/deftest ^{:zig/test-name "old label"} old-test)]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (let [by-name (into {} (map (juxt :name identity)) (runtime/collected-declarations declarations))]
         (is (= :i32 (:return (by-name 'answer))))
@@ -140,17 +140,17 @@
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az])
-        (eval '(az/defstruct State
+        (require '[aguafria.zig :as a])
+        (eval '(a/defstruct State
                  [[:counter {:var 1234} :i32]
                   [:limit {:const 99 :doc "A limit."} :i32]
                   [:hidden {:const 8 :private true} :_]
                   [:value {:default 7} :i32]]))
-        (eval '(az/defenum Tag
+        (eval '(a/defenum Tag
                  [:one [:limit {:const 2} :u8]]))
-        (doseq [form '[(az/defstruct Bad [[:value {:var 1 :const 2} :i32]])
-                       (az/defstruct Bad [[:value {:var 1 :default 2} :i32]])
-                       (az/defstruct Bad [[:value {:const 1 :default 2} :i32]])]]
+        (doseq [form '[(a/defstruct Bad [[:value {:var 1 :const 2} :i32]])
+                       (a/defstruct Bad [[:value {:var 1 :default 2} :i32]])
+                       (a/defstruct Bad [[:value {:const 1 :default 2} :i32]])]]
           (is (thrown? Exception (eval form)))))
       (is (= [:value] (mapv :name (:fields (first (runtime/collected-declarations declarations))))))
       (let [source (emitter/emit-module (str namespace-symbol) (runtime/collected-declarations declarations))]
@@ -170,19 +170,19 @@
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az] '[aguafria.keyword :as k])
-        (eval '(az/defunion Payload
+        (require '[aguafria.zig :as a] '[aguafria.keyword :as k])
+        (eval '(a/defunion Payload
                  "A documented union."
                  [[:int {:doc "Integer payload."} :i32] [:float :f64]]))
-        (eval '(az/defunion Tagged {:attrs #{k/enum}}
+        (eval '(a/defunion Tagged {:attrs #{k/enum}}
                  [[:number :i32] [:empty :void]
-                  (az/fn answer :i32 [] 42)]))
-        (eval '(az/defunion Packed {:layout :packed} [[:int :i32] [:uint :u32]]))
-        (eval '(az/defunion External {:layout :extern} [[:int :i32] [:uint :u32]]))
-        (doseq [form '[(az/defunion Bad [:x :i32])
-                       (az/defunion Bad [[:x :i32 :i32]])
-                       (az/defunion Bad [[:x :i32]] [[:y :i32]])
-                       (az/defunion Bad {:attrs k/enum} [[:x :i32]])]]
+                  (a/fn answer :i32 [] 42)]))
+        (eval '(a/defunion Packed {:layout :packed} [[:int :i32] [:uint :u32]]))
+        (eval '(a/defunion External {:layout :extern} [[:int :i32] [:uint :u32]]))
+        (doseq [form '[(a/defunion Bad [:x :i32])
+                       (a/defunion Bad [[:x :i32 :i32]])
+                       (a/defunion Bad [[:x :i32]] [[:y :i32]])
+                       (a/defunion Bad {:attrs k/enum} [[:x :i32]])]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (let [source (emitter/emit-module (str (ns-name scratch)) (runtime/collected-declarations declarations))
             docs (:doc (meta (ns-resolve scratch 'Payload)))]
@@ -201,32 +201,32 @@
     (try
       (binding [*ns* scratch runtime/*registration-batch* declarations]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az])
-        (eval '(az/defenum Color
+        (require '[aguafria.zig :as a])
+        (eval '(a/defenum Color
                  "A documented enum."
                  {:type :u8}
                  [[:red 1]
                   [:really-red {:doc "Quoted tag." :zig/name "@\"really red\""} 7]]))
-        (eval '(az/defstruct Timestamp
+        (eval '(a/defstruct Timestamp
                  "Documented timestamp."
                  [[:seconds {:doc "Seconds since the epoch." :default 0} :i64]
                   [:nanos {:doc "Nanoseconds."} :u32]
-                  (az/fn- epoch-seconds :i64 [] 0)
-                  (az/fn unix-epoch Timestamp
+                  (a/fn- epoch-seconds :i64 [] 0)
+                  (a/fn unix-epoch Timestamp
                     "Returns the epoch."
                     []
                     (Timestamp {:seconds (epoch-seconds) :nanos 0}))]))
-        (eval '(az/defextern sample :void "Extern docs." {:zig/prefix "extern \"c\""} []))
-        (doseq [form '[(az/defextern old :- :void [])
-                       (az/defextern old {:zig/prefix "extern"} :- :void [])
-                       (az/defstruct Old [:x :u8])
-                       (az/defstruct Old [:x :u8] [:y :u8])
-                       (az/defstruct Bad [[:x]])
-                       (az/defenum Old [:x] [:y])
-                       (az/defenum Bad {:argument :u8} [:x])
-                       (az/defstruct Bad {:layout :packed :argument :u8} [[:x :u8]])
-                       (az/defunion Bad {:argument :u8} [[:x :u8]])
-                       (az/defenum Bad [[:x 1 2]])]]
+        (eval '(a/defextern sample :void "Extern docs." {:zig/prefix "extern \"c\""} []))
+        (doseq [form '[(a/defextern old :- :void [])
+                       (a/defextern old {:zig/prefix "extern"} :- :void [])
+                       (a/defstruct Old [:x :u8])
+                       (a/defstruct Old [:x :u8] [:y :u8])
+                       (a/defstruct Bad [[:x]])
+                       (a/defenum Old [:x] [:y])
+                       (a/defenum Bad {:argument :u8} [:x])
+                       (a/defstruct Bad {:layout :packed :argument :u8} [[:x :u8]])
+                       (a/defunion Bad {:argument :u8} [[:x :u8]])
+                       (a/defenum Bad [[:x 1 2]])]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (let [source (emitter/emit-module (str namespace-symbol) (runtime/collected-declarations declarations))]
         (doseq [expected ["enum(u8)" "red = 1" "/// Quoted tag." "@\"really red\" = 7"
@@ -258,18 +258,18 @@
     (try
       (binding [*ns* scratch]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az])
-        (eval '(az/defextern absolute :c_int
+        (require '[aguafria.zig :as a])
+        (eval '(a/defextern absolute :c_int
                  {:zig/name "abs" :zig/prefix "pub extern \"c\""}
                  [[n :c_int]]))
-        (eval '(az/defextern missing :void
+        (eval '(a/defextern missing :void
                  {:zig/name "aguafria_missing_extern_test_symbol"
                   :zig/prefix "pub extern \"c\""} [])))
       (let [absolute (ns-resolve scratch 'absolute)]
         (doseq [[input expected] [[-42 42] [7 7]]]
           (let [result (absolute input)]
-            (is (az/zig-value? result))
-            (is (= expected (az/value result)))))
+            (is (a/zig-value? result))
+            (is (= expected (a/value result)))))
         (is (= '([[n :c_int]]) (:arglists (meta absolute))))
         (is (= "Returns: :c_int" (:doc (meta absolute))))
         (is (thrown? clojure.lang.ExceptionInfo (absolute))))

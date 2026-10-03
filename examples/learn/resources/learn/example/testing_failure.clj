@@ -1,11 +1,11 @@
 (ns learn.example.testing-failure
   (:require [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest expect-this-to-fail
+(a/deftest expect-this-to-fail
   (try (testing/expect false)))
 
-(az/deftest expect-this-to-succeed
+(a/deftest expect-this-to-succeed
   (try (testing/expect true)))
 
 (comment

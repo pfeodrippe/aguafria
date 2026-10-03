@@ -1,19 +1,19 @@
 (ns learn.example.test-setRuntimeSafety-builtin
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest setRuntimeSafety
+(a/deftest setRuntimeSafety
   ;; The builtin applies to the scope that it is called in. So here, integer overflow
-  ;; will not be caught in fast and small modes:
+  ;; will not be caught in ReleaseFast and ReleaseSmall modes:
   ;; var x: u8 = 255;
-  ;; x += 1; // Unchecked Illegal Behavior in fast/small modes.
-  (az/block
+  ;; x += 1; // Unchecked Illegal Behavior in ReleaseFast/ReleaseSmall modes.
+  (a/block
     ;; However this block has safety enabled, so safety checks happen here,
-    ;; even in fast and small modes.
+    ;; even in ReleaseFast and ReleaseSmall modes.
    (k/setRuntimeSafety true)
    (let [x (k/var 255 :u8)]
      (k/+= x 1)
-     (az/block
+     (a/block
         ;; The value can be overridden at any scope. So here integer overflow
         ;; would not be caught in any build mode.
       (k/setRuntimeSafety false)

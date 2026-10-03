@@ -1,9 +1,9 @@
 (ns learn.example.destructuring-mixed
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void
+(a/defn main :void
   []
   (let [tuple [1 2 3]
         [x y z] tuple

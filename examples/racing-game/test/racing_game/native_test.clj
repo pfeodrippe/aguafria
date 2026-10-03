@@ -1,5 +1,5 @@
 (ns racing-game.native-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.keyword :as ak]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -27,17 +27,17 @@
   [expected actual tolerance]
   (<= (Math/abs (- (double expected) (double actual))) tolerance))
 
-(az/defn projection-cache-max-error :f32
+(a/defn projection-cache-max-error :f32
   "Compare the compiled coarse points with the original runtime sampler." []
   (let [^{:var :f32} maximum 0.0]
     (dotimes [i track/projection-samples]
       (let [progress (/ (ak/as (ak/floatFromInt i) :f32)
                         (ak/as (ak/floatFromInt track/projection-samples) :f32))
             original (track/pose progress 0.0)
-            cached (az/index track/projection-centers i)]
+            cached (a/index track/projection-centers i)]
         (ak/= maximum (ak/max maximum
-                       (ak/max (ak/abs (- (az/field original x) (az/index cached 0)))
-                               (ak/abs (- (az/field original y) (az/index cached 1))))))))
+                       (ak/max (ak/abs (- (a/field original x) (a/index cached 0)))
+                               (ak/abs (- (a/field original y) (a/index cached 1))))))))
     maximum))
 
 (deftest immutable-projection-cache-test
@@ -47,11 +47,11 @@
 
 (deftest twenty-driver-roster-test
   ;; Read the initialized world; never reset or reposition a live race for QA.
-  (is (= [20 10 2 30] (mapv az/value [protocol/racer-count protocol/team-count
+  (is (= [20 10 2 30] (mapv a/value [protocol/racer-count protocol/team-count
                                      protocol/drivers-per-team protocol/actor-count])))
-  (is (apply = (map az/value [protocol/actor-count inference/sequence-racer-count worker/actor-count])))
-  (let [racers (mapv #(az/value (simulation/racer-view %)) (range (az/value protocol/racer-count)))
-        teams (mapv #(az/value (simulation/team-view %)) (range (az/value protocol/team-count)))]
+  (is (apply = (map a/value [protocol/actor-count inference/sequence-racer-count worker/actor-count])))
+  (let [racers (mapv #(a/value (simulation/racer-view %)) (range (a/value protocol/racer-count)))
+        teams (mapv #(a/value (simulation/team-view %)) (range (a/value protocol/team-count)))]
     (is (every? :valid racers))
     (is (every? :valid teams))
     (is (= (vec (range 20)) (mapv :id racers)))
@@ -63,10 +63,10 @@
     (doseq [{:keys [id driver_a driver_b]} teams]
       (is (= [(* id 2) (inc (* id 2))] [driver_a driver_b]))
       (is (= id (:team (nth racers driver_a)) (:team (nth racers driver_b)))))
-    (is (false? (:valid (az/value (simulation/racer-view 20)))))
-    (is (false? (:valid (az/value (simulation/team-view 10))))))
+    (is (false? (:valid (a/value (simulation/racer-view 20)))))
+    (is (false? (:valid (a/value (simulation/team-view 10))))))
   (let [boxes (mapv simulation/pit-box-progress (range 10))
-        colors (mapv #(az/value (racing-game.render3d/racer-tint %)) (range 20))]
+        colors (mapv #(a/value (racing-game.render3d/racer-tint %)) (range 20))]
     (is (= 10 (count (distinct boxes))))
     (is (every? #(<= 0.965 % 1.025) boxes) "All work bays are on the full-width apron")
     (is (every? #(> (* 4309.0 %) 12.0) (map - (rest boxes) boxes)))
@@ -117,14 +117,14 @@
 (defn load-native-replay-file
   [file]
   (with-open [arena (java.lang.foreign.Arena/ofConfined)]
-    (az/value
+    (a/value
      (simulation/load-replay-file! (.allocateFrom arena (str file))))))
 
 (defn await-worker-result
   [racer-id timeout-ms]
   (let [deadline (+ (System/nanoTime) (* timeout-ms 1000000))]
     (loop []
-      (let [result (az/value (worker/result-for racer-id 0))]
+      (let [result (a/value (worker/result-for racer-id 0))]
         (cond
           (:valid result) result
           (< (System/nanoTime) deadline) (do (Thread/sleep 10) (recur))
@@ -278,7 +278,7 @@
 (deftest native-language-grouping-boundaries-test
   ;; Sequence0 is always invalid/zeroed. It supplies a complete ABI fixture;
   ;; these detached values never mutate the live history or world.
-  (let [data (-> (az/value (simulation/language-exchange-at 0))
+  (let [data (-> (a/value (simulation/language-exchange-at 0))
                  (assoc :valid true :sequence 2)
                  (assoc-in [:result :request :epoch] 1)
                  (assoc-in [:result :request :system_byte_count] 1)
@@ -304,7 +304,7 @@
           (str "Ignore timing/count/unused storage " path)))))
 
 (deftest development-monitor-abi-and-privacy-test
-  (az/await!)
+  (a/await!)
   (try
     (monitor/set-raw-protocol-visible! false)
     (monitor/refresh!)
@@ -314,7 +314,7 @@
       (is (false? (:active status)))
       (is (false? (:overlay-installed status)))
       (is (false? (:raw-protocol-visible status)))
-      (is (= (az/value simulation/racer-count) (count (:racers status))))
+      (is (= (a/value simulation/racer-count) (count (:racers status))))
       (is (zero? (:input_token_count racer)))
       (is (every? zero? (:response racer)))
       (monitor/set-raw-protocol-visible! true)
@@ -379,9 +379,9 @@
                   (get-in report [:policy :items]))))))
 
 (deftest native-kernel-fixtures-test
-  (az/await! 'racing-game.inference)
+  (a/await! 'racing-game.inference)
   (let [{:keys [q4_dot rms_first rms_last softmax_sum]}
-        (az/value (inference/kernel-self-test))]
+        (a/value (inference/kernel-self-test))]
     (testing "Q4_0 scalar dequantization and dot product"
       (is (close? 32.0 q4_dot 1.0e-6)))
     (testing "RMSNorm reference values"
@@ -400,11 +400,11 @@
   (is (= (mapv #(bit-and (int %) 0xff)
                (.parseHex (java.util.HexFormat/of)
                           (:sha256 (model/action-head-entry))))
-         (az/value assets/expected-action-head-sha256)))
+         (a/value assets/expected-action-head-sha256)))
   (is (= (mapv #(bit-and (int %) 0xff)
                (.parseHex (java.util.HexFormat/of)
                           (:sha256 (model/team-head-entry))))
-         (az/value assets/expected-team-head-sha256)))
+         (a/value assets/expected-team-head-sha256)))
   (let [release (model/verify-release-notices!)]
     (is (:verified? release))
     (is (= :apache-2.0 (:license release)))
@@ -412,14 +412,14 @@
     (is (every? pos? (map :bytes (:files release)))))
   (with-open [arena (java.lang.foreign.Arena/ofConfined)]
     (let [malformed (native-bytes arena (repeat 32 65))
-          parsed (az/value (inference/parse-gguf malformed 32))
+          parsed (a/value (inference/parse-gguf malformed 32))
           unsupported-bytes (unsupported-layout-gguf)
           unsupported
-          (az/value
+          (a/value
            (inference/parse-gguf
             (native-bytes arena unsupported-bytes)
             (count unsupported-bytes)))
-          missing (az/value
+          missing (a/value
                    (inference/load-model!
                     (.allocateFrom arena "/definitely/missing/racing.gguf")))]
       (is (false? (:valid parsed)))
@@ -431,10 +431,10 @@
       (is (= inference/model-file-not-found (:error_code missing))))))
 
 (deftest aspect-safe-world-projection-test
-  (az/await! 'racing-game.render)
-  (let [wide (az/value (render/configure-world-scale! 1600 900))
-        portrait (az/value (render/configure-world-scale! 900 1600))
-        square (az/value (render/configure-world-scale! 900 900))]
+  (a/await! 'racing-game.render)
+  (let [wide (a/value (render/configure-world-scale! 1600 900))
+        portrait (a/value (render/configure-world-scale! 900 1600))
+        square (a/value (render/configure-world-scale! 900 900))]
     (is (close? (/ 900.0 1600.0) (:x wide) 1.0e-6))
     (is (close? 1.0 (:y wide) 1.0e-6))
     (is (close? 1.0 (:x portrait) 1.0e-6))
@@ -445,18 +445,18 @@
                 (* 1600.0 (:y portrait)) 1.0e-4))))
 
 (deftest track-projection-and-fixed-tick-invariants-test
-  (az/await! 'racing-game.track)
+  (a/await! 'racing-game.track)
   (testing "the procedural track is closed and projects signed lanes"
     (is (close? 0.9 (track/wrap-progress -0.1) 1.0e-6))
     (is (close? 0.1 (track/wrap-progress 1.1) 1.0e-6))
-    (let [start (az/value (track/pose 0.0 0.0))
-          end (az/value (track/pose 1.0 0.0))]
+    (let [start (a/value (track/pose 0.0 0.0))
+          end (a/value (track/pose 1.0 0.0))]
       (is (close? (:x start) (:x end) 1.0e-5))
       (is (close? (:y start) (:y end) 1.0e-5)))
     (doseq [progress [0.0 0.07 0.25 0.49 0.75 0.93]
             lane [-0.075 0.0 0.075]]
-      (let [{:keys [x y]} (az/value (track/pose progress lane))
-            projection (az/value (track/project x y))
+      (let [{:keys [x y]} (a/value (track/pose progress lane))
+            projection (a/value (track/project x y))
             difference (Math/abs (- (double progress)
                                     (double (:progress projection))))
             circular-error (min difference (- 1.0 difference))]
@@ -475,7 +475,7 @@
       (simulation/set-race-seed! 73)
       (simulation/reset!)
       (simulation/step-many! 600)
-      (let [racers (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))
+      (let [racers (mapv #(a/value (simulation/racer-view %)) (range (a/value simulation/racer-count)))
             physical-keys
             [:id :rank :lap :checkpoint :finished :item :shielded
              :progress :lane :speed :x :y :heading :finish_tick]
@@ -485,7 +485,7 @@
              :hazards_spawned]
             first-physical
             {:racers (mapv #(select-keys % physical-keys) racers)
-             :snapshot (select-keys (az/value (simulation/snapshot))
+             :snapshot (select-keys (a/value (simulation/snapshot))
                                     snapshot-keys)}
             placement (sort-by (juxt (comp - :lap) (comp - :progress) :id)
                                racers)]
@@ -497,7 +497,7 @@
           (is (<= 0.0 progress 1.0))
           (is (<= -0.075001 lane 0.075001))
           (is (<= 0.0 speed 0.16))
-          (let [projected (az/value (track/project x y))
+          (let [projected (a/value (track/project x y))
                 difference (Math/abs (- (double progress)
                                         (double (:progress projected))))
                 circular-error (min difference (- 1.0 difference))]
@@ -509,22 +509,22 @@
         (is (= first-physical
                {:racers
                 (mapv #(select-keys
-                        (az/value (simulation/racer-view %)) physical-keys)
-                      (range (az/value simulation/racer-count)))
+                        (a/value (simulation/racer-view %)) physical-keys)
+                      (range (a/value simulation/racer-count)))
                 :snapshot
-                (select-keys (az/value (simulation/snapshot)) snapshot-keys)})))
+                (select-keys (a/value (simulation/snapshot)) snapshot-keys)})))
       (finally
         (simulation/set-items-enabled! true)
         (simulation/set-race-seed! 0)
         (simulation/reset!)))))
 
 (deftest race-lifecycle-and-reference-control-test
-  (az/await! 'racing-game.simulation)
+  (a/await! 'racing-game.simulation)
   (try
     (simulation/configure-countdown! 5)
     (simulation/reset!)
-    (let [initial (az/value (simulation/snapshot))
-          progress (:progress (az/value (simulation/racer-view 0)))]
+    (let [initial (a/value (simulation/snapshot))
+          progress (:progress (a/value (simulation/racer-view 0)))]
       (is (= simulation/race-state-countdown (:state initial)))
       (is (= 5 (:countdown_ticks initial)))
       (is (false? (:human_controlled initial)))
@@ -546,16 +546,16 @@
           (is (> (+ (:lap target) (:progress target))
                  (+ (:lap self) (:progress self))))))
       (simulation/step-many! 4)
-      (let [waiting (az/value (simulation/snapshot))]
+      (let [waiting (a/value (simulation/snapshot))]
         (is (= simulation/race-state-countdown (:state waiting)))
         (is (= 1 (:countdown_ticks waiting)))
         (is (close? progress
-                    (:progress (az/value (simulation/racer-view 0)))
+                    (:progress (a/value (simulation/racer-view 0)))
                     1.0e-8)))
       (simulation/step!)
       (is (= simulation/race-state-running
-             (:state (az/value (simulation/snapshot)))))
-      (is (pos? (:progress (az/value (simulation/racer-view 0))))))
+             (:state (a/value (simulation/snapshot)))))
+      (is (pos? (:progress (a/value (simulation/racer-view 0))))))
     (is (= [0 1 2 3]
            (mapv simulation/checkpoint-for-progress
                  [0.0 0.25 0.50 0.75])))
@@ -565,10 +565,10 @@
     (is (false? (simulation/racers-overlap? 0.20 0.0 1.20 0.0)))
     (is (simulation/set-human-controlled! true))
     (simulation/set-human-input! 1.0 1.0 0.0 false)
-    (let [before (:progress (az/value (simulation/racer-view 0)))]
+    (let [before (:progress (a/value (simulation/racer-view 0)))]
       (simulation/step-many! 120)
-      (let [racer (az/value (simulation/racer-view 0))
-            input (az/value (simulation/human-control-snapshot))]
+      (let [racer (a/value (simulation/racer-view 0))
+            input (a/value (simulation/human-control-snapshot))]
         (is (:enabled input))
         (is (= telemetry/source-human (:source racer)))
         (is (close? 0.075 (:lane_target racer) 1.0e-6))
@@ -598,14 +598,14 @@
              1 0.44 0.075 0.05 simulation/item-none false))
         (is (simulation/configure-racer-intent!
              0 -0.075 0.08 simulation/action-use 1))
-        (let [before (az/value (simulation/racer-view 0))]
+        (let [before (a/value (simulation/racer-view 0))]
           (simulation/step!)
-          (let [after (az/value (simulation/racer-view 0))
-                target (az/value (simulation/racer-view 1))
-                race (az/value (simulation/snapshot))
+          (let [after (a/value (simulation/racer-view 0))
+                target (a/value (simulation/racer-view 1))
+                race (a/value (simulation/snapshot))
                 active-hazards
                 (count (filter :active
-                               (map #(az/value (simulation/hazard-view %))
+                               (map #(a/value (simulation/hazard-view %))
                                     (range simulation/hazard-capacity))))]
             (is (= simulation/item-none (:item after)))
             (is (= 1 (:items_used race)))
@@ -627,8 +627,8 @@
        0 -0.075 0.08 simulation/action-hold 1)
       (simulation/step!)
       (is (= simulation/item-bolt
-             (:item (az/value (simulation/racer-view 0)))))
-      (is (zero? (:items_used (az/value (simulation/snapshot))))))
+             (:item (a/value (simulation/racer-view 0)))))
+      (is (zero? (:items_used (a/value (simulation/snapshot))))))
     (testing "personas produce distinct bounded intents from identical state"
       (simulation/reset!)
       (dotimes [racer-id 8]
@@ -636,10 +636,10 @@
          racer-id 0.40 0.0 0.05 simulation/item-none false)
         (simulation/make-decision!
          racer-id false simulation/deadline-on-time))
-      (let [views (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))
-            personas (mapv #(-> (simulation/current-observation %) az/value
+      (let [views (mapv #(a/value (simulation/racer-view %)) (range (a/value simulation/racer-count)))
+            personas (mapv #(-> (simulation/current-observation %) a/value
                                 :persona)
-                           (range (az/value simulation/racer-count)))]
+                           (range (a/value simulation/racer-count)))]
         (is (= #{0 1 2} (set personas)))
         (is (<= 4 (count (set (map :target_speed views)))))
         (is (every? #(<= 0.0 % 0.16) (map :target_speed views)))))
@@ -654,7 +654,7 @@
   (try
     (testing "four fixed teams own two drivers and one physical box each"
       (simulation/reset!)
-      (let [teams (mapv #(az/value (simulation/team-view %)) (range 4))]
+      (let [teams (mapv #(a/value (simulation/team-view %)) (range 4))]
         (is (= [[0 1] [2 3] [4 5] [6 7]]
                (mapv (juxt :driver_a :driver_b) teams)))
         (is (every? #(= simulation/no-pit-occupant (:pit_occupant %)) teams))
@@ -672,8 +672,8 @@
       (simulation/configure-racer-tires! 0 0.10)
       (simulation/configure-racer-tires! 1 0.12)
       (simulation/step!)
-      (let [team (az/value (simulation/team-view 0))
-            messages (mapv #(az/value (simulation/team-radio-entry 0 %))
+      (let [team (a/value (simulation/team-view 0))
+            messages (mapv #(a/value (simulation/team-radio-entry 0 %))
                            (range (simulation/team-radio-history-count 0)))]
         (is (contains? #{0 1} (:pit_occupant team)))
         (is (some #(= simulation/radio-source-driver (:source %)) messages))
@@ -683,8 +683,8 @@
                               (:code %))
                   messages)))
       (simulation/step-many! 3000)
-      (let [team (az/value (simulation/team-view 0))
-            racers (mapv #(az/value (simulation/racer-view %)) [0 1])]
+      (let [team (a/value (simulation/team-view 0))
+            racers (mapv #(a/value (simulation/racer-view %)) [0 1])]
         (is (<= 1 (:pit_stops team)))
         (is (<= 1 (reduce + (map :pit_stops racers))))
         (is (pos? (simulation/team-radio-history-count 0)))))
@@ -696,12 +696,12 @@
       (simulation/configure-racer-state!
        1 0.40 0.0 0.01 simulation/item-none false)
       (simulation/step!)
-      (let [a (az/value (simulation/racer-view 0))
-            b (az/value (simulation/racer-view 1))
+      (let [a (a/value (simulation/racer-view 0))
+            b (a/value (simulation/racer-view 1))
             dx (- (:x a) (:x b))
             dy (- (:y a) (:y b))
-            race (az/value (simulation/snapshot))
-            messages (mapv #(az/value (simulation/team-radio-entry 0 %))
+            race (a/value (simulation/snapshot))
+            messages (mapv #(a/value (simulation/team-radio-entry 0 %))
                            (range (simulation/team-radio-history-count 0)))]
         (is (pos? (:accidents race)))
         (is (pos? (:damage a)))
@@ -713,7 +713,7 @@
       (simulation/reset!))))
 
 (deftest mamba-selective-step-fixture-test
-  (az/await! 'racing-game.inference)
+  (a/await! 'racing-game.inference)
   (with-open [arena (java.lang.foreign.Arena/ofConfined)]
     (let [state (native-floats arena (map #(* 0.1 %) (range 1 13)))
           output (native-floats arena [0 0 0 0])
@@ -750,9 +750,9 @@
             (.allocateFrom arena (str (model/action-head-file)))
             team-head-path
             (.allocateFrom arena (str (model/team-head-file)))
-            summary (az/value (inference/load-model! path))
-            output-norm (az/value (inference/tensor-info 0))
-            token-embedding (az/value (inference/tensor-info 1))
+            summary (a/value (inference/load-model! path))
+            output-norm (a/value (inference/tensor-info 0))
+            token-embedding (a/value (inference/tensor-info 1))
             embedding-index (inference/find-tensor
                              (.allocateFrom arena "token_embd.weight"))
             ffn-down-index (inference/find-tensor
@@ -765,7 +765,7 @@
             tokens-key (inference/find-metadata
                         (.allocateFrom arena "tokenizer.ggml.tokens"))
             prompt "R0 K8 L0 I3 T1\nA:"
-            tokenized (az/value
+            tokenized (a/value
                        (inference/tokenize-compact-ascii
                         (.allocateFrom arena prompt) (count prompt)))
             ffn-input (.allocate arena (* 4 2048) 4)]
@@ -786,7 +786,7 @@
                (inference/model-storage-kind)))
         (is (= [122 219 61 87 101 173 18 184 59 28 8 169 7 70 216 146
                 90 247 24 84 91 74 54 40 126 141 172 143 131 183 42 182]
-               (vec (az/value (inference/loaded-model-sha256)))))
+               (vec (a/value (inference/loaded-model-sha256)))))
         (is (= [768 0 0 0] (:dimensions output-norm)))
         (is (= 0 (:ggml_type output-norm)))
         (is (= [768 100352 0 0] (:dimensions token-embedding)))
@@ -801,7 +801,7 @@
         (is (= 768 (inference/metadata-u32 embedding-key 0)))
         (is (= 12.0 (double (inference/metadata-f32 scale-key 0.0))))
         (is (= {:value_type 9 :element_type 8 :element_count 100352}
-               (select-keys (az/value (inference/metadata-info tokens-key))
+               (select-keys (a/value (inference/metadata-info tokens-key))
                             [:value_type :element_type :element_count])))
         (is (:valid tokenized))
         (is (false? (:truncated tokenized)))
@@ -833,9 +833,9 @@
                     2.0e-6))
         (try
           (is (inference/initialize-sequences!))
-          (let [racer-zero (az/value (inference/forward-token! 0 0))
-                racer-one (az/value (inference/forward-token! 1 0))
-                sequences (az/value (inference/sequence-summary))]
+          (let [racer-zero (a/value (inference/forward-token! 0 0))
+                racer-one (a/value (inference/forward-token! 1 0))
+                sequences (a/value (inference/sequence-summary))]
             (is (:valid racer-zero))
             (is (:valid racer-one))
             (is (= 36 (:best_token racer-zero) (:best_token racer-one)))
@@ -843,12 +843,12 @@
                         (:hidden_first racer-one) 1.0e-7))
             (is (close? 1112.6677 (:hidden_checksum racer-zero) 1.0e-3))
             (is (= [1 1 0 0 0 0 0 0 0 0 0 0] (:positions sequences)))
-            (is (= (az/value inference/sequence-total-bytes)
+            (is (= (a/value inference/sequence-total-bytes)
                    (:state_bytes sequences))))
           (finally
             (inference/free-sequences!)))
-        (let [head (az/value (inference/load-action-head! action-head-path))
-              team-head (az/value (inference/load-team-head! team-head-path))
+        (let [head (a/value (inference/load-action-head! action-head-path))
+              team-head (a/value (inference/load-team-head! team-head-path))
               action-scenarios (train-action-head/golden-scenarios)
               team-scenarios (take 3 (train-team-head/golden-scenarios))
               features (.allocate arena (* 6144 Float/BYTES) Float/BYTES)]
@@ -868,11 +868,11 @@
             (doseq [{:keys [action] :as scenario} action-scenarios]
               (let [prompt (train-action-head/observation-text scenario)
                     tokenized
-                    (az/value
+                    (a/value
                      (inference/tokenize-compact-ascii
                       (.allocateFrom arena prompt) (count prompt)))
                     report
-                    (az/value
+                    (a/value
                      (inference/forward-compact-prompt!
                       0 (.allocateFrom arena prompt) (count prompt) true))]
                 (is (:valid report))
@@ -885,7 +885,7 @@
             (doseq [{:keys [action] :as scenario} team-scenarios]
               (let [prompt (train-team-head/team-text scenario)
                     report
-                    (az/value
+                    (a/value
                      (inference/forward-compact-prompt!
                       8 (.allocateFrom arena prompt) (count prompt) true))]
                 (is (:valid report))
@@ -945,7 +945,7 @@
         (is (= 1001 (:revision (await-worker-result 0 15000))))
         (is (= 1003 (:revision (await-worker-result 1 15000))))
         (let [summary (core/worker-status)]
-          (is (= (az/value protocol/actor-count) (:threads summary)))
+          (is (= (a/value protocol/actor-count) (:threads summary)))
           (is (= [1 1 0 0 0 0 0 0 0 0 0 0] (:requests_by_actor summary)))
           (is (= [1 1 0 0 0 0 0 0 0 0 0 0] (:results_by_actor summary)))))
       (finally
@@ -961,23 +961,23 @@
       ;; exercises all eight hard deadlines. Native simulation ticks are
       ;; intentionally advanced faster than the real model can answer.
       (simulation/step-many! 721)
-      (let [expired (az/value (simulation/snapshot))
+      (let [expired (a/value (simulation/snapshot))
             cognition (core/cognition-status)]
-        (is (= (az/value simulation/racer-count) (:deadline_misses expired)))
-        (is (= (az/value simulation/racer-count) (:deadline_misses cognition)))
+        (is (= (a/value simulation/racer-count) (:deadline_misses expired)))
+        (is (= (a/value simulation/racer-count) (:deadline_misses cognition)))
         (is (every? #(= 1 (:deadline_misses
-                            (az/value (simulation/racer-view %))))
-                    (range (az/value simulation/racer-count)))))
+                            (a/value (simulation/racer-view %))))
+                    (range (a/value simulation/racer-count)))))
       (let [workers (await-workers-idle 10000)]
         (is (= [1 1 1 1 1 1 1 1 0 0 0 0] (:requests_by_actor workers)))
         (is (= [1 1 1 1 1 1 1 1 0 0 0 0] (:results_by_actor workers))))
       (simulation/step!)
       (let [cognition (core/cognition-status)]
         (is (zero? (:llm_entries cognition)))
-        (is (= (az/value simulation/racer-count) (:deadline_misses cognition)))
+        (is (= (a/value simulation/racer-count) (:deadline_misses cognition)))
         (is (every? #(= telemetry/source-fallback
-                        (:source (az/value (simulation/racer-view %))))
-                    (range (az/value simulation/racer-count)))))
+                        (:source (a/value (simulation/racer-view %))))
+                    (range (a/value simulation/racer-count)))))
       (finally
         (core/stop-headless!)))))
 
@@ -1007,9 +1007,9 @@
     (is (false? (simulation/set-items-enabled! false)))
     (simulation/reset!)
     (simulation/step-many! 8000)
-    (let [race (az/value (simulation/snapshot))]
+    (let [race (a/value (simulation/snapshot))]
       (is (= simulation/race-state-finished (:state race)))
-      (is (= (az/value simulation/racer-count) (:finished race)))
+      (is (= (a/value simulation/racer-count) (:finished race)))
       (is (zero? (:items_used race)))
       (is (zero? (:hits race)))
       (is (zero? (:hazards_spawned race))))
@@ -1018,28 +1018,28 @@
       (simulation/reset!))))
 
 (deftest eight-racer-native-race-test
-  (az/await!)
+  (a/await!)
   (simulation/reset!)
   (simulation/step-many! 1200)
-  (let [snapshot (az/value (simulation/snapshot))
-        racers (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))
-        cognition (az/value (telemetry/summary))
+  (let [snapshot (a/value (simulation/snapshot))
+        racers (mapv #(a/value (simulation/racer-view %)) (range (a/value simulation/racer-count)))
+        cognition (a/value (telemetry/summary))
         recorded (reduce + (map #(min telemetry/entries-per-racer
                                      (telemetry/decision-count %))
-                                (range (az/value simulation/racer-count))))
-        latest (mapv #(az/value (telemetry/latest %)) (range (az/value simulation/racer-count)))
+                                (range (a/value simulation/racer-count))))
+        latest (mapv #(a/value (telemetry/latest %)) (range (a/value simulation/racer-count)))
         semantic-log (core/decision-log 0)
         raw-log (core/decision-log 0 {:include-raw? true})
         semantic-trace (core/decision-trace 0)
         raw-trace (core/decision-trace 0 0 {:include-raw? true})
         outcomes
         (mapcat (fn [racer-id]
-                  (map #(az/value (telemetry/outcome-at racer-id %))
+                  (map #(a/value (telemetry/outcome-at racer-id %))
                        (range (min telemetry/entries-per-racer
                                    (telemetry/decision-count racer-id)))))
-                (range (az/value simulation/racer-count)))]
-    (is (= (az/value simulation/racer-count) (:racers snapshot)))
-    (is (= (az/value simulation/racer-count) (count racers)))
+                (range (a/value simulation/racer-count)))]
+    (is (= (a/value simulation/racer-count) (:racers snapshot)))
+    (is (= (a/value simulation/racer-count) (count racers)))
     (is (= (set (range 1 9)) (set (map :rank racers))))
     (is (pos? (:decisions snapshot)))
     (is (pos? (:items_used snapshot)))
@@ -1106,10 +1106,10 @@
     (is (every? #(= 64 (count (:input_tokens %))) latest))
     (is (every? #(= 16 (count (:output_tokens %))) latest))
     (simulation/step-many! 6800)
-    (let [finish (az/value (simulation/snapshot))
+    (let [finish (a/value (simulation/snapshot))
           finished-racers
-          (mapv #(az/value (simulation/racer-view %)) (range (az/value simulation/racer-count)))]
-      (is (= (az/value simulation/racer-count) (:finished finish)))
+          (mapv #(a/value (simulation/racer-view %)) (range (a/value simulation/racer-count)))]
+      (is (= (a/value simulation/racer-count) (:finished finish)))
       (is (= simulation/race-state-finished (:state finish)))
       (is (= (set (range 1 9)) (set (map :rank finished-racers))))
       (is (every? :finished finished-racers))
@@ -1117,7 +1117,7 @@
       (is (apply <= (map :finish_tick (sort-by :rank finished-racers)))))))
 
 (deftest deterministic-intent-replay-test
-  (az/await!)
+  (a/await!)
   (simulation/clear-replay!)
   (simulation/reset!)
   (simulation/step-many! 1200)
@@ -1129,22 +1129,22 @@
         [:rank :lap :finished :item :shielded :item_action :progress :speed
          :lane_target :target_speed :target :decisions :finish_tick]
         original-snapshot
-        (select-keys (az/value (simulation/snapshot)) snapshot-keys)
+        (select-keys (a/value (simulation/snapshot)) snapshot-keys)
         original-racers
-        (mapv #(select-keys (az/value (simulation/racer-view %)) racer-keys)
-              (range (az/value simulation/racer-count)))
+        (mapv #(select-keys (a/value (simulation/racer-view %)) racer-keys)
+              (range (a/value simulation/racer-count)))
         outcome-keys
         [:valid :resolved :item_used :racer_id :start_rank :end_rank
          :hits_dealt :revision :start_tick :resolved_tick
          :start_absolute_progress :progress_gain :rank_gain]
         original-outcomes
         (mapv (fn [racer-id]
-                (mapv #(select-keys (az/value
+                (mapv #(select-keys (a/value
                                      (telemetry/outcome-at racer-id %))
                                     outcome-keys)
                       (range (min telemetry/entries-per-racer
                                   (telemetry/decision-count racer-id)))))
-              (range (az/value simulation/racer-count)))
+              (range (a/value simulation/racer-count)))
         replay (core/capture-replay)
         replay-count (count replay)]
     (is (<= 1 replay-count simulation/replay-capacity))
@@ -1153,20 +1153,20 @@
            (core/load-replay! replay)))
     (simulation/step-many! 1200)
     (let [replayed-snapshot
-          (select-keys (az/value (simulation/snapshot)) snapshot-keys)
+          (select-keys (a/value (simulation/snapshot)) snapshot-keys)
           replayed-racers
-          (mapv #(select-keys (az/value (simulation/racer-view %)) racer-keys)
-                (range (az/value simulation/racer-count)))
+          (mapv #(select-keys (a/value (simulation/racer-view %)) racer-keys)
+                (range (a/value simulation/racer-count)))
           replayed-outcomes
           (mapv (fn [racer-id]
-                  (mapv #(select-keys (az/value
+                  (mapv #(select-keys (a/value
                                        (telemetry/outcome-at racer-id %))
                                       outcome-keys)
                         (range (min telemetry/entries-per-racer
                                     (telemetry/decision-count racer-id)))))
-                (range (az/value simulation/racer-count)))
+                (range (a/value simulation/racer-count)))
           replay-status (core/replay-status)
-          cognition (az/value (telemetry/summary))]
+          cognition (a/value (telemetry/summary))]
       (is (= original-snapshot replayed-snapshot))
       (is (= original-racers replayed-racers))
       (is (= original-outcomes replayed-outcomes))
@@ -1180,7 +1180,7 @@
     (simulation/clear-replay!))
   (simulation/set-race-seed! 7)
   (let [native-parity
-        (az/value
+        (a/value
          (simulation/run-replay-parity! protocol/replay-golden-ticks))]
     (is (:valid native-parity))
     (is (= protocol/replay-golden-intent-count
@@ -1191,7 +1191,7 @@
            (:original_fingerprint native-parity)))))
 
 (deftest portable-replay-artifact-test
-  (az/await!)
+  (a/await!)
   (let [fixture (io/file (io/resource "replay/golden-r4.bin"))
         bytes (Files/readAllBytes (.toPath fixture))
         file-attributes (make-array FileAttribute 0)
@@ -1238,8 +1238,8 @@
     (is (= 3 (:race-count report)))
     (is (= 3 (:complete-races report)))
     (is (= [0 1 2] (:seeds report)))
-    (is (= (az/value simulation/racer-count) (count scoreboard)))
-    (is (= (set (range (az/value simulation/racer-count))) (set (map :racer scoreboard))))
+    (is (= (a/value simulation/racer-count) (count scoreboard)))
+    (is (= (set (range (a/value simulation/racer-count))) (set (map :racer scoreboard))))
     (is (= (* 3 (reduce + (range 1 9)))
            (reduce + (map :points scoreboard))))
     (is (every? #(= 3 (:races %)) scoreboard))

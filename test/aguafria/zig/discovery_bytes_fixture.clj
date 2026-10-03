@@ -1,8 +1,8 @@
 (ns aguafria.zig.discovery-bytes-fixture
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest never-run
-  (debug/print (az/string-literal "\"\\xff\"") [])
+(a/deftest never-run
+  (debug/print (a/string-literal "\"\\xff\"") [])
   (k/unreachable))

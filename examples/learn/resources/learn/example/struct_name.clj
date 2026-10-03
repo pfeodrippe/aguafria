@@ -1,18 +1,18 @@
 (ns learn.example.struct-name
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn List :type [[T {:attrs #{k/comptime}} :type]]
-  (az/struct
+(a/defn List :type [[T {:attrs #{k/comptime}} :type]]
+  (a/struct
    [[:x T]]))
 
-(az/defn main :void []
-  (let [Foo (az/struct
+(a/defn main :void []
+  (let [Foo (a/struct
              [])]
     (debug/print "variable: {s}\n" [(k/typeName Foo)])
     (debug/print "anonymous: {s}\n"
-                 [(k/typeName (az/struct
+                 [(k/typeName (a/struct
                                []))])
     (debug/print "function: {s}\n" [(k/typeName (List :i32))])))
 

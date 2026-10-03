@@ -1,9 +1,9 @@
 (ns learn.example.test-round-builtin
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest round
+(a/deftest round
   (try (testing/expectEqual 1 (k/round 1.4)))
   (try (testing/expectEqual 2 (k/round 1.5)))
   (try (testing/expectEqual -1 (k/round -1.4)))

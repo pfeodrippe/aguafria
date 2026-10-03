@@ -1,13 +1,13 @@
 (ns learn.snippet.handle-all-error-scenarios
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- do-a-thing :void [[text [:slice :u8]]]
-  (az/if-capture-stmt {:payload [number] :error [error]}
+(a/defn- do-a-thing :void [[text [:slice :u8]]]
+  (a/if-capture-stmt {:payload [number] :error [error]}
                       (parse-u64 text 10)
                       (do-something-with-number number)
-                      (az/switch-stmt error
+                      (a/switch-stmt error
       ;; Handle overflow here.
-                        (case [(az/error-value :Overflow)] (az/block))
+                        (case [(a/error-value :Overflow)] (a/block))
       ;; InvalidChar is promised impossible; safety checks trap if it occurs.
-                        (case [(az/error-value :InvalidChar)] (k/unreachable)))))
+                        (case [(a/error-value :InvalidChar)] (k/unreachable)))))

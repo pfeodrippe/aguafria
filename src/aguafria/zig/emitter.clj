@@ -387,7 +387,7 @@
                   :aguafria/zig-reference
                   (#(when (:type-reference? %) %)))))))
 
-(declare qualify-form qualify-type)
+(declare qualify-form qualify-type nested-declaration declaration-local-bindings)
 
 (defn- declared-call-arguments [context-ns op reference]
   (when (and (symbol? op)
@@ -547,6 +547,7 @@
 (defn- lower-captures [captures]
   (reduce (fn [[names bindings] capture]
             (let [pointer? (and (seq? capture)
+                                (symbol? (first capture))
                                 (or (= 'pointer-capture (first capture))
                                     (= "*" (some-> capture first name))))
                   pattern (if pointer? (second capture) capture)]
@@ -587,7 +588,7 @@
       (let [ordinary? (contains? #{'case 'inline-case} operator)
             [patterns tail] (if ordinary? [(first args) (rest args)] [nil args])
             captures (first tail)]
-        (when (vector? captures)
+        (when (and (vector? captures) (next tail))
           (let [[names bindings] (lower-captures captures)]
             (when (seq bindings)
               (apply list operator (concat (when ordinary? [patterns]) [names]
@@ -684,6 +685,55 @@
                               [(vec (interleave captures inputs))] body))
       (meta form))))
 
+(defn- qualify-capture-scope
+  [context-ns captures form]
+  (let [names (map #(if (seq? %) (second %) %) captures)]
+    (binding [*lexical-bindings* (into *lexical-bindings* names)
+              *local-type-bindings* (merge *local-type-bindings* (zipmap names (repeat false)))
+              *local-name-bindings* (merge *local-name-bindings* (zipmap names names))]
+      (qualify-form context-ns form))))
+
+(defn- qualify-capture-form
+  [context-ns operator [_ & args :as form]]
+  (let [scoped #(qualify-capture-scope context-ns %1 %2)
+        qualify #(qualify-form context-ns %)]
+    (when-let [arguments
+               (case operator
+                 (if-capture if-capture-stmt while-loop)
+                 (let [[options condition & body] args
+                       payload (:payload options)
+                       error (:error options)
+                       options (cond-> (qualify (dissoc options :payload :error :continue :else))
+                                 payload (assoc :payload (scoped payload payload))
+                                 error (assoc :error (scoped error error))
+                                 (:continue options) (assoc :continue (scoped payload (:continue options)))
+                                 (:else options) (assoc :else (scoped error (:else options))))]
+                   (into [options (qualify condition)]
+                         (map-indexed #(scoped (if (and (not= 'while-loop operator) (pos? %1))
+                                                error payload) %2))
+                         body))
+
+                 (case inline-case case-else inline-case-else)
+                 (let [ordinary? (contains? #{'case 'inline-case} operator)
+                       [patterns body] (if ordinary? [(first args) (rest args)] [nil args])
+                       captures (first body)]
+                   (when (and (vector? captures) (next body))
+                     (concat (when ordinary? [(qualify patterns)])
+                             [(scoped captures captures)]
+                             (map #(scoped captures %) (rest body)))))
+
+                 catch-capture
+                 (let [[captures condition & body] args]
+                   (concat [(scoped captures captures) (qualify condition)]
+                           (map #(scoped captures %) body)))
+
+                 errdefer
+                 (when (vector? (first args))
+                   (let [[captures & body] args]
+                     (cons (scoped captures captures) (map #(scoped captures %) body))))
+                 nil)]
+      (with-meta (apply list operator arguments) (meta form)))))
+
 (defn- qualify-seq
   [context-ns form]
   (let [[op & raw-args] form
@@ -747,7 +797,7 @@
                   "Qualified calls must name a real Var from a required namespace.")
              form {:operator op :context-ns (ns-name context-ns)}))
     (cond
-      (keyword? op)
+      (and (keyword? op) (not (str/starts-with? (name op) ".")))
       (do
         (when-not (= 1 (count args))
           (fail! "Native keyword field access expects exactly one value; defaults are not supported"
@@ -785,15 +835,33 @@
                                metadata)))
                          (meta form) [:var :zig/type :tag :align :zig/addrspace :zig/linksection]))
                form)
-        captured (when (seq? form)
-                   (lower-capture-form
-                    (resolved-syntax-operator context-ns (first form)) form))]
+        operator (when (seq? form)
+                   (or (resolved-syntax-operator context-ns (first form))
+                       (some-> (keyword/resolve-token context-ns (first form))
+                               :zig-token symbol)))
+        captured (when (seq? form) (lower-capture-form operator form))]
    ;; Type-bearing binding metadata is source code too. Capture its defining
    ;; namespace before declaration emission happens in a different context.
    ;; Other metadata (docs, source spans, arbitrary user values) stays intact.
     (cond
       captured
       (qualify-form context-ns (with-meta captured (meta form)))
+
+      (contains? #{'if-capture 'if-capture-stmt 'while-loop
+                   'case 'inline-case 'case-else 'inline-case-else
+                   'catch-capture 'errdefer} operator)
+      (or (qualify-capture-form context-ns operator form)
+          (qualify-seq context-ns form))
+
+      (and (seq? form)
+           (contains? #{'fn-decl 'fn-proto-decl}
+                      (resolved-syntax-operator context-ns (first form))))
+      (let [declaration (binding [*keyword-context* context-ns]
+                          (nested-declaration form))]
+        (binding [*lexical-bindings*
+                  (into *lexical-bindings*
+                        (declaration-local-bindings context-ns declaration))]
+          (qualify-seq context-ns form)))
 
       (and (seq? form)
            (= 'let (resolved-syntax-operator context-ns (first form)))
@@ -820,6 +888,25 @@
                         (qualify-form context-ns (nth expanded 2))
                         (qualify-form context-ns expanded)))
                     (qualify-seq context-ns form))
+      (and (vector? form) (= :fn (first form))
+           (= 4 (count form)) (map? (second form)) (vector? (nth form 2)))
+      (let [[tag options parameters return-type] form
+            [parameters scope]
+            (reduce (fn [[result scope] parameter]
+                      (let [qualified
+                            (binding [*lexical-bindings* scope]
+                              (qualify-form context-ns (dissoc parameter :name)))]
+                        [(conj result (cond-> qualified
+                                        (contains? parameter :name)
+                                        (assoc :name (:name parameter))))
+                         (cond-> scope
+                           (symbol? (:name parameter)) (conj (:name parameter)))]))
+                    [[] *lexical-bindings*] parameters)]
+        (binding [*lexical-bindings* scope]
+          (with-meta [tag (qualify-form context-ns options) parameters
+                      (qualify-type context-ns return-type)]
+            (meta form))))
+
       (vector? form) (with-meta (mapv #(qualify-form context-ns %) form)
                        (meta form))
       (map? form) (with-meta
@@ -902,7 +989,7 @@
                         :else [])))))
         (tree-seq coll? seq (:body declaration))))
 
-(declare nested-declaration for-bindings validate-declaration-references!)
+(declare nested-declaration container-description for-bindings validate-declaration-references!)
 
 (defn- binding-symbols [form]
   (set (filter symbol? (tree-seq coll? seq form))))
@@ -982,7 +1069,19 @@
           (body names (rest args)))
 
         (contains? #{'container} op)
-        (body names (if (vector? (second args)) (second args) (rest args)))
+        (let [members (if (vector? (second args)) (second args) (rest args))
+              converted? (project/converted-module?
+                          (or project/*catalog-namespace* (ns-name context-ns)))
+              ;; Parsed Zig containers can contain mutually recursive members.
+              ;; Only declarations actually present here enter their scope.
+              scope (if converted?
+                      (into names
+                            (keep #(when (contains? #{:fn :fn-proto :const :var :extern-var
+                                                     :struct :import} (:kind %))
+                                     (:name %)))
+                            (:members (container-description context-ns form)))
+                      names)]
+          (body scope members))
 
         (= 'asm op)
         (let [[template options] args]
@@ -1006,7 +1105,7 @@
         (let [[patterns forms] (if (contains? #{'case 'inline-case} op)
                                  [(first args) (rest args)]
                                  [[] args])
-              [captures forms] (if (vector? (first forms))
+              [captures forms] (if (and (vector? (first forms)) (next forms))
                                  [(first forms) (rest forms)]
                                  [[] forms])]
           (doseq [pattern patterns :when (not= '_ pattern)] (check pattern))
@@ -1035,7 +1134,10 @@
               scope (into names (binding-symbols
                                  (select-keys options [:payload :error :label :body-label])))]
           (check condition)
-          (doseq [value (vals (dissoc options :payload :error :label :body-label))]
+          (doseq [key [:continue :else]]
+            (body scope (get options key)))
+          (doseq [value (vals (dissoc options :payload :error :label :body-label
+                                    :continue :else))]
             (validate-reference-form! context-ns scope value))
           (body scope forms))
 
@@ -1225,9 +1327,9 @@
         (merge {:size :one} options)
         prefix (case size
                  :one "*"
-                 :many (str "[*" (when (some? sentinel)
+                 :many (str "[*" (when (contains? options :sentinel)
                                    (str ":" (emit-expr sentinel))) "]")
-                 :slice (str "[" (when (some? sentinel)
+                 :slice (str "[" (when (contains? options :sentinel)
                                    (str ":" (emit-expr sentinel))) "]")
                  :c "[*c]"
                  (fail! "Pointer :size must be :one, :many, :slice, or :c"
@@ -1938,7 +2040,7 @@
           (:zig-name reference))
         (if (str/includes? (name form) ".")
           (fail! (str "Unresolved dotted Zig reference `" form "`. "
-                      "Declare imported members with az/defimport.")
+                      "Declare imported members with a/defimport.")
                  form {:operator form})
           (if (= 'undefined form)
             (fail! "Bare `undefined` is not a Clojure Var; use `ak/undefined`"
@@ -1961,7 +2063,7 @@
           token (when-not (= :keyword (:kind source-token)) source-token)
           expansion (expand-clojure-macro-once (or *keyword-context* *ns*) form)]
       (cond
-        (keyword? source-op)
+        (and (keyword? source-op) (not (str/starts-with? (name source-op) ".")))
         (if (= 1 (count args))
           (emit-expr (list 'field (first args) source-op))
           (fail! "Native keyword field access expects exactly one value; defaults are not supported"
@@ -3185,12 +3287,12 @@
   `:properties` for inspection and future Zig-specific field features."
   [fields]
   (when-not (vector? fields)
-    (fail! "az/defstruct expects a vector of Malli-style field entries" fields
+    (fail! "a/defstruct expects a vector of Malli-style field entries" fields
            {:expected '[[:field :type]]}))
   (mapv
    (fn [entry]
      (when-not (vector? entry)
-       (fail! "Each az/defstruct field must be a vector: [field type] or [field properties type]"
+       (fail! "Each a/defstruct field must be a vector: [field type] or [field properties type]"
               entry {:fields fields :expected '[:field :type]}))
      (let [[field properties type]
            (case (count entry)
@@ -3199,7 +3301,7 @@
                  [(nth entry 0) (nth entry 1) (nth entry 2)]
                  (fail! "The middle value of a three-element struct field must be a properties map"
                         entry {:expected '[:field {:property "value"} :type]}))
-             (fail! "Each az/defstruct field expects two or three values"
+             (fail! "Each a/defstruct field expects two or three values"
                     entry {:expected '[:field :type]}))]
        (when-not (or (keyword? field) (symbol? field) (string? field))
          (fail! "A struct field name must be a keyword, symbol, or string"
@@ -3306,7 +3408,7 @@
   [{:keys [kind name type value fields body args return export? public? layout
            source code import-name leading-source zig-prefix zig-qualifiers
            zig-name implicit-return? emit-source-comment? test-name
-           has-value? align doc comments body-prefix-source
+           has-value? align callconv doc comments body-prefix-source
            dependency-default-export? import-container]
     :as declaration}]
   (binding [debug/*source* source
@@ -3415,6 +3517,7 @@
               ")"
               (when align (str " align(" (emit-expr align) ")"))
               (when (seq zig-qualifiers) (str " " zig-qualifiers))
+              (when callconv (str " callconv(" (emit-expr callconv) ")"))
               " " (emit-type return) ";")
 
          :fn
@@ -3443,7 +3546,9 @@
                 ")"
                 (when align (str " align(" (emit-expr align) ")"))
                 (when (seq zig-qualifiers) (str " " zig-qualifiers))
+                (when callconv (str " callconv(" (emit-expr callconv) ")"))
                 (when (and (or export? dependency-default-export?)
+                           (nil? callconv)
                            (nil? zig-prefix)
                            (not (seq zig-qualifiers))
                            (not-any? generic-function-argument? args))
@@ -3932,10 +4037,10 @@
           [nil declaration])
         [attributes declaration]
         ;; An enum member can consist solely of its name and an attributes
-        ;; map, for example `(az/enum-field-decl clojure-name
+        ;; map, for example `(a/enum-field-decl clojure-name
         ;; {:zig/name "@\"zig-name\""})`. Requiring a following value made
         ;; that map look like the enum's explicit Zig value. Object values are
-        ;; represented by `az/object`, so an ordinary map in this position is
+        ;; represented by `a/object`, so an ordinary map in this position is
         ;; unambiguously declaration metadata throughout the structural API.
         (if (map? (first declaration))
           [(cond-> (first declaration)
@@ -4079,6 +4184,7 @@
      :leading-source (:zig/leading attributes)
      :zig-prefix (:zig/prefix attributes)
      :zig-qualifiers (:zig/qualifiers attributes)
+     :callconv (:callconv attributes)
      :implicit-return? (cond
                          (contains? attributes :implicit-return)
                          (not= false (:implicit-return attributes))
@@ -4340,7 +4446,7 @@
                      (:aguafria/zig-reference (meta value)))]
          (let [{:keys [import-alias import-name import-namespace source-order]}
                (if (= :import-member (:kind reference))
-                 ;; `az/defimport` members use the external module's actual
+                 ;; `a/defimport` members use the external module's actual
                  ;; import name and the local Zig alias. A declaration-only
                  ;; hot slice no longer contains the defimport descriptor, so
                  ;; retain this edge on the member Var itself and synthesize

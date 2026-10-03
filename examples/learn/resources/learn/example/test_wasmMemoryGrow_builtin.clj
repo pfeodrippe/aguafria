@@ -4,16 +4,16 @@
             [aguafria.std.Target :as target]
             [aguafria.std.Target.Cpu :as cpu]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst native-arch
+(a/defconst native-arch
   (-> builtin/target
       target/-cpu
       cpu/-arch))
 
-(az/deftest wasmMemoryGrow
+(a/deftest wasmMemoryGrow
   (when (k/!= native-arch :.wasm32)
-    (k/return (az/error-value :SkipZigTest)))
+    (k/return (a/error-value :SkipZigTest)))
   (let [prev (k/wasmMemorySize 0)]
     (try (testing/expectEqual (k/wasmMemoryGrow 0 1) prev))
     (try (testing/expectEqual (k/wasmMemorySize 0) (k/+ prev 1)))))

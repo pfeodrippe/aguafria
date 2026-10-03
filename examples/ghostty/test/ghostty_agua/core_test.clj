@@ -1,5 +1,5 @@
 (ns ghostty-agua.core-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -45,12 +45,12 @@
 (deftest compatible-native-edit-retains-terminal-test
   (let [original (:aguafria/declaration (meta #'live/title-version))]
     (try
-      (az/await! 'ghostty-agua.live)
+      (a/await! 'ghostty-agua.live)
       (example/start! {:replace? true})
       (let [before (example/publish-hot-title!)
             changed (runtime/declaration-info (assoc original :body [2]))]
         (runtime/register-declaration! changed)
-        (az/await! 'ghostty-agua.live)
+        (a/await! 'ghostty-agua.live)
         (let [after (example/publish-hot-title!)]
           (testing "the function body changes while real Ghostty state remains"
             (is (= 1 (:native-version before)))
@@ -59,5 +59,5 @@
             (is (= "Aguafria Ghostty hot generation 2" (:title after))))))
       (finally
         (runtime/register-declaration! original)
-        (az/await! 'ghostty-agua.live)
+        (a/await! 'ghostty-agua.live)
         (example/stop!)))))

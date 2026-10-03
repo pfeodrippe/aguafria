@@ -9,7 +9,7 @@ standalone `ReleaseFast` output, statistics, mapped diagnostics, and the
 Zig/ZLS-generated keyword catalog plus the complete EDN-derived Zig std
 namespace graph. The complete current 245-file TigerBeetle conversion is
 checked in and bulk-loadable as 245 ordinary namespaces with 4,032 top-level
-declarations, zero generated `az/defraw` declarations, and zero nested
+declarations, zero generated `a/defraw` declarations, and zero nested
 `raw`/`raw-statements`/type/expression fallbacks. Conversion now fails with
 source-located structured data instead of returning generated code if any Zig
 AST node lacks a structural Aguafria representation. The complete converted
@@ -126,17 +126,17 @@ is an implicit return for the final expression of a non-void function.
 
 1. **Project and public API**
    - Add `deps.edn`, source/test paths, Kaocha discovery, and an nREPL alias.
-   - Expose `aguafria.zig` as the user namespace (normally aliased to `az`).
+   - Expose `aguafria.zig` as the user namespace (normally aliased to `a`).
    - Expose Zig-only keywords/operators and reader-hostile Zig syntax through
      generated, documented Vars in `aguafria.keyword` (normally aliased to
      `ak`) while keeping Clojure-native language forms such as `if` and
-     `while` bare. Expose structural Aguafria helpers such as `az/field` and
-     `az/while-loop` as real documented Vars as well.
+     `while` bare. Expose structural Aguafria helpers such as `a/field` and
+     `a/while-loop` as real documented Vars as well.
    - Expose Zig's entire public std graph as normal require-able namespaces
      under `aguafria.std`, including nested container members and docs, with a
      single runtime bootstrap reading the generated EDN catalog and no
      generated Clojure namespace source.
-   - Provide `az/defn`, `az/defconst`, `az/defvar`, `az/defstruct`, and the
+   - Provide `a/defn`, `a/defconst`, `a/defvar`, `a/defstruct`, and the
      remaining structural declaration macros. Accept an optional docstring and
      ordinary attr-map after the name; allow `defconst`/`defvar` to omit `_`
      when the Zig type is inferred.
@@ -168,7 +168,7 @@ is an implicit return for the final expression of a non-void function.
      The compact project EDN catalog may retain project-relative output paths
      for materialization and asset/layout reconstruction, but never machine-
      absolute source paths or a runtime dependency on the original Zig tree.
-     Do not generate empty `az/defimport` declarations for converted files.
+     Do not generate empty `a/defimport` declarations for converted files.
    - Qualify generated `ak/...` aliases to their `aguafria.keyword/...` Var
      symbols at macro-expansion time, independent of the chosen alias. Have the
      emitter consume those Vars directly—without an intermediate `builtin`
@@ -219,7 +219,7 @@ is an implicit return for the final expression of a non-void function.
      single-entry maps for tagged unions. Untagged union constructors retain
      the caller's explicit active-field interpretation; arbitrary returned
      untagged values correctly remain ambiguous. Live `defvar` values support
-     checked, in-place `az/set-value!` without a build. Optionals use `nil` or
+     checked, in-place `a/set-value!` without a build. Optionals use `nil` or
      their semantic payload in constants, struct fields, and direct function
      arguments/results, with Zig-generated tag/payload helpers. Typed borrowed
      pointers preserve their exact Zig type/address, expose an explicitly sized
@@ -230,7 +230,7 @@ is an implicit return for the final expression of a non-void function.
      explicit `{:ok value}` or `{:error {:name keyword :code integer}}` maps,
      preserve exact native error codes, and work in direct calls and normal
      struct fields. Module-owned backing arenas keep mutable slice state alive
-     until `az/clear!`; top-level optional/slice/error-union `defvar` values
+     until `a/clear!`; top-level optional/slice/error-union `defvar` values
      mutate in place and survive compatible reloads. Recursive Zig-generated
      storage helpers compose optionals, slices, error unions, arrays/vectors,
      and normal container fields without JVM-side layout guesses.
@@ -280,12 +280,12 @@ is an implicit return for the final expression of a non-void function.
      source-located parse diagnostics when the compiler rejects a file.
    - Provide `parse-file`, `zig->clojure`, `convert-file!`, and `convert-tree!`
      in the opt-in `aguafria.zig.convert` tooling namespace. Keep these
-     infrequent operations out of the everyday `aguafria.zig` (`az`) DSL
+     infrequent operations out of the everyday `aguafria.zig` (`a`) DSL
      surface. Namespace naming, source/output roots, overwrite policy,
      formatting, and verification must be explicit options, and every
      operation must return a serializable conversion report.
    - Translate imports, functions, constants, variables, structs, ordinary
-     operators, language forms, and `@` builtins to normal `az/...`,
+     operators, language forms, and `@` builtins to normal `a/...`,
      Clojure-native forms, `aguafria.std...` Vars, and `ak/...` Vars. Reject
      generated Zig/Aguafria syntax list heads that do not resolve through a
      real Var or Clojure itself. Preserve comments, logical blank-line groups,
@@ -293,7 +293,7 @@ is an implicit return for the final expression of a non-void function.
      comments as `;;` at their corresponding Clojure declaration/member/body
      positions, and render Zig doc comments as idiomatic declaration
      docstrings.
-   - Never emit `az/defraw`, `(raw ...)`, `(raw-statements ...)`, or chunked raw
+   - Never emit `a/defraw`, `(raw ...)`, `(raw-statements ...)`, or chunked raw
      equivalents in converted user code. Every declaration, nested container,
      expression, type, and statement must have an inspectable structural
      Aguafria representation. During implementation, count and source-locate
@@ -359,7 +359,7 @@ is an implicit return for the final expression of a non-void function.
      retired generations, active call counts, pending swaps, migration state,
      and errors through the serializable statistics/inspection API.
    - Keep development and production semantics source-compatible. Development
-     builds enable dispatch/versioning; `az/build! {:reloadable? false
+     builds enable dispatch/versioning; `a/build! {:reloadable? false
      :optimize "ReleaseFast"}` resolves calls statically and emits a normal
      standalone Zig artifact with no JVM or Aguafria runtime.
 
@@ -407,8 +407,8 @@ is an implicit return for the final expression of a non-void function.
 - [x] Parse all 245 TigerBeetle Zig files with Zig's AST and generate one
   ordinary Aguafria Clojure namespace per Zig file.
 - [x] Bulk-load all generated namespaces with Vars interned in their declared
-  namespaces and zero top-level `az/defraw` declarations.
-- [x] Replace converted relative `az/defimport ... []` declarations with
+  namespaces and zero top-level `a/defraw` declarations.
+- [x] Replace converted relative `a/defimport ... []` declarations with
   normal `:as` requires on acyclic edges, cycle-safe `:as-alias` only on
   cyclic edges, and real target Vars. Resolve the
   few unavoidable reader/structural name collisions through an EDN catalog,
@@ -421,19 +421,19 @@ is an implicit return for the final expression of a non-void function.
   `message-buffer` acceptance case loads 138 reachable modules and compiles
   without manual preload or `batch/begin!`.
 - [x] Verify generated-code hot publication in a fresh JVM by adding and then
-  reevaluating one `az/defn`: its stable Clojure Var returns 10 before the edit,
+  reevaluating one `a/defn`: its stable Clojure Var returns 10 before the edit,
   11 afterward, and advances from native generation 5 to 6.
 - [x] Resolve converted source modules (for example `stdx`/`vsr`) as ordinary
   required namespaces. Preserve compiler/build-provided module values such as
-  `builtin`, `root`, and build option modules as ordinary `az/defconst` Vars
+  `builtin`, `root`, and build option modules as ordinary `a/defconst` Vars
   initialized with `ak/import`; generated project code contains no empty
-  `az/defimport` declarations or invented member stubs.
+  `a/defimport` declarations or invented member stubs.
 - [x] Ask Zig's own version-matched build configure graph for value-based
   `Step.Options` modules and store their generated Zig source in the project
   EDN catalog, associated with the importing module and selected build profile.
   `convert-tree!` captures the default step automatically and accepts
   `:build-steps` for another profile. Runtime compilation materializes these
-  named modules automatically, while an explicit `az/configure! :modules`
+  named modules automatically, while an explicit `a/configure! :modules`
   entry remains an intentional override. A fresh-JVM TigerBeetle namespace
   test compiles with an empty manual module map and proves its command uses the
   captured `vsr_options`; the checked conversion now captures both the default
@@ -463,11 +463,11 @@ is an implicit return for the final expression of a non-void function.
 - [x] Omit an empty `:attrs` set and its entire argument from generated source;
   preserve top-level no-flag semantics through the EDN project catalog and use
   natural no-flag defaults for nested members such as
-  `(az/field-decl uniform_bit :u1)`.
+  `(a/field-decl uniform_bit :u1)`.
 - [x] Preserve original logical paragraph breaks between function statements,
   with blank lines containing no indentation-only whitespace.
 - [x] Represent converted Zig object/struct literals with ordered
-  `(az/object [[:field value] ...])` entry vectors instead of Clojure maps.
+  `(a/object [[:field value] ...])` entry vectors instead of Clojure maps.
   Named struct construction remains ergonomic as `(Foo {:field value})`, but
   anonymous type inference, comptime reflection, serialization, and exact
   regeneration never depend on hash-map iteration order.
@@ -476,7 +476,7 @@ is an implicit return for the final expression of a non-void function.
   fundamentally different special form.
 - [x] Render multiline Zig documentation as readable multiline Clojure string
   literals/docstrings with real line breaks, never a single escaped `\n` line.
-- [x] Back every non-Clojure syntax head with a documented `ak/...` or `az/...`
+- [x] Back every non-Clojure syntax head with a documented `ak/...` or `a/...`
   Var, generate keyword/operator entries from Zig 0.16's tokenizer, and fail
   conversion if known syntax remains unresolved.
 - [x] Regenerate the complete TigerBeetle corpus with compact attrs/comments
@@ -547,7 +547,7 @@ is an implicit return for the final expression of a non-void function.
 - [x] Add native and JVM-side active-call accounting plus safe quiescent
   retirement for scalar shared-library generations. A concurrent integration
   test publishes a replacement while the old native call remains active,
-  observes its retirement-pending state through `az/stats`, and proves that its
+  observes its retirement-pending state through `a/stats`, and proves that its
   arena is unloaded only after the call returns.
 - [x] Extend atomic publication from a single namespace to complete dependency
   components. Every SCC member compiles and loads in parallel before one
@@ -598,26 +598,26 @@ is an implicit return for the final expression of a non-void function.
 - [x] Gate the first compilation of every converted namespace on the exact
   declaration count stored in `aguafria-project.edn`. A fresh require of the
   full converted TigerBeetle main graph publishes successfully without any
-  half-file compiler failures appearing in `az/stats`.
+  half-file compiler failures appearing in `a/stats`.
 - [x] Expose deterministic direct dependencies, reverse dependents, SCC ids,
-  member lists, and cycle flags through `az/stats`. The loaded 245-module
+  member lists, and cycle flags through `a/stats`. The loaded 245-module
   TigerBeetle graph currently resolves to 123 components, 6 cyclic components,
   and a largest cyclic component of 97 modules; this is the measured atomicity
   problem the component publisher must handle efficiently.
 - [x] Build the complete dependency graph and publish strongly connected/cyclic
   components atomically from one immutable dependency snapshot. The explicit
-  `az/recompile-component!` recovery path records component ids, members,
-  generations, publication timestamps, and rollback errors in `az/stats`.
+  `a/recompile-component!` recovery path records component ids, members,
+  generations, publication timestamps, and rollback errors in `a/stats`.
 - [x] Add stable versioned `defvar` state capsules and an explicit migration
   API. Development emission routes same- and cross-namespace state references
   through schema-keyed native pointer cells backed by the first published
   library generation; compatible reloads reuse that address, breaking schemas
-  retain the old capsule, and `az/migrate-state!` accepts only an exported
+  retain the old capsule, and `a/migrate-state!` accepts only an exported
   `(usize old, usize new) void` Zig migration before atomic SCC publication.
-  State/type generations and migrations are exposed by `az/state-versions`,
-  `az/type-versions`, and `az/stats`; final static Zig has none of these hooks.
+  State/type generations and migrations are exposed by `a/state-versions`,
+  `a/type-versions`, and `a/stats`; final static Zig has none of these hooks.
 - [x] Retain breaking scalar `defn` ABI versions side by side and expose them
-  through `az/function-versions`, `az/invoke-version!`, and statistics. A native
+  through `a/function-versions`, `a/invoke-version!`, and statistics. A native
   integration test publishes a two-argument v2, invokes it normally, and then
   invokes the retained one-argument v1 in the same process.
 - [x] Preserve a same-namespace scalar caller across a dependency-free breaking
@@ -640,9 +640,9 @@ is an implicit return for the final expression of a non-void function.
   preventing partial publication from closing an arena still referenced by an
   unchanged Clojure Var.
 - [x] Make type-producing declarations and containers live-reloadable, not
-  merely fingerprinted. This includes `az/container` values, anonymous and
+  merely fingerprinted. This includes `a/container` values, anonymous and
   nested containers, comptime/generic type factories such as TigerBeetle's
-  `az/defn OptionsType`, their monomorphizations, and containers returned from
+  `a/defn OptionsType`, their monomorphizations, and containers returned from
   other comptime declarations. Track their type/schema dependencies and
   recompile/publish the affected dependency SCC atomically. A logic-only,
   schema-compatible reevaluation must update new calls without restarting the
@@ -673,15 +673,15 @@ is an implicit return for the final expression of a non-void function.
   identity in concrete callers, so a generic cross-namespace edit atomically
   republishes its monomorphized dependent while ordinary pointer-dispatchable
   callees still swap without caller recompilation.
-- [x] Preserve the direct static optimized final-build path: `az/source` and
-  the `ReleaseFast` source used by `az/build!` contain no `__aguafria_`
+- [x] Preserve the direct static optimized final-build path: `a/source` and
+  the `ReleaseFast` source used by `a/build!` contain no `__aguafria_`
   development dispatch symbols.
 - [x] Add a project-generic development process host outside the common
   `aguafria.zig` declaration API. It reproduces Zig 0.16 `std.process.Init`,
   runs `pub fn main(std.process.Init) !void` on a native thread, makes the
   host's state capsules authoritative during its lifetime, atomically points
   JVM/native copies at them, copies state back before unloading, refuses two
-  simultaneous state owners, and reports host status through `az/stats` and
+  simultaneous state owners, and reports host status through `a/stats` and
   `aguafria.zig.host/stats`. Native host threads default to Zig's 16 MiB stack
   size (and expose `:stack-size-bytes`) so normal Zig stack frames are not
   constrained by the JVM's much smaller thread default. Host completion is delivered only after state is
@@ -689,7 +689,7 @@ is an implicit return for the final expression of a non-void function.
   explicit quiescent boundary to start the current generation in the same JVM
   PID and records `:replaces-host-id`; it never force-kills arbitrary Zig code
   or guesses how to migrate live stack/heap objects.
-- [x] Expose every supported `az/defn` as an ordinary callable Clojure Var.
+- [x] Expose every supported `a/defn` as an ordinary callable Clojure Var.
   A non-`export` Zig function lazily receives a development-only C ABI
   trampoline on first JVM invocation; later calls reuse the loaded binding and
   final/static Zig source keeps the declaration's original visibility.
@@ -746,7 +746,7 @@ is an implicit return for the final expression of a non-void function.
   `PASSED (10772 ticks)` behavior and zero failed builds.
 - [x] Publish timing/cache/queue counters through the existing serializable
   statistics APIs, including per-phase latency percentiles and critical-path
-  time for dependency components. `az/stats` now reports overall, per-module,
+  time for dependency components. `a/stats` now reports overall, per-module,
   and per-purpose min/p50/p95/p99/max/mean summaries for queue wait, native
   build, and end-to-end latency, plus cache observation/hit/miss/rate counters.
   Atomic component publications expose both wall duration and the observed
@@ -858,7 +858,7 @@ is an implicit return for the final expression of a non-void function.
   caller graph, and `host/restart!` starts a linked replacement in the same JVM
   PID that observes the 8-byte type. Compatible edits remain immediate and do
   not use this boundary.
-- [x] In converted TigerBeetle, reevaluate the comptime `az/defn OptionsType`
+- [x] In converted TigerBeetle, reevaluate the comptime `a/defn OptionsType`
   in `src/state_machine/workload.clj` and prove container/type-producing code
   is genuinely hot: compatible changes atomically republish affected
   monomorphizations and dependents, while a breaking generated-container
@@ -872,7 +872,7 @@ is an implicit return for the final expression of a non-void function.
   reevaluating `WorkloadType` then publishes its coexisting new generation.
   Cross-module and cyclic tests prove automatic compatible propagation,
   explicit breaking caller adoption, retained old ABI invocation, and a
-  state-bearing dependent that keeps its old value until `az/migrate-state!`
+  state-bearing dependent that keeps its old value until `a/migrate-state!`
   publishes `[:retained :migrated]`. Finally, the repeatable
   `clojure -M:vopr-type-hot-acceptance` run changes the actual converted
   `OptionsType` while a 2,000-request seed-1 VOPR is running: the same PID stays
@@ -882,7 +882,7 @@ is an implicit return for the final expression of a non-void function.
   that already-live host object graph to the new layout still requires the
   explicit quiescence/migration acceptance below.
 - [x] Run the converted TigerBeetle program, make a non-structural logic change,
-  evaluate the changed `az/defn`, and prove the same PID adopts it while
+  evaluate the changed `a/defn`, and prove the same PID adopts it while
   preserving live state. The reproducible
   `clojure -M:vopr-hot-acceptance 2000 1` command starts converted VOPR, defines
   a new state-backed `aguafria_hot_reload_mark`, and reevaluates existing
@@ -909,7 +909,7 @@ is an implicit return for the final expression of a non-void function.
   publish timing plus conversion/reload statistics. The dedicated
   `:test-nrepl` alias and programmatic Kaocha API run pass 78 tests and 2,948
   assertions with zero failures/errors/pending in 515,680 ms. The same REPL's
-  final `az/stats` snapshot reports 293 modules, 4,153 declarations, 165
+  final `a/stats` snapshot reports 293 modules, 4,153 declarations, 165
   dependency components, 135 finished builds, 36 stale superseded builds, and
   zero active/queued/compiling builds or active native hosts. After adding the
   cache, fresh generated-classpath, and migration-monitor regressions, the
@@ -945,7 +945,7 @@ is an implicit return for the final expression of a non-void function.
   normal require-able `aguafria.std...` namespace after the ordered
   `aguafria.std` bootstrap, including nested containers; there are no generated
   std `.clj` files.
-- `az/build!` produces optimized standalone Zig artifacts with no Aguafria
+- `a/build!` produces optimized standalone Zig artifacts with no Aguafria
   runtime dependency, including modules imported from external Zig source.
 - Generated converted files contain an ordinary `ns` followed only by Aguafria
   declarations. Loading one interns every Var in that declared namespace; no

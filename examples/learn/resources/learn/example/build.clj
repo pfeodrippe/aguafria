@@ -3,9 +3,9 @@
             [aguafria.std :as std]
             [aguafria.std.Build :as build]
             [aguafria.std.Build.Step.Compile :as compile-step]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn build :void
+(a/defn build :void
   [[b [:* std/Build]]]
   (let [optimize ((:standardOptimizeOption b) {})
         exe ((:addExecutable b)

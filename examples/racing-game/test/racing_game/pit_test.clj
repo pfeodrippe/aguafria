@@ -1,5 +1,5 @@
 (ns racing-game.pit-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.test :refer [deftest is]]
             [racing-game.simulation :as sim]
             [racing-game.track :as track]
@@ -9,7 +9,7 @@
   (Math/hypot (- (:x b) (:x a)) (- (:y b) (:y a))))
 
 (deftest straight-pit-layout-test
-  (let [boxes (mapv #(az/value (track/pit-pose (sim/pit-box-progress %) 0.215))
+  (let [boxes (mapv #(a/value (track/pit-pose (sim/pit-box-progress %) 0.215))
                     (range 4))]
     (let [[a b c] boxes]
       (is (< (abs (- (* (- (:x b) (:x a)) (- (:y c) (:y a)))
@@ -18,8 +18,8 @@
     (is (every? #(> (distance (first %) (second %)) 0.0105)
                 (partition 2 1 boxes))))
   (doseq [p [0.94 0.055] lane [-0.04 0.0 0.17]]
-    (is (< (distance (az/value (track/pose p lane))
-                     (az/value (track/pit-pose p lane))) 1.0e-6))))
+    (is (< (distance (a/value (track/pose p lane))
+                     (a/value (track/pit-pose p lane))) 1.0e-6))))
 
 (deftest pit-motion-does-not-teleport-test
   (worker/stop!)
@@ -33,7 +33,7 @@
     ;; Step only this pit car: no concurrent race/reset or accidental contacts
     ;; can obscure whether the pit controller itself produces displacement.
     (let [samples (loop [i 0 result []]
-                    (let [v (az/value (sim/racer-view 0))]
+                    (let [v (a/value (sim/racer-view 0))]
                       (if (or (= i 6000)
                               (and (pos? (:pit_stops v))
                                    (= sim/pit-state-track (:pit_state v))))

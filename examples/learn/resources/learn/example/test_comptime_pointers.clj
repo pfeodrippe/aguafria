@@ -1,9 +1,9 @@
 (ns learn.example.test-comptime-pointers
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest comptime-pointers
+(a/deftest comptime-pointers
   (k/comptime
    (let [x (k/var 1 :i32)
          ptr (k/& x)]

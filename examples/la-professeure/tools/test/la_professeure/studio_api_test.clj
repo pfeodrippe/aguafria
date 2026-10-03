@@ -1,7 +1,7 @@
 (ns la-professeure.studio-api-test
   (:require [clojure.test :refer [deftest is]]
             [clojure.java.io :as io]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [clojure.edn :as edn]
             [la-professeure.tools.recorder :as recorder]
             [la-professeure.tools.mixer :as mixer]
@@ -108,7 +108,7 @@
         reference (atom {:id "passage" :path a :playing-a? false})
         played (atom [])
         fields [studio/preview-node studio/preview-paused studio/seek-seconds studio/audition-source-peak]
-        before (mapv az/value fields)]
+        before (mapv a/value fields)]
     (try
       (with-redefs-fn
         {#'studio/takes (atom {"passage" {:selected b :history [{:path a} {:path b}]}})
@@ -122,11 +122,11 @@
         (fn []
           (#'studio/edit-take! :compare)
           (is (= [a] @played))
-          (is (= 4294967295 (az/value studio/preview-node))
+          (is (= 4294967295 (a/value studio/preview-node))
               "Reference A must not drive selected B's playhead or per-take pause")
           (#'studio/edit-take! :compare)
           (is (= [a b] @played))
-          (is (= (az/value studio/selected) (az/value studio/preview-node)))
+          (is (= (a/value studio/selected) (a/value studio/preview-node)))
           (reset! reference {:id "passage" :path b :playing-a? false})
           (let [error (try (#'studio/edit-take! :compare) nil
                            (catch clojure.lang.ExceptionInfo e (ex-data e)))]
@@ -138,7 +138,7 @@
           (is (= [a b] @played) "Rejected comparisons never open audio")))
       (finally
         (doseq [[field value] (map vector fields before)]
-          (az/set-value! field value))))))
+          (a/set-value! field value))))))
 
 (deftest frame-timing-summary-reports-distributions-not-just-average
   (let [empty (studio/summarize-frame-timings [])
@@ -202,7 +202,7 @@
        #'studio/takes take-state
        #'core/status source
        #'studio/render! (fn [f] (f))
-       #'az/value (fn [field] (if (identical? field scene/passage-entity-count) 1 0))
+       #'a/value (fn [field] (if (identical? field scene/passage-entity-count) 1 0))
        #'studio/passage-data (fn [index]
                                (swap! reads inc)
                                {:index index :id "voice" :revision 1 :speaker 86 :text "Bonjour."})
@@ -501,8 +501,8 @@
               (aguafria.zig/set-value! first-field (inc (aguafria.zig/value first-field)))
               (aguafria.zig/set-value! second-field (inc (aguafria.zig/value first-field))))
            form))
-    (with-redefs [az/value #(get @fields %)
-                  az/set-value! (fn [field value]
+    (with-redefs [a/value #(get @fields %)
+                  a/set-value! (fn [field value]
                                   (swap! writes conj [field value])
                                   (swap! fields assoc field value)
                                   value)]
@@ -529,7 +529,7 @@
        #'studio/selected-waveform? (constantly true)
        #'studio/render! (fn [f] (f))
        #'studio/name-focused? (constantly false)
-       #'az/set-value! (fn [field value] (swap! writes conj [field value]))
+       #'a/set-value! (fn [field value] (swap! writes conj [field value]))
        #'studio/name! (fn [_])
        #'studio/reset-take-name! #(swap! names conj %)
        #'studio/set-wave! (fn [i value] (swap! uploaded assoc i value))
@@ -580,7 +580,7 @@
         uploaded (atom [])]
     (with-redefs-fn
       {#'studio/render! (fn [f] (f))
-       #'az/value (fn [field]
+       #'a/value (fn [field]
                    (assert (identical? field studio/selected))
                    1)
        #'studio/passage-data (fn [_] @passage)
@@ -607,7 +607,7 @@
       {#'studio/session (atom {:id "recording-a" :processed? false})
        #'studio/display-cache cache
        #'studio/upload-selected-waveform! (fn [_ upload!] (upload!) true)
-       #'az/set-value! (fn [field value]
+       #'a/set-value! (fn [field value]
                          (assert (identical? field studio/take-seconds))
                          (is (zero? value)))
        #'studio/set-wave! (fn [_ value] (swap! writes conj value))
@@ -663,14 +663,14 @@
        #'studio/render! (fn [f]
                           (swap! events conj [:render])
                           (f))
-       #'az/value (fn [field]
+       #'a/value (fn [field]
                     (if (number? field)
                       field
                       (let [key (key-for field)]
                         (when-not (contains? @state key)
                           (throw (AssertionError. (str "Uninitialized test field: " key))))
                         (get @state key))))
-       #'az/set-value! (fn [field value]
+       #'a/set-value! (fn [field value]
                          (let [key (key-for field)]
                            (swap! events conj [:set key value])
                            (swap! state assoc key value)
@@ -1175,7 +1175,7 @@
 
 (deftest audition-dispatches-from-native-state-not-the-var-wrapper
   ;; Isolated API process only: do not replace handlers under a live worker.
-  (let [calls (atom []) native-value az/value]
+  (let [calls (atom []) native-value a/value]
     (doseq [[selected? playing? paused? expected]
             [[false false false :play] [true true false :pause]
              [true false true :resume] [true false false :play]]]
@@ -1185,7 +1185,7 @@
          #'studio/render! (fn [f] (f))
          #'studio/selected-preview? (constantly selected?)
          #'studio/playing-preview? (constantly playing?)
-         #'az/value (fn [v] (if (identical? v studio/preview-paused) paused? (native-value v)))
+         #'a/value (fn [v] (if (identical? v studio/preview-paused) paused? (native-value v)))
          #'studio/preview! #(swap! calls conj :play)
          #'studio/pause-preview! #(swap! calls conj :pause)
          #'studio/resume-preview! #(swap! calls conj :resume)}

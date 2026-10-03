@@ -1,7 +1,7 @@
 (ns aguafria.zig.error-union-precompile-test
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.bundle :as bundle]
             [aguafria.zig.precompile :as precompile]
             [aguafria.zig.runtime :as runtime]
@@ -14,7 +14,7 @@
   (:import [java.nio.file Files]))
 
 (defn phase! [cache prepare?]
-  (az/configure! {:cache-dir cache})
+  (a/configure! {:cache-dir cache})
   (binding [runtime/*source-only-registration?* true]
     (require 'aguafria.zig.discovery-error-union-fixture))
   (let [commands (atom [])
@@ -52,7 +52,7 @@
           ;; Both compiler-known members must reuse the prepared conversions.
           (doseq [member [:First :Second]]
             (binding [*out* output *err* output]
-              (with-open [number-or-error (-> (az/field errors member)
+              (with-open [number-or-error (-> (a/field errors member)
                                               (k/as [:error-union errors :i32])
                                               k/var)]
                 (swap! types conj (:type (value/type-info (k/TypeOf number-or-error))))

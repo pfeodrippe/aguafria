@@ -1,18 +1,18 @@
 (ns learn.example.test-opaque
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst Derp (az/opaque
-                   []))
-(az/defconst Wat (az/opaque
+(a/defconst Derp (a/opaque
                   []))
+(a/defconst Wat (a/opaque
+                 []))
 
-(az/defextern bar :void [[d [:* Derp]]])
+(a/defextern bar :void [[d [:* Derp]]])
 
-(az/defn foo :void {:zig/qualifiers "callconv(.c)"} [[w [:* Wat]]]
+(a/defn foo :void {:zig/qualifiers "callconv(.c)"} [[w [:* Wat]]]
   (bar w))
 
-(az/deftest call-foo
+(a/deftest call-foo
   (foo k/undefined))
 
 (comment

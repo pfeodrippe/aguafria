@@ -1,4 +1,4 @@
 (ns learn.example.single-value-error-set-shortcut
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defconst err (az/error-value :FileNotFound))
+(a/defconst err (a/error-value :FileNotFound))

@@ -3,7 +3,7 @@
 
   This namespace deliberately has no dependency on generated output, so it can
   be required from a clean checkout before `examples/ghostty/generated` exists."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.convert :as convert]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]))
@@ -141,7 +141,7 @@
 
 (defn- run-command!
   [command directory]
-  (let [zig (.getAbsoluteFile (io/file (az/zig-executable)))
+  (let [zig (.getAbsoluteFile (io/file (a/zig-executable)))
         command (mapv #(if (= "zig" %) (.getAbsolutePath zig) %) command)
         started (System/nanoTime)
         builder (doto (ProcessBuilder. ^java.util.List command)
@@ -169,7 +169,7 @@
   (let [{:keys [standalone-root]} (project-paths)
         materialized (materialize!)
         build (run-command!
-               [(az/zig-executable) "build"
+               [(a/zig-executable) "build"
                 "-Demit-lib-vt=true"
                 "-Demit-xcframework=false"
                 "-Demit-macos-app=false"
@@ -194,7 +194,7 @@
   (let [{:keys [standalone-root]} (project-paths)
         materialized (materialize!)
         build (run-command!
-               [(az/zig-executable) "build"
+               [(a/zig-executable) "build"
                 "-Demit-macos-app=true"
                 "-Demit-lib-vt=false"]
                standalone-root)

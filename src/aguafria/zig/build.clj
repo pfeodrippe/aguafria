@@ -6,7 +6,7 @@
   "Load an Aguafria root namespace without compiling development dylibs.
 
   Declarations and ordinary Clojure Vars are still registered and inspectable.
-  A later `az/build!` emits the complete dependency graph and invokes Zig once
+  A later `a/build!` emits the complete dependency graph and invokes Zig once
   for the requested standalone artifact."
   [namespace]
   (when-not (symbol? namespace)

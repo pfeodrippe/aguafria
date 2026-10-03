@@ -1,11 +1,11 @@
 (ns aguafria.zig.discovery-error-union-fixture
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst Errors (az/type [:error-set [:First :Second]]))
+(a/defconst Errors (a/type [:error-set [:First :Second]]))
 
-(az/defn main :void
+(a/defn main :void
   []
   (k/= :_ (k/TypeOf (:Second Errors)))
   (let [number-or-error (-> (:First Errors)

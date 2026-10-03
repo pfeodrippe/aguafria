@@ -1,9 +1,9 @@
 (ns learn.example.runtime-shlExact-overflow
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [x (k/var 2r01010101 :u8)] ; runtime-known
     (k/= :_ (k/& x))
     (let [y (k/shlExact x 2)]

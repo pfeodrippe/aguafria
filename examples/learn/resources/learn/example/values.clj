@@ -1,15 +1,15 @@
 (ns learn.example.values
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
 ;; Top-level declarations are order-independent:
 
 ;; Custom error set definition:
-(az/defconst ExampleErrorSet
-  (az/type [:error-set [:ExampleErrorVariant]]))
+(a/defconst ExampleErrorSet
+  (a/type [:error-set [:ExampleErrorVariant]]))
 
-(az/defn main :void
+(a/defn main :void
   []
   ;; integers
   (let [one-plus-one (k/i32 (k/+ 1 1))]

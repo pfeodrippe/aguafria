@@ -1,6 +1,6 @@
 (ns aguafria.vopr-hot-acceptance
   "Opt-in acceptance for a compatible edit in a running converted VOPR."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.host :as host]
             [aguafria.zig.runtime :as runtime]
             [clojure.walk :as walk]))
@@ -51,10 +51,10 @@
 
 (defn- current-function-version
   [function]
-  (or (some #(when (:current? %) %) (az/function-versions function))
+  (or (some #(when (:current? %) %) (a/function-versions function))
       (throw (ex-info "Aguafria function has no current native version"
                       {:function function
-                       :versions (az/function-versions function)}))))
+                       :versions (a/function-versions function)}))))
 
 (defn- running?
   [handle]
@@ -64,18 +64,18 @@
   [form]
   (binding [*ns* (the-ns vopr-module)]
     (eval form))
-  (az/await! vopr-module))
+  (a/await! vopr-module))
 
 (defn -main
   [& arguments]
   (let [requests (or (first arguments) "2000")
         seed (or (second arguments) "1")
-        old-config (az/configuration)
+        old-config (a/configuration)
         pid (.pid (java.lang.ProcessHandle/current))]
     (try
-      (az/configure! {:async? true})
+      (a/configure! {:async? true})
       (require vopr-module :reload)
-      (az/await! vopr-module)
+      (a/await! vopr-module)
       (let [full-core-symbol (symbol (str vopr-module) "full_core")
             original-full-core (registered-declaration "full_core")
             version-before (current-function-version full-core-symbol)
@@ -92,14 +92,14 @@
         ;; stable native state, so it proves that the host later entered A from
         ;; the reevaluated existing B instead of merely publishing descriptors.
         (evaluate-and-await!
-         '(az/defvar aguafria_hot_reload_probe_value :u64 0))
+         '(a/defvar aguafria_hot_reload_probe_value :u64 0))
         (evaluate-and-await!
-         '(az/defn aguafria_hot_reload_mark :u8
+         '(a/defn aguafria_hot_reload_mark :u8
             [value :- :u8]
             (set! aguafria_hot_reload_probe_value 4242)
             value))
         (evaluate-and-await!
-         '(az/defn aguafria_hot_reload_probe_read :u64 []
+         '(a/defn aguafria_hot_reload_probe_read :u64 []
             aguafria_hot_reload_probe_value))
         (let [after-new-a (host/info handle)]
           (when-not (:active? after-new-a)
@@ -110,7 +110,7 @@
         ;; A, and the already-running host receives the compatible dispatch
         ;; update without a restart.
         (runtime/register-declaration! changed)
-        (az/await! vopr-module)
+        (a/await! vopr-module)
         (let [after-rewire (host/info handle)
               version-after (current-function-version full-core-symbol)]
           (when-not (:active? after-rewire)
@@ -128,7 +128,7 @@
           (let [result (host/await! handle)
                 probe-value
                 ((ns-resolve vopr-module 'aguafria_hot_reload_probe_read))
-                all-stats (az/stats)
+                all-stats (a/stats)
                 report
                 {:pid pid
                  :same-pid? (= pid (.pid (java.lang.ProcessHandle/current)))
@@ -154,5 +154,5 @@
                            (zero? (:failed-build-count report)))
               (throw (ex-info "Live compatible VOPR acceptance failed" report))))))
       (finally
-        (az/configure! old-config)
+        (a/configure! old-config)
         (shutdown-agents)))))

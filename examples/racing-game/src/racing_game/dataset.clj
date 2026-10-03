@@ -1,7 +1,7 @@
 (ns racing-game.dataset
   "Deterministic, renderer-free decision corpus generation and tactical gates."
   (:refer-clojure :exclude [generate])
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
@@ -25,13 +25,13 @@
    :require-complete-coverage? true})
 
 (defn- observation [racer]
-  (az/value (simulation/current-observation racer)))
+  (a/value (simulation/current-observation racer)))
 
 (defn- observations []
-  (mapv observation (range (az/value simulation/racer-count))))
+  (mapv observation (range (a/value simulation/racer-count))))
 
 (defn- worker-status []
-  (az/value (worker/summary)))
+  (a/value (worker/summary)))
 
 (def observation-fields
   [:valid :racer :rank :target :persona :item :target_distance :target_lane
@@ -183,7 +183,7 @@
      (into (sorted-map) (frequencies (map :teacher-action rows)))}))
 
 (def required-coverage
-  {:racers (set (range (az/value simulation/racer-count)))
+  {:racers (set (range (a/value simulation/racer-count)))
    :ranks (set (range 1 9))
    :laps #{0 1 2}
    :personas #{0 1 2}
@@ -219,7 +219,7 @@
       rows
       (let [ticks (min sample-every (- ticks-per-seed advanced))]
         (simulation/step-many! ticks)
-        (let [tick (:tick (az/value (simulation/snapshot)))
+        (let [tick (:tick (a/value (simulation/snapshot)))
               room (- limit (count rows))
               samples (->> (observations)
                            (filter :valid)
@@ -248,7 +248,7 @@
   every seed. No JVM data is ever fed back into the running simulation."
   ([] (generate default-options))
   ([options]
-   (az/await!)
+   (a/await!)
    (let [{:keys [seeds limit include-item-anchors?
                  require-complete-coverage?] :as options}
          (merge default-options options)
@@ -381,14 +381,14 @@
       (throw (ex-info "Offline model evaluation requires stopped workers"
                       {:worker worker})))
     (model/verify-assets!)
-    (az/await! 'racing-game.inference)
+    (a/await! 'racing-game.inference)
     (with-open [arena (Arena/ofConfined)]
       (let [loaded-model
-            (az/value
+            (a/value
              (inference/load-model!
               (.allocateFrom arena (str (model/model-file)))))
             loaded-head
-            (az/value
+            (a/value
              (inference/load-action-head!
               (.allocateFrom arena (str (model/action-head-file)))))]
         (when-not (:valid loaded-model)
@@ -411,7 +411,7 @@
                (.copyFrom bytes
                           (java.lang.foreign.MemorySegment/ofArray prompt))
                (let [report
-                     (az/value
+                     (a/value
                       (inference/forward-compact-prompt!
                        0 bytes (alength prompt) true))]
                  (when-not (:valid report)
@@ -503,8 +503,8 @@
                         simulation/ordinary-thought-ticks})))
      (let [observation (recreate-corpus-state! row)
            racer-id (:racer row)
-           before-racer (az/value (simulation/racer-view racer-id))
-           before-race (az/value (simulation/snapshot))
+           before-racer (a/value (simulation/racer-view racer-id))
+           before-race (a/value (simulation/snapshot))
            intent (action-intent action (:target observation)
                                  (:item observation))]
        (simulation/configure-racer-intent!
@@ -519,8 +519,8 @@
            (let [ticks (min remaining intent-refresh-ticks)]
              (simulation/step-many! ticks)
              (recur (- remaining ticks)))))
-       (let [after-racer (az/value (simulation/racer-view racer-id))
-             after-race (az/value (simulation/snapshot))]
+       (let [after-racer (a/value (simulation/racer-view racer-id))
+             after-race (a/value (simulation/snapshot))]
          {:action action
           :action-spec (get action-specs action)
           :horizon-ticks horizon-ticks

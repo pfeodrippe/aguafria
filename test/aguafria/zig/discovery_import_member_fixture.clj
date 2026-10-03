@@ -1,8 +1,8 @@
 (ns aguafria.zig.discovery-import-member-fixture
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defimport ascii "std" [[is-digit "ascii.isDigit"]])
+(a/defimport ascii "std" [[is-digit "ascii.isDigit"]])
 
-(az/defn decimal? :bool
+(a/defn decimal? :bool
   [[character :u8]]
   (ascii/is-digit character))

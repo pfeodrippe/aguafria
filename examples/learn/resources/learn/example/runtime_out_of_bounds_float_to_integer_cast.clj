@@ -1,8 +1,8 @@
 (ns learn.example.runtime-out-of-bounds-float-to-integer-cast
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [float (k/var 4294967296 :f32)] ; runtime-known
     (k/= :_ (k/& float))
     (let [int (k/i32 (k/intFromFloat float))]

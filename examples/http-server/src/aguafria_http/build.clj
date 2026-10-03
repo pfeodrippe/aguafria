@@ -1,6 +1,6 @@
 (ns aguafria-http.build
   "Build the same server graph as one JVM-free executable."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.build :as zig-build]
             [clojure.java.io :as io]))
 
@@ -10,7 +10,7 @@
   (let [output (io/file "build/http-server")]
     (io/make-parents output)
     (prn
-     (az/build!
+     (a/build!
       'aguafria-http.server
       {:kind :exe
        :name "aguafria-http-server"

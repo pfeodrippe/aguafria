@@ -1,7 +1,7 @@
 (ns fixture.test-before-helper
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/deftest cannot-see-later-helper
+(a/deftest cannot-see-later-helper
   (later-helper))
 
-(az/defn- later-helper :void [])
+(a/defn- later-helper :void [])

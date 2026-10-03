@@ -2,17 +2,17 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.std.math :as math]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :!void
+(a/defn main :!void
   []
   (let [byte (k/var 255 :u8)]
     (k/= byte
-         (az/if-capture {:payload [result] :error [err]} (math/add :u8 byte 1)
-                        result
-                        (az/block
-                         (debug/print "unable to add one: {s}\n" [(k/errorName err)])
-                         (k/return err))))
+         (a/if-capture {:payload [result] :error [err]} (math/add :u8 byte 1)
+                       result
+                       (a/block
+                        (debug/print "unable to add one: {s}\n" [(k/errorName err)])
+                        (k/return err))))
     (debug/print "result: {}\n" [byte])))
 
 (comment

@@ -1,12 +1,12 @@
 (ns aguafria.zig.jvm-private-scope-fixture
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- parameter-owner :void
+(a/defn- parameter-owner :void
   [[handle [:optional [:* :i32]]]]
   (k/= :_ handle))
 
-(az/defn- callback :i32
+(a/defn- callback :i32
   {:zig/qualifiers "callconv(.c)"}
   [[x :i32]]
   (k/+ x 1))

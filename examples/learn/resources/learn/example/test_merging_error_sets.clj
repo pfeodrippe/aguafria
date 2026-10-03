@@ -1,29 +1,29 @@
 (ns learn.example.test-merging-error-sets
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst A
-  (az/type [:error-set [:NotDir
+(a/defconst A
+  (a/type [:error-set [:NotDir
                        ;; A doc comment
-                        :PathNotFound]]))
+                       :PathNotFound]]))
 
-(az/defconst B
-  (az/type [:error-set [:OutOfMemory
+(a/defconst B
+  (a/type [:error-set [:OutOfMemory
                        ;; B doc comment
-                        :PathNotFound]]))
+                       :PathNotFound]]))
 
-(az/defconst C (k/|| A B))
+(a/defconst C (k/|| A B))
 
-(az/defn- foo [:error-union C :void] []
-  (az/error-value :NotDir))
+(a/defn- foo [:error-union C :void] []
+  (a/error-value :NotDir))
 
-(az/deftest merge-error-sets
-  (az/if-capture-stmt {:error [err]} (foo)
-                      (k/panic "unexpected")
-                      (az/switch-stmt err
-                                      (case [(az/error-value :OutOfMemory)] (k/panic "unexpected"))
-                                      (case [(az/error-value :PathNotFound)] (k/panic "unexpected"))
-                                      (case [(az/error-value :NotDir)] (az/block)))))
+(a/deftest merge-error-sets
+  (a/if-capture-stmt {:error [err]} (foo)
+                     (k/panic "unexpected")
+                     (a/switch-stmt err
+                                    (case [(a/error-value :OutOfMemory)] (k/panic "unexpected"))
+                                    (case [(a/error-value :PathNotFound)] (k/panic "unexpected"))
+                                    (case [(a/error-value :NotDir)] (a/block)))))
 
 (comment
   (merge-error-sets))

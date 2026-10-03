@@ -1,7 +1,7 @@
 (ns aguafria.zig.builtin-test
   (:require [aguafria.builtin :as builtin]
             [aguafria.keyword :as ak]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
@@ -17,11 +17,11 @@
   (is (false? @builtin/is_test))
   (is (true? (ak/== builtin/is_test false)))
   (is (true? (ak/== builtin/mode :.debug)))
-  (is (= (az/value (az/field builtin/cpu :arch))
-         (az/value (az/field (az/field builtin/target :cpu) :arch))))
+  (is (= (a/value (a/field builtin/cpu :arch))
+         (a/value (a/field (a/field builtin/target :cpu) :arch))))
   (is (= "@import(\"builtin\").is_test"
          (:zig/name (meta #'builtin/is_test))))
-  (is (str/includes? (with-out-str (az/zig-source! #'builtin/is_test))
+  (is (str/includes? (with-out-str (a/zig-source! #'builtin/is_test))
                      "@import(\"builtin\").is_test")))
 
 (deftest builtin-members-follow-the-consuming-compilation
@@ -30,10 +30,10 @@
       (binding [*ns* namespace]
         (refer 'clojure.core)
         (require '[aguafria.builtin :as builtin]
-                 '[aguafria.zig :as az]
+                 '[aguafria.zig :as a]
                  '[aguafria.std.testing :as testing])
-        (eval '(az/defn isATest :bool [] builtin/is_test))
-        (eval '(az/deftest detects-test-mode
+        (eval '(a/defn isATest :bool [] builtin/is_test))
+        (eval '(a/deftest detects-test-mode
                  (try (testing/expect (isATest))))))
       (is (false? ((ns-resolve namespace 'isATest))))
       (is (= :passed (:status ((ns-resolve namespace 'detects-test-mode)))))

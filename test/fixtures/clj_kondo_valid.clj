@@ -1,81 +1,81 @@
 (ns clj-kondo-valid
   (:require [aguafria.keyword :as ak]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defconst capacity :usize 8)
+(a/defconst capacity :usize 8)
 
-(az/defvar counter :usize 0)
+(a/defvar counter :usize 0)
 
-(az/defstruct Point
+(a/defstruct Point
   "A typed fixture value."
   [[:x :f32]
    [:y {:doc "Vertical component."} :f32]])
 
-(az/defenum Color
+(a/defenum Color
   [:red
    [:really-red {:zig/name "@\"really red\""}]])
 
-(az/defn ShortList :type
+(a/defn ShortList :type
   [[T {:zig/prefix "comptime"} :type]
    [length {:zig/prefix "comptime"} :usize]]
-  (az/struct
+  (a/struct
     [[:items [:array length T]]
-     (az/fn-decl first-item T
+     (a/fn-decl first-item T
        [[items [:array length T]]]
-       (az/index items 0))]))
+       (a/index items 0))]))
 
-(az/defconst TaggedValue
-  (az/union {:enum? true} [[:value :i32] [:empty :void]]))
+(a/defconst TaggedValue
+  (a/union {:enum? true} [[:value :i32] [:empty :void]]))
 
-(az/defconst Handle (az/opaque []))
+(a/defconst Handle (a/opaque []))
 
-(az/defconst Status (az/enum [:ready [:waiting {:doc "Pending"} 2]]))
+(a/defconst Status (a/enum [:ready [:waiting {:doc "Pending"} 2]]))
 
 (def color-type Color)
 
-(az/defimport fixture-module "fixture" [fixture-member])
+(a/defimport fixture-module "fixture" [fixture-member])
 
-(az/defraw fixture-raw "const fixture_raw: u8 = 1;")
+(a/defraw fixture-raw "const fixture_raw: u8 = 1;")
 
-(az/deffield fixture-field :u8 1)
+(a/deffield fixture-field :u8 1)
 
-(az/defcomptime fixture-comptime
+(a/defcomptime fixture-comptime
   (when false
     (ak/compileError "unreachable fixture branch")))
 
-(az/defextern puts :c_int
+(a/defextern puts :c_int
   [[message [:c-pointer :c_char]]])
 
-(az/defexternvar errno :- :c_int)
+(a/defexternvar errno :- :c_int)
 
-(az/defn- add-components :f32
+(a/defn- add-components :f32
   [[point Point]]
-  (+ (az/field point :x)
-     (az/field point :y)))
+  (+ (a/field point :x)
+     (a/field point :y)))
 
-(az/defn inspect-point :f32
+(a/defn inspect-point :f32
   "Inspect a typed value."
   {:attrs #{:public}}
   [[point Point]
    [opaque [:optional [:c-pointer :anyopaque]]]]
-  (let [typed (az/cast opaque [:c-pointer :u8])]
+  (let [typed (a/cast opaque [:c-pointer :u8])]
     (set! counter (+ counter 1))
     (+ (add-components point)
-       (ak/as (az/index typed 0) :f32))))
+       (ak/as (a/index typed 0) :f32))))
 
-(az/defconst structural-values
-  (az/container
+(a/defconst structural-values
+  (a/container
     {:kind :struct}
-    [(az/field-decl value :u8 1)
-     (az/enum-field-decl ready 0)
-     (az/field-decl object :u8
-       (az/object [[:value capacity]]))]))
+    [(a/field-decl value :u8 1)
+     (a/enum-field-decl ready 0)
+     (a/field-decl object :u8
+       (a/object [[:value capacity]]))]))
 
-(az/deftest clj-kondo-fixture
+(a/deftest clj-kondo-fixture
   "A named Zig test and an inspectable Clojure Var."
   (inspect-point (Point {:x 1.0 :y 2.0}) ak/null))
 
 (def fixture-test-var #'clj-kondo-fixture)
 
-(az/deftest another-named-test
+(a/deftest another-named-test
   capacity)

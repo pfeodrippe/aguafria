@@ -4,7 +4,7 @@
   The labels, prompts, and linear head are team-specific. Feature extraction
   always runs through racing-game.inference, the exact Aguafria/Zig engine used
   by the live game; no external model runtime participates in this workflow."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [racing-game.model :as model]
             [racing-game.protocol :as protocol]
             [racing-game.train-action-head :as train])
@@ -128,7 +128,7 @@
               {:tire-b 20 :pit-b 2}
               {:tire-a 47 :damage-a 59 :tire-b 47 :damage-b 59}
               {:tire-a 100 :damage-a 0 :tire-b 100 :damage-b 0}])))
-    (range (az/value protocol/team-count)))))
+    (range (a/value protocol/team-count)))))
 
 (defn random-scenario
   [^Random random]
@@ -137,8 +137,8 @@
         {:team team
          :driver-a (* team 2)
          :driver-b (inc (* team 2))
-         :rank-a (inc (.nextInt random (az/value protocol/racer-count)))
-         :rank-b (inc (.nextInt random (az/value protocol/racer-count)))
+         :rank-a (inc (.nextInt random (a/value protocol/racer-count)))
+         :rank-b (inc (.nextInt random (a/value protocol/racer-count)))
          :tire-a (.nextInt random 101)
          :tire-b (.nextInt random 101)
          :damage-a (.nextInt random 101)

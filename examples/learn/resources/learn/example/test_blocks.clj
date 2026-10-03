@@ -1,8 +1,8 @@
 (ns learn.example.test-blocks
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest access-variable-after-block-scope
+(a/deftest access-variable-after-block-scope
   (let [x (k/var 1 :i32)]
     (k/= :_ (k/& x)))
   (k/+= x 1))

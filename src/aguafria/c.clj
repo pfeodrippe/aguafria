@@ -7,7 +7,7 @@
   hand-written or Zig-converted Aguafria module; no JVM-specific wrapper is
   introduced into standalone output."
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.toolchain :as toolchain]
@@ -399,7 +399,7 @@
 
 (defn import!
   "Translate a C header and register it as a named Zig module.
-  Returns the import name for `(k/import (az/clj! (ac/import! ...)))`.
+  Returns the import name for `(k/import (a/clj! (ac/import! ...)))`.
   Options are the same as translate-zig!. The translation's content identity
   participates in native artifact caching. Does not load a native library."
   [import-name header options]
@@ -423,7 +423,7 @@
         [audio_engine audio_start])
 
   Evaluates the import expression once when this declaration is evaluated.
-  Each member becomes an ordinary public az/defconst referring to the original
+  Each member becomes an ordinary public a/defconst referring to the original
   Zig declaration. C layouts and implementation stay in the translated module."
   [api-name import-expression members]
   (when-not (and (simple-symbol? api-name)
@@ -434,10 +434,10 @@
                     {:api-name api-name :members members})))
   (let [located #(with-meta % (meta &form))]
     `(do
-       ~(located `(az/defconst ~api-name {:attrs #{k/pub}}
-                    (k/import (az/clj! ~import-expression))))
+       ~(located `(a/defconst ~api-name {:attrs #{k/pub}}
+                    (k/import (a/clj! ~import-expression))))
        ~@(map (fn [member]
-                (located `(az/defconst ~member {:attrs #{k/pub}}
+                (located `(a/defconst ~member {:attrs #{k/pub}}
                             (~(keyword member) ~api-name))))
               members))))
 

@@ -1,6 +1,6 @@
 (ns learn.reference
   "Pinned reference inventory, structural conversion and offline HTML build."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.analysis :as analysis]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.emitter :as emitter]
@@ -262,7 +262,7 @@
     {:library (text-sha256 (pr-str (mapv #(vector (str %) (sha256 %)) files)))
      :std-catalog (with-open [input (io/input-stream (io/resource "aguafria/zig-std.edn"))]
                     (sha256-bytes (.readAllBytes input)))
-     :zig (sha256 (az/zig-executable))
+     :zig (sha256 (a/zig-executable))
      :upstream (sha256 "resources/upstream/lock.edn")
      :harness (sha256 "resources/upstream/tools/doctest.zig")
      :verifier (sha256 "src/learn/reference.clj")
@@ -450,7 +450,7 @@
        "test \"fragment behavior\" {\n" test-body "\n}\n"))
 
 (defn emitted-entry [clojure-source]
-  (let [definition (first (filter #(contains? #{'az/defn 'az/defn-} (first %))
+  (let [definition (first (filter #(contains? #{'a/defn 'a/defn-} (first %))
                                   (inline/read-forms clojure-source)))]
     (when-not definition
       (throw (ex-info "A function fixture needs an authored entry point" {})))
@@ -470,7 +470,7 @@
               declarations
               (mapv
                (fn [form]
-                 (if (= 'az/defimport (first form))
+                 (if (= 'a/defimport (first form))
                    (do (eval form) (last (runtime/collected-declarations imports)))
                    (-> (emitter/container-description
                         context
@@ -614,7 +614,7 @@
   (let [runs (mapv (fn [language source]
                      (let [path (str directory "/" language "/subject.zig")]
                        (write-text! path source)
-                       (run-command [(az/zig-executable) "test" path] 60)))
+                       (run-command [(a/zig-executable) "test" path] 60)))
                    ["zig" "aguafria"] [original emitted])
         [left right] runs
         streams (mapv #(compare-observations "test" (% left) (% right)) [:out :err])
@@ -779,7 +779,7 @@
                                     {:declarations declarations})))
                 unnamed-label (str "subject." (:label (ffirst declarations)))
                 directory (io/file "build/discovery-outcomes" (str (java.util.UUID/randomUUID)))
-                zig (az/zig-executable)
+                zig (a/zig-executable)
                 outcomes
                 (mapv (fn [scenario]
                         (let [left (discovery-run! directory :original original fixture scenario zig)
@@ -867,7 +867,7 @@
 
 (defn doctest-tool! []
   (let [source (.getAbsolutePath (io/file upstream-dir "tools/doctest.zig"))
-        zig (az/zig-executable)
+        zig (a/zig-executable)
         identity (text-sha256 (pr-str [zig (sha256 source)]))
         binary (.getAbsolutePath (io/file "build/bin" (str "doctest-" identity)))]
     (when-not (.isFile (io/file binary))
@@ -1146,15 +1146,21 @@
       (throw (ex-info "A REPL recipe must call its own Vars, not a file runner" {})))
     (if (= 'comment (first form)) (vec (rest form)) [])))
 
+(def ^:dynamic *repl-capture-progress*
+  "Optional evaluation checkpoints for the disposable capture worker."
+  nil)
+
 (defn- capture-repl-evaluation!
-  [namespace-symbol form invoke]
+  [namespace-symbol form stage invoke]
   (let [stdout (java.io.StringWriter.)
         stderr (java.io.StringWriter.)
+        entry {:namespace (str namespace-symbol) :form form :stage stage}
+        _ (when *repl-capture-progress* (*repl-capture-progress* :started entry))
         result (binding [*out* stdout *err* stderr]
                  (try
                    (let [result (invoke)
                          printed (pr-str result)
-                         native-result (when (value/zig-value? result) (az/value result))]
+                         native-result (when (value/zig-value? result) (a/value result))]
                      (cond-> {:printed-value printed}
                        (and (map? native-result) (contains? native-result :error))
                        (assoc :returned-error? true)))
@@ -1165,10 +1171,12 @@
                                error)]
                        {:exception {:class (.getName (class diagnostic))
                                     :message (ex-message diagnostic)
-                                    :phase (:aguafria/phase (ex-data diagnostic))}}))))]
-    (merge {:namespace (str namespace-symbol)
-            :form form :stdout (str stdout) :stderr (str stderr)}
-           result)))
+                                    :phase (:aguafria/phase (ex-data diagnostic))}}))))
+        evaluation (merge (dissoc entry :stage)
+                          {:stdout (str stdout) :stderr (str stderr)} result)]
+    (when *repl-capture-progress*
+      (*repl-capture-progress* :finished (assoc evaluation :stage stage)))
+    evaluation))
 
 (defn capture-comment-repl!
   "Evaluate the authored comment's forms in its own namespace in this JVM.
@@ -1190,7 +1198,7 @@
             (loop [forms (source-map/read-forms source) evaluations []]
               (if-let [form (first forms)]
                 (let [evaluation (capture-repl-evaluation!
-                                  namespace-symbol (pr-str form) #(eval form))
+                                  namespace-symbol (pr-str form) :declaration #(eval form))
                       evaluations (conj evaluations evaluation)]
                   (if (:exception evaluation)
                     {:evaluations evaluations :scope :load-error}
@@ -1203,6 +1211,7 @@
                  (pr-str (if source-path
                            (list 'load-file source-path)
                            (list 'load-string source)))
+                 :load
                  #(if source-path
                     (clojure.lang.Compiler/load
                      (clojure.lang.LineNumberingPushbackReader. (java.io.StringReader. source))
@@ -1220,6 +1229,7 @@
                        (with-out-str
                          (pprint/with-pprint-dispatch pprint/code-dispatch
                            (pprint/pprint form))))
+                      :comment
                       #(eval form)))
                    calls)}))))
       (finally
@@ -1233,6 +1243,25 @@
           (remove-ns created)
           (dosync (alter @#'clojure.core/*loaded-libs* disj created))))))))
 
+(defn- interrupted-repl-capture
+  [directory checkpoint process]
+  (when (and (= :comment (get-in checkpoint [:active :stage]))
+             (not (:timed-out? process))
+             (not (zero? (:exit process))))
+    (let [logs (->> (.listFiles (io/file directory))
+                    (filter #(and (.isFile %)
+                                  (str/starts-with? (.getName %) "aguafria-native-output-")))
+                    (sort-by #(.getName %)))
+          output (apply str (map slurp logs))]
+      (doseq [file logs] (.deleteOnExit file))
+      {:scope :isolated-native-failure
+       :evaluations
+       (conj (:evaluations checkpoint)
+             (-> (:active checkpoint)
+                 (dissoc :stage)
+                 (assoc :native-output output
+                        :process-exit (:exit process))))})))
+
 (defn capture-isolated-comment!
   "Evaluate real comment calls in a disposable JVM using the native JVM bridge."
   [source source-path]
@@ -1245,15 +1274,18 @@
         _ (write-edn! (.getPath request) {:source source :source-path source-path})
         command [(str (io/file (System/getProperty "java.home") "bin" "java"))
                  "--enable-native-access=ALL-UNNAMED"
+                 (str "-Djava.io.tmpdir=" (.getPath directory))
                  "-cp" (System/getProperty "java.class.path")
                  "clojure.main" "-m" "learn.repl-capture-worker"
                  (.getPath request) (.getPath result-file)]
-        result (run-command command 120)]
-    (when (or (:timed-out? result) (not (zero? (:exit result)))
-              (not (.isFile result-file)))
-      (throw (ex-info "Isolated REPL capture did not finish"
-                      (assoc result :source-path source-path))))
-    (assoc (read-edn (.getPath result-file)) :scope :isolated-native-failure)))
+        result (run-command command 120)
+        recorded (when (.isFile result-file) (read-edn (.getPath result-file)))]
+    (if (and (not (:timed-out? result)) (zero? (:exit result))
+             recorded (nil? (:active recorded)))
+      (assoc recorded :scope :isolated-native-failure)
+      (or (interrupted-repl-capture directory recorded result)
+          (throw (ex-info "Isolated REPL capture did not finish"
+                          (assoc result :source-path source-path)))))))
 
 (defn capture-example-comment!
   "Capture the authored calls. Expected native panics use a disposable JVM;
@@ -1287,23 +1319,31 @@
   Syntax-only excerpts may intentionally fail when their declarations are used."
   [{:keys [kind]} {:keys [scope evaluations]}]
   (and (seq evaluations)
-           (or (not= :isolated-native-failure scope)
-               (some #(or (:returned-error? %)
-                          (contains? #{:native-panic :zig-test}
-                                     (get-in % [:exception :phase]))) evaluations))
-           (every? (fn [{:keys [exception]}]
-                     (or (nil? exception)
-                         (and (= :isolated-native-failure scope)
-                              (contains? #{:native-panic :zig-test} (:phase exception)))
-                         (and (= :isolated-target scope)
-                              (contains? #{:zig-compile :zig-test} (:phase exception)))
-                         (and (or (= "syntax" kind)
-                                  (str/starts-with? kind "test_error=")
-                                  (str/starts-with? kind "obj=")
-                                  (= "exe=build_fail" kind))
-                              (contains? #{:zig-compile :zig-test :zig-program-compile}
-                                         (:phase exception)))))
-                   evaluations)))
+       (or (not= :isolated-native-failure scope)
+           (some #(or (:returned-error? %)
+                      (and (= "exe=fail" kind)
+                           (pos-int? (:process-exit %))
+                           (not (str/blank? (:native-output %))))
+                      (contains? #{:native-panic :zig-test}
+                                 (get-in % [:exception :phase]))) evaluations))
+       (every? (fn [{:keys [exception process-exit native-output]}]
+                 (if process-exit
+                   (and (= :isolated-native-failure scope)
+                        (= "exe=fail" kind)
+                        (pos-int? process-exit)
+                        (not (str/blank? native-output)))
+                   (or (nil? exception)
+                       (and (= :isolated-native-failure scope)
+                            (contains? #{:native-panic :zig-test} (:phase exception)))
+                       (and (= :isolated-target scope)
+                            (contains? #{:zig-compile :zig-test} (:phase exception)))
+                       (and (or (= "syntax" kind)
+                                (str/starts-with? kind "test_error=")
+                                (str/starts-with? kind "obj=")
+                                (= "exe=build_fail" kind))
+                            (contains? #{:zig-compile :zig-test :zig-program-compile}
+                                       (:phase exception))))))
+               evaluations)))
 
 (defn verify-example!
   "Run the original and the emitted displayed Aguafria through the same pinned
@@ -1438,15 +1478,20 @@
                     file)))
           (re-seq figure-pattern original))))
 
-(defn repl-evaluation [{:keys [namespace form stdout stderr value printed-value exception]}]
+(defn repl-evaluation
+  [{:keys [namespace form stdout stderr native-output process-exit
+           value printed-value exception]}]
   (str (escape-html (str namespace "=> " form "\n"))
        (escape-html stdout)
        (escape-html stderr)
-       (when-let [output (not-empty (str stdout stderr))]
+       (escape-html native-output)
+       (when-let [output (not-empty (str stdout stderr native-output))]
          (when-not (str/ends-with? output "\n") "\n"))
-       (escape-html (if exception
-                      (str (:class exception) ": " (:message exception) "\n")
-                      (str (or printed-value (pr-str value)) "\n")))))
+       (escape-html (cond
+                      process-exit (str "Process exited with status " process-exit
+                                        " (isolated JVM).\n")
+                      exception (str (:class exception) ": " (:message exception) "\n")
+                      :else (str (or printed-value (pr-str value)) "\n")))))
 
 (defn repl-panel [transcript]
   (when-not (= [] (:evaluations transcript))
@@ -1490,7 +1535,7 @@
         report (analysis/analyze-source source {:file file
                                                :zls-observations observations
                                                :unavailable @unavailable
-                                               :observations (vals (az/debug-reports))})
+                                               :observations (vals (a/debug-reports))})
         _ (analysis/write-report! report "build/types")
         spans (str "[" (str/join "," (map (fn [{:keys [start end] :as form}]
                                            (str "[" start "," end ","

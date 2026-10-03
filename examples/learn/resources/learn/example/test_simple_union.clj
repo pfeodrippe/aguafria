@@ -1,14 +1,14 @@
 (ns learn.example.test-simple-union
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defunion Payload
+(a/defunion Payload
   [[:int :i64]
    [:float :f64]
    [:boolean :bool]])
 
-(az/deftest simple-union
+(a/deftest simple-union
   (let [payload (k/var (Payload {:int 1234}))]
     (try (testing/expectEqual 1234 (:int payload)))
     (k/= payload (Payload {:float 12.34}))

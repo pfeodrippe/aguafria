@@ -1,6 +1,6 @@
 (ns aguafria.zig.emitter-test
   (:require [aguafria.keyword :as ak]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.emitter :as emit]
             [aguafria.zig.project :as project]
             [clojure.string :as str]
@@ -13,15 +13,15 @@
                    (swap! observations conj observation)
                    (:source observation))]
     (doseq [[form expected]
-            [['(az/field receiver :items) "receiver.items"]
+            [['(a/field receiver :items) "receiver.items"]
              ['(deref pointer) "pointer.*"]
-             ['(az/index array index) "array[index]"]
-             ['(az/slice array start end) "array[start..end]"]]]
+             ['(a/index array index) "array[index]"]
+             ['(a/slice array start end) "array[start..end]"]]]
       (is (= expected (emit/emit-expr context form)))
       (is (= expected
              (binding [emit/*expression-observer* observer]
                (emit/emit-expr context form)))))
-    (let [form '(ak/+= (az/index array index) 1)
+    (let [form '(ak/+= (a/index array index) 1)
           ordinary (emit/emit-stmt-in context form)]
       (is (= ordinary
              (binding [emit/*expression-observer* observer]
@@ -34,16 +34,16 @@
 (deftest nested-access-expands-to-existing-native-operations
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[compact expanded]
-            [['(:x (make-point 3)) '(az/field (make-point 3) :x)]
-             ['(-> point :x) '(az/field point :x)]
-             ['(:len points) '(az/field points :len)]
-             ['(az/get point :x) '(az/field point :x)]
-             ['(az/get points i) '(az/index points i)]
-             ['(az/get-in points [4 :x]) '(az/field (az/index points 4) :x)]
-             ['(az/get-in model [:points i :x])
-              '(az/field (az/index (az/field model :points) i) :x)]
-             ['(az/get-in grid [1 2]) '(az/index (az/index grid 1) 2)]
-             ['(az/get-in points []) 'points]]]
+            [['(:x (make-point 3)) '(a/field (make-point 3) :x)]
+             ['(-> point :x) '(a/field point :x)]
+             ['(:len points) '(a/field points :len)]
+             ['(a/get point :x) '(a/field point :x)]
+             ['(a/get points i) '(a/index points i)]
+             ['(a/get-in points [4 :x]) '(a/field (a/index points 4) :x)]
+             ['(a/get-in model [:points i :x])
+              '(a/field (a/index (a/field model :points) i) :x)]
+             ['(a/get-in grid [1 2]) '(a/index (a/index grid 1) 2)]
+             ['(a/get-in points []) 'points]]]
       (is (= (emit/emit-expr context expanded)
              (emit/emit-expr context compact))))))
 
@@ -52,50 +52,58 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exactly one value"
                          (emit/emit-expr form)))))
 
+(deftest inferred-member-calls-are-not-keyword-field-access
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (doseq [[form expected] [['(:.init) ".init()"]
+                            ['(:.init 7) ".init(7)"]
+                            ['(:.fromPair 1 2) ".fromPair(1, 2)"]]]
+      (is (= expected (emit/emit-expr form)))
+      (is (= expected (emit/emit-expr context form))))))
+
 (deftest keyword-labeled-native-blocks
   (let [context (the-ns 'aguafria.zig.emitter-test)
-        form '(az/with-block :result (ak/break :result 42))]
+        form '(a/with-block :result (ak/break :result 42))]
     (is (= "result: {\n    break :result 42;\n}"
            (emit/emit-expr context form)))
     (is (= "result: {\n    break :result 42;\n}"
            (emit/emit-stmt-in context form)))
-    (doseq [form '[(az/with-block result (ak/break result 42))
-                  (az/with-block "result" (ak/break "result" 42))
-                  (az/with-block)]]
+    (doseq [form '[(a/with-block result (ak/break result 42))
+                  (a/with-block "result" (ak/break "result" 42))
+                  (a/with-block)]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"keyword label"
                            (emit/emit-expr context form))))))
 
 (deftest array-elements-and-native-operator-vars
   (let [context (the-ns 'aguafria.zig.emitter-test)]
-    (is (= "[_]i32{1, 2}" (emit/emit-expr context '(az/array [1 2] :i32))))
-    (is (= "[2]i32{1, 2}" (emit/emit-expr context '(az/init [1 2] [:array 2 :i32]))))
+    (is (= "[_]i32{1, 2}" (emit/emit-expr context '(a/array [1 2] :i32))))
+    (is (= "[2]i32{1, 2}" (emit/emit-expr context '(a/init [1 2] [:array 2 :i32]))))
     (doseq [[form source] [['(ak/++ left right) "(left ++ right)"]
 
                            ['(ak/|| A B) "(A || B)"]
                            ['(ak/<<| a b) "(a <<| b)"]
                            ['(ak/... 2 8) "2 ... 8"]]]
       (is (= source (emit/emit-expr context form))))
-    (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr context '(az/array [1]))))))
+    (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr context '(a/array [1]))))))
 
 (deftest vector-constructor-infers-lane-count
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[elements type] [[[1 2 3 4] :i32] [[true false] :bool] [[] :f32]]]
-      (is (= (emit/emit-expr context (list 'az/init elements [:vector (count elements) type]))
-             (emit/emit-expr context (list 'az/vector elements type)))))
-    (doseq [form '[(az/vector [1]) (az/vector 1 :i32) (az/vector [1] {} :i32)]]
+      (is (= (emit/emit-expr context (list 'a/init elements [:vector (count elements) type]))
+             (emit/emit-expr context (list 'a/vector elements type)))))
+    (doseq [form '[(a/vector [1]) (a/vector 1 :i32) (a/vector [1] {} :i32)]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"vector expects"
                            (emit/emit-expr context form))))))
 
 (deftest sentinel-array-options
   (doseq [[form expected]
-          [['(az/array [1 25 3 4] {:sentinel 0} :u8) "[_:0]u8{1, 25, 3, 4}"]
-           ['(az/array [] {:sentinel 255} :u8) "[_:255]u8{}"]
-           ['(az/array [true] {:sentinel false} :bool) "[_:false]bool{true}"]
-           ['(az/array [1] {} :u8) "[_]u8{1}"]]]
+          [['(a/array [1 25 3 4] {:sentinel 0} :u8) "[_:0]u8{1, 25, 3, 4}"]
+           ['(a/array [] {:sentinel 255} :u8) "[_:255]u8{}"]
+           ['(a/array [true] {:sentinel false} :bool) "[_:false]bool{true}"]
+           ['(a/array [1] {} :u8) "[_]u8{1}"]]]
     (is (= expected (emit/emit-expr (the-ns 'aguafria.zig.emitter-test) form))))
-  (doseq [form '[(az/array [1] {:sentinal 0} :u8)
-                (az/array [1] :sentinel :u8)
-                (az/array [1] {:sentinel 0 :length 1} :u8)]]
+  (doseq [form '[(a/array [1] {:sentinal 0} :u8)
+                (a/array [1] :sentinel :u8)
+                (a/array [1] {:sentinel 0 :length 1} :u8)]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"array options"
                          (emit/emit-expr (the-ns 'aguafria.zig.emitter-test) form)))))
 
@@ -116,14 +124,14 @@
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (is (= "for ((&items), 0..) |*item, index| {\n    item.* = @intCast(index);\n}"
            (emit/emit-stmt-in context
-                              '(ak/for [(ak/* item) (ak/& items) index (az/range 0)]
+                              '(ak/for [(ak/* item) (ak/& items) index (a/range 0)]
                                  (ak/= @item (ak/intCast index))))))
-    (is (= "2 .. 8" (emit/emit-expr context '(az/range 2 8))))
+    (is (= "2 .. 8" (emit/emit-expr context '(a/range 2 8))))
     (doseq [form '[(ak/for [[item items]] (use item))
                    (ak/for [item items index] (use item))
                    (ak/for [(ak/* a b) items] (use a))
-                   (az/range)
-                   (az/range 1 2 3)
+                   (a/range)
+                   (a/range 1 2 3)
                    (ak/* item)]]
       (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr context form))))))
 
@@ -158,21 +166,54 @@
 
 (deftest lexical-bindings-shadow-namespace-aliases
   (let [context (the-ns 'aguafria.zig.emitter-test)]
-    (doseq [body ['(ak/var az :u32)
-                  '(let [az 42] az)]]
+    (doseq [body ['(ak/var a :u32)
+                  '(let [a 42] a)]]
       (let [declaration (emit/prepare-declaration
                          context
                          {:kind :fn :name 'read-value :return :u32
-                          :args [{:name 'az :type :u32}]
+                          :args [{:name 'a :type :u32}]
                           :body [body]})]
         (is (empty? (emit/declaration-imports [declaration])))))
     (let [declaration (emit/prepare-declaration
                        context
                        {:kind :fn :name 'read-value :return :u32
-                        :args [{:name 'az :type :u32}]
-                        :body ['(az/field az :value)]})]
-      (is (= '[(field az :value)] (:body declaration)))
+                        :args [{:name 'a :type :u32}]
+                        :body ['(a/field a :value)]})]
+      (is (= '[(field a :value)] (:body declaration)))
       (is (empty? (emit/declaration-imports [declaration]))))))
+
+(deftest captured-names-shadow-aliases-only-in-their-body
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (doseq [form '[(a/while-loop {:payload [ak]} optional (ak/= :_ ak))
+                  (a/if-capture {:payload [ak]} optional ak 0)
+                  (case [:some] [ak] ak)
+                  (a/catch-capture [ak] fallible ak)
+                  (ak/errdefer [ak] (ak/= :_ ak))]]
+      (let [qualified (emit/qualify-form context form)]
+        (is (empty? (emit/declaration-imports [{:body [qualified]}])) (pr-str qualified))))
+    (let [qualified (emit/qualify-form
+                     context '(a/while-loop {:payload [a]} a (ak/= :_ a)))
+          condition (nth qualified 2)
+          use (last (last qualified))]
+      (is (= :namespace-root (:kind (:aguafria/zig-reference (meta condition)))))
+      (is (nil? (:aguafria/zig-reference (meta use)))))))
+
+(deftest nested-functions-shadow-namespace-aliases
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration (emit/prepare-declaration
+                      context
+                      {:kind :const :name 'Example
+                       :value '(a/struct
+                                 [(a/fn from-local :u32 []
+                                    (ak/const ak 7)
+                                    (ak/return ak))
+                                  (a/fn from-parameter :u32 [[a :u32]]
+                                    a)])})
+        source (emit/emit-static-dependency-module "nested-shadow" [declaration])]
+    (is (empty? (emit/declaration-imports [declaration])))
+    (is (str/includes? source "const ak = 7;"))
+    (is (str/includes? source "return ak;"))
+    (is (str/includes? source "return a;"))))
 
 (deftest parameter-names-shadow-aliases-in-dependent-signatures
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -193,32 +234,32 @@
 (deftest anonymous-containers-use-one-member-vector
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[form expected]
-            [['(az/struct [[:x {:doc "Coordinate" :default 3} :u8]
-                           (az/fn-decl answer :u8 [] 42)])
+            [['(a/struct [[:x {:doc "Coordinate" :default 3} :u8]
+                           (a/fn-decl answer :u8 [] 42)])
               ["struct {" "/// Coordinate" "x: u8 = 3" "fn answer() u8" "return 42;"]]
-             ['(az/enum {:type :u8}
+             ['(a/enum {:type :u8}
                  [:red [:blue {:doc "Blue" :zig/name "@\"deep blue\""} 4]])
               ["enum(u8)" "red," "/// Blue" "@\"deep blue\" = 4"]]
-             ['(az/union {:enum? true} [[:value :u32] [:empty :void]])
+             ['(a/union {:enum? true} [[:value :u32] [:empty :void]])
               ["union(enum)" "value: u32" "empty: void"]]
-             ['(az/struct {:layout :packed :type :u16}
+             ['(a/struct {:layout :packed :type :u16}
                  [[:low :u8] [:high :u8]])
               ["packed struct(u16)" "low: u8" "high: u8"]]
-             ['(az/opaque [(az/fn-decl size :usize [] 0)])
+             ['(a/opaque [(a/fn-decl size :usize [] 0)])
               ["opaque {" "fn size() usize"]]
-             ['(az/struct [(az/struct-decl Nested [[:value :u8]])])
+             ['(a/struct [(a/struct-decl Nested [[:value :u8]])])
               ["const Nested = struct" "value: u8"]]]]
       (let [source (emit/emit-expr context form)]
         (doseq [fragment expected]
           (is (str/includes? source fragment) (str form " => " source)))))
-    (doseq [form '[(az/struct [:x :u8])
-                   (az/struct [:x :u8] [:y :u8])
-                   (az/struct [[:x :u8 (az/fn-decl method :void [])]])
-                   (az/enum [:a] [:b])
-                   (az/enum [[:a 1 2]])
-                   (az/union [:x :u8])
-                   (az/opaque)
-                   (az/container {:kind :struct} (az/field-decl :x :u8))]]
+    (doseq [form '[(a/struct [:x :u8])
+                   (a/struct [:x :u8] [:y :u8])
+                   (a/struct [[:x :u8 (a/fn-decl method :void [])]])
+                   (a/enum [:a] [:b])
+                   (a/enum [[:a 1 2]])
+                   (a/union [:x :u8])
+                   (a/opaque)
+                   (a/container {:kind :struct} (a/field-decl :x :u8))]]
       (is (thrown? Exception (emit/emit-expr context form)) (pr-str form)))))
 
 (deftest compiler-modules-preserve-inner-source-locations
@@ -319,6 +360,13 @@
   (is (= "*const i32" (emit/emit-type [:*const :i32])))
   (is (= "[*:0]const u8" (emit/emit-type [:sentinel-const :u8 0])))
   (is (= "[]const u8" (emit/emit-type [:slice-const :u8])))
+  (doseq [[schema expected]
+          [[[:* {:size :slice :sentinel nil} [:optional :u8]] "[:null]?u8"]
+           [[:* {:size :many :sentinel nil :const? true} [:optional :u8]]
+            "[*:null]const ?u8"]
+           [[:* {:size :slice :sentinel false} :bool] "[:false]bool"]
+           [[:* {:size :slice} [:optional :u8]] "[]?u8"]]]
+    (is (= expected (emit/emit-type schema))))
   (is (= "[4]f32" (emit/emit-type [:array 4 :f32])))
   (is (= "@Vector(4, f32)" (emit/emit-type [:vector 4 :f32])))
   (is (= "[*c]u8" (emit/emit-type [:c-pointer :u8])))
@@ -345,7 +393,16 @@
     (is (= "*const fn (output: [*c]u8, frame_width: i32, frame_height: i32) callconv(.c) u32"
            (emit/emit-type keywords)))
     (is (= (emit/emit-type symbols) (emit/emit-type keywords))
-        "Keyword name data preserves the existing callback ABI and spelling")))
+        "Keyword name data preserves the existing callback ABI and spelling")
+    (let [qualified (emit/qualify-type (the-ns 'aguafria.zig.emitter-test)
+                                       (callback '[a ak b]))]
+      (is (empty? (emit/declaration-imports [{:type qualified}])))
+      (is (= '[a ak b] (mapv :name (get-in qualified [1 2]))))))
+  (let [signature '[:fn {} [{:name a :type :type :prefix "comptime"}
+                           {:name value :type a}] a]
+        qualified (emit/qualify-type (the-ns 'aguafria.zig.emitter-test) signature)]
+    (is (= signature qualified))
+    (is (empty? (emit/declaration-imports [{:type qualified}])))))
 
 (deftest static-dependency-demotes-default-exports-without-development-containers-test
   (let [source
@@ -431,7 +488,7 @@
         declaration {:kind :fn :name 'run :return :u32 :args []}]
     (project/register-catalog!
      {:schema-version 1
-      :modules {module {:source-orders {"answer" 0}}}})
+      :modules {module {:source-kind :zig :source-orders {"answer" 0}}}})
     (is (map? (emit/validate-declaration-references!
                context (assoc declaration :body [(list (symbol module "answer"))]) #{})))
     (doseq [reference [(symbol module "missing") 'answer]]
@@ -479,7 +536,7 @@
           :args [{:name 'pointer :type [:optional [:* :anyopaque]]}
                  {:name 'Widget :type :type}]
           :return :void
-          :body '((-> pointer (az/cast [:* Widget])))})]
+          :body '((-> pointer (a/cast [:* Widget])))})]
     (is (= "@as(*Widget, @ptrCast(@alignCast(pointer.?)))"
            (emit/emit-expr context-ns (first (:body declaration))))))
   (let [context-ns (the-ns 'aguafria.zig.emitter-test)
@@ -520,9 +577,9 @@
           :name 'factory
           :args []
           :return :type
-          :body '((az/struct
-                    [(az/fn-decl sync :void [])
-                     (az/fn-decl call-sync :void [] (sync))]))})]
+          :body '((a/struct
+                    [(a/fn-decl sync :void [])
+                     (a/fn-decl call-sync :void [] (sync))]))})]
     (is (some #{'(sync)} (tree-seq coll? seq (:body declaration))))))
 
 (deftest expression-emission-test
@@ -591,7 +648,7 @@
           (str "Equivalent mutable type syntax for " type))))
   (is (str/includes?
        (emit/emit-stmt '(let [^{:var [:array 4096 :u8]} buffer ak/undefined]
-                         (set! (az/index buffer 0) 42)))
+                         (set! (a/index buffer 0) 42)))
        "var buffer: [4096]u8 = undefined;"))
   (testing "boolean mutability retains inference and explicit types take precedence"
     (is (str/includes? (emit/emit-stmt '(let [^:var value 1] value))
@@ -716,7 +773,7 @@
   (testing "the old flattened struct syntax is rejected clearly"
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo
-         #"Each az/defstruct field must be a vector"
+         #"Each a/defstruct field must be a vector"
          (emit/parse-struct-fields '[:x :- :f32 :y :- :f32])))))
 
 (deftest declaration-and-module-test
@@ -1174,13 +1231,46 @@
 (deftest callback-type-parameter-names-are-not-value-references
   (let [context (the-ns 'aguafria.zig.emitter-test)
         declaration {:kind :const :name 'Callback
-                     :value '(az/type [:*const [:fn {:callconv :.c}
+                     :value '(a/type [:*const [:fn {:callconv :.c}
                                                [{:name it :type :i32}] :bool]])}]
     (is (map? (emit/prepare-declaration context declaration)))
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"Unresolved Zig reference"
          (emit/prepare-declaration
-          context (assoc declaration :value '(az/type [:fn [{:name it :type Missing}] :void])))))))
+          context (assoc declaration :value '(a/type [:fn [{:name it :type Missing}] :void])))))))
+
+(deftest loop-option-blocks-have-sequential-local-scope
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :fn :name 'example :return :void :args []}
+        loop-form '(while-loop {:else [(const fallback 7) (set! _ fallback)]} false)]
+    (is (map? (emit/validate-declaration-references!
+               context (assoc declaration :body [loop-form]))))
+    (doseq [body [[loop-form '(set! _ fallback)]
+                 '[(while-loop {:else [(set! _ fallback) (const fallback 7)]} false)]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference `fallback`"
+                           (emit/validate-declaration-references!
+                            context (assoc declaration :body body)))))))
+
+(deftest converted-containers-know-only-their-declared-members
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :const :name 'Container
+                     :value '(container {:kind :struct}
+                                        [(fn-decl caller :u32 [] (helper))
+                                         (fn-decl helper :u32 [] 7)])}
+        catalog-name 'fixture.converted-container-members]
+    (project/register-catalog! {:schema-version 1
+                                :modules {(str catalog-name) {:source-kind :zig}}})
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+                         (emit/validate-declaration-references! context declaration)))
+    (binding [project/*catalog-namespace* catalog-name]
+      (is (= declaration (emit/validate-declaration-references! context declaration)))
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"Unresolved Zig reference `unknown`"
+           (emit/validate-declaration-references!
+            context (assoc declaration :value
+                           '(container {:kind :struct}
+                                       [(fn-decl caller :u32 [] (unknown))
+                                        (fn-decl helper :u32 [] 7)]))))))))
 
 (deftest implicit-return-test
   (is (= "return (a + b);"

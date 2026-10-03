@@ -4,7 +4,7 @@
   These functions pace and observe the same Aguafria/Flecs functions used by
   the desktop. They are development tools and are absent from the standalone
   dependency graph."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [racing-game.core :as game]
             [racing-game.simulation :as simulation]))
 
@@ -67,7 +67,7 @@
                                  (/ (- (System/nanoTime) step-started)
                                     1000000.0)))))))
            elapsed-ms (/ (- (System/nanoTime) started) 1000000.0)
-           race (az/value (simulation/snapshot))
+           race (a/value (simulation/snapshot))
            cognition (game/cognition-status)
            worker-after (game/worker-status)
            request-delta (mapv - (:requests_by_actor worker-after)

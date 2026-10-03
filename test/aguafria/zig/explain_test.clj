@@ -1,5 +1,5 @@
 (ns aguafria.zig.explain-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.explain :as explanation]
             [aguafria.zig.runtime :as runtime]
             [clojure.string :as str]
@@ -11,7 +11,7 @@
         writer (java.io.StringWriter.)]
     (binding [*out* writer]
       (is (identical? result
-                      (az/explain!
+                      (a/explain!
                        (swap! calls inc)
                        (println "ordinary output")
                        result))))
@@ -24,7 +24,7 @@
         writer (java.io.StringWriter.)]
     (binding [*out* writer]
       (is (identical? failure
-                      (try (az/explain! (throw failure))
+                      (try (a/explain! (throw failure))
                            (catch Throwable error error)))))
     (is (str/includes? (str writer) "no compiler/cache events"))))
 
@@ -35,16 +35,16 @@
                  (close []))
         failure (ex-info "original" {})]
     (binding [*out* writer]
-      (is (= 42 (az/explain! 42)))
+      (is (= 42 (a/explain! 42)))
       (is (identical? failure
-                      (try (az/explain! (throw failure))
+                      (try (a/explain! (throw failure))
                            (catch Throwable error error)))))))
 
 (deftest reporting-is-opt-in
   (is (= "" (with-out-str
               (explanation/event! {:event :compiled :module "silent"}))))
   (let [output (with-out-str
-                 (az/explain!
+                 (a/explain!
                   (explanation/event! {:event :compiled :module "example"})
                   (explanation/event! {:event :disk-cache-hit :module "example"})))]
     (is (str/includes? output "1 compiled, 1 disk-cache-hit"))))
@@ -53,7 +53,7 @@
   (let [gate (promise)
         writer (java.io.StringWriter.)
         work (binding [*out* writer]
-               (az/explain!
+               (a/explain!
                 (future
                   @gate
                   (explanation/event! {:event :compiled :module "async"})
@@ -77,15 +77,15 @@
             (clojure.core/refer 'clojure.core)
             (eval '(aguafria.zig/explain!
                     (aguafria.zig/defn increment :i32 [[x :i32]] (+ x 1))))))
-        cold (with-out-str (az/explain! (runtime/precompile-function! qualified)))
-        disk (with-out-str (az/explain! (runtime/precompile-function! qualified)))
+        cold (with-out-str (a/explain! (runtime/precompile-function! qualified)))
+        disk (with-out-str (a/explain! (runtime/precompile-function! qualified)))
         function (ns-resolve ns-object 'increment)
         result (atom nil)
-        load-output (with-out-str (az/explain! (reset! result (function 41))))
-        warm (with-out-str (az/explain! (reset! result (function 41))))]
+        load-output (with-out-str (a/explain! (reset! result (function 41))))
+        warm (with-out-str (a/explain! (reset! result (function 41))))]
     (is (str/includes? declaration-output "no compiler/cache events"))
     (is (str/includes? cold "[aguafria] compiled "))
     (is (str/includes? disk "[aguafria] disk-cache-hit "))
     (is (str/includes? load-output "[aguafria] disk-cache-hit "))
     (is (str/includes? warm "[aguafria] memory-cache-hit "))
-    (is (= 42 (az/value @result)))))
+    (is (= 42 (a/value @result)))))

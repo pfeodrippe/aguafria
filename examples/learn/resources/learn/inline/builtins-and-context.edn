@@ -79,8 +79,8 @@
   :note "Wrapping multiplication; overflow keeps the low bits of the result."}
 
  "->"
- {:clojure-source "az/field" :kind :reference
-  :note "C pointer-member access corresponds to az/field; Zig automatically dereferences a single-item pointer when accessing its field."}
+ {:clojure-source "a/field" :kind :reference
+  :note "C pointer-member access corresponds to a/field; Zig automatically dereferences a single-item pointer when accessing its field."}
 
  ".Add"
  {:clojure-source ":.Add" :kind :expr
@@ -131,11 +131,11 @@
   :note "A function result that either succeeds without a value or returns any error."}
 
  "opaque{}"
- {:clojure-source "(az/opaque [])" :kind :type
+ {:clojure-source "(a/opaque [])" :kind :type
   :note "An opaque type with unknown size and alignment."}
 
  "@\"foo\""
- {:clojure-source "(az/identifier-literal \"@\\\"foo\\\"\")" :kind :expr
+ {:clojure-source "(a/identifier-literal \"@\\\"foo\\\"\")" :kind :expr
   :note "An explicitly quoted Zig identifier, not a string value."}
 
  "@Int(.unsigned, 18)"
@@ -171,7 +171,7 @@
   :note "Unconditionally trap. Syntax checked but intentionally not executed by the short-expression verifier."}
 
  "@cDefine(\"_GNU_SOURCE\", {})"
- {:clojure-source "(k/cDefine \"_GNU_SOURCE\" (az/block))" :kind :expr
+ {:clojure-source "(k/cDefine \"_GNU_SOURCE\" (a/block))" :kind :expr
   :note "Inside k/cImport, define the C preprocessor macro with no replacement text."}
 
  "@divExact(6, 3) == 2"
@@ -227,7 +227,7 @@
   :note "The reference's storage-size example; the comparison runs on both sides with the same target."}
 
  "@typeInfo(@TypeOf(ptr)).pointer.alignment"
- {:clojure-source "(az/get-in (k/typeInfo (k/TypeOf ptr)) [:* :alignment])" :kind :expr
+ {:clojure-source "(a/get-in (k/typeInfo (k/TypeOf ptr)) [:* :alignment])" :kind :expr
   :note "The alignment recorded in the surrounding pointer's type information."}
 
  ">= @sizeOf(T)."
@@ -239,7 +239,7 @@
   :note "Reject pointer destination types; pointer casts have dedicated builtins."}
 
  "@typeInfo(T).int.bits"
- {:clojure-source "(az/get-in (k/typeInfo T) [:int :bits])" :kind :expr
+ {:clojure-source "(a/get-in (k/typeInfo T) [:int :bits])" :kind :expr
   :note "The integer type's bit width."}
 
  "@workGroupSize(dimension)"
@@ -263,15 +263,15 @@
   :note "Shift a left by b bits."}
 
  "a[i]"
- {:clojure-source "(az/get a i)" :kind :expr
+ {:clojure-source "(a/get a i)" :kind :expr
   :note "Index the surrounding sequence a."}
 
  "b[i]"
- {:clojure-source "(az/get b i)" :kind :expr
+ {:clojure-source "(a/get b i)" :kind :expr
   :note "Index the surrounding sequence b."}
 
  "pred[i]"
- {:clojure-source "(az/get pred i)" :kind :expr
+ {:clojure-source "(a/get pred i)" :kind :expr
   :note "Read the predicate lane at index i."}
 
  "allocator.alloc"
@@ -299,19 +299,19 @@
   :note "Divide the surrounding operands; use explicit builtins when signed rounding must be selected."}
 
  "error.OutOfMem"
- {:clojure-source "(az/error-value :OutOfMem)" :kind :expr :standalone? true
+ {:clojure-source "(a/error-value :OutOfMem)" :kind :expr :standalone? true
   :note "The named OutOfMem error value, not its string name."}
 
  "error.OutOfMemory"
- {:clojure-source "(az/error-value :OutOfMemory)" :kind :expr :standalone? true
+ {:clojure-source "(a/error-value :OutOfMemory)" :kind :expr :standalone? true
   :note "The allocation-failure error value."}
 
  "error.SkipZigTest"
- {:clojure-source "(az/error-value :SkipZigTest)" :kind :expr :standalone? true
-  :note "Returning this error from an az/deftest marks the native test skipped."}
+ {:clojure-source "(a/error-value :SkipZigTest)" :kind :expr :standalone? true
+  :note "Returning this error from an a/deftest marks the native test skipped."}
 
  "export fn"
- {:clojure-source "az/defn" :kind :reference
+ {:clojure-source "a/defn" :kind :reference
   :note "Add {:export true} after the return type to export a function through the C ABI. Public alone does not mean C-exported."}
 
  "i8 = -74"
@@ -331,11 +331,11 @@
   :note "The original bit pattern interpreted as unsigned u8."}
 
  "log2(@typeInfo(@TypeOf(a)).int.bits)"
- {:clojure-source "(log2 (az/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
+ {:clojure-source "(log2 (a/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
   :note "A mathematical bound on the shift count's bit width. log2 names the operation in prose, not a newly provided function."}
 
  "log2(@typeInfo(T).int.bits)"
- {:clojure-source "(log2 (az/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
+ {:clojure-source "(log2 (a/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
   :note "A mathematical bound in the surrounding shift discussion; log2 is contextual notation."}
 
  "options.linkage"
@@ -347,15 +347,15 @@
   :note "Explicitly dereference a struct pointer, then access its member."}
 
  "ptr_to_struct_array[index].struct_member"
- {:clojure-source "(az/get-in ptr-to-struct-array [index :struct_member])" :kind :expr
+ {:clojure-source "(a/get-in ptr-to-struct-array [index :struct_member])" :kind :expr
   :note "Index a pointer to structs, then read the selected struct's member."}
 
  "shift_amt >= @typeInfo(@TypeOf(a)).int.bits"
- {:clojure-source "(>= shift-amt\n    (az/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
+ {:clojure-source "(>= shift-amt\n    (a/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
   :note "Check whether the shift amount reaches the operand's bit width."}
 
  "shift_amt >= @typeInfo(T).int.bits"
- {:clojure-source "(>= shift-amt (az/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
+ {:clojure-source "(>= shift-amt (a/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
   :note "Check whether the shift amount reaches T's bit width."}
 
  "~@as(i32, 0)"
@@ -372,18 +372,18 @@
 
  "struct { ... }"
  {:clojure-source "" :kind :syntax-note
-  :note "The ellipsis stands for omitted members. Aguafria uses az/container or az/defstruct with the actual fields and declarations; the ellipsis is not executable code."}
+  :note "The ellipsis stands for omitted members. Aguafria uses a/container or a/defstruct with the actual fields and declarations; the ellipsis is not executable code."}
 
  "struct { FILE_CONTENTS }"
  {:clojure-source "" :kind :syntax-note
   :note "FILE_CONTENTS means the imported file's declarations in this explanation, not a variable. An Aguafria namespace supplies the corresponding generated module declarations."}
 
  "pub const _start = {};"
- {:clojure-source "(az/defconst _start (az/block))" :kind :declarations
+ {:clojure-source "(a/defconst _start (a/block))" :kind :declarations
   :note "A public top-level _start declaration disables Zig's default startup routine; it is not a function body."}
 
  "const assert = @import(\"std\").debug.assert;\ncomptime {\n    assert(*u32 == *align(@alignOf(u32)) u32);\n}"
- {:clojure-source "(az/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (k/== (az/type [:* :u32])\n        (az/type [:* {:align (k/alignOf :u32)} :u32]))))"
+ {:clojure-source "(a/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (k/== (a/type [:* :u32])\n        (a/type [:* {:align (k/alignOf :u32)} :u32]))))"
   :kind :declarations
   :expected-compile-error "reached unreachable code"
   :note "A module-level pointer-alignment assertion, preserved from the reference. The original and translated assertion both fail with the pinned compiler on this target; it is not a successful compilation example."}}

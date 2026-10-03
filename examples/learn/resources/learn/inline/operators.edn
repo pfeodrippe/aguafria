@@ -259,7 +259,7 @@
   :note "Bitwise OR retains bits set in either operand."}
 
  "a ^ b\na ^= b"
- {:clojure-source "(k/bit-xor a b)\n(az/assign-expr \"^=\" a b)"
+ {:clojure-source "(k/bit-xor a b)\n(a/assign-expr \"^=\" a b)"
   :kind :statements
   :alternatives? true
   :note "XOR expression and assignment alternatives use reader-safe forms."}
@@ -293,7 +293,7 @@
   :note "A typed optional binding selects the fallback when null."}
 
  "a.?"
- {:clojure-source "(az/unwrap a)"
+ {:clojure-source "(a/unwrap a)"
   :kind :expr
   :note "Unwrap an optional; null is illegal behavior."}
 
@@ -303,13 +303,13 @@
   :note "Explicitly assert that the optional is not null."}
 
  "const value: ?u32 = 5678;\nvalue.? == 5678"
- {:clojure-source "(let [value (k/as 5678 [:optional :u32])]\n  (k/== (az/unwrap value) 5678))"
+ {:clojure-source "(let [value (k/as 5678 [:optional :u32])]\n  (k/== (a/unwrap value) 5678))"
   :kind :expr
   :standalone? true
   :note "Unwrap the non-null u32 payload."}
 
  "a catch b\na catch |err| b"
- {:clojure-source "(k/catch a b)\n(az/catch-capture [err] a b)"
+ {:clojure-source "(k/catch a b)\n(a/catch-capture [err] a b)"
   :kind :statements
   :alternatives? true
   :note "Alternative error handlers; the second makes err available to b."}
@@ -319,7 +319,7 @@
   :note "Unwrap a successful error union, returning any error to the caller."}
 
  "a catch |err| return err"
- {:clojure-source "(az/catch-capture [err] a (k/return err))" :kind :expr
+ {:clojure-source "(a/catch-capture [err] a (k/return err))" :kind :expr
   :note "Propagate a's error to the caller."}
 
  "const value: anyerror!u32 = 5678;\ntry value == 5678"
@@ -336,7 +336,7 @@
   :note "Ceiling division rounds a negative quotient toward positive infinity."}
 
  "const value: anyerror!u32 = error.Broken;\nconst unwrapped = value catch 1234;\nunwrapped == 1234"
- {:clojure-source "(let [value (k/as (az/error-value :Broken) [:error-union :anyerror :u32])\n      unwrapped (k/catch value 1234)]\n  (k/== unwrapped 1234))"
+ {:clojure-source "(let [value (k/as (a/error-value :Broken) [:error-union :anyerror :u32])\n      unwrapped (k/catch value 1234)]\n  (k/== unwrapped 1234))"
   :kind :expr
   :standalone? true
   :note "Catch replaces the error with a successful fallback value."}

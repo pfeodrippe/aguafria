@@ -1,14 +1,14 @@
 (ns learn.example.test-exhaustive-switch
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defenum Color
+(a/defenum Color
   [:auto
    :off
    :on])
 
-(az/deftest enum-literals-with-switch
+(a/deftest enum-literals-with-switch
   (let [color (:off Color)
         result (k/switch color
                          (case [:.auto] false)

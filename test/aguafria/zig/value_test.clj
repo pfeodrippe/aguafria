@@ -1,7 +1,7 @@
 (ns aguafria.zig.value-test
   (:require [aguafria.keyword :as ak]
             [aguafria.std :as std]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.value :as value]
             [clojure.pprint :as pprint]
             [clojure.test :refer [deftest is]]))
@@ -26,14 +26,14 @@
         (is (thrown? IndexOutOfBoundsException (nth native -1))))
       (ak/= native [4 5 6])
       (is (= 4 (nth native 0)))))
-  (with-open [grid (az/array [[1 2] [3 4]] [:array 2 :i32])
-              empty-array (az/array [] :i32)]
+  (with-open [grid (a/array [[1 2] [3 4]] [:array 2 :i32])
+              empty-array (a/array [] :i32)]
     (let [[[a b] [c d]] grid
           [missing] empty-array]
       (is (= [1 2 3 4] [a b c d]))
       (is (nil? missing))
       (is (zero? (count empty-array)))))
-  (let [closed (az/array [1] :i32)]
+  (let [closed (a/array [1] :i32)]
     (.close closed)
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"closed" (nth closed 0)))))
 
@@ -52,7 +52,7 @@
 
 (deftest generated-container-inspection-uses-native-fields
   (doseq [type [:u21 :u8 [:optional :u21]]]
-    (with-open [native (ak/var :.empty (std/ArrayList (az/type type)))]
+    (with-open [native (ak/var :.empty (std/ArrayList (a/type type)))]
       (let [items (if (= type :u8) "" [])]
         (is (= {:items items :capacity 0} @native))
         (is (= (str "#aguafria.zig.value.ZigValue["
@@ -64,14 +64,14 @@
     (try
       (binding [*ns* context]
         (refer 'clojure.core)
-        (require '[aguafria.zig :as az] '[aguafria.keyword :as ak])
-        (eval '(az/defn- Box :type [[T {:zig/prefix "comptime"} :type]]
-                 (az/struct [[:item T]
+        (require '[aguafria.zig :as a] '[aguafria.keyword :as ak])
+        (eval '(a/defn- Box :type [[T {:zig/prefix "comptime"} :type]]
+                 (a/struct [[:item T]
                              [:next [:optional [:* :u32]]]])))
-        (eval '(az/defn make-box (Box (az/type [:array 2 :u21])) []
-                 (az/init {:item [9748 9786]
+        (eval '(a/defn make-box (Box (a/type [:array 2 :u21])) []
+                 (a/init {:item [9748 9786]
                            :next (ak/as (ak/ptrFromInt 4) [:* :u32])}
-                          (Box (az/type [:array 2 :u21]))))))
+                          (Box (a/type [:array 2 :u21]))))))
       (with-open [native ((ns-resolve context 'make-box))]
         (let [decoded @native]
           (is (= [9748 9786] (:item decoded)))

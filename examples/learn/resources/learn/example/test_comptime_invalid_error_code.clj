@@ -1,6 +1,6 @@
 (ns learn.example.test-comptime-invalid-error-code
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defcomptime reject-invalid-error-code
+(a/defcomptime reject-invalid-error-code
   (k/= :_ (k/errorFromInt 12345)))

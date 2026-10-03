@@ -1,7 +1,7 @@
 (ns aguafria-examples-native.bindings
   "Load generated Flecs/GLFW/Vulkan bindings and native shared libraries."
   (:require [aguafria.c :as ac]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria-examples-native.build :as build]
             [aguafria-examples-native.generate :as generate]))
 
@@ -22,7 +22,7 @@
       ;; graphics bindings must not discard their linker arguments. Preserve
       ;; argument groups verbatim: deduplicating individual tokens can corrupt
       ;; repeated options such as -framework followed by different names.
-      (az/configure! {:zig-args (into (vec (:zig-args (az/configuration)))
+      (a/configure! {:zig-args (into (vec (:zig-args (a/configuration)))
                                      (build/development-link-arguments))
                       :reloadable? true})
       (reset! loaded? true))))

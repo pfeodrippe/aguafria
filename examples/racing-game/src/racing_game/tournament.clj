@@ -1,7 +1,7 @@
 (ns racing-game.tournament
   "Deterministic native race evaluation and per-racer outcome scoring."
   (:refer-clojure :exclude [run!])
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [racing-game.core :as core]
             [racing-game.protocol :as protocol]
             [racing-game.simulation :as simulation]
@@ -148,7 +148,7 @@
 
 (defn- complete?
   []
-  (= (az/value simulation/racer-count) (:finished (az/value (simulation/snapshot)))))
+  (= (a/value simulation/racer-count) (:finished (a/value (simulation/snapshot)))))
 
 (defn- advance-fallback!
   [max-ticks chunk-ticks]
@@ -193,23 +193,23 @@
                      (throw (ex-info "Unknown tournament mode"
                                      {:mode mode
                                       :supported #{:fallback :live}})))
-          race (az/value (simulation/snapshot))
+          race (a/value (simulation/snapshot))
           standings
-          (->> (range (az/value simulation/racer-count))
+          (->> (range (a/value simulation/racer-count))
                (mapv (fn [racer-id]
                        (merge
                         (select-keys
-                         (az/value (simulation/racer-view racer-id))
+                         (a/value (simulation/racer-view racer-id))
                          [:id :rank :finished :finish_tick :decisions
                           :urgent_decisions :invalid_decisions
                           :average_latency_us])
                         {:outcomes
-                         (az/value
+                         (a/value
                           (telemetry/racer-outcome-summary racer-id))
                          :persona
                          (get persona-names
                               (:persona
-                               (az/value
+                               (a/value
                                 (simulation/current-observation racer-id)))
                               :unknown)
                          :behavior (behavior-summary racer-id)})))
@@ -218,7 +218,7 @@
       {:seed seed
        :mode mode
        :advanced-ticks advanced
-       :complete (= (az/value simulation/racer-count) (:finished race))
+       :complete (= (a/value simulation/racer-count) (:finished race))
        :race race
        :cognition (core/cognition-status)
        :standings standings})))
@@ -257,11 +257,11 @@
   ([]
    (run! default-options))
   ([options]
-   (az/await!)
+   (a/await!)
    (let [{:keys [seeds] :as options} (merge default-options options)
          started (System/nanoTime)
          races (mapv #(run-race! (assoc options :seed %)) seeds)
-         scoreboard (->> (range (az/value simulation/racer-count))
+         scoreboard (->> (range (a/value simulation/racer-count))
                          (mapv #(scoreboard-row % races))
                          (sort-by (juxt (comp - :points)
                                        :average-finish-tick
@@ -372,7 +372,7 @@
                  (throw (ex-info "Paired race is missing a racer"
                                  {:seed seed :racer racer})))
                (paired-racer-row seed racer baseline llm)))
-           (for [seed seeds racer (range (az/value simulation/racer-count))] [seed racer]))
+           (for [seed seeds racer (range (a/value simulation/racer-count))] [seed racer]))
           per-racer
           (mapv
            (fn [racer]
@@ -385,7 +385,7 @@
                 (mean (map :finish-tick-delta entries))
                 :item-use-delta (sum (map :item-use-delta entries))
                 :hit-delta (sum (map :hit-delta entries))}))
-           (range (az/value simulation/racer-count)))
+           (range (a/value simulation/racer-count)))
           baseline-summary (report-summary baseline-report)
           llm-summary (report-summary llm-report)]
       {:seeds seeds

@@ -161,12 +161,12 @@
   :note "Reflect the type of named field a."}
 
  "T{x}"
- {:clojure-source "(az/init [x] T)"
+ {:clojure-source "(a/init [x] T)"
   :kind :expr
   :note "A typed positional initializer supplies the field type to x but does not propagate its result location."}
 
  "T{ .a = x }"
- {:clojure-source "(az/init {:a x} T)"
+ {:clojure-source "(a/init {:a x} T)"
   :kind :expr
   :note "A typed named-field initializer supplies field a's type but does not propagate its result location to x."}
 
@@ -221,7 +221,7 @@
   :note "The storage location supplied by a binding or assignment to val."}
 
  "&ptr[0]"
- {:clojure-source "(k/& (az/get ptr 0))"
+ {:clojure-source "(k/& (a/get ptr 0))"
   :kind :expr
   :note "The first element's storage location receives the first positional initializer's result."}
 

@@ -1,20 +1,20 @@
 (ns learn.example.test-this-builtin
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- List :type
+(a/defn- List :type
   [[T {:attrs #{k/comptime}} :type]]
-  (az/struct
+  (a/struct
    [[:Self {:const (k/This)} :type]
     [:items [:slice T]]
-    (az/fn- length :usize
-            [[self Self]]
-            (az/get-in self [:items :len]))]))
+    (a/fn- length :usize
+           [[self Self]]
+           (a/get-in self [:items :len]))]))
 
-(az/deftest This
-  (let [items (k/var (az/array [1 2 3 4] :i32))
-        list (az/init {:items (az/slice items 0)} (List :i32))]
+(a/deftest This
+  (let [items (k/var (a/array [1 2 3 4] :i32))
+        list (a/init {:items (a/slice items 0)} (List :i32))]
     (try (testing/expectEqual 4 ((:length list))))))
 
 (comment

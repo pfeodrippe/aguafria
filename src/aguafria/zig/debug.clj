@@ -42,7 +42,7 @@
         (when (and (or changed? (= :jvm (:phase report)))
                    (contains? debug-output :print))
           (println (str (or (:file report) "REPL") ":" (or (:line report) 1)
-                        ":" (or (:column report) 1) " [az/debug!] "
+                        ":" (or (:column report) 1) " [a/debug!] "
                         (or (:type report) (:message report)))))))
     report))
 
@@ -114,7 +114,7 @@
       (doseq [[id probe] probes :when (not (contains? analyzed id))]
         (report! (merge (dissoc probe :expression)
                         {:phase :compile :kind :type :status :unavailable
-                         :message "Type inspection failed; see :diagnostics in az/debug-reports."
+                         :message "Type inspection failed; see :diagnostics in a/debug-reports."
                          :diagnostics stderr})
                  options)))))
 

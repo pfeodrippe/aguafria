@@ -1,5 +1,5 @@
 (ns racing-game.render3d-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria-examples-native.mesh :as mesh]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -22,7 +22,7 @@
              :fit_x :fit_y :reserved0 :reserved1] 48]]]
     (let [values (mapv float (range 1 (inc (count fields))))
           instance (constructor (zipmap fields values))
-          segment (az/native-segment instance)]
+          segment (a/native-segment instance)]
       (is (= byte-count (.byteSize segment)))
       (is (= values (vec (.toArray segment java.lang.foreign.ValueLayout/JAVA_FLOAT)))))))
 
@@ -33,7 +33,7 @@
         instance-count (* 20 2 (count cars))]
     (is (= 6 (count cars)) "Body, driver and four independently posed wheels")
     (is (= 240 instance-count) "Twenty instances per part, plus their shadows")
-    (is (<= instance-count (az/value mesh/instance-capacity)))
+    (is (<= instance-count (a/value mesh/instance-capacity)))
     (is (< (* instance-count 64) (/ (* vertices 20 64) 100))
         "Per-frame instance traffic is under 1% of expanded car vertices")
     (doseq [[_ mesh] cars]
@@ -47,16 +47,16 @@
                     {:qw 1.0})
         a (physics/BodyState base)
         b (physics/BodyState (assoc base :x 10.0 :y 4.0 :z 2.0 :qw -1.0 :vx 30.0))
-        midpoint (az/value (render3d/interpolate-pose a b 0.5))]
+        midpoint (a/value (render3d/interpolate-pose a b 0.5))]
     (is (= [5.0 2.0 1.0] (mapv midpoint [:x :y :z])))
     (is (= [0.0 0.0 0.0 1.0] (mapv midpoint [:qx :qy :qz :qw]))
         "q and -q represent the same rotation; never interpolate through zero")
     (is (= 30.0 (:vx midpoint)) "Physical velocity is metadata, not overwritten by smoothing")
-    (is (= 0.0 (:x (az/value a))) "Input native snapshots remain unmodified")
-    (is (= 0.0 (:x (az/value (render3d/interpolate-pose a b -1.0)))))
-    (is (= 10.0 (:x (az/value (render3d/interpolate-pose a b 2.0)))))
+    (is (= 0.0 (:x (a/value a))) "Input native snapshots remain unmodified")
+    (is (= 0.0 (:x (a/value (render3d/interpolate-pose a b -1.0)))))
+    (is (= 10.0 (:x (a/value (render3d/interpolate-pose a b 2.0)))))
     (let [turned (physics/BodyState (assoc base :qz 1.0 :qw 0.0))
-          half (az/value (render3d/interpolate-pose a turned 0.5))]
+          half (a/value (render3d/interpolate-pose a turned 0.5))]
       (is (< (Math/abs (- (:qz half) (Math/sqrt 0.5))) 1.0e-6))
       (is (< (Math/abs (- (:qw half) (Math/sqrt 0.5))) 1.0e-6)))))
 
@@ -73,7 +73,7 @@
                     phase (- ticks current)
                     a (physics/BodyState (assoc base :x (/ (dec current) 4.0)))
                     b (physics/BodyState (assoc base :x (/ current 4.0)))
-                    actual (:x (az/value (render3d/interpolate-pose a b phase)))
+                    actual (:x (a/value (render3d/interpolate-pose a b phase)))
                     expected (* 30.0 (- time (/ 1.0 120.0)))]]
           (Math/abs (- actual expected)))]
     (is (< (apply max errors) 0.00002)
@@ -144,8 +144,8 @@
       (.set buffer java.lang.foreign.ValueLayout/JAVA_LONG (* capacity 64) 424242)
       (doseq [[width height] [[1600 900] [900 1600] [900 900]]]
         (let [count (render3d/build-world-geometry! buffer width height)
-              origin (az/value (render3d/project 0.0 0.0 0.0))
-              raised (az/value (render3d/project 0.0 0.0 0.1))
+              origin (a/value (render3d/project 0.0 0.0 0.0))
+              raised (a/value (render3d/project 0.0 0.0 0.1))
               ;; Bulk-read once: reflective MemorySegment.getAtIndex in a
               ;; million-element loop spends minutes resolving overloads.
               ^floats stream (.toArray (.asSlice ^java.lang.foreign.MemorySegment buffer
@@ -174,19 +174,19 @@
   (simulation/reset!)
   (render3d/follow-leaders!)
   (render3d/zoom-by! 0.0001)
-  (is (= 1.0 (:zoom (az/value (render3d/camera-snapshot)))))
+  (is (= 1.0 (:zoom (a/value (render3d/camera-snapshot)))))
   (render3d/zoom-by! 3.0)
   (render3d/update-camera!)
-  (let [camera (az/value (render3d/camera-snapshot))]
+  (let [camera (a/value (render3d/camera-snapshot))]
     (is (:following camera))
     (is (:front_pack camera))
     (is (= 3.0 (:zoom camera))))
   (render3d/zoom-by! 1000.0)
-  (is (= 80.0 (:zoom (az/value (render3d/camera-snapshot)))))
+  (is (= 80.0 (:zoom (a/value (render3d/camera-snapshot)))))
   (render3d/select-camera! 5 true)
   (render3d/update-camera!)
-  (let [camera (az/value (render3d/camera-snapshot))
-        racer (az/value (simulation/racer-view 5))]
+  (let [camera (a/value (render3d/camera-snapshot))
+        racer (a/value (simulation/racer-view 5))]
     (is (not (:front_pack camera)))
     (is (= 5 (:racer camera)))
     (is (= (:x racer) (:x camera)))
@@ -218,7 +218,7 @@
   (doseq [mode (range 5)]
     (render3d/camera-preset! mode)
     (render3d/update-camera!)
-    (let [camera (az/value (render3d/camera-snapshot))]
+    (let [camera (a/value (render3d/camera-snapshot))]
       (is (every? #(Double/isFinite (double %))
                   (map camera [:x :y :z :zoom])))
       (is (<= 1.0 (:zoom camera) 80.0))))

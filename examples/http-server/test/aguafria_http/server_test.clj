@@ -1,6 +1,6 @@
 (ns aguafria-http.server-test
   (:require [aguafria-http.server :as server]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
             [clojure.walk :as walk])
@@ -21,7 +21,7 @@
 (defn- publish! [form]
   (binding [*ns* (the-ns 'aguafria-http.server)]
     (eval form))
-  (az/await! 'aguafria-http.server))
+  (a/await! 'aguafria-http.server))
 
 (defn- request! []
   (let [^HttpURLConnection connection (.openConnection (.toURL (URI. server/server-url)))]

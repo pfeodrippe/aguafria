@@ -2,7 +2,7 @@
   "Pinned Box3D source, Zig-built binaries and ordinary generated C bindings.
   Opt-in: examples that do not use physics need not link this library."
   (:require [aguafria.c :as ac]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria-examples-native.vendor :as vendor]
             [clojure.java.io :as io]
             [clojure.string :as str]))
@@ -62,7 +62,7 @@
         flags ["-Ofast" "-fPIC" "-DB3_ENABLE_ASSERT=1"]
         key (pr-str {:commit (get-in vendor/dependencies [:box3d :commit])
                      :wheel-motor-fix wheel-motor-fix
-                     :mode mode :flags flags :zig (az/zig-executable)
+                     :mode mode :flags flags :zig (a/zig-executable)
                      :newest (reduce max 0 (map #(.lastModified ^java.io.File %) inputs))})
         stamp (io/file (str output ".build-key"))]
     (if (and (.isFile output) (.isFile stamp) (= key (slurp stamp)))
@@ -94,7 +94,7 @@
         :cache-dir (str (io/file root ".aguafria/c-bindings"))
         :overwrite? true})
       (ac/load-bindings! bindings)
-      (az/configure! {:zig-args (vec (distinct (concat (:zig-args (az/configuration))
+      (a/configure! {:zig-args (vec (distinct (concat (:zig-args (a/configuration))
                                                      [(str shared) "-lc"])))})
       (reset! loaded? true)))
   {:loaded? @loaded? :commit (get-in vendor/dependencies [:box3d :commit])})

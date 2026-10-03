@@ -1,18 +1,18 @@
 (ns learn.example.runtime-invalid-enum-cast
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defenum Foo {:type :u2}
+(a/defenum Foo {:type :u2}
   [:a
    :b
    :c])
 
-(az/defn- foo :void [[a :u2]]
+(a/defn- foo :void [[a :u2]]
   (let [b (k/as (k/fromBackingInt a) Foo)]
     (debug/print "value: {s}\n" [(k/tagName b)])))
 
-(az/defn main :void []
+(a/defn main :void []
   (foo 3))
 
 (comment

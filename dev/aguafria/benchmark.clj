@@ -4,7 +4,7 @@
   This is deliberately separate from `aguafria.zig`: benchmarking is tooling,
   not a declaration primitive. Results are plain EDN and include enough host
   metadata to compare runs honestly."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.emitter :as emitter]
             [clojure.edn :as edn]
@@ -50,7 +50,7 @@
                    (- (System/nanoTime) started))))))
 
 (defn- compile-measurement [module wall-ms]
-  (let [build (:last-build (az/stats module))]
+  (let [build (:last-build (a/stats module))]
     {:wall-ms wall-ms
      :native-build-ms (:duration-ms build)
      :cached? (boolean (:cached? build))
@@ -69,7 +69,7 @@
 
 (defn- compile-fixture-group!
   [async? module-count]
-  (let [old-config (az/configuration)
+  (let [old-config (a/configuration)
         suffix (random-uuid)
         symbols (mapv #(symbol (str "aguafria.benchmark-"
                                     (if async? "parallel-" "serial-")
@@ -77,7 +77,7 @@
                       (range module-count))
         namespaces (mapv create-ns symbols)]
     (try
-      (az/configure! {:async? async?
+      (a/configure! {:async? async?
                       :reloadable? true
                       :optimize "fast"
                       :modules {}
@@ -85,14 +85,14 @@
       (doseq [target namespaces]
         (binding [*ns* target]
           (refer 'clojure.core)
-          (alias 'az 'aguafria.zig)))
+          (alias 'a 'aguafria.zig)))
       (let [started (System/nanoTime)]
         (doseq [target namespaces]
           (binding [*ns* target]
-            (eval '(az/defn fixture_value :u64 [] 42))))
+            (eval '(a/defn fixture_value :u64 [] 42))))
         (doseq [module symbols]
-          (az/await! module))
-        (let [builds (mapv #(get-in (az/stats %) [:last-build]) symbols)
+          (a/await! module))
+        (let [builds (mapv #(get-in (a/stats %) [:last-build]) symbols)
               durations (keep :duration-ms builds)]
           {:module-count module-count
            :async? async?
@@ -101,7 +101,7 @@
            :native-critical-path-ms (reduce max 0 durations)
            :cache-hit-count (count (filter :cached? builds))}))
       (finally
-        (az/configure! old-config)
+        (a/configure! old-config)
         (doseq [module symbols]
           (remove-ns module))))))
 
@@ -112,7 +112,7 @@
 
 (defn- final-artifact-benchmark!
   [iterations samples]
-  (let [old-config (az/configuration)
+  (let [old-config (a/configuration)
         module-symbol (symbol (str "aguafria.final-benchmark-" (random-uuid)))
         module-ns (create-ns module-symbol)
         output-directory
@@ -122,17 +122,17 @@
         output (java.io.File. output-directory
                               (System/mapLibraryName "aguafria_final_benchmark"))]
     (try
-      (az/configure! {:async? false
+      (a/configure! {:async? false
                       :reloadable? false
                       :optimize "fast"
                       :modules {}
                       :zig-args []})
       (binding [*ns* module-ns]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
-        (eval '(az/defn step :u64 [x :- :u64] (+ x 1)))
+        (alias 'a 'aguafria.zig)
+        (eval '(a/defn step :u64 [x :- :u64] (+ x 1)))
         (eval
-         '(az/defn direct_loop :u64 [n :- :u64]
+         '(a/defn direct_loop :u64 [n :- :u64]
             (var total :u64 0)
             (var i :u64 0)
             (while (< i n)
@@ -140,15 +140,15 @@
               (+= i 1))
             total))
         (eval
-         '(az/defn composed_loop :u64 [n :- :u64]
+         '(a/defn composed_loop :u64 [n :- :u64]
             (var total :u64 0)
             (var i :u64 0)
             (while (< i n)
               (+= total (step i))
               (+= i 1))
             total)))
-      (let [source (az/source module-symbol)
-            build (az/build! module-symbol
+      (let [source (a/source module-symbol)
+            build (a/build! module-symbol
                              {:kind :dynamic-lib
                               :output (.getAbsolutePath output)
                               :optimize "fast"})]
@@ -187,7 +187,7 @@
              :composed-to-direct-p50-ratio
              (/ (double (:p50-ns composed)) (:p50-ns direct))})))
       (finally
-        (az/configure! old-config)
+        (a/configure! old-config)
         (remove-ns module-symbol)))))
 
 (def ^:private project-specs
@@ -256,7 +256,7 @@
           (mapv (fn [module]
                   (emitter/emit-module
                    (str module)
-                   (:definitions (az/module-info module))))
+                   (:definitions (a/module-info module))))
                 namespaces)
           emission-ms (elapsed-ms emit-started)
           repeat-load-started (System/nanoTime)
@@ -306,26 +306,26 @@
      (when-not (and (integer? value) (pos? value))
        (throw (ex-info "Benchmark options must be positive integers"
                        {:option option :value value}))))
-   (let [old-config (az/configuration)
+   (let [old-config (a/configuration)
          module-symbol (symbol (str "aguafria.benchmark-fixture-"
                                     (random-uuid)))
          module-ns (create-ns module-symbol)]
      (try
-       (az/configure! {:async? false
+       (a/configure! {:async? false
                        :reloadable? true
                        :optimize "fast"})
        (binding [*ns* module-ns]
          (refer 'clojure.core)
-         (alias 'az 'aguafria.zig))
+         (alias 'a 'aguafria.zig))
        (let [clean-started (System/nanoTime)
              _ (binding [*ns* module-ns]
                  (eval
-                  '(az/defn hot-step :u64
+                  '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
                      [x :- :u64]
                      (+ x 1)))
                  (eval
-                  '(az/defn direct-loop :u64
+                  '(a/defn direct-loop :u64
                      [n :- :u64]
                      (var total :u64 0)
                      (var i :u64 0)
@@ -334,7 +334,7 @@
                        (+= i 1))
                      total))
                  (eval
-                  '(az/defn dispatch-loop :u64
+                  '(a/defn dispatch-loop :u64
                      [n :- :u64]
                      (var total :u64 0)
                      (var i :u64 0)
@@ -345,13 +345,13 @@
              clean (compile-measurement module-symbol
                                         (elapsed-ms clean-started))
              cached-started (System/nanoTime)
-             _ (az/recompile! module-symbol)
+             _ (a/recompile! module-symbol)
              cached (compile-measurement module-symbol
                                          (elapsed-ms cached-started))
              incremental-started (System/nanoTime)
              _ (binding [*ns* module-ns]
                  (eval
-                  '(az/defn hot-step :u64
+                  '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
                      [x :- :u64]
                      (+ x 2))))
@@ -359,7 +359,7 @@
                                               (elapsed-ms incremental-started))
              _ (binding [*ns* module-ns]
                  (eval
-                  '(az/defn hot-step :u64
+                  '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
                      [x :- :u64]
                      (+ x 1))))
@@ -375,7 +375,7 @@
              ffm (measure #(dotimes [_ ffm-calls] (direct-loop 1)) 2 samples)
              direct-median (:p50-ns direct)
              dispatch-median (:p50-ns dispatch)
-             stats (az/stats module-symbol)
+             stats (a/stats module-symbol)
              final-artifact (final-artifact-benchmark! iterations samples)
              serial-compilation (compile-fixture-group! false parallel-modules)
              parallel-compilation (compile-fixture-group! true parallel-modules)]
@@ -413,7 +413,7 @@
                                        :dispatch-version-count
                                        :timings])})
        (finally
-         (az/configure! old-config)
+         (a/configure! old-config)
          (remove-ns module-symbol))))))
 
 (defn- run-suite-process!
@@ -447,7 +447,7 @@
              (throw (ex-info "Kaocha cache-population run failed"
                              {:run population})))
          warm-run (run-suite-process! focus profiling-count)
-         zig-command (az/zig-executable)
+         zig-command (a/zig-executable)
          zig-result (shell/sh zig-command "version")]
      {:benchmark :aguafria/warm-kaocha-suite
       :recorded-at-ms (System/currentTimeMillis)

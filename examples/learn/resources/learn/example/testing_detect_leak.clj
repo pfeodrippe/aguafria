@@ -2,11 +2,11 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std :as std]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.std.ArrayList :as al]
             [aguafria.std.ArrayList.Slice :as al-slice]))
 
-(az/deftest detect-leak
+(a/deftest detect-leak
   (let [gpa testing/allocator
         list (k/var :.empty (std/ArrayList :u21))]
     ;; missing `defer list.deinit(gpa);`

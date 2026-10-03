@@ -1,6 +1,6 @@
 (require '[aguafria.keyword :as ak]
          '[aguafria.std.debug :as debug]
-         '[aguafria.zig :as az])
+         '[aguafria.zig :as a])
 
 (defn expect-panic [invoke]
   (try
@@ -23,16 +23,16 @@
     (assert (seq (:native-frames details)))
     (println "source mapped:" source-form)))
 
-(az/defn assert-second :void []
+(a/defn assert-second :void []
   (debug/assert true)
   (debug/assert false))
 
-(az/defn nested-assertion :void []
+(a/defn nested-assertion :void []
   (assert-second))
 
 (expect-source-panic nested-assertion "(debug/assert false)")
 
-(az/defn explicit-panic :void []
+(a/defn explicit-panic :void []
   (ak/panic "specific failure"))
 (expect-source-panic explicit-panic "(ak/panic \"specific failure\")")
 
@@ -41,12 +41,12 @@
   (debug/assert (ak/== optional-value nil))
   (expect-panic #(debug/assert (ak/!= optional-value nil))))
 
-(az/defn overflowing :i32 [[value :i32]] (+ value 1))
+(a/defn overflowing :i32 [[value :i32]] (+ value 1))
 (expect-source-panic #(overflowing Integer/MAX_VALUE) "(+ value 1)")
-(az/deftest panic-test (debug/assert false))
+(a/deftest panic-test (debug/assert false))
 (expect-source-panic panic-test "(debug/assert false)")
-(assert (= 42 (az/value (overflowing 41))))
-(assert (= 42 (az/value (ak/+% 40 2))))
+(assert (= 42 (a/value (overflowing 41))))
+(assert (= 42 (a/value (ak/+% 40 2))))
 (debug/assert true)
 (println "JVM survived native assertion and overflow")
 (shutdown-agents)

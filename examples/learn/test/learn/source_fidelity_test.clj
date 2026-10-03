@@ -80,7 +80,7 @@
                        :let [name (token-text next-token)]
                        :when (not (imports name))]
                    name)
-        test-names (into #{} (comp (filter #(and (seq? %) (= 'az/deftest (first %))))
+        test-names (into #{} (comp (filter #(and (seq? %) (= 'a/deftest (first %))))
                                    (map (comp identifier-key str second))) forms)
         labels (for [{:keys [kind label]} (convert/test-labels parsed)
                      :when (= :named kind)]

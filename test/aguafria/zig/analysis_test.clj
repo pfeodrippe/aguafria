@@ -3,12 +3,12 @@
             [clojure.test :refer [deftest is]]))
 
 (def source
-  (str "(ns sample (:require [aguafria.zig :as az]))\n"
-       "(az/defn identity-int :i32 [[x :i32]]\n"
+  (str "(ns sample (:require [aguafria.zig :as a]))\n"
+       "(a/defn identity-int :i32 [[x :i32]]\n"
        "  (let [y x] y))\n"
-       "(az/defconst answer (identity-int 42))\n"
-       "(az/defconst V (az/type [:vector 4 :i32]))\n"
-       "(az/defconst value (az/init [1 -1 1 -1] V))\n"
+       "(a/defconst answer (identity-int 42))\n"
+       "(a/defconst V (a/type [:vector 4 :i32]))\n"
+       "(a/defconst value (a/init [1 -1 1 -1] V))\n"
        "(unknown-call answer)\n"))
 
 (deftest no-clojure-type-inference-and-exact-spans
@@ -34,7 +34,7 @@
     (is (= :unresolved (:status (second xs))))))
 
 (deftest observations-are-revision-specific-and-retain-specializations
-  (let [source "(az/debug! (f x))"
+  (let [source "(a/debug! (f x))"
         observation {:file "test.clj" :source-sha256 (analysis/source-hash source)
                      :line 1 :column 1 :phase :compile :status :ok :type "i32"}
         root (fn [observations]
@@ -48,13 +48,13 @@
 
 (deftest do-not-run-host-code-or-reader-eval
   (let [report (analysis/analyze-source
-                "(az/clj! (throw (Exception. \"must not execute\")))\n#=(System/exit 1)" {})]
+                "(a/clj! (throw (Exception. \"must not execute\")))\n#=(System/exit 1)" {})]
     (is (seq (:forms report)))
     (is (every? #(not= :compiler (:basis %)) (:forms report)))))
 
 (deftest tolerate-anonymous-functions-and-unresolved-snippets
   (doseq [source ["(fn [x] x)" "(some-macro [a b] c)" "'x" "@value"
-                  "(let [x \"é😀\"] x)" "(az/defstruct S [[:x :i32]])"]]
+                  "(let [x \"é😀\"] x)" "(a/defstruct S [[:x :i32]])"]]
     (let [report (analysis/analyze-source source {})]
       (is (seq (:forms report)))
       (doseq [{:keys [start end form]} (:forms report)]

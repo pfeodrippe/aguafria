@@ -12,7 +12,7 @@
   (let [forms (with-open [reader (PushbackReader.
                                   (io/reader (io/resource "learn/example/values.clj")))]
                 (doall (take-while some? (repeatedly #(read {:eof nil} reader)))))
-        main (first (filter #(and (seq? %) (= 'az/defn (first %))
+        main (first (filter #(and (seq? %) (= 'a/defn (first %))
                                   (= 'main (second %))) forms))
         events (atom [])
         output (StringWriter.)

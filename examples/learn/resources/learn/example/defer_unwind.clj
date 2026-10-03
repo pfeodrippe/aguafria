@@ -1,8 +1,8 @@
 (ns learn.example.defer-unwind
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (debug/print "\n" [])
   (defer (debug/print "1 " []))
   (defer (debug/print "2 " []))

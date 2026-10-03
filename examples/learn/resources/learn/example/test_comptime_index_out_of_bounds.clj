@@ -1,8 +1,8 @@
 (ns learn.example.test-comptime-index-out-of-bounds
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defcomptime reject-sixth-byte
+(a/defcomptime reject-sixth-byte
   (let [array (k/as (deref "hello") [:array 5 :u8])
-        garbage (az/get array 5)]
+        garbage (a/get array 5)]
     (k/= :_ garbage)))

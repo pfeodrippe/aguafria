@@ -1,12 +1,12 @@
 (ns learn.example.runtime-unwrap-error
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- getNumberOrFail [:error-union :i32] []
-  (az/error-value :UnableToReturnNumber))
+(a/defn- getNumberOrFail [:error-union :i32] []
+  (a/error-value :UnableToReturnNumber))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [number (catch (getNumberOrFail) (k/unreachable))]
     (debug/print "value: {}\n" [number])))
 

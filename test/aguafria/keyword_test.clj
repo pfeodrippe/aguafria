@@ -1,6 +1,6 @@
 (ns aguafria.keyword-test
   (:require [aguafria.keyword :as ak]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.emitter :as emitter]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -58,49 +58,49 @@
            (emitter/emit-expr (the-ns 'aguafria.keyword-test)
                               '(ak/intCast value))))
     (is (= "@field(value, \"member\")"
-           (az/emit-expr '(ak/field value "member"))))
+           (a/emit-expr '(ak/field value "member"))))
     (is (= "@Vector(4, i32)"
-           (az/emit-type '(ak/Vector 4 :i32)))))
+           (a/emit-type '(ak/Vector 4 :i32)))))
 
   (testing "bare field is still Aguafria's readable field-access form"
-    (is (= "value.member" (az/emit-expr '(field value :member)))))
+    (is (= "value.member" (a/emit-expr '(field value :member)))))
 
   (testing "primitive values are qualified atom Vars"
-    (is (= "undefined" (az/emit-expr 'ak/undefined)))
+    (is (= "undefined" (a/emit-expr 'ak/undefined)))
     (is (nil? (:aguafria/zig-reference
                (meta (emitter/qualify-form
                       (the-ns 'aguafria.keyword-test) 'ak/undefined)))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"use `ak/undefined`"
-                          (az/emit-expr 'undefined))))
+                          (a/emit-expr 'undefined))))
 
-  (testing "Zig primitive type does not hide the az/type structural form"
-    (is (= 'type (get-in (meta #'az/type) [:aguafria/syntax :name])))
+  (testing "Zig primitive type does not hide the a/type structural form"
+    (is (= 'type (get-in (meta #'a/type) [:aguafria/syntax :name])))
     (is (= "[4096]u8"
            (emitter/emit-expr (the-ns 'aguafria.keyword-test)
-                              '(az/type [:array 4096 :u8])))))
+                              '(a/type [:array 4096 :u8])))))
 
   (testing "reader-hostile operators have named tokens"
-    (is (= "(~bits)" (az/emit-expr '(ak/bit-not bits))))
-    (is (= "(left ^ right)" (az/emit-expr '(ak/bit-xor left right))))
+    (is (= "(~bits)" (a/emit-expr '(ak/bit-not bits))))
+    (is (= "(left ^ right)" (a/emit-expr '(ak/bit-xor left right))))
     (is (= "total /= divisor;"
-           (az/emit-stmt '(ak/div-assign total divisor)))))
+           (a/emit-stmt '(ak/div-assign total divisor)))))
 
   (testing "readable Zig-only syntax also comes from documented Vars"
     (is (= "const value: u32 = 1;"
-           (az/emit-stmt '(ak/const value :u32 1))))
-    (is (= "total += value;" (az/emit-stmt '(ak/+= total value))))
-    (is (= "total <<|= shift;" (az/emit-stmt '(ak/<<|= total shift))))
+           (a/emit-stmt '(ak/const value :u32 1))))
+    (is (= "total += value;" (a/emit-stmt '(ak/+= total value))))
+    (is (= "total <<|= shift;" (a/emit-stmt '(ak/<<|= total shift))))
     (is (= :assignment (get-in (meta #'ak/<<|=) [:aguafria/token :kind])))
     (is (= "var value: u32 = 1;"
-           (az/emit-stmt '(ak/var value :u32 1))))
+           (a/emit-stmt '(ak/var value :u32 1))))
     (is (var? (ns-resolve 'aguafria.zig 'while-loop)))
     (is (not (str/blank? (:doc (meta (ns-resolve 'aguafria.zig 'while-loop)))))))
 
   (testing "bad generated-keyword arity fails before invoking Zig"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"@intCast expects 1 argument"
-                          (az/emit-expr '(ak/intCast one two)))))
+                          (a/emit-expr '(ak/intCast one two)))))
 
   (testing "scope-dependent syntax still needs an enclosing declaration"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo

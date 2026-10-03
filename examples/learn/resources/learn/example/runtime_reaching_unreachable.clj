@@ -1,8 +1,8 @@
 (ns learn.example.runtime-reaching-unreachable
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (debug/assert false))
 
 (comment

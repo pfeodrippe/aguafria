@@ -1,6 +1,7 @@
 (ns racing-game.build
   "Prepare shaders and produce the JVM-free fast racing executable."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
+            [aguafria.spirv :as spirv]
             [aguafria.zig.build :as zig-build]
             [aguafria-examples-native.build :as native-build]
             [aguafria-examples-native.box3d :as box3d]
@@ -29,19 +30,8 @@
 
 (defn prepare-shaders!
   []
-  (into {}
-        (map
-         (fn [name]
-           (let [source (io/file (project-root) "resources/shaders" name)
-                 output (io/file (str (.getAbsolutePath source) ".spv"))]
-             (if (and (.isFile output)
-                      (>= (.lastModified output) (.lastModified source)))
-               [name :cached]
-               (do
-                 (run-command! ["glslc" (.getAbsolutePath source)
-                                "-o" (.getAbsolutePath output)])
-                 [name :built]))))
-        ["mesh.vert" "mesh.frag" "instances.vert"])))
+  (spirv/compile! 'racing-game.shaders
+                  (io/file (project-root) "resources/shaders/racing.spv")))
 
 (defn prepare!
   []
@@ -113,7 +103,7 @@
                              (into-array StandardCopyOption
                                          [StandardCopyOption/REPLACE_EXISTING]))
                  [name {:status :packaged :output output}]))))
-        ["mesh.vert" "mesh.frag" "instances.vert"])))
+        ["racing"])))
 
 (defn package-manifest!
   []
@@ -215,7 +205,7 @@
   (package-licenses!)
   (zig-build/load-source-only! 'racing-game.standalone)
   (let [output (io/file (project-root) "build/standalone/racing-game")]
-    (az/build!
+    (a/build!
      'racing-game.standalone
      {:kind :exe
       :name "racing-game"
@@ -234,7 +224,7 @@
   []
   (model/verify!)
   (zig-build/load-source-only! 'racing-game.language-probe)
-  (az/build! 'racing-game.language-probe
+  (a/build! 'racing-game.language-probe
     {:kind :exe :name "language-probe"
      :output (io/file (project-root) "build/standalone/language-probe")
      :optimize "fast" :reloadable? false :async? false :zig-args ["-lc"]}))
@@ -248,7 +238,7 @@
   (package-team-head!)
   (zig-build/load-source-only! 'racing-game.inference-performance-probe)
   (let [output (io/file (project-root) "build/standalone/inference-probe")]
-    (az/build!
+    (a/build!
      'racing-game.inference-performance-probe
      {:kind :exe
       :name "inference-probe"
@@ -269,7 +259,7 @@
   (package-licenses!)
   (zig-build/load-source-only! 'racing-game.asset-probe)
   (let [output (io/file (project-root) "build/standalone/asset-probe")]
-    (az/build!
+    (a/build!
      'racing-game.asset-probe
      {:kind :exe
       :name "asset-probe"
@@ -286,7 +276,7 @@
   (package-replay-fixture!)
   (zig-build/load-source-only! 'racing-game.replay-parity-probe)
   (let [output (io/file (project-root) "build/standalone/replay-parity-probe")]
-    (az/build!
+    (a/build!
      'racing-game.replay-parity-probe
      {:kind :exe
       :name "replay-parity-probe"

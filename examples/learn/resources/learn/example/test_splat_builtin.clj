@@ -1,22 +1,22 @@
 (ns learn.example.test-splat-builtin
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest vector-splat
+(a/deftest vector-splat
   (let [scalar (k/u32 5)
         result (k/as (k/splat scalar) [:vector 4 :u32])]
     (try (testing/expectEqualSlices
           :u32
-          (k/& (az/array [5 5 5 5] :u32))
+          (k/& (a/array [5 5 5 5] :u32))
           (k/& (k/as result [:array 4 :u32]))))))
 
-(az/deftest array-splat
+(a/deftest array-splat
   (let [scalar (k/u32 5)
         result (k/as (k/splat scalar) [:array 4 :u32])]
     (try (testing/expectEqualSlices
           :u32
-          (k/& (az/array [5 5 5 5] :u32))
+          (k/& (a/array [5 5 5 5] :u32))
           (k/& (k/as result [:array 4 :u32]))))))
 
 (comment

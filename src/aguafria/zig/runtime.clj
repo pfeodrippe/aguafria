@@ -48,7 +48,7 @@
 (defonce ^:private artifact-locks (atom {}))
 (defonce ^:private module-compilation-locks (atom {}))
 (defonce ^:private zig-version-cache (atom {}))
-(def ^:private declaration-reference-extraction-version 7)
+(def ^:private declaration-reference-extraction-version 9)
 (defonce ^:private declaration-reference-index
   (atom {:by-module {} :by-logical {} :references {} :revision 0
          :extraction-version declaration-reference-extraction-version}))
@@ -406,7 +406,7 @@
            (materialize-type! declaration argument)))))))
 
 (defn declaration-state-value
-  "Return a live, inspectable Clojure view of an `az/defvar`. Dereferencing or
+  "Return a live, inspectable Clojure view of an `a/defvar`. Dereferencing or
   printing it reads the actual native state bytes, never a declaration map."
   [declaration]
   (let [declaration (declaration-info declaration)
@@ -495,7 +495,7 @@
   that module is actually present in the compilation slice.
   `:module-cache-tokens` maps configured modules to immutable version/content
   identities, allowing artifacts that select them to be reused safely.
-  `:debug-output` selects az/debug! report destinations (#{:print :file} by
+  `:debug-output` selects a/debug! report destinations (#{:print :file} by
   default); `:debug-report-file` overrides .aguafria/debug/types.edn.
   `:jvm-optimize` selects Debug or safe for generated JVM adapters only
   (default safe), independently of user-code :optimize. Both preserve
@@ -932,12 +932,13 @@
   (emit/identifier (or zig-name name)))
 
 (defn- callable-abi
-  [{:keys [args return export? development-export? zig-prefix zig-qualifiers]
+  [{:keys [args return export? development-export? zig-prefix zig-qualifiers callconv]
     :as declaration}]
   {:kind :callable
    :symbol (declaration-zig-name declaration)
    :export? (boolean export?)
    :calling-convention (cond
+                         callconv callconv
                          (seq zig-qualifiers) zig-qualifiers
                          (and (or export? development-export?)
                               (nil? zig-prefix)) :c
@@ -1180,7 +1181,7 @@
                     (select-keys declaration
                                  [:kind :name :zig-name :args :return :body
                                   :export? :development-export? :public?
-                                  :zig-prefix :zig-qualifiers :align
+                                  :zig-prefix :zig-qualifiers :align :callconv
                                   :implicit-return?
                                   :type-dependency-fingerprints
                                   :callable-dependency-fingerprints])))
@@ -1544,7 +1545,7 @@
 (defn- emit-source!
   [module declarations]
   (try
-    ;; This is the public/static source used by `az/source`, standalone
+    ;; This is the public/static source used by `a/source`, standalone
     ;; builds, and materialization. Named containers and dispatch machinery
     ;; belong exclusively to reload/dependency compiler variants.
     (emit/emit-module module declarations)
@@ -2203,8 +2204,7 @@
                            ;; source remains the compiler root/inspection form;
                            ;; exact referenced Vars replace this dependency
                            ;; variant with reloadable dispatch below.
-                           (when (seq declarations)
-                             (emit/emit-dependency-module module declarations)))
+                           (emit/emit-dependency-module module declarations))
                 entries
                 (->> specs
                      (keep (fn [[declaration-key spec]]
@@ -2400,7 +2400,7 @@
                    :second-owner (str module)
                    :hint (str "Convert/select one build profile whose reachable "
                               "modules agree, or explicitly override the module "
-                              "through az/configure!.")})))
+                              "through a/configure!.")})))
               (assoc captured module-name
                      {:source source :owners #{(str module)}})))))
       captured
@@ -2444,7 +2444,7 @@
         ;; turn incorrectly disables stable dispatch for inferred error sets.
         ;; Only Zig-emitted signature/schema/implementation forms can create a
         ;; native dependency edge.
-        (select-keys declaration [:args :return :body :value :type :fields :align])
+        (select-keys declaration [:args :return :body :value :type :fields :align :callconv])
         reference-values (nested-form-values reference-source)
         same-module-by-name
         (get-in @declaration-reference-index
@@ -2489,13 +2489,7 @@
                               (str/split #"\.") last))]
               (get-in @declaration-reference-index
                       [:by-module target-module :by-name target-name]))))]
-    (letfn [(namespace-root-reference-module [value]
-              (when (symbol? value)
-                (let [reference (:aguafria/zig-reference (meta value))]
-                  (when (= :namespace-root (:kind reference))
-                    (some-> (:module reference) str)))))
-
-            (first-class-namespace-root-modules [value]
+    (letfn [(first-class-namespace-root-modules [value]
               ;; `module.Member` has a statically knowable declaration edge and
               ;; is handled by `field-member-logical-id` below. A bare module
               ;; value passed through a vector/call/comptime parameter is
@@ -2503,9 +2497,9 @@
               ;; (`T.JsApi`, `@hasDecl(T, name)`, and similar patterns).
               (cond
                 (symbol? value)
-                (cond-> #{}
-                  (namespace-root-reference-module value)
-                  (conj (namespace-root-reference-module value)))
+                (if-let [module (namespace-root-module value #{})]
+                  #{module}
+                  #{})
 
                 (map? value)
                 (reduce into #{}
@@ -2513,21 +2507,32 @@
                              (concat (keys value) (vals value))))
 
                 (coll? value)
-                (let [field-form?
+                (let [discarded-module?
+                      (and (seq? value)
+                           (symbol? (first value))
+                           (contains? #{"set!" "="} (name (first value)))
+                           (= 3 (count value))
+                           (contains? #{'_ :_} (second value))
+                           (namespace-root-module (nth value 2) #{}))
+                      field-form?
                       (and (seq? value)
                            (symbol? (first value))
                            (= "field" (name (first value)))
                            (= 3 (count value)))
                       values
-                      (if field-form?
+                      (cond
+                        ;; `_ = @import(...)` analyzes the imported module's
+                        ;; comptime blocks, not its unused public declarations.
+                        discarded-module? []
+                        field-form?
                         (let [[_ base member] value]
-                          ;; Suppress only a direct namespace-root base. A
+                          ;; Suppress a resolved namespace-root base. A
                           ;; computed base can itself contain first-class
                           ;; module arguments and still needs traversal.
                           (cond-> [member]
-                            (nil? (namespace-root-reference-module base))
+                            (nil? (namespace-root-module base #{}))
                             (conj base)))
-                        value)]
+                        :else value)]
                   (reduce into #{}
                           (map first-class-namespace-root-modules values)))
 
@@ -2662,7 +2667,13 @@
              reference-values)
        (into
         (mapcat namespace-root-seed-logical-ids)
-        (first-class-namespace-root-modules reference-source))
+        (first-class-namespace-root-modules
+         ;; Naming an imported module does not inspect its declarations.
+         ;; Actual first-class uses of that alias are followed above.
+         (if (and (= :const (:kind declaration))
+                  (namespace-root-module (:value declaration) #{}))
+           (dissoc reference-source :value)
+           reference-source)))
        (into (keep :logical-id)
              qualifier-reference-declarations)
        (into (keep qualifier-member-logical-id)
@@ -2773,7 +2784,7 @@
         (mapv (fn [declaration]
                 [(:logical-id declaration)
                  (declaration-reference-logical-ids declaration)])
-              root-declarations)
+              (remove #(= :test (:kind %)) root-declarations))
         root-references
         (into {} (keep (fn [[logical-id references]]
                          (when logical-id [logical-id references])))
@@ -2786,13 +2797,22 @@
               (mapcat (fn [[logical-id references]]
                         (when-not logical-id references)))
               root-reference-pairs)
+        eager-root-references
+        (into #{}
+              (mapcat (fn [declaration]
+                        ;; Const initializers are lazy, including calls that
+                        ;; construct types or function values. Their consumers
+                        ;; activate these edges when the value is used.
+                        (when-not (= :const (:kind declaration))
+                          (get root-references (:logical-id declaration)))))
+              root-declarations)
         cache-key [(:revision index-state) root-references
-                   anonymous-root-references]]
+                   anonymous-root-references eager-root-references]]
     (if-some [cached (get @development-linkage-closure-cache cache-key)]
       cached
       (let [result
             (loop [pending (concat anonymous-root-references
-                                   (mapcat val root-references))
+                                   eager-root-references)
                    seen #{}]
               (if-let [logical-id (first pending)]
                 (if (contains? seen logical-id)
@@ -4977,7 +4997,7 @@
               :previous-generation (:generation previous)
               :requested-generation generation
               :hint (str "Define an exported `(usize old, usize new) void` "
-                         "Aguafria function, then call `az/migrate-state!` "
+                         "Aguafria function, then call `a/migrate-state!` "
                          "with the state Var and migration Var.")})))))
      {:state-versions previous-versions}
      (into {} (filter (comp :owned? val)) (:state-bindings loaded)))))
@@ -5488,8 +5508,8 @@
 (defn- replacement-declaration-state
   "Prepare one top-level replacement by Zig name, not only declaration kind.
 
-  A REPL edit may legitimately change `(az/defstruct Value ...)` into a type
-  alias `(az/defconst Value OtherValue)`. The old native generation remains
+  A REPL edit may legitimately change `(a/defstruct Value ...)` into a type
+  alias `(a/defconst Value OtherValue)`. The old native generation remains
   retained for active callers, while the new module snapshot must contain
   exactly one `Value` declaration."
   ([definitions declaration]
@@ -7075,7 +7095,7 @@
                      (into {} (map (juxt :logical-id identity)) declarations))
         by-name (declaration-name-lookup registered-index declarations)
         source-keys [:kind :name :zig-name :layout :type :value :fields :args :return
-                     :body :zig-prefix :zig-qualifiers :align :implicit-return? :export?
+                     :body :zig-prefix :zig-qualifiers :align :callconv :implicit-return? :export?
                      :development-export? :public?]
         reference-id
         (fn [d v]
@@ -10251,7 +10271,7 @@
                                    #(= expected-kind (:kind %))))
 
 (defn state-versions
-  "Return serializable native state generations for an `az/defvar` Var."
+  "Return serializable native state generations for an `a/defvar` Var."
   [state]
   (locking compile-lock
     (let [declaration (declaration-from-reference state :var)
@@ -10261,7 +10281,7 @@
            (mapv #(dissoc % :restore-handle))))))
 
 (defn type-versions
-  "Return schema generations for an `az/defstruct` or container type Var."
+  "Return schema generations for an `a/defstruct` or container type Var."
   [type]
   (locking compile-lock
     (let [declaration
@@ -10273,7 +10293,7 @@
            vec))))
 
 (defn migrate-state!
-  "Authorize and apply one explicit breaking `az/defvar` migration.
+  "Authorize and apply one explicit breaking `a/defvar` migration.
 
   `migration` must name an exported Aguafria function with signature
   `[old-address :- :usize new-address :- :usize] -> :void`. The migration is

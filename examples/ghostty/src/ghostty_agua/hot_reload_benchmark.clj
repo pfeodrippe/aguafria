@@ -1,6 +1,6 @@
 (ns ghostty-agua.hot-reload-benchmark
   "Reproducible one-JVM hot-reload measurements for converted Ghostty code."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.benchmark :as benchmark]
             [clojure.walk :as walk]
             [ghostty-agua.core :as core]
@@ -58,7 +58,7 @@
   "Measure a compatible hand-written leaf edit with the terminal left open."
   ([] (simple! 2))
   ([version]
-   (az/await! 'ghostty-agua.live)
+   (a/await! 'ghostty-agua.live)
    (let [_ (live/title-version)
          address (terminal-address)]
      (benchmark/measure-edit!
@@ -107,7 +107,7 @@
    (let [blocking-queue
          (requiring-resolve 'ghostty.src.datastruct.blocking-queue/BlockingQueue)
          address (terminal-address)]
-     (az/await! 'ghostty.src.datastruct.blocking-queue)
+     (a/await! 'ghostty.src.datastruct.blocking-queue)
      (benchmark/measure-edit!
       {:var blocking-queue
        :project :ghostty
@@ -126,7 +126,7 @@
   "Measure fresh hand-written leaf artifacts in one terminal session."
   ([] (simple-series! 5))
   ([samples]
-   (az/await! 'ghostty-agua.live)
+   (a/await! 'ghostty-agua.live)
    (let [address (terminal-address)]
      (benchmark/measure-fresh-edits!
       {:var #'live/title-version
@@ -195,7 +195,7 @@
    (let [blocking-queue
          (requiring-resolve 'ghostty.src.datastruct.blocking-queue/BlockingQueue)
          address (terminal-address)]
-     (az/await! 'ghostty.src.datastruct.blocking-queue)
+     (a/await! 'ghostty.src.datastruct.blocking-queue)
      (benchmark/measure-fresh-edits!
       {:var blocking-queue
        :project :ghostty

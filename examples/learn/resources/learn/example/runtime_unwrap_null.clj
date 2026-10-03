@@ -1,12 +1,12 @@
 (ns learn.example.runtime-unwrap-null
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [optional-number (k/var nil [:optional :i32])]
     (k/= :_ (k/& optional-number))
-    (let [number (az/unwrap optional-number)]
+    (let [number (a/unwrap optional-number)]
       (debug/print "value: {}\n" [number]))))
 
 (comment

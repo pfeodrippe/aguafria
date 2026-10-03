@@ -3,8 +3,8 @@
 Aguafria Zig narrative-RPG prototype, not an educational game. Currently text-only,
 with Markdown-driven French dialogue in Libre Baskerville and typewriter reveal.
 Art, animation and lighting assets are retained for later use.
-Rendering is direct Vulkan, using GPU-address-based data inputs inspired by
-[No Graphics API](https://www.sebastianaaltonen.com/blog/no-graphics-api).
+Rendering is direct Vulkan. Vertex and atlas data share one mapped allocation,
+exposed to the Aguafria SPIR-V shaders through two storage-buffer bindings.
 GLFW handles window/input; miniaudio handles sound. No raylib or other game engine.
 
 Run from this directory:
@@ -19,12 +19,14 @@ it the project resolves the published Aguafria artifact. See the comment in
 `la-professeure.core` for the live workflow. macOS native windows require the
 desktop entry point's main-thread JVM option.
 
-In desktop dev mode, edits to `resources/shaders/mesh.vert` or `mesh.frag`
-compile in the background and replace the pipeline on the render thread.
+In desktop dev mode, saved edits to `src/la_professeure/shaders.clj` compile through
+Zig into one validated SPIR-V module and replace the pipeline on the render thread.
 Invalid edits retain the previous pipeline; diagnostics appear in the REPL
 process output and `@la-professeure.core/status`. Disable this watcher with
-`-J-Dla-professeure.shader-reload=false`. This is independent of Debug versus
-ReleaseFast optimization. Standalone contains neither the JVM watcher nor glslc.
+`-J-Dla-professeure.shader-reload=false`. This is independent of Zig's
+optimization mode. Standalone contains no JVM watcher or shader compiler.
+Studio follows successful game shader publications in its own renderer.
+Evaluating a shader form in memory alone does not trigger the file watcher.
 Shader logic edits must preserve the current vertex/root-data interface;
 GPU resource/layout changes require an explicit safe resource rebuild.
 
@@ -72,7 +74,9 @@ cd build/standalone
 ```
 
 The current backend requires Vulkan 1.2 buffer device addresses and scalar block
-layout. macOS uses MoltenVK; install the Vulkan SDK/loader and `glslc` first.
+layout. macOS uses MoltenVK; install the Vulkan SDK/loader and SPIRV-Tools
+(`spirv-opt` and `spirv-val`) first. Shader sources use Aguafria and Zig's
+`SpirvType`; there is no GLSL build step.
 Zig itself is supplied by Aguafria. Assets are explicitly placeholder art.
 
 Implementation and verification status: [plan](IMPLEMENTATION_PLAN.md),

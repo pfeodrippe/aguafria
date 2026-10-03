@@ -137,7 +137,7 @@
   (str (when (seq (or display-signature signature)) (str (or display-signature signature) "\n\n"))
        (when (seq documentation) (str documentation "\n\n"))
        "This Var represents Zig `" zig-name "` (" (name category) ") from `"
-       source "`, generated against Zig " zig-version ". Inside an `az/defn` "
+       source "`, generated against Zig " zig-version ". Inside an `a/defn` "
        "form it emits the Zig reference directly. "
        (case category
          :field "Calling this Var reads the receiver's field through the native JVM bridge."

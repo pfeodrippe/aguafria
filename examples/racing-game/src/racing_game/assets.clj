@@ -3,33 +3,33 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std]
             [aguafria.std.debug :as std-debug]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [racing-game.inference :as inference]))
 
-(az/defconst model-path
+(a/defconst model-path
   "resources/models/granite-4.0-h-350m-Q4_0.gguf")
 
-(az/defconst action-head-path
+(a/defconst action-head-path
   "resources/models/granite-r4-driver-head.f32")
 
-(az/defconst team-head-path
+(a/defconst team-head-path
   "resources/models/granite-r4-team-head.f32")
 
-(az/defconst expected-model-bytes :usize 216073120)
+(a/defconst expected-model-bytes :usize 216073120)
 
-(az/defconst expected-model-sha256 [:array 32 :u8]
-  (az/init [122 219 61 87 101 173 18 184 59 28 8 169 7 70 216 146
+(a/defconst expected-model-sha256 [:array 32 :u8]
+  (a/init [122 219 61 87 101 173 18 184 59 28 8 169 7 70 216 146
     90 247 24 84 91 74 54 40 126 141 172 143 131 183 42 182] [:array 32 :u8]))
 
-(az/defconst expected-action-head-sha256 [:array 32 :u8]
-  (az/init [247 52 88 87 15 128 32 65 78 65 204 204 118 111 13 239
+(a/defconst expected-action-head-sha256 [:array 32 :u8]
+  (a/init [247 52 88 87 15 128 32 65 78 65 204 204 118 111 13 239
     116 140 149 229 123 155 153 253 124 58 195 103 37 208 17 237] [:array 32 :u8]))
 
-(az/defconst expected-team-head-sha256 [:array 32 :u8]
-  (az/init [230 203 215 239 237 50 107 174 173 42 60 59 41 56 20 132
+(a/defconst expected-team-head-sha256 [:array 32 :u8]
+  (a/init [230 203 215 239 237 50 107 174 173 42 60 59 41 56 20 132
     55 50 151 232 203 167 134 246 21 192 134 102 9 36 236 122] [:array 32 :u8]))
 
-(az/defn print-model-error :void
+(a/defn print-model-error :void
   [[error-code :u32]]
   (cond
     (ak/== error-code inference/model-file-not-found)
@@ -51,7 +51,7 @@
      "Racing model is not a compatible Granite GGUF; package the pinned asset again.\n"
      {})))
 
-(az/defn print-action-head-error :void
+(a/defn print-action-head-error :void
   [[error-code :u32]]
   (cond
     (ak/== error-code 1)
@@ -70,7 +70,7 @@
     :else
     (std-debug/print "Racing action head could not be read completely.\n" {})))
 
-(az/defn print-team-head-error :void
+(a/defn print-team-head-error :void
   [[error-code :u32]]
   (cond
     (ak/== error-code 1)
@@ -89,18 +89,18 @@
     :else
     (std-debug/print "Racing team head could not be read completely.\n" {})))
 
-(az/defn load-and-verify! :bool
+(a/defn load-and-verify! :bool
   "Load the exact release assets, validate layouts, byte count, and SHA-256."
   []
   (let [model (inference/load-model! model-path)]
     (cond
-      (ak/! (az/field model valid))
+      (ak/! (a/field model valid))
       (do
-        (print-model-error (az/field model error_code))
+        (print-model-error (a/field model error_code))
         (inference/unload-model!)
         false)
 
-      (ak/!= (az/field model file_size) expected-model-bytes)
+      (ak/!= (a/field model file_size) expected-model-bytes)
       (do
         (std-debug/print
          "Racing model has the wrong byte count; expected 216073120 bytes.\n"
@@ -122,9 +122,9 @@
       :else
       (let [head (inference/load-action-head! action-head-path)]
         (cond
-          (ak/! (az/field head valid))
+          (ak/! (a/field head valid))
           (do
-            (print-action-head-error (az/field head error_code))
+            (print-action-head-error (a/field head error_code))
             (inference/unload-model!)
             false)
 
@@ -141,9 +141,9 @@
           :else
           (let [team-head (inference/load-team-head! team-head-path)]
             (cond
-              (ak/! (az/field team-head valid))
+              (ak/! (a/field team-head valid))
               (do
-                (print-team-head-error (az/field team-head error_code))
+                (print-team-head-error (a/field team-head error_code))
                 (inference/unload-model!)
                 false)
 

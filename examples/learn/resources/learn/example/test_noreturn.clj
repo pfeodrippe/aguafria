@@ -1,8 +1,8 @@
 (ns learn.example.test-noreturn
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- foo :void
+(a/defn- foo :void
   [[condition :bool] [b :u32]]
   (let [a (if condition
             b
@@ -10,7 +10,7 @@
     (k/= :_ a)
     (k/panic "do something with a")))
 
-(az/deftest noreturn
+(a/deftest noreturn
   (foo false 1))
 
 (comment

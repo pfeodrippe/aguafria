@@ -1,11 +1,11 @@
 (ns learn.example.runtime-index-out-of-bounds
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- foo :u8 [[x [:slice-const :u8]]]
-  (az/get x 5))
+(a/defn- foo :u8 [[x [:slice-const :u8]]]
+  (a/get x 5))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [x (foo "hello")]
     (k/= :_ x)))
 

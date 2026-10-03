@@ -1,9 +1,9 @@
 (ns learn.example.test-comptime-unreachable
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest type-of-unreachable
+(a/deftest type-of-unreachable
   (k/comptime
    ;; The type of unreachable is noreturn.
 

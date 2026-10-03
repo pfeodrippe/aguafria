@@ -1,11 +1,11 @@
 (ns learn.example.test-expression-ignored
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defn- foo :i32
+(a/defn- foo :i32
   []
   1234)
 
-(az/deftest ignoring-expression-value
+(a/deftest ignoring-expression-value
   (foo))
 
 (comment

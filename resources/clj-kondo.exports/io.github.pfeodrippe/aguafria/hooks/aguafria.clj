@@ -187,7 +187,7 @@
                     [(api/vector-node []) (expression-node (vec declaration))]))}))
 
 (defn cast
-  "Analyze both the value and Zig output type accepted by `az/cast`."
+  "Analyze both the value and Zig output type accepted by `a/cast`."
   [{:keys [node]}]
   (let [[_ value output-type] (:children node)]
     {:node (expression-node (vec (remove nil? [output-type value])))}))

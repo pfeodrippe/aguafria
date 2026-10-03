@@ -6,6 +6,40 @@ The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
 
 ## October 3 — Zig 0.17 migration (in progress)
 
+- Shader/core checkpoint: owned nREPL 56274, PID 10756, exec 53497;
+  65 shader/emitter tests / 382 assertions passed, zero failures/errors.
+  Project checks on 56902 (PID 14036, exec 41811): 14 tests / 131 assertions.
+  Both completed test JVMs are now stopped, as is Racing's idle test JVM 56905.
+  Actual game + Studio on desktop nREPL 60588 (PID 19986, exec 36908) passed
+  visible replacement, compiler failure retention, GPU rejection retention,
+  recovery and original restoration. Both windows continued rendering and
+  observed the final publication count 6. Warm restoration: 265.972 ms total.
+  Evidence: build/shader-qa/{game,studio}-{before,red,invalid-retained,
+  pipeline-rejected,restored}.png; root SHADER_MIGRATION_REPORT_2026-10-03.md.
+  Game original/restored images match byte-for-byte; red/compile-failure/GPU-
+  rejection images also match byte-for-byte.
+- Disk blocker cleared by user-approved cache cleanup: four exact locations
+  removed, 169.05 GiB reclaimed. Shared `~/.aguafria/zig`, project source,
+  Learn build output and precompile reports retained. Additionally preserved
+  489 reports from removed caches under root
+  `.aguafria/cache-cleanup-reports-20261003` with SHA-256 inventory/result.
+  Compiler cache is cold; large verification can now proceed.
+
+- [x] Replace La Professeure authored GLSL shaders with Aguafria Zig/SPIR-V declarations,
+  using k/SpirvType where GPU-only types are needed. Compile with embedded Zig,
+  validate stage interfaces, replace GLSL/glslc build steps and source watchers.
+  Publish replacement GPU pipelines on the render thread only after successful
+  compilation/creation; test visible edits, invalid source, recovery and repeated
+  swaps in both game and Studio. The two old GLSL sources are removed.
+  Racing/shared renderer subsequently passed the corresponding actual GPU
+  checks; see its ledger and the shared shader migration report.
+- [x] Finish fresh owned nREPL verification of ordinary
+  ns requires and authored miniaudio.clj using ac/defbindings. No generator,
+  generated project classpath or late scene/recorder require remains. Core C/
+  lint suites pass 21 tests / 112 assertions. La Professeure's earlier combined
+  scene/Studio native reload passed 2 tests / 25 assertions. Authored binding
+  namespace subsequently passed 6 tests / 40 assertions in a fresh session.
+
 - [x] Replace authored `k/cImport`/`k/cInclude` sites with explicit translated-C
   modules. Reuse the audio module's C API in recorder and tests so native type
   identity stays shared. Add small project-owned headers for libc imports.

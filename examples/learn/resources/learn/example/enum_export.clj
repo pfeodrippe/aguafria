@@ -1,14 +1,14 @@
 (ns learn.example.enum-export
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defenum Foo
+(a/defenum Foo
   {:type :c_int}
   [:a
    :b
    :c])
 
-(az/defn entry :void
+(a/defn entry :void
   {:attrs #{k/export}}
   [[foo Foo]]
   (k/= :_ foo))

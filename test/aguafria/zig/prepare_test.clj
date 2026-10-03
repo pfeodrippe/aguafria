@@ -18,7 +18,7 @@
   (is (= ["len" "ptr"]
          (mapv :field-name
                (prepare/type-fields
-                '(az/if-capture {:payload [a]} alignment
+                '(a/if-capture {:payload [a]} alignment
                                (type [:* {:size :slice :align a} T])
                                (type [:slice T]))))))
   (is (empty? (prepare/type-fields '(if condition (type [:slice :u8]) :u32))))

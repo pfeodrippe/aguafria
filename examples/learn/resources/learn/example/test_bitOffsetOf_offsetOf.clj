@@ -1,12 +1,12 @@
 (ns learn.example.test-bitOffsetOf-offsetOf
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defstruct BitField {:layout :packed}
-              [[:a :u3] [:b :u3] [:c :u2]])
+(a/defstruct BitField {:layout :packed}
+             [[:a :u3] [:b :u3] [:c :u2]])
 
-(az/deftest offsets-of-non-byte-aligned-fields
+(a/deftest offsets-of-non-byte-aligned-fields
   (k/comptime
    (do
      (try (testing/expectEqual 0 (k/bitOffsetOf BitField "a")))

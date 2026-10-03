@@ -1,17 +1,17 @@
 (ns learn.example.test-void-ignored
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- returns-void :void [])
+(a/defn- returns-void :void [])
 
-(az/defn- foo :i32
+(a/defn- foo :i32
   []
   1234)
 
-(az/deftest void-is-ignored
+(a/deftest void-is-ignored
   (returns-void))
 
-(az/deftest explicitly-ignoring-expression-value
+(a/deftest explicitly-ignoring-expression-value
   (k/= :_ (foo)))
 
 (comment

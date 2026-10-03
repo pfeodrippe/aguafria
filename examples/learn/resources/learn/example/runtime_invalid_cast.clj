@@ -1,9 +1,9 @@
 (ns learn.example.runtime-invalid-cast
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void []
+(a/defn main :void []
   (let [value (k/var -1 :i32)] ; runtime-known
     (k/= :_ (k/& value))
     (let [unsigned (k/u32 (k/intCast value))]

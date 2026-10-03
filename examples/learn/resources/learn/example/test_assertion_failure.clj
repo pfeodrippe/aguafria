@@ -1,16 +1,16 @@
 (ns learn.example.test-assertion-failure
   (:refer-clojure :exclude [assert])
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
 ;; This is how std.debug.assert is implemented
-(az/defn- assert :void
+(a/defn- assert :void
   [[ok :bool]]
   (when (k/! ok)
     (k/unreachable))) ; assertion failure
 
 ;; This test will fail because we hit unreachable.
-(az/deftest this-will-fail
+(a/deftest this-will-fail
   (assert false))
 
 (comment

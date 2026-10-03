@@ -1,19 +1,19 @@
 (ns aguafria.zig.discovery-inspection-fixture
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defstruct Holder
+(a/defstruct Holder
   [[:value :u32]
-   (az/fn create Holder []
+   (a/fn create Holder []
      (Holder {:value 7}))])
 
-(az/defn- stop-now :noreturn []
+(a/defn- stop-now :noreturn []
   (k/unreachable))
 
-(az/defn panic-now :noreturn []
+(a/defn panic-now :noreturn []
   (k/panic "Inspection must not execute native code"))
 
-(az/defn inspect-assignment :void [[input :usize]]
+(a/defn inspect-assignment :void [[input :usize]]
   (let [result (k/var 0 :u8)]
     (k/= result (k/intCast input))
     (k/= :_ (k/& result))

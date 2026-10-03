@@ -1,7 +1,7 @@
 (ns learn.example.lang-CallModifier-struct
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defenum CallModifier
+(a/defenum CallModifier
   [[:auto {:doc "Equivalent to function call syntax."}]
    [:never_tail {:doc "Prevents tail call optimization. This guarantees that the return
 address will point to the callsite, as opposed to the callsite's

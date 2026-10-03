@@ -1,9 +1,9 @@
 (ns learn.example.test-while-continue
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest while-continue
+(a/deftest while-continue
   (let [i (k/var 0 :usize)]
     (k/while true
       (k/+= i 1)

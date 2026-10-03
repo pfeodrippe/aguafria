@@ -2,9 +2,9 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std :as std]
             [aguafria.std.Build.Step.Compile :as compile-step]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn build :void
+(a/defn build :void
   [[b [:* std/Build]]]
   (let [obj ((:addObject b)
              {:name "base64"

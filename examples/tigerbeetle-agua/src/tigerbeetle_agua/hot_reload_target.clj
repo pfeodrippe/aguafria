@@ -1,8 +1,8 @@
 (ns tigerbeetle-agua.hot-reload-target
   "Small live callers for stable-dispatch and comptime propagation checks."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [tigerbeetle-agua.hot-reload-leaf :as leaf]))
 
-(az/defn leaf-caller :u32 [] (leaf/leaf-value))
+(a/defn leaf-caller :u32 [] (leaf/leaf-value))
 
-(az/defn comptime-caller :u32 [] (leaf/comptime-scale 5))
+(a/defn comptime-caller :u32 [] (leaf/comptime-scale 5))

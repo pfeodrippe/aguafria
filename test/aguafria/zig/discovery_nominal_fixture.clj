@@ -1,19 +1,19 @@
 (ns aguafria.zig.discovery-nominal-fixture
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defenum Tag [:integer :empty])
+(a/defenum Tag [:integer :empty])
 
-(az/defconst Payload
-  (az/union {:type Tag} [[:integer :i32] [:empty :void]]))
+(a/defconst Payload
+  (a/union {:type Tag} [[:integer :i32] [:empty :void]]))
 
-(az/defconst Raw
-  (az/union [[:integer :i32] [:floating :f32]]))
+(a/defconst Raw
+  (a/union [[:integer :i32] [:floating :f32]]))
 
-(az/defstruct Counter [[:value {:var 10} :i32]
+(a/defstruct Counter [[:value {:var 10} :i32]
                        [:initial {:const 10} :i32]])
 
-(az/deftest never-run
+(a/deftest never-run
   (let [tag (:integer Tag)
         payload (Payload {:integer 42})
         raw (Raw {:integer 12})]

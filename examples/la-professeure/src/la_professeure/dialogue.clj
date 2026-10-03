@@ -3,7 +3,7 @@
   (:require [clojure.string :as str]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [la-professeure.recording-tool :as native])
   (:import [java.nio.file Files StandardCopyOption]
            [java.security MessageDigest]))
@@ -15,7 +15,7 @@
 (declare digest)
 
 (defn- native-value [value]
-  (try (az/value value) (finally (az/close! value))))
+  (try (a/value value) (finally (a/close! value))))
 
 (defn- native-string [value]
   (String. (byte-array (map unchecked-byte (native-value value))) "UTF-8"))
@@ -26,7 +26,7 @@
   [markdown]
   (locking native-lock
     (when-not (native/parse! markdown)
-      (let [line (az/value native/error-line) code (az/value native/error-code)]
+      (let [line (a/value native/error-line) code (a/value native/error-code)]
         (throw (ex-info (str "Dialogue line " line ": "
                             ({1 "Invalid heading, tag or choice" 2 "Dialogue capacity exceeded"
                               3 "Unknown speaker" 4 "Invalid indentation" 5 "Invalid/duplicate passage ID"
@@ -38,7 +38,7 @@
                             text (native-string (native/node-text i))
                             id (when (pos? (:id_len n)) (native-string (native/node-id i)))]
                         (assoc n :text text :id id)))
-                    (range (az/value native/count-nodes)))
+                    (range (a/value native/count-nodes)))
           keys (mapv #(if (zero? (:kind %)) (or (:id %) (str "scene-" (subs (digest (:text %)) 0 12)))
                         (str "node-" %2)) raw (range))]
       {:version 1 :speakers speakers

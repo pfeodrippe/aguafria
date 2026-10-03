@@ -2,20 +2,20 @@
   "Measure first-call preparation benefits separately from JVM startup."
   (:refer-clojure :exclude [run!])
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [aguafria.zig.precompile :as precompile]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.shell :as shell]))
 
 (defn- body! []
-  (let [array (k/var (az/array [1 2] :i32))
+  (let [array (k/var (a/array [1 2] :i32))
         start (k/var 0 :usize)]
     (k/= :_ (k/& start))
-    (let [slice (az/slice array start 2)]
-      (k/+= (az/get slice 1) 1)
-      (let [result {:sum (az/value (k/+ 31 32))
-                    :array (az/value array)
-                    :element (az/value (az/get array 1))}]
+    (let [slice (a/slice array start 2)]
+      (k/+= (a/get slice 1) 1)
+      (let [result {:sum (a/value (k/+ 31 32))
+                    :array (a/value array)
+                    :element (a/value (a/get array 1))}]
         (assert (= {:sum 63 :array [1 3] :element 3} result))
         result))))
 
@@ -33,7 +33,7 @@
      :result result}))
 
 (defn run! [cache prepare?]
-  (az/configure! {:cache-dir cache})
+  (a/configure! {:cache-dir cache})
   (binding [runtime/*source-only-registration?* true]
     (require 'aguafria.zig.discovery-fixture))
   (if prepare?

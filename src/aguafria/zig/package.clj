@@ -559,7 +559,7 @@
 (defn- container-form
   [{:keys [operator attributes payload]}]
   (if (#{"defstruct" "struct-decl"} (name operator))
-    (list 'az/container (assoc attributes :kind :struct) (first payload))
+    (list 'a/container (assoc attributes :kind :struct) (first payload))
     (letfn [(find-container [value]
               (when (seq? value)
                 (case (some-> value first name)
@@ -579,7 +579,7 @@
           declarations (keep (fn [form]
                                (declaration-parts
                                 (if (vector? form)
-                                  (list* 'az/field-decl form)
+                                  (list* 'a/field-decl form)
                                   form))) forms)
           visible (filter #(or (public-declaration? %)
                                (= :field (get declaration-categories (name (:operator %))))
@@ -894,7 +894,7 @@
   (str (when (seq (or display-signature signature)) (str (or display-signature signature) "\n\n"))
        (when (seq documentation) (str documentation "\n\n"))
        "This Var represents Zig `" package "." zig-name "` ("
-       (name category) ") from `" source "`. Inside an `az/defn` it emits "
+       (name category) ") from `" source "`. Inside an `a/defn` it emits "
        "the Zig reference directly. "
        (if (= :function category)
          "Calling this Var from Clojure or Java executes native Zig, specializing comptime arguments as needed."

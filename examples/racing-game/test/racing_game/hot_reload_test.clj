@@ -1,5 +1,5 @@
 (ns racing-game.hot-reload-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
             [clojure.walk :as walk]
@@ -21,40 +21,40 @@
 (defn- publish! [form]
   (binding [*ns* (the-ns 'racing-game.simulation)]
     (eval form))
-  (az/await! 'racing-game.simulation))
+  (a/await! 'racing-game.simulation))
 
 (deftest native-simulation-retains-world-through-live-edits
-  (when (az/value simulation/initialized)
+  (when (a/value simulation/initialized)
     (throw (ex-info "Run this check in its own nREPL, not a running race" {})))
   (let [original (step-form)
         increment '(ak/= simulation-tick (+ simulation-tick 1))
         pid (.pid (ProcessHandle/current))]
     (try
-      (let [initial (az/value (simulation/snapshot))
+      (let [initial (a/value (simulation/snapshot))
             world (:world_address initial)
             tick (:tick initial)]
         (is (true? (:initialized initial)))
         (is (= 20 (:racers initial)))
         (is (pos? world))
         (simulation/step-many! 1)
-        (is (= (inc tick) (:tick (az/value (simulation/snapshot)))))
+        (is (= (inc tick) (:tick (a/value (simulation/snapshot)))))
         (doseq [[amount expected] [[2 (+ tick 3)] [3 (+ tick 6)]]]
           (publish! (walk/postwalk-replace
                      {increment (list 'ak/= 'simulation-tick
                                       (list '+ 'simulation-tick amount))}
                      original))
           (simulation/step-many! 1)
-          (let [state (az/value (simulation/snapshot))]
+          (let [state (a/value (simulation/snapshot))]
             (is (= expected (:tick state)))
             (is (= world (:world_address state)))
             (is (= 20 (:racers state)))
             (is (= pid (.pid (ProcessHandle/current))))))
         (publish! original)
         (simulation/step-many! 1)
-        (let [state (az/value (simulation/snapshot))]
+        (let [state (a/value (simulation/snapshot))]
           (is (= (+ tick 7) (:tick state)))
           (is (= world (:world_address state)))))
       (finally
         (try (publish! original)
              (finally (simulation/shutdown!)))))
-    (is (false? (az/value simulation/initialized)))))
+    (is (false? (a/value simulation/initialized)))))

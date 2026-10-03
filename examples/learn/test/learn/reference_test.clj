@@ -13,7 +13,7 @@
             [learn.source-fidelity-test]))
 
 (deftest type-tooltips-preserve-code-and-label-evidence
-  (let [source "(ns sample (:require [aguafria.zig :as az]))\n(az/defconst n :i32 42)"
+  (let [source "(ns sample (:require [aguafria.zig :as a]))\n(a/defconst n :i32 42)"
         html (ref/annotated-clojure-source source "sample.clj")]
     (is (str/includes? html "data-type-report="))
     (is (str/includes? html "No Zig-tool type result"))
@@ -110,8 +110,8 @@
           (finally (.stop server 0)))))))
 
 (deftest first-require-does-not-emit-imported-declarations-in-the-lesson
-  (let [source (str "(ns learn.cache.import-isolation (:require [aguafria.zig :as az]))\n"
-                    "(az/defconst answer :u32 42)\n"
+  (let [source (str "(ns learn.cache.import-isolation (:require [aguafria.zig :as a]))\n"
+                    "(a/defconst answer :u32 42)\n"
                     "(swap! aguafria.zig.runtime/*registration-batch* update :declarations conj "
                     "{:kind :const :module \"dependency\" :name 'os :value 99})")
         emitted (ref/emit-clojure source 'learn.cache.import-isolation {})]
@@ -130,7 +130,7 @@
 (deftest authored-examples-use-namespace-imports
   (doseq [file (file-seq (io/file "resources/learn/example"))
           :when (and (.isFile file) (str/ends-with? (.getName file) ".clj"))]
-    (is (not-any? #(and (seq? %) (= 'az/defimport (first %)))
+    (is (not-any? #(and (seq? %) (= 'a/defimport (first %)))
                   (inline/read-forms (slurp file)))
         (.getPath file))))
 
@@ -162,10 +162,10 @@
           :let [forms (inline/read-forms (slurp file))]
           [index form] (map-indexed vector forms)
           :when (and (seq? form) (symbol? (first form))
-                     (= "az" (namespace (first form)))
+                     (= "a" (namespace (first form)))
                      (str/starts-with? (name (first form)) "def"))
           :let [later (set (keep #(when (and (seq? %) (symbol? (first %))
-                                             (= "az" (namespace (first %)))
+                                             (= "a" (namespace (first %)))
                                              (str/starts-with? (name (first %)) "def"))
                                     (second %))
                                  (drop (inc index) forms)))]]
@@ -173,7 +173,7 @@
         (str (.getName file) " / " (second form)))))
 
 (deftest incomplete-fragments-are-rendered-not-registered
-  (let [source "(ns learn.snippet.fragment-test (:require [aguafria.zig :as az]))\n(az/defn excerpt :void [] (external-helper))"
+  (let [source "(ns learn.snippet.fragment-test (:require [aguafria.zig :as a]))\n(a/defn excerpt :void [] (external-helper))"
         emitted (ref/emit-fragment source)]
     (is (str/includes? emitted "external_helper()"))
     (is (thrown? Exception
@@ -342,8 +342,8 @@
       (is (not (str/includes? code ":zig/test-name")))
       (is (not (str/includes? code ":explicit-return")))
       (is (not (str/includes? code "Generated from")))
-      (is (nil? (re-find #"\(az/(?:defn-?|deftest)\s*\n" code)))
-      (is (nil? (re-find #"\(az/deftest\s+\"" code))))))
+      (is (nil? (re-find #"\(a/(?:defn-?|deftest)\s*\n" code)))
+      (is (nil? (re-find #"\(a/deftest\s+\"" code))))))
 
 (deftest authored-declaration-names-correspond-to-original-zig
   (let [normalize-name #(-> % str/lower-case (str/replace #"[-_?!]" ""))]
@@ -353,7 +353,7 @@
                   code (slurp (io/resource source))
                   names (into #{} (map (comp normalize-name second))
                               (re-seq #"\b(?:fn|const)\s+([A-Za-z_][A-Za-z0-9_]*)" zig))]
-            [_ kind identifier] (re-seq #"(?m)^\(az/(defn-?|defconst|defstruct|defunion|defenum)\s+([^\s()]+)" code)
+            [_ kind identifier] (re-seq #"(?m)^\(a/(defn-?|defconst|defstruct|defunion|defenum)\s+([^\s()]+)" code)
             :when (or (str/starts-with? kind "defn")
                       (re-find #"^[A-Z]" identifier))]
       (is (or (contains? names (normalize-name identifier))
@@ -489,8 +489,8 @@
 
 (deftest exact-displayed-clojure-is-evaluated
   (let [namespace-symbol 'learn.example.displayed-source-test
-        source (str "(ns " namespace-symbol " (:require [aguafria.zig :as az]))\n"
-                    "(az/defconst answer 42)")
+        source (str "(ns " namespace-symbol " (:require [aguafria.zig :as a]))\n"
+                    "(a/defconst answer 42)")
         emitted (ref/emit-clojure source namespace-symbol {})]
     (is (str/includes? emitted "const answer = 42;"))
     (is (nil? (find-ns namespace-symbol)))
@@ -505,7 +505,7 @@
         lesson 'learn.example.translation-cleanup-test
         source (str "(ns " lesson
                     " (:require [learn.example.translation-dependency-fixture]"
-                    " [aguafria.zig :as az]))\n(az/defconst answer 42)")]
+                    " [aguafria.zig :as a]))\n(a/defconst answer 42)")]
     (is (nil? (find-ns dependency)))
     (is (str/includes? (ref/emit-clojure source lesson {}) "const answer = 42;"))
     (is (nil? (find-ns dependency)))
@@ -878,7 +878,7 @@
     (is (= "clojure.lang.Compiler$CompilerException"
            (get-in failure [:exception :class])))
     (is (str/includes? (get-in failure [:exception :message])
-                       "Syntax error macroexpanding az/defn"))
+                       "Syntax error macroexpanding a/defn"))
     (let [error (try
                   (binding [ref/*example-context* context]
                     (ref/run-example! "var_must_be_initialized.zig"))
@@ -894,12 +894,12 @@
           :let [code (slurp (io/resource source))
                 forms (inline/read-forms code)
                 calls (ref/comment-calls code)
-                tests (mapv #(list (second %)) (filter #(= 'az/deftest (first %)) forms))]]
+                tests (mapv #(list (second %)) (filter #(= 'a/deftest (first %)) forms))]]
     (testing file
       (is (or (seq calls) (not= 'comment (first (last forms)))))
       (is (not (str/includes? code "reference/run-example!")))
       (when (seq tests) (is (= tests calls)))
-      (when (some #(and (#{'az/defn 'az/defn-} (first %)) (= 'main (second %))) forms)
+      (when (some #(and (#{'a/defn 'a/defn-} (first %)) (= 'main (second %))) forms)
         (is (some #{'main} (tree-seq coll? seq calls))))))
   (doseq [[id {:keys [source]}] (ref/read-edn "resources/learn/fragment-overrides.edn")]
     (is (not (str/includes? (slurp (io/resource source)) "reference/check-snippet!")) id))
@@ -987,6 +987,44 @@
                            (get-in evaluation [:exception :message])) "incorrect alignment"))
     (is (ref/verified-comment? {:kind "test_safety=incorrect alignment"} result))))
 
+(deftest custom-panic-process-exit-preserves-real-output
+  (let [path (.getCanonicalPath
+              (io/file "resources/learn/example/panic_handler.clj"))
+        result (ref/capture-isolated-comment! (slurp path) path)
+        evaluation (first (:evaluations result))
+        html (ref/repl-panel result)]
+    (is (= :isolated-native-failure (:scope result)))
+    (is (= "(main)" (:form evaluation)))
+    (is (= 1 (:process-exit evaluation)))
+    (is (str/includes? (:native-output evaluation) "Panic! integer overflow"))
+    (is (str/includes? html "Panic! integer overflow"))
+    (is (str/includes? html "Process exited with status 1 (isolated JVM)."))
+    (is (nil? (:printed-value evaluation)))
+    (is (nil? (:exception evaluation)))
+    (is (ref/verified-comment? {:kind "exe=fail"} result))
+    (is (not (ref/verified-comment? {:kind "exe=succeed"} result)))
+    (is (not (ref/verified-comment? {:kind "test_safety=integer overflow"} result)))
+    (is (not (ref/verified-comment?
+              {:kind "exe=fail"}
+              (assoc-in result [:evaluations 0 :native-output] ""))))))
+
+(deftest capture-checkpoints-distinguish-loading-from-comment-calls
+  (let [events (atom [])
+        result (binding [ref/*repl-capture-progress* #(swap! events conj [%1 %2])]
+                 (ref/capture-comment-repl!
+                   "(ns learn.example.capture-checkpoints)\n(comment (+ 1 2))" nil))]
+    (is (= [[:started :load] [:finished :load]
+            [:started :comment] [:finished :comment]]
+           (mapv (fn [[event evaluation]] [event (:stage evaluation)]) @events)))
+    (is (= "3" (get-in result [:evaluations 0 :printed-value])))
+    (is (nil? (get-in result [:evaluations 0 :stage]))))
+  (doseq [[stage process] [[:load {:exit 1}]
+                           [:declaration {:exit 1}]
+                           [:comment {:exit 1 :timed-out? true}]
+                           [:comment {:exit 0}]]]
+    (is (nil? (#'ref/interrupted-repl-capture
+                "unused" {:active {:stage stage}} process)))))
+
 (deftest shell-panels-require-nonempty-repl-evaluations
   (let [html (str "<figure><figcaption class=\"zig-cap\"><cite class=\"file\">sample.zig</cite>"
                   "</figcaption><pre>code</pre></figure>"
@@ -1051,8 +1089,8 @@
         original (intern namespace 'main :unsaved-user-value)]
     (try
       (let [emitted (ref/emit-clojure
-                     "(ns learn.example.open-lesson (:require [aguafria.zig :as az]))
-                      (az/defn main :i32 [] 42)
+                     "(ns learn.example.open-lesson (:require [aguafria.zig :as a]))
+                      (a/defn main :i32 [] 42)
                       (comment (main))"
                      namespace-symbol {})]
         (is (str/includes? emitted "return 42;"))
@@ -1214,7 +1252,7 @@
                                                 :clojure-source "(ns forbidden)"})))
     (is (thrown? Exception
                  (inline/emit-mapping {:kind :declarations
-                                       :clojure-source "(az/defconst unfinished)"})))
+                                       :clojure-source "(a/defconst unfinished)"})))
     (is (= before-namespaces (namespaces)))
     (is (= before-libraries (loaded-libs)))))
 

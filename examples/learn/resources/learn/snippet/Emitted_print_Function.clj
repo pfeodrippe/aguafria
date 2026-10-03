@@ -1,7 +1,7 @@
 (ns learn.snippet.Emitted-print-Function
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defn write-formatted [:error-union :void]
+(a/defn write-formatted [:error-union :void]
   [[writer [:* Writer]] [text [:slice-const :u8]] [number :i32]]
   (try ((:write writer) "here is a string: '"))
   (try ((:printValue writer) text))

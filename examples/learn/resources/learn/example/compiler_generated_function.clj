@@ -1,7 +1,7 @@
 (ns learn.example.compiler-generated-function
-  (:require [aguafria.zig :as az]))
+  (:require [aguafria.zig :as a]))
 
-(az/defn- max :bool [[a :bool] [b :bool]]
+(a/defn- max :bool [[a :bool] [b :bool]]
   (or a b))
 
 (comment

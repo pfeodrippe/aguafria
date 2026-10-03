@@ -1,6 +1,8 @@
 (ns la-professeure.core
   "One JVM: nREPL workers edit declarations; the main thread owns the native stage."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
+            [aguafria.spirv :as spirv]
+            [aguafria.zig.runtime :as runtime]
             [clojure.java.io :as io]
             [clojure.stacktrace :as stacktrace]
             [la-professeure.build :as build]
@@ -15,7 +17,7 @@
 
 (def shader-reload-enabled?
   "Separate from Zig optimization: dev can use fast. No watcher exists in the standalone entry point."
-  (and (:reloadable? (az/configuration))
+  (and (:reloadable? (a/configuration))
        (not= "false" (System/getProperty "la-professeure.shader-reload" "true"))))
 
 (defn retry-startup! [] (swap! startup-request inc))
@@ -35,8 +37,8 @@
       (recur))))
 
 (defn- shader-stamp []
-  (mapv #(let [f (io/file (build/root) "resources/shaders" %)] [(.lastModified f) (.length f)])
-        ["mesh.vert" "mesh.frag"]))
+  (let [f (io/file (build/root) "src/la_professeure/shaders.clj")]
+    [(.lastModified f) (.length f)]))
 
 (defn start-shader-watcher!
   "Compile away from the render thread, then publish a complete pipeline there."
@@ -50,19 +52,26 @@
             (try
               (let [started (System/nanoTime)
                     _ (build/shaders!)
+                    _ (runtime/precompile-function! 'la-professeure.gpu/reload-shaders!)
                     compiled (System/nanoTime)
-                    result @(on-render! #((ns-resolve 'la-professeure.gpu 'reload-shaders!)))]
+                    result @(on-render!
+                             #(a/value ((ns-resolve 'la-professeure.gpu 'reload-shaders!))))]
                 (when-not (true? (:value result))
                   (throw (ex-info "Vulkan rejected shader replacement; old pipeline retained" result)))
-                (swap! status assoc :shaders {:state :reloaded :at (System/currentTimeMillis)
-                                              :compile-ms (/ (- compiled started) 1e6)
-                                              :total-ms (/ (- (System/nanoTime) started) 1e6)}))
+                (swap! status assoc :shaders
+                       {:state :reloaded
+                        :at (System/currentTimeMillis)
+                        :compile-ms (/ (- compiled started) 1e6)
+                        :total-ms (/ (- (System/nanoTime) started) 1e6)}))
+              (catch InterruptedException error (throw error))
               (catch Throwable e
-                (swap! status assoc :shaders {:state :error :message (.getMessage e)
-                                              :diagnostics (:output (ex-data e))})
+                (swap! status assoc :shaders
+                       {:state :error
+                        :message (.getMessage e)
+                        :diagnostics (spirv/diagnostics e)})
                 (binding [*out* *err*]
-                  (println "Shader reload failed; keeping working pipeline:" (.getMessage e))
-                  (when-let [output (:output (ex-data e))] (println output))
+                  (println "Shader reload failed; keeping working pipeline:")
+                  (println (spirv/diagnostics e))
                   (flush)))))
           (recur current))))))
 
@@ -71,7 +80,7 @@
     (let [result (try
                    (build/prepare!)
                    (require 'la-professeure.scene :reload)
-                   (az/await! 'la-professeure.scene)
+                   (a/await! 'la-professeure.scene)
                    :ready
                    (catch Throwable e e))]
       (if (= result :ready)
@@ -93,7 +102,7 @@
   "Compile Markdown with the native authoring tool, then swap the validated asset on the render thread."
   []
   (when-let [previous @story-watcher] (future-cancel previous))
-  (when (:reloadable? (az/configuration))
+  (when (:reloadable? (a/configuration))
     (reset! story-watcher
             (future
               (loop [published nil]
@@ -120,7 +129,7 @@
 (defn start-asset-watcher!
   "Development only. Watch a local/iPad-synced export; validate before publication."
   []
-  (when (:reloadable? (az/configuration))
+  (when (:reloadable? (a/configuration))
     (future
       (let [stamp #(mapv (fn [f] [(.lastModified f) (.length f)])
                          [(build/animation-file)
@@ -146,16 +155,16 @@
         snapshot (ns-resolve 'la-professeure.scene 'snapshot)
         shutdown (ns-resolve 'la-professeure.scene 'shutdown!)]
     (try
-      (when-not (initialize)
+      (when-not (a/value (initialize))
         (throw (ex-info "Stage failed to initialize; inspect Vulkan/GLFW diagnostics" {})))
       (loop []
         (drain!)
         (let [continue?
               (try
-                (when (tick)
+                (when (a/value (tick))
                   (let [value (snapshot)]
-                    (try (swap! status assoc :state :running :scene (az/value value))
-                         (finally (az/close! value))))
+                    (try (swap! status assoc :state :running :scene (a/value value))
+                         (finally (a/close! value))))
                   true)
                 (catch Exception e
                   ;; A failed live declaration must not take down nREPL or release
@@ -190,10 +199,10 @@
   ;; Start with clojure -M:dev:desktop, then connect CIDER/Calva to .nrepl-port.
   @status
 
-  ;; Evaluate ONLY animation-fps's az/defconst in scene.clj (8.0 -> 4.0),
+  ;; Evaluate ONLY animation-fps's a/defconst in scene.clj (8.0 -> 4.0),
   ;; Dialogue text and choices live ONLY in the Markdown selected in dialogue.edn.
   ;; Save that file or select another :source; the watcher reloads it automatically.
-  (az/await! 'la-professeure.scene)
+  (a/await! 'la-professeure.scene)
 
   ;; Native resource operations must run on the render thread.
   (deref (on-render! #(la-professeure.scene/reload-track!)) 5000 :timeout)

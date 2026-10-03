@@ -1,5 +1,5 @@
 (ns aguafria.runtime-diagnostics-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.runtime :as runtime]
             [clojure.main :as main]
             [clojure.string :as str]
@@ -79,17 +79,17 @@
     (is (str/includes? (:report result) "Raw Zig diagnostics:"))))
 
 (deftest real-compiler-error-at-jvm-call
-  (let [configuration (az/configuration)
+  (let [configuration (a/configuration)
         ns-name (symbol (str "aguafria.ide-error-" (random-uuid)))
         fixture-ns (create-ns ns-name)
         file (str (System/getProperty "user.dir") "/ide-error-fixture.clj")]
     (try
-      (az/configure! {:async? false :modules {}})
+      (a/configure! {:async? false :modules {}})
       (binding [*ns* fixture-ns *file* file
                 runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
-        (eval (with-meta '(az/defn broken :i32 [] true)
+        (alias 'a 'aguafria.zig)
+        (eval (with-meta '(a/defn broken :i32 [] true)
                 {:line 23 :column 4})))
       (let [error (try
                     ((ns-resolve fixture-ns 'broken))
@@ -107,22 +107,22 @@
         (is (seq (:stderr (runtime/error-data error))))
         (is (str/includes? (:aguafria/report (runtime/error-data error)) "Zig reported the error here")))
       (finally
-        (az/configure! configuration)
+        (a/configure! configuration)
         (remove-ns ns-name)))))
 
 (deftest missing-try-reports-the-call-and-recovery-works
-  (let [configuration (az/configuration)
+  (let [configuration (a/configuration)
         ns-name (symbol (str "aguafria.ide-try-" (random-uuid)))
         fixture-ns (create-ns ns-name)]
     (try
-      (az/configure! {:async? false :modules {}})
+      (a/configure! {:async? false :modules {}})
       (binding [*ns* fixture-ns *file* "missing_try.clj"
                 runtime/*source-only-registration?* true]
         (refer 'clojure.core)
-        (alias 'az 'aguafria.zig)
-        (eval '(az/defn may-fail :!void [] (set! _ 0)))
+        (alias 'a 'aguafria.zig)
+        (eval '(a/defn may-fail :!void [] (set! _ 0)))
         (eval (with-meta
-                (list 'az/defn 'broken :void []
+                (list 'a/defn 'broken :void []
                       (with-meta '(may-fail) {:line 9 :column 3}))
                 {:line 8 :column 1})))
       (let [error (try
@@ -136,8 +136,8 @@
         (is (str/includes? (main/err->msg error) "error union is ignored")))
       (binding [*ns* fixture-ns *file* "missing_try.clj"
                 runtime/*source-only-registration?* true]
-        (eval '(az/defn broken :void [] (try (may-fail)))))
+        (eval '(a/defn broken :void [] (try (may-fail)))))
       (is (nil? ((ns-resolve fixture-ns 'broken))))
       (finally
-        (az/configure! configuration)
+        (a/configure! configuration)
         (remove-ns ns-name)))))

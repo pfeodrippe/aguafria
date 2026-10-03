@@ -10,7 +10,7 @@
   - [x] hello.clj
     - [x] call from repl
     - [x] use ->
-    - [x] remove this try clj kondo warning when inside a az/...
+    - [x] remove this try clj kondo warning when inside a a/...
     - [x] how can we fix fix (main) kondo error regarding using no arguments for a function that expects one?
     - [x] removing the try in hello.clj (just for an error), how can we show it better from the IDE ? what clojure uses to show error inline in calva, cider, intellij etc ?
   - [x] hello_again.clj
@@ -30,74 +30,74 @@
     - [x] we should be able to see meta information like we do for structs/enums/etc for ExampleErrorSet as well
       - Error printing return value (ExceptionInfo) at aguafria.zig.runtime/compilation-exception (runtime.clj:1367). Zig compilation failed for learn.example.values error[aguafria::zig]: no size available for comptime-only type 'type'
     - [x] (set! optional-value "hi") should be (ak/= optional-value "hi")
-    - [x] from the jvm, (-> (az/field ExampleErrorSet :ExampleErrorVariant) (ak/as [:error-union ExampleErrorSet :i32]) ak/var) returns error  Zig error unions require {:ok value} or {:error {:code n}} {:type [:error-union [:error-set [:ExampleErrorVariant]] :i32], :value "ExampleErrorVariant"}
+    - [x] from the jvm, (-> (a/field ExampleErrorSet :ExampleErrorVariant) (ak/as [:error-union ExampleErrorSet :i32]) ak/var) returns error  Zig error unions require {:ok value} or {:error {:code n}} {:type [:error-union [:error-set [:ExampleErrorVariant]] :i32], :value "ExampleErrorVariant"}
     - [x] evaluate all subforms
   - [x] string_literals.clj
-    - [x] (ak/== \e (az/char-literal "'\\x65'")) should work from the JVM directly as well
-    - [x] (debug/print "{}\n" [(mem/eql :u8 "hello" (az/string-literal "\"h\\x65llo\""))]) should work from the JVM directly as well
+    - [x] (ak/== \e (a/char-literal "'\\x65'")) should work from the JVM directly as well
+    - [x] (debug/print "{}\n" [(mem/eql :u8 "hello" (a/string-literal "\"h\\x65llo\""))]) should work from the JVM directly as well
   - [x] multiline_string_literals.clj
   - [x] constant_identifier_cannot_change.clj
-    - [x] we are able to define the (az/defn- change-constant :void ...) expression, even though it's invalid, the error only shows up when we evaluate the (az/defn main :void ...) expressions that uses the change-constant, but it shouldn't be this way, it doesn't make sense
+    - [x] we are able to define the (a/defn- change-constant :void ...) expression, even though it's invalid, the error only shows up when we evaluate the (a/defn main :void ...) expressions that uses the change-constant, but it shouldn't be this way, it doesn't make sense
   - [x] mutable_var.clj
     - [x] repl output shows the `nil` in the same line, why ? learn.example.mutable-var=> (main)\n 5679nil
   - [x] var_must_be_initialized.clj
   - [x] assign_undefined.clj
   - [x] destructuring_to_existing.clj
     - [x] (ak/var ak/undefined :u32) returns a error in the JVM, Zig integer argument requires a Clojure integer, but it should work
-    - [x] (az/array-init [:array _ :u32] [4 5 6]) in the JVM returns Unable to resolve symbol: _ in this context
+    - [x] (a/array-init [:array _ :u32] [4 5 6]) in the JVM returns Unable to resolve symbol: _ in this context
   - [x] destructuring_mixed.clj
     - [x] y is being created out of nowhere at learn.example.destructuring-mixed, the destructuring could be closer to the clojure one here
   - [x] testing_introduction.clj
-    - [x] wth do we have addOne after deftest that uses it !!! it shouldn't be allowed, why the hell isn't az/deftests erroring out in this case ???? we can't put vars and such anywhere
+    - [x] wth do we have addOne after deftest that uses it !!! it shouldn't be allowed, why the hell isn't a/deftests erroring out in this case ???? we can't put vars and such anywhere
   - [x] testing_failure.clj
   - [x] testing_skip.clj
   - [x] testing_detect_leak.clj
     - [x] in the jvm, evaluating (ak/var :.empty (std/ArrayList :u21)) give us error Zig function argument requires a native Zig value or constructible Clojure value
     - [x] duplicated error output
   - [x] testing_detect_test.clj
-    - [x] (az/defconst builtin (ak/import "builtin")) should be a require import just like we have for std, then we could do builtin/is_test to refer to it
+    - [x] (a/defconst builtin (ak/import "builtin")) should be a require import just like we have for std, then we could do builtin/is_test to refer to it
   - [x] testing_namespace.clj
-    - [x] (ak/as (az/error-value :DemoError) [:error-union :anyerror :void]) returns an error
+    - [x] (ak/as (a/error-value :DemoError) [:error-union :anyerror :void]) returns an error
   - [x] test_container_level_variables.clj
     - [x] out of order
   - [x] test_namespaced_container_level_variable.clj
-    - [x] (az/field S :value) and (ak/+= (az/field S :value) 1) doesn't work on their own
-    - [x] (az/var-decl value :i32 1234) syntax
+    - [x] (a/field S :value) and (ak/+= (a/field S :value) 1) doesn't work on their own
+    - [x] (a/var-decl value :i32 1234) syntax
   - [x] test_static_local_variable.clj
-    - [x] in the jvm, (az/struct [[:value {:var 1234} :i32]]) returns Unable to resolve symbol: value in this context
+    - [x] in the jvm, (a/struct [[:value {:var 1234} :i32]]) returns Unable to resolve symbol: value in this context
     - [x] test it works well from the REPL
   - [x] test_thread_local_variables.clj
     - [x] instead of {:zig/prefix "threadlocal"}, it should be {:attrs {ak/threadlocal}}
     - [x] from the JVM, when evaluating `value`, we have the error `Zig state has no active native storage`
-    - [x] and wth do we still have the type after the metadata, instead of (az/defvar value {:zig/prefix "threadlocal"} :i32 1234), it should be (az/defvar value :i32 {:attrs {ak/threadlocal}} 1234), we should fix in all places and reject otherwise, no fallbacks
+    - [x] and wth do we still have the type after the metadata, instead of (a/defvar value {:zig/prefix "threadlocal"} :i32 1234), it should be (a/defvar value :i32 {:attrs {ak/threadlocal}} 1234), we should fix in all places and reject otherwise, no fallbacks
     - [x] when calling testTls from the JVM, I have "The JVM is alive, but native defers were not unwound. Reinitialize affected native state before reusing it."}
     - [x] (try (thread/spawn {} testTls [])) returns `Cannot emit Zig expression`
   - [x] test_comptime_variables.clj
     - [x] (ak/var 1 :i32 {:zig/prefix "comptime"}) should be (ak/var 1 :i32 {:attrs ak/comptime}), also see all :zig/prefix where we could do better
   - [x] integer_literals.clj
-    - [x] fix jvm (az/defconst octal-int (az/number-literal "0o755")) error
+    - [x] fix jvm (a/defconst octal-int (a/number-literal "0o755")) error
   - [x] runtime_vs_comptime.clj
     - [x] clojure.lang.ExceptionInfo: Zig compilation failed for learn.example.runtime-vs-comptime
   - [x] float_literals.clj
-    - [x] (az/defconst hex-floating-point (az/number-literal "0x103.70p-5"))
+    - [x] (a/defconst hex-floating-point (a/number-literal "0x103.70p-5"))
   - [x] float_special_values.clj
-    - [x] (az/defconst inf (math/inf :f32))
+    - [x] (a/defconst inf (math/inf :f32))
   - [x] float_mode_obj.clj
     - [x] {:attrs #{:export}}
   - [x] float_mode_exe.clj
     - [x] error: undefined symbol: _foo_optimized and error: undefined symbol: _foo_strict
     - [x] and the output is expected ?
   - [x] test_arrays.clj
-    - [-] why do need az/defcomptime matching-initializers or az/defcomptime message-length if they aren't labeled in the original? we could use just `(ak/comptime ...)`
+    - [-] why do need a/defcomptime matching-initializers or a/defcomptime message-length if they aren't labeled in the original? we could use just `(ak/comptime ...)`
     - [x] when we modify message, it complains about `26 |   (debug/assert (mem/eql :u8 (k/& message) same-message)))`
-    - [x] add az/clj!
-    - [x] discover callable functions and fields for a value using something like az/describe
+    - [x] add a/clj!
+    - [x] discover callable functions and fields for a value using something like a/describe
     - [-] when evaluating some-message from the JVM, I just see #aguafria.zig.value.ZigValue[#aguafria/zig-pointer[5079003049 *const [5:0]u8]], while evaluating message give us #aguafria.zig.value.ZigValue[[104 101 108 108 111]]
       - ok, we can't just deref pointers by default
     - [x] `modify an array` for improvements
-    - [x] no need for az/array-init, it can be just az/array
-    - [x] (az/defconst all-of-it (az/op "++" part-one part-two)) should be (az/defconst all-of-it (k/++ part-one part-two)), also revisit other usages of az/op where we could have an k/WHATEVER_OP_HERE
-    - [x] labeled block should be az/with-block
+    - [x] no need for a/array-init, it can be just a/array
+    - [x] (a/defconst all-of-it (a/op "++" part-one part-two)) should be (a/defconst all-of-it (k/++ part-one part-two)), also revisit other usages of a/op where we could have an k/WHATEVER_OP_HERE
+    - [x] labeled block should be a/with-block
     - [x] add destructuring
   - [x] test_multidimensional_arrays.clj
   - [x] test_null_terminated_array.clj
@@ -105,9 +105,9 @@
   - [x] destructuring_arrays.clj
     - [x] fix sequence destructuring
   - [x] test_vector.clj
-    - [x] (az/init [1 2 3 4] (k/Vector 4 :i32)) could be (az/vector [1 2 3 4] :i32)
-    - [x] (k/as (az/array [1.1 3.2 4.5 5.6] :f32) [:array 4 :f32]) could be (az/array [1.1 3.2 4.5 5.6] :f32)
-    - [x] az/debug!
+    - [x] (a/init [1 2 3 4] (k/Vector 4 :i32)) could be (a/vector [1 2 3 4] :i32)
+    - [x] (k/as (a/array [1.1 3.2 4.5 5.6] :f32) [:array 4 :f32]) could be (a/array [1.1 3.2 4.5 5.6] :f32)
+    - [x] a/debug!
     - [x] ability to generate the types for all forms and subforms of a file, then, for testing, make sure the aguafria zig examples we show at http://127.0.0.1:63979/ all show some tooltip with type info when someone hovers it
     - [x] conversion-between-vectors-arrays-and-slices via JVM
   - [x] destructuring_vectors.clj
@@ -136,19 +136,23 @@
     - [x] fix k/comptime call in the JVM
   - [x] test_pointer_casting.clj
     - [x] pointer-casting body not working
-    - [x] hot to align using bytes (k/alignOf (az/type :u32 (az/array [0x12 0x12 0x12 0x12] :u8))) instead of ^{:zig/align (k/alignOf (az/type :u32))} bytes (az/array [0x12 0x12 0x12 0x12] :u8)
+    - [x] hot to align using bytes (k/alignOf (a/type :u32 (a/array [0x12 0x12 0x12 0x12] :u8))) instead of ^{:zig/align (k/alignOf (a/type :u32))} bytes (a/array [0x12 0x12 0x12 0x12] :u8)
   - [x] test_volatile.clj
     - [x] why (k/as (k/ptrFromInt 0x12345678) [:pointer {:volatile? true, :size :one} :u8]) and not (k/as (k/ptrFromInt 0x12345678) [:* {:volatile? true, :size :one} :u8])
   - [x] test_variable_alignment.clj
     - [x] variable-alignment, Cannot emit Zig expression
   - [x] test_variable_func_alignment.clj
-    - [x] I have `(az/defvar foo :u8 {:zig/qualifiers "align(4)"}  100)`, then (-> (k/typeInfo (k/TypeOf (k/& foo))) type-info/-pointer pointer-info/-alignment) returns nil instead of 4
-    - [x] remove az/type where not needed
+    - [x] I have `(a/defvar foo :u8 {:zig/qualifiers "align(4)"}  100)`, then (-> (k/typeInfo (k/TypeOf (k/& foo))) type-info/-pointer pointer-info/-alignment) returns nil instead of 4
+    - [x] remove a/type where not needed
     - [x] remove :zig/qualifiers usage
   - [x] test_incorrect_pointer_alignment.clj
     - [x] no error output
   - [x] test_allowzero.clj
   - [x] sentinel_terminated_pointer.clj
+  - [ ] test_pointer_casting.clj (again after v0.17.0 upgrade)
+  - [ ] test_basic_slices.clj
+  - [ ] test_slices.clj
+  - [ ] slicing_by_length.clj
 
 - [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?
 - [ ] add assertions from the JVM as alternative to comptime assertions (e.g. inside test_arrays.clj)

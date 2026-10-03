@@ -4,14 +4,14 @@
             [aguafria.std.process :as process]
             [aguafria.std.process.Init :as process-init]
             [aguafria.std.process.Init.Minimal :as minimal-init]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
 ;; Target: wasm32-wasi.
-(az/defn main :!void
+(a/defn main :!void
   [[init process/Init]]
   (let [args (try ((:toSlice (-> init process-init/-minimal minimal-init/-args))
                    ((:allocator (process-init/-arena init)))))]
-    (k/for [i (az/range 0) arg args]
+    (k/for [i (a/range 0) arg args]
       (debug/print "{d}: {s}\n" [i arg]))))
 
 (comment

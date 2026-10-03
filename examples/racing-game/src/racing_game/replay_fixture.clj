@@ -1,6 +1,6 @@
 (ns racing-game.replay-fixture
   "Generate the portable golden intent stream consumed by native replay tests."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.java.io :as io]
             [racing-game.build :as build]
             [racing-game.core :as core]
@@ -28,8 +28,8 @@
     (.putShort buffer (short (count entries)))
     (.put buffer (byte protocol/observation-schema-version))
     (.put buffer (byte protocol/action-schema-version))
-    (.put buffer (byte (az/value simulation/racer-count)))
-    (.put buffer (byte (az/value simulation/team-count)))
+    (.put buffer (byte (a/value simulation/racer-count)))
+    (.put buffer (byte (a/value simulation/team-count)))
     (.putLong buffer (unchecked-long protocol/model-fingerprint))
     (.putLong buffer (unchecked-long protocol/action-head-fingerprint))
     (doseq [entry entries]
@@ -48,9 +48,9 @@
 
 (defn generate!
   []
-  (az/await!)
+  (a/await!)
   (let [report
-        (az/value
+        (a/value
          (simulation/run-replay-parity! protocol/replay-golden-ticks))
         entries (core/capture-replay)
         output (fixture-file)]

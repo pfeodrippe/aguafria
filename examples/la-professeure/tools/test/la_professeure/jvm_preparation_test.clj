@@ -1,7 +1,7 @@
 (ns la-professeure.jvm-preparation-test
   "Safe JVM checks for game adapters: no windows, devices, playback or file writes."
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]
+            [aguafria.zig :as a]
             [clojure.test :refer [deftest is run-tests]]
             [la-professeure.gpu :as gpu]
             [la-professeure.recording-tool :as recording]
@@ -12,8 +12,8 @@
 
 (defn- read-and-close [value]
   (try
-    (az/value value)
-    (finally (az/close! value))))
+    (a/value value)
+    (finally (a/close! value))))
 
 (defn- text-hash [text]
   (reduce (fn [hash byte]
@@ -60,15 +60,15 @@
                 count ((:utf8proc_decompose studio/text-api)
                        (:ptr text-value) (k/intCast (:len text-value))
                        (k/ptrCast (k/& scratch)) 512 options)]
-      (is (<= 0 (az/value count) 512))
-      (when (<= 0 (az/value count) 512)
+      (is (<= 0 (a/value count) 512))
+      (when (<= 0 (a/value count) 512)
         (with-open [length ((:utf8proc_reencode studio/text-api)
                             (k/ptrCast (k/& scratch)) count options)]
-          (is (<= 0 (az/value length) (* 513 4)))
-          (when (<= 0 (az/value length) (* 513 4))
+          (is (<= 0 (a/value length) (* 513 4)))
+          (when (<= 0 (a/value length) (* 513 4))
             (with-open [bytes (k/as (k/ptrCast (k/& scratch)) [:c-pointer :u8])
-                        result (az/slice bytes 0 (k/as (k/intCast length) :usize))]
-              (is (= expected (az/value result))))))))))
+                        result (a/slice bytes 0 (k/as (k/intCast length) :usize))]
+              (is (= expected (a/value result))))))))))
 
 (defn -main [& _]
   (let [result (run-tests 'la-professeure.jvm-preparation-test)]

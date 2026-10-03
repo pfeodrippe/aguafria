@@ -1,6 +1,6 @@
 (ns racing-game.log
   "Persistent, human-readable exports of the native cognition ring buffers."
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
@@ -71,7 +71,7 @@
   ([per-racer-limit]
    (decision-traces per-racer-limit {}))
   ([per-racer-limit options]
-   (->> (range (az/value telemetry/racer-count))
+   (->> (range (a/value telemetry/racer-count))
         (mapcat (fn [racer]
                   (let [available (min (long telemetry/entries-per-racer)
                                        (long (telemetry/decision-count racer)))

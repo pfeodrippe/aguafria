@@ -1,8 +1,8 @@
 (ns learn.example.not-atomic-cmpxchgStrong
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn cmpxchgStrongButNotAtomic [:optional T]
+(a/defn cmpxchgStrongButNotAtomic [:optional T]
   [[T {:attrs #{k/comptime}} :type]
    [ptr [:* T]] [expected-value T] [new-value T]]
   (let [old-value @ptr]

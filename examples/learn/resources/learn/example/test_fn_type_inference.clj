@@ -1,13 +1,13 @@
 (ns learn.example.test-fn-type-inference
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn- add-forty-two (k/TypeOf x)
+(a/defn- add-forty-two (k/TypeOf x)
   [[x :anytype]]
   (k/+ x 42))
 
-(az/deftest fn-type-inference
+(a/deftest fn-type-inference
   (try (testing/expectEqual 43 (add-forty-two 1)))
   (try (testing/expectEqual :comptime_int (k/TypeOf (add-forty-two 1))))
   (let [y (k/i64 2)]

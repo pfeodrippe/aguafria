@@ -1,15 +1,15 @@
 (ns aguafria.zig.precompile-noreturn-fixture
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn never-run :noreturn
+(a/defn never-run :noreturn
   []
-  (az/while-loop {} true))
+  (a/while-loop {} true))
 
-(az/defn direct-panic :noreturn
+(a/defn direct-panic :noreturn
   []
   (k/panic "prepared noreturn panic"))
 
-(az/defn indirect-panic :noreturn
+(a/defn indirect-panic :noreturn
   [[message [:slice-const :u8]]]
   (k/panic message))

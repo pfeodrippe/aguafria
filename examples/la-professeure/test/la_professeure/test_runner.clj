@@ -1,6 +1,8 @@
 (ns la-professeure.test-runner
   (:require [clojure.test :refer [deftest is run-tests]]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
+            [clojure.string :as str]
             [la-professeure.dialogue :as dialogue]
             [la-professeure.build :as build]
             [la-professeure.sync :as sync]))
@@ -39,7 +41,7 @@
                 "tools/src/la_professeure/tools/mixer.clj"]
           :let [source (slurp path)]
           pattern [#"\bak/" #"\(set!\s" #"\^:var\b" #":zig/align\b"
-                   #"az/(?:field|index|array-init|labeled-block)\b"
+                   #"a/(?:field|index|array-init|labeled-block)\b"
                    #"k/c(?:Import|Include)\b"]]
     (is (not (re-find pattern source)) (str path " still uses " pattern))))
 
@@ -182,29 +184,39 @@
   (let [directory (.toFile (java.nio.file.Files/createTempDirectory
                             "la-professeure-shader-test-"
                             (make-array java.nio.file.attribute.FileAttribute 0)))
-        fragment (io/file directory "resources/shaders/mesh.frag")
-        originals (into {} (for [name ["mesh.vert" "mesh.frag"]]
-                             [name (slurp (io/file (build/root) "resources/shaders" name))]))]
-    (io/make-parents fragment)
-    (doseq [[name source] originals]
-      (spit (io/file directory "resources/shaders" name) source))
-    (with-redefs [build/root (constantly directory)]
-      (is (= :prepared (build/shaders!)))
-      (let [targets (mapv #(io/file directory "resources/shaders" (str % ".spv"))
-                          ["mesh.vert" "mesh.frag"])
-            bytes #(mapv (fn [f] (vec (java.nio.file.Files/readAllBytes (.toPath f)))) targets)
-            working (bytes)]
-        (spit fragment "#version 450\nThis is intentionally invalid GLSL.\n")
-        ;; Explicit timestamps keep the failure test independent of filesystem resolution.
-        (.setLastModified fragment (+ 2000 (System/currentTimeMillis)))
-        (is (thrown? clojure.lang.ExceptionInfo (build/shaders!)))
-        (is (= working (bytes)) "Neither published stage changes after a compiler failure")
-        (spit fragment (get originals "mesh.frag"))
-        (.setLastModified fragment (+ 2000 (System/currentTimeMillis)))
-        (is (= :prepared (build/shaders!)))
-        (is (= working (bytes)) "Correcting the source recovers the original valid binaries")))))
+        output (io/file directory "resources/shaders/game.spv")
+        bytes #(vec (java.nio.file.Files/readAllBytes (.toPath output)))]
+    (try
+      (with-redefs [build/root (constantly directory)]
+        (let [built (build/shaders!)
+              working (bytes)]
+          (is (:validated? built))
+          (is (= (.getPath output) (:output-path built)))
+          (is (= [3 2 35 7] (mapv #(bit-and 255 %) (take 4 working))))
+          (let [source (slurp (:source-path built))]
+            (is (str/includes? source "@SpirvType"))
+            (is (str/includes? source "callconv(.spirv_vertex)"))
+            (is (str/includes? source "callconv(.{.spirv_fragment = .{}})")))
+          (let [{:keys [exit out]} (shell/sh "spirv-dis" (str output))]
+            (is (zero? exit))
+            (is (str/includes? out "OpDecorate %vertices DescriptorSet 0"))
+            (is (str/includes? out "OpDecorate %vertices Binding 0"))
+            (is (str/includes? out "OpDecorate %pixels Binding 1"))
+            (is (= 2 (count (re-seq #"OpTypeRuntimeArray" out))))
+            (is (not (str/includes? out "PhysicalStorageBuffer"))))
+          (with-redefs [aguafria.zig/build! (fn [& _] (throw (ex-info "Invalid shader" {})))]
+            (is (thrown? clojure.lang.ExceptionInfo (build/shaders!))))
+          (is (= working (bytes)) "A failed compilation preserves the published module")
+          (is (:validated? (build/shaders!)))
+          (is (= working (bytes)) "Recovery reproduces the working module")))
+      (finally
+        (java.nio.file.Files/deleteIfExists (.toPath output))
+        (doseq [file [(io/file directory "resources/shaders")
+                     (io/file directory "resources") directory]]
+          (java.nio.file.Files/deleteIfExists (.toPath file)))))))
 
 (defn -main [& _]
-  (let [result (run-tests 'la-professeure.test-runner)]
+  (require 'la-professeure.core-test)
+  (let [result (run-tests 'la-professeure.test-runner 'la-professeure.core-test)]
     (shutdown-agents)
     (when (pos? (+ (:fail result) (:error result))) (System/exit 1))))

@@ -1,11 +1,11 @@
 (ns learn.example.test-variable-alignment
   (:require [aguafria.keyword :as k]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest variable-alignment
+(a/deftest variable-alignment
   (let [x (k/var 1234 :i32)]
-    (try (testing/expectEqual (az/type [:* :i32]) (k/TypeOf (k/& x))))
+    (try (testing/expectEqual (a/type [:* :i32]) (k/TypeOf (k/& x))))
     (try (testing/expect
           (k/== (k/% (k/intFromPtr (k/& x)) (k/alignOf :i32)) 0)))
     ;; The implicitly-aligned pointer can be coerced to be explicitly-aligned to

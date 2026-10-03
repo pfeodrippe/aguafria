@@ -3,9 +3,9 @@
             [aguafria.std.lang.Type :as type-info]
             [aguafria.std.lang.Type.Optional :as optional-info]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/deftest optional-type
+(a/deftest optional-type
   ;; Declare an optional and coerce from null:
   (let [foo (k/var nil [:optional :i32])]
     ;; Coerce from child type of an optional

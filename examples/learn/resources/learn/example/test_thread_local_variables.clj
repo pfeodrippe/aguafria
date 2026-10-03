@@ -2,19 +2,19 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std.Thread :as thread]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defvar x :i32
+(a/defvar x :i32
   {:attrs #{k/threadlocal}}
   1234)
 
-(az/defn- testTls :void
+(a/defn- testTls :void
   []
   (debug/assert (k/== x 1234))
   (k/+= x 1)
   (debug/assert (k/== x 1235)))
 
-(az/deftest thread-local-storage
+(a/deftest thread-local-storage
   (let [thread1 (try (thread/spawn {} testTls []))
         thread2 (try (thread/spawn {} testTls []))]
     (testTls)

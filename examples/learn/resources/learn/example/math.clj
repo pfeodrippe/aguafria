@@ -1,12 +1,12 @@
 (ns learn.example.math
   (:refer-clojure :exclude [print])
   (:require [aguafria.keyword :as k]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defextern print :void
+(a/defextern print :void
   [[value :i32]])
 
-(az/defn add :void
+(a/defn add :void
   {:attrs #{k/export}}
   [[a :i32] [b :i32]]
   (print (k/+ a b)))

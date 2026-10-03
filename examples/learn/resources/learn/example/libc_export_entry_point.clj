@@ -1,13 +1,13 @@
 (ns learn.example.libc-export-entry-point
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :c_int
+(a/defn main :c_int
   {:attrs #{k/export}}
   [[argc :c_int] [argv [:many-const [:sentinel-const :u8 0]]]]
-  (let [args (az/slice argv 0 (k/intCast argc))]
-    (debug/print "Hello! argv[0] is '{s}'\n" [(az/get args 0)])
+  (let [args (a/slice argv 0 (k/intCast argc))]
+    (debug/print "Hello! argv[0] is '{s}'\n" [(a/get args 0)])
     0))
 
 (comment

@@ -19,8 +19,17 @@ test("every translated Shell panel has real REPL output, including native failur
         !example.querySelector('.learn-repl samp')?.textContent.trim())
       .map(example => example.getAttribute('aria-label')));
     assert.deepEqual(missing, []);
+    const hello = page.getByRole('region', {name: 'hello_again.zig', exact: true});
+    const source = await hello.locator('.learn-aguafria code').innerText();
+    assert.match(source, /\[aguafria\.zig :as a\]/);
+    assert.match(source, /\(a\/defn main/);
+    assert.doesNotMatch(source, /\baz\//);
     const failure = page.getByRole('region', {name: 'test_incorrect_pointer_alignment.zig', exact: true});
     assert.match(await failure.locator('.learn-repl').innerText(), /incorrect alignment/);
+    const exit = page.getByRole('region', {name: 'panic_handler.zig', exact: true});
+    const transcript = await exit.locator('.learn-repl').innerText();
+    assert.match(transcript, /Panic! integer overflow/);
+    assert.match(transcript, /Process exited with status 1 \(isolated JVM\)/);
   } finally {
     await browser.close();
   }

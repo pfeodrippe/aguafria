@@ -1,9 +1,9 @@
 (ns learn.example.assign-undefined
   (:require [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :void
+(a/defn main :void
   []
   (let [x (k/var k/undefined :i32)]
     (k/= x 1)

@@ -1,5 +1,5 @@
 (ns aguafria.zig.callable-deftest-test
-  (:require [aguafria.zig :as az]
+  (:require [aguafria.zig :as a]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -10,7 +10,7 @@
   (let [namespace (create-ns (gensym "aguafria.callable-test-fixture-"))]
     (binding [*ns* namespace]
       (refer 'clojure.core)
-      (require '[aguafria.zig :as az])
+      (require '[aguafria.zig :as a])
       (require '[aguafria.keyword :as ak]))
     namespace))
 
@@ -29,15 +29,15 @@
         call-value (fn [f argument]
                      (let [result (f argument)]
                        (swap! returned conj result)
-                       (az/value result)))]
+                       (a/value result)))]
     (try
       (binding [*ns* namespace]
-        (eval '(az/defn checked :!u32 [[fail? :bool]]
-                 (when fail? (ak/return (az/error-value :NoValue)))
+        (eval '(a/defn checked :!u32 [[fail? :bool]]
+                 (when fail? (ak/return (a/error-value :NoValue)))
                  42))
-        (eval '(az/defn checked-void :!void [[fail? :bool]]
-                 (when fail? (ak/return (az/error-value :NoValue)))))
-        (eval '(az/defn recursive :!u32 [[remaining :u32]]
+        (eval '(a/defn checked-void :!void [[fail? :bool]]
+                 (when fail? (ak/return (a/error-value :NoValue)))))
+        (eval '(a/defn recursive :!u32 [[remaining :u32]]
                  (if (ak/== remaining 0)
                    7
                    (try (recursive (- remaining 1)))))))
@@ -50,14 +50,14 @@
         (is (= :NoValue (get-in (call-value checked-void true) [:error :name])))
         (is (= {:ok 7} (call-value recursive 3)))
         (binding [*ns* namespace]
-          (eval '(az/defn checked :!u32 [[fail? :bool]]
-                   (when fail? (ak/return (az/error-value :NoValue)))
+          (eval '(a/defn checked :!u32 [[fail? :bool]]
+                   (when fail? (ak/return (a/error-value :NoValue)))
                    99)))
         (is (= {:ok 99} (call-value checked false)))
         (is (= :NoValue (get-in (call-value checked true) [:error :name]))))
       (finally
         (doseq [result @returned]
-          (az/close! result))
+          (a/close! result))
         (remove-ns (ns-name namespace))))))
 
 (deftest inferred-error-payloads-resolve-local-and-imported-type-vars
@@ -66,16 +66,16 @@
         returned (atom [])]
     (try
       (binding [*ns* provider]
-        (eval '(az/defstruct Packet [[:code :u32]]))
-        (eval '(az/defn packet :!Packet [] (Packet {:code 11})))
-        (eval '(az/defconst Bytes (az/type [:slice-const :u8])))
-        (eval '(az/defn payload-bytes :!Bytes [] "payload"))
-        (eval '(az/defn composite-result [:! [:slice-const :u8]] [] "composite")))
+        (eval '(a/defstruct Packet [[:code :u32]]))
+        (eval '(a/defn packet :!Packet [] (Packet {:code 11})))
+        (eval '(a/defconst Bytes (a/type [:slice-const :u8])))
+        (eval '(a/defn payload-bytes :!Bytes [] "payload"))
+        (eval '(a/defn composite-result [:! [:slice-const :u8]] [] "composite")))
       (binding [*ns* consumer]
         (alias 'provider (ns-name provider))
-        (eval '(az/defn imported-packet :!provider/Packet []
+        (eval '(a/defn imported-packet :!provider/Packet []
                  (try (provider/packet))))
-        (eval '(az/defn optional-result [:! [:optional :u32]]
+        (eval '(a/defn optional-result [:! [:optional :u32]]
                  [[present? :bool]]
                  (if present? (ak/as 42 :u32) nil))))
       (doseq [[namespace function arguments expected]
@@ -87,9 +87,9 @@
                [consumer 'optional-result [false] {:ok nil}]]]
         (let [result (apply (ns-resolve namespace function) arguments)]
           (swap! returned conj result)
-          (is (= expected (az/value result)) (str function))))
+          (is (= expected (a/value result)) (str function))))
       (finally
-        (doseq [result @returned] (az/close! result))
+        (doseq [result @returned] (a/close! result))
         (remove-ns (ns-name consumer))
         (remove-ns (ns-name provider))))))
 
@@ -105,9 +105,9 @@
                                         {:status :succeeded :test test-name})]
         (let [test-var (binding [*ns* namespace]
                          (eval '(declare only-native-values))
-                         (eval '(az/deftest body-is-native
+                         (eval '(a/deftest body-is-native
                                   "A native-only test body."
-                                  (try (only-native-values (az/type [:slice-const :u8]))))))
+                                  (try (only-native-values (a/type [:slice-const :u8]))))))
               metadata (meta test-var)]
           (is (var? test-var))
           (is (fn? (var-get test-var)))
@@ -131,9 +131,9 @@
                     runtime/register-declaration! identity]
         (binding [*ns* namespace]
           (eval '(declare native-first native-second))
-          (let [first-var (eval '(az/deftest same-test (native-first)))
+          (let [first-var (eval '(a/deftest same-test (native-first)))
                 first-body (get-in (meta first-var) [:aguafria/declaration :body])
-                second-var (eval '(az/deftest same-test (native-second)))]
+                second-var (eval '(a/deftest same-test (native-second)))]
             (is (identical? first-var second-var))
             (is (not= first-body (get-in (meta second-var) [:aguafria/declaration :body])))
             (is (= '([]) (:arglists (meta second-var)))))))
@@ -146,8 +146,8 @@
         define (fn [form]
                  (capture-execution #(binding [*ns* namespace] (eval form))))]
     (try
-      (doseq [form ['(az/deftest missing-function (later-helper))
-                    '(az/deftest missing-value (ak/= :_ later-value))]]
+      (doseq [form ['(a/deftest missing-function (later-helper))
+                    '(a/deftest missing-value (ak/= :_ later-value))]]
         (let [{:keys [failure]} (define form)
               test-name (second form)
               test-var (ns-resolve namespace test-name)]
@@ -159,9 +159,9 @@
           (is (or (nil? test-var) (not (bound? test-var))))
           (is (nil? (get-in @@#'runtime/registry
                            [module :definitions [:test test-name]])))))
-      (is (nil? (:failure (define '(az/defn- later-helper :void [])))))
+      (is (nil? (:failure (define '(a/defn- later-helper :void [])))))
       (let [{:keys [failure result printed-out printed-err]}
-            (define '(az/deftest checked-test
+            (define '(a/deftest checked-test
                        (later-helper)
                        (ak/panic "Only fail when the test is called")))]
         (is (nil? failure) (some-> failure str))
@@ -170,7 +170,7 @@
         (when (var? result)
           (let [previous @result
                 descriptor (:aguafria/declaration (meta result))
-                rejected (define '(az/deftest checked-test (still-missing)))]
+                rejected (define '(a/deftest checked-test (still-missing)))]
             (is (some? (:failure rejected)))
             (is (identical? previous @result))
             (is (= descriptor (:aguafria/declaration (meta result))))
@@ -184,14 +184,14 @@
 
 (deftest unknown-references-fail-before-any-registration-mode
   (doseq [mode [:ordinary :source-only :batch]
-          form ['(az/defn- caller :void [] (unknown-function))
-                '(az/defn- generic-caller :void [[T {:zig/prefix "comptime"} :type]]
+          form ['(a/defn- caller :void [] (unknown-function))
+                '(a/defn- generic-caller :void [[T {:zig/prefix "comptime"} :type]]
                    (unknown-function T))
-                '(az/defconst missing-constant :i32 later-value)
-                '(az/defvar missing-state :i32 (later-helper 1))
-                '(az/defstruct Missing [[:field UnknownType]])
-                '(az/deftest missing-test (unknown-function))
-                '(az/defn- bad-local :i32 [] (let [x y y 1] x))]]
+                '(a/defconst missing-constant :i32 later-value)
+                '(a/defvar missing-state :i32 (later-helper 1))
+                '(a/defstruct Missing [[:field UnknownType]])
+                '(a/deftest missing-test (unknown-function))
+                '(a/defn- bad-local :i32 [] (let [x y y 1] x))]]
     (let [namespace (scratch-namespace)]
       (try
         (let [failure (binding [*ns* namespace
@@ -252,23 +252,23 @@
         root (scratch-namespace)]
     (try
       (binding [*ns* dependency runtime/*source-only-registration?* true]
-        (eval '(az/defn checked-length [:error-union :anyerror :usize]
+        (eval '(a/defn checked-length [:error-union :anyerror :usize]
                  [[values [:slice-const :i32]]]
-                 (az/field values :len)))
-        (eval '(az/deftest foo
+                 (a/field values :len)))
+        (eval '(a/deftest foo
                  (ak/compileError "Imported foo must not be compiled or run"))))
       (binding [*ns* root runtime/*source-only-registration?* true]
         (require 'aguafria.std)
         (require '[aguafria.std.testing :as testing])
         (alias 'dependency (ns-name dependency))
-        (eval '(az/defn pair-type :type [[T {:zig/prefix "comptime"} :type]]
-                 (az/type [:array 2 T])))
-        (eval '(az/deftest foo-extra
+        (eval '(a/defn pair-type :type [[T {:zig/prefix "comptime"} :type]]
+                 (a/type [:array 2 T])))
+        (eval '(a/deftest foo-extra
                  (ak/compileError "Sibling foo-extra must not be compiled or run")))
-        (eval '(az/deftest foo
-                 (let [values (az/init [20 22] (pair-type (az/type :i32)))]
+        (eval '(a/deftest foo
+                 (let [values (a/init [20 22] (pair-type (a/type :i32)))]
                    (try (testing/expectEqual 2 (try (dependency/checked-length (& values)))))
-                   (try (testing/expectEqual 42 (+ (az/index values 0) (az/index values 1))))))))
+                   (try (testing/expectEqual 42 (+ (a/index values 0) (a/index values 1))))))))
       (let [test-var (ns-resolve root 'foo)
             before (:aguafria/declaration (meta test-var))
             {:keys [result failure printed-out printed-err]} (capture-execution test-var)]
@@ -304,12 +304,12 @@
       (binding [*ns* namespace runtime/*source-only-registration?* true]
         (require 'aguafria.std)
         (require '[aguafria.std.testing :as testing])
-        (eval '(az/deftest failure-test (try (testing/expect true)))))
+        (eval '(a/deftest failure-test (try (testing/expect true)))))
       (let [test-var (ns-resolve namespace 'failure-test)
             retained-callable (var-get test-var)]
         ;; Even a retained function value resolves the currently registered test.
         (binding [*ns* namespace runtime/*source-only-registration?* true]
-          (eval '(az/deftest failure-test (try (testing/expect false)))))
+          (eval '(a/deftest failure-test (try (testing/expect false)))))
         (let [{:keys [failure printed-out printed-err]} (capture-execution retained-callable)
               details (runtime/error-data failure)]
           (is (some? failure))
@@ -323,7 +323,7 @@
           (is (= 1 (count (re-seq #"FAIL \(TestUnexpectedResult\)"
                                   (str printed-out printed-err (ex-message failure)))))))
         (binding [*ns* namespace runtime/*source-only-registration?* true]
-          (eval '(az/deftest failure-test
+          (eval '(a/deftest failure-test
                    (ak/compileError "callable-test-compile-diagnostic"))))
         (let [{:keys [failure]} (capture-execution test-var)
               details (runtime/error-data failure)]
@@ -342,8 +342,8 @@
     (try
       (binding [*ns* namespace runtime/*source-only-registration?* true]
         (require '[aguafria.std.testing :as testing])
-        (eval '(az/defextern getpid :c_int {:zig/prefix "extern"}  []))
-        (eval (list 'az/deftest 'same-process-test
+        (eval '(a/defextern getpid :c_int {:zig/prefix "extern"}  []))
+        (eval (list 'a/deftest 'same-process-test
                     (list 'try (list 'testing/expectEqual
                                      (list 'ak/as pid :c_int) '(getpid))))))
       (let [{:keys [result failure]} (capture-execution (ns-resolve namespace 'same-process-test))]
@@ -357,9 +357,9 @@
     (try
       (binding [*ns* namespace runtime/*source-only-registration?* true]
         (require '[aguafria.std.testing :as testing])
-        (eval '(az/deftest skipped-test (ak/return (az/error-value :SkipZigTest))))
-        (eval '(az/deftest leak-test
-                 (ak/= :_ (try ((az/field testing/allocator :alloc) :u8 10))))))
+        (eval '(a/deftest skipped-test (ak/return (a/error-value :SkipZigTest))))
+        (eval '(a/deftest leak-test
+                 (ak/= :_ (try ((a/field testing/allocator :alloc) :u8 10))))))
       (is (= :skipped (:status (:result (capture-execution (ns-resolve namespace 'skipped-test))))))
       (let [{:keys [failure printed-err]} (capture-execution (ns-resolve namespace 'leak-test))]
         (is (= :failed (:status (ex-data failure))))
@@ -376,17 +376,17 @@
                 *file* (.getCanonicalPath
                         (io/file (io/resource "aguafria/zig/callable_deftest_test.clj")))]
         (require '[aguafria.std :as std] '[aguafria.std.testing :as testing])
-        (eval '(az/deftest detect-leak-test
+        (eval '(a/deftest detect-leak-test
                  (let [allocator testing/allocator
                        list (ak/var :.empty (std/ArrayList :u21))]
-                   (try ((az/field list :append) allocator \☔))
-                   (try (testing/expectEqual 1 (az/field (az/field list :items) :len))))))
-        (eval '(az/deftest cleaned-up-test
+                   (try ((a/field list :append) allocator \☔))
+                   (try (testing/expectEqual 1 (a/field (a/field list :items) :len))))))
+        (eval '(a/deftest cleaned-up-test
                  (let [allocator testing/allocator
                        list (ak/var :.empty (std/ArrayList :u21))]
-                   (ak/defer ((az/field list :deinit) allocator))
-                   (try ((az/field list :append) allocator \☔))
-                   (try (testing/expectEqual 1 (az/field (az/field list :items) :len)))))))
+                   (ak/defer ((a/field list :deinit) allocator))
+                   (try ((a/field list :append) allocator \☔))
+                   (try (testing/expectEqual 1 (a/field (a/field list :items) :len)))))))
       (let [{:keys [failure printed-err]}
             (capture-execution (ns-resolve namespace 'detect-leak-test))]
         (is (instance? clojure.lang.ExceptionInfo failure))
@@ -394,7 +394,7 @@
         (is (str/includes? printed-err "1 test leaked memory"))
         (is (not (str/includes? (str failure printed-err) "count not supported")))
         (is (str/includes? printed-err "Aguafria source locations:"))
-        (is (str/includes? printed-err "(try ((az/field list :append) allocator \\☔))"))
+        (is (str/includes? printed-err "(try ((a/field list :append) allocator \\☔))"))
         (is (str/ends-with? (:clojure.error/source (ex-data failure))
                            "aguafria/zig/callable_deftest_test.clj"))
         (is (= :execution (:clojure.error/phase (ex-data failure))))
