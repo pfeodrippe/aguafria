@@ -1,7 +1,7 @@
 (ns tigerbeetle-agua.core
   "A small, REPL-first host for the Aguafria-generated TigerBeetle project."
   (:require
-   [aguafria.keyword :as ak]
+   [aguafria.keyword :as k]
    [aguafria.zig :as a]
    [aguafria.zig.host :as host]
    [clojure.edn :as edn]
@@ -390,11 +390,11 @@
   ;; Zig declaration with an implicit return, without incorrectly C-exporting
   ;; a comptime signature. comptime-amount is an ordinary compiled caller.
   (a/defn HotAmountType :type
-    [[bonus {:zig/prefix "comptime"} :u64]]
+    [[bonus {:attrs #{k/comptime}} :u64]]
     (a/container
       {:kind :struct}
       [(a/field-decl base :u64)
-       (a/const-decl Self (ak/This))
+       (a/const-decl Self (k/This))
        (a/fn-decl amount :u64
          {:public false}
          [[self [:*const Self]]]
@@ -402,7 +402,7 @@
 
   (a/defn comptime-amount :u64
     [[base :u64]]
-    (ak/var calculator
+    (k/var calculator
             (HotAmountType 5)
             (a/object [[:base base]]))
     ((a/field calculator amount)))

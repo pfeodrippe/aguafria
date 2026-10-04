@@ -27,6 +27,14 @@
 (defn- contains-form? [forms expected]
   (boolean (some #{expected} (tree-seq coll? seq forms))))
 
+(deftest machine-reports-preserve-data-despite-repl-print-limits
+  (let [report {:modules {"example" {:declarations ["first" "second" "third"]}}
+                :files ["one.zig" "two.zig"]}
+        encoded (binding [*print-length* 1 *print-level* 1 *print-meta* true]
+                  (#'convert/report-edn report))]
+    (is (= report (edn/read-string encoded)))
+    (is (= 1 (count (filter #{\newline} encoded))))))
+
 (deftest comptime-statements-use-the-same-public-keyword-as-expressions
   (let [result (convert/verify-file "test/fixtures/comptime_forms.zig"
                                     {:namespace 'fixture.comptime-forms
@@ -34,6 +42,31 @@
     (is (:success? result) (pr-str result))
     (is (str/includes? (:clojure-source result) "(k/comptime"))
     (is (not (str/includes? (:clojure-source result) "comptime-stmt")))))
+
+(deftest discarded-assignment-expressions-are-not-symbol-references
+  (let [result (convert/verify-file "test/fixtures/discard_assignment_expression.zig"
+                                    {:namespace 'fixture.discard-assignment-expression
+                                     :mode :test :throw? false})]
+    (is (:success? result) (pr-str result))
+    (is (contains-form? (read-forms (:clojure-source result))
+                        '(a/assign-expr "=" :_ (try (value)))))
+    (binding [*ns* *ns*]
+      (load-string (:clojure-source result)))
+    (let [exercise (ns-resolve 'fixture.discard-assignment-expression 'exercise)]
+      (is (= 42 (:ok (value/decoded (exercise 0)))))
+      (is (= 1 (:ok (value/decoded (exercise 1))))))))
+
+(deftest quoted-and-plain-identifiers-share-the-same-reference
+  (let [result (convert/verify-file "test/fixtures/quoted_identifier_references.zig"
+                                    {:namespace 'fixture.quoted-identifiers
+                                     :mode :test :throw? false})]
+    (is (:success? result) (pr-str result))
+    (is (zero? (:fallback-count result)))
+    (binding [*ns* *ns*]
+      (load-string (:clojure-source result)))
+    (let [exercise (ns-resolve 'fixture.quoted-identifiers 'exercise)]
+      (is (= 41 (value/decoded (exercise 19)))))
+    (is (contains-form? (read-forms (:clojure-source result)) '(_ local)))))
 
 (deftest inferred-variables-do-not-acquire-placeholder-types
   (let [{:keys [forms clojure-source]}
@@ -352,6 +385,36 @@
       (is (= 1 (count tests)))
       (is (= :passed (:status ((first tests))))))))
 
+(deftest bulk-loaded-typed-callee-reloads-through-existing-caller
+  (let [output (.toFile
+                (java.nio.file.Files/createTempDirectory
+                 "aguafria-batch-typed-reload"
+                 (make-array java.nio.file.attribute.FileAttribute 0)))
+        prefix (str "fixture.batch-typed-" (gensym))
+        _ (convert/convert-tree! "test/fixtures/batch_typed_reload" output
+                                 {:namespace-prefix (symbol prefix)
+                                  :overwrite? true})
+        _ (convert/load-tree! output)
+        encoder (ns-resolve (symbol (str prefix ".encoder")) 'encode)
+        gained (ns-resolve (symbol (str prefix ".main")) 'gained)
+        original (:aguafria/declaration (meta encoder))]
+    (is (= 73 (value/decoded (gained))))
+    (let [registered (some #(when (= (:declaration-key original)
+                                    (:declaration-key %)) %)
+                           (:definitions (runtime/module-info (:module original))))]
+      (is (= (:abi-fingerprint registered)
+             (:abi-fingerprint (:aguafria/declaration (meta encoder))))
+          "Bulk registration publishes the refreshed descriptor to its Var"))
+    (try
+      (runtime/register-declaration!
+       (assoc original :body ['(set! _ event) '(return 88)]))
+      (runtime/await! (:module original))
+      (is (= 88 (value/decoded (gained))))
+      (finally
+        (runtime/register-declaration! original)
+        (runtime/await! (:module original))))
+    (is (= 73 (value/decoded (gained))))))
+
 (deftest converted-relative-imports-are-normal-requires-test
   (let [output (.toFile
                 (java.nio.file.Files/createTempDirectory
@@ -441,6 +504,20 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown Zig build step: nonexistent"
                           (convert/build-generated-modules input
                                                            {:build-steps ["nonexistent"]})))))
+
+(deftest build-graph-inspection-forwards-configuration-options
+  (let [input "test/fixtures/build_options_project"
+        source (fn [profile]
+                 (get-in (convert/build-generated-modules input
+                                                         {:build-steps profile})
+                         [:modules-by-path "src/root.zig" "build_options"]))]
+    (is (str/includes? (source ["-Danswer=73" "inspection-only"])
+                       "pub const answer: u32 = 73;"))
+    (is (str/includes? (source ["inspection-only" "-Danswer=74"])
+                       "pub const answer: u32 = 74;"))
+    (is (str/includes? (source ["-Dmessage=profile with spaces"])
+                       "profile with spaces"))
+    (is (str/includes? (source []) "pub const answer: u32 = 42;"))))
 
 (deftest build-graph-inspection-reports-compiler-and-producer-failures
   (let [input "test/fixtures/build_options_project"
@@ -686,6 +763,8 @@
         independent-report
         (assoc report :input-root
                (.getAbsolutePath (io/file generated "missing-original-project")))
+        stale (io/file generated "obsolete.clj")
+        _ (spit stale "(ns fixture.obsolete)\n(throw (Exception. \"Obsolete source loaded\"))\n")
         materialized (convert/materialize-project! independent-report project)
         main-source (slurp (io/file project "main.zig"))
         project-note (slurp (io/file project "project-note.txt"))
@@ -693,6 +772,8 @@
                          :dir (.getAbsolutePath project))
         unchanged (convert/materialize-project! independent-report project)]
     (is (.isDirectory project))
+    (is (.isFile stale) "Unlisted files are not loaded or deleted")
+    (is (nil? (find-ns 'fixture.obsolete)))
     (is (= 3 (:zig-file-count materialized)))
     (is (= 1 (:asset-file-count materialized)))
     (is (= 4 (:written-count materialized)))

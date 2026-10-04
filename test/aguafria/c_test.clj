@@ -4,9 +4,55 @@
             [aguafria.zig :as a]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.runtime :as runtime]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
+
+(deftest c-cache-identity-and-catalog-ignore-repl-print-settings
+  (let [module {:declarations [{:name 'Point :fields [[:x :i32] [:y :i32]]}]
+                :source "translated.zig" :options ["-lc" "-Iinclude"]}
+        normal (#'ac/sha256 module)
+        directory (.toFile (java.nio.file.Files/createTempDirectory
+                            "aguafria-c-printer-"
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
+        output (.getCanonicalFile (io/file directory "fixture" "bindings.clj"))
+        path (binding [*print-length* 1 *print-level* 1 *print-meta* true
+                       *print-dup* true *print-readably* false *print-namespace-maps* false]
+               (is (= normal (#'ac/sha256 module)))
+               (#'ac/write-project-catalog! output 'fixture.bindings module))]
+    (is (= {:schema-version 1 :modules {"fixture.bindings" module}}
+           (edn/read-string (slurp path))))))
+
+(deftest c-project-catalog-reuses-unchanged-data-without-serialization
+  (let [directory (.toFile (java.nio.file.Files/createTempDirectory
+                            "aguafria-c-catalog-"
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
+        output (.getCanonicalFile (io/file directory "fixture" "bindings.clj"))
+        write-catalog @#'ac/write-project-catalog!
+        module {:declarations [{:name 'Point :fields [[:x :i32] [:y :i32]]}]}
+        path (write-catalog output 'fixture.bindings module)
+        file (io/file path)
+        original (slurp file)]
+    (is (.isFile file))
+    (is (= {:schema-version 1 :modules {"fixture.bindings" module}}
+           (edn/read-string original)))
+    (java.nio.file.Files/setLastModifiedTime
+     (.toPath file) (java.nio.file.attribute.FileTime/fromMillis 1000))
+    (is (= path
+           (with-redefs [clojure.core/pr-str
+                         (fn [& _] (throw (ex-info "Unchanged catalog was serialized" {})))]
+             (write-catalog output 'fixture.bindings module))))
+    (is (= original (slurp file)))
+    (is (= 1000 (.lastModified file)))
+    (let [changed (assoc module :source "updated.zig")
+          other-output (.getCanonicalFile (io/file directory "fixture" "other.clj"))]
+      (is (= path (write-catalog output 'fixture.bindings changed)))
+      (is (= changed (get-in (edn/read-string (slurp file))
+                             [:modules "fixture.bindings"])))
+      (is (= path (write-catalog other-output 'fixture.other {:source "other.zig"})))
+      (is (= {"fixture.bindings" changed "fixture.other" {:source "other.zig"}}
+             (:modules (edn/read-string (slurp file))))))))
 
 (deftest binding-macro-expands-to-public-declarations
   (let [form (with-meta '(ac/defbindings api (throw (Exception. "not during expansion"))
@@ -48,7 +94,7 @@
         (with-open [result ((ns-resolve 'aguafria.c-bindings-consumer-fixture function) 12 30)]
           (is (= 42 (a/value result)))))
       (let [point (a/init {:x 10 :y 20}
-                           (var-get (ns-resolve 'aguafria.c-bindings-fixture 'native_point)))]
+                          (var-get (ns-resolve 'aguafria.c-bindings-fixture 'native_point)))]
         (with-open [point point
                     result ((ns-resolve 'aguafria.c-bindings-fixture 'point_sum) point)]
           (is (= 30 (a/value result)))))

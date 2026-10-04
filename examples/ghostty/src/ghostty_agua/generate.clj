@@ -193,17 +193,23 @@
   []
   (let [{:keys [standalone-root]} (project-paths)
         materialized (materialize!)
-        build (run-command!
-               [(a/zig-executable) "build"
-                "-Demit-macos-app=true"
-                "-Demit-lib-vt=false"]
-               standalone-root)
-        app (io/file standalone-root "zig-out/Ghostty.app")]
+        native-build (run-command!
+                      [(a/zig-executable) "build"
+                       "-Demit-macos-app=false"
+                       "-Demit-xcframework=true"
+                       "-Dxcframework-target=native"
+                       "-Demit-docs=false"]
+                      standalone-root)
+        app-build (run-command!
+                   ["macos/build.nu" "--configuration" "Debug"]
+                   standalone-root)
+        app (io/file standalone-root "macos/build/Debug/Ghostty.app")]
     (when-not (.isDirectory app)
       (throw (ex-info "Standalone build produced no Ghostty.app"
                       {:standalone-root standalone-root})))
     {:materialized (materialization-summary materialized)
-     :build build
+     :native-build native-build
+     :app-build app-build
      :app (.getAbsolutePath app)}))
 
 (defn -main

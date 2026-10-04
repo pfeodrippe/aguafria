@@ -2,6 +2,7 @@
   "Compile-only operation discovery. Zig supplies every observed type; emitter
   records supply operation identity, never Clojure type inference."
   (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.artifact :as artifact]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
@@ -28,6 +29,8 @@
 
 (def ^:dynamic ^:private *observed-type-identities* [])
 (def ^:dynamic ^:private *local-type-identities* #{})
+(def ^:dynamic ^:private *inspection-roots* nil)
+(def ^:dynamic ^:private *rejected-inspection-roots* #{})
 
 (defn- literal-data? [form]
   (cond
@@ -86,30 +89,39 @@
           identifier (emitter/identifier member)
           member-string (if (str/starts-with? identifier "@\"")
                           (subs identifier 1)
-                          (pr-str identifier))]
+                          (artifact/print-data identifier))]
       {:receiver receiver
        :available (str "(@TypeOf(" receiver ") == type and "
                        "__aguafria_probe.hasDeclaration(" receiver ", " member-string "))")
        :schema (str "__aguafria_probe.declarationArgumentSchema(" receiver ", "
-                    member-string ", " (pr-str (pr-str member)) ")")})))
+                    member-string ", " (artifact/print-data (artifact/print-data member)) ")")})))
 
 (defn- declaration-argument-schema [render form fallback]
-  (cond
-    (field-reference? form)
-    (let [{:keys [receiver schema]} (declaration-probe render form)]
-      (str "(if (@TypeOf(" receiver ") == type) " schema " else " fallback ")"))
+  (let [metadata (when (and (symbol? form)
+                            (not (contains? emitter/*lexical-bindings* form)))
+                   (some-> (ns-resolve (or emitter/*keyword-context* *ns*) form) meta))
+        reference (:aguafria/zig-reference metadata)]
+    (cond
+      reference
+      (str "(if (@typeInfo(@TypeOf(" (render form) ")) == .@\"fn\") "
+           "__aguafria_probe.comptimeExpression(" (render form) ", "
+           (artifact/print-data (artifact/print-data (qualified-name metadata))) ") else " fallback ")")
 
-    (and (seq? form) (= 'if (first form)) (= 4 (count form))
-         (every? field-reference? (drop 2 form)))
-    (let [branches (mapv #(declaration-probe render %) (drop 2 form))]
+      (field-reference? form)
+      (let [{:keys [receiver schema]} (declaration-probe render form)]
+        (str "(if (@TypeOf(" receiver ") == type) " schema " else " fallback ")"))
+
+      (and (seq? form) (= 'if (first form)) (= 4 (count form))
+           (every? field-reference? (drop 2 form)))
+      (let [branches (mapv #(declaration-probe render %) (drop 2 form))]
       ;; A JVM if supplies one branch value to the call. Ask Zig for both
       ;; declaration representations, without evaluating the condition or body.
       ;; The guard avoids forcing a missing member in a dead source branch.
-      (str "(if (" (str/join " and " (map :available branches)) ") "
-           "\"{:representations [\" ++ " (str/join " ++ \" \" ++ " (map :schema branches))
-           " ++ \"]}\" else " fallback ")"))
+        (str "(if (" (str/join " and " (map :available branches)) ") "
+             "\"{:representations [\" ++ " (str/join " ++ \" \" ++ " (map :schema branches))
+             " ++ \"]}\" else " fallback ")"))
 
-    :else fallback))
+      :else fallback)))
 
 (defn- literal-branches [form]
   (if (and (seq? form) (= 'if (first form)) (= 4 (count form)))
@@ -124,12 +136,19 @@
         branches (when (and (seq? form) (= 'if (first form))) (literal-branches form))
         join-schemas #(if (seq %) (str/join " ++ \" \" ++ " %) "\"\"")]
     (cond
+      ((requiring-resolve 'aguafria.zig.jvm/source-concatenation-form?) form)
+      ;; Preserve the same source expression returned by the ordinary JVM
+      ;; concatenation adapter. The probe's comptime parameter asks Zig to
+      ;; validate it before the representation enters a preparation signature.
+      (str "__aguafria_probe.comptimeExpression(" expression ", "
+           (artifact/print-data (artifact/print-data form)) ")")
+
       (keyword/result-context-required? (:zig-name syntax))
       (let [parameters ((requiring-resolve 'aguafria.zig.jvm/call-parameters)
                         metadata (dec (count form)))]
         ;; The JVM passes this deferred call, not its result. Query only leaf
         ;; types; the receiving Zig call supplies the result location later.
-        (str (pr-str (str "{:contextual-call [" (qualified-name metadata) " [")) " ++ "
+        (str (artifact/print-data (str "{:contextual-call [" (qualified-name metadata) " [")) " ++ "
              (join-schemas (map #(operand-schema render (render %1) %2 %1 "argumentSchema")
                                 (rest form) (concat parameters (repeat nil))))
              " ++ \"]]}\""))
@@ -142,7 +161,7 @@
       (map? form)
       (str "\"{:map {\" ++ "
            (join-schemas (map (fn [[key item]]
-                                (str (pr-str (str (pr-str key) " ")) " ++ "
+                                (str (artifact/print-data (str (artifact/print-data key) " ")) " ++ "
                                      (operand-schema render (render item) nil item "argumentSchema"))) form))
            " ++ \"}}\"")
 
@@ -154,16 +173,20 @@
            "__aguafria_probe.comptimeValue(" expression ") else "
            (if (or (= "comptime" (get-in parameter [:properties :zig/prefix]))
                    (and (string? form) (get-in parameter [:properties :jvm/literal?])))
-             (str "__aguafria_probe.comptimeValue(" expression ")")
+             (let [schema (str "__aguafria_probe.comptimeValue(" expression ")")]
+               (if (symbol? form)
+                 (declaration-argument-schema render form schema)
+                 schema))
              (declaration-argument-schema render form
                                           (str "__aguafria_probe." schema-kind "(@TypeOf(" expression "))")))
            ") "))))
 
 (defn- observer [operations selected]
-  (fn [{:keys [form source location var-meta render placement place-probe assignment
+  (fn [{:keys [form source-form source location var-meta render placement place-probe defer-probe assignment
                method-call? receiver member declaration-name declaration-kind]}]
     (let [syntax (:aguafria/token var-meta)
           function (if method-call? 'aguafria.zig/field (qualified-name var-meta))
+          type-expression? (= 'aguafria.zig/type function)
           source-literal? (and function
                                ((requiring-resolve 'aguafria.zig.jvm/source-literal-call?)
                                 function (rest form)))
@@ -213,7 +236,7 @@
               deferred-plan (when (keyword/result-context-required? (:zig-name syntax))
                               (contextual-call-plan form))
               storage? (or address? (#{:field :index :slice :deref} placement))
-              probe? (or method-call? source-literal? assignment storage? constructor? operator? imported?
+              probe? (or type-expression? method-call? source-literal? assignment storage? constructor? operator? imported?
                          (= :const (:kind declaration))
                          (= 'aguafria.zig/unwrap function)
                          (contains? #{:fn :fn-proto} (:kind declaration))
@@ -224,6 +247,7 @@
                                               (:zig-name syntax)))))
               expressions (when probe?
                             (cond
+                              type-expression? [(render form)]
                               method-call?
                               (into [(render receiver)
                                      (str "(if (@TypeOf(" (render receiver)
@@ -262,6 +286,14 @@
                                           expression)))
                                     (range) (rest form))))
               parameters (cond
+                           method-call?
+                           ;; The JVM member planner embeds source strings. Keep
+                           ;; that representation here, including comptime formats.
+                           (concat [nil nil]
+                                   (repeat (dec (count form))
+                                           {:properties {:jvm/literal? true}}))
+                           operator?
+                           (repeat (dec (count form)) {:properties {:jvm/literal? true}})
                            contextual-plan (into [nil] (:parameters contextual-plan))
                            deferred-plan (:parameters deferred-plan)
                            (and probe? (not (or method-call? source-literal? storage? constructor? assignment operator?)))
@@ -274,7 +306,7 @@
                                              "@setFloatMode" "@setCold"} (:zig-name syntax))
                                 :compiler-directive)
               operation (merge location
-                               {:id id :function function :form (pr-str form)
+                               {:id id :function function :form (artifact/print-data (or source-form form))
                                 :declaration-name declaration-name
                                 :declaration-kind declaration-kind
                                 :returns-type? (or (= :type (:return declaration))
@@ -339,19 +371,34 @@
                                         schema ")"))))
                              schemas)
                             schemas)
-                  payload (str (pr-str (str "aguafria.operation:" id ":["))
+                  payload (str (artifact/print-data (str "aguafria.operation:" id ":["))
                                (apply str (map #(str " ++ " % " ++ \" \"") schemas))
                                " ++ \"]\"")]
-              (if place-probe
+              (cond
+                defer-probe
+                (do (defer-probe (str "__aguafria_probe.log(" payload ");")) source)
+
+                place-probe
                 (let [log (str "__aguafria_probe.log(" payload ");")]
                   {:source (place-probe log label)
                    :place-probe (fn [outer-log outer-label]
                                   (place-probe (str log " " outer-log) outer-label))})
+                :else
                 (str "(" (when-not noreturn? (str label ": "))
                      "{ __aguafria_probe.log(" payload "); "
                      (when-not noreturn?
                        (str "break :" label " "))
                      source "; })")))))))))
+
+(defn- root-declarations [declarations]
+  (filterv (fn [{:keys [kind args jvm-adapter?]}]
+             (and (not jvm-adapter?)
+                  (or (contains? #{:const :var :struct :enum :union :opaque} kind)
+                      (and (= :fn kind)
+                           (not-any? #(or (contains? #{:type 'type :anytype 'anytype} (:type %))
+                                          (= "comptime" (get-in % [:properties :zig/prefix])))
+                                     args)))))
+           declarations))
 
 (defn- roots [declarations]
   ;; Referencing a container alone does not analyze its method bodies. Let Zig
@@ -375,11 +422,8 @@
        "}\n"
        "\ntest \"aguafria inspection roots\" {\n"
        (apply str
-              (for [{:keys [kind name zig-name args]} declarations
-                    :when (or (contains? #{:const :var :struct :enum :union :opaque} kind)
-                              (and (= :fn kind)
-                                   (not-any? #(or (contains? #{:type 'type :anytype 'anytype} (:type %))
-                                                  (= "comptime" (get-in % [:properties :zig/prefix]))) args)))]
+              (for [{:keys [kind name zig-name]} (root-declarations declarations)
+                    :when (or (nil? *inspection-roots*) (*inspection-roots* name))]
                 (let [reference (emitter/identifier (or zig-name name))]
                   (str "    _ = &" reference ";\n"
                        (when (container-kinds kind)
@@ -398,11 +442,53 @@
 (defn- compiler-errors? [result]
   (boolean (re-find #"(?m)error: (?!found compile log statement)" (:err result))))
 
+(defn- inspection-result [result]
+  (assoc (select-keys result [:exit :command :source-path]) :diagnostics (:err result)))
+
+(defn- inspect-roots! [module selected]
+  (binding [*inspection-roots* selected]
+    (runtime/inspect-module!
+     module
+     (fn [declarations]
+       {:source (str (emitter/emit-module module declarations) (roots declarations))}))))
+
+(defn- analyze-roots! [module]
+  (let [baseline (inspect-roots! module nil)]
+    (if (zero? (:exit baseline))
+      {:baseline baseline :analysis-baseline baseline :attempts 1 :failures {}}
+      (let [empty-result (inspect-roots! module #{})]
+        (if-not (zero? (:exit empty-result))
+          {:baseline baseline :analysis-baseline baseline :attempts 2 :failures {}}
+          ;; Zig declarations are lazy. An invalid unused export must remain a
+          ;; reported error, but must not prevent analysis of independent roots.
+          (let [names (mapv :name (root-declarations
+                                   (:definitions (runtime/module-info module))))
+                failures (atom {})
+                attempts (atom 2)]
+            (letfn [(inspect [names]
+                      (when (seq names)
+                        (let [result (inspect-roots! module (set names))]
+                          (swap! attempts inc)
+                          (when-not (zero? (:exit result))
+                            (if (= 1 (count names))
+                              (swap! failures assoc (first names) (inspection-result result))
+                              (let [[left right] (split-at (quot (count names) 2) names)]
+                                (inspect left)
+                                (inspect right)))))))]
+              (let [[left right] (split-at (quot (count names) 2) names)]
+                (inspect left)
+                (inspect right)))
+            (let [selected (into #{} (remove (set (keys @failures))) names)
+                  verified (inspect-roots! module selected)]
+              {:baseline baseline :analysis-baseline verified :selected selected
+               :failures @failures :attempts (inc @attempts)})))))))
+
 (defn- local-type-identities! [module]
   ;; Query the uninstrumented module. Asking about an initializer while its
   ;; operation probes are resolving the catalog would introduce a type cycle.
   (let [candidates (->> (:definitions (runtime/module-info module))
                         (filter #(and (= :const (:kind %))
+                                      (not (contains? *rejected-inspection-roots* (:name %)))
                                       (not (:jvm-adapter? %))
                                       (not (declared-type? %))))
                         vec)
@@ -442,7 +528,8 @@
       (if (= excluded extended) excluded (recur extended)))))
 
 (defn- type-catalog [module declarations excluded]
-  (let [excluded (catalog-exclusions module declarations excluded)
+  (let [excluded (catalog-exclusions module declarations
+                                     (into excluded *rejected-inspection-roots*))
         local (for [{:keys [name zig-name kind] :as declaration} declarations
                     :when (and (not (contains? excluded name))
                                (or (declared-type? declaration)
@@ -452,7 +539,7 @@
                       qualified (symbol (str module) (str name))]
                   (if (contains? #{:fn :fn-proto} kind)
                     [(str "@TypeOf(" reference ")")
-                     (pr-str (list 'aguafria.keyword/TypeOf qualified))]
+                     (artifact/print-data (list 'aguafria.keyword/TypeOf qualified))]
                     [reference (str qualified)])))
         imported (for [symbol (->> declarations (tree-seq coll? seq)
                                    (filter qualified-symbol?) distinct (sort-by str))
@@ -465,21 +552,23 @@
                      [(str "if (@TypeOf(" expression ") == type) " expression
                            " else @TypeOf(" expression ")")
                       {:source (str "if (@TypeOf(" expression ") == type) "
-                                    (pr-str (str symbol)) " else "
-                                    (pr-str (pr-str (list 'aguafria.keyword/TypeOf symbol))))}]))]
+                                    (artifact/print-data (str symbol)) " else "
+                                    (artifact/print-data (artifact/print-data (list 'aguafria.keyword/TypeOf symbol))))}]))]
     ;; Resolve candidates lazily: a function signature can itself contain a
     ;; probe. Eagerly typing the whole catalog would make that probe depend on
     ;; the signature it is inspecting. Zig still performs every type comparison.
     (str/join ", "
               (map (fn [[expression name]]
                      (str ".{ struct { pub fn get() type { return " expression "; } }, "
-                          (if (map? name) (:source name) (pr-str name)) " }"))
+                          (if (map? name) (:source name) (artifact/print-data name)) " }"))
                    (concat local imported
-                           [["@import(\"std\").builtin.Type"
+                           [["@import(\"std\").lang.Type"
                              "(aguafria.keyword/TypeOf (aguafria.keyword/typeInfo :u8))"]]
                            (for [expression *observed-type-identities*]
-                             [(emitter/emit-expr (the-ns (symbol (str module))) expression)
-                              (pr-str expression)]))))))
+                             [(let [context (the-ns (symbol (str module)))]
+                                (emitter/emit-expr context
+                                                   (emitter/qualify-form context expression)))
+                              (artifact/print-data expression)]))))))
 
 (defn- observed-type-identities [result]
   ;; Reuse actual type-function calls with compiler-observed constant operands.
@@ -511,12 +600,24 @@
                       (contains? argument :comptime) (:comptime argument)
                       :else (:literal argument))) signature))))))
 
+(defn- inspection-declarations [module declarations]
+  (let [context (the-ns (symbol (str module)))
+        expressions (mapv #(emitter/qualify-form context %) *observed-type-identities*)
+        existing (emitter/declaration-imports declarations)
+        imports (emitter/declaration-imports expressions)]
+    (into (vec declarations)
+          (for [[alias {:keys [import-name]}] imports
+                :when (not (contains? existing alias))]
+            {:kind :import :module (str module) :name (symbol alias) :zig-name alias
+             :import-name import-name :emit-source-comment? false}))))
+
 (defn- inspect-operations! [module selected]
   (let [operations (atom [])
         result (runtime/inspect-module!
                 module
                 (fn [declarations]
-                  (let [source (binding [emitter/*expression-observer* (observer operations selected)]
+                  (let [declarations (inspection-declarations module declarations)
+                        source (binding [emitter/*expression-observer* (observer operations selected)]
                                  (emitter/emit-module module declarations))
                         ;; A probe inside an alias initializer cannot resolve
                         ;; that same alias through the type catalog. Other
@@ -588,53 +689,67 @@
   Native test/function bodies are compiled, never executed."
   [module]
   (binding [runtime/*compile-only?* true]
-    (runtime/call-with-inspection-context module
-                                          (fn []
-                                            (let [baseline (runtime/inspect-module!
-                                                            module (fn [declarations]
-                                                                     {:source (str (emitter/emit-module module declarations) (roots declarations))}))
-                                                  local-types (local-type-identities! module)]
-                                              (binding [*local-type-identities* (:identities local-types)]
-                                                (let [initial (inspect-operations! module nil)
-                                                      identities (observed-type-identities initial)
-                                                      result (if (seq identities)
-                                                               (binding [*observed-type-identities* identities]
-                                                                 (inspect-operations! module nil))
-                                                               initial)
-                                                      {:keys [observed failures attempts]}
-                                                      (if (and (zero? (:exit baseline)) (compiler-errors? result))
-                                                        (binding [*observed-type-identities* identities]
-                                                          (isolate-probes! module result))
-                                                        {:observed (:observed result) :failures {} :attempts 1})
-                                                      refinement (binding [*observed-type-identities* identities]
-                                                                   (refine-type-identities! module {:observed observed}))
-                                                      observed (merge observed (:observed refinement))]
-                                                  {:namespace (symbol (str module))
-                                                   :basis :zig-compiler
-                                                   :local-type-identities (:identities local-types)
-                                                   :local-type-query (:query local-types)
-                                                   :identity-refinement (some-> refinement (dissoc :observed))
-                                                   :type-identities identities
-                                                   :compiler-mode :test
-                                                   :baseline {:exit (:exit baseline) :command (:command baseline)
-                                                              :diagnostics (:err baseline) :source-path (:source-path baseline)}
-                                                   :command (:command result)
-                                                   :source-path (:source-path result)
-                                                   :diagnostics (:err result)
-                                                   :compiler-errors? (compiler-errors? result)
-                                                   :inspection-attempts (+ attempts (if (seq identities) 1 0)
-                                                                           (if refinement 1 0))
-                                                   :probe-failures failures
-                                                   :operations
-                                                   (mapv (fn [operation]
-                                                           (if-let [types (get observed (:id operation))]
-                                                             (-> operation
-                                                                 (assoc :status :observed :signatures (vec (sort-by pr-str types)))
-                                                                 (dissoc :reason))
-                                                             (cond-> operation
-                                                               (contains? failures (:id operation))
-                                                               (assoc :status :inspection-failed :reason :compiler-rejected-probe))))
-                                                         (:operations result))})))))))
+    (runtime/call-with-inspection-context
+     module
+     (fn []
+       (let [{:keys [baseline analysis-baseline selected failures attempts]}
+             (analyze-roots! module)]
+         (binding [*inspection-roots* selected
+                   *rejected-inspection-roots* (set (keys failures))]
+           (let [local-types (local-type-identities! module)]
+             (binding [*local-type-identities* (:identities local-types)]
+               (let [initial (inspect-operations! module nil)
+                     identities (observed-type-identities initial)
+                     result (if (seq identities)
+                              (binding [*observed-type-identities* identities]
+                                (inspect-operations! module nil))
+                              initial)
+                     probes (if (and (zero? (:exit analysis-baseline))
+                                     (compiler-errors? result))
+                              (binding [*observed-type-identities* identities]
+                                (isolate-probes! module result))
+                              {:observed (:observed result) :failures {} :attempts 1})
+                     refinement (binding [*observed-type-identities* identities]
+                                  (refine-type-identities!
+                                   module {:observed (:observed probes)}))
+                     observed (merge (:observed probes) (:observed refinement))]
+                 {:namespace (symbol (str module))
+                  :basis :zig-compiler
+                  :local-type-identities (:identities local-types)
+                  :local-type-query (:query local-types)
+                  :identity-refinement (some-> refinement (dissoc :observed))
+                  :type-identities identities
+                  :compiler-mode :test
+                  :baseline (inspection-result baseline)
+                  :analysis-baseline (inspection-result analysis-baseline)
+                  :root-failures failures
+                  :root-inspection-attempts attempts
+                  :command (:command result)
+                  :source-path (:source-path result)
+                  :diagnostics (:err result)
+                  :compiler-errors? (compiler-errors? result)
+                  :inspection-attempts (+ (:attempts probes)
+                                          (if (seq identities) 1 0)
+                                          (if refinement 1 0))
+                  :probe-failures (:failures probes)
+                  :operations
+                  (mapv (fn [operation]
+                          (if-let [types (get observed (:id operation))]
+                            (-> operation
+                                (assoc :status :observed
+                                       :signatures (vec (sort-by artifact/print-data types)))
+                                (dissoc :reason))
+                            (cond
+                              (contains? failures (:declaration-name operation))
+                              (assoc operation :status :inspection-failed
+                                     :reason :compiler-rejected-root)
+
+                              (contains? (:failures probes) (:id operation))
+                              (assoc operation :status :inspection-failed
+                                     :reason :compiler-rejected-probe)
+
+                              :else operation)))
+                        (:operations result))})))))))))
 
 (defn- structural-type? [schema]
   (and (or (keyword? schema) (vector? schema) (qualified-symbol? schema)
@@ -667,7 +782,8 @@
                              (str/starts-with? (name (:comptime argument)) "."))))
                (structural-type? (:comptime-type argument))
                (and (= #{:comptime-expression} (set (keys argument)))
-                    (seq? (:comptime-expression argument))
+                    (or (seq? (:comptime-expression argument))
+                        (qualified-symbol? (:comptime-expression argument)))
                     (not-any? nil? (tree-seq coll? seq (:comptime-expression argument))))
                (contains? #{:type :comptime_int :comptime_float} (:comptime-type argument))
                (and (= #{:tuple} (set (keys argument)))

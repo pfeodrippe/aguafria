@@ -1,5 +1,7 @@
 (ns tigerbeetle-agua.core-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [aguafria.zig :as a]
+            [aguafria.zig.value :as value]
+            [clojure.test :refer [deftest is testing]]
             [tigerbeetle-agua.core :as example]
             [tigerbeetle-agua.generate :as generate]))
 
@@ -13,7 +15,7 @@
     (testing "generated main is compiled and exposed as a normal Var"
       (is (= "tigerbeetle.src.tigerbeetle.main" (:module loaded)))
       (is (var? (example/main-var)))
-      (is (= 4096 tigerbeetle.src.constants/sector_size))
+      (is (= 4096 (a/value tigerbeetle.src.constants/sector_size)))
       (require 'tigerbeetle.src.vsr)
       (let [floor (ns-resolve 'tigerbeetle.src.vsr 'sector_floor)
             ceil (ns-resolve 'tigerbeetle.src.vsr 'sector_ceil)
@@ -21,14 +23,21 @@
                               (aguafria.zig/module-info
                                'tigerbeetle.src.vsr))
                              0)]
-        (is (= 4096 (floor 4097)))
+        (with-open [result (floor 4097)]
+          (is (value/zig-value? result))
+          (is (= :u64 (value/qualified-type result)))
+          (is (= 4096 (a/value result))))
         (let [after-first-floor (:requested-generation
                                  (aguafria.zig/module-info
                                   'tigerbeetle.src.vsr))]
           (is (< before-floor after-first-floor))
-          (is (= 4096 (floor 4097)))
+          (with-open [result (floor 4097)]
+            (is (= 4096 (a/value result))))
           (is (= after-first-floor
                  (:requested-generation
                   (aguafria.zig/module-info 'tigerbeetle.src.vsr)))))
-        (is (= 8192 (ceil 4097))))
+        (with-open [result (ceil 4097)]
+          (is (value/zig-value? result))
+          (is (= :u64 (value/qualified-type result)))
+          (is (= 8192 (a/value result)))))
       (is (nil? (:error loaded))))))

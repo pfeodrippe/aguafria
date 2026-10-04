@@ -1,6 +1,6 @@
 (ns ghostty-agua.bridge
   "Small JVM-shaped calls into generated Ghostty declarations."
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.zig :as a]
             [ghostty.src.terminal.c.focus :as ghostty-focus]))
 
@@ -11,12 +11,12 @@
   keeps those native details inside Zig while still calling the converted
   Ghostty function directly."
   [[gained? :bool]]
-  (ak/var bytes [:array 3 :u8] ak/undefined)
-  (ak/var written :usize 0)
-  (set! _
-        (ghostty-focus/encode
-         (if gained? :.gained :.lost)
-         (ak/& bytes)
-         (a/field bytes len)
-         (ak/& written)))
-  (ak/return (a/index bytes (- written 1))))
+  (let [bytes (k/var k/undefined [:array 3 :u8])
+        written (k/var 0 :usize)]
+    (k/= :_
+         (ghostty-focus/encode
+          (if gained? :.gained :.lost)
+          (k/& bytes)
+          (:len bytes)
+          (k/& written)))
+    (a/get bytes (k/- written 1))))

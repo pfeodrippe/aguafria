@@ -285,8 +285,18 @@ pub fn main(init: std.process.Init) !void {
         try std.fs.path.join(arena, &.{ dest, "usr" })
     else
         try std.fs.path.join(arena, &.{ build_root, "zig-out" });
+    var command: std.ArrayList([]const u8) = .empty;
+    try command.appendSlice(arena, &.{ args[1], "build", "--build-file", args[2], "--cache-dir", local_cache, "--listen=-" });
+    var steps: std.ArrayList([]const u8) = .empty;
+    for (args[5..]) |arg| {
+        if (std.mem.startsWith(u8, arg, "-D")) {
+            try command.append(arena, arg);
+        } else {
+            try steps.append(arena, arg);
+        }
+    }
     var child = try std.process.spawn(io, .{
-        .argv = &.{ args[1], "build", "--build-file", args[2], "--cache-dir", local_cache, "--listen=-" },
+        .argv = command.items,
         .stdin = .pipe,
         .stdout = .pipe,
     });
@@ -331,7 +341,7 @@ pub fn main(init: std.process.Init) !void {
                 const graph = &inspector.?;
                 @memset(graph.producers, null);
                 @memset(graph.generated, null);
-                try graph.select(args[5..]);
+                try graph.select(steps.items);
                 if (graph.selected.count() == 0) break;
                 try client.serveBuildSteps(graph.selected.keys(), .{ .watch = false });
             },

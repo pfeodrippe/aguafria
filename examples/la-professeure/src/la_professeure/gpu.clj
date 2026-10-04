@@ -1069,7 +1069,7 @@
         (k/= synchronization-slot (k/mod (k/+ synchronization-slot 1) 2)))))
   true)
 
-(a/defn- reuse-frame-vertices :u32 {:zig/qualifiers "callconv(.c)"}
+(a/defn- reuse-frame-vertices :u32 {:callconv :.c}
   [[output [:c-pointer mesh/GpuVertex]]
    [width :i32]
    [height :i32]]

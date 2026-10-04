@@ -1,10 +1,9 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
-        io.github.pfeodrippe/aguafria-macos-aarch64 {:mvn/version "0.1.7"}
-        aguafria/examples-native {:local/root "../shared" :exclusions [aguafria/aguafria]}}
+        aguafria/aguafria {:local/root "../.."}
+        aguafria/examples-native {:local/root "../shared"}}
  :aliases
- {:dev {:override-deps {io.github.pfeodrippe/aguafria-macos-aarch64 {:local/root "../.."}}
-        :jvm-opts ["--enable-native-access=ALL-UNNAMED" "-Daguafria.async-compile=true"
+ {:dev {:jvm-opts ["--enable-native-access=ALL-UNNAMED" "-Daguafria.async-compile=true"
                    "-Daguafria.optimize=fast"]}
   :desktop {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
             :jvm-opts ["--enable-native-access=ALL-UNNAMED" "-XstartOnFirstThread"

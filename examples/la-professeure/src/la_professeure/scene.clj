@@ -648,7 +648,7 @@
         (k/= start (k/+ end 1))))
     (k/+ row 32.0)))
 
-(a/defn build-frame :u32 {:zig/qualifiers "callconv(.c)"}
+(a/defn build-frame :u32 {:callconv :.c}
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (k/= :_ width) (k/= :_ height)
   (k/= vertices output) (k/= vertex-count 0)

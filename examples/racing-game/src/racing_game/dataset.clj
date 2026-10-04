@@ -182,7 +182,9 @@
      :teacher-actions
      (into (sorted-map) (frequencies (map :teacher-action rows)))}))
 
-(def required-coverage
+(defn required-coverage
+  "Required corpus dimensions for the current native racer count."
+  []
   {:racers (set (range (a/value simulation/racer-count)))
    :ranks (set (range 1 9))
    :laps #{0 1 2}
@@ -203,7 +205,7 @@
                             absent (vec (sort (remove #(contains? actual %)
                                                       required)))]
                         (when (seq absent) [dimension absent]))))
-              required-coverage)]
+              (required-coverage))]
     (when (seq missing)
       (throw (ex-info "Native decision corpus is missing required coverage"
                       {:missing missing :coverage report})))

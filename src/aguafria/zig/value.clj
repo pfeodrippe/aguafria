@@ -203,7 +203,8 @@
   (let [state-map @(value-state value)]
     (merge
      (select-keys (.-descriptor value)
-                  [:module :name :kind :type :logical-id :execution-context :align])
+                  [:module :name :kind :type :inspection-type
+                   :logical-id :execution-context :align])
      (select-keys state-map
                   [:status :representation :size :alignment :generation]))))
 

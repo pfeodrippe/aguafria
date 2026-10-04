@@ -10,17 +10,20 @@ TigerBeetle code through Aguafria. Its classpath contains:
 Development stays in one JVM/PID. Aguafria loads generated Zig libraries into
 that JVM and runs long-lived Zig mains on native threads; it does not launch a
 second JVM or a TigerBeetle child process. Generated Vars are called like
-normal Clojure functions and compile/cache themselves on first use. Scalars are
-ordinary JVM values; native structs, packed fields, arrays, and vectors remain
-exact native-backed values with semantic Clojure printing and construction.
+normal Clojure functions and compile/cache themselves on first use. Native scalar
+and aggregate results retain their Zig types and storage in inspectable handles.
+Use `(a/value result)` for an ordinary JVM snapshot and `with-open` for owned
+results. Structs, packed fields, arrays, and vectors support semantic Clojure
+printing and construction.
 The example uses TigerBeetle's converted
 CLI client only as a convenient high-level transaction parser while a reusable
 direct transaction bridge is developed.
 
 Aguafria uses its embedded Zig 0.17.0 compiler. ZLS is not needed to load,
-compile, run, or regenerate this project. The vendored project's 0.17 migration
-is in progress; see the [migration report](../../ZIG_0_17_0_MIGRATION_2026-10-03.md)
-for the verified build configuration and remaining application-source failures.
+compile, run, or regenerate this project. The vendored native builds and
+JVM hot-reload checks pass on 0.17; see the
+[migration report](../../ZIG_0_17_0_MIGRATION_2026-10-03.md) for exact coverage
+and the remaining project-level checks.
 
 ## Calva / nREPL
 
@@ -75,6 +78,19 @@ Run the example's tests with:
 ```sh
 clojure -M:test
 ```
+
+Prepare the JVM walkthrough, VSR helpers and main-module operations without
+running their native function bodies:
+
+```sh
+clojure -X:precompile
+```
+
+The report at `.aguafria/precompile/tigerbeetle.edn` distinguishes prepared
+handlers from generic, process-entry and other unsupported cases. Artifacts
+use the shared `~/.aguafria/zig` cache. This does not instantiate every generic
+or prepare every namespace in the vendored project; pass additional namespaces
+to `a/precompile!` when working on them.
 
 The first compile is intentionally substantial; later compatible declaration
 edits reuse Aguafria's cache and publish into running native hosts. Breaking

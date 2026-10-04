@@ -24,6 +24,17 @@
   {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
    :main-opts ["-m" "tigerbeetle-agua.core" "check"]}
 
+  :precompile
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :exec-fn aguafria.zig/precompile!
+   :exec-args {:analyze [tigerbeetle-agua.hot-reload-leaf
+                        tigerbeetle-agua.hot-reload-target
+                        tigerbeetle-agua.hot-reload-queue-target
+                        tigerbeetle.src.vsr
+                        tigerbeetle.src.tigerbeetle.main]
+               :parallelism 2
+               :report-file ".aguafria/precompile/tigerbeetle.edn"}}
+
   :test
   {:extra-paths ["test"]
    :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}

@@ -114,7 +114,7 @@
   [reference]
   (with-meta
     (fn [& arguments]
-      (if (contains? #{:function :type-function :field} (:category reference))
+      (if (contains? #{:function :type-function :field :global-const} (:category reference))
         ((requiring-resolve 'aguafria.zig.jvm/invoke-reference!) reference arguments)
         (with-meta (apply list (:symbol reference) arguments)
           {:aguafria/zig-reference reference})))
@@ -123,10 +123,10 @@
 (defn- member-reference
   [member]
   (cond-> {:category (:category member)
-   :signature (:signature member)
-   :kind :std
-   :symbol (:symbol member)
-   :zig-name (:zig-name member)}
+           :signature (:signature member)
+           :kind :std
+           :symbol (:symbol member)
+           :zig-name (:zig-name member)}
     (:receiver-method member)
     (assoc :receiver-method? true :member-name (:name member))
     (= :field (:category member))

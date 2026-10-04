@@ -31,7 +31,7 @@
   (io/make-parents path)
   (let [temporary (io/file (.getParentFile (io/file path)) (str "." (UUID/randomUUID) ".edn"))]
     (try
-      (spit temporary (pr-str value))
+      (spit temporary (artifact/print-data value))
       (Files/move (.toPath temporary) (.toPath (io/file path))
                   (into-array java.nio.file.CopyOption
                               [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))
@@ -68,27 +68,48 @@
 
 (defn- tokens [source] (re-seq zig-token source))
 
-(defn- exported-names [source]
-  (let [significant (remove #(or (str/blank? %) (str/starts-with? % "//")) (tokens source))
-        declarations (filter #(= "export" (first %)) (partition 3 1 significant))]
-    (when (some #(or (not= "fn" (second %))
-                     (not (re-matches #"__aguafria_[A-Za-z_0-9]+" (nth % 2)))) declarations)
-      (throw (ex-info "Bundle requires compiler-owned function exports" {:reason :external-exports})))
-    (when (some #(= ["@" "export"] (vec %)) (partition 2 1 significant))
-      (throw (ex-info "Dynamic exports require standalone linking" {:reason :dynamic-exports})))
-    (mapv #(nth % 2) declarations)))
+(defn- analyze-source [source]
+  (let [significant (into [] (remove #(or (str/blank? %) (str/starts-with? % "//")))
+                          (tokens source))
+        declarations (filterv #(= "export" (first %)) (partition 3 1 significant))]
+    {:external-exports? (boolean
+                         (some #(or (not= "fn" (second %))
+                                    (not (re-matches #"__aguafria_[A-Za-z_0-9]+" (nth % 2))))
+                               declarations))
+     :dynamic-exports? (boolean (some #(= ["@" "export"] (vec %))
+                                      (partition 2 1 significant)))
+     :exports (mapv #(nth % 2) declarations)
+     :imports (into []
+                    (keep (fn [[at builtin open argument]]
+                            (when (and (= "@" at) (= "(" open)
+                                       (#{"embedFile" "import"} builtin))
+                              [builtin argument])))
+                    (partition 4 1 significant))}))
+
+(defn- source-analysis [source key]
+  ;; Keep only small lexical facts, not source or token vectors. The lifetime
+  ;; is one preparation; content changes select a different key.
+  (if-not *preparing*
+    (analyze-source source)
+    (locking *preparing*
+      (or (get-in @*preparing* [:source-analyses key])
+          (let [analysis (analyze-source source)]
+            (swap! *preparing* assoc-in [:source-analyses key] analysis)
+            analysis)))))
 
 (defn- rename-identifiers [source renames]
   (apply str (map #(get renames % %) (tokens source))))
 
-(defn- validate-imports! [{:keys [source deps]}]
+(defn- validate-source! [{:keys [deps analysis]}]
   (let [allowed (into #{"std" "builtin"}
-                      (map #(first (str/split % #"=" 2))) deps)
-        significant (remove #(or (str/blank? %) (str/starts-with? % "//")) (tokens source))]
-    (doseq [[at builtin open argument] (partition 4 1 significant)
-            :when (and (= "@" at) (= "(" open) (#{"embedFile" "import"} builtin))]
+                      (map #(first (str/split % #"=" 2))) deps)]
+    (when (:external-exports? analysis)
+      (throw (ex-info "Bundle requires compiler-owned function exports" {:reason :external-exports})))
+    (when (:dynamic-exports? analysis)
+      (throw (ex-info "Dynamic exports require standalone linking" {:reason :dynamic-exports})))
+    (doseq [[builtin argument] (:imports analysis)]
       (when-not (and (= "import" builtin)
-                     (some #(= argument (pr-str %)) allowed))
+                     (some #(= argument (artifact/print-data %)) allowed))
         (throw (ex-info "Relative assets or dynamic imports require standalone linking"
                         {:reason :relative-or-dynamic-assets}))))))
 
@@ -142,13 +163,20 @@
         (throw (ex-info "Handler requires standalone linking"
                         {:reason (if (:native-test-context? artifact) :native-test-context :panic-profile)})))
       (let [{:keys [groups link-args]} (module-groups artifact)
-            groups (mapv #(assoc % :source (slurp (:path %))) groups)
-            _ (doseq [group groups] (validate-imports! group))
-            names (->> groups (mapcat #(exported-names (:source %))) distinct sort vec)
+            groups (mapv (fn [group]
+                           (let [source (slurp (:path group))
+                                 key (artifact/key-for :bundle-source source)]
+                             (assoc group :source source :source-key key
+                                    :analysis (source-analysis source key)))) groups)
+            _ (doseq [group groups] (validate-source! group))
+            names (->> groups (mapcat #(get-in % [:analysis :exports])) distinct sort vec)
             forwarder (first (str/split (:source (first groups))
                                         #"// Aguafria development loader\." 2))]
         (when (seq names)
-          (assoc artifact :groups groups :link-args link-args :exports names :forwarder forwarder)))
+          (assoc artifact
+                 :groups (mapv #(-> %
+                                    (dissoc :source :analysis)) groups)
+                 :link-args link-args :exports names :forwarder forwarder)))
       (catch clojure.lang.ExceptionInfo error
         (when *preparing*
           (swap! *preparing* assoc-in [:excluded (artifact-id artifact)]
@@ -174,10 +202,15 @@
         renames (into {} (map #(vector % (str prefix %))) (:exports artifact))]
     (assoc artifact :prefix prefix :entry (names "root")
            :groups
-           (mapv (fn [{:keys [name deps source] :as group}]
+           (mapv (fn [{:keys [name deps source-key] :as group}]
                    ;; Zig type names include the file basename. Preserve it,
                    ;; rather than leaking bundle IDs into reflected type names.
-                   (let [path (io/file directory (names name) (.getName (io/file (:path group))))]
+                   (let [source (slurp (:path group))
+                         _ (when-not (= source-key (artifact/key-for :bundle-source source))
+                             (throw (ex-info "Prepared bundle source changed before linking"
+                                             {:aguafria/phase :bundle-compile
+                                              :path (:path group) :module name})))
+                         path (io/file directory (names name) (.getName (io/file (:path group))))]
                      (io/make-parents path)
                      (spit path (rename-identifiers source renames))
                      (assoc group :new-name (names name) :new-path (.getAbsolutePath path)
@@ -190,7 +223,7 @@
                                       (str alias "=" (names target)))) deps)))) groups))))
 
 (defn- response-argument [argument]
-  ;; Zig 0.16's response-file reader uses Args.IteratorGeneral, not a shell.
+  ;; Zig response files use Args.IteratorGeneral quoting.
   ;; Backslashes are doubled only before a quote or the closing delimiter.
   ;; Its single-quote mode cannot faithfully encode a literal apostrophe.
   (when (or (str/includes? argument "'") (str/includes? argument "\u0000"))
@@ -213,7 +246,7 @@
                       (assoc result :command (vec command) :aguafria/phase :bundle-compile))))
     result))
 
-(defn- build-pack! [cache-dir artifacts {:keys [run-command preserve-debug!]}]
+(defn- build-pack! [cache-dir artifacts link-args {:keys [run-command preserve-debug!]}]
   (let [artifacts (vec (sort-by artifact-id artifacts))
         id (artifact/key-for :bundle [version (mapv artifact-id artifacts)])
         directory (.getAbsoluteFile (io/file cache-dir "bundles" id))
@@ -241,7 +274,7 @@
                   command (concat [(first (:command first-artifact)) "build-lib" "-dynamic"
                                    (str "-femit-bin=" temporary)
                                    (:development-panic-support-path first-artifact)]
-                                  (:link-args first-artifact)
+                                  link-args
                                   (get-in entries [0 :groups 0 :flags])
                                   (mapcat #(vector "--dep" (:entry %)) entries)
                                   [(str "-Mroot=" source)]
@@ -283,12 +316,21 @@
   (let [records (vals (:artifacts @collected))
         already (filter :bundle records)
         candidates (vec (keep candidate records))
+        link-args (vec (last (sort-by count (map :link-args candidates))))
+        ;; Namespace initialization can append native dependencies. Link the
+        ;; full ordered list once; each handler keeps its original artifact key.
+        extended-links? (every? #(= (vec (:link-args %))
+                                    (subvec link-args 0 (count (:link-args %)))) candidates)
+        compiler-groups (group-by #(vector (first (:command %))
+                                           (:development-panic-support-path %)
+                                           (:debug-format %) (:forwarder %)
+                                           (get-in % [:groups 0 :flags])) candidates)
         groups (group-by #(vector (first (:command %))
-                                        (:development-panic-support-path %)
-                                        (:debug-format %) (:forwarder %)
-                                        (:link-args %)
-                                        (get-in % [:groups 0 :flags])) candidates)
-        _ (when (> (count groups) 1)
+                                  (:development-panic-support-path %)
+                                  (:debug-format %) (:forwarder %)
+                                  (:link-args %)
+                                  (get-in % [:groups 0 :flags])) candidates)
+        _ (when (or (> (count compiler-groups) 1) (not extended-links?))
             (throw (ex-info "A single AOT bundle requires compatible compiler configurations"
                             {:aguafria/phase :bundle-compile
                              :reason :incompatible-bundle-configurations
@@ -297,11 +339,13 @@
                                                       :modules (mapv :module artifacts)})
                                                    groups)})))
         packs (if (seq candidates)
-                [(build-pack! cache-dir candidates callbacks)]
+                [(build-pack! cache-dir candidates link-args callbacks)]
                 [])]
     {:packs packs :packed-handlers (reduce + 0 (map :handlers packs))
      :reused-handlers (count already)
-     :standalone (vec (vals (:excluded @collected)))}))
+     :standalone (mapv (fn [[id exclusion]]
+                         (assoc exclusion :artifact-id id))
+                       (sort-by key (:excluded @collected)))}))
 
 (defn symbol-lookup
   "Open a bundle once per JVM. Keep its arena alive across individual handler

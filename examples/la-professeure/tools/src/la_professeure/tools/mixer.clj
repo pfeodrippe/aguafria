@@ -154,7 +154,7 @@
     (k/atomicStore :u64 (k/& cursor) frame-position :.release)
     (k/atomicStore :u32 (k/& peak) (k/intFromFloat (k/* 1000.0 (k/min 1.0 block-peak))) :.release)))
 
-(a/defn callback :void {:zig/qualifiers "callconv(.c)"}
+(a/defn callback :void {:callconv :.c}
   [[device-pointer [:c-pointer recorder/Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (k/= :_ device-pointer) (k/= :_ input)

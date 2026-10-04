@@ -41,6 +41,15 @@
               "-Daguafria.async-compile=true"]
    :main-opts ["-m" "ghostty-agua.core" "check"]}
 
+  :precompile
+  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+   :exec-fn aguafria.zig/precompile!
+   :exec-args {:analyze [ghostty-agua.live
+                        ghostty-agua.bridge
+                        ghostty-agua.queue-bridge]
+               :parallelism 2
+               :report-file ".aguafria/precompile/ghostty.edn"}}
+
   :test
   {:extra-paths ["test"]
    :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}

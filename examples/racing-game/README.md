@@ -28,15 +28,39 @@ clojure -M -m racing-game.build prepare
 clojure -M:desktop
 ```
 
-These commands use the published, self-contained macOS ARM64 Aguafria artifact
-from Maven Central. To work against the Aguafria checkout instead, add the
-`local-aguafria` alias, for example `clojure -M:local-aguafria:desktop`.
+These commands use this Aguafria checkout and its bundled Zig 0.17.0 toolchain.
+Ordinary runs and precompilation resolve the same core dependency.
 
 The desktop command prints an nREPL port before opening the native window.
 Connect Calva or CIDER to it. The JVM is the development host; inference,
 simulation, Flecs, and rendering remain native. Development dylibs use Zig
 `ReleaseFast` as well, retaining hot publication without turning model kernels
 into slow debug code.
+
+## Optional JVM precompilation
+
+```sh
+clojure -X:precompile
+```
+
+This inspects the project's namespaces and prepares supported native call
+handlers in the shared `~/.aguafria/zig` cache, without invoking game, test or
+worker bodies. Ordinary Clojure namespace initialization still runs. Reports
+and per-namespace checkpoints are written under `.aguafria/precompile`;
+unsupported signatures and compiler errors remain explicit.
+
+`racing-game.shaders` is excluded from host-JVM preparation: its SPIR-V entry
+points run on the GPU and are compiled/validated by the native build and shader
+reload path. This exclusion does not disable shader development or GPU checks.
+Preparation and ordinary JVM calls use the same artifact lookup. An AOT hit
+loads the bundle instead of compiling another dylib for that handler.
+
+To verify the prepared cache, start a fresh JVM before requiring any game
+namespace, with `test` on the classpath. Run
+`racing-game.cache-check/check!` with the preparation report and a new result-file
+path. It checks ordinary pure calls and lap-clock tests, exact current-pack
+identities, one pack load, and no compilations, new libraries or unapproved
+standalone handlers. Failed evidence is retained in the result file.
 
 Useful forms:
 
@@ -200,8 +224,8 @@ clojure -M -m racing-game.build replay-parity-probe
 ```
 
 Both development and standalone require the canonical 1,200-tick fixture to
-capture 318 intents and produce gameplay-state fingerprint
-`0xee80c9bb65981a55` before and after replay. The hash covers every authoritative
+capture 599 intents and produce gameplay-state fingerprint
+`0x402374bf7dd532e9` before and after replay. The hash covers every authoritative
 racer/brain/hazard field and aggregate combat counter, but deliberately excludes
 addresses, padding, worker timings, and replay bookkeeping.
 

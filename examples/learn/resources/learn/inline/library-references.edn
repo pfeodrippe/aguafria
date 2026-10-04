@@ -169,9 +169,9 @@
   :note "An arena allocator groups allocations for collective cleanup."}
 
  "std.heap.DebugAllocator"
- {:clojure-source "aguafria.std.heap/DebugAllocator"
-  :kind :reference
-  :note "The allocator that detects leaks and invalid memory use."}
+ {:clojure-source ""
+  :kind :syntax-note
+  :note "Zig 0.17 deprecates this name. Use aguafria.std.heap/SafeAllocator, a concrete allocator type initialized with a backing allocator and options."}
 
  "std.testing.FailingAllocator"
  {:clojure-source "aguafria.std.testing/FailingAllocator"

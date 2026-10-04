@@ -12,8 +12,8 @@ pub fn build(b: *std.Build) void {
     });
 
     const options = b.addOptions();
-    options.addOption(u32, "answer", 42);
-    options.addOption([]const u8, "message", "captured by Zig");
+    options.addOption(u32, "answer", b.option(u32, "answer", "Fixture answer") orelse 42);
+    options.addOption([]const u8, "message", b.option([]const u8, "message", "Fixture message") orelse "captured by Zig");
     options.addOption(bool, "use_optional", false);
     options.addOptionPath("data_path", b.path("data.txt"));
     options.addOptionPath("tool_path", tool.getEmittedBin());

@@ -160,7 +160,8 @@
 
 (a/defconst action-use :u8 1)
 
-(a/defconst replay-capacity :usize 512)
+(a/defconst replay-capacity :usize
+  (ak/* racer-count telemetry/entries-per-racer))
 
 (a/defconst replay-file-header-bytes :usize 32)
 
@@ -656,8 +657,8 @@
 
 (a/defvar cadence-adaptations :u64 0)
 
-(a/defvar replay-intents [:array 512 ReplayIntent]
-  (std-mem/zeroes (a/type [:array 512 ReplayIntent])))
+(a/defvar replay-intents [:array replay-capacity ReplayIntent]
+  (std-mem/zeroes (a/type [:array replay-capacity ReplayIntent])))
 
 (a/defvar replay-count :usize 0)
 
@@ -735,7 +736,7 @@
   (ak/= replay-count 0)
   (ak/= replay-cursor 0)
   (ak/= replay-intents
-        (std-mem/zeroes (a/type [:array 512 ReplayIntent]))))
+        (std-mem/zeroes (a/type [:array replay-capacity ReplayIntent]))))
 
 (a/defn append-replay-intent! :bool
   "Append one validated, schema-compatible intent in install-tick order."
@@ -886,10 +887,11 @@
         (ak/= :_ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
           (ak/= :_ (runtime/fseek file 0 0))
-          (if (or (< signed-size (ak/as replay-file-header-bytes :isize))
+          (if (or (< signed-size (ak/as (ak/intCast replay-file-header-bytes) :isize))
                   (> signed-size
-                     (ak/as (+ replay-file-header-bytes
-                               (* replay-capacity replay-file-entry-bytes))
+                     (ak/as (ak/intCast
+                             (ak/+ replay-file-header-bytes
+                                   (ak/* replay-capacity replay-file-entry-bytes)))
                             :isize)))
             (do
               (ak/= :_ (runtime/fclose file))
@@ -3308,6 +3310,8 @@
   (update-thought-cadence!)
   (step-language-driving!)
   (when (ak/! paused)
+    (when (and replay-active (ak/!= race-state race-state-finished))
+      (install-replay-intents!))
     (dotimes [index racer-count]
       (step-racer! index))
     (step-dynamics!)
@@ -3318,8 +3322,6 @@
       (ak/= countdown-ticks (- countdown-ticks 1))
       (when (ak/== countdown-ticks 0)
         (ak/= race-state race-state-running)))
-    (when replay-active
-      (install-replay-intents!))
     (when (ak/== race-state race-state-running)
       (step-hazards!)
       (dotimes [team-index team-count]

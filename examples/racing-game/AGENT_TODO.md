@@ -9,6 +9,240 @@ tests alone does not close visual QA items.
 
 ## October 3 — Zig 0.17 project verification
 
+- Latest corrected scalar-profile preparation61707/exec77766:21/43 completed
+  checkpoints,4588/4588 candidates,190/190 functions,zero subset failures.
+  Final publication still pending. Permanent test/racing_game/cache_check.clj
+  added;coverage gate1test/11assertionsPASS. Actual fresh restart must use
+  ../../.tmp/racing-scalar-profile-aot-restart-017.clj and its distinct result
+  target afterpublication,no warm-up. Adjacent report/config tests2/12PASS,
+  scalar/callback tests2/16PASS. Native graph finaltests4/23PASS;actual Tiger
+  probe6.301s/no semantic errors,not whole-project speedup. Core61626/61918
+  completed/stopped;no live preparation classes or user sessions reloaded.
+- Current scalar-profile follow-up: new whole prep61707/exec77766 running public
+  a/precompile! with two workers/native invocation blocked. Distinct driver
+  ../../.tmp/racing-scalar-profile-aot-017.clj;report target
+  .aguafria/precompile/racing-scalar-profile-aot-017.edn. Previous strict fresh
+  restart61501 finished12purechecks+3tests/16assertionsPASS,zero builds/newlibs,
+  one bundleload,but cache acceptance FAILED: two scalar coercions loaded older
+  standalone files. Identicalsource,5vs8native link inputs; diagnostic recorded
+  in racing-coercion-key-diagnostic-017.edn. Generic compiler-validated scalar
+  constructor closure over captured load profiles saved. Stronger EMPTY/FRESH
+  batch4/33PASS,exact keys/one packload/no new libraries;not whole-project
+  acceptance. Owned61501 stopped;originalfailure preserved. Fresh checker must
+  use newreport/newoutputtarget afterpublication and require successful scalar
+  profiles as well as43namespace/14434candidate/520function completeness.
+- Latest corrected whole-project preparation completed43/43 namespaces:
+  14434/14434 runtime candidates,520/520 declared functions,zero baseline/handler
+  failures. Public a/precompile!,two bounded workers,native invocation blocked.
+  One3647-artifact bundle:39366000 codebytes/61108212 debugbytes;26 exact external-
+  export exclusions. Duration3958508.081ms/65.975min. Owned60329/PID8637 stopped.
+  Fresh ordinary restart61501/exec35352 failed cache acceptance as above. Driver
+  ../../.tmp/racing-shared-config-aot-017.clj;report
+  .aguafria/precompile/racing-shared-config-aot-017.edn. Strict fresh restart
+  driver ../../.tmp/racing-shared-config-aot-restart-017.clj must run only after
+  complete coverage/publication;checks normal loading/exact keys/no new libraries.
+  Core shared-path suites37/304PASS. Named callback and transitive configuration
+  changes each have EMPTY/FRESH 1/8PASS,one pack/zero builds/identical libraries.
+  Relevant ordinary JVM8/81PASS,including return values,field Vars and threads;
+  owned core60417 completed/stopped. Formatting/diff checks pass.
+  Final inventory:28 analyzed/15 host-only,15975 prepared handler records;
+  481 result-context syntax calls,73 type declarations andone compiler directive
+  are separate categories. One shader namespace explicitly ignored.
+- Previous replay-fixed preparation finished43/43,14433/14434 candidates,
+  520/520 functions,one2657-artifact pack,zero baselines;one worker-loop! callback
+  gap. Its ordinary fresh restart passed12 pure checks and3 tests/16 assertions
+  but cache acceptance FAILED: six namespace images plus four handlers compiled,
+  zero AOT hits. Whole preparation had three additional UI link inputs. Generic
+  per-namespace/transitive load-time configuration capture now preserves the
+  exact ordinary profile;callback/result identities and constructor readers also
+  repaired. Original report/restart failure preserved,not accepted by warming.
+  Finished owned58479/59982 stopped. Do not relabel historical AOT snapshots.
+
+- Current completed subset25/43 checkpoints (15 analyzed/10 host-only):5612/5612
+  candidates,217/217 functions,6345 prepared handlers,zero failures. Separate
+  230 result-context calls (protocol intCast lines195/211),30 type declarations
+  (DrivingPlan/DrivingPlanContext lines91/97). Final AOT/restart pending.
+  Ten-second actual prep event sample:191 AOT hits,51 disk hits,7 builds all
+  racing-game.simulation namespace generations;no rebuilt AOT-hit keys.
+  Shared facade cache now bounded LRU with identity checks instead of whole-cache
+  clear. Fresh core59/2334PASS;EMPTY/FRESH AOT precedence/constructors2/17PASS,
+  exact keys and no additional libraries. Current prep retains old key-equivalent
+  facade representation;no live runtime reload/invocation guard replacement.
+  Core59077/exec42863 finished and stopped. Root cache report records raw results.
+
+- Current subset now21/43 completed checkpoints:11 analyzed,10 host-only;
+  4588/4588 runtime candidates,190/190 functions,5215 prepared handlers.
+  Zero baseline/handler failures;200 result-context calls and22 type declarations
+  remain explicitly classified,not callable failures. Final report/restart pending.
+  Saved bundle namespace normally reloaded58479 after source-scan regression:
+  compact per-preparation content-keyed facts;dependency validation remains live.
+  Keys/emission unchanged. Core suite28/253PASS plus corrected2/7PASS;original
+  two stale-private-helper errors retained. New source reuse11 assertions passed.
+  Actual262644-character source20checks638.415ms ->153.040ms,identical facts;
+  this is not full AOT timing. Root cache report contains evidence paths.
+
+- October4 cache continuation: current AOT has20 completed namespace checkpoints
+  (10 analyzed,10 host-only):3894/3894 runtime candidates and159/159 declared
+  functions;zero baseline/handler failures in this completed subset. This is not
+  final whole-project coverage or bundle publication. Strict fresh restart driver
+  ../../.tmp/racing-current-aot-restart-017.clj is ready;reader validation passes.
+  It checks normal namespace loading,pure scheduler calls and existing lap-clock
+  tests,actual manifest keys,standalone exclusions and requested library writes.
+  Run only after final publication,in a fresh default project JVM with:dev/:nrepl
+  and test extra-path. Normal clojure -J-Xmx2g -M:standalone build succeeded:
+  9037ms compiler duration,fast,arm64 Mach-O;validated23316-byte SPIR-V module.
+  No JVM/AOT dynamic dependencies. Exec32050 ended0. Build only,not app launch.
+
+- Current replay-fixed whole AOT runs on owned58479/PID25852/exec17100 using
+  public a/precompile!,all source namespaces except explicit GPU-only shaders,
+  two bounded virtual workers and native invocation blocked. Driver
+  ../../.tmp/racing-replay-fixed-aot-017.clj,report target
+  .aguafria/precompile/racing-replay-fixed-aot-017.edn. Last snapshot327 registered
+  modules,still preparing;not completed coverage or fresh restart acceptance.
+  The default dependency now selects aguafria/aguafria local ../..; removed
+  published0.1.7 and local-aguafria alias. README and MOTION_QA commands use the
+  same default core for normal runs and precompile. Existing running worker's
+  resolved classpath already points at this checkout,so no restart needed.
+  Saved bundle namespace normally reloaded in preparation-only58479 before
+  assembly,retaining single-pack ordered native dependency extensions. This is
+  not ordinary fresh-JVM acceptance;the current final report is still pending.
+
+- [x] October4 whole AOT run finished43 selected namespaces:28 analyzed,
+  15 host-only skipped;one shader namespace ignored. Zero baseline failures,
+  14179/14432 runtime candidates,520/520 declared functions. One2231-handler
+  bundle:21,538,464 code bytes and35,933,488 debug bytes;12 explicit external-
+  export exclusions. Duration4,135,932.392ms (68.932min). Report
+  .aguafria/precompile/racing-game-current-core-017.edn. Completed owned56197/
+  PID62484/exec33716 stopped. This job predates current shared planners and
+  type-query preparation;not claimed as current whole-game restart acceptance.
+  Remaining253 candidates:252 old type-query placements,one nominal/non-runtime
+  operation with2 unsupported handler records. Also481 standalone result-context
+  calls,73 type declarations andone compiler directive,not counted as callable
+  candidates. Keep this exact snapshot;do not relabel it after core changes.
+- [x] October 4 current replay cast follow-up: the two unsigned-to-signed bounds
+  now use checked Zig intCast and k arithmetic. New ordinary project tests 2/11
+  pass; repeated JVM calls compile nothing. Compile-only preparation guards
+  native invocation and covers 1/1 functions, 5/5 candidates, no failures; two
+  standalone intCast expressions require the enclosing result context.
+  Report .aguafria/precompile/racing-replay-bounds-current-017.edn. This is not
+  whole-game AOT/restart acceptance. Owned 55921/PID 48094 world shut down and
+  JVM exited 0. Raw results/log: .aguafria/precompile/racing-replay-verification-current-017.edn.
+- [ ] Existing portable replay gate fails 1 test/8 pass/3 fail: golden-r4.bin has
+  version 1/zero roster bytes, current reader requires version 2/20 drivers/10 teams.
+  Native 1200-tick parity saturates the old 512-slot replay storage and returns
+  false (4621666008410960617 vs 1466181933081054660). Telemetry retains 64 per racer,
+  but replay arrays/clear hardcoded 512 in that baseline. No fixture or guard weakened.
+  Distinguish these roster/fixture issues from the now-fixed cast/cache path.
+- [x] October4 replay retention follow-up: permanent native regression covers
+  empty, one-entry, full64-entry and wrapped65-entry rings for all20 racers.
+  Baseline1 test/4 assertions reproduces2 failures:512 instead of1280 entries,
+  dropping racers8..19. Capacity and array schemas now derive from racer-count
+  times telemetry/entries-per-racer; file upper bound40992 bytes. Fresh native
+  capacity/cache checks3/15PASS. The first reload correctly
+  rejected the array layout change without explicit migration; owned58077/
+  PID12945/exec80154 exited0, replaced by owned58180/PID16489/exec4500 for normal
+  fresh loading. Evidence replay-retention-baseline-017.{edn,log} and rejected
+  reload replay-retention-fixed-017.log. The subsequent1200-tick native run
+  captured599 but still diverged. First-tick inspection proved replay installed
+  decisions after driving/physics,unlike normal decisions. Installation now
+  precedes driving/physics with paused/finished guards preserved. Native1200
+  parity now returns valid=true,599 intents,equal fingerprints
+  4621666008410960617;9.901s including bridge work. Strict generator regenerated
+  version2 golden-r4.bin for20 racers/10 teams,19200 bytes. Protocol/README
+  goldens now match this proven run,not an arbitrary expected-value weakening.
+  Generator reads the captured native stream directly rather than requiring the
+  entire host dashboard; explicit a/value converts native constants at the
+  binary-serialization boundary. Final focused5 tests/36 assertions PASS:
+  ring retention,first-tick ordering,JVM bounds,compile-only prep,fixture loading
+  and rejection of truncation,old version/roster/wrong schema. Report
+  replay-final-verification-017.{edn,log};parity report
+  replay-parity-timing-fixed-017.edn;generator report
+  replay-fixture-regeneration-017.edn. Owned58180/PID16489/exec4500 shut down
+  native world and exited0. These source/type changes require a new Racing AOT
+  snapshot;the old whole-project report is not current acceptance.
+  An intermediate verification read raced our own source edit and was retried
+  after editing ended; its failed log is retained,not a core compiler failure.
+  New generator/tests are cljfmt-clean. Existing simulation/protocol whole-file
+  formatting differences were not applied over unrelated user work.
+- [x] C catalog persistence no longer pretty-prints every changed snapshot or
+  serializes unchanged parsed data. Complete core C suite 8/71 passes, including
+  unchanged timestamp/content, updates and preserving other modules. Actual
+  shared catalog serialization 28.98ms vs 5575.97ms, equal parsed data; not whole
+  startup timing. No native source/artifact key change or shared-cache cleanup.
+
+- [x] October 4 compiler-derived nested-field identity preparation: fresh
+  monitor run completed31/31 declared functions,678/694 runtime candidates,
+  765 prepared handler records. One471-handler bundle:4,491,392 code bytes,
+  8,246,704 debug bytes; two explicit external-export exclusions. Remaining
+  categories16 inspection placements (e.g. type MonitorSnapshot/type array8u32),
+  36 result-context standalone calls, three container/type declarations.
+  These are separate from the old44 nominal gaps below. Report
+  .aguafria/precompile/racing-monitor-nested-fields-017.edn. No bodies invoked.
+  Root's latest shared-adapter parity check16 namespaces1/5 passes, zero
+  fresh-JVM builds and identical103-library inventories. Monitor preparation
+  predates the final writer-key normalization; whole-game restart not claimed.
+- [ ] Historical whole-source run ended43/43 checkpoints,520/520 functions,
+  14,130/14,180 runtime candidates,15,670 prepared records. Historical core
+  snapshot contains 13 host-only classification errors, two load errors,
+  45 nominal/non-runtime operands and one already-fixed vector shift. Two
+  additional C callable-alias failures (clock_gettime/nanosleep) have a shared
+  compiler-reflected plan implemented; fresh empty preparation/ordinary JVM
+  regression 2/18 passes zero builds and identical library inventories.
+  Declared generic result identities and imported type-reader preparation are
+  fixed; this snapshot predates those planner changes. Two additional old
+  failures are simulation's usize-to-isize coercions; current follow-up needed.
+  Preserve evidence;
+  replace old checkpoints with current-core verification before acceptance.
+  Completed monitor53639/PID16717 exited; idle whole-source52294/PID81027 has
+  been stopped. Its interrupted parent did not publish a final bundle/report.
+  Linkage-plan retention now 64 entries/32Mi source characters; old 925 derived
+  plans cleared without touching files/native state. Heap remained large,
+  broader retention cost is unresolved. Bundle source streaming 11/136 passes.
+  Another derived facade cache retained 1773 snapshots/739M source chars;
+  latest source caps/replaces it. Targeted14 assertions and runtime/preparation
+  68/2383 pass; installed in active Tiger/LaProf preparation JVMs. No persistent
+  cache cleanup done. Broad current-core16-namespace restart recheck1/5 PASS:
+  ZERO restart builds and identical103-library inventories after EMPTY-cache
+  preparation. Core matrix163/3303 passes across bounded runs; no whole-game
+  bundle/restart acceptance implied. Finished root55569/PID11402 stopped.
+- [ ] Whole-source AOT started October 4, owned nREPL52294/PID81027/client43147,
+  43 selected namespaces/44 files (GPU shaders excluded), two bounded workers.
+  Latest 22 checkpoints contain 4,579/4,616 runtime candidates and 192 prepared
+  functions. Eight host-only namespace classification errors are fixed in core
+  source but this running JVM uses the older classification. Two load failures
+  came from dataset's eager native read and the downstream jev-evaluation
+  require: both now reload source-only, dataset1/4 regression passes. Old
+  checkpoints are not relabeled as reverified. Final bundle/count/restart
+  checks are NOT complete.
+  Report .aguafria/precompile/racing-game-017-full.edn(.d); log
+  /tmp/aguafria-racing-full-aot-017.log. Core-operator discovery is implemented,
+  emitter suite71/422 passes; the load-time test-check preparation gap is fixed,
+  broad restart2/17 passes with zero builds and identical library inventories.
+  Metadata no longer fingerprints non-state declarations for state lookups;
+  runtime55/2,291 passes, in-flight Racing uses earlier core. No game, window
+  or worker bodies executed.
+  Remaining candidate categories: 36 non-runtime/nominal operand observations
+  (monitor's (field ar actor)/(field br actor)); one vector shift failure in
+  inference, already fixed in current source with u3 counts and verified by
+  native regression (there is no second failure example). Outside candidates,
+  210 calls need enclosing result context, e.g. (k/intCast count)/(k/intCast
+  length), and 22 type declarations are non-call operations (Decoder/Span).
+  Fresh ordinary restart coverage across 15 core fixture namespaces now passes
+  1/5: zero compilations and unchanged nonempty native-library inventory.
+- [x] Foundation JVM AOT/cache parity (October 4): six namespaces analyzed,
+  44/44 functions and 574/574 runtime candidates prepared (594 total operations;
+  ten result-context calls, nine type declarations, one directive). Zero
+  baseline failures. 237.26 seconds, one 209-handler bundle: 1,325,568 code
+  bytes plus 2,666,570 debug bytes, no handler exclusions. Seven initial
+  namespace images prepared, converted Box3D stays lazy. Fresh ordinary
+  require/await/calls returns [36.0 0.5 1.0] in 17.96s with four bundle hits,
+  three disk hits, ZERO compilations/new libraries. Loader tracks cataloged
+  declaration names so generated prefixes cannot start incomplete async builds.
+  Preparation51933 and restart52053/52139 stopped; no game/worker bodies called.
+  Logs: /tmp/aguafria-racing-foundation-aot.log and
+  /tmp/aguafria-racing-foundation-restart-fixed.log. Full source-directory
+  :precompile alias is added; the whole-source run is tracked above. Foundation
+  evidence is not whole-project AOT coverage.
 - [x] Authored SPIR-V GPU check: normal desktop command
   `clojure -M:local-aguafria:desktop`, owned nREPL 61024, PID 23400,
   exec 31213. Three shader entry points compile/validate (23,316 bytes).

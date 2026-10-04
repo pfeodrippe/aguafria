@@ -40,7 +40,7 @@
 (defn stop!
   "Close the current native terminal."
   []
-  (when-let [opened (swap! current-session (constantly nil))]
+  (when-let [opened (first (swap-vals! current-session (constantly nil)))]
     (native/close! opened))
   nil)
 
@@ -83,14 +83,15 @@
   the new implementation."
   []
   (let [opened (or (session) (start!))
-        address (.address ^java.lang.foreign.MemorySegment (:terminal opened))]
+        address (.address ^java.lang.foreign.MemorySegment (:terminal opened))
+        version (a/value (live/title-version))]
     (native/write! opened
                    (str "\u001b]2;Aguafria Ghostty hot generation "
-                        (live/title-version)
+                        version
                         "\u0007"))
     {:terminal-address address
      :title (:title (native/state opened))
-     :native-version (live/title-version)}))
+     :native-version version}))
 
 (defn await-reload!
   "Wait for the latest declaration publications in the example module."

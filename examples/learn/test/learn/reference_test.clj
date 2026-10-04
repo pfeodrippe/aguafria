@@ -209,6 +209,19 @@
       (is (nil? (inline/equivalent catalog "@unknownBuiltin")))
       (is (nil? (inline/equivalent catalog "a + b"))))))
 
+(deftest deprecated-allocator-reference-points-to-the-current-api
+  (let [mapping (get (inline/authored-mappings) "std.heap.DebugAllocator")
+        emitted (inline/emit-mapping mapping)
+        allocator (ns-resolve 'aguafria.std.heap 'SafeAllocator)]
+    (is (= :syntax-note (:form-kind emitted)))
+    (is (= :reviewed-syntax-note (:verification emitted)))
+    (is (empty? (:clojure-source emitted)))
+    (is (str/includes? (:note emitted) "aguafria.std.heap/SafeAllocator"))
+    (is (var? allocator))
+    (is (= "@import(\"std\").heap.SafeAllocator" (:zig/name (meta allocator))))
+    (is (= :container (get-in (meta allocator) [:aguafria/zig-reference :category])))
+    (is (str/includes? (slurp "resources/upstream/index.html") "std.heap.DebugAllocator"))))
+
 (deftest inline-html-pairing-preserves-the-whole-published-reference
   (let [snippets (filterv #(= "syntax" (:kind %)) (:snippets (ref/inventory)))
         translations (inline/translate snippets)
@@ -681,8 +694,8 @@
   (with-redefs [ref/run-doctest! (fn [& _] (throw (ex-info "Must not execute grammar" {})))
                 ref/sha256 (constantly "locked-source")]
     (let [result (ref/verify-example! {}
-                                    {:file "grammar.peg" :sha256 "locked-source"}
-                                    {:status :zig-only :reason "Formal grammar"})]
+                                      {:file "grammar.peg" :sha256 "locked-source"}
+                                      {:status :zig-only :reason "Formal grammar"})]
       (is (= :reviewed-special-case-passed (:status result)))
       (is (= :source-artifact (get-in result [:original :verification])))
       (is (nil? (get-in result [:original :exit]))))
@@ -984,7 +997,7 @@
     (is (= :isolated-native-failure (:scope result)))
     (is (= "(pointer-alignment-safety)" (:form evaluation)))
     (is (str/includes? (str (:stdout evaluation) (:stderr evaluation)
-                           (get-in evaluation [:exception :message])) "incorrect alignment"))
+                            (get-in evaluation [:exception :message])) "incorrect alignment"))
     (is (ref/verified-comment? {:kind "test_safety=incorrect alignment"} result))))
 
 (deftest custom-panic-process-exit-preserves-real-output
@@ -1012,7 +1025,7 @@
   (let [events (atom [])
         result (binding [ref/*repl-capture-progress* #(swap! events conj [%1 %2])]
                  (ref/capture-comment-repl!
-                   "(ns learn.example.capture-checkpoints)\n(comment (+ 1 2))" nil))]
+                  "(ns learn.example.capture-checkpoints)\n(comment (+ 1 2))" nil))]
     (is (= [[:started :load] [:finished :load]
             [:started :comment] [:finished :comment]]
            (mapv (fn [[event evaluation]] [event (:stage evaluation)]) @events)))
@@ -1023,7 +1036,7 @@
                            [:comment {:exit 1 :timed-out? true}]
                            [:comment {:exit 0}]]]
     (is (nil? (#'ref/interrupted-repl-capture
-                "unused" {:active {:stage stage}} process)))))
+               "unused" {:active {:stage stage}} process)))))
 
 (deftest shell-panels-require-nonempty-repl-evaluations
   (let [html (str "<figure><figcaption class=\"zig-cap\"><cite class=\"file\">sample.zig</cite>"
@@ -1031,12 +1044,12 @@
                   "<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre>output</pre></figure>")
         example {:file "sample.zig" :status :translated}]
     (doseq [transcript [nil {} {:evaluations [] :scope :context-only}
-                       {:evaluations [] :scope :native-failure-requires-disposable-jvm}]]
+                        {:evaluations [] :scope :native-failure-requires-disposable-jvm}]]
       (is (= ["sample.zig"]
              (ref/missing-repl-outputs html [(assoc example :repl-transcript transcript)]))))
     (is (empty? (ref/missing-repl-outputs html
-                  [(assoc example :repl-transcript
-                          {:evaluations [{:form "(main)" :printed-value "nil"}]})])))
+                                          [(assoc example :repl-transcript
+                                                  {:evaluations [{:form "(main)" :printed-value "nil"}]})])))
     (is (empty? (ref/missing-repl-outputs html [(assoc example :status :zig-only)])))))
 
 (deftest declaration-only-examples-capture-their-actual-evaluation
@@ -1274,8 +1287,8 @@
 
 (defn -main [& _]
   (let [{:keys [fail error]} (run-tests 'learn.reference-test 'learn.source-fidelity-test
-                                      'learn.jvm-body-test 'learn.jvm-audit-test
-                                      'learn.jvm-audit-report-test)]
+                                        'learn.jvm-body-test 'learn.jvm-audit-test
+                                        'learn.jvm-audit-report-test)]
     (shutdown-agents)
     (when (pos? (+ fail error))
       (System/exit 1))))

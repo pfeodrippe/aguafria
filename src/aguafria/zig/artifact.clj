@@ -8,10 +8,17 @@
 (def ^:private key-version 1)
 (def ^:private native-abi-version 2)
 
+(defn print-data
+  "Print complete, readable machine data independently of REPL print settings."
+  ([value] (print-data value true))
+  ([value namespace-maps?]
+   (binding [*print-length* nil *print-level* nil *print-meta* false
+             *print-dup* false *print-readably* true
+             *print-namespace-maps* namespace-maps?]
+     (pr-str value))))
+
 (defn- printed [value]
-  (binding [*print-length* nil *print-level* nil *print-meta* false
-            *print-dup* false *print-readably* true *print-namespace-maps* false]
-    (pr-str value)))
+  (print-data value false))
 
 (defn- canonical [value]
   ;; Tag collections so a map cannot collide with a vector of its entries.

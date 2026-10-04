@@ -84,7 +84,7 @@ without importing the render meshes.
 Focused regression command while developing Aguafria locally:
 
 ```sh
-clojure -M:local-aguafria:dev:test --focus racing-game.physics-test --focus racing-game.render3d-test
+clojure -M:dev:test --focus racing-game.physics-test --focus racing-game.render3d-test
 ```
 
 Artifacts belong in ignored `build/`, not source control. Remaining visual,

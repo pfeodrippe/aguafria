@@ -18,10 +18,13 @@ clojure -M:nrepl
 # Finite native VT/FFM smoke check
 clojure -M:check
 
-# Generated Clojure → independent ReleaseFast libghostty-vt
+# Prepare the native REPL bridges without executing their function bodies
+clojure -X:precompile
+
+# Generated Clojure → independent optimized libghostty-vt
 clojure -M:standalone
 
-# Generated Clojure → independent universal Ghostty.app
+# Generated Clojure → independent native-architecture Debug Ghostty.app
 clojure -M:macos-app
 
 # Focused example tests
@@ -31,6 +34,17 @@ clojure -M:test --config-file tests.edn
 The generated Clojure tree is `generated/`. The independent
 source tree and artifacts are under `build/standalone`; it does not read the
 original Ghostty `.zig` files while materializing or building.
+
+The optional macOS app command builds GhosttyKit with Zig, then calls
+upstream's `macos/build.nu` using Nushell. Upstream's supported toolchain is
+Xcode 26 with the macOS 26 SDK. Its output is
+`build/standalone/macos/build/Debug/Ghostty.app`. The VT library, nREPL and
+precompilation workflows do not require building the Swift application.
+
+Precompilation analyzes the native title, focus encoder and queue bridges with
+Zig. Its report records prepared handlers and any gaps at
+`.aguafria/precompile/ghostty.edn`; reusable artifacts live in the shared
+`~/.aguafria/zig` cache. It does not instantiate every generic in Ghostty.
 
 ## nREPL workflow
 

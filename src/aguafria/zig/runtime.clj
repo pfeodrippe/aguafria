@@ -22,7 +22,7 @@
            [java.nio.file AtomicMoveNotSupportedException CopyOption Files Path
             StandardCopyOption StandardOpenOption]
            [java.security MessageDigest]
-           [java.util ArrayList HexFormat IdentityHashMap]
+           [java.util ArrayList HexFormat IdentityHashMap LinkedHashMap]
            [java.util.concurrent ExecutionException ExecutorService Executors
             ScheduledExecutorService ScheduledFuture ThreadFactory TimeUnit]
            [java.util.concurrent.atomic AtomicLong]))
@@ -55,6 +55,8 @@
 (defonce ^:private development-linkage-closure-cache (atom {}))
 (defonce ^:private development-capsule-closure-cache (atom {}))
 (defonce ^:private development-linkage-snapshot-cache (atom {}))
+(def ^:private development-linkage-snapshot-entry-limit 64)
+(def ^:private development-linkage-snapshot-weight-limit (* 32 1024 1024))
 (def ^:private module-source-cache-entry-limit 64)
 (def ^:private module-source-cache-weight-limit (* 32 1024 1024))
 (def ^:private empty-module-source-cache
@@ -67,8 +69,10 @@
    :oversized-count 0})
 (defonce ^:private module-source-cache (atom empty-module-source-cache))
 (def ^:dynamic *preserve-source-fingerprint?* false)
-(defonce ^IdentityHashMap development-dependency-entry-cache
-  (IdentityHashMap.))
+(defonce ^LinkedHashMap development-dependency-entry-cache
+  (LinkedHashMap. 64 0.75 true))
+(def ^:private development-dependency-entry-limit 64)
+(def ^:private development-dependency-entry-weight-limit (* 32 1024 1024))
 (defonce ^IdentityHashMap module-dependency-entry-cache
   (IdentityHashMap.))
 (defonce ^:private dependency-topology-cache
@@ -160,6 +164,18 @@
 
 (def ^:dynamic ^:private *materialization-type-declarations*
   "Type declarations from the compilation that a JVM adapter belongs to."
+  nil)
+
+(def ^:dynamic ^:private *jvm-wrapper-request-snapshot*
+  "Wrapper requests captured for a particular compilation, keyed by module."
+  {})
+
+(def ^:dynamic *prepared-namespace-images*
+  "Initial compilation snapshots retained only for the current precompile run."
+  nil)
+
+(def ^:dynamic *prepared-scalar-constructors*
+  "Scalar constructor schemas validated during the current precompile run."
   nil)
 
 (def ^:dynamic *file-load-registration?*
@@ -352,18 +368,18 @@
       (assoc :kind :error-set
              :members (mapv (fn [member] {:kind :error :name member}) (second type))))
     (when-let [{:keys [options members]} (container-type-description declaration)]
-    {:kind (:kind options)
-     :doc (:doc declaration)
-     :members
-     (mapv (fn [member]
-             (cond-> (into {}
-                           (remove (comp nil? val))
-                           (select-keys member [:kind :name :type :return :doc :zig-name]))
-               (contains? #{:fn :fn-proto} (:kind member))
-               (assoc :public? (:public? member)
-                      :args (mapv #(select-keys % [:name :type :properties]) (:args member)))
-               (:has-value? member) (assoc :value (:value member))))
-           members)})))
+      {:kind (:kind options)
+       :doc (:doc declaration)
+       :members
+       (mapv (fn [member]
+               (cond-> (into {}
+                             (remove (comp nil? val))
+                             (select-keys member [:kind :name :type :return :doc :zig-name]))
+                 (contains? #{:fn :fn-proto} (:kind member))
+                 (assoc :public? (:public? member)
+                        :args (mapv #(select-keys % [:name :type :properties]) (:args member)))
+                 (:has-value? member) (assoc :value (:value member))))
+             members)})))
 
 (defn- container-documentation
   [declaration]
@@ -437,14 +453,14 @@
                     {:jvm-optimize mode :supported ["debug" "safe"]})))
   mode)
 
-(defonce ^:private config
+(defonce ^:dynamic ^:private config
   (atom {:cache-dir (cache/default-directory)
          :optimize (or (System/getProperty "aguafria.optimize") "debug")
          :jvm-optimize (checked-jvm-optimization
                         (or (System/getProperty "aguafria.jvm-optimize") "safe"))
          :development-debug-info
          (keyword
-         (or (System/getProperty "aguafria.development-debug-info")
+          (or (System/getProperty "aguafria.development-debug-info")
               (System/getenv "AGUAFRIA_DEVELOPMENT_DEBUG_INFO")
               "full"))
          :development-panic
@@ -497,7 +513,7 @@
   identities, allowing artifacts that select them to be reused safely.
   `:debug-output` selects a/debug! report destinations (#{:print :file} by
   default); `:debug-report-file` overrides .aguafria/debug/types.edn.
-  `:jvm-optimize` selects Debug or safe for generated JVM adapters only
+  `:jvm-optimize` selects debug or safe for generated JVM adapters only
   (default safe), independently of user-code :optimize. Both preserve
   runtime safety checks; adapter builds explicitly retain error tracing.
   Returns the resulting configuration."
@@ -616,6 +632,16 @@
   []
   @config)
 
+(defn call-with-precompile-configuration
+  "Prepare using a captured namespace-load configuration. Worker-local changes
+  do not alter the configuration used by other namespaces or ordinary callers."
+  [configuration prepare]
+  (when-not (and *compile-only?* (map? configuration))
+    (throw (ex-info "A preparation configuration requires compile-only mode"
+                    {:compile-only? *compile-only?*})))
+  (binding [config (atom configuration)]
+    (prepare)))
+
 (defn toolchain-information
   "Return inspectable identity and state for Aguafria's embedded Zig toolchain."
   []
@@ -655,7 +681,7 @@
                (mapcat (fn [[module module-state]]
                          (keep
                           (fn [{:keys [generation active-call-handle
-                                      jvm-active-calls]}]
+                                       jvm-active-calls]}]
                             (let [native-active
                                   (if active-call-handle
                                     (long (.invokeWithArguments
@@ -731,7 +757,7 @@
                    (let [{active true completed false}
                          (group-by (fn [[_ build]]
                                      (boolean (#{:queued :compiling}
-                                                (:status build))))
+                                               (:status build))))
                                    entries)]
                      (concat active
                              (->> completed
@@ -891,7 +917,7 @@
                     ;; TimSort comparison. Large converted C declarations can
                     ;; otherwise spend most of their cold-load time printing
                     ;; the same nested keys repeatedly.
-                    [(pr-str (first entry)) entry])))
+                    [(artifact/print-data (first entry)) entry])))
            (sort-by first)
            (mapv second))]
 
@@ -900,7 +926,7 @@
                 (map (fn [nested]
                        (let [canonical
                              (canonical-fingerprint-value nested reference-keys)]
-                         [(pr-str canonical) canonical])))
+                         [(artifact/print-data canonical) canonical])))
                 (sort-by first)
                 (mapv second))]
 
@@ -914,12 +940,12 @@
 
 (defn- data-fingerprint
   [value]
-  (sha256 (pr-str (canonical-fingerprint-value value))))
+  (sha256 (artifact/print-data (canonical-fingerprint-value value))))
 
 (defn- source-data-fingerprint
   [value]
-  (sha256 (pr-str (canonical-fingerprint-value
-                   value source-reference-fingerprint-keys))))
+  (sha256 (artifact/print-data (canonical-fingerprint-value
+                                value source-reference-fingerprint-keys))))
 
 (defn adapter-fingerprint
   "Stable native adapter identity. Ignore map/set iteration order while
@@ -1207,8 +1233,8 @@
                     {:kind :container-type
                      :symbol (declaration-zig-name declaration)
                      :value (:value declaration)
-                                  :type-dependency-fingerprints
-                                  (:type-dependency-fingerprints declaration)}))
+                     :type-dependency-fingerprints
+                     (:type-dependency-fingerprints declaration)}))
 
             type-factory-result
             (assoc :schema-fingerprint
@@ -1254,7 +1280,7 @@
                               (:cyclic-implementation-fingerprint declaration))]
             (if fingerprint
               (assoc declaration :implementation-fingerprint fingerprint
-                                 :cyclic-implementation-fingerprint fingerprint)
+                     :cyclic-implementation-fingerprint fingerprint)
               (dissoc declaration :cyclic-implementation-fingerprint)))]
       ;; Emission identity intentionally includes docs, source mapping, value
       ;; forms, body forms, and emission-relevant reference metadata. Computing
@@ -1620,7 +1646,7 @@
                  ;; Binding types are emitted code too, including ^{:var T}.
                  ;; Do not traverse unrelated metadata (source forms, docs, etc.).
                  (symbol? value) (reduce conj pending
-                                        (vals (select-keys (meta value) [:var :zig/type :tag])))
+                                         (vals (select-keys (meta value) [:var :zig/type :tag])))
                  :else pending)
                (conj! values value)))
       (persistent! values))))
@@ -1672,7 +1698,7 @@
   [{:keys [logical-id abi-fingerprint implementation-fingerprint]
     :as declaration}]
   (let [version-key [logical-id abi-fingerprint]
-        token (subs (sha256 (pr-str version-key)) 0 24)
+        token (subs (sha256 (artifact/print-data version-key)) 0 24)
         module-token (subs (sha256 (str (:module declaration))) 0 16)
         prefix (str "__aguafria_" token)]
     {:declaration-key (:declaration-key declaration)
@@ -1701,7 +1727,7 @@
   (when (and (= :var (:kind declaration))
              (str/includes? (or (:zig-prefix declaration) "") "threadlocal"))
     (let [variable (emit/identifier (or (:zig-name declaration) (:name declaration)))
-          accessor (symbol (str "__aguafria_tls_" (subs (sha256 (pr-str (:logical-id declaration))) 0 24)))]
+          accessor (symbol (str "__aguafria_tls_" (subs (sha256 (artifact/print-data (:logical-id declaration))) 0 24)))]
       (declaration-info
        {:kind :fn :module (:module declaration) :name accessor
         :qualified-name (symbol (:module declaration) (str accessor))
@@ -1728,7 +1754,7 @@
 (defn- declaration-state-spec
   [{:keys [logical-id schema-fingerprint] :as declaration}]
   (let [version-key [logical-id schema-fingerprint]
-        token (subs (sha256 (pr-str version-key)) 0 24)
+        token (subs (sha256 (artifact/print-data version-key)) 0 24)
         prefix (str "__aguafria_state_" token)]
     {:declaration-key (:declaration-key declaration)
      :version-key version-key
@@ -1764,10 +1790,10 @@
 (defn state-reference
   "Return deterministic development state-reference metadata for a defvar."
   [declaration]
-  (let [declaration (declaration-info declaration)]
-    (if-let [accessor (threadlocal-accessor-declaration declaration)]
-      {:accessor (str (:name accessor))}
-      (when (= :var (:kind declaration))
+  (when (= :var (:kind declaration))
+    (let [declaration (declaration-info declaration)]
+      (if-let [accessor (threadlocal-accessor-declaration declaration)]
+        {:accessor (str (:name accessor))}
         (select-keys (declaration-state-spec declaration)
                      [:version-key :logical-id :schema-fingerprint :accessor])))))
 
@@ -1793,29 +1819,29 @@
   ([module declarations dispatch-specs state-specs]
    (emit-reload-source! module declarations dispatch-specs state-specs nil))
   ([module declarations dispatch-specs state-specs extra-body-source]
-  (if (:reloadable? @config)
-    (try
-      (emit/emit-reloadable-module module declarations dispatch-specs
-                                   state-specs
-                                   {:extra-body-source extra-body-source})
-      (catch clojure.lang.ExceptionInfo error
-        (let [declaration (or (some #(when (contains? dispatch-specs
-                                                     (:declaration-key %))
-                                      %)
-                                    declarations)
-                              (last declarations))]
-          (throw
-           (compilation-exception
-            (ex-message error)
-            (merge (ex-data error)
-                   {:aguafria/phase :emit
-                    :aguafria/report (pretty-emission-error declaration error)
-                    :module module
-                    :declaration declaration})
-            (merge (:source declaration)
-                   (select-keys (meta (:form (ex-data error))) [:line :column]))
-            error)))))
-    (emit-source! module declarations))))
+   (if (:reloadable? @config)
+     (try
+       (emit/emit-reloadable-module module declarations dispatch-specs
+                                    state-specs
+                                    {:extra-body-source extra-body-source})
+       (catch clojure.lang.ExceptionInfo error
+         (let [declaration (or (some #(when (contains? dispatch-specs
+                                                       (:declaration-key %))
+                                        %)
+                                     declarations)
+                               (last declarations))]
+           (throw
+            (compilation-exception
+             (ex-message error)
+             (merge (ex-data error)
+                    {:aguafria/phase :emit
+                     :aguafria/report (pretty-emission-error declaration error)
+                     :module module
+                     :declaration declaration})
+             (merge (:source declaration)
+                    (select-keys (meta (:form (ex-data error))) [:line :column]))
+             error)))))
+     (emit-source! module declarations))))
 
 (defn- emit-dependency-reload-source!
   ([module declarations dispatch-specs state-specs]
@@ -1874,7 +1900,8 @@
 
 (defn- root-module-arguments
   [source-file {:keys [optimize target cpu zig-args modules
-                       module-dependencies module-zig-args]}]
+                       module-dependencies module-zig-args root-module-name]
+                :or {root-module-name "root"}}]
   (let [modules (sort-by (comp str key) modules)]
     (vec
      (concat
@@ -1884,7 +1911,7 @@
       (dependency-arguments
        (or (get module-dependencies :root) (map key modules)))
       zig-args
-      [(str "-Mroot=" (absolute-path source-file))]
+      [(str "-M" root-module-name "=" (absolute-path source-file))]
       (mapcat
        (fn [[module-name module-path]]
          (concat
@@ -2176,11 +2203,43 @@
        sort
        vec))
 
+(defn- cache-development-dependency-entry! [module-state entry]
+  (locking development-dependency-entry-cache
+    (.remove development-dependency-entry-cache (:module entry))
+    (let [weight (count (:source entry))]
+      (when (<= weight development-dependency-entry-weight-limit)
+        (.put development-dependency-entry-cache (:module entry)
+              {:state module-state :entry entry})
+        (loop [retained-weight (reduce + 0 (map #(count (:source (:entry %)))
+                                                (.values development-dependency-entry-cache)))]
+          (when (or (> (.size development-dependency-entry-cache)
+                       development-dependency-entry-limit)
+                    (> retained-weight development-dependency-entry-weight-limit))
+            (let [entries (.iterator (.values development-dependency-entry-cache))
+                  oldest (.next entries)]
+              (.remove entries)
+              (recur (- retained-weight (count (:source (:entry oldest))))))))))
+    entry))
+
+(defn- cached-development-dependency-entry [module module-state]
+  (locking development-dependency-entry-cache
+    (let [cached (.get development-dependency-entry-cache module)]
+      (when (identical? module-state (:state cached))
+        (:entry cached)))))
+
+(defn- development-dependency-entry-cache-stats []
+  (locking development-dependency-entry-cache
+    {:entry-count (.size development-dependency-entry-cache)
+     :entry-limit development-dependency-entry-limit
+     :weight-chars (reduce + 0 (map #(count (:source (:entry %)))
+                                    (.values development-dependency-entry-cache)))
+     :weight-limit-chars development-dependency-entry-weight-limit}))
+
 (defn- development-dependency-entry
   [module module-state direct-dependencies]
   (when module-state
     (locking development-dependency-entry-cache
-      (or (.get development-dependency-entry-cache module-state)
+      (or (cached-development-dependency-entry module module-state)
           (let [definitions (:definitions module-state)
                 declarations (vals definitions)
                 dependencies (direct-dependencies declarations)
@@ -2197,14 +2256,10 @@
                 ;; `refresh-project-dispatch!`.
                 specs (reloadable-dispatch-specs declarations)
                 state-specs (reloadable-state-specs declarations)
-                source (or (when-not (:source-dirty? module-state)
-                             (:dependency-source module-state))
-                           ;; Every converted dependency is selected through
-                           ;; its stable namespace container.  The ordinary
-                           ;; source remains the compiler root/inspection form;
-                           ;; exact referenced Vars replace this dependency
-                           ;; variant with reloadable dispatch below.
-                           (emit/emit-dependency-module module declarations))
+                ;; Emit the same facade whether the owner has been compiled
+                ;; already or only registered. Exact referenced Vars receive
+                ;; reloadable dispatch when the dependency slice is selected.
+                source (emit/emit-dependency-module module declarations)
                 entries
                 (->> specs
                      (keep (fn [[declaration-key spec]]
@@ -2234,60 +2289,56 @@
                        (declaration-named-module-imports declarations)
                        :dispatch-entries entries
                        :state-entries state-entries}]
-            ;; Module-state maps are immutable identities. A different source,
-            ;; definition, or dispatch publication necessarily creates a new
-            ;; map and therefore a cache miss without deep comparisons.
-            (when (> (.size development-dependency-entry-cache) 4096)
-              (.clear development-dependency-entry-cache))
-            (.put development-dependency-entry-cache module-state entry)
-            entry)))))
+            ;; Immutable-state identity still determines hits. An evicted or
+            ;; superseded state is regenerated with the same native source.
+            (cache-development-dependency-entry! module-state entry))))))
 
 (defn- development-dependency-snapshot
   ([declarations]
    (development-dependency-snapshot declarations @registry))
   ([declarations module-states]
-  (let [root-module (some-> declarations first :module str)
-        direct-dependencies
-        (fn [module-declarations]
-          (->> (emit/declaration-imports module-declarations)
-               vals
-               (keep :namespace)
-               (map str)
-               distinct
-               sort
-               vec))]
-    (loop [pending (direct-dependencies declarations)
+   (let [root-module (some-> declarations first :module str)
+         direct-dependencies
+         (fn [module-declarations]
+           (->> (emit/declaration-imports module-declarations)
+                vals
+                (keep :namespace)
+                (map str)
+                distinct
+                sort
+                vec))]
+     (loop [pending (direct-dependencies declarations)
            ;; A cyclic graph can reach the compilation root again. Its cells
            ;; are owned by the root library and must not be reintroduced as
            ;; dependency entries, where they would overwrite the owned entry.
-           seen (cond-> #{} root-module (conj root-module))
-           snapshot (sorted-map)]
-      (if-let [module (first pending)]
-        (if (contains? seen module)
-          (recur (next pending) seen snapshot)
-          (let [module-state (get module-states module)
-                {:keys [source dependencies named-module-imports
-                        dispatch-entries state-entries type-declarations]}
-                (development-dependency-entry module module-state
-                                              direct-dependencies)
-                snapshot
+            seen (cond-> #{} root-module (conj root-module))
+            snapshot (sorted-map)]
+       (if-let [module (first pending)]
+         (if (contains? seen module)
+           (recur (next pending) seen snapshot)
+           (let [module-state (get module-states module)
+                 {:keys [source dependencies named-module-imports
+                         dispatch-entries state-entries type-declarations]}
+                 (development-dependency-entry module module-state
+                                               direct-dependencies)
+                 snapshot
                 ;; A generated namespace may register before the cycle-safe
                 ;; dependency loader has populated its graph. Omit that module
                 ;; for now; converted jobs rebuild this immutable transitive
                 ;; snapshot after loading their reachable namespaces.
-                (cond-> snapshot
-                  (string? source)
-                  (assoc module {:module module
-                                 :source source
-                                 :dependencies dependencies
-                                 :type-declarations type-declarations
-                                 :named-module-imports named-module-imports
-                                 :dispatch-entries dispatch-entries
-                                 :state-entries state-entries}))]
-            (recur (concat (next pending) dependencies)
-                   (conj seen module)
-                   snapshot)))
-        snapshot)))))
+                 (cond-> snapshot
+                   (string? source)
+                   (assoc module {:module module
+                                  :source source
+                                  :dependencies dependencies
+                                  :type-declarations type-declarations
+                                  :named-module-imports named-module-imports
+                                  :dispatch-entries dispatch-entries
+                                  :state-entries state-entries}))]
+             (recur (concat (next pending) dependencies)
+                    (conj seen module)
+                    snapshot)))
+         snapshot)))))
 
 (defn- extend-development-dependency-snapshot
   "Add exact root-context dependencies that were absent from a live slice.
@@ -2340,42 +2391,42 @@
   JVM-call wrappers, so optimizer-visible calls remain normal Zig calls."
   ([declarations] (static-dependency-snapshot declarations identity))
   ([declarations prepare-module-declarations]
-  (let [root-module (some-> declarations first :module str)
-        direct-dependencies
-        (fn [module-declarations]
-          (->> (emit/declaration-imports module-declarations)
-               vals
-               (keep :namespace)
-               (map str)
-               distinct
-               sort
-               vec))]
-    (loop [pending (direct-dependencies declarations)
-           seen (cond-> #{} root-module (conj root-module))
-           snapshot (sorted-map)]
-      (if-let [module (first pending)]
-        (if (contains? seen module)
-          (recur (next pending) seen snapshot)
-          (let [module-state (ensure-static-module-source! module)
-                module-declarations (prepare-module-declarations
+   (let [root-module (some-> declarations first :module str)
+         direct-dependencies
+         (fn [module-declarations]
+           (->> (emit/declaration-imports module-declarations)
+                vals
+                (keep :namespace)
+                (map str)
+                distinct
+                sort
+                vec))]
+     (loop [pending (direct-dependencies declarations)
+            seen (cond-> #{} root-module (conj root-module))
+            snapshot (sorted-map)]
+       (if-let [module (first pending)]
+         (if (contains? seen module)
+           (recur (next pending) seen snapshot)
+           (let [module-state (ensure-static-module-source! module)
+                 module-declarations (prepare-module-declarations
                                       (vec (vals (:definitions module-state))))
-                dependencies (direct-dependencies module-declarations)
-                dependency-source
-                (emit/emit-static-dependency-module module module-declarations)]
-            (recur
-             (concat (next pending) dependencies)
-             (conj seen module)
-             (cond-> snapshot
-               (string? dependency-source)
-               (assoc module
-                      {:module module
-                       :source dependency-source
-                       :dependencies dependencies
-                       :named-module-imports
-                       (declaration-named-module-imports module-declarations)
-                       :dispatch-entries []
-                       :state-entries []})))))
-        snapshot)))))
+                 dependencies (direct-dependencies module-declarations)
+                 dependency-source
+                 (emit/emit-static-dependency-module module module-declarations)]
+             (recur
+              (concat (next pending) dependencies)
+              (conj seen module)
+              (cond-> snapshot
+                (string? dependency-source)
+                (assoc module
+                       {:module module
+                        :source dependency-source
+                        :dependencies dependencies
+                        :named-module-imports
+                        (declaration-named-module-imports module-declarations)
+                        :dispatch-entries []
+                        :state-entries []})))))
+         snapshot)))))
 
 (defn- project-generated-module-sources
   [modules overridden-names]
@@ -2472,7 +2523,7 @@
                   (or (some-> (:symbol reference) name)
                       (some-> (:zig-name reference)
                               (str/split #"\.") last))
-              candidate
+                  candidate
                   (get-in @declaration-reference-index
                           [:by-module target-module :by-name target-name])]
               (when candidate
@@ -2550,7 +2601,7 @@
                 ;; `declarations-live-slice`.
                 (into #{}
                       (comp (filter #(and (:public? %)
-                                         (not= :test (:kind %))))
+                                          (not= :test (:kind %))))
                             (keep :logical-id))
                       declarations)))
 
@@ -2835,7 +2886,7 @@
 (defn- linkage-entry?
   [logical-ids {:keys [declaration]}]
   (contains? logical-ids (or (:owner-logical-id declaration)
-                            (:state-container-id declaration) (:logical-id declaration))))
+                             (:state-container-id declaration) (:logical-id declaration))))
 
 (defn- development-linkage-modules
   "Return exact transitive modules whose embedded dispatch/state hooks must
@@ -2983,8 +3034,8 @@
            (fn [{:keys [declaration]}]
              (or (nil? slice-keys)
                  (contains? slice-keys (or (:owner-declaration-key declaration)
-                                          (:state-container-key declaration)
-                                          (:declaration-key declaration)))))
+                                           (:state-container-key declaration)
+                                           (:declaration-key declaration)))))
            linkable-dispatch-entries
            (vec (filter #(linkage-entry? logical-ids %) dispatch-entries))
            linkable-dispatch-entries
@@ -3026,7 +3077,7 @@
                             ;; use their stable accessor. The emitter exposes
                             ;; native layout/linkage helpers only for exact
                             ;; live state keys, so inactive Vars remain lazy.
-                            [(:declaration-key declaration) spec])))
+                                  [(:declaration-key declaration) spec])))
                      state-entries)
                source
                (emit-dependency-reload-source!
@@ -3049,6 +3100,35 @@
                          :state-entries linkable-state-entries))))))
    (or (empty dependency-snapshot) (sorted-map))
    dependency-snapshot))
+
+(defn- linkage-snapshot-source-weight
+  [snapshot]
+  (reduce + 0 (map #(count (:source %)) (vals snapshot))))
+
+(defn- cache-linkage-snapshot!
+  [cache-key snapshot]
+  (let [weight (linkage-snapshot-source-weight snapshot)]
+    (when (<= weight development-linkage-snapshot-weight-limit)
+      (swap! development-linkage-snapshot-cache
+             (fn [cached]
+               (if (contains? cached cache-key)
+                 cached
+                 (let [retained-weight
+                       (reduce + 0 (map linkage-snapshot-source-weight (vals cached)))
+                       cached (if (or (>= (count cached) development-linkage-snapshot-entry-limit)
+                                      (> (+ retained-weight weight)
+                                         development-linkage-snapshot-weight-limit))
+                                {} cached)]
+                   (assoc cached cache-key snapshot)))))))
+  snapshot)
+
+(defn- linkage-snapshot-cache-stats
+  []
+  (let [cached @development-linkage-snapshot-cache]
+    {:entry-count (count cached)
+     :entry-limit development-linkage-snapshot-entry-limit
+     :weight-chars (reduce + 0 (map linkage-snapshot-source-weight (vals cached)))
+     :weight-limit-chars development-linkage-snapshot-weight-limit}))
 
 (defn- linkable-development-dependency-snapshot
   [dependency-snapshot logical-ids]
@@ -3074,14 +3154,10 @@
          logical-ids]]
     (if-some [cached (get @development-linkage-snapshot-cache cache-key)]
       cached
-      (let [result
-            (compute-linkable-development-dependency-snapshot
-             dependency-snapshot logical-ids)]
-        (swap! development-linkage-snapshot-cache
-               (fn [cached]
-                 (let [cached (if (> (count cached) 1024) {} cached)]
-                   (assoc cached cache-key result))))
-        result))))
+      (cache-linkage-snapshot!
+       cache-key
+       (compute-linkable-development-dependency-snapshot
+        dependency-snapshot logical-ids)))))
 
 (defn- reachable-development-dependency-snapshot
   "Discard supplied modules that the exact compiler root cannot import.
@@ -3271,7 +3347,7 @@
                             vec)
                  development-root-module
                  (->> (concat (or development-root-dependencies
-                                   root-dependencies)
+                                  root-dependencies)
                               (filter external-names
                                       root-named-module-imports))
                       distinct
@@ -3279,13 +3355,13 @@
                       vec)}
                 (concat
                  (map (fn [[module {:keys [dependencies
-                                            named-module-imports]}]]
+                                           named-module-imports]}]]
                         [module (->> (concat dependencies
                                              (filter external-names
                                                      named-module-imports))
-                                    distinct
-                                    (sort-by str)
-                                    vec)])
+                                     distinct
+                                     (sort-by str)
+                                     vec)])
                       dependency-snapshot))))
         configured-module-dependencies
         (into {}
@@ -3402,7 +3478,7 @@
         ;; by this cycle-aware traversal without recursive `require` failure.
         (doseq [dependency (converted-project-dependencies module)]
           (load-converted-source-only! root dependency))
-        (when-not (string? (:source (get @registry module)))
+        (when-not (contains? (get @registry module) :definitions)
           (let [file (.getCanonicalFile (namespace-source-file root module))]
             (when-not (.isFile file)
               (throw
@@ -3494,7 +3570,7 @@
     (when (seq modules)
       (str "\n// Retain transitive development dispatch/state hooks.\n"
            (apply str
-                   (map (fn [{:keys [module alias]}]
+                  (map (fn [{:keys [module alias]}]
                          (str "const " alias " = @import("
                               (emit/emit-expr module) ")."
                               (emit/named-module-container module) ";\n"))
@@ -3557,8 +3633,8 @@
       (if-not (zero? (:exit compiled))
         compiled
         (let [link-command (vec (concat [(first command) "build-lib" bitcode "-dynamic"
-                                        "-lc" (str "-femit-bin=" output)]
-                                       libraries))]
+                                         "-lc" (str "-femit-bin=" output)]
+                                        libraries))]
           (assoc (run-command link-command directory) :command link-command))))))
 
 (def ^:dynamic ^:private *validate-without-linking?* false)
@@ -3577,7 +3653,7 @@
    (compile-source! module-name source declarations dependency-snapshot
                     development-root-source development-root-dependencies nil))
   ([module-name source declarations dependency-snapshot development-root-source
-   development-root-dependencies development-root-declarations]
+    development-root-dependencies development-root-declarations]
    (let [development-dependencies? true
          profile-module (development-profile-module declarations)
          profile-root-declarations
@@ -3658,221 +3734,228 @@
                          development-root-dependencies)
             dependency-snapshot (assoc :dependency-snapshot dependency-snapshot))
           declarations)
-        compiler-version (zig-version)
-        project-panic?
-        (boolean
-         (some (fn [declaration]
-                 (and (:public? declaration)
-                      (= "panic"
-                         (str (or (:zig-name declaration)
-                                  (:name declaration))))))
-               profile-root-declarations))
-        _
-        (when-not (contains? #{:shared :full}
-                             (:development-panic compiler-options))
-          (throw
-           (ex-info "Unsupported development panic profile"
-                    {:development-panic
-                     (:development-panic compiler-options)
-                     :supported [:shared :full]})))
-        shared-panic-platform?
-        (not (str/includes?
-              (str/lower-case (System/getProperty "os.name")) "windows"))
-        shared-panic?
-        (and (or (= :shared (:development-panic compiler-options))
-                 (str/includes? source "const __aguafria_jvm_guard ="))
-             shared-panic-platform?
-             (not project-panic?))
-        effective-development-panic
-        (cond project-panic? :project
-              shared-panic? :shared
-              :else :full)
+         compiler-version (zig-version)
+         project-panic?
+         (boolean
+          (some (fn [declaration]
+                  (and (:public? declaration)
+                       (= "panic"
+                          (str (or (:zig-name declaration)
+                                   (:name declaration))))))
+                profile-root-declarations))
+         _
+         (when-not (contains? #{:shared :full}
+                              (:development-panic compiler-options))
+           (throw
+            (ex-info "Unsupported development panic profile"
+                     {:development-panic
+                      (:development-panic compiler-options)
+                      :supported [:shared :full]})))
+         shared-panic-platform?
+         (not (str/includes?
+               (str/lower-case (System/getProperty "os.name")) "windows"))
+         shared-panic?
+         (and (or (= :shared (:development-panic compiler-options))
+                  (str/includes? source "const __aguafria_jvm_guard ="))
+              shared-panic-platform?
+              (not project-panic?))
+         effective-development-panic
+         (cond project-panic? :project
+               shared-panic? :shared
+               :else :full)
         ;; Storage/transport support is required even when a module supplies
         ;; its own panic handler. Panic forwarding remains independently chosen.
-        panic-support (development-panic-support! compiler-options compiler-version)
-        linkage-source
-        (development-linkage-source
-         dependency-snapshot development-linkage-logical-ids)
-        root-getter-linkage-source
-        (development-root-getter-linkage-source development-root-source)
-        debug-format (native-debug-format compiler-options)
-        hash-input [source compiler-version (boolean *native-test-context?*) debug-format
-                    (assoc (artifact/compiler-options-identity
+         panic-support (development-panic-support! compiler-options compiler-version)
+         linkage-source
+         (development-linkage-source
+          dependency-snapshot development-linkage-logical-ids)
+         root-getter-linkage-source
+         (development-root-getter-linkage-source development-root-source)
+         debug-format (native-debug-format compiler-options)
+         test-context-source
+         (when *native-test-context?*
+           (slurp (io/resource "aguafria/jvm_test_context.zig")))
+         hash-input [source compiler-version
+                     (if test-context-source {:initialization-source test-context-source} false)
+                     debug-format
+                     (assoc (artifact/compiler-options-identity
                              (select-keys compiler-options
                                           [:optimize :development-debug-info
                                            :target :cpu :zig-args
                                            :modules :module-dependencies
                                            :module-zig-args
                                            :module-cache-tokens]))
-                           :development-compiler-arguments
-                           (development-compiler-arguments compiler-options)
-                           :development-panic effective-development-panic
-                           :development-panic-support-hash (:hash panic-support)
+                            :development-compiler-arguments
+                            (development-compiler-arguments compiler-options)
+                            :development-panic effective-development-panic
+                            :development-panic-support-hash (:hash panic-support)
                            ;; Hash what Zig actually analyzes, not the larger
                            ;; runtime-only set used to select those references.
                            ;; A module becoming live must not invalidate an
                            ;; otherwise identical dependency-free artifact.
-                           :development-linkage-source linkage-source
-                           :development-root-getter-linkage-source
-                           root-getter-linkage-source)
-                    (System/getProperty "os.name") (System/getProperty "os.arch")]
-        source-hash (artifact/key-for :native-library hash-input)
-        module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
-        source-file (io/file module-dir "module.zig")
-        module-container (emit/named-module-container module-name)
-        wrapped-development-root?
-        (str/includes? (or development-root-source "")
-                       (str "pub const " module-container " = struct"))
-        compiler-source
-        (if development-dependencies?
-          (str (when shared-panic? development-panic-forwarder-source)
-               "// Aguafria development loader.\n"
-               "const aguafria_module = @import("
-               (emit/emit-expr (str module-name)) ")"
-               (when wrapped-development-root?
-                 (str "." module-container))
-               ";\n"
-               (when (and profile-module
-                          (not= (str module-name) profile-module))
-                 (str "const aguafria_profile_root = @import("
-                      (emit/emit-expr profile-module) ")."
-                      (emit/named-module-container profile-module) ";\n"))
-               (->> profile-root-declarations
-                    (filter :public?)
-                    (filter #(contains? #{:const :struct :fn :fn-proto}
-                                        (:kind %)))
-                    (map (fn [declaration]
-                           (let [declaration-name
-                                 (emit/identifier
-                                  (or (:zig-name declaration)
-                                      (:name declaration)))
-                                 source-module
-                                 (if (= (str module-name) profile-module)
-                                   "aguafria_module"
-                                   "aguafria_profile_root")]
-                             (str "pub const " declaration-name " = "
-                                  source-module "." declaration-name ";\n"))))
-                    distinct
-                    sort
-                    (apply str))
-               "comptime { _ = aguafria_module; }\n"
-               root-getter-linkage-source
-               linkage-source)
-          (str (when shared-panic? development-panic-forwarder-source) source))
-        asset-module (or profile-module (str module-name))
-        compiler-source (project/localize-module-assets asset-module
-                                                         compiler-source)
-        library-name (System/mapLibraryName
-                      (str "aguafria_" (safe-path-component module-name) "_" source-hash))
-        library-file (io/file module-dir library-name)
-        command (vec (concat
-                      [zig "build-lib" "-dynamic"
-                       (str "-femit-bin=" (.getAbsolutePath library-file))]
-                      (when panic-support [(:path panic-support)])
-                      (development-compiler-arguments compiler-options)
+                            :development-linkage-source linkage-source
+                            :development-root-getter-linkage-source
+                            root-getter-linkage-source)
+                     (System/getProperty "os.name") (System/getProperty "os.arch")]
+         source-hash (artifact/key-for :native-library hash-input)
+         module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
+         source-file (io/file module-dir "module.zig")
+         module-container (emit/named-module-container module-name)
+         wrapped-development-root?
+         (str/includes? (or development-root-source "")
+                        (str "pub const " module-container " = struct"))
+         compiler-source
+         (if development-dependencies?
+           (str (when shared-panic? development-panic-forwarder-source)
+                "// Aguafria development loader.\n"
+                "const aguafria_module = @import("
+                (emit/emit-expr (str module-name)) ")"
+                (when wrapped-development-root?
+                  (str "." module-container))
+                ";\n"
+                (when (and profile-module
+                           (not= (str module-name) profile-module))
+                  (str "const aguafria_profile_root = @import("
+                       (emit/emit-expr profile-module) ")."
+                       (emit/named-module-container profile-module) ";\n"))
+                (->> profile-root-declarations
+                     (filter :public?)
+                     (filter #(contains? #{:const :struct :fn :fn-proto}
+                                         (:kind %)))
+                     (map (fn [declaration]
+                            (let [declaration-name
+                                  (emit/identifier
+                                   (or (:zig-name declaration)
+                                       (:name declaration)))
+                                  source-module
+                                  (if (= (str module-name) profile-module)
+                                    "aguafria_module"
+                                    "aguafria_profile_root")]
+                              (str "pub const " declaration-name " = "
+                                   source-module "." declaration-name ";\n"))))
+                     distinct
+                     sort
+                     (apply str))
+                "comptime { _ = aguafria_module; }\n"
+                root-getter-linkage-source
+                linkage-source)
+           (str (when shared-panic? development-panic-forwarder-source) source))
+         asset-module (or profile-module (str module-name))
+         compiler-source (project/localize-module-assets
+                          asset-module (str compiler-source test-context-source))
+         library-name (System/mapLibraryName
+                       (str "aguafria_" (safe-path-component module-name) "_" source-hash))
+         library-file (io/file module-dir library-name)
+         command (vec (concat
+                       [zig "build-lib" "-dynamic"
+                        (str "-femit-bin=" (.getAbsolutePath library-file))]
+                       (when panic-support [(:path panic-support)])
+                       (development-compiler-arguments compiler-options)
                        (root-module-arguments source-file compiler-options)))
-        artifact {:module (str module-name) :hash source-hash :command command
-                  :development-panic effective-development-panic
-                  :development-panic-support-path (:path panic-support)
-                  :debug-format debug-format :native-test-context? *native-test-context?*}]
-    (.mkdirs ^File module-dir)
-    (when-not (= compiler-source
-                 (when (.isFile source-file) (slurp source-file)))
-      (spit source-file compiler-source))
-    (project/materialize-module-assets! asset-module compiler-source module-dir)
-    (let [artifact-lock (get (swap! artifact-locks
-                                    #(if (contains? % (.getAbsolutePath library-file))
-                                       %
-                                       (assoc % (.getAbsolutePath library-file) (Object.))))
-                             (.getAbsolutePath library-file))]
-      (locking artifact-lock
-        (let [cache-safe? (:cache-safe? compiler-options)
-              bundled (when cache-safe? (bundle/find-artifact cache-dir artifact))
-              cached? (boolean (and cache-safe? (or bundled (usable-native-artifact? library-file debug-format))))
-              deferred? (and bundle/*preparing* (not cached?)
-                             (not *validate-without-linking?*) (bundle/candidate artifact))
-              prepared? (and cache-safe? deferred? (bundle/prepared-artifact artifact))
-              explain-start (System/nanoTime)
-              result
-              (cond
-                prepared? nil
+         artifact {:module (str module-name) :hash source-hash :command command
+                   :development-panic effective-development-panic
+                   :development-panic-support-path (:path panic-support)
+                   :debug-format debug-format :native-test-context? *native-test-context?*}]
+     (.mkdirs ^File module-dir)
+     (when-not (= compiler-source
+                  (when (.isFile source-file) (slurp source-file)))
+       (spit source-file compiler-source))
+     (project/materialize-module-assets! asset-module compiler-source module-dir)
+     (let [artifact-lock (get (swap! artifact-locks
+                                     #(if (contains? % (.getAbsolutePath library-file))
+                                        %
+                                        (assoc % (.getAbsolutePath library-file) (Object.))))
+                              (.getAbsolutePath library-file))]
+       (locking artifact-lock
+         (let [cache-safe? (:cache-safe? compiler-options)
+               bundled (when cache-safe? (bundle/find-artifact cache-dir artifact))
+               cached? (boolean (and cache-safe? (or bundled (usable-native-artifact? library-file debug-format))))
+               deferred? (and bundle/*preparing* (not cached?)
+                              (not *validate-without-linking?*) (bundle/candidate artifact))
+               prepared? (and cache-safe? deferred? (bundle/prepared-artifact artifact))
+               explain-start (System/nanoTime)
+               result
+               (cond
+                 prepared? nil
 
-                (or *validate-without-linking?* deferred?)
-                (let [validation-command (assoc command 3 "-fno-emit-bin")]
-                  (assoc (run-command validation-command (.getAbsolutePath module-dir))
-                         :command validation-command))
+                 (or *validate-without-linking?* deferred?)
+                 (let [validation-command (assoc command 3 "-fno-emit-bin")]
+                   (assoc (run-command validation-command (.getAbsolutePath module-dir))
+                          :command validation-command))
 
-                (not cached?)
-                (let [temporary-file
-                      (io/file module-dir
-                               (str "." (java.util.UUID/randomUUID) "-" library-name))
-                      temporary-command
-                      (assoc command 3 (str "-femit-bin="
-                                            (.getAbsolutePath temporary-file)))]
-                  (try
-                    (let [result (run-library-command temporary-command
-                                                     (.getAbsolutePath module-dir)
-                                                     *native-test-context?*)]
-                      (when (and (zero? (:exit result))
-                                 (not (usable-artifact? temporary-file)))
-                        (throw (ex-info "Zig exited successfully but produced no usable library"
-                                        {:aguafria/phase :zig-compile
-                                         :module module-name
-                                         :source-path (.getAbsolutePath source-file)
-                                         :library-path (.getAbsolutePath library-file)
-                                         :command temporary-command})))
-                      (when (zero? (:exit result))
-                        (preserve-native-debug! temporary-file library-file debug-format)
-                        (move-replacing! temporary-file library-file))
-                      result)
-                    (finally
-                      (Files/deleteIfExists (.toPath temporary-file))))))]
-          (explanation/event!
-           {:event (cond (and result (not (zero? (:exit result)))) :compile-failed
-                         prepared? :preparation-cache-hit
-                         (or *validate-without-linking?* deferred?) :validated
-                         bundled :bundle-cache-hit
-                         cached? :disk-cache-hit
-                         :else :compiled)
-            :module module-name
-            :path (or (:library bundled)
-                      (.getAbsolutePath (if (or *validate-without-linking?* deferred?) source-file library-file)))
-            :duration-ms (/ (- (System/nanoTime) explain-start) 1e6)})
-          (when (and result (not (zero? (:exit result))))
-            (let [command (or (:command result) command)
-                  {:keys [message diagnostics report location]}
-                  (pretty-zig-error module-name source
-                                    (.getAbsolutePath source-file)
-                                    command (:err result))]
-              (throw
-               (compilation-exception
-                message
-                {:aguafria/phase :zig-compile
-                 :aguafria/report report
-                 :module module-name
-                 :source-path (.getAbsolutePath source-file)
-                 :library-path (.getAbsolutePath library-file)
-                 :command command
-                 :exit (:exit result)
-                 :stdout (:out result)
-                 :stderr (:err result)
-                 :diagnostics diagnostics}
-                location nil))))
-          (bundle/observe!
-           (merge artifact
-                  {:bundle bundled
-                   :cached? cached?
-                   :zig-version compiler-version
-                   :development-debug-info (:development-debug-info compiler-options)
-                   :development-panic-support-size-bytes (:size-bytes panic-support)
-                   :compiled-source source
-                   :source-path (.getAbsolutePath source-file)
-                   :library-path (or (:library bundled) (.getAbsolutePath library-file))
-                   :debug-symbol-path (or (:debug bundled)
-                                          (when debug-format
-                                            (.getAbsolutePath (native-debug-file library-file))))
-                   :library-size-bytes (if bundled (:library-bytes bundled) (.length library-file))
-                   :compiler-output result}))))))))
+                 (not cached?)
+                 (let [temporary-file
+                       (io/file module-dir
+                                (str "." (java.util.UUID/randomUUID) "-" library-name))
+                       temporary-command
+                       (assoc command 3 (str "-femit-bin="
+                                             (.getAbsolutePath temporary-file)))]
+                   (try
+                     (let [result (run-library-command temporary-command
+                                                       (.getAbsolutePath module-dir)
+                                                       *native-test-context?*)]
+                       (when (and (zero? (:exit result))
+                                  (not (usable-artifact? temporary-file)))
+                         (throw (ex-info "Zig exited successfully but produced no usable library"
+                                         {:aguafria/phase :zig-compile
+                                          :module module-name
+                                          :source-path (.getAbsolutePath source-file)
+                                          :library-path (.getAbsolutePath library-file)
+                                          :command temporary-command})))
+                       (when (zero? (:exit result))
+                         (preserve-native-debug! temporary-file library-file debug-format)
+                         (move-replacing! temporary-file library-file))
+                       result)
+                     (finally
+                       (Files/deleteIfExists (.toPath temporary-file))))))]
+           (explanation/event!
+            {:event (cond (and result (not (zero? (:exit result)))) :compile-failed
+                          prepared? :preparation-cache-hit
+                          (or *validate-without-linking?* deferred?) :validated
+                          bundled :bundle-cache-hit
+                          cached? :disk-cache-hit
+                          :else :compiled)
+             :module module-name
+             :artifact-key source-hash
+             :bundle-id (:id bundled)
+             :path (or (:library bundled)
+                       (.getAbsolutePath (if (or *validate-without-linking?* deferred?) source-file library-file)))
+             :duration-ms (/ (- (System/nanoTime) explain-start) 1e6)})
+           (when (and result (not (zero? (:exit result))))
+             (let [command (or (:command result) command)
+                   {:keys [message diagnostics report location]}
+                   (pretty-zig-error module-name source
+                                     (.getAbsolutePath source-file)
+                                     command (:err result))]
+               (throw
+                (compilation-exception
+                 message
+                 {:aguafria/phase :zig-compile
+                  :aguafria/report report
+                  :module module-name
+                  :source-path (.getAbsolutePath source-file)
+                  :library-path (.getAbsolutePath library-file)
+                  :command command
+                  :exit (:exit result)
+                  :stdout (:out result)
+                  :stderr (:err result)
+                  :diagnostics diagnostics}
+                 location nil))))
+           (bundle/observe!
+            (merge artifact
+                   {:bundle bundled
+                    :cached? cached?
+                    :zig-version compiler-version
+                    :development-debug-info (:development-debug-info compiler-options)
+                    :development-panic-support-size-bytes (:size-bytes panic-support)
+                    :compiled-source source
+                    :source-path (.getAbsolutePath source-file)
+                    :library-path (or (:library bundled) (.getAbsolutePath library-file))
+                    :debug-symbol-path (or (:debug bundled)
+                                           (when debug-format
+                                             (.getAbsolutePath (native-debug-file library-file))))
+                    :library-size-bytes (if bundled (:library-bytes bundled) (.length library-file))
+                    :compiler-output result}))))))))
 
 (defn- scalar-key
   [type]
@@ -3918,22 +4001,22 @@
                    (emit/identifier (or (:zig-name declaration)
                                         (:name declaration))))))
   ([^Linker linker ^SymbolLookup lookup declaration symbol-name]
-  (if-not (supported-signature? declaration)
-    {:declaration declaration
-     :unsupported? true}
-    (let [address (-> (.find lookup symbol-name)
-                      (.orElseThrow
-                       (reify java.util.function.Supplier
-                         (get [_]
-                           (ex-info "Exported Zig symbol was not found"
-                                    {:symbol symbol-name
-                                     :declaration declaration})))))
-          descriptor (function-descriptor declaration)
-          options (into-array Linker$Option [])
-          handle (.downcallHandle linker address descriptor options)]
-      {:declaration declaration
-       :descriptor descriptor
-       :handle handle}))))
+   (if-not (supported-signature? declaration)
+     {:declaration declaration
+      :unsupported? true}
+     (let [address (-> (.find lookup symbol-name)
+                       (.orElseThrow
+                        (reify java.util.function.Supplier
+                          (get [_]
+                            (ex-info "Exported Zig symbol was not found"
+                                     {:symbol symbol-name
+                                      :declaration declaration})))))
+           descriptor (function-descriptor declaration)
+           options (into-array Linker$Option [])
+           handle (.downcallHandle linker address descriptor options)]
+       {:declaration declaration
+        :descriptor descriptor
+        :handle handle}))))
 
 (defn- bind-error-name-set
   [^Linker linker ^SymbolLookup lookup symbol-name]
@@ -4009,187 +4092,187 @@
                          (.orElseThrow (.find lookup (str symbol "_panic_message")))
                          (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
                          (make-array Linker$Option 0))]
-  (if (= :direct mode)
-    (assoc (bind-function linker lookup declaration symbol)
-           :bridge-spec spec :panic-handle panic-handle :panic-context panic-context)
-    (let [find-required
-          (fn [symbol-name]
-            (-> (.find lookup symbol-name)
-                (.orElseThrow
-                 (reify java.util.function.Supplier
-                   (get [_]
-                     (ex-info "JVM Zig callable bridge symbol was not found"
-                              {:function qualified-name
-                               :symbol symbol-name
-                               :declaration declaration}))))))
-          argument-layouts
-          (mapv (fn [{:keys [type]} argument-mode]
-                  (if (= :scalar argument-mode)
-                    (get scalar-layouts (scalar-key type))
-                    ValueLayout/JAVA_LONG))
-                (:args declaration) argument-modes)
-          argument-layouts (cond-> argument-layouts
-                             (= :native return-mode)
-                             (conj ValueLayout/JAVA_LONG))
-          argument-layouts-array (into-array MemoryLayout argument-layouts)
-          descriptor
-          (if (= :scalar return-mode)
-            (FunctionDescriptor/of
-             ^MemoryLayout (get scalar-layouts
-                                (scalar-key (:return declaration)))
-             argument-layouts-array)
-            (FunctionDescriptor/ofVoid argument-layouts-array))
-          options (into-array Linker$Option [])
-          handle (.downcallHandle linker (find-required symbol)
-                                  descriptor options)
-          bind-long-getter
-          (fn [symbol-name]
-            (.downcallHandle
-             linker
-             (find-required symbol-name)
-             (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
-                                    (make-array MemoryLayout 0))
-             options))
-          bind-present
-          (fn [symbol-name]
-            (.downcallHandle
-             linker (find-required symbol-name)
-             (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_BYTE
-                                    (into-array MemoryLayout
-                                                [ValueLayout/JAVA_LONG]))
-             options))
-          bind-address
-          (fn [symbol-name]
-            (.downcallHandle
-             linker (find-required symbol-name)
-             (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
-                                    (into-array MemoryLayout
-                                                [ValueLayout/JAVA_LONG]))
-             options))
-          bind-optional-set
-          (fn [symbol-name]
-            (.downcallHandle
-             linker (find-required symbol-name)
-             (FunctionDescriptor/ofVoid
-              (into-array MemoryLayout [ValueLayout/JAVA_LONG
-                                        ValueLayout/JAVA_BYTE
-                                        ValueLayout/JAVA_LONG]))
-             options))
-          bind-slice-set
-          (fn [symbol-name]
-            (.downcallHandle
-             linker (find-required symbol-name)
-             (FunctionDescriptor/ofVoid
-              (into-array MemoryLayout [ValueLayout/JAVA_LONG
-                                        ValueLayout/JAVA_LONG
-                                        ValueLayout/JAVA_LONG]))
-             options))
-          bind-error-set
-          (fn [symbol-name]
-            (.downcallHandle
-             linker (find-required symbol-name)
-             (FunctionDescriptor/ofVoid
-              (into-array MemoryLayout [ValueLayout/JAVA_LONG
-                                        ValueLayout/JAVA_LONG]))
-             options))
-          bind-optional-spec
-          (fn [{:keys [optional? optional-set optional-present
-                       optional-payload-address optional-payload-size
-                       slice? slice-set slice-pointer slice-length
-                       slice-element-size slice-element-align
-                       error-union? error-set-ok error-set-error
-                       error-present error-code error-name-pointer
-                       error-name-length error-payload-address
-                       error-payload-size]
-                :as optional-spec}]
-            (let [bound
-                  (cond-> optional-spec
-                    optional?
-                    (assoc
-                     :optional-set-handle (bind-optional-set optional-set)
-                     :optional-present-handle (bind-present optional-present)
-                     :optional-payload-address-handle
-                     (bind-address optional-payload-address)
-                     :optional-payload-size-handle
-                     (bind-long-getter optional-payload-size))
-                    slice?
-                    (assoc
-                     :slice-set-handle (bind-slice-set slice-set)
-                     :slice-pointer-handle (bind-address slice-pointer)
-                     :slice-length-handle (bind-address slice-length)
-                     :slice-element-size-handle
-                     (bind-long-getter slice-element-size)
-                     :slice-element-align-handle
-                     (bind-long-getter slice-element-align))
-                    error-union?
-                    (assoc
-                     :error-set-ok-handle (bind-error-set error-set-ok)
-                     :error-set-error-handle (bind-error-name-set linker lookup error-set-error)
-                     :error-present-handle (bind-present error-present)
-                     :error-code-handle (bind-address error-code)
-                     :error-name-pointer-handle (bind-address error-name-pointer)
-                     :error-name-length-handle (bind-address error-name-length)
-                     :error-payload-address-handle
-                     (bind-address error-payload-address)
-                     :error-payload-size-handle
-                     (bind-long-getter error-payload-size)))]
-              (assoc bound :nested-storage-binding
-                     (bind-nested-storage-spec
-                      (:nested-storage-spec optional-spec)
-                      {:bind-long bind-long-getter
-                       :bind-present bind-present
-                       :bind-address bind-address
-                       :bind-optional-set bind-optional-set
-                       :bind-slice-set bind-slice-set
-                       :bind-error-set bind-error-set
-                       :bind-error-name #(bind-error-name-set linker lookup %)}))))]
-      (cond-> {:declaration declaration
-               :descriptor descriptor
-               :handle handle
-               :panic-handle panic-handle
-               :panic-context panic-context
-               :bridge-spec spec
-               :native-argument-bindings
-               (mapv (fn [argument-spec]
-                       (when argument-spec
-                         (bind-optional-spec
-                          (assoc argument-spec
-                                 :size-getter-handle
-                                 (bind-long-getter (:size-getter argument-spec))
-                                 :align-getter-handle
-                                 (bind-long-getter (:align-getter argument-spec))))))
-                     native-argument-specs)}
-        (= :native return-mode)
-        (merge
-         (bind-optional-spec
-          {:optional? (:result-optional? spec)
-           :optional-child-type (:result-optional-child-type spec)
-           :optional-set (:result-optional-set spec)
-           :optional-present (:result-optional-present spec)
-           :optional-payload-address (:result-optional-payload-address spec)
-           :optional-payload-size (:result-optional-payload-size spec)
-           :slice? (:result-slice? spec)
-           :slice-element-type (:result-slice-element-type spec)
-           :slice-set (:result-slice-set spec)
-           :slice-pointer (:result-slice-pointer spec)
-           :slice-length (:result-slice-length spec)
-           :slice-element-size (:result-slice-element-size spec)
-           :slice-element-align (:result-slice-element-align spec)
-           :error-union? (:result-error-union? spec)
-           :error-payload-type (:result-error-payload-type spec)
-           :error-set (:result-error-set spec)
-           :error-set-ok (:result-error-set-ok spec)
-           :error-set-error (:result-error-set-error spec)
-           :error-present (:result-error-present spec)
-           :error-code (:result-error-code spec)
-           :error-name-pointer (:result-error-name-pointer spec)
-           :error-name-length (:result-error-name-length spec)
-           :error-payload-address (:result-error-payload-address spec)
-           :error-payload-size (:result-error-payload-size spec)
-           :nested-storage-spec (:result-nested-storage-spec spec)})
-         {:result-size-getter-handle (bind-long-getter result-size-getter)
-          :result-align-getter-handle
-          (bind-long-getter result-align-getter)}))))))
+    (if (= :direct mode)
+      (assoc (bind-function linker lookup declaration symbol)
+             :bridge-spec spec :panic-handle panic-handle :panic-context panic-context)
+      (let [find-required
+            (fn [symbol-name]
+              (-> (.find lookup symbol-name)
+                  (.orElseThrow
+                   (reify java.util.function.Supplier
+                     (get [_]
+                       (ex-info "JVM Zig callable bridge symbol was not found"
+                                {:function qualified-name
+                                 :symbol symbol-name
+                                 :declaration declaration}))))))
+            argument-layouts
+            (mapv (fn [{:keys [type]} argument-mode]
+                    (if (= :scalar argument-mode)
+                      (get scalar-layouts (scalar-key type))
+                      ValueLayout/JAVA_LONG))
+                  (:args declaration) argument-modes)
+            argument-layouts (cond-> argument-layouts
+                               (= :native return-mode)
+                               (conj ValueLayout/JAVA_LONG))
+            argument-layouts-array (into-array MemoryLayout argument-layouts)
+            descriptor
+            (if (= :scalar return-mode)
+              (FunctionDescriptor/of
+               ^MemoryLayout (get scalar-layouts
+                                  (scalar-key (:return declaration)))
+               argument-layouts-array)
+              (FunctionDescriptor/ofVoid argument-layouts-array))
+            options (into-array Linker$Option [])
+            handle (.downcallHandle linker (find-required symbol)
+                                    descriptor options)
+            bind-long-getter
+            (fn [symbol-name]
+              (.downcallHandle
+               linker
+               (find-required symbol-name)
+               (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
+                                      (make-array MemoryLayout 0))
+               options))
+            bind-present
+            (fn [symbol-name]
+              (.downcallHandle
+               linker (find-required symbol-name)
+               (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_BYTE
+                                      (into-array MemoryLayout
+                                                  [ValueLayout/JAVA_LONG]))
+               options))
+            bind-address
+            (fn [symbol-name]
+              (.downcallHandle
+               linker (find-required symbol-name)
+               (FunctionDescriptor/of ^MemoryLayout ValueLayout/JAVA_LONG
+                                      (into-array MemoryLayout
+                                                  [ValueLayout/JAVA_LONG]))
+               options))
+            bind-optional-set
+            (fn [symbol-name]
+              (.downcallHandle
+               linker (find-required symbol-name)
+               (FunctionDescriptor/ofVoid
+                (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                          ValueLayout/JAVA_BYTE
+                                          ValueLayout/JAVA_LONG]))
+               options))
+            bind-slice-set
+            (fn [symbol-name]
+              (.downcallHandle
+               linker (find-required symbol-name)
+               (FunctionDescriptor/ofVoid
+                (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                          ValueLayout/JAVA_LONG
+                                          ValueLayout/JAVA_LONG]))
+               options))
+            bind-error-set
+            (fn [symbol-name]
+              (.downcallHandle
+               linker (find-required symbol-name)
+               (FunctionDescriptor/ofVoid
+                (into-array MemoryLayout [ValueLayout/JAVA_LONG
+                                          ValueLayout/JAVA_LONG]))
+               options))
+            bind-optional-spec
+            (fn [{:keys [optional? optional-set optional-present
+                         optional-payload-address optional-payload-size
+                         slice? slice-set slice-pointer slice-length
+                         slice-element-size slice-element-align
+                         error-union? error-set-ok error-set-error
+                         error-present error-code error-name-pointer
+                         error-name-length error-payload-address
+                         error-payload-size]
+                  :as optional-spec}]
+              (let [bound
+                    (cond-> optional-spec
+                      optional?
+                      (assoc
+                       :optional-set-handle (bind-optional-set optional-set)
+                       :optional-present-handle (bind-present optional-present)
+                       :optional-payload-address-handle
+                       (bind-address optional-payload-address)
+                       :optional-payload-size-handle
+                       (bind-long-getter optional-payload-size))
+                      slice?
+                      (assoc
+                       :slice-set-handle (bind-slice-set slice-set)
+                       :slice-pointer-handle (bind-address slice-pointer)
+                       :slice-length-handle (bind-address slice-length)
+                       :slice-element-size-handle
+                       (bind-long-getter slice-element-size)
+                       :slice-element-align-handle
+                       (bind-long-getter slice-element-align))
+                      error-union?
+                      (assoc
+                       :error-set-ok-handle (bind-error-set error-set-ok)
+                       :error-set-error-handle (bind-error-name-set linker lookup error-set-error)
+                       :error-present-handle (bind-present error-present)
+                       :error-code-handle (bind-address error-code)
+                       :error-name-pointer-handle (bind-address error-name-pointer)
+                       :error-name-length-handle (bind-address error-name-length)
+                       :error-payload-address-handle
+                       (bind-address error-payload-address)
+                       :error-payload-size-handle
+                       (bind-long-getter error-payload-size)))]
+                (assoc bound :nested-storage-binding
+                       (bind-nested-storage-spec
+                        (:nested-storage-spec optional-spec)
+                        {:bind-long bind-long-getter
+                         :bind-present bind-present
+                         :bind-address bind-address
+                         :bind-optional-set bind-optional-set
+                         :bind-slice-set bind-slice-set
+                         :bind-error-set bind-error-set
+                         :bind-error-name #(bind-error-name-set linker lookup %)}))))]
+        (cond-> {:declaration declaration
+                 :descriptor descriptor
+                 :handle handle
+                 :panic-handle panic-handle
+                 :panic-context panic-context
+                 :bridge-spec spec
+                 :native-argument-bindings
+                 (mapv (fn [argument-spec]
+                         (when argument-spec
+                           (bind-optional-spec
+                            (assoc argument-spec
+                                   :size-getter-handle
+                                   (bind-long-getter (:size-getter argument-spec))
+                                   :align-getter-handle
+                                   (bind-long-getter (:align-getter argument-spec))))))
+                       native-argument-specs)}
+          (= :native return-mode)
+          (merge
+           (bind-optional-spec
+            {:optional? (:result-optional? spec)
+             :optional-child-type (:result-optional-child-type spec)
+             :optional-set (:result-optional-set spec)
+             :optional-present (:result-optional-present spec)
+             :optional-payload-address (:result-optional-payload-address spec)
+             :optional-payload-size (:result-optional-payload-size spec)
+             :slice? (:result-slice? spec)
+             :slice-element-type (:result-slice-element-type spec)
+             :slice-set (:result-slice-set spec)
+             :slice-pointer (:result-slice-pointer spec)
+             :slice-length (:result-slice-length spec)
+             :slice-element-size (:result-slice-element-size spec)
+             :slice-element-align (:result-slice-element-align spec)
+             :error-union? (:result-error-union? spec)
+             :error-payload-type (:result-error-payload-type spec)
+             :error-set (:result-error-set spec)
+             :error-set-ok (:result-error-set-ok spec)
+             :error-set-error (:result-error-set-error spec)
+             :error-present (:result-error-present spec)
+             :error-code (:result-error-code spec)
+             :error-name-pointer (:result-error-name-pointer spec)
+             :error-name-length (:result-error-name-length spec)
+             :error-payload-address (:result-error-payload-address spec)
+             :error-payload-size (:result-error-payload-size spec)
+             :nested-storage-spec (:result-nested-storage-spec spec)})
+           {:result-size-getter-handle (bind-long-getter result-size-getter)
+            :result-align-getter-handle
+            (bind-long-getter result-align-getter)}))))))
 
 (defn- bind-dispatch
   [^Linker linker ^SymbolLookup lookup declaration spec required?]
@@ -4297,7 +4380,7 @@
     (.invokeWithArguments
      ^MethodHandle handle
      (ArrayList. ^java.util.Collection
-                 [(byte (if enabled? 1 0))])))
+      [(byte (if enabled? 1 0))])))
   nil)
 
 (defn- bind-publication-epoch!
@@ -4319,7 +4402,7 @@
              setter (.downcallHandle linker address descriptor options)]
          (.invokeWithArguments ^MethodHandle setter
                                (ArrayList. ^java.util.Collection
-                                           [(long epoch-address)]))
+                                [(long epoch-address)]))
          setter))
      (->> specs
           (keep :publication-epoch-setter)
@@ -4408,7 +4491,7 @@
                    (ex-info "JVM Zig value accessor was not found"
                             {:value qualified-name
                              :symbol symbol-name
-                             :declaration declaration}))))) )
+                             :declaration declaration}))))))
         bind-zero
         (fn [symbol-name layout]
           (.downcallHandle linker
@@ -4465,43 +4548,43 @@
                (bind-zero size-getter ValueLayout/JAVA_LONG)
                :align-getter-handle
                (bind-zero align-getter ValueLayout/JAVA_LONG)}
-         (:optional? spec)
-         (assoc
-          :optional-set-handle (bind-optional-set (:optional-set spec))
-          :optional-present-handle
-          (bind-one (:optional-present spec) ValueLayout/JAVA_BYTE)
-          :optional-payload-address-handle
-          (bind-one (:optional-payload-address spec) ValueLayout/JAVA_LONG)
-          :optional-payload-size-handle
-          (bind-zero (:optional-payload-size spec)
-                     ValueLayout/JAVA_LONG))
-         (:slice? spec)
-         (assoc
-          :slice-set-handle (bind-slice-set (:slice-set spec))
-          :slice-pointer-handle
-          (bind-one (:slice-pointer spec) ValueLayout/JAVA_LONG)
-          :slice-length-handle
-          (bind-one (:slice-length spec) ValueLayout/JAVA_LONG)
-          :slice-element-size-handle
-          (bind-zero (:slice-element-size spec) ValueLayout/JAVA_LONG)
-          :slice-element-align-handle
-          (bind-zero (:slice-element-align spec) ValueLayout/JAVA_LONG))
-         (:error-union? spec)
-         (assoc
-          :error-set-ok-handle (bind-error-set (:error-set-ok spec))
-          :error-set-error-handle (bind-error-name-set linker lookup (:error-set-error spec))
-          :error-present-handle
-          (bind-one (:error-present spec) ValueLayout/JAVA_BYTE)
-          :error-code-handle
-          (bind-one (:error-code spec) ValueLayout/JAVA_LONG)
-          :error-name-pointer-handle
-          (bind-one (:error-name-pointer spec) ValueLayout/JAVA_LONG)
-          :error-name-length-handle
-          (bind-one (:error-name-length spec) ValueLayout/JAVA_LONG)
-          :error-payload-address-handle
-          (bind-one (:error-payload-address spec) ValueLayout/JAVA_LONG)
-          :error-payload-size-handle
-          (bind-zero (:error-payload-size spec) ValueLayout/JAVA_LONG)))]
+               (:optional? spec)
+               (assoc
+                :optional-set-handle (bind-optional-set (:optional-set spec))
+                :optional-present-handle
+                (bind-one (:optional-present spec) ValueLayout/JAVA_BYTE)
+                :optional-payload-address-handle
+                (bind-one (:optional-payload-address spec) ValueLayout/JAVA_LONG)
+                :optional-payload-size-handle
+                (bind-zero (:optional-payload-size spec)
+                           ValueLayout/JAVA_LONG))
+               (:slice? spec)
+               (assoc
+                :slice-set-handle (bind-slice-set (:slice-set spec))
+                :slice-pointer-handle
+                (bind-one (:slice-pointer spec) ValueLayout/JAVA_LONG)
+                :slice-length-handle
+                (bind-one (:slice-length spec) ValueLayout/JAVA_LONG)
+                :slice-element-size-handle
+                (bind-zero (:slice-element-size spec) ValueLayout/JAVA_LONG)
+                :slice-element-align-handle
+                (bind-zero (:slice-element-align spec) ValueLayout/JAVA_LONG))
+               (:error-union? spec)
+               (assoc
+                :error-set-ok-handle (bind-error-set (:error-set-ok spec))
+                :error-set-error-handle (bind-error-name-set linker lookup (:error-set-error spec))
+                :error-present-handle
+                (bind-one (:error-present spec) ValueLayout/JAVA_BYTE)
+                :error-code-handle
+                (bind-one (:error-code spec) ValueLayout/JAVA_LONG)
+                :error-name-pointer-handle
+                (bind-one (:error-name-pointer spec) ValueLayout/JAVA_LONG)
+                :error-name-length-handle
+                (bind-one (:error-name-length spec) ValueLayout/JAVA_LONG)
+                :error-payload-address-handle
+                (bind-one (:error-payload-address spec) ValueLayout/JAVA_LONG)
+                :error-payload-size-handle
+                (bind-zero (:error-payload-size spec) ValueLayout/JAVA_LONG)))]
          (assoc bound :nested-storage-binding
                 (bind-nested-storage-spec
                  (:nested-storage-spec spec)
@@ -4600,52 +4683,52 @@
                           (assoc field-spec
                                  :offset-getter-handle (bind-long offset-getter)
                                  :size-getter-handle (bind-long size-getter))
-                     (not union?)
-                     (assoc :default-getter-handle (bind-long default-getter))
-                     union?
-                     (assoc :union-init-handle (bind-union-init union-init))
-                     (and union? (:tagged-union? spec))
-                     (assoc
-                      :union-active-handle
-                      (bind-union-active union-active)
-                      :union-payload-address-handle
-                      (bind-address-from-address union-payload-address))
-                     optional?
-                     (assoc
-                      :optional-set-handle
-                      (bind-optional-set optional-set)
-                      :optional-present-handle
-                      (bind-union-active optional-present)
-                      :optional-payload-address-handle
-                      (bind-address-from-address optional-payload-address)
-                      :optional-payload-size-handle
-                      (bind-long optional-payload-size))
-                     slice?
-                     (assoc
-                      :slice-set-handle (bind-slice-set slice-set)
-                      :slice-pointer-handle
-                      (bind-address-from-address slice-pointer)
-                      :slice-length-handle
-                      (bind-address-from-address slice-length)
-                      :slice-element-size-handle
-                      (bind-long slice-element-size)
-                      :slice-element-align-handle
-                      (bind-long slice-element-align))
-                     error-union?
-                     (assoc
-                      :error-set-ok-handle (bind-union-init error-set-ok)
-                      :error-set-error-handle (bind-error-name-set linker lookup error-set-error)
-                      :error-present-handle (bind-union-active error-present)
-                      :error-code-handle
-                      (bind-address-from-address error-code)
-                      :error-name-pointer-handle
-                      (bind-address-from-address error-name-pointer)
-                      :error-name-length-handle
-                      (bind-address-from-address error-name-length)
-                      :error-payload-address-handle
-                      (bind-address-from-address error-payload-address)
-                      :error-payload-size-handle
-                      (bind-long error-payload-size)))]
+                           (not union?)
+                           (assoc :default-getter-handle (bind-long default-getter))
+                           union?
+                           (assoc :union-init-handle (bind-union-init union-init))
+                           (and union? (:tagged-union? spec))
+                           (assoc
+                            :union-active-handle
+                            (bind-union-active union-active)
+                            :union-payload-address-handle
+                            (bind-address-from-address union-payload-address))
+                           optional?
+                           (assoc
+                            :optional-set-handle
+                            (bind-optional-set optional-set)
+                            :optional-present-handle
+                            (bind-union-active optional-present)
+                            :optional-payload-address-handle
+                            (bind-address-from-address optional-payload-address)
+                            :optional-payload-size-handle
+                            (bind-long optional-payload-size))
+                           slice?
+                           (assoc
+                            :slice-set-handle (bind-slice-set slice-set)
+                            :slice-pointer-handle
+                            (bind-address-from-address slice-pointer)
+                            :slice-length-handle
+                            (bind-address-from-address slice-length)
+                            :slice-element-size-handle
+                            (bind-long slice-element-size)
+                            :slice-element-align-handle
+                            (bind-long slice-element-align))
+                           error-union?
+                           (assoc
+                            :error-set-ok-handle (bind-union-init error-set-ok)
+                            :error-set-error-handle (bind-error-name-set linker lookup error-set-error)
+                            :error-present-handle (bind-union-active error-present)
+                            :error-code-handle
+                            (bind-address-from-address error-code)
+                            :error-name-pointer-handle
+                            (bind-address-from-address error-name-pointer)
+                            :error-name-length-handle
+                            (bind-address-from-address error-name-length)
+                            :error-payload-address-handle
+                            (bind-address-from-address error-payload-address)
+                            :error-payload-size-handle
+                            (bind-long error-payload-size)))]
                      (assoc bound :nested-storage-binding
                             (bind-nested-storage-spec
                              nested-storage-spec
@@ -4672,120 +4755,125 @@
   ([compiled declarations dispatch-specs dependency-entries
     dependency-state-entries jvm-callable-specs jvm-value-specs
     jvm-type-specs]
-  (when *compile-only?*
-    (throw (ex-info "Native library loading is forbidden during compile-only preparation"
-                    {:aguafria/phase :compile-only :library (:library-path compiled)})))
-  (let [arena (Arena/ofShared)]
-    (try
-      (let [lookup (if-let [entry (:bundle compiled)]
-                     (bundle/symbol-lookup entry)
-                     (SymbolLookup/libraryLookup
-                      ^Path (.toPath (io/file (:library-path compiled))) arena))
-          linker (Linker/nativeLinker)
-          functions (->> declarations
-                         (filter #(and (= :fn (:kind %))
-                                       (or (:export? %)
-                                           (:development-export? %))))
-                         (map (fn [declaration]
-                                [(:qualified-name declaration)
-                                 (bind-function linker lookup declaration)]))
-                         (into {}))
-          functions
-          (reduce-kv
-           (fn [functions qualified-name spec]
-             (assoc functions qualified-name
-                    (bind-jvm-callable linker lookup qualified-name spec)))
-           functions
-           jvm-callable-specs)
-          values
-          (reduce-kv
-           (fn [values qualified-name spec]
-             (assoc values qualified-name
-                    (bind-jvm-value linker lookup qualified-name spec)))
-           {}
-           jvm-value-specs)
-          types
-          (reduce-kv
-           (fn [types qualified-name spec]
-             (assoc types qualified-name
-                    (bind-jvm-type linker lookup qualified-name spec)))
-           {}
-           jvm-type-specs)
-          declarations-by-key (into {} (map (juxt :declaration-key identity))
-                                    declarations)
-          dispatch-entries
-          (concat
-           (keep (fn [[declaration-key spec]]
-                   (when-let [declaration (or (:declaration spec) (get declarations-by-key declaration-key))]
-                     {:declaration declaration :spec spec :owned? true}))
-                 dispatch-specs)
-           dependency-entries)
-          dispatch-bindings
-          (into {}
-                (keep (fn [{:keys [declaration spec owned?]}]
-                        (when-let [binding (bind-dispatch linker lookup declaration
-                                                         spec owned?)]
-                          [(:version-key spec)
-                           (assoc binding :owned? owned?)])))
-                dispatch-entries)
-          state-specs (reloadable-state-specs declarations)
-          state-entries
-          (concat
-           (map (fn [[declaration-key spec]]
-                  {:declaration (or (:declaration spec) (get declarations-by-key declaration-key))
-                   :spec spec
-                   :owned? true})
-                state-specs)
-           dependency-state-entries)
-          state-bindings
-          (into {}
-                (keep (fn [{:keys [declaration spec owned?]}]
+   (when *compile-only?*
+     (throw (ex-info "Native library loading is forbidden during compile-only preparation"
+                     {:aguafria/phase :compile-only :library (:library-path compiled)})))
+   (let [arena (Arena/ofShared)]
+     (try
+       (let [lookup (if-let [entry (:bundle compiled)]
+                      (bundle/symbol-lookup entry)
+                      (SymbolLookup/libraryLookup
+                       ^Path (.toPath (io/file (:library-path compiled))) arena))
+             linker (Linker/nativeLinker)
+             _ (when (:native-test-context? compiled)
+                 (let [binding (bind-function
+                                linker lookup {:return :void :args []}
+                                "__aguafria_jvm_init_test_context")]
+                   (.invokeWithArguments ^MethodHandle (:handle binding) (object-array 0))))
+             functions (->> declarations
+                            (filter #(and (= :fn (:kind %))
+                                          (or (:export? %)
+                                              (:development-export? %))))
+                            (map (fn [declaration]
+                                   [(:qualified-name declaration)
+                                    (bind-function linker lookup declaration)]))
+                            (into {}))
+             functions
+             (reduce-kv
+              (fn [functions qualified-name spec]
+                (assoc functions qualified-name
+                       (bind-jvm-callable linker lookup qualified-name spec)))
+              functions
+              jvm-callable-specs)
+             values
+             (reduce-kv
+              (fn [values qualified-name spec]
+                (assoc values qualified-name
+                       (bind-jvm-value linker lookup qualified-name spec)))
+              {}
+              jvm-value-specs)
+             types
+             (reduce-kv
+              (fn [types qualified-name spec]
+                (assoc types qualified-name
+                       (bind-jvm-type linker lookup qualified-name spec)))
+              {}
+              jvm-type-specs)
+             declarations-by-key (into {} (map (juxt :declaration-key identity))
+                                       declarations)
+             dispatch-entries
+             (concat
+              (keep (fn [[declaration-key spec]]
+                      (when-let [declaration (or (:declaration spec) (get declarations-by-key declaration-key))]
+                        {:declaration declaration :spec spec :owned? true}))
+                    dispatch-specs)
+              dependency-entries)
+             dispatch-bindings
+             (into {}
+                   (keep (fn [{:keys [declaration spec owned?]}]
+                           (when-let [binding (bind-dispatch linker lookup declaration
+                                                             spec owned?)]
+                             [(:version-key spec)
+                              (assoc binding :owned? owned?)])))
+                   dispatch-entries)
+             state-specs (reloadable-state-specs declarations)
+             state-entries
+             (concat
+              (map (fn [[declaration-key spec]]
+                     {:declaration (or (:declaration spec) (get declarations-by-key declaration-key))
+                      :spec spec
+                      :owned? true})
+                   state-specs)
+              dependency-state-entries)
+             state-bindings
+             (into {}
+                   (keep (fn [{:keys [declaration spec owned?]}]
                         ;; Platform-lazy dependency modules may omit their
                         ;; state helpers exactly as they can omit dispatch
                         ;; symbols. Owned state is always required.
-                        (try
-                          [(:version-key spec)
-                           (assoc (bind-state linker lookup declaration spec)
-                                  :owned? owned?)]
-                          (catch Throwable error
-                            (when owned? (throw error))))))
-                state-entries)
-          active-call-handle
-          (bind-active-call-counter linker lookup dispatch-specs)
-          active-call-tracking-handle
-          (bind-active-call-tracking linker lookup dispatch-specs)
-          _ (when (native-host-active?)
-              (set-active-call-tracking-handle!
-               active-call-tracking-handle false))
-          publication-epoch-setters
-          (bind-publication-epoch!
-           linker lookup (vals dispatch-bindings))]
-        (merge compiled {:arena arena :lookup lookup :linker linker
-                         :loaded-declarations declarations
-                         :functions functions
-                         :values values
-                         :types types
-                         :dispatch-bindings dispatch-bindings
-                         :state-bindings state-bindings
-                         :active-call-handle active-call-handle
-                         :active-call-tracking-handle
-                         active-call-tracking-handle
-                         :publication-epoch-setters publication-epoch-setters
-                         :jvm-active-calls (AtomicLong. 0)
-                         :native-value-refs (AtomicLong. 0)}))
-      (catch Throwable error
-        (try (.close ^Arena arena) (catch Throwable _))
-        (throw
-         (ex-info
-          (str "Aguafria could not load the compiled Zig library\n\n"
-               "error[aguafria::load]: " (ex-message error) "\n"
-               "  --> " (:library-path compiled) "\n"
-               "  = generated source: " (:source-path compiled) "\n"
-               "  = hint: run the JVM with --enable-native-access=ALL-UNNAMED")
-          {:aguafria/phase :native-load
-           :source-path (:source-path compiled)
-           :library-path (:library-path compiled)}
-          error)))))))
+                           (try
+                             [(:version-key spec)
+                              (assoc (bind-state linker lookup declaration spec)
+                                     :owned? owned?)]
+                             (catch Throwable error
+                               (when owned? (throw error))))))
+                   state-entries)
+             active-call-handle
+             (bind-active-call-counter linker lookup dispatch-specs)
+             active-call-tracking-handle
+             (bind-active-call-tracking linker lookup dispatch-specs)
+             _ (when (native-host-active?)
+                 (set-active-call-tracking-handle!
+                  active-call-tracking-handle false))
+             publication-epoch-setters
+             (bind-publication-epoch!
+              linker lookup (vals dispatch-bindings))]
+         (merge compiled {:arena arena :lookup lookup :linker linker
+                          :loaded-declarations declarations
+                          :functions functions
+                          :values values
+                          :types types
+                          :dispatch-bindings dispatch-bindings
+                          :state-bindings state-bindings
+                          :active-call-handle active-call-handle
+                          :active-call-tracking-handle
+                          active-call-tracking-handle
+                          :publication-epoch-setters publication-epoch-setters
+                          :jvm-active-calls (AtomicLong. 0)
+                          :native-value-refs (AtomicLong. 0)}))
+       (catch Throwable error
+         (try (.close ^Arena arena) (catch Throwable _))
+         (throw
+          (ex-info
+           (str "Aguafria could not load the compiled Zig library\n\n"
+                "error[aguafria::load]: " (ex-message error) "\n"
+                "  --> " (:library-path compiled) "\n"
+                "  = generated source: " (:source-path compiled) "\n"
+                "  = hint: run the JVM with --enable-native-access=ALL-UNNAMED")
+           {:aguafria/phase :native-load
+            :source-path (:source-path compiled)
+            :library-path (:library-path compiled)}
+           error)))))))
 
 (defn- invoke-dispatch-setter!
   [^MethodHandle setter address]
@@ -4863,7 +4951,7 @@
   [binding address]
   (.invokeWithArguments ^MethodHandle (:setter-handle binding)
                         (ArrayList. ^java.util.Collection
-                                    [(long address)]))
+                         [(long address)]))
   nil)
 
 (defn- migration-function-binding
@@ -4897,8 +4985,8 @@
            :return (:return declaration)}))))
     (.invokeWithArguments ^MethodHandle (:handle function-binding)
                           (ArrayList. ^java.util.Collection
-                                      [(long previous-address)
-                                       (long next-address)]))
+                           [(long previous-address)
+                            (long next-address)]))
     nil))
 
 (defn- reconcile-state
@@ -5021,29 +5109,30 @@
            schema-fingerprint shape-fingerprint
            implementation-fingerprint value]
     :as declaration}]
-  (cond-> {:kind :declaration
-           :declaration-kind kind
-           :module module
-           :zig-name (emit/identifier (or zig-name name))
-           :symbol (symbol module (str name))}
-    logical-id (assoc :logical-id logical-id)
-    abi-fingerprint (assoc :abi-fingerprint abi-fingerprint)
-    implementation-fingerprint
-    (assoc :implementation-fingerprint implementation-fingerprint)
-    schema-fingerprint (assoc :schema-fingerprint schema-fingerprint)
-    shape-fingerprint (assoc :shape-fingerprint shape-fingerprint)
-    (state-reference declaration)
-    (assoc :state-accessor (:accessor (state-reference declaration)))
-    ;; `:type-reference?` means the Var itself is usable with Zig's
-    ;; `Type{...}` constructor syntax. A function returning `type` is invoked
-    ;; normally and must not be rewritten to `function{...}`.
-    (constructor-type-reference? declaration)
-    (assoc :type-reference? true
-           :container-state-accessors
-           (into {} (map (fn [member]
-                           [(emit/identifier (last (:state-path member)))
-                            (:accessor (declaration-state-spec member))]))
-                 (container-state-declarations declaration)))))
+  (let [state (state-reference declaration)]
+    (cond-> {:kind :declaration
+             :declaration-kind kind
+             :module module
+             :zig-name (emit/identifier (or zig-name name))
+             :symbol (symbol module (str name))}
+      logical-id (assoc :logical-id logical-id)
+      abi-fingerprint (assoc :abi-fingerprint abi-fingerprint)
+      implementation-fingerprint
+      (assoc :implementation-fingerprint implementation-fingerprint)
+      schema-fingerprint (assoc :schema-fingerprint schema-fingerprint)
+      shape-fingerprint (assoc :shape-fingerprint shape-fingerprint)
+      state
+      (assoc :state-accessor (:accessor state))
+      ;; `:type-reference?` means the Var itself is usable with Zig's
+      ;; `Type{...}` constructor syntax. A function returning `type` is invoked
+      ;; normally and must not be rewritten to `function{...}`.
+      (constructor-type-reference? declaration)
+      (assoc :type-reference? true
+             :container-state-accessors
+             (into {} (map (fn [member]
+                             [(emit/identifier (last (:state-path member)))
+                              (:accessor (declaration-state-spec member))]))
+                   (container-state-declarations declaration))))))
 
 (defn- publish-clojure-declaration-metadata!
   "Keep ordinary Clojure Vars aligned with declarations refreshed internally
@@ -5071,12 +5160,12 @@
       ;; same native identity on that value, not just on #'f, so imported and
       ;; generic Zig calls can accept it as a comptime function argument.
       (alter-var-root v
-        (fn [root]
-          (if (instance? clojure.lang.IObj root)
-            (vary-meta root assoc :aguafria/zig-reference
-                       (declaration-reference-view declaration))
-            root))))
-  nil))
+                      (fn [root]
+                        (if (instance? clojure.lang.IObj root)
+                          (vary-meta root assoc :aguafria/zig-reference
+                                     (declaration-reference-view declaration))
+                          root))))
+    nil))
 
 (defn refresh-declaration-var!
   "Synchronize one just-defined Clojure Var with the descriptor currently
@@ -5099,8 +5188,8 @@
       (fn [versions declaration]
         (let [{:keys [logical-id schema-fingerprint]} declaration
               previous (some #(when (and (= logical-id (:logical-id %))
-                                          (:active? %))
-                                 %)
+                                         (:active? %))
+                                %)
                              versions)
               compatible? (or (nil? previous)
                               (= schema-fingerprint
@@ -5415,7 +5504,7 @@
                  jvm-active (jvm-active-call-count generation)
                  native-value-refs (native-value-ref-count generation)
                  retire? (and (not (contains? referenced-generations
-                                               (:generation generation)))
+                                              (:generation generation)))
                               (not host-active?)
                               (zero? native-active)
                               (zero? jvm-active)
@@ -5522,26 +5611,26 @@
     declaration))
   ([definitions definition-key-by-zig-name declaration]
    (let [declaration-name (declaration-zig-name declaration)
-        declaration-key (:declaration-key declaration)
-        exact (get definitions declaration-key)
-        conflict-key (get definition-key-by-zig-name declaration-name)
-        conflict (when (and conflict-key (not= conflict-key declaration-key))
-                   (get definitions conflict-key))
-        old-declaration (or exact conflict)
-        declaration
-        (if (or (some? (:source-order declaration))
-                (nil? (:source-order old-declaration)))
-          (stable-source-order definitions declaration)
-          (assoc declaration :source-order (:source-order old-declaration)))
-        old-exact-name (some-> exact declaration-zig-name)
-        definitions (cond-> definitions
-                      conflict-key (dissoc conflict-key)
-                      true (dissoc declaration-key)
-                      true (assoc declaration-key declaration))
-        definition-key-by-zig-name
-        (cond-> definition-key-by-zig-name
-          old-exact-name (dissoc old-exact-name)
-          declaration-name (assoc declaration-name declaration-key))]
+         declaration-key (:declaration-key declaration)
+         exact (get definitions declaration-key)
+         conflict-key (get definition-key-by-zig-name declaration-name)
+         conflict (when (and conflict-key (not= conflict-key declaration-key))
+                    (get definitions conflict-key))
+         old-declaration (or exact conflict)
+         declaration
+         (if (or (some? (:source-order declaration))
+                 (nil? (:source-order old-declaration)))
+           (stable-source-order definitions declaration)
+           (assoc declaration :source-order (:source-order old-declaration)))
+         old-exact-name (some-> exact declaration-zig-name)
+         definitions (cond-> definitions
+                       conflict-key (dissoc conflict-key)
+                       true (dissoc declaration-key)
+                       true (assoc declaration-key declaration))
+         definition-key-by-zig-name
+         (cond-> definition-key-by-zig-name
+           old-exact-name (dissoc old-exact-name)
+           declaration-name (assoc declaration-name declaration-key))]
      {:old-declaration old-declaration
       :declaration declaration
       :definitions definitions
@@ -5627,7 +5716,7 @@
         ("array" "vector")
         (let [element-type (last type)
               child (nested-storage-wrapper-spec element-type
-                                                  (str prefix "_element"))]
+                                                 (str prefix "_element"))]
           (when child
             {:storage-kind :collection
              :type type
@@ -5681,7 +5770,7 @@
 
     (symbol? type)
     (let [declaration (or (get *materialization-type-declarations*
-                             [(or (namespace type) module) (symbol (name type))])
+                               [(or (namespace type) module) (symbol (name type))])
                           (referenced-declaration module type))
           identity [(:module declaration) (:declaration-key declaration)]
           value (:value declaration)]
@@ -5716,9 +5805,9 @@
   [{:keys [module return zig-qualifiers]}]
   (let [return (bridge-storage-type module return #{})]
     (if-let [payload (or (emit/inferred-error-payload return)
-                        (when (and (string? zig-qualifiers)
-                                   (re-find #"(?:^|\s)!\s*$" zig-qualifiers))
-                          return))]
+                         (when (and (string? zig-qualifiers)
+                                    (re-find #"(?:^|\s)!\s*$" zig-qualifiers))
+                           return))]
       ;; An inferred error set (`!T`) is legal in a function result but not as a
       ;; standalone storage type (`*!T`). The bridge stores it as `anyerror!T`,
       ;; retaining the runtime error without guessing its compile-time set.
@@ -5726,7 +5815,10 @@
       (if (= :noreturn return) :void return))))
 
 (defn- jvm-wrapper-requests [module request-key]
-  (let [requested (get-in @registry [module request-key] #{})]
+  (let [requests (if (contains? *jvm-wrapper-request-snapshot* module)
+                   (get *jvm-wrapper-request-snapshot* module)
+                   (get @registry module))
+        requested (get requests request-key #{})]
     (if *materialize-declaration*
       ;; A demand-loaded artifact needs only this declaration's JVM wrapper.
       ;; Previously requested helpers must not change its disk-cache identity.
@@ -5744,8 +5836,8 @@
              (when (and (contains? requested (:declaration-key declaration))
                         (not-any? generic-function-argument? (:args declaration)))
                (let [qualified-name (:qualified-name declaration)
-                     token (subs (sha256 (pr-str [qualified-name
-                                                  (:abi-fingerprint declaration)]))
+                     token (subs (sha256 (artifact/print-data [qualified-name
+                                                               (:abi-fingerprint declaration)]))
                                  0 24)
                      declaration
                      (update declaration :args
@@ -5921,8 +6013,8 @@
                         (contains? requested (:declaration-key declaration)))
                (let [qualified-name
                      (symbol (:module declaration) (str (:name declaration)))
-                     token (subs (sha256 (pr-str [qualified-name type
-                                                  (:value declaration)]))
+                     token (subs (sha256 (artifact/print-data [qualified-name type
+                                                               (:value declaration)]))
                                  0 24)
                      prefix (str "__aguafria_jvm_value_" token)
                      optional?
@@ -5994,123 +6086,123 @@
                (when (and type-declaration?
                           (contains? requested (:declaration-key declaration)))
                  (let [qualified-name
-                     (symbol (:module declaration) (str (:name declaration)))
-                     token (subs (sha256 (pr-str [qualified-name
-                                                  (:schema-fingerprint
-                                                   declaration)]))
-                                 0 24)
-                     prefix (str "__aguafria_jvm_type_" token)
-                     tagged-union?
-                     (and (= :union container-kind)
-                          (or (true? (get-in container-description
-                                             [:options :enum?]))
-                              (some? (get-in container-description
-                                             [:options :type]))))
-                     fields (if (= :struct kind)
-                              (:fields declaration)
-                              (container-storage-fields container-description))
-                     enum-members
-                     (->> (:members container-description)
-                          (filter #(= :enum-field (:kind %)))
-                          vec)]
-                 [qualified-name
-                  {:declaration declaration
-                   :container-description container-description
-                   :container-kind container-kind
-                   :tagged-union? tagged-union?
-                   :size-getter (str prefix "_size")
-                   :align-getter (str prefix "_align")
-                   :field-specs
-                   (mapv (fn [index field]
-                           (let [optional?
-                                 (and (vector? (:type field))
-                                      (= "optional"
-                                         (some-> (:type field) first name)))
-                                 slice?
-                                 (and (vector? (:type field))
-                                      (contains? #{"slice" "slice-const"}
-                                                 (some-> (:type field)
-                                                         first name)))
-                                 error-union?
-                                 (and (vector? (:type field))
-                                      (= "error-union"
-                                         (some-> (:type field) first name)))]
+                       (symbol (:module declaration) (str (:name declaration)))
+                       token (subs (sha256 (artifact/print-data [qualified-name
+                                                                 (:schema-fingerprint
+                                                                  declaration)]))
+                                   0 24)
+                       prefix (str "__aguafria_jvm_type_" token)
+                       tagged-union?
+                       (and (= :union container-kind)
+                            (or (true? (get-in container-description
+                                               [:options :enum?]))
+                                (some? (get-in container-description
+                                               [:options :type]))))
+                       fields (if (= :struct kind)
+                                (:fields declaration)
+                                (container-storage-fields container-description))
+                       enum-members
+                       (->> (:members container-description)
+                            (filter #(= :enum-field (:kind %)))
+                            vec)]
+                   [qualified-name
+                    {:declaration declaration
+                     :container-description container-description
+                     :container-kind container-kind
+                     :tagged-union? tagged-union?
+                     :size-getter (str prefix "_size")
+                     :align-getter (str prefix "_align")
+                     :field-specs
+                     (mapv (fn [index field]
+                             (let [optional?
+                                   (and (vector? (:type field))
+                                        (= "optional"
+                                           (some-> (:type field) first name)))
+                                   slice?
+                                   (and (vector? (:type field))
+                                        (contains? #{"slice" "slice-const"}
+                                                   (some-> (:type field)
+                                                           first name)))
+                                   error-union?
+                                   (and (vector? (:type field))
+                                        (= "error-union"
+                                           (some-> (:type field) first name)))]
+                               {:index index
+                                :field field
+                                :union? (= :union container-kind)
+                                :optional? optional?
+                                :optional-child-type
+                                (when optional? (second (:type field)))
+                                :slice? slice?
+                                :slice-element-type
+                                (when slice? (second (:type field)))
+                                :offset-getter
+                                (str prefix "_field_" index "_offset")
+                                :size-getter
+                                (str prefix "_field_" index "_size")
+                                :default-getter
+                                (str prefix "_field_" index "_default")
+                                :union-init
+                                (str prefix "_field_" index "_init")
+                                :union-active
+                                (str prefix "_field_" index "_active")
+                                :union-payload-address
+                                (str prefix "_field_" index "_payload_address")
+                                :optional-set
+                                (str prefix "_field_" index "_optional_set")
+                                :optional-present
+                                (str prefix "_field_" index "_optional_present")
+                                :optional-payload-address
+                                (str prefix "_field_" index
+                                     "_optional_payload_address")
+                                :optional-payload-size
+                                (str prefix "_field_" index
+                                     "_optional_payload_size")
+                                :slice-set
+                                (str prefix "_field_" index "_slice_set")
+                                :slice-pointer
+                                (str prefix "_field_" index "_slice_pointer")
+                                :slice-length
+                                (str prefix "_field_" index "_slice_length")
+                                :slice-element-size
+                                (str prefix "_field_" index "_slice_element_size")
+                                :slice-element-align
+                                (str prefix "_field_" index "_slice_element_align")
+                                :error-union? error-union?
+                                :error-payload-type
+                                (when error-union? (last (:type field)))
+                                :error-set
+                                (when (and error-union?
+                                           (= 3 (count (:type field))))
+                                  (second (:type field)))
+                                :error-set-ok
+                                (str prefix "_field_" index "_error_set_ok")
+                                :error-set-error
+                                (str prefix "_field_" index "_error_set_error")
+                                :error-present
+                                (str prefix "_field_" index "_error_present")
+                                :error-code
+                                (str prefix "_field_" index "_error_code")
+                                :error-name-pointer
+                                (str prefix "_field_" index "_error_name_pointer")
+                                :error-name-length
+                                (str prefix "_field_" index "_error_name_length")
+                                :error-payload-address
+                                (str prefix "_field_" index "_error_payload_address")
+                                :error-payload-size
+                                (str prefix "_field_" index "_error_payload_size")
+                                :nested-storage-spec
+                                (nested-child-storage-wrapper-spec
+                                 (:type field)
+                                 (str prefix "_field_" index))}))
+                           (range) fields)
+                     :enum-member-specs
+                     (mapv (fn [index member]
                              {:index index
-                              :field field
-                              :union? (= :union container-kind)
-                              :optional? optional?
-                              :optional-child-type
-                              (when optional? (second (:type field)))
-                              :slice? slice?
-                              :slice-element-type
-                              (when slice? (second (:type field)))
-                              :offset-getter
-                              (str prefix "_field_" index "_offset")
-                              :size-getter
-                              (str prefix "_field_" index "_size")
-                              :default-getter
-                              (str prefix "_field_" index "_default")
-                              :union-init
-                              (str prefix "_field_" index "_init")
-                              :union-active
-                              (str prefix "_field_" index "_active")
-                              :union-payload-address
-                              (str prefix "_field_" index "_payload_address")
-                              :optional-set
-                              (str prefix "_field_" index "_optional_set")
-                              :optional-present
-                              (str prefix "_field_" index "_optional_present")
-                              :optional-payload-address
-                              (str prefix "_field_" index
-                                   "_optional_payload_address")
-                              :optional-payload-size
-                              (str prefix "_field_" index
-                                   "_optional_payload_size")
-                              :slice-set
-                              (str prefix "_field_" index "_slice_set")
-                              :slice-pointer
-                              (str prefix "_field_" index "_slice_pointer")
-                              :slice-length
-                              (str prefix "_field_" index "_slice_length")
-                              :slice-element-size
-                              (str prefix "_field_" index "_slice_element_size")
-                              :slice-element-align
-                              (str prefix "_field_" index "_slice_element_align")
-                              :error-union? error-union?
-                              :error-payload-type
-                              (when error-union? (last (:type field)))
-                              :error-set
-                              (when (and error-union?
-                                         (= 3 (count (:type field))))
-                                (second (:type field)))
-                              :error-set-ok
-                              (str prefix "_field_" index "_error_set_ok")
-                              :error-set-error
-                              (str prefix "_field_" index "_error_set_error")
-                              :error-present
-                              (str prefix "_field_" index "_error_present")
-                              :error-code
-                              (str prefix "_field_" index "_error_code")
-                              :error-name-pointer
-                              (str prefix "_field_" index "_error_name_pointer")
-                              :error-name-length
-                              (str prefix "_field_" index "_error_name_length")
-                              :error-payload-address
-                              (str prefix "_field_" index "_error_payload_address")
-                              :error-payload-size
-                              (str prefix "_field_" index "_error_payload_size")
-                              :nested-storage-spec
-                              (nested-child-storage-wrapper-spec
-                               (:type field)
-                               (str prefix "_field_" index))}))
-                         (range) fields)
-                   :enum-member-specs
-                   (mapv (fn [index member]
-                           {:index index
-                            :member member
-                            :address-getter
-                            (str prefix "_enum_" index "_address")})
-                         (range) enum-members)}])))))
+                              :member member
+                              :address-getter
+                              (str prefix "_enum_" index "_address")})
+                           (range) enum-members)}])))))
           declarations)))
 
 (defn- emit-jvm-optional-storage-wrapper
@@ -6119,22 +6211,22 @@
   (let [child-type (emit/emit-type child-type)]
     (str
      "export fn " optional-set
-     "(storage_address: usize, present: bool, value_address: usize) callconv(.c) void {\n"
-     "    const storage: *?" child-type " = @ptrFromInt(storage_address);\n"
-     "    storage.* = if (present) (@as(*const " child-type
-     ", @ptrFromInt(value_address))).* else null;\n"
+     "(__aguafria_storage_address: usize, __aguafria_present: bool, __aguafria_value_address: usize) callconv(.c) void {\n"
+     "    const __aguafria_storage: *?" child-type " = @ptrFromInt(__aguafria_storage_address);\n"
+     "    __aguafria_storage.* = if (__aguafria_present) (@as(*const " child-type
+     ", @ptrFromInt(__aguafria_value_address))).* else null;\n"
      "}\n"
      "export fn " optional-present
-     "(storage_address: usize) callconv(.c) bool {\n"
-     "    const storage: *const ?" child-type
-     " = @ptrFromInt(storage_address);\n"
-     "    return storage.* != null;\n"
+     "(__aguafria_storage_address: usize) callconv(.c) bool {\n"
+     "    const __aguafria_storage: *const ?" child-type
+     " = @ptrFromInt(__aguafria_storage_address);\n"
+     "    return __aguafria_storage.* != null;\n"
      "}\n"
      "export fn " optional-payload-address
-     "(storage_address: usize) callconv(.c) usize {\n"
-     "    const storage: *const ?" child-type
-     " = @ptrFromInt(storage_address);\n"
-     "    if (storage.*) |*payload| return @intFromPtr(payload);\n"
+     "(__aguafria_storage_address: usize) callconv(.c) usize {\n"
+     "    const __aguafria_storage: *const ?" child-type
+     " = @ptrFromInt(__aguafria_storage_address);\n"
+     "    if (__aguafria_storage.*) |*__aguafria_payload| return @intFromPtr(__aguafria_payload);\n"
      "    return 0;\n"
      "}\n"
      "export fn " optional-payload-size
@@ -6150,23 +6242,23 @@
         element-type (emit/emit-type element-type)]
     (str
      "export fn " slice-set
-     "(storage_address: usize, items_address: usize, length: usize) callconv(.c) void {\n"
-     "    const storage: *" slice-type " = @ptrFromInt(storage_address);\n"
-     "    const items: @TypeOf(@as(" slice-type
-     ", undefined).ptr) = @ptrFromInt(items_address);\n"
-     "    storage.* = items[0..length];\n"
+     "(__aguafria_storage_address: usize, __aguafria_items_address: usize, __aguafria_length: usize) callconv(.c) void {\n"
+     "    const __aguafria_storage: *" slice-type " = @ptrFromInt(__aguafria_storage_address);\n"
+     "    const __aguafria_items: @TypeOf(@as(" slice-type
+     ", undefined).ptr) = @ptrFromInt(__aguafria_items_address);\n"
+     "    __aguafria_storage.* = __aguafria_items[0..__aguafria_length];\n"
      "}\n"
      "export fn " slice-pointer
-     "(storage_address: usize) callconv(.c) usize {\n"
-     "    const storage: *const " slice-type
-     " = @ptrFromInt(storage_address);\n"
-     "    return @intFromPtr(storage.*.ptr);\n"
+     "(__aguafria_storage_address: usize) callconv(.c) usize {\n"
+     "    const __aguafria_storage: *const " slice-type
+     " = @ptrFromInt(__aguafria_storage_address);\n"
+     "    return @intFromPtr(__aguafria_storage.*.ptr);\n"
      "}\n"
      "export fn " slice-length
-     "(storage_address: usize) callconv(.c) usize {\n"
-     "    const storage: *const " slice-type
-     " = @ptrFromInt(storage_address);\n"
-     "    return storage.*.len;\n"
+     "(__aguafria_storage_address: usize) callconv(.c) usize {\n"
+     "    const __aguafria_storage: *const " slice-type
+     " = @ptrFromInt(__aguafria_storage_address);\n"
+     "    return __aguafria_storage.*.len;\n"
      "}\n"
      "export fn " slice-element-size "() callconv(.c) usize {\n"
      "    return @sizeOf(" element-type ");\n"
@@ -6185,24 +6277,24 @@
         payload-type (emit/emit-type payload-type)]
     (str
      "export fn " error-set-ok
-     "(storage_address: usize, payload_address: usize) callconv(.c) void {\n"
-     "    const ErrorUnion = " error-union-type ";\n"
-     "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
+     "(__aguafria_storage_address: usize, __aguafria_payload_address: usize) callconv(.c) void {\n"
+     "    const __aguafria_ErrorUnion = " error-union-type ";\n"
+     "    const __aguafria_storage: *__aguafria_ErrorUnion = @ptrFromInt(__aguafria_storage_address);\n"
      (if void-payload?
-       "    _ = payload_address;\n    storage.* = {};\n"
-       (str "    storage.* = (@as(*const " payload-type
-            ", @ptrFromInt(payload_address))).*;\n"))
+       "    _ = __aguafria_payload_address;\n    __aguafria_storage.* = {};\n"
+       (str "    __aguafria_storage.* = (@as(*const " payload-type
+            ", @ptrFromInt(__aguafria_payload_address))).*;\n"))
      "}\n"
      "export fn " error-set-error
-     "(storage_address: usize, name_address: usize, name_length: usize) callconv(.c) bool {\n"
-     "    const ErrorUnion = " error-union-type ";\n"
-     "    const ErrorSet = @typeInfo(ErrorUnion).error_union.error_set;\n"
-     "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
-     "    const name = @as([*]const u8, @ptrFromInt(name_address))[0..name_length];\n"
-     "    if (@typeInfo(ErrorSet).error_set.error_names) |errors| {\n"
-     "        inline for (errors) |member| {\n"
-     "            if (@import(\"std\").mem.eql(u8, name, member)) {\n"
-     "                storage.* = @field(ErrorSet, member);\n"
+     "(__aguafria_storage_address: usize, __aguafria_name_address: usize, __aguafria_name_length: usize) callconv(.c) bool {\n"
+     "    const __aguafria_ErrorUnion = " error-union-type ";\n"
+     "    const __aguafria_ErrorSet = @typeInfo(__aguafria_ErrorUnion).error_union.error_set;\n"
+     "    const __aguafria_storage: *__aguafria_ErrorUnion = @ptrFromInt(__aguafria_storage_address);\n"
+     "    const __aguafria_name = @as([*]const u8, @ptrFromInt(__aguafria_name_address))[0..__aguafria_name_length];\n"
+     "    if (@typeInfo(__aguafria_ErrorSet).error_set.error_names) |__aguafria_errors| {\n"
+     "        inline for (__aguafria_errors) |__aguafria_member| {\n"
+     "            if (@import(\"std\").mem.eql(u8, __aguafria_name, __aguafria_member)) {\n"
+     "                __aguafria_storage.* = @field(__aguafria_ErrorSet, __aguafria_member);\n"
      "                return true;\n"
      "            }\n"
      "        }\n"
@@ -6210,36 +6302,36 @@
      "    return false;\n"
      "}\n"
      "export fn " error-present
-     "(storage_address: usize) callconv(.c) bool {\n"
-     "    const ErrorUnion = " error-union-type ";\n"
-     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
-     "    if (storage.*) |_| return false else |_| return true;\n"
+     "(__aguafria_storage_address: usize) callconv(.c) bool {\n"
+     "    const __aguafria_ErrorUnion = " error-union-type ";\n"
+     "    const __aguafria_storage: *const __aguafria_ErrorUnion = @ptrFromInt(__aguafria_storage_address);\n"
+     "    if (__aguafria_storage.*) |_| return false else |_| return true;\n"
      "}\n"
      "export fn " error-code
-     "(storage_address: usize) callconv(.c) usize {\n"
-     "    const ErrorUnion = " error-union-type ";\n"
-     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
-     "    if (storage.*) |_| return 0 else |err| return @intFromError(err);\n"
+     "(__aguafria_storage_address: usize) callconv(.c) usize {\n"
+     "    const __aguafria_ErrorUnion = " error-union-type ";\n"
+     "    const __aguafria_storage: *const __aguafria_ErrorUnion = @ptrFromInt(__aguafria_storage_address);\n"
+     "    if (__aguafria_storage.*) |_| return 0 else |__aguafria_err| return @intFromError(__aguafria_err);\n"
      "}\n"
      "export fn " error-name-pointer
-     "(storage_address: usize) callconv(.c) usize {\n"
-     "    const ErrorUnion = " error-union-type ";\n"
-     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
-     "    if (storage.*) |_| return 0 else |err| return @intFromPtr(@errorName(err).ptr);\n"
+     "(__aguafria_storage_address: usize) callconv(.c) usize {\n"
+     "    const __aguafria_ErrorUnion = " error-union-type ";\n"
+     "    const __aguafria_storage: *const __aguafria_ErrorUnion = @ptrFromInt(__aguafria_storage_address);\n"
+     "    if (__aguafria_storage.*) |_| return 0 else |__aguafria_err| return @intFromPtr(@errorName(__aguafria_err).ptr);\n"
      "}\n"
      "export fn " error-name-length
-     "(storage_address: usize) callconv(.c) usize {\n"
-     "    const ErrorUnion = " error-union-type ";\n"
-     "    const storage: *const ErrorUnion = @ptrFromInt(storage_address);\n"
-     "    if (storage.*) |_| return 0 else |err| return @errorName(err).len;\n"
+     "(__aguafria_storage_address: usize) callconv(.c) usize {\n"
+     "    const __aguafria_ErrorUnion = " error-union-type ";\n"
+     "    const __aguafria_storage: *const __aguafria_ErrorUnion = @ptrFromInt(__aguafria_storage_address);\n"
+     "    if (__aguafria_storage.*) |_| return 0 else |__aguafria_err| return @errorName(__aguafria_err).len;\n"
      "}\n"
      "export fn " error-payload-address
-     "(storage_address: usize) callconv(.c) usize {\n"
-     "    const ErrorUnion = " error-union-type ";\n"
-     "    const storage: *ErrorUnion = @ptrFromInt(storage_address);\n"
+     "(__aguafria_storage_address: usize) callconv(.c) usize {\n"
+     "    const __aguafria_ErrorUnion = " error-union-type ";\n"
+     "    const __aguafria_storage: *__aguafria_ErrorUnion = @ptrFromInt(__aguafria_storage_address);\n"
      (if void-payload?
-       "    _ = storage;\n    return 0;\n"
-       "    if (storage.*) |*payload| return @intFromPtr(payload) else |_| return 0;\n")
+       "    _ = __aguafria_storage;\n    return 0;\n"
+       "    if (__aguafria_storage.*) |*__aguafria_payload| return @intFromPtr(__aguafria_payload) else |_| return 0;\n")
      "}\n"
      "export fn " error-payload-size "() callconv(.c) usize {\n"
      "    return " (if void-payload? "0" (str "@sizeOf(" payload-type ")")) ";\n"
@@ -6292,6 +6384,12 @@
               result-error-payload-type result-nested-storage-spec]
        :as entry}]]
   (let [target (emit/identifier (or (:zig-name declaration) (:name declaration)))
+        result-type-source (str "@typeInfo(@TypeOf(" target ")).@\"fn\".return_type.?")
+        result-type (emitted-type-form result-type-source (:return declaration))
+        result-child-type-source
+        (cond result-optional? (reflected-child-type result-type-source "optional.child")
+              result-slice? (reflected-child-type result-type-source "pointer.child")
+              result-error-union? (reflected-child-type result-type-source "error_union.payload"))
         argument-type-sources
         (mapv #(str "@typeInfo(@TypeOf(" target ")).@\"fn\".param_types[" % "].?")
               (range (count (:args declaration))))
@@ -6319,102 +6417,104 @@
                   ")")]
     (str "export fn " symbol "_panic_message() callconv(.c) ?[*:0]const u8 {\n"
          "    return __aguafria_jvm_guard.aguafria_guard_message();\n}\n"
-    (if (= :direct mode)
-      (str "export fn " symbol "(" (str/join ", " bridge-arguments)
-           ") callconv(.c) " (emit/emit-type (:return declaration)) " {\n"
-           "    " (when-not (= :void return-mode) "return ") call ";\n"
-           "}\n")
-      (str "export fn " symbol "(" (str/join ", " bridge-arguments)
-           ") callconv(.c) "
-           (if (= :scalar return-mode)
-             (emit/emit-type (:return declaration))
-             "void")
-           " {\n"
-           "    "
-           (case return-mode
-             :void (str call ";")
-             :scalar (str "return " call ";")
-             :native
-             (str "(@as(*" (emit/emit-type (:return declaration))
-                  ", @ptrFromInt(result_address))).* = " call ";"))
-           "\n}\n"
-           (when (= :native return-mode)
-             (str "export fn " result-size-getter "() callconv(.c) usize {\n"
-                  "    return @sizeOf(" (emit/emit-type (:return declaration)) ");\n"
-                  "}\n"
-                  "export fn " result-align-getter "() callconv(.c) usize {\n"
-                  "    return @alignOf(" (emit/emit-type (:return declaration)) ");\n"
-                  "}\n"
-                  (when result-optional?
-                    (emit-jvm-optional-storage-wrapper
-                     result-optional-child-type
-                     {:optional-set result-optional-set
-                      :optional-present result-optional-present
-                      :optional-payload-address
-                      result-optional-payload-address
-                      :optional-payload-size result-optional-payload-size}))
-                  (when result-slice?
-                    (emit-jvm-slice-storage-wrapper
-                     (:return declaration) result-slice-element-type
-                     {:slice-set (:result-slice-set entry)
-                      :slice-pointer (:result-slice-pointer entry)
-                      :slice-length (:result-slice-length entry)
-                      :slice-element-size (:result-slice-element-size entry)
-                      :slice-element-align
-                      (:result-slice-element-align entry)}))
-                  (when result-error-union?
-                    (emit-jvm-error-union-storage-wrapper
-                     (:return declaration) result-error-payload-type
-                     {:error-set-ok (:result-error-set-ok entry)
-                      :error-set-error (:result-error-set-error entry)
-                      :error-present (:result-error-present entry)
-                      :error-code (:result-error-code entry)
-                      :error-name-pointer (:result-error-name-pointer entry)
-                      :error-name-length (:result-error-name-length entry)
-                      :error-payload-address
-                      (:result-error-payload-address entry)
-                      :error-payload-size
-                      (:result-error-payload-size entry)}))
-                  (emit-jvm-nested-storage-wrappers
-                   result-nested-storage-spec)))
-           (apply str
-                  (keep
-                   (fn [{:keys [index size-getter align-getter optional?
-                                optional-child-type slice?
-                                slice-element-type error-union?
-                                error-payload-type nested-storage-spec]
-                         :as argument-spec}]
-                     (when argument-spec
-                       (let [argument-type (nth argument-type-sources index)
-                             child-type-source
-                             (cond optional? (reflected-child-type argument-type "optional.child")
-                                   slice? (reflected-child-type argument-type "pointer.child")
-                                   error-union? (reflected-child-type argument-type "error_union.payload"))]
-                         (str "export fn " size-getter
-                            "() callconv(.c) usize {\n"
-                            "    return @sizeOf(" argument-type ");\n"
-                            "}\n"
-                            "export fn " align-getter
-                            "() callconv(.c) usize {\n"
-                            "    return @alignOf(" argument-type ");\n"
-                            "}\n"
-                            (when optional?
-                              (emit-jvm-optional-storage-wrapper
-                               (emitted-type-form child-type-source optional-child-type) argument-spec))
-                            (when slice?
-                              (emit-jvm-slice-storage-wrapper
-                               (emitted-type-form argument-type nil)
-                               (emitted-type-form child-type-source slice-element-type) argument-spec))
-                            (when error-union?
-                              (emit-jvm-error-union-storage-wrapper
-                               (emitted-type-form argument-type nil)
-                               (if (= :void error-payload-type) :void
-                                   (emitted-type-form child-type-source error-payload-type)) argument-spec))
-                            (emit-jvm-nested-storage-wrappers
-                             nested-storage-spec
-                             (if (or optional? slice? error-union?)
-                               child-type-source argument-type))))))
-                   native-argument-specs)))))))
+         (if (= :direct mode)
+           (str "export fn " symbol "(" (str/join ", " bridge-arguments)
+                ") callconv(.c) " (emit/emit-type (:return declaration)) " {\n"
+                "    " (when-not (= :void return-mode) "return ") call ";\n"
+                "}\n")
+           (str "export fn " symbol "(" (str/join ", " bridge-arguments)
+                ") callconv(.c) "
+                (if (= :scalar return-mode)
+                  (emit/emit-type (:return declaration))
+                  "void")
+                " {\n"
+                "    "
+                (case return-mode
+                  :void (str call ";")
+                  :scalar (str "return " call ";")
+                  :native
+                  (str "(@as(*" result-type-source
+                       ", @ptrFromInt(result_address))).* = " call ";"))
+                "\n}\n"
+                (when (= :native return-mode)
+                  (str "export fn " result-size-getter "() callconv(.c) usize {\n"
+                       "    return @sizeOf(" result-type-source ");\n"
+                       "}\n"
+                       "export fn " result-align-getter "() callconv(.c) usize {\n"
+                       "    return @alignOf(" result-type-source ");\n"
+                       "}\n"
+                       (when result-optional?
+                         (emit-jvm-optional-storage-wrapper
+                          (emitted-type-form result-child-type-source result-optional-child-type)
+                          {:optional-set result-optional-set
+                           :optional-present result-optional-present
+                           :optional-payload-address
+                           result-optional-payload-address
+                           :optional-payload-size result-optional-payload-size}))
+                       (when result-slice?
+                         (emit-jvm-slice-storage-wrapper
+                          result-type (emitted-type-form result-child-type-source result-slice-element-type)
+                          {:slice-set (:result-slice-set entry)
+                           :slice-pointer (:result-slice-pointer entry)
+                           :slice-length (:result-slice-length entry)
+                           :slice-element-size (:result-slice-element-size entry)
+                           :slice-element-align
+                           (:result-slice-element-align entry)}))
+                       (when result-error-union?
+                         (emit-jvm-error-union-storage-wrapper
+                          result-type (if (= :void result-error-payload-type) :void
+                                          (emitted-type-form result-child-type-source result-error-payload-type))
+                          {:error-set-ok (:result-error-set-ok entry)
+                           :error-set-error (:result-error-set-error entry)
+                           :error-present (:result-error-present entry)
+                           :error-code (:result-error-code entry)
+                           :error-name-pointer (:result-error-name-pointer entry)
+                           :error-name-length (:result-error-name-length entry)
+                           :error-payload-address
+                           (:result-error-payload-address entry)
+                           :error-payload-size
+                           (:result-error-payload-size entry)}))
+                       (emit-jvm-nested-storage-wrappers
+                        result-nested-storage-spec
+                        (or result-child-type-source result-type-source))))
+                (apply str
+                       (keep
+                        (fn [{:keys [index size-getter align-getter optional?
+                                     optional-child-type slice?
+                                     slice-element-type error-union?
+                                     error-payload-type nested-storage-spec]
+                              :as argument-spec}]
+                          (when argument-spec
+                            (let [argument-type (nth argument-type-sources index)
+                                  child-type-source
+                                  (cond optional? (reflected-child-type argument-type "optional.child")
+                                        slice? (reflected-child-type argument-type "pointer.child")
+                                        error-union? (reflected-child-type argument-type "error_union.payload"))]
+                              (str "export fn " size-getter
+                                   "() callconv(.c) usize {\n"
+                                   "    return @sizeOf(" argument-type ");\n"
+                                   "}\n"
+                                   "export fn " align-getter
+                                   "() callconv(.c) usize {\n"
+                                   "    return @alignOf(" argument-type ");\n"
+                                   "}\n"
+                                   (when optional?
+                                     (emit-jvm-optional-storage-wrapper
+                                      (emitted-type-form child-type-source optional-child-type) argument-spec))
+                                   (when slice?
+                                     (emit-jvm-slice-storage-wrapper
+                                      (emitted-type-form argument-type nil)
+                                      (emitted-type-form child-type-source slice-element-type) argument-spec))
+                                   (when error-union?
+                                     (emit-jvm-error-union-storage-wrapper
+                                      (emitted-type-form argument-type nil)
+                                      (if (= :void error-payload-type) :void
+                                          (emitted-type-form child-type-source error-payload-type)) argument-spec))
+                                   (emit-jvm-nested-storage-wrappers
+                                    nested-storage-spec
+                                    (if (or optional? slice? error-union?)
+                                      child-type-source argument-type))))))
+                        native-argument-specs)))))))
 
 (defn- emit-jvm-callable-wrappers
   [specs]
@@ -6434,7 +6534,7 @@
   (let [constant-name (emit/identifier (or (:zig-name declaration)
                                            (:name declaration)))
         constant-name (if-let [tls (and (:reloadable? @config)
-                                       (threadlocal-accessor-declaration declaration))]
+                                        (threadlocal-accessor-declaration declaration))]
                         (str (:name tls) "().*") constant-name)]
     (if (= :scalar mode)
       (str "export fn " getter "() callconv(.c) "
@@ -6656,15 +6756,15 @@
       ;; Dependency copies always contain setters and a local implementation,
       ;; but never an exported implementation-address getter. This preserves
       ;; Zig's lazy/platform analysis when another module imports this source.
-      :reload-source reload-source
-      :dependency-source dependency-source
+       :reload-source reload-source
+       :dependency-source dependency-source
       ;; Only declarations whose already-published implementation changed
       ;; expose a getter in the owning generation.
-      :compile-source
-      (if (= dispatch-specs reload-source-dispatch-specs)
-        reload-source
-        (emit-reload-source! module declarations dispatch-specs state-specs
-                             jvm-wrapper-source))}))))
+       :compile-source
+       (if (= dispatch-specs reload-source-dispatch-specs)
+         reload-source
+         (emit-reload-source! module declarations dispatch-specs state-specs
+                              jvm-wrapper-source))}))))
 
 (defn- module-source-weight
   [sources]
@@ -6716,10 +6816,10 @@
           (mapv (fn [[name spec]]
                   [name (assoc spec :declaration
                                (select-keys (:declaration spec) [:args :return]))])))
-     (vec (sort-by pr-str getter-declaration-keys))
-     (vec (sort-by pr-str (jvm-wrapper-requests module :jvm-callable-declaration-keys)))
-     (vec (sort-by pr-str (jvm-wrapper-requests module :jvm-value-declaration-keys)))
-     (vec (sort-by pr-str (jvm-wrapper-requests module :jvm-type-declaration-keys)))]))
+     (vec (sort-by artifact/print-data getter-declaration-keys))
+     (vec (sort-by artifact/print-data (jvm-wrapper-requests module :jvm-callable-declaration-keys)))
+     (vec (sort-by artifact/print-data (jvm-wrapper-requests module :jvm-value-declaration-keys)))
+     (vec (sort-by artifact/print-data (jvm-wrapper-requests module :jvm-type-declaration-keys)))]))
 
 (def ^:private rendered-module-source-keys
   [:source :reload-source :dependency-source :compile-source])
@@ -7053,7 +7153,7 @@
           reference-graph-changed?
           (or (not references-present?)
               (some #(not= (get previous-references %)
-                            (get references %))
+                           (get references %))
                     affected-logical-ids))
           updated
           (assoc preliminary
@@ -7106,15 +7206,37 @@
                     (:logical-id (by-name [(or (:module reference) (namespace v) (:module d))
                                            (name v)])))))))
         references
-        (fn [d]
-          (into #{}
-                (keep #(reference-id d %))
-                (nested-form-values (select-keys d [:type :value :fields :args :return :body]))))
+        (memoize
+         (fn [id]
+           (let [d (by-id id)]
+             (into #{}
+                   (keep #(reference-id d %))
+                   (nested-form-values
+                    (select-keys d [:type :value :fields :args :return :body]))))))
         local-ids (set (map :logical-id declarations))
+        basis-for
+        (memoize
+         (fn [id]
+           (let [d (by-id id)]
+             [id (if (and (local-ids id) (not (dispatchable-declaration? d)))
+                   (canonical-fingerprint-value
+                    (walk-reference-values
+                     (fn [v]
+                       (if-let [reference (reference-id d v)]
+                         (with-meta v (assoc (meta v) :aguafria/zig-reference
+                                             {:logical-id reference}))
+                         v))
+                     (select-keys d source-keys))
+                    [:module :zig-name :import-name :import-alias :logical-id])
+                   (select-keys d
+                                (if (dispatchable-declaration? d)
+                                  [:abi-fingerprint]
+                                  [:implementation-fingerprint
+                                   :schema-fingerprint :shape-fingerprint])))])))
         graph (into {} (map (fn [d]
                               [(:logical-id d)
                                (if (dispatchable-declaration? d) #{}
-                                   (filterv local-ids (references d)))])
+                                   (filterv local-ids (references (:logical-id d))))])
                             declarations))
         components (:components (compute-dependency-topology graph))]
     (into {}
@@ -7129,25 +7251,11 @@
                            (recur (into (pop pending) (get graph id)) (conj seen id)))
                          seen))
                      basis
-                     (mapv (fn [id]
-                             (let [d (by-id id)]
-                               [id (if (and (local-ids id) (not (dispatchable-declaration? d)))
-                                     (canonical-fingerprint-value
-                                      (walk-reference-values
-                                       (fn [v]
-                                         (if-let [reference (reference-id d v)]
-                                           (with-meta v (assoc (meta v) :aguafria/zig-reference
-                                                              {:logical-id reference}))
-                                           v))
-                                       (select-keys d source-keys))
-                                      [:module :zig-name :import-name :import-alias :logical-id])
-                                     (select-keys d
-                                                  (if (dispatchable-declaration? d)
-                                                    [:abi-fingerprint]
-                                                    [:implementation-fingerprint
-                                                     :schema-fingerprint :shape-fingerprint])))]))
+                     ;; Components can share large prerequisites. Reuse their
+                     ;; source basis within this immutable graph calculation.
+                     (mapv basis-for
                            (sort (into reachable
-                                       (mapcat #(remove local-ids (references (by-id %))))
+                                       (mapcat #(remove local-ids (references %)))
                                        reachable)))
                      fingerprint (data-fingerprint basis)]
                  (map #(vector % (data-fingerprint [% fingerprint])) modules))))
@@ -7160,51 +7268,51 @@
    (binding [*cyclic-implementation-fingerprints*
              (cyclic-implementation-fingerprints
               declarations (registered-declaration-index))]
-   (letfn [(refresh-pass [declarations target-keys]
-            (let [registered-index (registered-declaration-index)
-                  current-by-logical
-                  (merge (:by-logical registered-index)
-                         (into {} (map (juxt :logical-id identity))
-                               declarations))
-                  current-by-name
-                  (declaration-name-lookup registered-index declarations)]
-              (mapv
-               (fn [declaration]
-                 (if (and target-keys
-                          (not (contains? target-keys
-                                          (:declaration-key declaration))))
-                   declaration
-                   (let [source-reference-changed? (volatile! false)
-                         self-logical-id (:logical-id declaration)
-                         reference-source-keys
-                       [:args :return :body :value :type :fields :align]
-                         refreshed
-                       (merge
-                        declaration
-                        (walk-reference-values
-                         (fn [value]
-                          (if (symbol? value)
-                            (let [reference
-                                  (:aguafria/zig-reference (meta value))
-                                  current
-                                  (when-not (= :namespace-root
-                                               (:kind reference))
-                                    (or (and reference
-                                           (get current-by-logical
-                                                (:logical-id reference)))
-                                      (and reference
-                                           (current-by-name
-                                                [(str (or (:module reference)
-                                                          (some-> (:symbol reference)
-                                                                  namespace)
-                                                          (namespace value)
-                                                          (:module declaration)))
-                                                 (or (some-> (:symbol reference)
-                                                             name)
-                                                     (some-> (:zig-name reference)
-                                                             (str/split #"\.")
-                                                             last)
-                                                     (name value))]))
+     (letfn [(refresh-pass [declarations target-keys]
+               (let [registered-index (registered-declaration-index)
+                     current-by-logical
+                     (merge (:by-logical registered-index)
+                            (into {} (map (juxt :logical-id identity))
+                                  declarations))
+                     current-by-name
+                     (declaration-name-lookup registered-index declarations)]
+                 (mapv
+                  (fn [declaration]
+                    (if (and target-keys
+                             (not (contains? target-keys
+                                             (:declaration-key declaration))))
+                      declaration
+                      (let [source-reference-changed? (volatile! false)
+                            self-logical-id (:logical-id declaration)
+                            reference-source-keys
+                            [:args :return :body :value :type :fields :align]
+                            refreshed
+                            (merge
+                             declaration
+                             (walk-reference-values
+                              (fn [value]
+                                (if (symbol? value)
+                                  (let [reference
+                                        (:aguafria/zig-reference (meta value))
+                                        current
+                                        (when-not (= :namespace-root
+                                                     (:kind reference))
+                                          (or (and reference
+                                                   (get current-by-logical
+                                                        (:logical-id reference)))
+                                              (and reference
+                                                   (current-by-name
+                                                    [(str (or (:module reference)
+                                                              (some-> (:symbol reference)
+                                                                      namespace)
+                                                              (namespace value)
+                                                              (:module declaration)))
+                                                     (or (some-> (:symbol reference)
+                                                                 name)
+                                                         (some-> (:zig-name reference)
+                                                                 (str/split #"\.")
+                                                                 last)
+                                                         (name value))]))
                                       ;; Converted Zig permits same-file forward
                                       ;; references without a Clojure Var. Resolve
                                       ;; every declaration kind from the complete
@@ -7213,366 +7321,366 @@
                                       ;; runtime helper calling a comptime factory
                                       ;; has no dependency fingerprint and cannot
                                       ;; be republished when that factory changes.
-                                      (and (nil? (namespace value))
-                                           (current-by-name
-                                                [(:module declaration)
-                                                 (name value)]))))]
-                              (cond
+                                              (and (nil? (namespace value))
+                                                   (current-by-name
+                                                    [(:module declaration)
+                                                     (name value)]))))]
+                                    (cond
                                 ;; A module alias is not a declaration inside
                                 ;; that module. A same-named function or type
                                 ;; must never turn `const foo = @import(...)`
                                 ;; into the self-alias `const foo = foo`.
-                                (= :namespace-root (:kind reference))
-                                value
+                                      (= :namespace-root (:kind reference))
+                                      value
 
-                                (= :var (:kind current))
-                                (let [reference
-                                      (assoc (or reference {})
-                                             :logical-id (:logical-id current)
-                                             :kind (:kind current)
-                                             :module (:module current)
-                                             :zig-name
-                                             (or (:zig-name reference)
-                                                 (declaration-zig-name current))
-                                             :schema-fingerprint
-                                             (:schema-fingerprint current)
-                                             :state-accessor
-                                             (:accessor
-                                              (state-reference current)))]
-                                  (when (not=
-                                         (select-keys
-                                          (:aguafria/zig-reference (meta value))
-                                          source-reference-fingerprint-keys)
-                                         (select-keys reference
-                                                      source-reference-fingerprint-keys))
-                                    (vreset! source-reference-changed? true))
-                                  (with-meta value
-                                    (assoc (meta value)
-                                           :aguafria/zig-reference reference)))
+                                      (= :var (:kind current))
+                                      (let [reference
+                                            (assoc (or reference {})
+                                                   :logical-id (:logical-id current)
+                                                   :kind (:kind current)
+                                                   :module (:module current)
+                                                   :zig-name
+                                                   (or (:zig-name reference)
+                                                       (declaration-zig-name current))
+                                                   :schema-fingerprint
+                                                   (:schema-fingerprint current)
+                                                   :state-accessor
+                                                   (:accessor
+                                                    (state-reference current)))]
+                                        (when (not=
+                                               (select-keys
+                                                (:aguafria/zig-reference (meta value))
+                                                source-reference-fingerprint-keys)
+                                               (select-keys reference
+                                                            source-reference-fingerprint-keys))
+                                          (vreset! source-reference-changed? true))
+                                        (with-meta value
+                                          (assoc (meta value)
+                                                 :aguafria/zig-reference reference)))
 
-                                (type-producing-declaration? current)
-                                (let [reference
-                                      (assoc (or reference {})
-                                             :logical-id (:logical-id current)
-                                             :kind (:kind current)
-                                             :module (:module current)
-                                             :zig-name
-                                             (or (:zig-name reference)
-                                                 (declaration-zig-name current))
-                                             :schema-fingerprint
-                                             (:schema-fingerprint current)
-                                             :shape-fingerprint
-                                             (:shape-fingerprint current))]
-                                  (when (not=
-                                         (select-keys
-                                          (:aguafria/zig-reference (meta value))
-                                          source-reference-fingerprint-keys)
-                                         (select-keys reference
-                                                      source-reference-fingerprint-keys))
-                                    (vreset! source-reference-changed? true))
-                                  (with-meta value
-                                    (assoc (meta value)
-                                           :aguafria/zig-reference reference)))
+                                      (type-producing-declaration? current)
+                                      (let [reference
+                                            (assoc (or reference {})
+                                                   :logical-id (:logical-id current)
+                                                   :kind (:kind current)
+                                                   :module (:module current)
+                                                   :zig-name
+                                                   (or (:zig-name reference)
+                                                       (declaration-zig-name current))
+                                                   :schema-fingerprint
+                                                   (:schema-fingerprint current)
+                                                   :shape-fingerprint
+                                                   (:shape-fingerprint current))]
+                                        (when (not=
+                                               (select-keys
+                                                (:aguafria/zig-reference (meta value))
+                                                source-reference-fingerprint-keys)
+                                               (select-keys reference
+                                                            source-reference-fingerprint-keys))
+                                          (vreset! source-reference-changed? true))
+                                        (with-meta value
+                                          (assoc (meta value)
+                                                 :aguafria/zig-reference reference)))
 
-                                (contains? #{:fn :fn-proto} (:kind current))
-                                (let [reference
-                                      (assoc (or reference {})
-                                             :logical-id (:logical-id current)
-                                             :kind (:kind current)
-                                             :module (:module current)
-                                             :zig-name
-                                             (or (:zig-name reference)
-                                                 (declaration-zig-name current))
-                                             :abi-fingerprint
-                                             (:abi-fingerprint current)
-                                             :implementation-fingerprint
-                                             (:implementation-fingerprint current))]
-                                  (when (not=
-                                         (select-keys
-                                          (:aguafria/zig-reference (meta value))
-                                          source-reference-fingerprint-keys)
-                                         (select-keys reference
-                                                      source-reference-fingerprint-keys))
-                                    (vreset! source-reference-changed? true))
-                                  (with-meta value
-                                    (assoc (meta value)
-                                           :aguafria/zig-reference reference)))
+                                      (contains? #{:fn :fn-proto} (:kind current))
+                                      (let [reference
+                                            (assoc (or reference {})
+                                                   :logical-id (:logical-id current)
+                                                   :kind (:kind current)
+                                                   :module (:module current)
+                                                   :zig-name
+                                                   (or (:zig-name reference)
+                                                       (declaration-zig-name current))
+                                                   :abi-fingerprint
+                                                   (:abi-fingerprint current)
+                                                   :implementation-fingerprint
+                                                   (:implementation-fingerprint current))]
+                                        (when (not=
+                                               (select-keys
+                                                (:aguafria/zig-reference (meta value))
+                                                source-reference-fingerprint-keys)
+                                               (select-keys reference
+                                                            source-reference-fingerprint-keys))
+                                          (vreset! source-reference-changed? true))
+                                        (with-meta value
+                                          (assoc (meta value)
+                                                 :aguafria/zig-reference reference)))
 
-                                (= :const (:kind current))
+                                      (= :const (:kind current))
                                 ;; Scalar/aggregate const values are embedded
                                 ;; by Zig just like comptime function results.
                                 ;; A stable function cell cannot update those
                                 ;; literals unless its implementation changes.
-                                (let [reference
-                                      (assoc (or reference {})
-                                             :logical-id (:logical-id current)
-                                             :kind :const
-                                             :module (:module current)
-                                             :zig-name (or (:zig-name reference)
-                                                           (declaration-zig-name current))
-                                             :constant-fingerprint
-                                             (:implementation-fingerprint current))]
-                                  (when (not= (:constant-fingerprint
-                                               (:aguafria/zig-reference (meta value)))
-                                              (:constant-fingerprint reference))
-                                    (vreset! source-reference-changed? true))
-                                  (with-meta value
-                                    (assoc (meta value) :aguafria/zig-reference reference)))
-
-                                :else value))
-                            value))
-                         (select-keys declaration reference-source-keys)))
-                         refreshed-reference-values
-                       (nested-form-values
-                        (select-keys refreshed reference-source-keys))
-                         type-dependency-fingerprints
-                       (->> refreshed-reference-values
-                            (keep (fn [value]
-                                    (when (symbol? value)
                                       (let [reference
-                                            (:aguafria/zig-reference
-                                             (meta value))
-                                            current
-                                            (and reference
-                                                 (get current-by-logical
-                                                      (:logical-id reference)))]
-                                        (cond
-                                          (= self-logical-id
-                                             (:logical-id current))
-                                          nil
+                                            (assoc (or reference {})
+                                                   :logical-id (:logical-id current)
+                                                   :kind :const
+                                                   :module (:module current)
+                                                   :zig-name (or (:zig-name reference)
+                                                                 (declaration-zig-name current))
+                                                   :constant-fingerprint
+                                                   (:implementation-fingerprint current))]
+                                        (when (not= (:constant-fingerprint
+                                                     (:aguafria/zig-reference (meta value)))
+                                                    (:constant-fingerprint reference))
+                                          (vreset! source-reference-changed? true))
+                                        (with-meta value
+                                          (assoc (meta value) :aguafria/zig-reference reference)))
 
-                                          (type-producing-declaration? current)
-                                          [[(:logical-id current)
-                                            (:schema-fingerprint current)
-                                            (:implementation-fingerprint current)
-                                            (:shape-fingerprint current)]]
+                                      :else value))
+                                  value))
+                              (select-keys declaration reference-source-keys)))
+                            refreshed-reference-values
+                            (nested-form-values
+                             (select-keys refreshed reference-source-keys))
+                            type-dependency-fingerprints
+                            (->> refreshed-reference-values
+                                 (keep (fn [value]
+                                         (when (symbol? value)
+                                           (let [reference
+                                                 (:aguafria/zig-reference
+                                                  (meta value))
+                                                 current
+                                                 (and reference
+                                                      (get current-by-logical
+                                                           (:logical-id reference)))]
+                                             (cond
+                                               (= self-logical-id
+                                                  (:logical-id current))
+                                               nil
 
-                                          current
-                                          (:type-dependency-fingerprints current)
+                                               (type-producing-declaration? current)
+                                               [[(:logical-id current)
+                                                 (:schema-fingerprint current)
+                                                 (:implementation-fingerprint current)
+                                                 (:shape-fingerprint current)]]
 
-                                          (:schema-fingerprint reference)
-                                          [[(:logical-id reference)
-                                            (:schema-fingerprint reference)
-                                            (:implementation-fingerprint reference)
-                                            (:shape-fingerprint reference)]])))))
-                            (mapcat identity)
-                            (remove #(= self-logical-id (first %)))
-                            distinct
-                            sorted-fingerprints)
-                         comptime-type-operands
-                       (->> refreshed-reference-values
-                            (keep (fn [form]
-                                    (when (and (seq? form)
-                                               (symbol? (first form))
-                                               (contains?
-                                                #{"Type" "TypeOf" "alignOf"
-                                                  "bitSizeOf" "hasDecl"
-                                                  "hasField" "offsetOf"
-                                                  "sizeOf" "typeInfo"
-                                                  "typeName"}
-                                                (name (first form))))
-                                      (rest form))))
-                            (mapcat identity))
+                                               current
+                                               (:type-dependency-fingerprints current)
+
+                                               (:schema-fingerprint reference)
+                                               [[(:logical-id reference)
+                                                 (:schema-fingerprint reference)
+                                                 (:implementation-fingerprint reference)
+                                                 (:shape-fingerprint reference)]])))))
+                                 (mapcat identity)
+                                 (remove #(= self-logical-id (first %)))
+                                 distinct
+                                 sorted-fingerprints)
+                            comptime-type-operands
+                            (->> refreshed-reference-values
+                                 (keep (fn [form]
+                                         (when (and (seq? form)
+                                                    (symbol? (first form))
+                                                    (contains?
+                                                     #{"Type" "TypeOf" "alignOf"
+                                                       "bitSizeOf" "hasDecl"
+                                                       "hasField" "offsetOf"
+                                                       "sizeOf" "typeInfo"
+                                                       "typeName"}
+                                                     (name (first form))))
+                                           (rest form))))
+                                 (mapcat identity))
                        ;; Schemas reachable from the callable surface or used
                        ;; by Zig's compile-time type introspection form a live
                        ;; caller lineage. Ordinary body-local values remain an
                        ;; implementation detail, but an old caller of
                        ;; `@sizeOf(OldType)` must not be redirected to the new
                        ;; layout merely because its scalar C signature matches.
-                         abi-type-dependency-fingerprints
-                       (->> (concat [(:return refreshed)]
-                                    (map :type (:args refreshed))
-                                    comptime-type-operands)
-                            nested-form-values
-                            (keep (fn [value]
-                                    (when (symbol? value)
-                                      (let [reference
-                                            (:aguafria/zig-reference
-                                             (meta value))
-                                            current
-                                            (or (and reference
-                                                     (get current-by-logical
-                                                          (:logical-id reference)))
-                                                (current-by-name
-                                                     [(or (:module reference)
-                                                          (namespace value)
-                                                          (:module declaration))
-                                                      (name value)]))]
-                                        (cond
-                                          (= self-logical-id
-                                             (:logical-id current))
-                                          nil
+                            abi-type-dependency-fingerprints
+                            (->> (concat [(:return refreshed)]
+                                         (map :type (:args refreshed))
+                                         comptime-type-operands)
+                                 nested-form-values
+                                 (keep (fn [value]
+                                         (when (symbol? value)
+                                           (let [reference
+                                                 (:aguafria/zig-reference
+                                                  (meta value))
+                                                 current
+                                                 (or (and reference
+                                                          (get current-by-logical
+                                                               (:logical-id reference)))
+                                                     (current-by-name
+                                                      [(or (:module reference)
+                                                           (namespace value)
+                                                           (:module declaration))
+                                                       (name value)]))]
+                                             (cond
+                                               (= self-logical-id
+                                                  (:logical-id current))
+                                               nil
 
-                                          (type-producing-declaration? current)
-                                          [[(:logical-id current)
-                                            (:schema-fingerprint current)
-                                            (:implementation-fingerprint current)
-                                            (:shape-fingerprint current)]]
+                                               (type-producing-declaration? current)
+                                               [[(:logical-id current)
+                                                 (:schema-fingerprint current)
+                                                 (:implementation-fingerprint current)
+                                                 (:shape-fingerprint current)]]
 
-                                          current
-                                          (:type-dependency-fingerprints current)
+                                               current
+                                               (:type-dependency-fingerprints current)
 
-                                          (:schema-fingerprint reference)
-                                          [[(:logical-id reference)
-                                            (:schema-fingerprint reference)
-                                            (:implementation-fingerprint reference)
-                                            (:shape-fingerprint reference)]])))))
-                            (mapcat identity)
-                            (remove #(= self-logical-id (first %)))
-                            distinct
-                            sorted-fingerprints)
-                         callable-dependency-fingerprints
-                       (->> refreshed-reference-values
-                            (keep (fn [value]
-                                    (when (symbol? value)
-                                      (let [reference
-                                            (:aguafria/zig-reference
-                                             (meta value))
-                                            current
-                                            (and reference
-                                                 (get current-by-logical
-                                                      (:logical-id reference)))]
-                                        (cond
-                                          (= self-logical-id
-                                             (:logical-id current))
-                                          nil
+                                               (:schema-fingerprint reference)
+                                               [[(:logical-id reference)
+                                                 (:schema-fingerprint reference)
+                                                 (:implementation-fingerprint reference)
+                                                 (:shape-fingerprint reference)]])))))
+                                 (mapcat identity)
+                                 (remove #(= self-logical-id (first %)))
+                                 distinct
+                                 sorted-fingerprints)
+                            callable-dependency-fingerprints
+                            (->> refreshed-reference-values
+                                 (keep (fn [value]
+                                         (when (symbol? value)
+                                           (let [reference
+                                                 (:aguafria/zig-reference
+                                                  (meta value))
+                                                 current
+                                                 (and reference
+                                                      (get current-by-logical
+                                                           (:logical-id reference)))]
+                                             (cond
+                                               (= self-logical-id
+                                                  (:logical-id current))
+                                               nil
 
-                                          (and (contains? #{:fn :fn-proto}
-                                                          (:kind current))
-                                               (not (type-producing-declaration?
-                                                     current)))
-                                          [(cond-> [(:logical-id current)
-                                                    (:abi-fingerprint current)]
-                                             (not (dispatchable-declaration?
-                                                   current))
-                                             (conj
-                                              (:implementation-fingerprint
-                                               current)))]
+                                               (and (contains? #{:fn :fn-proto}
+                                                               (:kind current))
+                                                    (not (type-producing-declaration?
+                                                          current)))
+                                               [(cond-> [(:logical-id current)
+                                                         (:abi-fingerprint current)]
+                                                  (not (dispatchable-declaration?
+                                                        current))
+                                                  (conj
+                                                   (:implementation-fingerprint
+                                                    current)))]
 
-                                          (and (= :const (:kind current))
-                                               (not (type-producing-declaration? current)))
-                                          (cons [(:logical-id current)
-                                                 (:implementation-fingerprint current)]
-                                                (:callable-dependency-fingerprints current))
+                                               (and (= :const (:kind current))
+                                                    (not (type-producing-declaration? current)))
+                                               (cons [(:logical-id current)
+                                                      (:implementation-fingerprint current)]
+                                                     (:callable-dependency-fingerprints current))
 
-                                          current
-                                          (:callable-dependency-fingerprints
-                                           current))))))
-                            (mapcat identity)
-                            (remove #(= self-logical-id (first %)))
-                            distinct
-                            sorted-fingerprints)
-                         dependency-identities-changed?
-                       (not= [(:type-dependency-fingerprints declaration)
-                              (:abi-type-dependency-fingerprints declaration)
-                              (:callable-dependency-fingerprints declaration)]
-                             [type-dependency-fingerprints
-                              abi-type-dependency-fingerprints
-                              callable-dependency-fingerprints])
-                         refreshed
-                       (assoc refreshed
-                              :type-dependency-fingerprints
-                              type-dependency-fingerprints
-                              :abi-type-dependency-fingerprints
-                              abi-type-dependency-fingerprints
-                              :callable-dependency-fingerprints
-                              callable-dependency-fingerprints)]
-                     (let [unchanged? (and (:source-fingerprint declaration)
-                                           (not @source-reference-changed?)
-                                           (not dependency-identities-changed?))
-                           cyclic-fingerprint
-                           (get *cyclic-implementation-fingerprints* self-logical-id)]
+                                               current
+                                               (:callable-dependency-fingerprints
+                                                current))))))
+                                 (mapcat identity)
+                                 (remove #(= self-logical-id (first %)))
+                                 distinct
+                                 sorted-fingerprints)
+                            dependency-identities-changed?
+                            (not= [(:type-dependency-fingerprints declaration)
+                                   (:abi-type-dependency-fingerprints declaration)
+                                   (:callable-dependency-fingerprints declaration)]
+                                  [type-dependency-fingerprints
+                                   abi-type-dependency-fingerprints
+                                   callable-dependency-fingerprints])
+                            refreshed
+                            (assoc refreshed
+                                   :type-dependency-fingerprints
+                                   type-dependency-fingerprints
+                                   :abi-type-dependency-fingerprints
+                                   abi-type-dependency-fingerprints
+                                   :callable-dependency-fingerprints
+                                   callable-dependency-fingerprints)]
+                        (let [unchanged? (and (:source-fingerprint declaration)
+                                              (not @source-reference-changed?)
+                                              (not dependency-identities-changed?))
+                              cyclic-fingerprint
+                              (get *cyclic-implementation-fingerprints* self-logical-id)]
                        ;; Refresh reference metadata for emission, but do not
                        ;; rehash an unchanged declaration body for each adapter.
                        ;; Cyclic identities and every dependency lineage still
                        ;; participate in the decision to recompute fingerprints.
-                       (if (and unchanged?
-                                (= cyclic-fingerprint
-                                   (:cyclic-implementation-fingerprint declaration)))
-                         refreshed
-                         (binding [*preserve-source-fingerprint?* unchanged?]
-                           (declaration-info refreshed)))))))
-               declarations)))]
-    (let [refreshed (refresh-pass declarations target-declaration-keys)
-          before-by-logical (into {} (map (juxt :logical-id identity))
-                                  declarations)
-          dependency-affecting-logical-ids
-          (into #{}
-                (keep
-                 (fn [declaration]
-                   (let [before (get before-by-logical
-                                     (:logical-id declaration))]
-                     (when (or
-                            (not= (select-keys before
-                                               [:abi-fingerprint
-                                                :schema-fingerprint
-                                                :shape-fingerprint])
-                                  (select-keys declaration
-                                               [:abi-fingerprint
-                                                :schema-fingerprint
-                                                :shape-fingerprint]))
+                          (if (and unchanged?
+                                   (= cyclic-fingerprint
+                                      (:cyclic-implementation-fingerprint declaration)))
+                            refreshed
+                            (binding [*preserve-source-fingerprint?* unchanged?]
+                              (declaration-info refreshed)))))))
+                  declarations)))]
+       (let [refreshed (refresh-pass declarations target-declaration-keys)
+             before-by-logical (into {} (map (juxt :logical-id identity))
+                                     declarations)
+             dependency-affecting-logical-ids
+             (into #{}
+                   (keep
+                    (fn [declaration]
+                      (let [before (get before-by-logical
+                                        (:logical-id declaration))]
+                        (when (or
+                               (not= (select-keys before
+                                                  [:abi-fingerprint
+                                                   :schema-fingerprint
+                                                   :shape-fingerprint])
+                                     (select-keys declaration
+                                                  [:abi-fingerprint
+                                                   :schema-fingerprint
+                                                   :shape-fingerprint]))
                             ;; Concrete reloadable functions are reached
                             ;; through stable cells. Their implementation-only
                             ;; edits do not alter a caller's emitted source or
                             ;; dependency identity, so those callers do not
                             ;; need another fingerprint pass.
-                            (and (or (type-producing-declaration? declaration)
-                                     (not (dispatchable-declaration?
-                                           declaration)))
-                                 (not= (:implementation-fingerprint before)
-                                       (:implementation-fingerprint
-                                        declaration))))
-                       (:logical-id declaration)))))
-                refreshed)
-          second-pass-required?
-          (and (> (count refreshed) 1)
-               (seq dependency-affecting-logical-ids)
-               (some
-                (fn [declaration]
-                  (some dependency-affecting-logical-ids
-                        (concat
-                         (map first (:type-dependency-fingerprints declaration))
-                         (map first (:callable-dependency-fingerprints
-                                     declaration)))))
-                refreshed))]
+                               (and (or (type-producing-declaration? declaration)
+                                        (not (dispatchable-declaration?
+                                              declaration)))
+                                    (not= (:implementation-fingerprint before)
+                                          (:implementation-fingerprint
+                                           declaration))))
+                          (:logical-id declaration)))))
+                   refreshed)
+             second-pass-required?
+             (and (> (count refreshed) 1)
+                  (seq dependency-affecting-logical-ids)
+                  (some
+                   (fn [declaration]
+                     (some dependency-affecting-logical-ids
+                           (concat
+                            (map first (:type-dependency-fingerprints declaration))
+                            (map first (:callable-dependency-fingerprints
+                                        declaration)))))
+                   refreshed))]
       ;; Only declarations that refer to another declaration whose identity
       ;; changed need the transitive second pass. A single large type factory
       ;; no longer walks and fingerprints its entire body twice.
-      (loop [before declarations
-             current (if second-pass-required?
-                       (refresh-pass refreshed nil)
-                       refreshed)
-             remaining (inc (count declarations))]
+         (loop [before declarations
+                current (if second-pass-required?
+                          (refresh-pass refreshed nil)
+                          refreshed)
+                remaining (inc (count declarations))]
         ;; Two passes cover one intermediate declaration, not an arbitrary
         ;; const -> const -> ... -> function chain. Continue only along changed
         ;; embedded-value identities; ordinary stable function cells remain a
         ;; propagation boundary and unrelated declarations are not walked again.
-        (let [before-by-id (into {} (map (juxt :logical-id identity)) before)
-              changed-constants
-              (into #{}
-                    (keep (fn [d]
-                            (when (and (= :const (:kind d))
-                                       (not (type-producing-declaration? d))
-                                       (not= (:implementation-fingerprint d)
-                                             (:implementation-fingerprint
-                                              (get before-by-id (:logical-id d)))))
-                              (:logical-id d))))
-                    current)
-              affected-keys
-              (into #{}
-                    (keep (fn [d]
-                            (when (some changed-constants
-                                        (map first (:callable-dependency-fingerprints d)))
-                              (:declaration-key d))))
-                    current)]
-          (cond
-            (empty? affected-keys) current
-            (zero? remaining)
-            (throw (ex-info "Compile-time constant dependencies do not stabilize"
-                            {:aguafria/phase :zig-constant-dependency
-                             :logical-ids changed-constants}))
-            :else (recur current (refresh-pass current affected-keys)
-                         (dec remaining))))))))))
+           (let [before-by-id (into {} (map (juxt :logical-id identity)) before)
+                 changed-constants
+                 (into #{}
+                       (keep (fn [d]
+                               (when (and (= :const (:kind d))
+                                          (not (type-producing-declaration? d))
+                                          (not= (:implementation-fingerprint d)
+                                                (:implementation-fingerprint
+                                                 (get before-by-id (:logical-id d)))))
+                                 (:logical-id d))))
+                       current)
+                 affected-keys
+                 (into #{}
+                       (keep (fn [d]
+                               (when (some changed-constants
+                                           (map first (:callable-dependency-fingerprints d)))
+                                 (:declaration-key d))))
+                       current)]
+             (cond
+               (empty? affected-keys) current
+               (zero? remaining)
+               (throw (ex-info "Compile-time constant dependencies do not stabilize"
+                               {:aguafria/phase :zig-constant-dependency
+                                :logical-ids changed-constants}))
+               :else (recur current (refresh-pass current affected-keys)
+                            (dec remaining))))))))))
 
 (def ^:private preparation-reference-refresh (atom nil))
 
@@ -7769,16 +7877,20 @@
                         (map #(vector % declaration)
                              (declaration-index-names declaration))))
               declarations)
-        roots
-        (keep by-name (root-context-member-names module dependency-snapshot))]
-    (->> (concat fallback-declarations
-                 (declarations-live-slice declarations roots))
-         (reduce (fn [selected declaration]
-                   (assoc selected (:declaration-key declaration) declaration))
-                 {})
-         vals
-         (sort-by (juxt :source-order (comp str :name)))
-         vec)))
+        initial (into {} (map (juxt :declaration-key identity)) fallback-declarations)]
+    (loop [selected initial
+           dependencies dependency-snapshot]
+      (let [roots (keep by-name (root-context-member-names module dependencies))
+            expanded (into selected (map (juxt :declaration-key identity))
+                           (declarations-live-slice declarations roots))
+            result (->> (vals expanded)
+                        (sort-by (juxt :source-order (comp str :name)))
+                        vec)]
+        (if (= (set (keys selected)) (set (keys expanded)))
+          result
+          ;; A retained root member can import another dependency that refers
+          ;; back to the root. Close that cycle before emitting the root slice.
+          (recur expanded (development-dependency-snapshot result)))))))
 
 (defn- compilation-plan
   [module module-state declarations old-declaration declaration]
@@ -7820,7 +7932,7 @@
         declaration
         (or (some #(when (= declaration-key
                             (:declaration-key %))
-                    %)
+                     %)
                   declarations)
             declaration)
         getter-declaration-keys
@@ -7861,7 +7973,7 @@
         refreshed-declaration
         (or (some #(when (= (:declaration-key declaration)
                             (:declaration-key %))
-                    %)
+                     %)
                   declarations)
             declaration)
         fallback-declarations
@@ -7997,50 +8109,50 @@
                         ;; namespace. Otherwise an untouched type/function can
                         ;; disappear merely because this edit publishes one
                         ;; live slice.
-                        :development-root-source
-                        (if fallback-complete-development-root?
-                          (:compile-source primary)
-                          (:compile-source
-                           fallback-development-root-sources))
-                        :development-root-declarations
-                        fallback-development-root-declarations
-                        :development-root-dependencies
-                        (direct-declaration-dependencies
-                         fallback-development-root-declarations)
-                        :complete-development-root?
-                        fallback-complete-development-root?
+                          :development-root-source
+                          (if fallback-complete-development-root?
+                            (:compile-source primary)
+                            (:compile-source
+                             fallback-development-root-sources))
+                          :development-root-declarations
+                          fallback-development-root-declarations
+                          :development-root-dependencies
+                          (direct-declaration-dependencies
+                           fallback-development-root-declarations)
+                          :complete-development-root?
+                          fallback-complete-development-root?
                         ;; The complete root source can retain imports that
                         ;; are intentionally absent from the edited live
                         ;; slice, so it needs the complete dependency graph as
                         ;; well.
-                        :dependency-snapshot
-                        (if fallback-complete-development-root?
-                          (:dependency-snapshot primary)
-                          (:dependency-snapshot fallback))
-                        :embedded-root-dispatch-entries
-                        (when fallback-complete-development-root?
-                          (->> (:reload-source-dispatch-specs primary)
-                               (remove (comp fallback-dispatch-keys key))
-                               (keep (fn [[declaration-key spec]]
-                                       (when-let [embedded
-                                                  (get declarations-by-key
-                                                       declaration-key)]
-                                         {:declaration embedded
-                                          :spec spec
-                                          :owned? false})))
-                               vec))
-                        :embedded-root-state-entries
-                        (when fallback-complete-development-root?
-                          (->> (:state-specs primary)
-                               (remove (comp fallback-state-keys key))
-                               (keep (fn [[declaration-key spec]]
-                                       (when-let [embedded
-                                                  (get declarations-by-key
-                                                       declaration-key)]
-                                         {:declaration embedded
-                                          :spec spec
-                                          :owned? false})))
-                               vec)))))
+                          :dependency-snapshot
+                          (if fallback-complete-development-root?
+                            (:dependency-snapshot primary)
+                            (:dependency-snapshot fallback))
+                          :embedded-root-dispatch-entries
+                          (when fallback-complete-development-root?
+                            (->> (:reload-source-dispatch-specs primary)
+                                 (remove (comp fallback-dispatch-keys key))
+                                 (keep (fn [[declaration-key spec]]
+                                         (when-let [embedded
+                                                    (get declarations-by-key
+                                                         declaration-key)]
+                                           {:declaration embedded
+                                            :spec spec
+                                            :owned? false})))
+                                 vec))
+                          :embedded-root-state-entries
+                          (when fallback-complete-development-root?
+                            (->> (:state-specs primary)
+                                 (remove (comp fallback-state-keys key))
+                                 (keep (fn [[declaration-key spec]]
+                                         (when-let [embedded
+                                                    (get declarations-by-key
+                                                         declaration-key)]
+                                           {:declaration embedded
+                                            :spec spec
+                                            :owned? false})))
+                                 vec)))))
      :old-declaration old-declaration
      :declaration declaration
      ;; A breaking type is a new logical generation. Compiling the complete
@@ -8721,6 +8833,15 @@
   therefore never compiles half of a file, while reevaluating one declaration
   still schedules a hot generation automatically."
   [{:keys [module declaration-key] :as declaration}]
+  ;; Type identities in the queued plan must include the converted dependency
+  ;; closure, just as synchronous publication and compile-only preparation do.
+  ;; Load it before taking compile-lock; source loading also needs that lock.
+  (let [dependency-declarations
+        (locking compile-lock
+          (-> (replacement-declaration-state
+               (:definitions (get @registry module)) declaration)
+              :definitions vals vec))]
+    (ensure-converted-dependency-sources! module dependency-declarations))
   ;; A host may start from a complete immutable source graph while individual
   ;; dependency modules are still finishing their first background builds.
   ;; Do not let a type edit supersede that baseline: the running host already
@@ -8739,7 +8860,7 @@
       (locking compile-lock
         (let [active-version
               (some #(when (and (= (:logical-id old-declaration)
-                                  (:logical-id %))
+                                   (:logical-id %))
                                 (:active? %))
                        %)
                     (get-in @registry [module :type-versions]))]
@@ -8931,191 +9052,191 @@
         _ (ensure-converted-dependency-sources! module dependency-declarations)
         dependency-preparation-duration-ms
         (elapsed-nanos-ms dependency-preparation-started-ns)]
-   (locking compile-lock
-    (let [planning-started-ns (System/nanoTime)
-          old-module (get @registry module)
-          old-definitions (or (:definitions old-module) {})
-          {:keys [old-declaration declaration definitions]}
-          (replacement-declaration-state old-definitions declaration)
-          declarations (vec (vals definitions))
-          pending-declaration-keys
-          (conj (set (:pending-declaration-keys old-module)) declaration-key)
-          plan (binding [*pending-declaration-keys* pending-declaration-keys]
-                 (compilation-plan module old-module declarations
-                                   old-declaration declaration))
-          plan-old-declaration (:old-declaration plan)
-          plan-declaration (:declaration plan)
-          _ (capture-publication-plan!
-             module declaration-key old-module old-declaration declaration
-             definitions plan)
-          _ (when (and (native-host-active?)
-                       (breaking-type-change? plan-old-declaration
-                                              plan-declaration))
-              (freeze-active-host-dispatch! plan-declaration))
-          propagation-impacts
-          (registration-dependent-propagation-impacts
-           old-module plan-old-declaration plan-declaration)
-          {source :source source-dirty? :source-dirty?} (:primary plan)
-          generation (inc (or (:requested-generation old-module)
-                              (:generation old-module) 0))
-          planning-duration-ms (elapsed-nanos-ms planning-started-ns)
-          job {:module module
-               :generation generation
-               :declarations declarations
-               :planning-duration-ms planning-duration-ms}
-          prepared (atom nil)
-          published? (atom false)]
-      (record-build! job false)
-      (mark-build-started! module generation)
-      (try
-        (let [plan (refresh-plan-dependency-snapshots plan)
-              compiler-started-ns (System/nanoTime)
-              {compiled-declarations :declarations
-               :keys [compiled compile-source reload-source dispatch-specs
-                      reload-source-dispatch-specs
-                      partial-publication? dependency-snapshot
-                      jvm-callable-specs jvm-value-specs jvm-type-specs]
-               :as compilation}
-              (compile-plan! module plan)
-              compiler-duration-ms (elapsed-nanos-ms compiler-started-ns)
-              dynamic-load-started-ns (System/nanoTime)
-              loaded (-> (load-module compiled compiled-declarations dispatch-specs
-                                      (compilation-dependency-dispatch-entries
-                                       compilation)
-                                      (compilation-dependency-state-entries
-                                       compilation)
-                                      jvm-callable-specs
-                                      jvm-value-specs
-                                      jvm-type-specs)
-                         (prepare-loaded-generation generation))
-              dynamic-load-duration-ms
-              (elapsed-nanos-ms dynamic-load-started-ns)
-              _ (reset! prepared loaded)
-              publication-started-ns (System/nanoTime)
-              dispatch (reconcile-dispatch! old-module loaded generation)
-              compiled-definitions
-              (into {}
-                    (map (juxt :declaration-key identity))
-                    compiled-declarations)
-              remaining-pending-keys
-              (into #{} (remove (set (keys compiled-definitions)))
-                    pending-declaration-keys)
-              functions (if partial-publication?
-                          (merge (:functions old-module) (:functions loaded))
-                          (:functions loaded))
-              values (if partial-publication?
-                       (merge (:values old-module) (:values loaded))
-                       (:values loaded))
-              types (if partial-publication?
-                      (merge (:types old-module) (:types loaded))
-                      (:types loaded))
-              loaded-declarations
-              (published-loaded-declarations old-module loaded
-                                             partial-publication?)
-              published-dispatch-specs dispatch-specs
-              new-module
-              (merge old-module loaded dispatch
-                     {:module module
-                      :generation generation
-                      :published-generation generation
-                      :requested-generation generation
-                      :source source
-                      :source-dirty? source-dirty?
-                      :reload-source reload-source
-                      :dependency-source
-                      (get-in plan [:primary :dependency-source])
-                      :dispatch-specs published-dispatch-specs
-                      :reload-source-dispatch-specs
-                      reload-source-dispatch-specs
-                      :dependency-dispatch-specs
-                      (get-in plan
-                              [:primary :reload-source-dispatch-specs])
-                      :functions functions
-                      :values values
-                      :types types
-                      :loaded-declarations loaded-declarations
-                      :partial-publication? partial-publication?
-                      :last-publication-transit-only? false
-                      :full-compile-error (:full-compile-error compiled)
-                      :pending-declaration-keys
-                      remaining-pending-keys
-                      :pending nil
-                      :source-only? false
-                      :last-error (when (seq remaining-pending-keys) (:last-error old-module))
-                      :last-dependent-publication-error nil
-                      :failed-generation (when (seq remaining-pending-keys) (:failed-generation old-module))
-                      :last-dependent-publication-failure nil
-                      :definitions
-                      (if partial-publication?
-                        (merge (:definitions old-module)
-                               compiled-definitions)
-                        compiled-definitions)})]
-          (swap! registry assoc module new-module)
-          (reset! published? true)
-          (refresh-project-dispatch!)
-          (publish-clojure-declaration-metadata! compiled-declarations)
-          (schedule-module-generation-retirement! module)
-          (let [publication-duration-ms
-                (elapsed-nanos-ms publication-started-ns)
-                propagation-started-ns (System/nanoTime)
-                affected
-                (when (seq propagation-impacts)
-                  (recompile-dependent-components!
-                   module nil propagation-impacts))
-                propagation-duration-ms
-                (when (seq propagation-impacts)
-                  (elapsed-nanos-ms propagation-started-ns))]
-            (mark-build-finished!
-             module generation :finished
-             (assoc compiled
-                    :compiled-declaration-count (count compiled-declarations)
-                    :planning-duration-ms planning-duration-ms
-                    :dependency-preparation-duration-ms
-                    dependency-preparation-duration-ms
-                    :compiler-duration-ms compiler-duration-ms
-                    :dynamic-load-duration-ms dynamic-load-duration-ms
-                    :publication-duration-ms publication-duration-ms
-                    :propagation-duration-ms propagation-duration-ms))
-            (cond-> (assoc (registration-result module declaration-key generation
-                                                compiled true)
-                           :planning-duration-ms planning-duration-ms)
-              affected (assoc :affected affected))))
-        (catch Throwable error
-          (when (and @prepared (not @published?))
-            (try (.close ^Arena (:arena @prepared)) (catch Throwable _)))
-          (when-not @published?
+    (locking compile-lock
+      (let [planning-started-ns (System/nanoTime)
+            old-module (get @registry module)
+            old-definitions (or (:definitions old-module) {})
+            {:keys [old-declaration declaration definitions]}
+            (replacement-declaration-state old-definitions declaration)
+            declarations (vec (vals definitions))
+            pending-declaration-keys
+            (conj (set (:pending-declaration-keys old-module)) declaration-key)
+            plan (binding [*pending-declaration-keys* pending-declaration-keys]
+                   (compilation-plan module old-module declarations
+                                     old-declaration declaration))
+            plan-old-declaration (:old-declaration plan)
+            plan-declaration (:declaration plan)
+            _ (capture-publication-plan!
+               module declaration-key old-module old-declaration declaration
+               definitions plan)
+            _ (when (and (native-host-active?)
+                         (breaking-type-change? plan-old-declaration
+                                                plan-declaration))
+                (freeze-active-host-dispatch! plan-declaration))
+            propagation-impacts
+            (registration-dependent-propagation-impacts
+             old-module plan-old-declaration plan-declaration)
+            {source :source source-dirty? :source-dirty?} (:primary plan)
+            generation (inc (or (:requested-generation old-module)
+                                (:generation old-module) 0))
+            planning-duration-ms (elapsed-nanos-ms planning-started-ns)
+            job {:module module
+                 :generation generation
+                 :declarations declarations
+                 :planning-duration-ms planning-duration-ms}
+            prepared (atom nil)
+            published? (atom false)]
+        (record-build! job false)
+        (mark-build-started! module generation)
+        (try
+          (let [plan (refresh-plan-dependency-snapshots plan)
+                compiler-started-ns (System/nanoTime)
+                {compiled-declarations :declarations
+                 :keys [compiled compile-source reload-source dispatch-specs
+                        reload-source-dispatch-specs
+                        partial-publication? dependency-snapshot
+                        jvm-callable-specs jvm-value-specs jvm-type-specs]
+                 :as compilation}
+                (compile-plan! module plan)
+                compiler-duration-ms (elapsed-nanos-ms compiler-started-ns)
+                dynamic-load-started-ns (System/nanoTime)
+                loaded (-> (load-module compiled compiled-declarations dispatch-specs
+                                        (compilation-dependency-dispatch-entries
+                                         compilation)
+                                        (compilation-dependency-state-entries
+                                         compilation)
+                                        jvm-callable-specs
+                                        jvm-value-specs
+                                        jvm-type-specs)
+                           (prepare-loaded-generation generation))
+                dynamic-load-duration-ms
+                (elapsed-nanos-ms dynamic-load-started-ns)
+                _ (reset! prepared loaded)
+                publication-started-ns (System/nanoTime)
+                dispatch (reconcile-dispatch! old-module loaded generation)
+                compiled-definitions
+                (into {}
+                      (map (juxt :declaration-key identity))
+                      compiled-declarations)
+                remaining-pending-keys
+                (into #{} (remove (set (keys compiled-definitions)))
+                      pending-declaration-keys)
+                functions (if partial-publication?
+                            (merge (:functions old-module) (:functions loaded))
+                            (:functions loaded))
+                values (if partial-publication?
+                         (merge (:values old-module) (:values loaded))
+                         (:values loaded))
+                types (if partial-publication?
+                        (merge (:types old-module) (:types loaded))
+                        (:types loaded))
+                loaded-declarations
+                (published-loaded-declarations old-module loaded
+                                               partial-publication?)
+                published-dispatch-specs dispatch-specs
+                new-module
+                (merge old-module loaded dispatch
+                       {:module module
+                        :generation generation
+                        :published-generation generation
+                        :requested-generation generation
+                        :source source
+                        :source-dirty? source-dirty?
+                        :reload-source reload-source
+                        :dependency-source
+                        (get-in plan [:primary :dependency-source])
+                        :dispatch-specs published-dispatch-specs
+                        :reload-source-dispatch-specs
+                        reload-source-dispatch-specs
+                        :dependency-dispatch-specs
+                        (get-in plan
+                                [:primary :reload-source-dispatch-specs])
+                        :functions functions
+                        :values values
+                        :types types
+                        :loaded-declarations loaded-declarations
+                        :partial-publication? partial-publication?
+                        :last-publication-transit-only? false
+                        :full-compile-error (:full-compile-error compiled)
+                        :pending-declaration-keys
+                        remaining-pending-keys
+                        :pending nil
+                        :source-only? false
+                        :last-error (when (seq remaining-pending-keys) (:last-error old-module))
+                        :last-dependent-publication-error nil
+                        :failed-generation (when (seq remaining-pending-keys) (:failed-generation old-module))
+                        :last-dependent-publication-failure nil
+                        :definitions
+                        (if partial-publication?
+                          (merge (:definitions old-module)
+                                 compiled-definitions)
+                          compiled-definitions)})]
+            (swap! registry assoc module new-module)
+            (reset! published? true)
+            (refresh-project-dispatch!)
+            (publish-clojure-declaration-metadata! compiled-declarations)
+            (schedule-module-generation-retirement! module)
+            (let [publication-duration-ms
+                  (elapsed-nanos-ms publication-started-ns)
+                  propagation-started-ns (System/nanoTime)
+                  affected
+                  (when (seq propagation-impacts)
+                    (recompile-dependent-components!
+                     module nil propagation-impacts))
+                  propagation-duration-ms
+                  (when (seq propagation-impacts)
+                    (elapsed-nanos-ms propagation-started-ns))]
+              (mark-build-finished!
+               module generation :finished
+               (assoc compiled
+                      :compiled-declaration-count (count compiled-declarations)
+                      :planning-duration-ms planning-duration-ms
+                      :dependency-preparation-duration-ms
+                      dependency-preparation-duration-ms
+                      :compiler-duration-ms compiler-duration-ms
+                      :dynamic-load-duration-ms dynamic-load-duration-ms
+                      :publication-duration-ms publication-duration-ms
+                      :propagation-duration-ms propagation-duration-ms))
+              (cond-> (assoc (registration-result module declaration-key generation
+                                                  compiled true)
+                             :planning-duration-ms planning-duration-ms)
+                affected (assoc :affected affected))))
+          (catch Throwable error
+            (when (and @prepared (not @published?))
+              (try (.close ^Arena (:arena @prepared)) (catch Throwable _)))
+            (when-not @published?
             ;; Compilation rejects a native generation, not the user's edit.
             ;; Keep requested definitions for the next REPL evaluation, while
             ;; retaining the old handles, storage, and published generation.
             ;; Pending keys make a later sliced build include every unapplied
             ;; edit, not only the declaration that finally fixes compilation.
-            (swap! registry assoc module
-                   (merge old-module
-                          {:module module
-                           :definitions definitions
-                           :source source
-                           :source-dirty? source-dirty?
-                           :requested-generation generation
-                           :pending-declaration-keys pending-declaration-keys
-                           :pending nil
-                           :last-error error
-                           :failed-generation generation})))
-          (when @published?
+              (swap! registry assoc module
+                     (merge old-module
+                            {:module module
+                             :definitions definitions
+                             :source source
+                             :source-dirty? source-dirty?
+                             :requested-generation generation
+                             :pending-declaration-keys pending-declaration-keys
+                             :pending nil
+                             :last-error error
+                             :failed-generation generation})))
+            (when @published?
             ;; The edited module is already a valid published generation. A
             ;; transitive dependent may still require an explicit state
             ;; migration; retain that failure for inspection without rolling
             ;; the root module back to its previous source/type identity.
-            (swap! registry update module assoc
-                   :last-dependent-publication-failure
-                   {:phase (:aguafria/phase (error-data error))
-                    :generation generation
-                    :logical-id (:logical-id (error-data error))
-                    :failed-at-ms (System/currentTimeMillis)
-                    :error (ex-message error)}
-                   :last-dependent-publication-error error))
-          (when-not @published?
-            (mark-build-failed! module generation error))
-          (throw error)))))))
+              (swap! registry update module assoc
+                     :last-dependent-publication-failure
+                     {:phase (:aguafria/phase (error-data error))
+                      :generation generation
+                      :logical-id (:logical-id (error-data error))
+                      :failed-at-ms (System/currentTimeMillis)
+                      :error (ex-message error)}
+                     :last-dependent-publication-error error))
+            (when-not @published?
+              (mark-build-failed! module generation error))
+            (throw error)))))))
 
 (declare await! dependency-topology)
 
@@ -9252,185 +9373,185 @@
   ([requested-module ignored-pending external-logical-ids]
   ;; Resolve pending work before taking the component-wide publication lock.
   ;; A later request cannot enter while the lock is held.
-  (doseq [module (dependency-component-members requested-module @registry)]
-    (when-let [pending (get-in @registry [module :pending])]
+   (doseq [module (dependency-component-members requested-module @registry)]
+     (when-let [pending (get-in @registry [module :pending])]
       ;; Explicit component recompilation is also the recovery path after a
       ;; failed generation. Wait for in-flight work, but do not rethrow its
       ;; recorded error before attempting the new immutable snapshot. During
       ;; automatic type propagation, the cyclic root component may include
       ;; the declaration whose publication is performing this recompilation;
       ;; never wait on that one promise from inside itself.
-      (when-not (identical? pending ignored-pending)
-        @pending)))
-  (locking compile-lock
-    (let [module-states @registry
-          members (dependency-component-members requested-module module-states)
-          _ (when-not (seq members)
-              (throw (ex-info "Cannot find an Aguafria dependency component"
-                              {:module requested-module
-                               :known-modules (sort (keys module-states))})))
-          _ (doseq [module members]
-              (let [declarations (vec (vals (get-in module-states
+       (when-not (identical? pending ignored-pending)
+         @pending)))
+   (locking compile-lock
+     (let [module-states @registry
+           members (dependency-component-members requested-module module-states)
+           _ (when-not (seq members)
+               (throw (ex-info "Cannot find an Aguafria dependency component"
+                               {:module requested-module
+                                :known-modules (sort (keys module-states))})))
+           _ (doseq [module members]
+               (let [declarations (vec (vals (get-in module-states
                                                      [module :definitions])))]
-                (ensure-converted-dependency-sources! module declarations)))
+                 (ensure-converted-dependency-sources! module declarations)))
           ;; Converted dependency loading above can populate the graph. Capture
           ;; one final immutable registry/component snapshot after it finishes.
-          module-states @registry
-          members (dependency-component-members requested-module module-states)
-          component-declarations
-          (->> members
-               (mapcat #(vals (get-in module-states [% :definitions])))
-               vec
-               refresh-live-declaration-references
-               (group-by :module))
-          staged-jobs
-          (mapv #(component-job % (get module-states %)
-                                (get component-declarations %))
-                members)
-          staged-module-states
-          (reduce (fn [states {:keys [module staged-state]}]
-                    (assoc states module staged-state))
-                  module-states
-                  staged-jobs)
-          jobs (mapv #(finalize-component-job % staged-module-states)
-                     staged-jobs)
-          publication
-          {:id (swap! component-publication-sequence inc)
-           :modules members
-           :requested-at-ms (System/currentTimeMillis)
-           :external-logical-ids
-           (when (some? external-logical-ids)
-             (vec (sort-by pr-str external-logical-ids)))}
-          prepared (atom [])
-          published? (atom false)]
-      (doseq [job jobs]
-        (record-build! job false)
-        (mark-build-started! (:module job) (:generation job)))
-      (try
+           module-states @registry
+           members (dependency-component-members requested-module module-states)
+           component-declarations
+           (->> members
+                (mapcat #(vals (get-in module-states [% :definitions])))
+                vec
+                refresh-live-declaration-references
+                (group-by :module))
+           staged-jobs
+           (mapv #(component-job % (get module-states %)
+                                 (get component-declarations %))
+                 members)
+           staged-module-states
+           (reduce (fn [states {:keys [module staged-state]}]
+                     (assoc states module staged-state))
+                   module-states
+                   staged-jobs)
+           jobs (mapv #(finalize-component-job % staged-module-states)
+                      staged-jobs)
+           publication
+           {:id (swap! component-publication-sequence inc)
+            :modules members
+            :requested-at-ms (System/currentTimeMillis)
+            :external-logical-ids
+            (when (some? external-logical-ids)
+              (vec (sort-by pr-str external-logical-ids)))}
+           prepared (atom [])
+           published? (atom false)]
+       (doseq [job jobs]
+         (record-build! job false)
+         (mark-build-started! (:module job) (:generation job)))
+       (try
         ;; Every member compiles from plans captured after the cycle-safe load.
         ;; Compiles are independent and Zig's cache remains responsible for
         ;; sharing unchanged work.
-        (let [compile-futures
-              (mapv (fn [{:keys [module plan]}]
-                      (future
+         (let [compile-futures
+               (mapv (fn [{:keys [module plan]}]
+                       (future
                         ;; `plan` already points at the coherent staged SCC
                         ;; graph assembled above. Refreshing from the live
                         ;; registry here would reintroduce old peer sources.
-                        (compile-plan! module plan)))
-                    jobs)
-              compile-results
-              (mapv (fn [future]
-                      (try
-                        {:compilation @future}
-                        (catch Throwable error
-                          {:error (unwrap-component-compile-error error)})))
-                    compile-futures)
-              compile-error (some :error compile-results)]
-          (when compile-error (throw compile-error))
-          (doseq [[job {:keys [compilation]}] (map vector jobs compile-results)]
-            (let [{compiled-declarations :declarations
-                   :keys [compiled dispatch-specs dependency-snapshot
-                          jvm-callable-specs jvm-value-specs jvm-type-specs]}
-                  compilation
-                  loaded
-                  (-> (load-module compiled compiled-declarations dispatch-specs
-                                   (compilation-dependency-dispatch-entries
-                                    compilation)
-                                   (compilation-dependency-state-entries
-                                    compilation)
-                                   jvm-callable-specs
-                                   jvm-value-specs
-                                   jvm-type-specs)
-                      (prepare-loaded-generation (:generation job)))]
-              (swap! prepared conj {:job job
-                                    :compilation compilation
-                                    :loaded loaded})))
-          (let [old-component-states (select-keys @registry members)
-                published-at-ms (System/currentTimeMillis)
-                duration-ms (- published-at-ms (:requested-at-ms publication))
-                publication (assoc publication
-                                   :published-at-ms published-at-ms
-                                   :duration-ms duration-ms
+                         (compile-plan! module plan)))
+                     jobs)
+               compile-results
+               (mapv (fn [future]
+                       (try
+                         {:compilation @future}
+                         (catch Throwable error
+                           {:error (unwrap-component-compile-error error)})))
+                     compile-futures)
+               compile-error (some :error compile-results)]
+           (when compile-error (throw compile-error))
+           (doseq [[job {:keys [compilation]}] (map vector jobs compile-results)]
+             (let [{compiled-declarations :declarations
+                    :keys [compiled dispatch-specs dependency-snapshot
+                           jvm-callable-specs jvm-value-specs jvm-type-specs]}
+                   compilation
+                   loaded
+                   (-> (load-module compiled compiled-declarations dispatch-specs
+                                    (compilation-dependency-dispatch-entries
+                                     compilation)
+                                    (compilation-dependency-state-entries
+                                     compilation)
+                                    jvm-callable-specs
+                                    jvm-value-specs
+                                    jvm-type-specs)
+                       (prepare-loaded-generation (:generation job)))]
+               (swap! prepared conj {:job job
+                                     :compilation compilation
+                                     :loaded loaded})))
+           (let [old-component-states (select-keys @registry members)
+                 published-at-ms (System/currentTimeMillis)
+                 duration-ms (- published-at-ms (:requested-at-ms publication))
+                 publication (assoc publication
+                                    :published-at-ms published-at-ms
+                                    :duration-ms duration-ms
                                    ;; Component members prepare in parallel;
                                    ;; the component wall time is therefore the
                                    ;; publication's observed critical path.
-                                   :critical-path-ms duration-ms)
-                new-component-states
-                (into {}
-                      (map (fn [{:keys [job compilation loaded]}]
-                             (let [module (:module job)]
-                               [module
-                                (prepared-component-module-state
-                                 (get old-component-states module)
-                                 job compilation loaded publication)])))
-                      @prepared)]
+                                    :critical-path-ms duration-ms)
+                 new-component-states
+                 (into {}
+                       (map (fn [{:keys [job compilation loaded]}]
+                              (let [module (:module job)]
+                                [module
+                                 (prepared-component-module-state
+                                  (get old-component-states module)
+                                  job compilation loaded publication)])))
+                       @prepared)]
             ;; The registry replacement is one atom transition. Native dispatch
             ;; setters are updated behind one odd publication epoch, so native
             ;; wrappers cannot enter a half-published component.
-            (swap! registry merge new-component-states)
-            (let [publishing (begin-dispatch-publication!)]
-              (try
-                (refresh-project-dispatch-unguarded!)
-                (catch Throwable publication-error
+             (swap! registry merge new-component-states)
+             (let [publishing (begin-dispatch-publication!)]
+               (try
+                 (refresh-project-dispatch-unguarded!)
+                 (catch Throwable publication-error
                   ;; Keep the epoch odd while restoring the complete component
                   ;; and all old targets; no native wrapper can cross it.
-                  (swap! registry merge old-component-states)
-                  (try
-                    (refresh-project-dispatch-unguarded!)
-                    (catch Throwable rollback-error
-                      (.addSuppressed publication-error rollback-error)))
-                  (throw
-                   (ex-info "Atomic dependency-component publication failed"
-                            {:aguafria/phase :zig-component-publication
-                             :component (:id publication)
-                             :modules members}
-                            publication-error)))
-                (finally
-                  (end-dispatch-publication! publishing))))
-            (reset! published? true)
-            (doseq [module members]
-              (publish-clojure-declaration-metadata!
-               (vals (get-in new-component-states [module :definitions]))))
-            (doseq [module members]
-              (schedule-module-generation-retirement! module))
-            (doseq [{:keys [job compilation]} @prepared]
-              (mark-build-finished! (:module job) (:generation job)
-                                    :finished
-                                    (assoc (:compiled compilation)
-                                           :compiled-declaration-count
-                                           (count (:declarations compilation)))))
-            {:status :finished
-             :component (:id publication)
-             :modules members
-             :published-at-ms published-at-ms
-             :duration-ms (:duration-ms publication)
-             :critical-path-ms (:critical-path-ms publication)
-             :external-logical-ids (:external-logical-ids publication)
-             :generations
-             (into (sorted-map)
-                   (map (juxt :module :generation))
-                   jobs)}))
-        (catch Throwable error
-          (when-not @published?
-            (close-prepared-component! @prepared)
-            (doseq [{:keys [module generation definitions plan]} jobs]
-              (mark-build-failed! module generation error)
-              (swap! registry update module
-                     (fn [current]
-                       (assoc current
-                              :definitions definitions
-                              :source (get-in plan [:primary :source])
-                              :requested-generation generation
-                              :pending nil
-                              :scheduled nil
-                              :last-error error
-                              :failed-generation generation
-                              :last-component-publication-failure
-                              {:component (:id publication)
-                               :modules members
-                               :failed-at-ms (System/currentTimeMillis)
-                               :error (ex-message error)})))))
-          (throw error)))))))
+                   (swap! registry merge old-component-states)
+                   (try
+                     (refresh-project-dispatch-unguarded!)
+                     (catch Throwable rollback-error
+                       (.addSuppressed publication-error rollback-error)))
+                   (throw
+                    (ex-info "Atomic dependency-component publication failed"
+                             {:aguafria/phase :zig-component-publication
+                              :component (:id publication)
+                              :modules members}
+                             publication-error)))
+                 (finally
+                   (end-dispatch-publication! publishing))))
+             (reset! published? true)
+             (doseq [module members]
+               (publish-clojure-declaration-metadata!
+                (vals (get-in new-component-states [module :definitions]))))
+             (doseq [module members]
+               (schedule-module-generation-retirement! module))
+             (doseq [{:keys [job compilation]} @prepared]
+               (mark-build-finished! (:module job) (:generation job)
+                                     :finished
+                                     (assoc (:compiled compilation)
+                                            :compiled-declaration-count
+                                            (count (:declarations compilation)))))
+             {:status :finished
+              :component (:id publication)
+              :modules members
+              :published-at-ms published-at-ms
+              :duration-ms (:duration-ms publication)
+              :critical-path-ms (:critical-path-ms publication)
+              :external-logical-ids (:external-logical-ids publication)
+              :generations
+              (into (sorted-map)
+                    (map (juxt :module :generation))
+                    jobs)}))
+         (catch Throwable error
+           (when-not @published?
+             (close-prepared-component! @prepared)
+             (doseq [{:keys [module generation definitions plan]} jobs]
+               (mark-build-failed! module generation error)
+               (swap! registry update module
+                      (fn [current]
+                        (assoc current
+                               :definitions definitions
+                               :source (get-in plan [:primary :source])
+                               :requested-generation generation
+                               :pending nil
+                               :scheduled nil
+                               :last-error error
+                               :failed-generation generation
+                               :last-component-publication-failure
+                               {:component (:id publication)
+                                :modules members
+                                :failed-at-ms (System/currentTimeMillis)
+                                :error (ex-message error)})))))
+           (throw error)))))))
 
 (defn recompile-component!
   "Compile and publish every registered member of `module`'s dependency SCC.
@@ -9893,32 +10014,32 @@
   ([module include-root? ignored-pending initial-impacts
     root-component-already-handled?]
    (locking compile-lock
-    (let [module (str module)
-          topology (dependency-topology @registry)
-          component-by-module (:component-by-module topology)
-          components (into {} (map (juxt :id identity)) (:components topology))
-          root-component-id (get component-by-module module)
-          root-component (get components root-component-id)
-          component-dependency-ids
-          (fn [component-id]
-            (->> (:modules (get components component-id))
-                 (mapcat #(get-in topology [:graph %]))
-                 (keep component-by-module)
-                 (remove #{component-id})
-                 distinct
-                 sort
-                 vec))
-          dependent-component-ids
-          (fn [component-id]
-            (->> (:modules (get components component-id))
-                 (mapcat #(get-in topology [:reverse-graph %]))
-                 (keep component-by-module)
-                 (remove #{component-id})
-                 distinct
-                 sort
-                 vec))
-          live-module?
-          (fn [member]
+     (let [module (str module)
+           topology (dependency-topology @registry)
+           component-by-module (:component-by-module topology)
+           components (into {} (map (juxt :id identity)) (:components topology))
+           root-component-id (get component-by-module module)
+           root-component (get components root-component-id)
+           component-dependency-ids
+           (fn [component-id]
+             (->> (:modules (get components component-id))
+                  (mapcat #(get-in topology [:graph %]))
+                  (keep component-by-module)
+                  (remove #{component-id})
+                  distinct
+                  sort
+                  vec))
+           dependent-component-ids
+           (fn [component-id]
+             (->> (:modules (get components component-id))
+                  (mapcat #(get-in topology [:reverse-graph %]))
+                  (keep component-by-module)
+                  (remove #{component-id})
+                  distinct
+                  sort
+                  vec))
+           live-module?
+           (fn [member]
             ;; Converted source registration advances a module's published
             ;; source generation even when no native artifact has ever been
             ;; materialized. Normally only a loaded native generation is live
@@ -9926,175 +10047,175 @@
             ;; owner: its complete startup image contains these source-only JVM
             ;; modules, so an affected declaration must be compiled and sent to
             ;; its manifest even before that module has a JVM-loaded generation.
-            (let [state (get @registry member)]
-              (boolean (or (seq (:native-generations state))
-                           (:external-publication? state)))))
-          live-component-ids
-          (into #{}
-                (keep
-                 (fn [{:keys [id modules]}]
-                   (when (some live-module? modules)
-                     id)))
-                (vals components))
-          live-ancestor-component-ids
-          (loop [pending (seq live-component-ids)
-                 seen #{}]
-            (if-let [component-id (first pending)]
-              (if (contains? seen component-id)
-                (recur (next pending) seen)
-                (recur (concat (next pending)
-                               (component-dependency-ids component-id))
-                       (conj seen component-id)))
-              seen))
-          live-root-peers
-          (->> (:modules root-component)
-               (remove #{module})
-               (filter live-module?)
-               vec)
-          root-peer-recompile?
-          (and (not root-component-already-handled?)
-               (:cyclic? root-component)
-               (or (nil? initial-impacts)
-                   (and (seq initial-impacts)
-                        (component-references-impact? live-root-peers
-                                                      initial-impacts))))
-          process-root? (or include-root? root-peer-recompile?)
-          candidate-component-ids
-          (loop [pending [root-component-id]
-                 seen #{}]
-            (if-let [component-id (first pending)]
-              (if (contains? seen component-id)
-                (recur (next pending) seen)
-                (recur (concat (next pending)
-                               (dependent-component-ids component-id))
-                       (conj seen component-id)))
-              seen))]
-      (when-not (contains? component-by-module module)
-        (throw (ex-info "Cannot find an Aguafria module to recompile"
-                        {:module module
-                         :known-modules (sort (keys @registry))})))
+             (let [state (get @registry member)]
+               (boolean (or (seq (:native-generations state))
+                            (:external-publication? state)))))
+           live-component-ids
+           (into #{}
+                 (keep
+                  (fn [{:keys [id modules]}]
+                    (when (some live-module? modules)
+                      id)))
+                 (vals components))
+           live-ancestor-component-ids
+           (loop [pending (seq live-component-ids)
+                  seen #{}]
+             (if-let [component-id (first pending)]
+               (if (contains? seen component-id)
+                 (recur (next pending) seen)
+                 (recur (concat (next pending)
+                                (component-dependency-ids component-id))
+                        (conj seen component-id)))
+               seen))
+           live-root-peers
+           (->> (:modules root-component)
+                (remove #{module})
+                (filter live-module?)
+                vec)
+           root-peer-recompile?
+           (and (not root-component-already-handled?)
+                (:cyclic? root-component)
+                (or (nil? initial-impacts)
+                    (and (seq initial-impacts)
+                         (component-references-impact? live-root-peers
+                                                       initial-impacts))))
+           process-root? (or include-root? root-peer-recompile?)
+           candidate-component-ids
+           (loop [pending [root-component-id]
+                  seen #{}]
+             (if-let [component-id (first pending)]
+               (if (contains? seen component-id)
+                 (recur (next pending) seen)
+                 (recur (concat (next pending)
+                                (dependent-component-ids component-id))
+                        (conj seen component-id)))
+               seen))]
+       (when-not (contains? component-by-module module)
+         (throw (ex-info "Cannot find an Aguafria module to recompile"
+                         {:module module
+                          :known-modules (sort (keys @registry))})))
       ;; Component frontiers are Kahn layers of the SCC DAG. That makes
       ;; independent siblings available together and combines impacts before
       ;; a diamond-shaped child is planned. The root module's own generation
       ;; was already published by ordinary registration unless a cyclic SCC
       ;; requires its peers to move atomically.
-      (loop [remaining (cond-> candidate-component-ids
-                         (not process-root?) (disj root-component-id))
-             processed (cond-> #{}
-                         (not process-root?) (conj root-component-id))
-             impacts
-             (if process-root?
-               {root-component-id initial-impacts}
-               (reduce #(add-component-impact %1 %2 initial-impacts)
-                       {}
-                       (dependent-component-ids root-component-id)))
-             skipped #{}
-             publications []
-             parallel-frontier-count 0
-             parallel-component-count 0]
-        (if (empty? remaining)
-          {:status :finished
-           :root module
-           :root-component-recompiled?
-           (boolean (some #(= (set (:modules %))
-                              (set (:modules root-component)))
-                          publications))
-           :component-count (count publications)
-           :module-count (reduce + 0 (map (comp count :modules) publications))
-           :skipped-component-count (count skipped)
-           :parallel-frontier-count parallel-frontier-count
-           :parallel-component-count parallel-component-count
-           :publications publications}
-          (let [ready
-                (->> remaining
-                     (filter
-                      (fn [component-id]
-                        (every? #(or (not (contains? candidate-component-ids %))
-                                     (contains? processed %))
-                                (component-dependency-ids component-id))))
-                     sort
-                     vec)
-                _ (when-not (seq ready)
-                    (throw
-                     (ex-info "Affected component graph has no publishable frontier"
-                              {:aguafria/phase :zig-component-topology
-                               :root module
-                               :remaining (vec (sort remaining))
-                               :processed (vec (sort processed))})))
-                selected
-                (->> ready
-                     (keep
-                      (fn [component-id]
-                        (when (contains? impacts component-id)
-                          (let [component (get components component-id)
-                                component-impacts (get impacts component-id)
-                                members (:modules component)
-                                selected?
-                                (or (nil? component-impacts)
-                                    (= component-id root-component-id)
-                                    (and (seq component-impacts)
-                                         (contains? live-ancestor-component-ids
-                                                    component-id)
-                                         (component-references-impact?
-                                          members component-impacts)))]
-                            (when selected?
-                              [component-id component component-impacts])))))
-                     vec)
-                skipped-now
-                (into #{}
+       (loop [remaining (cond-> candidate-component-ids
+                          (not process-root?) (disj root-component-id))
+              processed (cond-> #{}
+                          (not process-root?) (conj root-component-id))
+              impacts
+              (if process-root?
+                {root-component-id initial-impacts}
+                (reduce #(add-component-impact %1 %2 initial-impacts)
+                        {}
+                        (dependent-component-ids root-component-id)))
+              skipped #{}
+              publications []
+              parallel-frontier-count 0
+              parallel-component-count 0]
+         (if (empty? remaining)
+           {:status :finished
+            :root module
+            :root-component-recompiled?
+            (boolean (some #(= (set (:modules %))
+                               (set (:modules root-component)))
+                           publications))
+            :component-count (count publications)
+            :module-count (reduce + 0 (map (comp count :modules) publications))
+            :skipped-component-count (count skipped)
+            :parallel-frontier-count parallel-frontier-count
+            :parallel-component-count parallel-component-count
+            :publications publications}
+           (let [ready
+                 (->> remaining
                       (filter
                        (fn [component-id]
-                         (and (contains? impacts component-id)
-                              (not (some #(= component-id (first %))
-                                         selected)))))
-                      ready)
-                before-states
-                (into {}
-                      (map (fn [[component-id component]]
-                             [component-id
-                              (select-keys @registry (:modules component))]))
-                      selected)
-                parallel?
-                (and (> (count selected) 1)
-                     (every? (fn [[_ component component-impacts]]
-                               (exact-impact-component-eligible?
-                                component component-impacts))
-                             selected))
-                frontier-publications
-                (if parallel?
-                  (->> selected
-                       (mapv (fn [[_ component component-impacts]]
-                               [component component-impacts]))
-                       prepare-exact-impact-frontier!
-                       publish-exact-impact-frontier!)
-                  (mapv
-                   (fn [[_ component component-impacts]]
-                     (recompile-component-impact-slice!
-                      component component-impacts ignored-pending))
-                   selected))
-                next-impacts
-                (reduce
-                 (fn [next-map [component-id component component-impacts]]
-                   (let [members (:modules component)
-                         propagated
-                         (when-not (nil? component-impacts)
-                           (changed-dependent-impacts
-                            (get before-states component-id) members))]
-                     (if (or (nil? propagated) (seq propagated))
-                       (reduce #(add-component-impact %1 %2 propagated)
-                               next-map
-                               (dependent-component-ids component-id))
-                       next-map)))
-                 impacts
-                 selected)]
-            (recur (apply disj remaining ready)
-                   (into processed ready)
-                   next-impacts
-                   (into skipped skipped-now)
-                   (into publications frontier-publications)
-                   (+ parallel-frontier-count (if parallel? 1 0))
-                   (+ parallel-component-count
-                      (if parallel? (count selected) 0))))))))))
+                         (every? #(or (not (contains? candidate-component-ids %))
+                                      (contains? processed %))
+                                 (component-dependency-ids component-id))))
+                      sort
+                      vec)
+                 _ (when-not (seq ready)
+                     (throw
+                      (ex-info "Affected component graph has no publishable frontier"
+                               {:aguafria/phase :zig-component-topology
+                                :root module
+                                :remaining (vec (sort remaining))
+                                :processed (vec (sort processed))})))
+                 selected
+                 (->> ready
+                      (keep
+                       (fn [component-id]
+                         (when (contains? impacts component-id)
+                           (let [component (get components component-id)
+                                 component-impacts (get impacts component-id)
+                                 members (:modules component)
+                                 selected?
+                                 (or (nil? component-impacts)
+                                     (= component-id root-component-id)
+                                     (and (seq component-impacts)
+                                          (contains? live-ancestor-component-ids
+                                                     component-id)
+                                          (component-references-impact?
+                                           members component-impacts)))]
+                             (when selected?
+                               [component-id component component-impacts])))))
+                      vec)
+                 skipped-now
+                 (into #{}
+                       (filter
+                        (fn [component-id]
+                          (and (contains? impacts component-id)
+                               (not (some #(= component-id (first %))
+                                          selected)))))
+                       ready)
+                 before-states
+                 (into {}
+                       (map (fn [[component-id component]]
+                              [component-id
+                               (select-keys @registry (:modules component))]))
+                       selected)
+                 parallel?
+                 (and (> (count selected) 1)
+                      (every? (fn [[_ component component-impacts]]
+                                (exact-impact-component-eligible?
+                                 component component-impacts))
+                              selected))
+                 frontier-publications
+                 (if parallel?
+                   (->> selected
+                        (mapv (fn [[_ component component-impacts]]
+                                [component component-impacts]))
+                        prepare-exact-impact-frontier!
+                        publish-exact-impact-frontier!)
+                   (mapv
+                    (fn [[_ component component-impacts]]
+                      (recompile-component-impact-slice!
+                       component component-impacts ignored-pending))
+                    selected))
+                 next-impacts
+                 (reduce
+                  (fn [next-map [component-id component component-impacts]]
+                    (let [members (:modules component)
+                          propagated
+                          (when-not (nil? component-impacts)
+                            (changed-dependent-impacts
+                             (get before-states component-id) members))]
+                      (if (or (nil? propagated) (seq propagated))
+                        (reduce #(add-component-impact %1 %2 propagated)
+                                next-map
+                                (dependent-component-ids component-id))
+                        next-map)))
+                  impacts
+                  selected)]
+             (recur (apply disj remaining ready)
+                    (into processed ready)
+                    next-impacts
+                    (into skipped skipped-now)
+                    (into publications frontier-publications)
+                    (+ parallel-frontier-count (if parallel? 1 0))
+                    (+ parallel-component-count
+                       (if parallel? (count selected) 0))))))))))
 
 (defn- exact-dependent-declarations
   [allowed-modules impacts visited]
@@ -10456,6 +10577,11 @@
                 (= "load" (.getMethodName frame))))
          (.getStackTrace (Thread/currentThread)))))
 
+(defn- retain-precompile-load-configuration! [module file-load?]
+  (when (and *compile-only?* *prepared-namespace-images* file-load?
+             (not (str/starts-with? module "aguafria.jvm.")))
+    (swap! *prepared-namespace-images* assoc-in [module :configuration] @config)))
+
 (defn- register-unlinked-declaration!
   "Check native semantics now, but resolve extern symbols only on invocation.
   This is a compiler validation pass, not a linked library or a fallback after
@@ -10551,6 +10677,11 @@
               old-declaration (get-in current [:definitions declaration-key])
               file-load-registration?
               (loading-clojure-file?)
+              expected-declaration-names
+              (when (and file-load-registration?
+                         (not (project/converted-module? module)))
+                (project/expected-source-declaration-names
+                 module (get-in declaration [:source :file])))
               expected-declaration-count
               (when file-load-registration?
                 (or (when (project/converted-module? module)
@@ -10560,9 +10691,14 @@
               complete-namespace-loading?
               (and file-load-registration?
                    expected-declaration-count
-                   (< (count (assoc (or (:definitions current) {})
-                                    declaration-key declaration))
+                   (< (let [definitions (assoc (or (:definitions current) {})
+                                               declaration-key declaration)]
+                        (if expected-declaration-names
+                          (count (filter expected-declaration-names
+                                         (map :name (vals definitions))))
+                          (count definitions)))
                       expected-declaration-count))]
+          (retain-precompile-load-configuration! module file-load-registration?)
           (cond
             *source-only-registration?*
             (register-source-only-declaration!
@@ -10638,6 +10774,7 @@
                       {:modules modules :declaration-count (count declarations)})))
     (let [module (first modules)
           definitions (into {} (map (juxt :declaration-key identity)) declarations)]
+      (retain-precompile-load-configuration! module (loading-clojure-file?))
       (reduce (fn [names declaration]
                 (validate-registration-references! declaration names)
                 (conj names (:name declaration)))
@@ -10685,6 +10822,8 @@
                            :pending nil
                            :last-error nil
                            :failed-generation nil}))
+            (index-declarations-incrementally! declarations)
+            (publish-clojure-declaration-metadata! declarations)
             {:module module
              :declaration-count (count declarations)
              :source-only? true
@@ -10974,7 +11113,7 @@
             ;; Retain explicit user exports, but leave ordinary helpers as Zig
             ;; functions even when their values cannot cross a C ABI boundary.
             (assoc declaration :export? false :development-export? false
-                               :dependency-default-export? false)
+                   :dependency-default-export? false)
             declaration))
         declarations))
 
@@ -10995,13 +11134,13 @@
       ;; arguments or error unions have no JVM ABI. Only Zig invokes them.
       ;; Selection never changes the registered module or test descriptors.
       (let [declarations (native-test-declarations
-                           (conj (without-native-tests (vals definitions)) selected))
+                          (conj (without-native-tests (vals definitions)) selected))
             dependencies (static-dependency-snapshot
-                           declarations (comp native-test-declarations without-native-tests))
+                          declarations (comp native-test-declarations without-native-tests))
             compiler-options (compiler-options-for-declarations
-                               (assoc @config :transitive-dependencies? true
-                                              :dependency-snapshot dependencies)
-                               declarations)]
+                              (assoc @config :transitive-dependencies? true
+                                     :dependency-snapshot dependencies)
+                              declarations)]
         {:selected selected
          :source (emit/emit-module module declarations)
          :dependencies (vec (keys dependencies))
@@ -11011,6 +11150,8 @@
 
 (defn- inspection-context [module]
   (let [module (str module)
+        _ (ensure-converted-dependency-sources!
+           module (vals (get-in @registry [module :definitions])))
         declarations (native-test-declarations
                       (filterv (complement :jvm-adapter?)
                                (vals (get-in @registry [module :definitions]))))]
@@ -11020,12 +11161,14 @@
                         declarations (comp native-test-declarations without-native-tests))
           options (compiler-options-for-declarations
                    (assoc @config :transitive-dependencies? true
-                                  :dependency-snapshot dependencies)
+                          :dependency-snapshot dependencies)
                    declarations)]
       {:module module
        :declarations declarations
        ;; Inspection emits the selected module directly into the Zig root.
-       :options (update options :zig-args into (get-in options [:module-zig-args module]))})))
+       :options (-> options
+                    (assoc :root-module-name module)
+                    (update :zig-args into (get-in options [:module-zig-args module])))})))
 
 (defn call-with-inspection-context
   "Reuse one source/dependency snapshot across an analysis run's probes.
@@ -11061,7 +11204,7 @@
               (spit (io/file directory filename) contents))
           _ (project/materialize-module-assets! module source directory)
           command (vec (concat [(:zig options) "test" "--test-no-exec" "-fno-emit-bin"
-                               "-fno-entry" "--test-runner" (.getAbsolutePath runner)]
+                                "-fno-entry" "--test-runner" (.getAbsolutePath runner)]
                                (root-module-arguments file options)))]
       (let [started (System/nanoTime)
             result (apply shell/sh (concat command [:dir (.getAbsolutePath directory)]))]
@@ -11115,28 +11258,28 @@
                              (make-array StandardOpenOption 0))))
       (let [cached? (usable-native-artifact? library-file debug-format)
             started (System/nanoTime)]
-       (when-not cached?
-        (doseq [command [compile-command link-command]]
-          (let [result (run-command command (.getAbsolutePath directory))]
-            (when-not (zero? (:exit result))
-              (explanation/event! {:event :compile-failed :module module
-                                   :path (.getAbsolutePath library-file)})
-              (let [{:keys [message diagnostics report location]}
-                    (pretty-zig-error module source (.getAbsolutePath source-file)
-                                      command (:err result))]
-                (throw
-                 (compilation-exception
-                  message
-                  (assoc details :aguafria/phase :zig-test
-                         :aguafria/report report
-                         :status :failed :command command
-                         :exit (:exit result) :stdout (:out result)
-                         :stderr (:err result) :diagnostics diagnostics)
-                  location nil))))))
-        (preserve-native-debug! library-file library-file debug-format))
-       (explanation/event! {:event (if cached? :disk-cache-hit :compiled)
-                            :module module :path (.getAbsolutePath library-file)
-                            :duration-ms (/ (- (System/nanoTime) started) 1e6)})))
+        (when-not cached?
+          (doseq [command [compile-command link-command]]
+            (let [result (run-command command (.getAbsolutePath directory))]
+              (when-not (zero? (:exit result))
+                (explanation/event! {:event :compile-failed :module module
+                                     :path (.getAbsolutePath library-file)})
+                (let [{:keys [message diagnostics report location]}
+                      (pretty-zig-error module source (.getAbsolutePath source-file)
+                                        command (:err result))]
+                  (throw
+                   (compilation-exception
+                    message
+                    (assoc details :aguafria/phase :zig-test
+                           :aguafria/report report
+                           :status :failed :command command
+                           :exit (:exit result) :stdout (:out result)
+                           :stderr (:err result) :diagnostics diagnostics)
+                    location nil))))))
+          (preserve-native-debug! library-file library-file debug-format))
+        (explanation/event! {:event (if cached? :disk-cache-hit :compiled)
+                             :module module :path (.getAbsolutePath library-file)
+                             :duration-ms (/ (- (System/nanoTime) started) 1e6)})))
     details))
 
 (defn check-test-definition!
@@ -11145,14 +11288,40 @@
   to their caller, as they do for other declarations."
   [declaration]
   (project/ensure-source-catalog! (get-in declaration [:source :file]))
-  (when-not (or *source-only-registration?*
-               *registration-batch*
-               ;; Imported converted libraries have an explicit source catalog
-               ;; and load lazily, including target-specific upstream tests.
-               ;; Direct evaluation of their tests still checks immediately.
-               (and (project/converted-module? (:module declaration))
-                    (loading-clojure-file?)))
-    (native-test-library! (:module declaration) (:name declaration) declaration))
+  (let [test (symbol (:module declaration) (str (:name declaration)))
+        lazy-import? (and (project/converted-module? (:module declaration))
+                          (loading-clojure-file?))]
+    (cond
+      (and *compile-only?* *prepared-namespace-images*
+           (not *registration-batch*) (not lazy-import?))
+      (let [check
+            (try
+              {:test test
+               :status :prepared
+               :artifact (select-keys
+                          (native-test-library! (:module declaration)
+                                                (:name declaration) declaration)
+                          [:library-path :source-path])}
+              (catch Exception error
+                (let [causes (take-while some? (iterate ex-cause error))
+                      diagnostic (or (some #(when (:aguafria/phase (ex-data %)) %)
+                                           causes)
+                                     error)]
+                  {:test test
+                   :status :failed
+                   :error (ex-message diagnostic)
+                   :details (select-keys (ex-data diagnostic)
+                                         [:aguafria/phase :aguafria/summary
+                                          :diagnostics :source-path :command])})))]
+        ;; Capture the same check at the same registration point as normal
+        ;; loading. Later declarations must not change its compilation input.
+        (swap! *prepared-namespace-images* update-in
+               [(:module declaration) :test-checks] (fnil conj []) check))
+
+      (or *source-only-registration?* *registration-batch* lazy-import?) nil
+
+      :else
+      (native-test-library! (:module declaration) (:name declaration) declaration)))
   nil)
 
 (declare check-native-panic!)
@@ -11193,19 +11362,19 @@
                                          (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
                                          (make-array Linker$Option 0))]
                        (check-native-panic! {:panic-handle panic-handle
-                                            :panic-context (bind-panic-context (Linker/nativeLinker) lookup)
-                                            :declaration {:qualified-name (symbol module (str test-name))}})))
+                                             :panic-context (bind-panic-context (Linker/nativeLinker) lookup)
+                                             :declaration {:qualified-name (symbol module (str test-name))}})))
                    result))))))
         diagnostics (when (= 1 status)
                       (native-stack-diagnostics (:source-path artifact) (str stderr)))
         report (native-stack-source-report diagnostics)
         location (:aguafria/source (first diagnostics))
         details (cond-> (assoc artifact :exit (if (= 1 status) 1 0)
-                              :stdout (str stdout) :native-stderr (str stderr)
-                              :stderr (str stderr report)
-                              :aguafria/stack-trace diagnostics
-                              :aguafria/source-report report
-                              :duration-ms (- (System/currentTimeMillis) started-at))
+                               :stdout (str stdout) :native-stderr (str stderr)
+                               :stderr (str stderr report)
+                               :aguafria/stack-trace diagnostics
+                               :aguafria/source-report report
+                               :duration-ms (- (System/currentTimeMillis) started-at))
                   location (assoc :clojure.error/phase :execution
                                   :clojure.error/source (:file location)
                                   :clojure.error/line (:line location)
@@ -11274,7 +11443,7 @@
      (when-let [module-state (get @registry (str module))]
        (when-let [generation
                   (or (some #(when (= (:published-generation module-state)
-                                       (:generation %))
+                                      (:generation %))
                                %)
                             (:native-generations module-state))
                       (last (:native-generations module-state)))]
@@ -11297,15 +11466,20 @@
                       ;; external process cannot resolve it either. Never
                       ;; advertise such a symbol, nor an embedded dependency's
                       ;; setter-only binding, in the publication manifest.
-                      (when (and owned? getter setter
-                                 (some? implementation-address))
-                        (when (or (nil? logical-ids)
-                                  (contains? logical-ids
-                                             (:logical-id declaration)))
-                          {:getter getter :setter setter}))))
+                         (when (and owned? getter setter
+                                    (some? implementation-address))
+                           (when (or (nil? logical-ids)
+                                     (contains? logical-ids
+                                                (:logical-id declaration)))
+                             {:getter getter :setter setter}))))
                  distinct
                  (sort-by (juxt :setter :getter))
                  vec)}))))))
+
+(defn registered-modules
+  "Return the names of modules currently registered in this JVM."
+  []
+  (vec (keys @registry)))
 
 (defn module-info
   "Return inspectable information for a module/namespace, excluding native
@@ -11416,7 +11590,7 @@
                            import-dependencies
                            (locking module-dependency-entry-cache
                              (if (.containsKey module-dependency-entry-cache
-                                              definitions)
+                                               definitions)
                                (.get module-dependency-entry-cache definitions)
                                (let [value
                                      (->> definitions
@@ -11433,7 +11607,7 @@
                                  (when (> (.size module-dependency-entry-cache)
                                           4096)
                                    (.clear module-dependency-entry-cache)
-                                 (.put module-dependency-entry-cache
+                                   (.put module-dependency-entry-cache
                                          definitions value))
                                  value)))
                            declaration-dependencies
@@ -11664,6 +11838,8 @@
         :modules modules
         :dependency-components (:components topology)
         :module-source-cache source-cache
+        :development-linkage-snapshot-cache (linkage-snapshot-cache-stats)
+        :development-dependency-entry-cache (development-dependency-entry-cache-stats)
         :native-hosts host-views
         :timings (build-timing-summary build-views)
         :builds build-views})))
@@ -11876,8 +12052,8 @@
              vals
              (filter #(= logical-id (:logical-id %)))
              (map #(assoc (select-keys % [:logical-id :abi-fingerprint
-                                           :implementation-fingerprint
-                                           :implementation-generation])
+                                          :implementation-fingerprint
+                                          :implementation-generation])
                           :current? (= current-abi (:abi-fingerprint %))))
              (sort-by :abi-fingerprint)
              vec)))))
@@ -12088,12 +12264,12 @@
               location (:aguafria/source (first diagnostics))
               report (str "Native Zig panic: " message (native-stack-source-report diagnostics))
               details (cond-> {:aguafria/phase :native-panic
-                           :function (get-in function-binding [:declaration :qualified-name])
-                           :panic-message message
-                           :native-frames native-frames :diagnostics diagnostics
-                           :aguafria/report report
-                           :native-state :potentially-inconsistent
-                           :hint "The JVM is alive, but native defers were not unwound. Reinitialize affected native state before reusing it."}
+                               :function (get-in function-binding [:declaration :qualified-name])
+                               :panic-message message
+                               :native-frames native-frames :diagnostics diagnostics
+                               :aguafria/report report
+                               :native-state :potentially-inconsistent
+                               :hint "The JVM is alive, but native defers were not unwound. Reinitialize affected native state before reusing it."}
                         symbolication-error (assoc :symbolication-error symbolication-error)
                         location (merge {:clojure.error/phase :execution
                                          :clojure.error/source (:file location)
@@ -12103,15 +12279,15 @@
               exception (ex-info report details)]
           (when (seq diagnostics)
             (.setStackTrace exception
-              (into-array StackTraceElement
-                (concat
-                  (map (fn [diagnostic]
-                         (let [{:keys [file line declaration]} (:aguafria/source diagnostic)
-                               name (when declaration (symbol declaration))]
-                           (StackTraceElement. (or (some-> name namespace) "aguafria.native")
-                                               (or (some-> name clojure.core/name) "invoke")
-                                               file (int line)))) diagnostics)
-                  (.getStackTrace exception)))))
+                            (into-array StackTraceElement
+                                        (concat
+                                         (map (fn [diagnostic]
+                                                (let [{:keys [file line declaration]} (:aguafria/source diagnostic)
+                                                      name (when declaration (symbol declaration))]
+                                                  (StackTraceElement. (or (some-> name namespace) "aguafria.native")
+                                                                      (or (some-> name clojure.core/name) "invoke")
+                                                                      file (int line)))) diagnostics)
+                                         (.getStackTrace exception)))))
           (throw exception))))))
 
 (defn- invoke-indirect-binding!
@@ -12177,6 +12353,8 @@
                   :name (:name declaration)
                   :kind :return
                   :type (:return declaration)
+                  :inspection-type
+                  ((requiring-resolve 'aguafria.zig.jvm/result-reader-type) declaration)
                   :logical-id (:logical-id declaration)}
                  (constantly {:representation :native
                               :segment result-segment
@@ -12238,15 +12416,15 @@
                            module declaration arguments))
                         arguments)
             result (if (= :indirect (get-in function-binding [:bridge-spec :mode]))
-        (invoke-indirect-binding! module function-binding arguments)
-        (let [coerced (mapv (fn [{:keys [type]} value]
-                              (coerce-argument type value))
-                            (:args declaration) arguments)
-              values (ArrayList. ^java.util.Collection coerced)
-              result (.invokeWithArguments ^MethodHandle
-                                           (:handle function-binding) values)
-              _ (check-native-panic! function-binding)]
-          (coerce-result (:return declaration) result)))]
+                     (invoke-indirect-binding! module function-binding arguments)
+                     (let [coerced (mapv (fn [{:keys [type]} value]
+                                           (coerce-argument type value))
+                                         (:args declaration) arguments)
+                           values (ArrayList. ^java.util.Collection coerced)
+                           result (.invokeWithArguments ^MethodHandle
+                                   (:handle function-binding) values)
+                           _ (check-native-panic! function-binding)]
+                       (coerce-result (:return declaration) result)))]
         (if-let [consume *consume-native-result*]
           (binding [*consume-native-result* nil]
             (consume result #(retain-result-generation! module function-binding)))
@@ -12276,31 +12454,113 @@
                                      :functions qualified-name])]
       (boolean (and binding (:panic-handle binding) (not (:unsupported? binding)))))))
 
+(defn- retain-prepared-source-identities!
+  [module state plan]
+  ;; Dependency loading can complete a type's identity after source-only
+  ;; registration. Later adapters must see the same identity as demand loading.
+  ;; Published generations keep their immutable descriptors and native state.
+  (when (and (:source-only? state) (nil? (:generation state)))
+    (let [declarations (get-in plan [:primary :declarations])]
+      (swap! registry update-in [module :definitions]
+             into (map (juxt :declaration-key identity)) declarations)
+      (index-declarations-incrementally! declarations)
+      (publish-clojure-declaration-metadata! declarations))))
+
+(defn- compile-published-callable-slice!
+  [declaration snapshot getter-keys]
+  (let [module (:module declaration)
+        declarations (declaration-live-slice (:declarations snapshot) declaration)]
+    (binding [*materialize-declaration* declaration
+              *materialization-type-declarations*
+              (:materialization-type-declarations snapshot)]
+      (let [sources (module-sources module declarations getter-keys)
+            root-sources (module-sources module
+                                         (:development-root-declarations snapshot)
+                                         getter-keys)]
+        (compile-slice! module
+                        (merge snapshot sources
+                               {:declarations declarations
+                                :development-root-source (:compile-source root-sources)}))))))
+
+(defn precompile-namespace-load!
+  "Prepare the initial namespace image used by ordinary Clojure file loading.
+  This complements per-callable preparation without loading a native library."
+  [namespace]
+  (when-not *compile-only?*
+    (throw (ex-info "Namespace image preparation requires compile-only mode" {})))
+  (let [module (str namespace)
+        state (get @registry module)
+        declarations (->> (:definitions state) vals
+                          (sort-by (juxt :source-order (comp str :name))) vec)
+        reason (cond
+                 (empty? declarations) :no-native-declarations
+                 (str/starts-with? module "aguafria.jvm.") :generated-adapter
+                 (project/converted-module? module) :loaded-on-demand
+                 (some #(= :fn-proto (:kind %)) declarations) :extern-link-on-demand)]
+    (if reason
+      {:namespace (symbol module) :status :skipped :reason reason}
+      (do
+        (ensure-converted-dependency-sources! module declarations)
+        (let [plan
+              (locking compile-lock
+                (let [state (get @registry module)
+                      declaration (last declarations)
+                      initial-state {:definitions (:definitions state)}]
+                  (binding [*propagate-dependent-changes?* false
+                            *exact-declaration-publication?* false
+                            *materialize-declaration* nil
+                            *jvm-wrapper-request-snapshot* {module {}}
+                            *file-load-registration?* (boolean (:async? @config))
+                            *pending-declaration-keys* #{(:declaration-key declaration)}]
+                    (let [plan (compilation-plan module initial-state declarations
+                                                 nil declaration)]
+                      (retain-prepared-source-identities! module state plan)
+                      plan))))
+              compilation (compile-plan! module (refresh-plan-dependency-snapshots plan))]
+          (when *prepared-namespace-images*
+            (swap! *prepared-namespace-images* update module assoc
+                   :snapshot (get-in compilation [:compiled :compilation-snapshot])
+                   :dispatch-specs (:dispatch-specs compilation)))
+          {:namespace (symbol module) :status :prepared
+           :dependencies (vec (sort (keys (:dependency-snapshot compilation))))
+           :artifact (select-keys (:compiled compilation) [:hash :library-path])})))))
+
 (defn- precompile-declaration-generation! [declaration request-key]
   (let [module (:module declaration)
         definitions (vals (:definitions (get @registry module)))
         declaration-key (:declaration-key declaration)
+        image (when (= request-key :jvm-callable-declaration-keys)
+                (some-> *prepared-namespace-images* deref (get module)))
+        compiled-declaration
+        (some #(when (= declaration-key (:declaration-key %)) %)
+              (get-in image [:snapshot :declarations]))
         added-request? (atom false)]
     (ensure-converted-dependency-sources! module definitions)
     (try
-      (let [plan
-            (locking compile-lock
-              (when (and request-key
-                         (not (contains? (get-in @registry [module request-key]) declaration-key)))
-                (reset! added-request? true)
-                (swap! registry update-in [module request-key]
-                       (fnil conj #{}) declaration-key))
-              (let [state (get @registry module)]
-                (binding [*propagate-dependent-changes?* false
-                          *exact-declaration-publication?* true
-                          *materialize-declaration* declaration
-                          *pending-declaration-keys*
-                          (conj (set (:pending-declaration-keys state)) (:declaration-key declaration))]
-                  (compilation-plan module state (vec (vals (:definitions state)))
-                                    declaration declaration))))]
-        ;; Same source, dependency and artifact keys as demand loading. Do not
-        ;; publish a native generation or consume a platform TLS key to warm disk.
-        (compile-plan! module (refresh-plan-dependency-snapshots plan)))
+      (locking compile-lock
+        (when (and request-key
+                   (not (contains? (get-in @registry [module request-key]) declaration-key)))
+          (reset! added-request? true)
+          (swap! registry update-in [module request-key]
+                 (fnil conj #{}) declaration-key)))
+      (if (native-declaration-equivalent? compiled-declaration declaration)
+        (let [getter-keys (if (get-in image [:dispatch-specs declaration-key :emit-getter?])
+                            #{} #{declaration-key})]
+          (compile-published-callable-slice! compiled-declaration (:snapshot image) getter-keys))
+        (let [plan
+              (locking compile-lock
+                (let [state (get @registry module)]
+                  (binding [*propagate-dependent-changes?* false
+                            *exact-declaration-publication?* true
+                            *materialize-declaration* declaration
+                            *pending-declaration-keys*
+                            (conj (set (:pending-declaration-keys state)) declaration-key)]
+                    (let [plan (compilation-plan
+                                module state (vec (vals (:definitions state)))
+                                declaration declaration)]
+                      (retain-prepared-source-identities! module state plan)
+                      plan))))]
+          (compile-plan! module (refresh-plan-dependency-snapshots plan))))
       (catch Throwable error
         ;; A failed layout/callable request must not poison unrelated later
         ;; preparations in the same namespace. Keep existing requests intact.
@@ -12318,17 +12578,17 @@
   (if *compile-only?*
     (precompile-declaration-generation! declaration request-key)
     (let [module (:module declaration)]
-    (when (:pending (get @registry module))
-      (await! module))
-    (when request-key
-      (locking compile-lock
-        (swap! registry update-in [module request-key]
-               (fnil conj #{}) (:declaration-key declaration))))
-    (binding [*propagate-dependent-changes?* false
-              *exact-declaration-publication?* true
-              *materialize-declaration* declaration]
-      (register-sync! declaration))
-    (await-callable-generation! module))))
+      (when (:pending (get @registry module))
+        (await! module))
+      (when request-key
+        (locking compile-lock
+          (swap! registry update-in [module request-key]
+                 (fnil conj #{}) (:declaration-key declaration))))
+      (binding [*propagate-dependent-changes?* false
+                *exact-declaration-publication?* true
+                *materialize-declaration* declaration]
+        (register-sync! declaration))
+      (await-callable-generation! module))))
 
 (defn- materialize-published-callable!
   "Add a JVM trampoline to a published function without redefining its graph."
@@ -12342,18 +12602,7 @@
                       #{} #{declaration-key})
         _ (swap! registry update-in [module :jvm-callable-declaration-keys]
                  (fnil conj #{}) declaration-key)
-        compilation
-        (binding [*materialize-declaration* declaration
-                  *materialization-type-declarations*
-                  (:materialization-type-declarations snapshot)]
-          (let [sources (module-sources module declarations getter-keys)
-                root-sources (module-sources module
-                                             (:development-root-declarations snapshot)
-                                             getter-keys)]
-            (compile-slice! module
-                            (merge snapshot sources
-                                   {:declarations declarations
-                                    :development-root-source (:compile-source root-sources)}))))
+        compilation (compile-published-callable-slice! declaration snapshot getter-keys)
         {:keys [compiled dispatch-specs jvm-callable-specs
                 jvm-value-specs jvm-type-specs]} compilation
         loaded (-> (load-module compiled declarations dispatch-specs
@@ -12385,8 +12634,8 @@
                  (-> state
                      (assoc :requested-generation generation :dispatch-state dispatch-state)
                      (cond->
-                       (native-declaration-equivalent?
-                        declaration (current-function-declaration state qualified-name))
+                      (native-declaration-equivalent?
+                       declaration (current-function-declaration state qualified-name))
                        (assoc-in [:functions qualified-name]
                                  (get-in loaded [:functions qualified-name])))
                      (update :native-generations conj (native-generation generation loaded)))))
@@ -12409,7 +12658,7 @@
     ;; prerequisite for calling one Var.
     (when (:pending (get @registry module))
       (await! module))
-    (if (function-loaded? qualified-name)
+    (if (and (not *compile-only?*) (function-loaded? qualified-name))
       (explanation/event! {:event :memory-cache-hit :function qualified-name})
       (let [declaration (locking compile-lock
                           (current-function-declaration (get @registry module)
@@ -12418,17 +12667,17 @@
           (throw (ex-info "Zig function is not registered"
                           {:function qualified-name :module module})))
         (when-not
-          (locking compile-lock
-            (let [snapshot (get-in @registry [module :declaration-compilation-snapshots
-                                              (:declaration-key declaration)])
-                  published-declaration
-                  (some #(when (= (:declaration-key declaration) (:declaration-key %)) %)
-                        (:declarations snapshot))]
-              (when (and (not *compile-only?*) snapshot
-                         (native-declaration-equivalent? declaration published-declaration))
-                (when-not (function-loaded? qualified-name)
-                  (materialize-published-callable! published-declaration snapshot))
-                true)))
+         (locking compile-lock
+           (let [snapshot (get-in @registry [module :declaration-compilation-snapshots
+                                             (:declaration-key declaration)])
+                 published-declaration
+                 (some #(when (= (:declaration-key declaration) (:declaration-key %)) %)
+                       (:declarations snapshot))]
+             (when (and (not *compile-only?*) snapshot
+                        (native-declaration-equivalent? declaration published-declaration))
+               (when-not (function-loaded? qualified-name)
+                 (materialize-published-callable! published-declaration snapshot))
+               true)))
           (materialize-declaration-generation!
            declaration :jvm-callable-declaration-keys))))))
 
@@ -12479,7 +12728,7 @@
         (get-in @registry [(:module declaration) :types qualified-name])]
     (when binding
       (let [size (long (.invokeWithArguments ^MethodHandle size-getter-handle
-                                              (ArrayList.)))]
+                                             (ArrayList.)))]
         {:kind :enum
          :type type
          :size size
@@ -12491,7 +12740,7 @@
           (fn [{:keys [member address-getter-handle]}]
             (let [address
                   (long (.invokeWithArguments ^MethodHandle
-                                              address-getter-handle
+                         address-getter-handle
                                               (ArrayList.)))
                   segment (.reinterpret (MemorySegment/ofAddress address) size)]
               {:name (keyword (if-let [spelling (:zig-name member)]
@@ -12525,7 +12774,7 @@
             (.invokeWithArguments
              ^MethodHandle optional-present-handle
              (ArrayList. ^java.util.Collection
-                         [(long (.address storage))]))))))
+              [(long (.address storage))]))))))
        :payload-segment-fn
        (fn [^MemorySegment storage]
          (let [address
@@ -12533,7 +12782,7 @@
                 (.invokeWithArguments
                  ^MethodHandle optional-payload-address-handle
                  (ArrayList. ^java.util.Collection
-                             [(long (.address storage))])))]
+                  [(long (.address storage))])))]
            (when (pos? address)
              (.reinterpret (MemorySegment/ofAddress address) payload-size))))
        :set-fn
@@ -12541,9 +12790,9 @@
          (.invokeWithArguments
           ^MethodHandle optional-set-handle
           (ArrayList. ^java.util.Collection
-                      [(long (.address storage))
-                       (byte (if present? 1 0))
-                       (long (if payload (.address payload) 0))]))
+           [(long (.address storage))
+            (byte (if present? 1 0))
+            (long (if payload (.address payload) 0))]))
          storage)})))
 
 (defn- native-slice-field-schema
@@ -12574,20 +12823,20 @@
           (long (.invokeWithArguments
                  ^MethodHandle slice-pointer-handle
                  (ArrayList. ^java.util.Collection
-                             [(long (.address storage))])))
+                  [(long (.address storage))])))
           :length
           (long (.invokeWithArguments
                  ^MethodHandle slice-length-handle
                  (ArrayList. ^java.util.Collection
-                             [(long (.address storage))])))})
+                  [(long (.address storage))])))})
        :set-fn
        (fn [^MemorySegment storage ^MemorySegment backing length]
          (.invokeWithArguments
           ^MethodHandle slice-set-handle
           (ArrayList. ^java.util.Collection
-                      [(long (.address storage))
-                       (long (.address backing))
-                       (long length)]))
+           [(long (.address storage))
+            (long (.address backing))
+            (long length)]))
          storage)})))
 
 (defn- native-error-union-field-schema
@@ -12617,22 +12866,22 @@
            (long (.invokeWithArguments
                   ^MethodHandle error-present-handle
                   (ArrayList. ^java.util.Collection
-                              [(long (.address storage))]))))
+                   [(long (.address storage))]))))
            (let [code
                  (long (.invokeWithArguments
                         ^MethodHandle error-code-handle
                         (ArrayList. ^java.util.Collection
-                                    [(long (.address storage))])))
+                         [(long (.address storage))])))
                  name-address
                  (long (.invokeWithArguments
                         ^MethodHandle error-name-pointer-handle
                         (ArrayList. ^java.util.Collection
-                                    [(long (.address storage))])))
+                         [(long (.address storage))])))
                  name-length
                  (long (.invokeWithArguments
                         ^MethodHandle error-name-length-handle
                         (ArrayList. ^java.util.Collection
-                                    [(long (.address storage))])))
+                         [(long (.address storage))])))
                  name (when (and (pos? name-address) (pos? name-length))
                         (String.
                          (.toArray
@@ -12648,7 +12897,7 @@
                  (long (.invokeWithArguments
                         ^MethodHandle error-payload-address-handle
                         (ArrayList. ^java.util.Collection
-                                    [(long (.address storage))])))]
+                         [(long (.address storage))])))]
              (when (pos? address)
                (.reinterpret (MemorySegment/ofAddress address) payload-size)))))
        :set-ok-fn
@@ -12656,8 +12905,8 @@
          (.invokeWithArguments
           ^MethodHandle error-set-ok-handle
           (ArrayList. ^java.util.Collection
-                      [(long (.address storage))
-                       (long (if payload (.address payload) 0))]))
+           [(long (.address storage))
+            (long (if payload (.address payload) 0))]))
          storage)
        :set-error-fn
        (fn [^MemorySegment storage error-name]
@@ -12667,9 +12916,9 @@
                  accepted (.invokeWithArguments
                            ^MethodHandle error-set-error-handle
                            (ArrayList. ^java.util.Collection
-                                       [(long (.address storage))
-                                        (long (.address text))
-                                        (long (alength encoded))]))]
+                            [(long (.address storage))
+                             (long (.address text))
+                             (long (alength encoded))]))]
              (when (zero? (long accepted))
                (throw (ex-info "Destination Zig error set cannot represent this named error"
                                {:aguafria/phase :native-error-transport
@@ -12757,8 +13006,8 @@
                       (.invokeWithArguments
                        ^MethodHandle (:union-init-handle field-binding)
                        (ArrayList. ^java.util.Collection
-                                   [(long (.address destination))
-                                    (long (if payload (.address payload) 0))]))
+                        [(long (.address destination))
+                         (long (if payload (.address payload) 0))]))
                       destination))
               field-schema (assoc :schema field-schema)
               tagged-union?
@@ -12771,7 +13020,7 @@
                     (.invokeWithArguments
                      ^MethodHandle (:union-active-handle field-binding)
                      (ArrayList. ^java.util.Collection
-                                 [(long (.address value))]))))))
+                      [(long (.address value))]))))))
                :payload-segment-fn
                (fn [^MemorySegment value]
                  (when (pos? field-size)
@@ -12781,7 +13030,7 @@
                            ^MethodHandle
                            (:union-payload-address-handle field-binding)
                            (ArrayList. ^java.util.Collection
-                                       [(long (.address value))])))]
+                            [(long (.address value))])))]
                      (when (pos? address)
                        (.reinterpret (MemorySegment/ofAddress address)
                                      field-size)))))))))
@@ -12871,7 +13120,7 @@
                           fields)
                  qualified-name (symbol (:module declaration) (str (:name declaration)))
                  field-bindings (get-in @registry [(:module declaration) :types
-                                                  qualified-name :field-bindings])
+                                                   qualified-name :field-bindings])
                  fields (if (= :struct effective-kind)
                           (mapv native-field-default fields
                                 (or (seq field-bindings) (repeat nil)))
@@ -12884,85 +13133,85 @@
                (native-union-schema module type seen declaration fields)
 
                (= :struct effective-kind)
-             (let [base
-                   {:type type
-                    :layout layout
-                    :tuple? (boolean (some #(= :tuple-field (:kind %)) fields))
-                    :declaration
-                    (select-keys declaration [:module :name :logical-id
-                                              :schema-fingerprint])}]
-               (if (= :packed layout)
-                 (let [{:keys [fields bit-size]}
-                       (reduce
-                        (fn [{:keys [fields bit-size]} field]
-                          (let [field-schema
-                                (native-type-schema module (:type field)
-                                                    (conj seen identity))
-                                field-width
-                                (or (:bit-size field-schema)
-                                    (packed-field-bit-width
-                                     module (:type field)
-                                     (conj seen identity)))]
-                            (when-not field-width
-                              (throw
-                               (ex-info "Packed Zig field type is not decodable yet"
-                                        {:module module :type type
-                                         :field (:name field)
-                                         :field-type (:type field)})))
-                            {:fields (conj fields
-                                           (cond-> (assoc field
-                                                          :bit-offset bit-size
-                                                          :bit-size field-width)
-                                             field-schema
-                                             (assoc :schema field-schema)))
-                             :bit-size (+ bit-size field-width)}))
-                        {:fields [] :bit-size 0}
-                        fields)]
-                   (assoc base
-                          :kind :packed-struct
-                          :fields fields
-                          :bit-size bit-size))
-                 (let [qualified-name
-                       (symbol (:module declaration) (str (:name declaration)))
-                       field-bindings
-                       (get-in @registry [(:module declaration) :types
-                                          qualified-name :field-bindings])]
-                   (when (and field-bindings
-                              (= (count fields) (count field-bindings)))
-                     (assoc
-                      base
-                      :kind :struct
-                      :fields
-                      (mapv
-                       (fn [field field-binding]
-                         (let [field-schema
-                               (or (native-optional-field-schema
-                                    module (conj seen identity) field-binding)
-                                   (native-slice-field-schema
-                                    module (conj seen identity) field-binding)
-                                   (native-error-union-field-schema
-                                    module (conj seen identity) field-binding)
-                                   (native-storage-binding-schema
-                                    module (conj seen identity) (:type field)
-                                    (:nested-storage-binding field-binding))
-                                   (native-type-schema module (:type field)
-                                                       (conj seen identity)))]
-                           (cond->
-                            (assoc field
-                                   :byte-offset
-                                   (long
-                                    (.invokeWithArguments
-                                     ^MethodHandle
-                                     (:offset-getter-handle field-binding)
-                                     (ArrayList.)))
-                                   :byte-size
-                                   (long
-                                    (.invokeWithArguments
-                                     ^MethodHandle
-                                     (:size-getter-handle field-binding)
-                                     (ArrayList.))))
-                             field-schema (assoc :schema field-schema))))
-                       fields field-bindings))))))))))))))
+               (let [base
+                     {:type type
+                      :layout layout
+                      :tuple? (boolean (some #(= :tuple-field (:kind %)) fields))
+                      :declaration
+                      (select-keys declaration [:module :name :logical-id
+                                                :schema-fingerprint])}]
+                 (if (= :packed layout)
+                   (let [{:keys [fields bit-size]}
+                         (reduce
+                          (fn [{:keys [fields bit-size]} field]
+                            (let [field-schema
+                                  (native-type-schema module (:type field)
+                                                      (conj seen identity))
+                                  field-width
+                                  (or (:bit-size field-schema)
+                                      (packed-field-bit-width
+                                       module (:type field)
+                                       (conj seen identity)))]
+                              (when-not field-width
+                                (throw
+                                 (ex-info "Packed Zig field type is not decodable yet"
+                                          {:module module :type type
+                                           :field (:name field)
+                                           :field-type (:type field)})))
+                              {:fields (conj fields
+                                             (cond-> (assoc field
+                                                            :bit-offset bit-size
+                                                            :bit-size field-width)
+                                               field-schema
+                                               (assoc :schema field-schema)))
+                               :bit-size (+ bit-size field-width)}))
+                          {:fields [] :bit-size 0}
+                          fields)]
+                     (assoc base
+                            :kind :packed-struct
+                            :fields fields
+                            :bit-size bit-size))
+                   (let [qualified-name
+                         (symbol (:module declaration) (str (:name declaration)))
+                         field-bindings
+                         (get-in @registry [(:module declaration) :types
+                                            qualified-name :field-bindings])]
+                     (when (and field-bindings
+                                (= (count fields) (count field-bindings)))
+                       (assoc
+                        base
+                        :kind :struct
+                        :fields
+                        (mapv
+                         (fn [field field-binding]
+                           (let [field-schema
+                                 (or (native-optional-field-schema
+                                      module (conj seen identity) field-binding)
+                                     (native-slice-field-schema
+                                      module (conj seen identity) field-binding)
+                                     (native-error-union-field-schema
+                                      module (conj seen identity) field-binding)
+                                     (native-storage-binding-schema
+                                      module (conj seen identity) (:type field)
+                                      (:nested-storage-binding field-binding))
+                                     (native-type-schema module (:type field)
+                                                         (conj seen identity)))]
+                             (cond->
+                              (assoc field
+                                     :byte-offset
+                                     (long
+                                      (.invokeWithArguments
+                                       ^MethodHandle
+                                       (:offset-getter-handle field-binding)
+                                       (ArrayList.)))
+                                     :byte-size
+                                     (long
+                                      (.invokeWithArguments
+                                       ^MethodHandle
+                                       (:size-getter-handle field-binding)
+                                       (ArrayList.))))
+                               field-schema (assoc :schema field-schema))))
+                         fields field-bindings))))))))))))))
 
 (defn- ensure-native-type-binding!
   "Load Zig-authored size/alignment/field/tag accessors for a named native
@@ -12991,7 +13240,7 @@
      ;; Collection/optional type forms may contain nested named values. Numeric
      ;; lengths, options maps and scalar keywords have no native declaration.
      (boolean (some true? (mapv #(ensure-native-type-binding! module % seen)
-                               (rest type))))
+                                (rest type))))
 
      :else
      (when-let [declaration (native-type-declaration module type)]
@@ -13076,25 +13325,25 @@
                 (assoc schema :active-field
                        (keyword (clojure.core/name (ffirst clojure-value))))
                 schema)]
-        (.incrementAndGet ^AtomicLong native-value-refs)
-        (let [native-value
-              (zig-value/native-value
-               {:module module
-                :name type-name
-                :kind :value
-                :type type-name
-                :logical-id (:logical-id declaration)}
-               (constantly {:representation :native
-                            :segment segment
-                            :size size
-                            :alignment alignment
-                            :schema schema
-                            :generation wrapper-generation
-                            :close! close!}))]
+          (.incrementAndGet ^AtomicLong native-value-refs)
+          (let [native-value
+                (zig-value/native-value
+                 {:module module
+                  :name type-name
+                  :kind :value
+                  :type type-name
+                  :logical-id (:logical-id declaration)}
+                 (constantly {:representation :native
+                              :segment segment
+                              :size size
+                              :alignment alignment
+                              :schema schema
+                              :generation wrapper-generation
+                              :close! close!}))]
           ;; Construction allocated the bytes eagerly, so register its Cleaner
           ;; immediately even if user code never dereferences the handle.
-          (zig-value/value native-value)
-          native-value))
+            (zig-value/value native-value)
+            native-value))
         (catch Throwable error
           (.close arena)
           (throw error))))))
@@ -13134,7 +13383,7 @@
                              ^MethodHandle address-getter-handle
                              (ArrayList.)))
               size (long (.invokeWithArguments ^MethodHandle size-getter-handle
-                                                (ArrayList.)))
+                                               (ArrayList.)))
               alignment
               (long (.invokeWithArguments ^MethodHandle align-getter-handle
                                           (ArrayList.)))
@@ -13305,25 +13554,29 @@
         {:function qualified-name :status :skipped :reason reason}
         (binding [*compile-only?* true]
           (materialize-jvm-callable! qualified-name)
-          (doseq [type (concat (map :type (:args declaration))
-                              [(:return declaration)])
-                  :when (and type
-                             (not= :void type)
-                             (not (contains? scalar-layouts (scalar-key type))))]
-            (ensure-native-type-binding! module type))
-          (let [return-type (jvm-callable-result-type declaration)]
-            ;; Direct Var calls also wrap scalar results in native storage.
-            ;; Preparing a single callable must include its normal reader and
-            ;; constructor path, not only namespace-wide preparation.
-            (when (and (not (:jvm-adapter? declaration))
-                       (not= :bool return-type)
-                       (contains? scalar-layouts (scalar-key return-type)))
-              ((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) return-type))
+          (let [return-type (jvm-callable-result-type declaration)
+                result-reader-type ((requiring-resolve 'aguafria.zig.jvm/result-reader-type)
+                                    (assoc declaration :return return-type))]
+            (doseq [type (concat (map :type (:args declaration))
+                                 [return-type])
+                    :when (and type
+                               (not= :void type)
+                               (not (contains? scalar-layouts (scalar-key type))))]
+              (ensure-native-type-binding! module type))
+            ;; JVM callers can construct typed operands independently of the
+            ;; callee. Include those constructors and result storage, using the
+            ;; same declared types already validated by the native call bridge.
+            (when-not (:jvm-adapter? declaration)
+              (doseq [type (distinct (concat (map :type (:args declaration)) [result-reader-type]))
+                      :when (and type (not (#{:void :noreturn} type)))]
+                ((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!)
+                 ((requiring-resolve 'aguafria.zig.jvm/qualify-native-type)
+                  (the-ns (symbol module)) type))))
             (when (and (not (:jvm-adapter? declaration))
                        (not= :void return-type)
                        (not (contains? scalar-layouts (scalar-key return-type))))
               ((requiring-resolve 'aguafria.zig.jvm/precompile-result-reader!)
-               module return-type)))
+               module result-reader-type)))
           {:function qualified-name :status :prepared})))))
 
 (defn precompile-functions!
@@ -13371,7 +13624,7 @@
       :else
       (let [_ (materialize-jvm-callable! qualified-name)
             _ (doseq [zig-type (concat (map :type (:args declaration))
-                                      [(:return declaration)])
+                                       [(:return declaration)])
                       :when (and zig-type
                                  (not= :void zig-type)
                                  (not (contains? scalar-layouts
@@ -13847,15 +14100,15 @@
                       :thread (.getName (Thread/currentThread))))
              (try
                (let [values (ArrayList. ^java.util.Collection
-                                        [(long (count argv))
-                                         (:argv-pointer prepared)
-                                         (long (:environment-count prepared))
-                                         (:environment-pointer prepared)])
+                             [(long (count argv))
+                              (:argv-pointer prepared)
+                              (long (:environment-count prepared))
+                              (:environment-pointer prepared)])
                      result (.invokeWithArguments
                              ^MethodHandle (:run-handle prepared) values)
                      _ (check-native-panic! {:panic-handle (:panic-handle prepared)
-                                            :panic-context (:panic-context prepared)
-                                            :declaration {:qualified-name qualified-name}})
+                                             :panic-context (:panic-context prepared)
+                                             :declaration {:qualified-name qualified-name}})
                      exit-code (bit-and 0xff (long result))
                      finished-at (System/currentTimeMillis)]
                  (reset! outcome

@@ -3,7 +3,6 @@
   (:require [aguafria.zig :as a]
             [clojure.java.io :as io]
             [racing-game.build :as build]
-            [racing-game.core :as core]
             [racing-game.protocol :as protocol]
             [racing-game.simulation :as simulation])
   (:import [java.nio ByteBuffer ByteOrder]))
@@ -24,14 +23,14 @@
                       (+ header-bytes (* entry-bytes (count entries))))
                  (.order ByteOrder/LITTLE_ENDIAN))]
     (.put buffer magic)
-    (.putShort buffer (short simulation/replay-file-version))
+    (.putShort buffer (short (a/value simulation/replay-file-version)))
     (.putShort buffer (short (count entries)))
-    (.put buffer (byte protocol/observation-schema-version))
-    (.put buffer (byte protocol/action-schema-version))
+    (.put buffer (byte (a/value protocol/observation-schema-version)))
+    (.put buffer (byte (a/value protocol/action-schema-version)))
     (.put buffer (byte (a/value simulation/racer-count)))
     (.put buffer (byte (a/value simulation/team-count)))
-    (.putLong buffer (unchecked-long protocol/model-fingerprint))
-    (.putLong buffer (unchecked-long protocol/action-head-fingerprint))
+    (.putLong buffer (unchecked-long (a/value protocol/model-fingerprint)))
+    (.putLong buffer (unchecked-long (a/value protocol/action-head-fingerprint)))
     (doseq [entry entries]
       (.put buffer (byte (:racer_id entry)))
       (.put buffer (byte (:rank entry)))
@@ -49,14 +48,15 @@
 (defn generate!
   []
   (a/await!)
-  (let [report
-        (a/value
-         (simulation/run-replay-parity! protocol/replay-golden-ticks))
-        entries (core/capture-replay)
+  (let [report (with-open [native (simulation/run-replay-parity!
+                                   protocol/replay-golden-ticks)]
+                 (a/value native))
+        entries (mapv #(assoc % :racer_id (:racer %))
+                      (take (:intent_count report) (a/value simulation/replay-intents)))
         output (fixture-file)]
     (when-not (and (:valid report)
-                   (= protocol/replay-golden-intent-count (count entries))
-                   (= protocol/replay-golden-fingerprint
+                   (= (a/value protocol/replay-golden-intent-count) (count entries))
+                   (= (a/value protocol/replay-golden-fingerprint)
                       (:original_fingerprint report))
                    (= (:original_fingerprint report)
                       (:replay_fingerprint report)))

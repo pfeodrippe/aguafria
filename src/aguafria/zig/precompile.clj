@@ -1,6 +1,7 @@
 (ns aguafria.zig.precompile
   "Explicit, compile-only preparation of persistent native artifacts."
-  (:require [aguafria.zig.bundle :as bundle]
+  (:require [aguafria.zig.artifact :as artifact]
+            [aguafria.zig.bundle :as bundle]
             [aguafria.zig.discovery :as discovery]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.io :as io])
@@ -45,35 +46,85 @@
        distinct
        vec))
 
-(defn- analyze-namespaces! [namespaces parallelism report-file]
+(defn- load-namespace! [namespace images]
+  (let [before (set (runtime/registered-modules))]
+    (binding [runtime/*source-only-registration?* true]
+      (require namespace))
+    (loop [pending (sort (set (conj (vec (remove before (runtime/registered-modules)))
+                                    (str namespace))))]
+      (when-let [module (first pending)]
+        (if (contains? @images module)
+          (recur (next pending))
+          (let [configuration (or (get-in @runtime/*prepared-namespace-images*
+                                          [module :configuration])
+                                  (runtime/configuration))
+                image (try
+                        (runtime/call-with-precompile-configuration
+                         configuration #(runtime/precompile-namespace-load! module))
+                        (catch Exception error
+                          (assoc (discovery/error-report error)
+                                 :namespace (symbol module) :status :failed)))
+                image (assoc image :test-checks
+                             (vec (get-in @runtime/*prepared-namespace-images*
+                                          [module :test-checks])))]
+            (swap! images assoc module image)
+            ;; The compilation snapshot includes dependencies that were already
+            ;; loaded before this run, as well as newly required namespaces.
+            (recur (concat (next pending) (:dependencies image)))))))
+    (or (get-in @runtime/*prepared-namespace-images*
+                [(str namespace) :configuration])
+        (runtime/configuration))))
+
+(defn- analyze-namespaces! [namespaces parallelism report-file images]
   ;; Load sequentially: Clojure namespace initialization is not a parallel
   ;; compilation workload. Analysis/handler compilation use bounded workers.
   (let [loads (mapv (fn [namespace]
                       (try
-                        (binding [runtime/*source-only-registration?* true]
-                          (require namespace))
-                        {:namespace namespace}
+                        (let [configuration (load-namespace! namespace images)]
+                          (cond-> {:namespace namespace :configuration configuration}
+                            (= :no-native-declarations
+                               (get-in @images [(str namespace) :reason]))
+                            (assoc :status :skipped :reason :no-native-declarations)))
                         (catch Exception error
                           (assoc (discovery/error-report error)
                                  :namespace namespace :status :load-failed))))
                     namespaces)
         prepare (requiring-resolve 'aguafria.zig.discovery/prepare!)]
     (with-open [executor (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
-      (let [jobs (mapv (fn [{:keys [namespace status] :as loaded}]
+      (let [jobs (mapv (fn [{:keys [namespace status configuration] :as loaded}]
                          (.submit executor
                                   ^Callable
                                   (bound-fn []
-                                    (let [report (if status loaded
-                                                     (try (prepare namespace)
+                                    (let [report (if status (dissoc loaded :configuration)
+                                                     (try (runtime/call-with-precompile-configuration
+                                                           configuration #(prepare namespace))
                                                           (catch Exception error
                                                             (assoc (discovery/error-report error)
                                                                    :namespace namespace :status :analysis-failed))))
                                           checkpoint (io/file (str report-file ".d")
                                                               (str namespace ".edn"))]
                                       (io/make-parents checkpoint)
-                                      (spit checkpoint (pr-str report))
+                                      (spit checkpoint (artifact/print-data report))
                                       report)))) loads)]
         (mapv #(.get ^java.util.concurrent.Future %) jobs)))))
+
+(defn- prepare-scalar-profiles! [initial-configuration]
+  (let [types (vec (sort-by artifact/print-data @runtime/*prepared-scalar-constructors*))
+        profiles (vec (distinct (concat [initial-configuration (runtime/configuration)]
+                                        (keep :configuration
+                                              (vals @runtime/*prepared-namespace-images*)))))
+        prepare (requiring-resolve 'aguafria.zig.jvm/precompile-coercion!)
+        results (mapv (fn [[profile type]]
+                        (try
+                          (assoc (runtime/call-with-precompile-configuration
+                                  (nth profiles profile) #(prepare type))
+                                 :profile profile)
+                          (catch Exception error
+                            (assoc (discovery/error-report error)
+                                   :status :failed :type type :profile profile))))
+                      (for [profile (range (count profiles)) type types] [profile type]))]
+    {:types types :profiles (count profiles)
+     :statuses (frequencies (map :status results)) :constructors results}))
 
 (defn coverage
   "Summarize the emitted-operation inventory without treating observation,
@@ -133,8 +184,15 @@
   "Compile persistent JVM artifacts explicitly, never as part of :prepare.
 
   :namespaces compiles concrete native functions without calling their bodies.
+  Their native input/result constructors are included in preparation.
+  Validated scalar constructors also cover the captured namespace-load profiles,
+  so ordinary calls retain scalar results before and after native links are added.
   Generic functions, comptime results, externs, tests and process entry hosts
   are reported as skipped, not executed to discover their signatures.
+  Initial images for ordinary namespace loading are prepared as well and
+  reported in :namespace-images, including failures and lazy imports.
+  Test definition checks encountered during loading use the normal test compiler
+  path without executing tests; their outcomes appear in each image's :test-checks.
 
   :calls supplies exact native argument types for builtin/operator/imported or
   generic call adapters. Use {:comptime value} for source-level comptime inputs.
@@ -164,17 +222,24 @@
   The bundle is linked only after semantic validation; native code is never
   loaded during preparation. Unsupported linker configurations stay standalone
   and are listed in :bundles :standalone.
+  A bundle failure preserves the completed analysis/coverage in :report-file,
+  records :bundles :status :failed, and still throws the compiler exception.
 
   Namespace loading still runs ordinary Clojure top-level code and macros; Zig
   performs its normal comptime analysis. No function/test/comment body is run.
+  Preparation retains each namespace's load-time compiler configuration,
+  including transitive imports, so later link settings cannot change its keys.
   The normal cache invalidation rules apply; handles and state are not saved."
   [{:keys [namespaces calls coercions analyze source-dirs parallelism report-file bundle? ignore]
     :or {parallelism 2 report-file ".aguafria/precompile/report.edn" bundle? true}
     :as options}]
   (validate-options! options)
   (binding [runtime/*compile-only?* true
+            runtime/*prepared-namespace-images* (atom {})
+            runtime/*prepared-scalar-constructors* (atom #{})
             bundle/*preparing* (when bundle? (atom {}))]
     (let [started (System/nanoTime)
+          initial-configuration (runtime/configuration)
           excluded (set ignore)
           analysis-namespaces (vec (distinct (concat analyze (source-namespaces source-dirs))))
           call-namespace (comp symbol namespace :function)
@@ -184,23 +249,57 @@
                         (filter excluded selected))
           namespaces (remove excluded namespaces)
           calls (remove #(excluded (call-namespace %)) calls)
-          analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)]
-      (binding [runtime/*source-only-registration?* true]
-        (doseq [namespace (distinct (concat namespaces
-                                            (map (comp symbol namespace :function) calls)))]
-          (require namespace)))
-      (let [report {:functions (into [] (mapcat runtime/precompile-functions!) (distinct namespaces))
-                    :calls (mapv (requiring-resolve 'aguafria.zig.jvm/precompile-call!) calls)
+          analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)
+          images (atom {})
+          configurations (atom {})]
+      (doseq [namespace (distinct (concat namespaces
+                                          (map (comp symbol namespace :function) calls)))]
+        (swap! configurations assoc namespace (load-namespace! namespace images)))
+      (let [prepare-in (fn [namespace prepare]
+                         (runtime/call-with-precompile-configuration
+                          (get @configurations namespace) prepare))
+            report {:functions (into [] (mapcat (fn [namespace]
+                                                  (prepare-in namespace
+                                                              #(runtime/precompile-functions! namespace))))
+                                     (distinct namespaces))
+                    :calls (mapv (fn [call]
+                                   (prepare-in (call-namespace call)
+                                               #((requiring-resolve 'aguafria.zig.jvm/precompile-call!) call)))
+                                 calls)
                     :coercions (mapv (requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) coercions)
-                    :analysis (analyze-namespaces! analysis-namespaces parallelism report-file)
+                    :analysis (analyze-namespaces! analysis-namespaces parallelism report-file images)
                     :ignored ignored
                     :cache-dir (:cache-dir (runtime/configuration))
                     :duration-ms (/ (- (System/nanoTime) started) 1e6)}
-            report (assoc report :coverage (assoc-in (coverage (:analysis report))
-                                                     [:namespaces :ignored] (count ignored))
-                          :bundles (when bundle?
-                                     (runtime/finish-precompile-bundles! bundle/*preparing*))
+            scalar-profiles (prepare-scalar-profiles! initial-configuration)
+            report (assoc report :scalar-constructor-profiles scalar-profiles
+                          :namespace-images (mapv val (sort-by key @images))
+                          :coverage (-> (coverage (:analysis report))
+                                        (assoc-in [:namespaces :ignored] (count ignored))
+                                        (assoc :namespace-images (frequencies (map :status (vals @images)))
+                                               :scalar-constructor-profiles (:statuses scalar-profiles)
+                                               :test-definition-checks
+                                               (frequencies
+                                                (map :status (mapcat :test-checks (vals @images))))))
+                          :duration-ms (/ (- (System/nanoTime) started) 1e6))
+            bundles (try
+                      (when bundle?
+                        (runtime/finish-precompile-bundles! bundle/*preparing*))
+                      (catch Exception error
+                        (let [failed (assoc report
+                                            :bundles (merge (discovery/error-report error)
+                                                            (select-keys (ex-data error)
+                                                                         [:aguafria/phase :reason :exit
+                                                                          :command :out :err :configurations])
+                                                            {:status :failed})
+                                            :duration-ms (/ (- (System/nanoTime) started) 1e6))]
+                          (io/make-parents report-file)
+                          (spit report-file (artifact/print-data failed))
+                          (throw (ex-info (ex-message error)
+                                          (assoc (ex-data error) :report-file report-file)
+                                          error)))))
+            report (assoc report :bundles bundles
                           :duration-ms (/ (- (System/nanoTime) started) 1e6))]
         (io/make-parents report-file)
-        (spit report-file (pr-str report))
+        (spit report-file (artifact/print-data report))
         report))))

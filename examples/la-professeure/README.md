@@ -14,8 +14,9 @@ clojure -M:dev:prepare
 clojure -M:dev:desktop
 ```
 
-Connect your editor to `.nrepl-port`. The `:dev` alias uses this checkout; without
-it the project resolves the published Aguafria artifact. See the comment in
+Connect your editor to `.nrepl-port`. The project uses this Aguafria checkout
+for ordinary runs and precompilation. The `:dev` alias enables asynchronous
+native publication and fast optimization. See the comment in
 `la-professeure.core` for the live workflow. macOS native windows require the
 desktop entry point's main-thread JVM option.
 
@@ -29,6 +30,22 @@ Studio follows successful game shader publications in its own renderer.
 Evaluating a shader form in memory alone does not trigger the file watcher.
 Shader logic edits must preserve the current vertex/root-data interface;
 GPU resource/layout changes require an explicit safe resource rebuild.
+
+## JVM precompilation
+
+```sh
+clojure -X:dev:precompile
+```
+
+Use the same `:dev` compiler settings as the desktop session. Preparation
+analyzes the game and Studio namespaces without calling their native bodies.
+Supported handlers are linked into one immutable bundle in `~/.aguafria/zig`;
+the coverage report is saved to `.aguafria/precompile/game-studio.edn`.
+Ordinary JVM calls use the same artifact keys and lookup: an AOT hit loads that
+bundle, while a new signature or changed compiler configuration can compile a
+new artifact. Native namespace/state images remain separate from the handlers.
+
+## Playing
 
 Press **1–3** or click a response. **Space** reveals the text immediately;
 **Backspace** returns to the parent choices. **F1** switches to the separate Studio

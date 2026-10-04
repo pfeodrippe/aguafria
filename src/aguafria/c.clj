@@ -8,12 +8,12 @@
   introduced into standalone output."
   (:require [aguafria.keyword :as k]
             [aguafria.zig :as a]
+            [aguafria.zig.artifact :as artifact]
             [aguafria.zig.convert :as convert]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.toolchain :as toolchain]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import (java.io File)
            (java.nio.charset StandardCharsets)
@@ -46,7 +46,7 @@
 (defn- sha256
   [value]
   (let [digest (MessageDigest/getInstance "SHA-256")]
-    (.update digest (.getBytes (pr-str value) StandardCharsets/UTF_8))
+    (.update digest (.getBytes (artifact/print-data value) StandardCharsets/UTF_8))
     (.formatHex (HexFormat/of) (.digest digest))))
 
 (defn- run-command
@@ -282,7 +282,7 @@
   [^File catalog-file namespace]
   (and catalog-file
        (.isFile catalog-file)
-       (str/includes? (slurp catalog-file) (pr-str (str namespace)))))
+       (str/includes? (slurp catalog-file) (artifact/print-data (str namespace)))))
 
 (defn- write-project-catalog!
   [^File output namespace catalog-module]
@@ -291,11 +291,10 @@
           (if (.isFile catalog-file)
             (edn/read-string (slurp catalog-file))
             {:schema-version 1 :modules {}})
-          catalog (assoc-in existing [:modules (str namespace)] catalog-module)
-          source (with-out-str (pprint/pprint catalog))]
-      (when-not (= source (when (.isFile catalog-file) (slurp catalog-file)))
+          catalog (assoc-in existing [:modules (str namespace)] catalog-module)]
+      (when-not (= catalog existing)
         (Files/writeString
-         (.toPath catalog-file) source StandardCharsets/UTF_8
+         (.toPath catalog-file) (str (artifact/print-data catalog) "\n") StandardCharsets/UTF_8
          (into-array StandardOpenOption
                      [StandardOpenOption/CREATE
                       StandardOpenOption/TRUNCATE_EXISTING
@@ -321,12 +320,12 @@
   (io/make-parents cache-file)
   (Files/writeString
    (.toPath cache-file)
-   (pr-str {:cache-version rendered-binding-cache-version
-            :converter-identity (convert/conversion-cache-identity)
-            :cache-key cache-key
-            :clojure-source clojure-source
-            :conversion (dissoc conversion :elapsed-ms :written?
-                                :output-path :conversion-cache-hit?)})
+   (artifact/print-data {:cache-version rendered-binding-cache-version
+                         :converter-identity (convert/conversion-cache-identity)
+                         :cache-key cache-key
+                         :clojure-source clojure-source
+                         :conversion (dissoc conversion :elapsed-ms :written?
+                                             :output-path :conversion-cache-hit?)})
    StandardCharsets/UTF_8
    (into-array StandardOpenOption
                [StandardOpenOption/CREATE

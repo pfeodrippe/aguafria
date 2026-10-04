@@ -2,6 +2,658 @@
 
 ## Zig 0.17.0 migration — October 3 (in progress)
 
+- Latest verification checkpoint:
+  - Corrected Racing61707 now21/43 checkpoints,4588/4588 candidates,190/190
+    functions,zero subset failures;publication/fresh restart stillpending.
+    Permanent project strict cachechecker coveragegate1/11PASS. Additional
+    config/report2/12PASS and scalar/callback2/16PASS. Final native type-graph
+    regression4/23PASS;actual Tiger probe6.301s,onecompiler observation,no
+    semantic/quotaerrors. Intermediate linear-list version31.924s/quotaFAIL
+    preserved. Zig type equality remains authoritative,hashcollisions tested.
+    OldTiger4/5inventory notacceptedascurrent. Core61626/61918 stopped.
+    No Learn outcome/HTML stage repeated;details in root cache report.
+  - Racing strictfresh61501 finished12purechecks+3/16PASS,zero builds/newlibs,
+    one packload,but FAILED cache gate:two scalar coercions used standalone
+    artifacts. Exactkeys differonly5vs8native link inputs. Generic validated
+    scalar constructor profile closure now saved;EMPTY/FRESH regressions4/33
+    PASS,one packload/exactkeys/zero builds/unchanged library inventories.
+    Corrected wholeprep61707/exec77766 running;newpublication/freshacceptance
+    required. No Learn outcome/HTML stages repeated. Owned61501 stopped.
+  - October4 goal continuation closed two pending acceptance gates. Current
+    Chrome layout suite5/5PASS with bundled Playwright1.62.1/Node24.19.0 via
+    NODE_PATH,no installs/expectation edits. All304 displayed regions,640–2600px,
+    native-failure output,tabs/live resizing/navigation;served HTTP200 page
+    byte-identical to testedHTML. Report.tmp/learn-layout-current-017.edn.
+    Tiger actual release C sample/server builds7/7 and6/6safe,aarch64-macos;
+    unchanged sample performs818900 transfers/2 accounts,exact balances,deinit
+    andexit0. Ownedserver60676stopped;owned1.442GBtestDBremoved,no user data.
+    Report.tmp/tiger-release-client-017.edn. No native/body/outcome stages repeated.
+    Racing current60329now32/43checkpoints,7868/7868candidates,305/305functions,zero
+    completed-subset failures. Final publication/strict restart remains pending.
+    Tiger54868confirmed live/changing native compiler child,4/5old-planner
+    checkpoints859/1386candidates;notcurrentcoreacceptance. Keeprawfailures.
+  - Current ordinary/AOT parity repair: named callbacks retain Zig-confirmed
+    declaration identity; imported results and payload paths share producer
+    identity; inferred/anonymous return constructors use the actual native type.
+    Preparation captures each namespace's load-time compiler configuration,
+    including transitive imports,with isolated parallel worker scopes. Full
+    bundle/precompile/native-result37 tests/304 assertionsPASS. EMPTY/FRESH
+    callback and transitive-config regressions each1/8PASS,one pack,zero builds
+    or extra libraries,exact keys. Initial anonymous-reader and Racing restart
+    failures preserved in root cache report;no whole-project acceptance claimed.
+    Relevant ordinary JVM8/81PASS;core60417 completed/stopped. Formatting and
+    diff checks pass. No Learn outcomes/HTML stages repeated for this batch.
+    Corrected full Racing60329/PID8637/exec98458 now8/43 checkpoints,184/184
+    candidates,11/11 functions,no completed-subset failures. Final publication/
+    strict restart pending. Root60307 completed/stopped;user56037/60588 and
+    preview63979 preserved. Shared cache not deleted;no Learn source/outcome
+    stage changed/repeated. New evidence in CACHE_RUNTIME_AOT_PARITY_2026-10-04.md.
+  - Current cache follow-up: compact per-preparation source scan reuse preserves
+    keys and validates imports on each request. Actual262644-character source
+    20checks638.415ms ->153.040ms,identical facts (not total AOT timing).
+    Bundle/precompile28/253PASS plus corrected2/7PASS;original stale-private-
+    helper errors retained. New scan concurrency/content/import test11 assertions
+    passes. Shared facade cache now bounded LRU with immutable-state checks;
+    fresh full runtime59/2334PASS;fresh-child AOT precedence/constructors2/17PASS,
+    exact keys/unchanged libraries. Owned root58902 and59077 completed/stopped.
+    Racing now33/43 checkpoints8075/8075 candidates323/323 functions,no failures;
+    final whole-project reports/fresh checks still pending for all three jobs.
+    Both normal0.17 game standalone builds succeed,not new app launch claims.
+  - Final cache-core Learn refresh completed:286 upstream outcomes plus5 reviewed
+    special cases;14 translated blocks/7 Zig-only;355 authored inline checks.
+    First owned59238 correctly rejected systemZLS0.16 at HTML. Only HTML/tests
+    resumed in fresh owned59421 with documented AGUAFRIA_ZLS matching0.17.
+    HTML9156ms:291 file examples,288 REPL transcripts,zero missing output panels.
+    Five Clojure suites100 tests/12905 assertions PASS. Highlighter6/6PASS.
+    Separate layout test could not load its Playwright dependency;not a green
+    layout run. Existing IAB page reloaded and DOM checked:hello_again output,
+    actual ZLS *const i32 hint,and zero typed-span browser titles. Temporary
+    CUA viewport enabled rendered checks at1600/1194/900/640px: equal columns,
+    aligned Shell/REPL panels,no horizontal overflow,working source tabs.
+    Actual1600px screenshot visually inspected;viewport reset afterward.
+    This does not relabel the Node dependency failure as a passing suite. Evidence
+    build/refresh-cache-final-017.edn and refresh-cache-final-html-retry-017.edn;
+    original ZLS failure retained. Both owned refresh JVMs stopped;user56037
+    listener confirmed and .nrepl-port restored. Live game60588 and preview63979
+    preserved. No successful outcome stage repeated on retry.
+  - Default dependency mismatch fixed in LaProf/Racing/HTTP:published0.1.7 is
+    Zig0.16 and lacks the precompile API. All now use the same local core by
+    default,no override aliases. Actual CLI classpaths checked;new regression
+    15 assertionsPASS. LaProf closure then failed at assembly:790+130 artifacts
+    differ only by ordered appends of two Studio link dependencies. Single-pack
+    assembly now uses the full ordered link list while preserving every input
+    artifact key. Divergent compiler settings/link lists still reject. Real
+    external translated-C7 assertions and negative4 assertionsPASS;new empty-
+    cache/fresh child1/8PASS:one pack,zero builds/new libraries,exact keys.
+    Root58572/PID27766/exec98721 broader bundle/precompile28/242PASS;additional
+    bundle-failure report test1/7PASS,retains completed coverage/diagnostics,
+    marks bundle failed and still throws. Together with default-dependency1/15,
+    30 tests/264 assertions across three recorded runs. Core verification
+    JVM exited0;PID/listener gone. Formatting/diff checks pass.
+    LaProf57606/PID90967 retry uses saved bundle code in preparation-only JVM;
+    normal fresh game checker still required. Current220 modules/95 coercions.
+    Racing whole current-source AOT58479/PID25852/exec17100 runs two bounded
+    workers,327 modules last snapshot,native invocation blocked. Driver.tmp/
+    racing-replay-fixed-aot-017.clj;newreport racing-replay-fixed-aot-017.edn.
+    Tiger54868 still running. Saved bundle namespace normally reloaded into both
+    owned preparation JVMs before final assembly;this is not fresh acceptance.
+    Preserve user56037/60588 and preview63979.
+  - Current continuation: Racing replay blockers repaired and verified5/36.
+    Native1200-tick replay captures599 and matches fingerprints exactly;
+    v2 fixture regenerated through strict parity gate for20 racers/10 teams.
+    Root PROJECT_NREPL_VERIFICATION_2026-10-03.md and Racing ledger hold evidence.
+    Completed owned Racing58180/PID16489/exec4500 shut down world/exited0.
+    Old Racing AOT snapshot is stale after source/array-type changes; not new
+    whole-project acceptance. Same LaProf constructor prep57606/PID90967 now
+    213 registered modules/101 coercions after51min,still preparing/not published.
+    Tiger54868/PID55935 has4/5 checkpoint files and is in main probe isolation;
+    still running,not finished. No core cache-key/lookup change this turn.
+  - Current ordinary/AOT game acceptance checker now rejects generated handler
+    disk hits outside the packs (except the reports' explicit standalone
+    exclusions), so a previously compiled library cannot mask an AOT gap.
+    Exclusions now preserve exact artifact IDs,not entire namespaces. Checker
+    regression1/3PASS and core standalone-report identity1/3PASS. Evidence
+    .tmp/cache-exclusion-identity-017.edn. Owned57996/PID12486/exec27731 exited0.
+    Saved updated finish! definition installed in preparation-only57606 so its
+    final report retains exact exclusion IDs. Artifact keys/Zig output/lookup
+    unchanged. Same owned57606/PID90967/exec84996 has
+    reached Studio's native inspection after the five callable namespaces;
+    no terminal report yet. Tiger54868/PID55935/exec56721 remains in compiler
+    probe isolation. Neither job was restarted or called finished from CPU0.
+    Keep user56037/60588 and preview; fresh game restart driver now includes
+    :unbundled-handlers in its summary. Formatting/diff checks pass.
+  - October4 whole-project reports have finished, but their semantic planners
+    predate the current shared-planner/type-query fixes. LaProf6/6 namespaces,
+    8165/8329 runtime candidates,375/376 functions (one process entry),one1662-
+    handler pack:17,911,712 code bytes/31,393,701 debug bytes,130.234min. Racing
+    43 selected/28 analyzed/15 host-only namespaces,14179/14432 candidates,
+    520/520 functions,one2231-handler pack:21,538,464 code/35,933,488 debug bytes,
+    68.932min. Both have zero baseline failures; neither is current exhaustive
+    ordinary-JVM acceptance. Finished54869/PID55967 and56197/PID62484 stopped.
+    Fresh ordinary LaProf57456/PID88418 then passed3 tests/51 assertions and
+    reused30 bundle entries/one load, but compiled two coercions absent from
+    the pack:typed string construction and direct mutable undefined storage.
+    This is a preparation-closure gap, NOT duplication of existing AOT keys.
+    Every actual hit matched its manifest. Evidence game-shared-planner-restart-
+    017{,-events}.edn. Completed verification57456 stopped.
+    New generic closure prepares declared operand/result constructors and the
+    primitive literal's owned-storage variant. EMPTY-cache/FRESH child regression
+    1/8 PASS:one pack,zero compilations/extra libraries,exact keys match.
+    Full bundle/precompile25/228 completed227PASS/one stale assertion that counted
+    unloaded namespaces as loaded bindings;corrected snapshot keeps only actual
+    bindings and requires a nonempty baseline. Changed test1/6PASS;unchanged
+    other24 tests/223 assertionsPASS. Owned57568/PID89068/exec35125 exited0.
+    Current LaProf follow-up57606/PID90967/exec84996 runs5 namespace callable
+    preparations plus Studio analysis (the affected namespace),native invocation
+    blocked. Its new constructor initially lost the namespace of FrameBuilder
+    (defconst function-pointer type alias). Fixed with existing qualify-native-
+    type helper,retaining declared identity,no type inference. Strengthened
+    alias EMPTY-cache/FRESH regression57736/PID764/exec31403 now1/8PASS:exact
+    keys,one pack,zero builds/extra images;completed owned JVM exited0.
+    Final fixture also covers mutable bool storage (same scalar storage closure).
+    Fresh empty-cache/restart57818/PID10294/exec25466 again1/8PASS,zero builds/
+    extra images,matching manifest identities;owned JVM stopped. Final result
+    .tmp/cache-constructor-final-regression-017.edn. Formatting/diff checks pass.
+    LaProf follow-up retried in same
+    preparation-only JVM using the saved updated precompile-function! definition;
+    normal acceptance must still be fresh. Driver
+    .tmp/game-constructor-closure-preparation-017.clj,report
+    .aguafria/precompile/game-constructor-closure-017.edn. No app/cache deletion.
+    After it publishes:stop only owned57606/start fresh ordinary game nREPL with
+    the same dev/tools/test classpath;load .tmp/game-constructor-closure-restart-
+    017.clj. Permanent game_cache_check verifies3/51 tests,all actual keys,zero
+    compilations/new requested libraries,ordinary requires;it saves failure
+    details and distinguishes unrelated concurrent writes. Do not claim this
+    fresh game acceptance before actually running it.
+    Tiger54868/PID55935 remains in actual compiler isolation,not idle. VSR's
+    SyncTarget refers to missing sync.Target in origin/default too; no blind
+    replacement with CheckpointState or silent export removal has been made.
+  - October4 ordinary game cache follow-up: fresh nREPL57106 used current shared
+    planners against recording-tool's existing250-handler AOT. Four observed
+    type queries and hello/jello/new UTF-8 hash calls pass:7 bundle hits,one
+    bundle load,9 memory hits,one namespace-image disk hit,ZERO compilations
+    and new libraries for requested keys. Exact entry identities match the
+    preparation manifest. New recording_cache_check.clj separates unrelated
+    concurrent cache writes (five observed) and bounds source-cache scanning.
+    The24.354s recorded duration includes inventory work, NOT native-call time.
+    Completed nREPL57106 stopped. Whole-project AOT remains incomplete.
+    Package catalog default moved into ignored generated output; stale tracked
+    HTTP0.16 catalog removed recoverably. Actual HTTPprepare now0.17,6 namespaces/
+    22 members. Container walker recognizes compound-call heads without treating
+    them as named declarations. Package suite7/52 and fresh HTTP normal-load/live
+    listener1/19 PASS. Completed root56942 and HTTP57124 stopped. Learn allocator
+    mapping now points at actual0.17 SafeAllocator without altering upstream HTML;
+    Learn refresh now completes291 outcomes and288 transcripts/zero missing
+    panels. Original full100-test/12905-assertion run had one failure in the new
+    test:it wrongly expected Zig's deprecated DebugAllocator Var to be absent.
+    Corrected only that assertion to actual SafeAllocator container metadata;
+    changed test1/8 PASS,other99 tests were already passing and not rerun.
+    Browser/highlighter11/11 PASS. Served IAB DOM shows both new allocator notes
+    and actualHello,World! output;screenshot blocked by zero-width browser pane,
+    NOT claimed as visual inspection. Official0.17 ZLS used. Completed Learn57130
+    (exec25013) stopped. Driver.tmp/learn-cache-catalog-refresh-017.clj; keep the
+    original failed-suite result plus correction/acceptance evidence in
+    build/refresh-shared-cache-catalog-017{,-correction,-acceptance}.edn.
+    Long-job checkpoint snapshots: Tiger4/5,859/1386 candidates; LaProf5/6,
+    3973/4100; Racing29/43,7311/7446. Their semantic planners predate the latest
+    fixes; these are progress counts, NOT current whole-project acceptance.
+  - October4 shared-cache planner follow-up: callable expressions and compound
+    assignment registration now shared by ordinary/precompile paths. Actual
+    artifact keys/bundle IDs reported. Full bundle/precompile24/220 and targeted
+    JVM8/59 PASS; formatting/diff checks pass. Values checker removed source-only
+    require bypass and now includes normal startup, native full-output comparison
+    and library inventories. EMPTY temp-cache preparation28/28 operations,1/1
+    functions,one68-handler bundle in32.247s. FRESH real nREPL startup+five bodies
+    +native comparison2733.364ms:34 bundle hits,one load,14 memory hits,two prepared
+    namespace-image disk hits,ZERO compilations/new dylibs; every requested key
+    matches preparation. Preparation56800/PID30509 and restart56839 stopped.
+    Exact report CACHE_RUNTIME_AOT_PARITY_2026-10-04.md. Whole-project AOT still
+    incomplete; no user cache/app changes and no HTML-facing code change.
+  - October4 type-query cache follow-up: discovery now observes actual Zig
+    types for a/type; preparation and ordinary calls share the explicit type
+    parameter planner. Observation1/5 and initial EMPTY-cache/FRESH ordinary
+    AOT restart1/7 PASS: one pack loaded once, zero new compilations, identical
+    libraries, invocation blocked during preparation. Full bundle/precompile
+    23/209 PASS; three nearby JVM type/value tests pass. Discovery7 tests pass;
+    eighth stale operation-name expectation corrected to existing emitter
+    normalization, strengthened deref test1/13 PASS. Formatting passes.
+    Completed root56268/PID67488/exec68003 exited0. Focused current-core
+    recording-tool AOT COMPLETE552/552 candidates,12/13 functions (process
+    entry skipped),all17 type queries prepared in88.012s. One250-handler pack,
+    no standalone handlers,1,668,160 code/3,704,218 debug bytes. Fresh ordinary
+    nREPL56621 requires normally, evaluates4 distinct observed type signatures,
+    hashes hello/jello correctly: ZERO compilations,7 bundle hits,one bundle
+    load,one namespace-image disk hit,3422.559ms including startup. Reports
+    recording-type-current-017.edn/recording-type-restart-current-017.edn.
+    Both owned56574/PID19310/exec60479 and56621/PID24389/exec95157 exited0.
+    No game/editor/GPU rerun or cache deletion. This one namespace is accepted,
+    not the full6-namespace game/studio. Deferred9 casts need outer context;
+    Node is1 type declaration, neither claimed as a callable.
+    Per-graph cyclic fingerprint reuse passes full runtime58/2321; synthetic
+    80-cycle/300-shared-value timing46.407292ms ->21.928333ms, identical hashes;
+    NOT whole-project AOT speedup. Only graph-work defn installed in owned jobs.
+    Tiger54868/PID55935 now4/5 checkpoints,15/25 functions,859/1386 candidates,
+    VSR baseline failure and52 failed handler records/47 operations remain.
+    LaProf54869/PID55967 is1/6,535/552 candidates. Racing56197/PID62484 is17/43,
+    150/150 functions,3692/3799 candidates. Semantic snapshots predate new fix;
+    do not count them as current whole-project acceptance. Details/categories
+    in PROJECT_NREPL_VERIFICATION_2026-10-03.md. No user apps/caches touched.
+  - October4 project follow-up: Racing cast/cache regressions2/11 PASS,
+    compiler-only1/1 functions and5/5 candidates prepared, no invocation.
+    Core C persistence suite8/71 PASS; actual generated-catalog serialization
+    28.98ms compact vs5575.97ms pretty (same parsed data, not whole startup).
+    HTTP0.17 standalone builds6405ms and serves200/body/UUIDv4; stopped afterward.
+    Racing portable replay still fails3 assertions: stale version1/zero-roster
+    fixture; real native1200-tick parity saturates512 storage for20 racers.
+    Guards/fixture untouched; owned world shut down. Full current-core Tiger
+    and LaProf AOT/restart remain pending; do not relabel historical snapshots.
+  - October 4 planning allocation follow-up: direct import traversal preserves
+    generated Zig/artifact keys; emitter 72/432 PASS. Derived linkage plans are
+    bounded 64 entries/32Mi source chars; runtime/preparation 67/2369 PASS.
+    Bundle source streaming keeps paths/fingerprints, validates before linking;
+    full bundle 11/136 PASS. Root 54934/PID62718 remains active for std.c alias
+    regressions. Current Tiger 54868/PID55935 AOT 3/5 checkpoints and LaProf
+    54869/PID55967 AOT 1/6 remain running. Historical Racing 52294 has 42/43
+    checkpoints, 385 functions, 9605/9653 candidates; not current acceptance.
+    clock_gettime/nanosleep alias planning is compiler-reflected. Fresh empty
+    preparation/ordinary JVM pair 2/18 PASS: no preparation invocation, zero
+    restart builds and identical native-library inventories. Declared generic
+    return identities are checked by Zig before retention; imported type readers
+    use the ordinary preparation path. The in-flight project AOTs predate that
+    planner change and need current-core follow-up. Additional facade-cache
+    source bound is implemented but its new targeted/native proof is pending.
+    Latest continuation: facade bound validated14 assertions, runtime/preparation
+    68/2383 PASS and installed in active Tiger/LaProf JVMs; disk/artifact keys
+    unchanged. Whole JVM suite passes81/761 in four bounded process batches;
+    combined JVM hit macOS DYLD's TLS-key image limit and is not a pass. One
+    initial shell-interception assertion passes on targeted25-test rerun;
+    preserved as non-reproduced, not claimed fixed. Current bundle11/136 and
+    alias2/18 rechecks pass. Broad16-namespace empty-cache restart1/5 PASS:
+    483 preparation builds/zero callable images; ZERO restart builds and
+    identical103-library inventories. Current core matrix163/3303 across
+    bounded runs, not one monolithic JVM. Completed root55569/PID11402/exec37339
+    is stopped; root54934/PID62718 exitedSIGABRT.
+    Historical Racing ended43 checkpoints,520functions,14130/14180 candidates;
+    no final bundle due interrupted parent. Owned idle52294/PID81027 stopped.
+    Detailed ledger:
+    PROJECT_NREPL_VERIFICATION_2026-10-03.md. Do not repeat completed HTML work
+    for identical-output performance edits; no output regeneration this phase.
+  - October 4 nested-field/cache parity follow-up: compiler probe traverses
+    actual Zig field/pointer/function types with cycle detection, preserving
+    nested nominal identities. Borrowed fields retain their receiver's native
+    identity, address, mutability and lifetime. Adapter writer arguments are
+    qualified before hashing, and redundant explicit type wrappers in receiver
+    schemas are normalized. This fixes six verified preparation/runtime misses:
+    Exchange/result, Box/value for i32/u16, Counter/increment/plus and
+    SemanticVersion/major. Latest EMPTY-cache preparation/FRESH ordinary JVM
+    restart covers 16 namespaces: 1 test/5 assertions PASS, 479 preparation
+    builds, zero native invocations/loaded functions during preparation, ZERO
+    restart builds, identical nonempty 103-library inventories. Direct
+    identity regression1/2, nested field/probe2/13, field/private/constructor
+    regressions8/48 and full runtime55/2,291 pass. Preparation and ordinary
+    invocation use the same adapter planner and bundle-first artifact lookup.
+    Evidence: Java temp logs aguafria-discovery-13706455395493851647.log
+    (prepare), aguafria-discovery-5346222559427439304.log (restart), cache
+    .aguafria/precompile-tests/discovery-9092479791512895335.
+    Separate std.testing allocator resource now explicitly initializes Zig's
+    test context before exposing its native exports; synchronous and
+    cross-thread allocator regression plus bound methods2/14 PASS. Native
+    deftest execution still uses its own runner and leak checks.
+    Fresh Learn54471 completed outcomes, blocks, inline evidence and HTML
+    before loading test suites:291/291 outcomes,288 transcripts, zero missing
+    output panels; combined suites99/12,897 and browser/highlighter11/11 PASS.
+    Actual IAB preview reloaded and visually checked; x and x-ptr tooltips use
+    ZLS generated-Zig i32/*const i32 results, no native-title duplication.
+    Earlier four capture failures were from
+    tests loading lesson namespaces before regeneration, not lesson failures;
+    the guard is preserved. Current report build/refresh-zig-017-final.edn.
+    Root53916/PID81164 and Racing monitor53639/PID16717 exited after completed
+    verification. Learn54471/PID31540 also exited; independent preview/user
+    sessions are preserved. Racing52294 whole AOT still runs an earlier core
+    snapshot:39 checkpoints,341 functions,8,598/8,643 candidates. Do not treat
+    its historical gaps as latest failures.
+  - Additional cache parity gaps fixed October 4: composed comptime string
+    results retain both compiler source and native pointer ownership; ordinary
+    invocation and preparation select the same result writer. Inspection now
+    resolves normalized vector/array constructors through native syntax before
+    clojure.core. Argument types still come from Zig. Broad empty-cache/fresh
+    ordinary JVM check passes 1/5 across 15 namespaces: ZERO builds and identical
+    nonempty entire native-library inventories. Native storage checks3/21 and
+    focused operator/concat checks4/33 pass. Emitter71/422 passes.
+    Converted source loading now uses registered definitions, not a nullable
+    emitted-source cache, to decide whether to load a module. Adapter
+    registration therefore cannot trigger source replacement and delete its
+    cleanup functions. Unit1/7, runtime55/2,291 and converted-native4/23 pass;
+    first-cold Tiger composed-format check6/6 prepares without invocation.
+    Logs: /tmp/aguafria-fresh-discovery-cache-parity-fixed-017.log,
+    /tmp/aguafria-converted-source-cache-runtime-suite-017.log,
+    /tmp/aguafria-native-converted-cache-full-suite-017.log,
+    /tmp/aguafria-tiger-composed-first-cold-fixed-017.log.
+    Current-core Learn refresh PASSES: 291/291 outcomes, 288 transcripts,
+    zero missing output panels; combined reference/fidelity/direct-JVM/audit
+    suites99/12,897 and browser/layout/highlighter11/11 pass. Actual IAB preview
+    reloaded and visually checked. Fresh Learn53189/PID94228/client83443
+    finished and its owned JVM is stopped. Evidence:
+    build/refresh-handler-cache-parity-017.edn,
+    /tmp/aguafria-learn-current-handler-cache-refresh-017.log and
+    /tmp/aguafria-learn-current-handler-cache-browser-tests-017.log.
+    Tiger53102/PID77899,53171/PID93993 and root52995/PID58827 are stopped.
+    User sessions and preview remain untouched.
+  - Current cache continuation (October 4): ordinary arithmetic discovery now
+    records the operator selected by emission, including raw a/op and mod;
+    argument types remain Zig compiler observations. Latest emitter suite
+    70/416 passes with unchanged emitted source. Operator + valid tuple focused
+    checks pass; the fresh ordinary restart found five native test-definition
+    check libraries not warmed by AOT. Repair is complete: precompile now
+    uses the ordinary check path at its registration point, never executing
+    tests, preserves per-image :test-checks and reports failures separately.
+    Broad restart/operator pair passes 2/17 with zero builds and identical
+    entire library inventories. Preparation's in-process subset passes 10/48;
+    fresh sync+async restart passes 1/18. Earlier wrapped-diagnostic assertions
+    are fixed and superseded by /tmp/aguafria-precompile-final-in-process.log.
+    Owned root52247/PID67937 stopped. A redundant metadata state lookup now
+    skips non-vars and computes var references once: runtime54/2,284 passes;
+    synthetic 300 lookups384.79ms ->0.053ms (not whole-project timing).
+    Fresh full preparation recheck passes 11/66, zero failures/errors;
+    ordinary sync+async restarts compile zero libraries and retain identical
+    inventories. Owned52616/PID39966 stopped after verification;
+    /tmp/aguafria-cache-parity-final-017.log.
+    Full Racing AOT owned52294/PID81027/client43147 runs 43 selected
+    namespaces from 44 source files, two workers, shaders explicitly ignored.
+    Latest 22 checkpoints: 4,579/4,616 candidates, 192 prepared functions, eight
+    host-only namespaces incorrectly reported analysis-failed (now fixed in
+    source) and two load failures from dataset's eager native read and its
+    downstream jev-evaluation require. Both now load source-only, dataset1/4
+    passes, but the old checkpoints have not been replaced. No final bundle/count
+    yet. The 37 incomplete candidates comprise one old vector shift failure
+    (u8 shift-count vector, fixed to Zig's u3 in current source; focused native
+    regression2/13 passes) and 36 non-runtime/nominal operand cases such as
+    monitor's (field ar actor) and (field br actor). Separately, 210 standalone
+    calls need result context, e.g. (k/intCast count)/(k/intCast length), and
+    22 type declarations are non-call operations (Decoder/Span in inference).
+    Current report:
+    examples/racing-game/.aguafria/precompile/racing-game-017-full.edn(.d),
+    /tmp/aguafria-racing-full-aot-017.log. Running JVMs have not reloaded the
+    host-only classification/metadata changes. No graphical/game/worker bodies run.
+  - Startup cache parity is now COMPLETE for the checked workloads, superseding
+    the initial-image gap below. Initial namespace images are compiled without
+    publication; their snapshots live only for the preparation run. Runtime and
+    AOT share callable source generation and artifact lookup. Compile-only mode
+    never skips persistence because a handler is loaded in memory.
+    Empty cache /tmp/aguafria-tiger-startup-reuse-pnVG3b: 81.00s preparation,
+    4/4 callable operations +1 function; two initial images prepared/seven lazy
+    converted images skipped. One nine-handler bundle (111,616 code bytes,
+    128,030 debug bytes), two explicit standalone relative/dynamic-asset handlers.
+    Fresh ordinary startup returns 48/48, 5 bundle hits/4 disk hits, ZERO new
+    libraries across the entire inventory, including startup. Owned Tiger
+    preparation51805/PID48305 and invocation51883 stopped. Logs:
+    /tmp/aguafria-tiger-startup-{preparation,invocation}.log.
+    Strengthened ordinary-require restart test covers sync+async (1/14); full
+    precompile suite 9/53 passes. Four native reload/migration checks 4/28 pass.
+    Final explicit-signature check 1/3 passes after fixing the loaded-memory
+    bypass; earlier failures in the focused log are superseded. Runtime 53/2,271
+    and bundle 1/17 pass. Racing foundation finished in 237.26s: 6/6 namespaces,
+    44/44 functions, 574/574 runtime candidates (594 inventory: ten context
+    calls, nine type declarations, one directive), zero baseline failures. One
+    209-handler bundle: 1,325,568 code bytes/2,666,570 debug bytes. Seven initial
+    images prepared; converted Box3D lazy. Fresh ordinary 52139 returns
+    [36.0 0.5 1.0] in 17.96s, 4 bundle hits/3 disk hits, ZERO compilations or new
+    libraries including startup. Generated prefixes now cannot incorrectly
+    complete async file loading. Catalog name bookkeeping includes unions;
+    project4/8 passes. Incomplete circuit hash moved recoverably to
+    /tmp/aguafria-startup-miss-recheck-AzNyoH. Preparation51933 and
+    restart52053/52139 stopped. Logs /tmp/aguafria-racing-foundation-aot.log and
+    /tmp/aguafria-racing-foundation-restart-fixed.log. Preloaded dependency
+    images now follow native snapshot modules; focused regression passes.
+    Final combined prep/project suite 13/61 passes, zero failures/errors:
+    /tmp/aguafria-cache-final-restart-tests.log. Owned root 51778 stopped after
+    verification; user CIDER 56037/PID8855, live game 60588/PID19986 and preview
+    63979/PID48021 remain preserved.
+    Whole Racing AOT and ordinary-core-operator discovery remain incomplete;
+    the extra k/+ f32 signature was not in the prepared inventory. No
+    game/worker bodies are executed by preparation.
+  - Cache parity repair now retains refreshed source-only type identities
+    during AOT, without touching published generations. Unit/native checks:
+    runtime 53/2,271, four publication/reload/migration tests 4/28, fresh bundle
+    restart/miss test 1/17. Clean cache /tmp/aguafria-tiger-aot-reuse-IHMss8:
+    preparation51423 took 78.73s, 4/4 callable operations +1 function. One pack
+    of nine handlers; two relative/dynamic-asset handlers remain standalone.
+    Fresh ordinary51492 returns 48/48 with 5 bundle hits/4 disk hits and ZERO
+    new helper dylibs. One initial namespace-load image (not in targeted AOT)
+    is new; do not claim zero whole-startup compilation. This async image is
+    absent from expression-local event counts. Logs /tmp/aguafria-queue-clean-
+    {preparation,invocation}.log. Preparation51423, invocation51492, trace
+    JVMs51307/51313 and root50849 all stopped after verification.
+  - Post-cache-parity Learn refresh is COMPLETE: 291/291 outcomes (286 native
+    comparisons, five reviewed), 288 transcripts and no missing output panels.
+    Reference suite 79/11,616 and layout/highlighter checks 11/11 pass.
+    Actual preview reloaded and visually
+    checked: both source/output columns visible, Hello Again uses a/defn.
+    Evidence: build/refresh-after-cache-parity-017.edn,
+    /tmp/aguafria-learn-after-cache-parity.log, and
+    /tmp/aguafria-learn-cache-parity-html-tests.log. Learn51460 and51560 stopped;
+    user CIDER8855, live game19986 and preview48021 are preserved.
+    Start Learn rendering with AGUAFRIA_ZLS set to
+    /Users/pfeodrippe/Library/Caches/aguafria/zls/eab2be0fd74443a27662da809b771c4ad0d2afcf/bin/zls;
+    system ZLS0.16 is correctly rejected. Outcomes were retained on HTML retry.
+  - Cache-order follow-up: dependency facades now ignore owner compilation
+    history; queued publication loads converted dependencies before planning.
+    Fresh preparation50975 and ordinary invocation51001 now agree on the
+    queue-size adapter key (`ef422fe3...`); both calls return 48. Overall events
+    improved from three compilations to one, plus five bundle hits/three disk
+    hits. Two observed artifact variants remain outside this targeted AOT
+    inventory, so do NOT claim complete zero-compilation reuse.
+    Logs /tmp/aguafria-queue-key-{preparation,invocation}-fixed.log.
+    Owned Tiger50681,50707,50867,50975,51001 were stopped after inspection.
+  - Runtime 52/2,264; retained-generation regression 1/3; four relevant native
+    publication/reload/migration regressions 4/28, all pass. Logs:
+    /tmp/aguafria-runtime-cache-order-tests.log,
+    /tmp/aguafria-retained-generation-cache-fix.log,
+    /tmp/aguafria-aot-cache-hot-reload-regressions.log.
+  - La Professeure's old AOT client timed out after an hour while workers
+    continued. Owned PID51631 was stopped; the two completed checkpoints below
+    are preserved. It is NOT still running. Bounded GPU profile finished in
+    owned nREPL51059/PID28036 (now stopped). Script/log:
+    /tmp/aguafria-game-aot-profile.clj/.log. Source loading alone took 205.17s;
+    observed 1,128 operations by 214.69s. At load completion: 96 reference
+    refreshes (22.16s total), 254,426 source-fingerprint calls. The sample then
+    prepared 35 functions and 26 handlers from its first 30 operations, ending
+    at 357.61s; not a full AOT run. Total 205 refreshes/41.43s and 266,789
+    source-fingerprint calls.
+  - Found quadratic qualified-name scope rebuilding during generated binding
+    validation. Replaced it with direct namespace-scope membership checks,
+    preserving lexical scope and unknown-name rejection. Emitter 69/400 and
+    runtime 52/2,264 pass. Synthetic 200 declarations × 10,000 known names:
+    273.81ms before, 0.415ms after (NOT end-to-end AOT speedup).
+    Fresh GPU source load: 126.69s/88 declarations (~38% lower), owned
+    nREPL51158/PID28973 now stopped. Log:
+    /tmp/aguafria-game-aot-load-fixed.log. Root tests50849/PID25775.
+    These later core edits postdate the Learn refresh recorded below.
+  - Empty-cache/fresh-JVM bundle regression: 1 test/17 assertions pass; now
+    checks no standalone dylib after runtime hits, not only after preparation.
+    /tmp/aguafria-aot-no-duplicate-regression.log. Tiger's remaining sizeOf
+    adapter mismatch was NOT covered by that scalar fixture; resolved by the
+    source-only identity fix above. Root recursive
+    fixture same-JVM check returned 16/16 with bundle hits and no compilation.
+  - Post-core Learn regeneration completed: 291/291 outcomes (286 native
+    comparisons, five reviewed cases), 288 REPL transcripts, no missing output
+    panels. `build/refresh-after-aot-core-017.edn` and
+    /tmp/aguafria-learn-after-aot-core.log contain the evidence.
+  - Reference suite: 79 tests / 11,616 assertions, no failures/errors. Browser
+    layout/highlighting: 11/11. Reloaded the actual preview and visually checked
+    both Hello World side-by-side source/output pairs; REPL output is visible.
+    Log /tmp/aguafria-learn-post-aot-reference-tests.log. Finished owned Learn
+    nREPL50446/PID6492 stopped; preview63979/PID48021 remains available.
+  - Tiger logging repair: 71/77 expanded handler signatures prepare. Remaining
+    six are three composed format strings (`k/++`) with two tuple forms each.
+    Do not count the earlier diagnostic harness's unexpanded representations.
+  - Fresh Tiger queue returns 48 from both function and equivalent REPL
+    expression, but initially had three compilations, five bundle hits and one
+    disk hit. Zero-compilation assertion failed: reuse is NOT verified yet.
+    Owned nREPL50470/PID8292 stopped. Focused key investigation now compares
+    compiler inputs from preparation50681/server6305 with invocation50707/
+    server71505. Temp scripts and logs: /tmp/aguafria-queue-key-{preparation,
+    invocation}.clj/.log; captured key inputs are separate EDN files there.
+    Preparation alone: 60.72s, 4/4 runtime operations, 1/1 function; no native
+    calls. It still reproduces the old prepared artifact key, so this is not
+    simply an intervening emitter edit.
+  - Root runtime tests: 50/2,257; focused discovery: 4/27, no failures/errors.
+    Completed root50098/PID84099 and Tiger50244/PID95987 are stopped.
+  - Historical La Professeure AOT51631 was stopped after timeout; only two
+    namespace checkpoints are current. Thread dump:
+    /tmp/aguafria-game-aot-threads-20261003.json. Do not count Sep30 checkpoints
+    as current or describe this stopped run as active.
+
+- Current AOT follow-up (after headless Ghostty completion):
+  - Tiger project now has an explicit five-namespace `:precompile` alias for
+    the three reload fixtures, VSR and main, not all 245 generated namespaces.
+    Authored `ak`/raw comptime attributes migrated to `k`/`:attrs`; benchmark
+    matchers compare forms structurally. QueueItem uses public
+    `QueueType(QueueItem).Link`, not private QueueLink. Benchmark edits still
+    need their focused medium/complex verification.
+  - First Tiger run: 127.09s, 19 prepared / 12 skipped / 4 failed functions;
+    2/2,026 operations prepared, three failed baselines. Bundle: 26 handlers,
+    206,400 code bytes + 339,947 debug bytes. This is superseded only where
+    newer per-namespace checkpoints explicitly exist.
+  - Fixed inspection's cyclic root identity using Zig's actual logical root
+    module name. JVM native-result wrappers now reflect the function's return
+    type instead of reconstructing anonymous/alias types. Generated optional,
+    slice and error-union helper locals use reserved internal names, avoiding
+    user `storage`/`ErrorUnion`/`name`/`items` collisions.
+  - Native result readers preserve compiler return-type identity; preparation
+    and invocation qualify the reader type identically before cache lookup.
+    New regressions: 2 tests / 15 assertions pass, including compile-only
+    preparation and zero compilations on first invocation/decoding. Runtime
+    50/2,257 passes (one source-string expectation updated for renamed locals).
+    Nested-value 1/2 and separate-JVM error-union cache 1/6 pass. Distinct total
+    across full/focused runs: 54 tests / 2,280 assertions, zero remaining test
+    failures. Logs /tmp/aguafria-{result-cache-final,result-type-and-runtime,
+    result-cache-and-nested}.log; the last contains the intermediate cache-test
+    failure fixed by the focused final run.
+  - Tiger retry FINISHED in 1,199.36s: 688/2,028 operations fully prepared;
+    21 functions prepared / 12 skipped / 2 failed. 1,007 handler records
+    prepared / 147 failed / 139 unsupported / 11 deferred / 1 partial. One
+    baseline failure, 17 rejected probes, 970 unobserved operations. This run
+    loaded core before the subsequent fixes; do not rerun it wholesale yet.
+    Log /tmp/aguafria-tiger-precompile-repaired-017.log. Completed owned
+    nREPL49812/PID51203 was stopped. Replacement nREPL50244/server82400 is
+    using current core for targeted follow-up.
+  - Root-slice diagnosis corrected: NOT an alias-regex failure. A retained root
+    adds dependencies that refer back to more root members. Fixed-point closure
+    now handles that. parse_addresses and root_members both prepare; reduced
+    native fixture passes 1/2. Result-type suite now 3/17. Focused discovery
+    group 5/43 and emitter suite 68/397 pass.
+  - Lazy invalid roots are isolated with compile-only bisection. Original
+    baseline diagnostics are retained; independent roots must compile before
+    their probes are used. VSR's only rejected root is SyncTarget (17 attempts,
+    original baseline1, remaining-root baseline0). origin/main itself names
+    missing vsr/sync.zig.Target; no vendor deletion. Native regression 1/7.
+  - Recursive field probes now run in their container's comptime block after
+    field resolution. Observed external type expressions are qualified and
+    their actual imports emitted. Tiger queue now has 4 observed/prepared
+    operations, one non-call struct declaration, 1/1 function prepared, no
+    rejected probes. Imported recursive-type regression 1/4 passes. Broader
+    placement group 6/58 passes (before the extra external-identity import fix).
+  - Member preparation now preserves source string arguments as the ordinary
+    JVM member planner does. Native regression 1/6 includes zero compilation
+    on the first call after preparation. Recheck affected Tiger log operations;
+    the old full report has 77 comptime-evaluation handler failures in main.
+  - Historical La Professeure AOT (timed out; workers subsequently stopped)
+    ran in nREPL49827/PID51631, server24266,
+    client56046, log /tmp/aguafria-professeure-precompile-017.log. Six namespaces
+    from existing :precompile alias; no native bodies run. recording-tool
+    checkpoint: baseline0, 12 functions prepared/1 skipped,
+    544/545 observed operations, 535 fully prepared, 9 deferred, 1 non-call.
+    Scene checkpoint is also current: 40/40 functions, 976/1,056 operations
+    prepared; 28 deferred, 49 unobserved, 3 unsupported, no failed handlers.
+    Other four checkpoint files are Sep30 and MUST NOT be counted as current.
+    17 authored C callbacks migrated from raw qualifiers to `:callconv :.c`
+    before this run. It does not include the later core fixes in its loaded JVM.
+  - Finished root test nREPL49869/PID52343 (server31213) was stopped after its
+    checks. Current root regression nREPL50098/PID84099/server80517 is active.
+    Preserve live game60588/PID19986,
+    user CIDER56037/PID8855 and preview63979/PID48021. No Ghostty GUI work.
+  - Next: finish/classify these AOT runs, fix remaining root-slice/probe cases,
+    focused Tiger reload tests, fresh-JVM reuse, Racing AOT and post-core Learn
+    HTML/regressions. Also audit anonymous-return round trips: decoding is now
+    compiler-anchored, but value/qualified-type still has a separate recursive
+    symbol-qualification path for ABI comparisons.
+
+- Scope correction: user explicitly waived Ghostty GUI verification. Continue
+  native/JVM reload and AOT, not GUI work. Xcode is NOT an established blocker:
+  existing compiler guards cover glass APIs. SwiftPM hung downloading Sparkle
+  2.9.6; its official zip was downloaded and SHA-256 verified against its
+  manifest, then placed in SwiftPM's artifact cache. The next app build reached
+  compilation. Five new Swift trailing commas in three files were removed;
+  those files parse successfully. No app was launched, no Xcode process remains.
+  Do not repeat the old SDK-blocker claim below.
+  Fresh generation completed: 1,051 files / 20,292 declarations, six generated
+  modules / 5,167 assets, zero fallbacks/raw/unresolved syntax, 403.82s wall.
+  Native source inventory grew with the pinned GUI dependency ports. Subsequent
+  standalone materialization found quoted `_` reference identity in i18n;
+  generic converter repair now passes native/JVM tests. Related identifier
+  checks: five distinct tests / 21 assertions (overlapping runs 2/11 and 4/14).
+  Compact EDN report serialization passes 1/2; a real 16.7 MB catalog roundtrip
+  takes 295 ms. Full generation after that change finished in 315.54s versus
+  380.30s preceding run, same 1,051 / 20,292 counts and zero fallbacks. This
+  saves about 17%; remaining source formatting is still expensive.
+  Independent standalone rebuild completed: 6,218 files materialized in 172.86s,
+  native build exit 0 in 39.95s, total 212.81s; rebuilt VT dylib is 1.9 MB.
+  Five native/JVM tests now pass 29 assertions, including actual terminal/arena
+  cleanup and generic queue behavior 4 -> 3 -> 4 with terminal identity retained.
+  Queue benchmark matcher now compares forms structurally with the qualified
+  operator. The follow-up focus reload now passes after full preparation:
+  73 -> 88 -> 73, same terminal, 505.4 ms for the newly compiled change.
+  Generic batched registration now republishes refreshed Var metadata; the
+  reduced regression and related converter tests pass 3/13. Inspection loads
+  converted dependencies before snapshotting (3 assertions). Full runtime
+  tests: 50/2,257. Container member functions now shadow namespace aliases;
+  this fixes compositor's false `aguafria.zig` import. Emitter: 68/397 passes.
+  Logs /tmp/aguafria-ghostty-{rebuilt-jvm-tests,queue-reload-test}.log and
+  /tmp/aguafria-ghostty-{focus-plan,dispatch}.edn.
+  Explicit :precompile alias analyzes live, bridge, queue-bridge. Final AOT:
+  3/3 functions, 14/14 operations, zero baseline failures/gaps, one 42-handler
+  bundle, 304,288 code bytes + 608,587 debug bytes. Incremental retry 22.70s,
+  35 handlers reused; first pass was 140.76s. Do not rerun source generation.
+  Fresh Ghostty49686 returns [1 73 79 4] with zero native compilations:
+  four bundle hits, three disk hits, two shared bundles loaded. Cold source
+  graph initialization remains slow: 145.73s, versus 10.42ms repeated calls
+  (12 memory hits). New focus reload test passes 1/4, six distinct project
+  JVM tests / 33 assertions total. Owned Ghostty49509/PID48876, fresh49686/
+  PID50372 and root49452/PID47922 are stopped after native cleanup. User
+  CIDER56037, La Professeure60588/PID19986 and GUI windows untouched.
+  Next categories: source-graph startup performance, remaining project AOT
+  (TigerBeetle, La Professeure, Racing), then affected Learn verification.
+  New logs /tmp/aguafria-ghostty-{precompile-container-fixed,fresh-aot-reuse}.log.
+
+- Historical Ghostty app follow-up (superseded by the checkpoint above): real
+  GUI verification requested, not yet achieved. Full macOS Zig library now
+  passes 221/221 steps; targeted GUI/config/font/tmux tests pass 219/219 across
+  81 build steps, log /tmp/aguafria-ghostty-gui-tests-017.log. The source port
+  now includes pinned zig-objc/zigimg source ports, new reflection and sentinel
+  APIs, CoreFoundation/CoreGraphics fieldwise conversions and Metal's unchanged
+  64-byte projection payload represented as four arrays instead of extern
+  vector fields. Current build log /tmp/aguafria-ghostty-app-017.log.
+  macos/build.nu is required for Swift builds. Nushell 0.116.0 was installed
+  through Homebrew for it (Homebrew also updated itself, OpenSSL and CA certs).
+  Swift build log /tmp/aguafria-ghostty-swift-017.log. Installed Xcode 16.1 /
+  macOS 15.1; upstream HACKING requires Xcode 26 + macOS 26 SDK. Do not weaken
+  upstream UI features or claim visible success using the user's installed app.
+  Direct Swift typecheck of Color.clear.glassEffect() fails with missing-member
+  error despite its macOS26 availability annotation. Two SwiftPM-stalled app
+  build attempts were terminated; no native UI observed. Ask for Xcode26/SDK
+  setup before claiming that check can finish; do not silently port away GUI
+  features. Owned Ghostty nREPL64261/PID24469's vendor 0.17 VT terminal was
+  closed, and the completed server plus root61748/PID51448 were stopped. No
+  user Ghostty windows touched. Keep preview63979 and La Professeure60588.
+  New discard-assignment expression conversion regression passes 1/4 including
+  ordinary generated namespace evaluation/native calls. Stale-file materialize
+  regression passes 1/13, build-profile option checks 2/8. Last full generation
+  957 files / 18,434 declarations must be refreshed after vendor ports settle.
+  Existing standalone VT artifact is stale; use vendor library explicitly until
+  rebuilt. Complex reload benchmark remains unverified (previously blocked by
+  discarded `_` expression; its native queue behavior assertion needs review).
+
 - Scope update: the user does not care about Windows for these projects. Do not
   spend more migration/test time on Windows. Prioritize macOS/JVM/hot reload.
 - Tiger allocator follow-up: fetched origin's default main at 6f8e6b58d, already
@@ -20,6 +672,24 @@
   Final generated build.clj refresh also completed: 15.41s wall / 12.35s
   conversion, same 245 / 4,443 counts. No unchanged native tests repeated.
   Current primary work is Ghostty.
+
+- Ghostty macOS follow-up: build configuration and Unicode generation now
+  succeed (27/41 VT steps before source compilation). libxev, vaxis, z2d and zf
+  have reviewable local source ports at Ghostty's pinned revisions; provenance
+  is in vendor/ghostty/pkg/ZIG_0_17_PORTS.md. No edits in zig-pkg. uucode uses
+  its upstream 0.17 commit 1fb73433, with unchanged Unicode data. A malformed
+  new global package archive was moved to /tmp/aguafria-uucode-cache.rQoDn6;
+  ordinary refetch works. 99 removed array-repetition expressions were ported
+  using old-Zig AST spans (42 mechanical files plus five manual cases).
+  New targeted native checks: struct 3, union 4, packed metadata 1 and integer
+  parsing 1 all pass. Current compile migration covers reflection, bit sets,
+  BufferFirstAllocator, unmanaged pin pools and TinyIo. Latest diagnostics:
+  /tmp/aguafria-ghostty-vt-017.log. VT library now builds 41/41 steps. The
+  filtered TinyIo profile passes 109/109 tests across Zig and C ABI roots
+  (23/23 steps), log /tmp/aguafria-ghostty-tinyio-017.log. New relative output
+  paths required fixing libsystem_override.sh before it changes directory.
+  Broader changed VT test bodies, full macOS library, generation and ordinary
+  JVM/hotreload remain to be verified.
 
 - Current checkpoint: the previous shader turn made verified progress; actual
   game, Studio and Racing GPU replacements passed, with compiler/GPU failure

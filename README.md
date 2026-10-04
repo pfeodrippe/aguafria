@@ -648,7 +648,8 @@ For third-party Zig packages, add `generated` to the project's `:paths` and use
 `{:prepare {:exec-fn aguafria.zig.package/prepare!}}` in `:aliases`. Rerun
 `clojure -X:prepare` when `aguafria-packages.edn` changes, then restart the REPL.
 This updates the catalog and `aguafria.pkg.*` entry points, including removal of
-obsolete ones. Ordinary Maven/Clojure dependencies still use normal tools.deps;
+obsolete ones. Both outputs live under ignored `generated/`, not committed
+project resources. Ordinary Maven/Clojure dependencies still use normal tools.deps;
 they are not automatically interpreted as Zig packages.
 
 Hand-written namespaces with relative native imports can bundle those sources
@@ -699,7 +700,18 @@ clojure -X:precompile :namespaces '[my.app.audio my.app.math]'
 Or from Clojure: `(a/precompile! {:namespaces '[my.app.audio my.app.math]})`.
 This requires the namespaces and compiles concrete native function bodies and
 JVM wrappers without invoking those functions. Ordinary Clojure top-level code
-still runs during `require`. The report lists declarations skipped because they
+still runs during `require`. Preparation also compiles the initial images used
+by ordinary namespace loading, reported under `:namespace-images`. Lazy
+converted namespaces and extern-link-on-demand modules are reported as skipped.
+Dependencies already registered in the current REPL are included from the
+native compilation snapshot, so restarting that REPL does not leave their
+initial images unprepared.
+Test definitions encountered during loading use the ordinary native check path
+at the same registration point. Preparation never runs those test bodies;
+`:test-checks` under each namespace image records success or compiler errors.
+Namespaces containing only host Clojure code are reported as having no native
+preparation work.
+The report lists declarations skipped because they
 need a generic specialization, comptime result, extern linkage, test runner or
 process-entry host. Compilation failures propagate normally.
 
@@ -751,6 +763,15 @@ their decimal spelling and Zig rounding; integer range checks still apply.
 Calls that inspect the original argument types or require comptime values keep
 their existing specialization. This changes JVM adapters, not emitted lesson
 or application code. Preparation and normal evaluation use the same planner.
+Their callable source generator and artifact lookup are shared too: a valid
+bundle entry is used before a standalone library, without compiling a duplicate
+dylib. Already-loaded handlers do not bypass disk preparation. Source, toolchain
+or compiler-option changes can still require a new artifact.
+
+Concrete function preparation includes constructors for its native input/result
+types. Primitive literal constructors also prepare the owned storage used by
+direct JVM `k/var` initialization. Named type aliases retain their defining
+namespace when their constructor is placed in a shared adapter.
 
 Inspection first compiles an uninstrumented baseline. If probes make valid
 source fail, smaller probe groups isolate those failures so other operations
@@ -820,12 +841,12 @@ can pack them. Existing standalone binaries are not automatically pruned.
 Loaded bundle arenas remain alive until JVM exit so native pointers and cleaners
 cannot outlive their code. Restart the JVM after explicitly clearing the cache.
 
-Generated JVM adapters default to `ReleaseSafe`, with safety checks, error tracing
+Generated JVM adapters default to `safe`, with safety checks, error tracing
 and unwind information. Their allocation/result-buffer machinery and panic guard
 live in a shared, optimized support library. Debug symbols are retained by default.
 This does not change the `:optimize` setting for ordinary user modules or standalone
-builds. Use `(a/configure! {:jvm-optimize "Debug"})` (or the JVM property
-`aguafria.jvm-optimize`) when debugging adapters; only `Debug` and `ReleaseSafe`
+builds. Use `(a/configure! {:jvm-optimize "debug"})` (or the JVM property
+`aguafria.jvm-optimize`) when debugging adapters; only `debug` and `safe`
 are accepted. Preparation and runtime use the same adapter configuration/cache keys.
 
 Kaocha configuration lives in [`tests.edn`](tests.edn). Release packaging uses

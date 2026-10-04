@@ -4,6 +4,98 @@ This is the working checklist, not a completion claim. Keep game and studio in
 separate windows. Preserve recordings, Markdown IDs and existing user edits.
 The wider DAW roadmap is in `tools/DAW_IMPLEMENTATION_PLAN.md`.
 
+## October 4 — ordinary/AOT cache acceptance follow-up
+
+- Strict fresh default game/Studio checker PASSED3 tests/51 assertions:32 AOT
+  hits,one bundle load,226 memory hits,16 namespace-image disk hits;zero builds,
+  new requested libraries,unapproved standalone handlers or unmatched keys.
+  Every hit resolves the current842-artifact bundlec694a44c...;old pack not loaded.
+  52 concurrent cache writes belong only to Racing namespace generations,not
+  this checker. Normal loading/calls78058.260ms,not handler-only latency.
+  Evidence game-constructor-closure-restart-017.edn. Completed owned59550/PID89942
+  stopped;user60588/PID19986 listener confirmed and .nrepl-port restored. Safe
+  tests cover UTF-8 hashing/graphemes,animation/resize,initial audio state and
+  two real translated-C normalization functions. No windows/devices/playback or
+  recordings changed. This closes current cache acceptance,not broader DAW QA.
+
+- Constructor closure retry FINISHED:Studio4229/4229 candidates,230/230 functions;
+  callable namespaces145 prepared/one process-entry skipped. Zero baseline or
+  handler failures;124 result-context calls and6 type declarations are separately
+  classified. One842-handler bundle,7,557,904 code/13,692,480 debug bytes;4 exact
+  external-export exclusions. Retry duration2,962,258.727ms (~49.37min),not a full
+  game first-run speed benchmark. Report game-constructor-closure-017.edn.
+  Completed owned57606/PID90967 stopped. Fresh default project checker59550
+  completed successfully as recorded above. No GUI/device/app restart.
+
+- Shared facade cache now retains recent immutable states with bounded LRU,
+  native source/keys unchanged. Fresh core59/2334PASS and fresh-child AOT
+  precedence/constructor2/17PASS,zero builds/extra libraries/exact keys. Tested
+  fresh,not injected into in-flight57606's older key-equivalent facade cache.
+  Ten-second prep sample100 AOT hits,24 disk hits,one compiled Studio namespace
+  generation;no rebuilt AOT-hit keys. Samples are not whole-game restart proof.
+  Thread sample proves active storage preparation,not idle nREPL. Final constructor
+  report and strict fresh checker remain pending. Completed core59077 stopped.
+
+- Bundle source-scan reuse validated and normally reloaded into preparation57606.
+  It caches compact lexical facts per source content within this run;checks current
+  import visibility on each request. Keys/native source unchanged;no runtime guard
+  replaced. Core28/253PASS plus corrected2/7PASS;original stale-helper test failures
+  retained. New concurrent/content/import reuse test11 assertions passes. Whole
+  constructor retry remains unpublished220 modules/95 coercions;strict normal
+  fresh acceptance still pending. User60588/PID19986 untouched.
+
+- October4 continuation: constructor retry remains active57606;220 registered
+  modules/95 coercions,report unpublished. The prior completed Studio checkpoint
+  has4229/4229 runtime candidates and230/230 functions;its timestamp09:19:53UTC
+  identifies it as preceding the retry,not new completed work. Final fresh checker
+  is still pending. Normal clojure -J-Xmx2g -M:standalone build succeeded:
+  6207ms compiler duration,fast,arm64 Mach-O;no JVM/AOT dynamic dependencies.
+  Exec83423 and its owned processes finished. Build only,no app launch or user
+  game/editor restart. Root README
+  and configure! docs now use actual0.17 debug/safe adapter mode names.
+
+- Latest cache entry-point repair: LaProf, Racing and HTTP now default to the
+  current local core. Removed published0.1.7 coordinates and override aliases;
+  that jar contains Zig0.16 and no precompile namespace. Default/runtime/AOT
+  classpaths now resolve the same checkout; dependency regression15 assertions
+  passes. Maintained README commands updated; user/live processes unchanged.
+- Constructor follow-up reached final assembly and failed on two native link
+  lists:790 candidate artifacts with Studio libraries appended,130 without.
+  Compiler/support/debug/module flags are identical. Compact exact evidence:
+  .aguafria/precompile/game-constructor-closure-failure-017.edn. No fresh acceptance
+  claimed. Bundle linking now accepts ordered-prefix dependency growth and uses
+  the complete list once, retaining original keys; rejects differing compiler
+  settings or divergent link lists. External translated-C test7 assertions and
+  EMPTY-cache/FRESH child8 assertions pass,one pack/zero builds/identical library
+  inventories/exact keys. Negative configuration tests4 assertions pass.
+- Retried the public preparation in the same owned57606 with the saved bundle
+  implementation; namespace/core sources and native invocation guard retained.
+  Current retry has220 registered modules,95 coercion namespaces. Final report
+  and fresh normal restart remain pending. .tmp/game-constructor-closure-
+  preparation-017.clj and restart driver remain the current pair.
+  Broader bundle/precompile28/242PASS;new partial-failure-report1/7PASS,marks
+  failed bundle and preserves completed coverage/diagnostics while still throwing.
+  Evidence root.tmp/cache-bundle-link-growth-suite-017.{edn,log} and
+  cache-bundle-failure-report-regression-017.edn. Core58572/PID27766/exec98721
+  exited0;PID/listener gone. Formatting/diff checks pass.
+  Preserve live user60588/PID19986.
+
+- Current constructor closure preparation runs on owned nREPL57606/PID90967,
+  exec84996. It has advanced from Studio's Zig inspection into handler
+  preparation (213 registered modules,101 constructor signatures at the last
+  snapshot). Report game-constructor-closure-017.edn is not published yet.
+- Fresh ordinary restart must use .tmp/game-constructor-closure-restart-017.clj
+  after publication, including normal namespace loading. The permanent
+  game_cache_check also rejects generated handler standalone disk hits, except
+  reported exact-artifact standalone exclusions; prior runtime warming cannot
+  mask a gap. Checker1/3 and core exclusion report1/3PASS. Completed owned
+  core57996 stopped; saved finish! report definition installed in compile-only
+  preparation57606. No key/ordinary Zig change. Whole fresh game acceptance
+  remains pending. Keep the live user game/editor on60588/PID19986.
+  Same owned prep process is still active after51min; no restart, cache wipe,
+  published report or fresh acceptance claimed. Native compiler children and
+  registration counts continue advancing. Follow-up driver remains ready.
+
 ## October 3 — Zig 0.17 migration (in progress)
 
 - Shader/core checkpoint: owned nREPL 56274, PID 10756, exec 53497;

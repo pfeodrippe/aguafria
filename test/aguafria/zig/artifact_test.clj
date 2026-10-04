@@ -1,5 +1,6 @@
 (ns aguafria.zig.artifact-test
   (:require [aguafria.zig.artifact :as artifact]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]])
   (:import [java.nio.file Files]
@@ -10,6 +11,15 @@
                                       (make-array java.nio.file.attribute.FileAttribute 0))))
 
 (defn- key-for [inputs] (artifact/key-for :native-library inputs))
+
+(deftest machine-data-printing-ignores-session-preferences
+  (let [data {:fixture/value [1 2 3 {:quoted "hello \"☔\""}]
+              :fixture/type (with-meta 'fixture/Type {:line 42})}
+        expected (pr-str data)]
+    (binding [*print-length* 1 *print-level* 1 *print-meta* true
+              *print-dup* true *print-readably* false *print-namespace-maps* false]
+      (is (= expected (artifact/print-data data)))
+      (is (= data (edn/read-string (artifact/print-data data)))))))
 
 (deftest unordered-data-has-canonical-identity
   (let [left (array-map :options (array-map :optimize "safe" :flags #{:a :b})

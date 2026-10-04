@@ -3,6 +3,14 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
 
+(deftest file-completion-tracks-declaration-names
+  (let [file (str (io/file (.toURI (io/resource "aguafria/zig/precompile_fixture.clj"))))]
+    (is (= #{'increment 'subtract 'do-not-run 'do-not-call 'generic-identity}
+           (project/expected-source-declaration-names
+            'aguafria.zig.precompile-fixture file)))
+    (is (= 5 (project/expected-source-declaration-count
+              'aguafria.zig.precompile-fixture file)))))
+
 (deftest handwritten-module-assets-preserve-declaration-semantics
   (let [root (.toFile
               (java.nio.file.Files/createTempDirectory

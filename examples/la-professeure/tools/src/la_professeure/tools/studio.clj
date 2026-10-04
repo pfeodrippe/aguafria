@@ -135,7 +135,7 @@
 (a/defn playback-signal-count :u64 []
   (k/atomicLoad :u64 (k/& playback-signal-frames) :.acquire))
 
-(a/defn playback-process! :void {:zig/qualifiers "callconv(.c)"}
+(a/defn playback-process! :void {:callconv :.c}
   [[user [:optional [:* :anyopaque]]] [output [:c-pointer :f32]] [frames :u64]]
   (k/= :_ user)
   (let [peak (k/var (k/f32 0.0))]
@@ -1238,7 +1238,7 @@
         (k/= :_ (pinch-at! (:magnification event)
                            (:x event) (:y event)))))))
 
-(a/defn scrolled! :void {:zig/qualifiers "callconv(.c)"}
+(a/defn scrolled! :void {:callconv :.c}
   [[window [:optional [:* glfw/GLFWwindow]]] [dx :f64] [dy :f64]]
   (when (k/== window k/null)
     (k/return))
@@ -1254,7 +1254,7 @@
     (when (k/!= previous-scroll k/null)
       ((a/unwrap previous-scroll) window dx dy))))
 
-(a/defn mouse-event! :void {:zig/qualifiers "callconv(.c)"}
+(a/defn mouse-event! :void {:callconv :.c}
   [[window [:optional [:* glfw/GLFWwindow]]] [button :c_int] [action :c_int] [mods :c_int]]
   (when (and attached (k/== button glfw/GLFW_MOUSE_BUTTON_LEFT))
     (k/= mouse-down (k/== action glfw/GLFW_PRESS))
@@ -1290,7 +1290,7 @@
     (name-delete!)
     (name-settle-caret!)))
 
-(a/defn typed! :void {:zig/qualifiers "callconv(.c)"}
+(a/defn typed! :void {:callconv :.c}
   [[window [:optional [:* glfw/GLFWwindow]]] [cp :u32]]
   (when (and (k/! attached) (k/!= previous-char k/null))
     ((a/unwrap previous-char) window cp))
@@ -1381,7 +1381,7 @@
     (k/atomicStore :u8 (k/& busy) 1 :.release)
     (k/atomicStore :u32 (k/& pending) action :.release)))
 
-(a/defn key-event! :void {:zig/qualifiers "callconv(.c)"}
+(a/defn key-event! :void {:callconv :.c}
   [[window [:optional [:* glfw/GLFWwindow]]] [key :c_int] [scancode :c_int] [action :c_int] [mods :c_int]]
   ;; Enter confirms composition, not Rename; Escape cancels it, not text focus.
   ;; GLFW still delivers the eventual committed characters through typed!.
@@ -3342,7 +3342,7 @@
                  frame-timing-count (k/min 240 (k/+ frame-timing-count 1))]))
   (k/= frame-previous-start started))
 
-(a/defn build-frame :u32 {:zig/qualifiers "callconv(.c)"}
+(a/defn build-frame :u32 {:callconv :.c}
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (update-layout!)
   (k/= framebuffer-scale (k// (k/as (k/floatFromInt width) :f32) window-width))
@@ -3367,12 +3367,12 @@
 
 ;; Native game callback: called only by the render loop. REPL callers use the
 ;; host focus-window! below so AppKit is never entered from an nREPL thread.
-(a/defn focus-window-native! :void {:zig/qualifiers "callconv(.c)"} []
+(a/defn focus-window-native! :void {:callconv :.c} []
   (when (k/!= studio-window k/null)
     (glfw/glfwShowWindow studio-window)
     (glfw/glfwFocusWindow studio-window)))
 
-(a/defn tick-window! :void {:zig/qualifiers "callconv(.c)"} []
+(a/defn tick-window! :void {:callconv :.c} []
   (when (or (k/! attached) (k/== studio-window k/null))
     (k/= frame-previous-start 0.0)
     (k/return))
@@ -3413,7 +3413,7 @@
       (record-frame-timing! started (glfw/glfwGetTime))))
   (sync-name-input!))
 
-(a/defn reload-assets! :void {:zig/qualifiers "callconv(.c)"} []
+(a/defn reload-assets! :void {:callconv :.c} []
   (when attached
     (gpu/swap-context! (k/& renderer))
     (k/defer (gpu/swap-context! (k/& renderer)))
@@ -3476,7 +3476,7 @@
   (and (k/!= studio-window k/null)
        (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_RESIZABLE) 0)))
 
-(a/defn detach! :void {:zig/qualifiers "callconv(.c)"} []
+(a/defn detach! :void {:callconv :.c} []
   (cancel-name-composition!)
   ((:lp_studio_gestures_detach gestures-api))
   (close-playback!)

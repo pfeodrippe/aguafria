@@ -189,7 +189,7 @@
         (k/atomicStore :u32 (k/& input-check-held) value :.release)))
     (k/= :_ (k/atomicRmw :u64 (k/& input-check-frames) :.Add frames :.release))))
 
-(a/defn input-check-callback :void {:zig/qualifiers "callconv(.c)"}
+(a/defn input-check-callback :void {:callconv :.c}
   [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (k/= :_ pointer)
@@ -271,7 +271,7 @@
     ;; Monitoring also drives the return meter when no take is being captured.
     (update-signal-level! false peak)))
 
-(a/defn monitor-callback :void {:zig/qualifiers "callconv(.c)"}
+(a/defn monitor-callback :void {:callconv :.c}
   [[pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (k/= :_ pointer)
@@ -333,7 +333,7 @@
     (when (or stopping (k/>= (k/+ start count) (k/- max-frames live-tail)))
       (k/atomicStore :u8 (k/& source-ended) 1 :.release))))
 
-(a/defn source-callback :void {:zig/qualifiers "callconv(.c)"}
+(a/defn source-callback :void {:callconv :.c}
   [[device-pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (k/= :_ device-pointer)
@@ -433,7 +433,7 @@
     (k/atomicStore :u64 (k/& recorded-frames) (k/min (k/+ start frames) limit-frames) :.release)
     (when (k/>= (k/+ start frames) limit-frames) (k/atomicStore :u8 (k/& finished) 1 :.release))))
 
-(a/defn data-callback :void {:zig/qualifiers "callconv(.c)"}
+(a/defn data-callback :void {:callconv :.c}
   [[device-pointer [:c-pointer Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (k/= :_ device-pointer)

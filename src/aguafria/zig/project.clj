@@ -2,7 +2,8 @@
   "Project module catalogs used by converted Zig namespaces.
 
   Catalogs are EDN data, not namespace metadata or generated Clojure source."
-  (:require [aguafria.zig.cache :as cache]
+  (:require [aguafria.zig.artifact :as artifact]
+            [aguafria.zig.cache :as cache]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str])
@@ -15,11 +16,11 @@
 (defonce ^:private loaded-resources (atom #{}))
 (defonce ^:private resource-scan-complete? (atom false))
 (defonce ^:private loaded-source-catalogs (atom #{}))
-(defonce ^:private source-declaration-counts (atom {}))
+(defonce ^:private source-declaration-names (atom {}))
 (defonce ^:private resource-lock (Object.))
 
 (def ^:private declaration-macro-names
-  #{"defn" "defn-" "defconst" "defvar" "defstruct" "defenum" "defimport" "defraw"
+  #{"defn" "defn-" "defconst" "defvar" "defstruct" "defenum" "defunion" "defimport" "defraw"
     "deffield" "defcomptime" "defextern" "defexternvar" "deftest"})
 
 (def ^:dynamic *catalog-namespace*
@@ -205,7 +206,7 @@
                                       (let [resolved
                                             (resolve-bundled-build-path
                                              catalog-base-url path)
-                                            quoted (pr-str resolved)]
+                                            quoted (artifact/print-data resolved)]
                                         (subs quoted 1 (dec (count quoted))))))
                        source-template
                        paths)))]))
@@ -352,7 +353,7 @@
                       str)))
          (tree-seq coll? seq namespace-form))))
 
-(defn- read-source-declaration-count
+(defn- read-source-declaration-names
   [source-url expected-module]
   (with-open [reader (PushbackReader. (io/reader source-url))]
     (loop [forms []]
@@ -364,18 +365,20 @@
                 module (some-> namespace-form second str)
                 aliases (zig-require-aliases namespace-form)]
             (when (= (str expected-module) module)
-              (count
-               (filter
-                (fn [candidate]
-                  (let [head (when (seq? candidate) (first candidate))]
-                    (and (symbol? head)
-                         (contains? aliases (or (namespace head) ""))
-                         (contains? declaration-macro-names (name head)))))
-                forms))))
+              (into #{}
+                    (keep
+                     (fn [candidate]
+                       (let [head (when (seq? candidate) (first candidate))]
+                         (when (and (symbol? head)
+                                    (contains? aliases (or (namespace head) ""))
+                                    (contains? declaration-macro-names (name head))
+                                    (symbol? (second candidate)))
+                           (second candidate))))
+                     forms))))
           (recur (conj forms form)))))))
 
-(defn ^:no-doc expected-source-declaration-count
-  "Count ordinary top-level Aguafria declarations in a namespace source file.
+(defn ^:no-doc expected-source-declaration-names
+  "Identify ordinary top-level Aguafria declarations in a namespace source file.
   This is used only while Clojure is loading the complete file; individual
   editor/REPL evaluations are never held back waiting for sibling forms."
   [module source-file]
@@ -384,14 +387,18 @@
       (let [connection (.openConnection url)
             stamp [(.getLastModified connection) (.getContentLengthLong connection)]
             cache-key [(str url) (str module)]]
-        (if-let [cached (when (= stamp (:stamp (get @source-declaration-counts
+        (if-let [cached (when (= stamp (:stamp (get @source-declaration-names
                                                     cache-key)))
-                          (:count (get @source-declaration-counts cache-key)))]
+                          (:names (get @source-declaration-names cache-key)))]
           cached
-          (let [count (read-source-declaration-count url module)]
-            (swap! source-declaration-counts assoc cache-key
-                   {:stamp stamp :count count})
-            count))))))
+          (let [names (read-source-declaration-names url module)]
+            (swap! source-declaration-names assoc cache-key
+                   {:stamp stamp :names names})
+            names))))))
+
+(defn ^:no-doc expected-source-declaration-count
+  [module source-file]
+  (some-> (expected-source-declaration-names module source-file) count))
 
 (defn stats
   "Return serializable project-catalog inspection data."

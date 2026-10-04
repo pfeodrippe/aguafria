@@ -5,12 +5,37 @@
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
             [aguafria.zig :as a]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (def ^:private fixture-namespace
   'aguafria.pkg.catalog-fixture)
+
+(deftest preparation-keeps-the-catalog-with-generated-entrypoints
+  (let [directory (.getCanonicalFile
+                   (.toFile (java.nio.file.Files/createTempDirectory
+                             "aguafria-package-output-"
+                             (make-array java.nio.file.attribute.FileAttribute 0))))
+        config (io/file directory "packages.edn")
+        generated (io/file directory "generated")
+        explicit (io/file directory "custom/catalog.edn")
+        options {:config (str config) :generated-dir (str generated)}
+        configuration (runtime/configuration)]
+    (spit config "{}")
+    (try
+      (let [result (package/prepare! options)
+            file (io/file generated "aguafria/zig-packages.edn")
+            catalog (edn/read-string (slurp file))]
+        (is (= (.getCanonicalPath file) (:catalog result)))
+        (is (= (:zig-version (runtime/toolchain-information)) (:zig-version catalog)))
+        (is (= {} (:packages catalog)))
+        (is (not (.exists (io/file directory "resources/aguafria/zig-packages.edn")))))
+      (is (= (.getCanonicalPath explicit)
+             (:catalog (package/prepare! (assoc options :output (str explicit))))))
+      (is (.isFile explicit))
+      (finally (runtime/configure! configuration)))))
 
 (deftest fetch-uses-the-configured-global-cache-test
   (let [directory (.toFile (java.nio.file.Files/createTempDirectory
@@ -65,6 +90,19 @@
     (is (= "serialize" (#'package/declaration-zig-name public)))
     (is (= 1 (#'package/function-param-count public)))
     (is (= 0 (#'package/function-param-count default-public)))))
+
+(deftest catalog-distinguishes-containers-from-call-expressions
+  (let [container '(a/container {:kind :struct} [[:value :u32]])]
+    (is (= container
+           (#'package/container-form
+            (#'package/declaration-parts `(a/defconst Example ~container)))))
+    (is (= container
+           (#'package/container-form
+            (#'package/declaration-parts
+             `(a/defn Example :type [] (k/return ~container))))))
+    (is (nil? (#'package/container-form
+               (#'package/declaration-parts
+                '(a/defconst instance ((a/field Factory :init) 1234))))))))
 
 (defn- forget-fixture!
   []

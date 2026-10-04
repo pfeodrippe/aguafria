@@ -1,6 +1,7 @@
 (ns aguafria.zig.convert
   "Convert compiler-parsed Zig source into inspectable Aguafria namespaces."
   (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.artifact :as artifact]
             [aguafria.zig.cache :as cache]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
@@ -207,7 +208,8 @@
 
   Returns serializable data grouped by the project-relative Zig module that
   imports each generated module. `:build-steps` selects a build profile; an
-  empty vector uses the project's default step. Only producers needed to
+  empty vector uses the project's default step. Zig -D options in the profile
+  are forwarded to configuration. Only producers needed to
   resolve captured generated source and path values are executed."
   ([project-root] (build-generated-modules project-root {}))
   ([project-root {:keys [build-steps build-file]
@@ -487,12 +489,12 @@
                         :data-kind data-kind :a a :b b})
                      %))
       (as-> context
-          (assoc context :node-span-index
-                 (into {}
-                       (map-indexed
-                        (fn [node-index {:keys [first-token last-token]}]
-                          [[first-token last-token] node-index])
-                        (:nodes context)))))
+            (assoc context :node-span-index
+                   (into {}
+                         (map-indexed
+                          (fn [node-index {:keys [first-token last-token]}]
+                            [[first-token last-token] node-index])
+                          (:nodes context)))))
       (assoc :function-index (index-by-first (:functions raw))
              :function-prototype-index
              (index-by-first (:function-prototypes raw))
@@ -534,8 +536,8 @@
            source-hash (sha256-bytes bytes)
            {:keys [raw cached?]} (extract-ast file helper source-hash options)
            source (String. bytes StandardCharsets/UTF_8)]
-         (normalize-parsed raw source bytes source-hash cached? helper
-                           (.getAbsolutePath file))))))
+       (normalize-parsed raw source bytes source-hash cached? helper
+                         (.getAbsolutePath file))))))
 
 (defn parse-source
   "Parse an unsaved Zig source buffer with Zig's own `std.zig.Ast`.
@@ -647,16 +649,29 @@
              (not (contains? #{"nil" "true" "false"} text)))
     (symbol text)))
 
+(defn- canonical-identifier-spelling
+  [text]
+  (or (second (re-matches #"@\"([A-Za-z_][A-Za-z0-9_]*)\"" text))
+      text))
+
+(defn- identifier-entry
+  [names text]
+  (let [canonical (canonical-identifier-spelling text)]
+    (or (get names text)
+        (get names canonical)
+        (get names (str "@\"" canonical "\"")))))
+
 (defn- clojure-identifier
   "Return a deterministic reader-safe symbol for any Zig identifier spelling.
 
-  Zig quoted identifiers and Clojure reader literals cannot be represented as
-  plain Clojure symbols. Their generated name is readable and collision
-  resistant; `:zig/name` keeps the exact spelling for lossless emission."
+  Quoted and plain spellings of ordinary names share a symbol. Other names use
+  a readable, collision-resistant name; `:zig/name` preserves Zig spelling."
   [text]
-  (let [plain (safe-identifier text)]
+  (let [canonical (canonical-identifier-spelling text)
+        plain (safe-identifier canonical)]
     (if (and plain (not (emitter/structural-operator? plain)))
-      plain
+      (cond-> plain
+        (not= text canonical) (with-meta {:zig/name text}))
       (let [readable (-> (str text)
                          (str/replace-first #"^@\"" "")
                          (str/replace #"\"$" "")
@@ -664,13 +679,15 @@
                          (str/replace #"^-+|-+$" ""))
             readable (if (str/blank? readable) "identifier" readable)
             generated (symbol (str "zig-" readable "-"
-                                   (subs (sha256 text) 0 16)))]
+                                   (subs (sha256 canonical) 0 16)))]
         (with-meta generated {:zig/name text})))))
 
 (defn- declaration-reference-symbol
   [context text]
-  (when-let [clojure-name (get (:declaration-names context) text)]
-    (with-meta clojure-name nil)))
+  (when-let [clojure-name (identifier-entry (:declaration-names context) text)]
+    (with-meta clojure-name
+      (when (not= text (canonical-identifier-spelling text))
+        {:zig/name text}))))
 
 (def ^:private jvm-utf8-chunk-bytes 24000)
 
@@ -771,7 +788,7 @@
   [context segments]
   (when (and (= "std" (first segments)) (< 1 (count segments)))
     (when-let [member (get (or (:std-members context) @std-members)
-                          (str "@import(\"std\")." (str/join "." (rest segments))))]
+                           (str "@import(\"std\")." (str/join "." (rest segments))))]
       (let [canonical (:symbol member)
             namespace-symbol (symbol (namespace canonical))]
         (symbol (str (std-alias context namespace-symbol)) (name canonical))))))
@@ -781,7 +798,7 @@
   (when-let [{:keys [alias namespace declarations]}
              (get (:import-bindings context) (first segments))]
     (when-let [member-name (second segments)]
-      (when-let [clojure-name (get declarations member-name)]
+      (when-let [clojure-name (identifier-entry declarations member-name)]
         (swap! (:project-aliases context) assoc alias namespace)
         (reduce (fn [target field-name]
                   (list 'field target
@@ -1176,7 +1193,8 @@
 
       (contains? assignment-tokens tag)
       (list 'assign-expr (get assignment-tokens tag)
-            (translate-expr context a)
+            (let [target (translate-expr context a)]
+              (if (= '_ target) :_ target))
             (translate-expr context b))
 
       (contains? #{:return :break :continue} tag)
@@ -1742,7 +1760,7 @@
                           opening-end)
                   end (first (node-range context member))
                   leading (if (and start end) (byte-slice (:source-bytes context)
-                                                         start end) "")]
+                                                          start end) "")]
               (recur (next remaining) member (inc order)
                      (conj forms (translate-container-member
                                   context kind member order leading))))
@@ -1750,7 +1768,7 @@
         ;; Clojure sees local type declarations before the fields using them.
         ;; Field order is unchanged, preserving layout and enum tag values.
         field? #(contains? #{'field-decl 'enum-field-decl 'tuple-field-decl}
-                            (first %))
+                           (first %))
         translated (into (vec (remove field? translated)) (filter field? translated))
         trailing-start (if-let [member (last members)]
                          (node-end-after-separator context member)
@@ -1808,11 +1826,11 @@
                           (list 'else-expression
                                 (translate-expr context else-node))))
             bindings (vec (mapcat (fn [capture input]
-                                   [(if (and (seq? capture) (= 'pointer-capture (first capture)))
-                                      (list 'k/* (second capture))
-                                      capture)
-                                    (translate-expr context input)])
-                                 captures inputs))
+                                    [(if (and (seq? capture) (= 'pointer-capture (first capture)))
+                                       (list 'k/* (second capture))
+                                       capture)
+                                     (translate-expr context input)])
+                                  captures inputs))
             operator (if (or label body-label) 'for-loop
                          (if inline? 'inline-for 'k/for))
             prefix-arguments
@@ -1982,20 +2000,26 @@
                    (keep #(second (re-matches #"\s*/// ?(.*)" %))))]
     (when (seq lines) (str/join "\n" lines))))
 
+(defn- declaration-spelling
+  [zig-name]
+  (if (= "_" zig-name) "@\"_\"" zig-name))
+
 (defn- declaration-name
   [context zig-name options]
   (let [clojure-name (or (get (:declaration-names context) zig-name)
-                         (clojure-identifier zig-name))]
+                         (clojure-identifier zig-name))
+        zig-name (declaration-spelling zig-name)]
     (with-meta clojure-name
-    (into {}
-          (remove (comp nil? val))
-          (cond-> options
-            (not= (str clojure-name) zig-name) (assoc :zig/name zig-name))))))
+      (into {}
+            (remove (comp nil? val))
+            (cond-> options
+              (not= (str clojure-name) zig-name) (assoc :zig/name zig-name))))))
 
 (defn- declaration-name-and-attributes
   [context zig-name options]
   (let [clojure-name (or (get (:declaration-names context) zig-name)
-                         (clojure-identifier zig-name))]
+                         (clojure-identifier zig-name))
+        zig-name (declaration-spelling zig-name)]
     [(with-meta clojure-name nil)
      (into {}
            (remove (comp nil? val))
@@ -2025,7 +2049,7 @@
   (str/trim
    (if align-node
      (let [align-token (token-before-tag context (:first-token (node context align-node))
-                                        :keyword_align)
+                                         :keyword_align)
            close-token (matching-rparen context (inc align-token))]
        (str (byte-slice (:source-bytes context) start (token-start context align-token))
             (byte-slice (:source-bytes context) (token-end context close-token) end)))
@@ -2288,7 +2312,7 @@
                     :zig/prefix (when comptime-token
                                   (token-text context comptime-token))
                     :align (when align-node
-                                 (translate-expr context align-node))}
+                             (translate-expr context align-node))}
           [declaration-name attributes]
           (declaration-name-and-attributes context zig-name metadata)
           docstring (docstring-from-leading leading)
@@ -2375,20 +2399,20 @@
                                          (select-keys options [:layout :type :zig/trailing]))
                             (:enum? options) (update :attrs (fnil conj #{}) :enum))]
                          [(mapv (fn [member]
-                                (let [[operator field & tail] member]
-                                  (if (contains? #{'field-decl 'enum-field-decl} operator)
-                                    (let [[doc properties values] (emitter/type-declaration-prefix tail)
-                                          properties (cond-> properties
-                                                       doc (assoc :doc doc)
-                                                       (and (= operator 'field-decl) (next values))
-                                                       (assoc :default (second values)))]
-                                      (with-meta
-                                        (vec (concat [field properties]
-                                                     (if (= operator 'field-decl)
-                                                       [(first values)] values)))
-                                        (meta member)))
-                                    member)))
-                              members)]))
+                                  (let [[operator field & tail] member]
+                                    (if (contains? #{'field-decl 'enum-field-decl} operator)
+                                      (let [[doc properties values] (emitter/type-declaration-prefix tail)
+                                            properties (cond-> properties
+                                                         doc (assoc :doc doc)
+                                                         (and (= operator 'field-decl) (next values))
+                                                         (assoc :default (second values)))]
+                                        (with-meta
+                                          (vec (concat [field properties]
+                                                       (if (= operator 'field-decl)
+                                                         [(first values)] values)))
+                                          (meta member)))
+                                      member)))
+                                members)]))
           (meta form))))))
 
 (defn- translate-declarations
@@ -2483,9 +2507,9 @@
     (print "\"")
     (doseq [[index line] (map-indexed vector lines)]
       (when (pos? index) (print "\n"))
-      ;; `pr-str` handles quotes, backslashes, tabs, and control characters;
+      ;; EDN string escaping handles quotes, backslashes, tabs and control characters;
       ;; remove only its surrounding quotes so logical newlines stay real.
-      (let [quoted (pr-str line)]
+      (let [quoted (artifact/print-data line)]
         (print (subs quoted 1 (dec (count quoted))))))
     (print "\"")))
 
@@ -2522,13 +2546,13 @@
   "Keep declaration identity together; body forms get normal two-space indent."
   [form header-size]
   (pprint/pprint-logical-block :prefix "(" :suffix ")"
-    (doseq [[index item] (map-indexed vector (take header-size form))]
-      (when (pos? index) (print " "))
-      (pprint/write-out item))
-    (pprint/pprint-indent :block 1)
-    (doseq [item (drop header-size form)]
-      (pprint/pprint-newline :mandatory)
-      (pprint/write-out item))))
+                               (doseq [[index item] (map-indexed vector (take header-size form))]
+                                 (when (pos? index) (print " "))
+                                 (pprint/write-out item))
+                               (pprint/pprint-indent :block 1)
+                               (doseq [item (drop header-size form)]
+                                 (pprint/pprint-newline :mandatory)
+                                 (pprint/write-out item))))
 
 (defn- clojure-source-dispatch
   [value]
@@ -2555,7 +2579,7 @@
       (write-clojure-comments (concat leading-comments comments))
       (case (first form)
         (a/defn a/defn- a/defextern a/fn a/fn- a/fn-decl a/fn-proto-decl
-         fn-decl fn-proto-decl) (write-declaration-header form 3)
+          fn-decl fn-proto-decl) (write-declaration-header form 3)
         (a/deftest a/defstruct a/defenum a/defunion) (write-declaration-header form 2)
         (pprint/code-dispatch form)))
 
@@ -2633,7 +2657,7 @@
                                       (filter (fn [[clojure-name zig-name]]
                                                 (not= clojure-name zig-name))))
                                      declarations)}]))
-        project-aliases)))
+             project-aliases)))
 
 (def ^:private compact-boolean-attributes
   [[:export :export]
@@ -2736,7 +2760,7 @@
                   items)]
       (with-meta items (meta form)))
     (set? form) (with-meta (into (empty form) (map compact-generated-form) form)
-                           (meta form))
+                  (meta form))
     (seq? form) (compact-generated-seq form)
     :else form))
 
@@ -2859,7 +2883,7 @@
   [parsed]
   (let [zig-names (->> (:root-decls parsed)
                        (keep #(some->> (top-level-name-token parsed %)
-                                      (token-text parsed)))
+                                       (token-text parsed)))
                        distinct
                        vec)
         occupied-clojure-names (set (map clojure-identifier zig-names))]
@@ -2990,7 +3014,7 @@
                               _mut-token _type _align _addrspace _section init-node]
                              (get (:var-index parsed) node-index)]
                     (= "std" (and init-node
-                                   (import-initializer parsed init-node)))))
+                                  (import-initializer parsed init-node)))))
                 (:root-decls parsed)))
          :declaration-names (declaration-name-map parsed)
          :test-declaration-names
@@ -3211,8 +3235,9 @@
          {:renames
           (into (sorted-map)
                 (keep (fn [[zig-name clojure-name]]
-                        (when (not= zig-name (str clojure-name))
-                          [(str clojure-name) zig-name])))
+                        (let [zig-name (declaration-spelling zig-name)]
+                          (when (not= zig-name (str clojure-name))
+                            [(str clojure-name) zig-name]))))
                 (:declaration-names context))
           :compact-defaults (:compact-defaults base-report)
           :source-orders source-orders
@@ -3395,8 +3420,8 @@
                      :state-accessor
                      (str "__aguafria_state_"
                           (subs (sha256
-                                 (pr-str [logical-id
-                                          (:schema-fingerprint reference)]))
+                                 (artifact/print-data [logical-id
+                                                       (:schema-fingerprint reference)]))
                                 0 24)
                           "_reference"))
               reference)))
@@ -3786,7 +3811,8 @@
 
 (defn load-tree!
   "Bulk-load every generated `.clj` namespace below `root`, one module at a
-  time, using `load-converted!`. Returns serializable per-file reports."
+  time, using `load-converted!`. Returns serializable per-file reports.
+  `:paths` selects an explicit set of generated files inside that root."
   ([root] (load-tree! root {}))
   ([root options]
    (let [root-file (.getCanonicalFile (io/file root))
@@ -3794,18 +3820,27 @@
          catalog-file (io/file root-file "aguafria-project.edn")
          _ (when (.isFile catalog-file)
              (project/load-catalog! catalog-file))
-         files (->> (file-seq root-file)
-                    (filter #(and (.isFile ^File %)
-                                  (str/ends-with? (.getName ^File %) ".clj")))
-                    (remove #(some #{".aguafria-assets"
-                                     ".aguafria-build-paths"}
-                                   (->> (.iterator
-                                         (.relativize (.toPath root-file)
-                                                      (.toPath ^File %)))
-                                        iterator-seq
-                                        (map str))))
-                    (sort-by #(.getAbsolutePath ^File %))
-                    vec)
+         files (if-some [paths (:paths options)]
+                 (mapv
+                  (fn [path]
+                    (let [file (.getCanonicalFile (io/file path))]
+                      (when-not (.startsWith (.toPath file) (.toPath root-file))
+                        (throw (ex-info "Converted file is outside the generated root"
+                                        {:path (str file) :root (str root-file)})))
+                      file))
+                  paths)
+                 (->> (file-seq root-file)
+                      (filter #(and (.isFile ^File %)
+                                    (str/ends-with? (.getName ^File %) ".clj")))
+                      (remove #(some #{".aguafria-assets"
+                                       ".aguafria-build-paths"}
+                                     (->> (.iterator
+                                           (.relativize (.toPath root-file)
+                                                        (.toPath ^File %)))
+                                          iterator-seq
+                                          (map str))))
+                      (sort-by #(.getAbsolutePath ^File %))
+                      vec))
          reports (mapv (fn [^File file]
                          (try
                            (load-converted! file options)
@@ -3896,7 +3931,7 @@
               (map
                (fn [[module-name source]]
                  (if-let [{:keys [paths]} (get path-modules
-                                                [relative-path module-name])]
+                                               [relative-path module-name])]
                    (let [[template descriptors]
                          (reduce
                           (fn [[template descriptors] {:keys [path value] :as entry}]
@@ -3924,7 +3959,7 @@
                                             (emitter/emit-expr token))
                                (conj descriptors
                                      (assoc bundle :name (:name entry)
-                                                   :token token))]))
+                                            :token token))]))
                           [source []]
                           paths)]
                      [module-name {:source-template template
@@ -3947,7 +3982,7 @@
         (reduce-kv
          (fn [merged module-name source]
            (if-let [existing (get-in merged [:modules-by-path
-                                              relative-path module-name])]
+                                             relative-path module-name])]
              (if (= existing source)
                merged
                (throw
@@ -4067,7 +4102,7 @@
                (let [link (Files/readSymbolicLink source)
                      resolved (.normalize (.resolve (.getParent source) link))
                      source-root-real (.toRealPath input-path
-                                                  (make-array java.nio.file.LinkOption 0))
+                                                   (make-array java.nio.file.LinkOption 0))
                      resolved-real (.toRealPath resolved
                                                 (make-array java.nio.file.LinkOption 0))
                      _ (when (or (.isAbsolute link)
@@ -4238,7 +4273,8 @@
                         :output-root (.getAbsolutePath output-root)})))
      (Files/createDirectories
       output-path (make-array java.nio.file.attribute.FileAttribute 0))
-     (let [loaded (load-tree! generated-root)
+     (let [loaded (load-tree! generated-root
+                              {:paths (mapv :output-path (:files report))})
            reports-by-relative (into {} (map (juxt :relative-path identity))
                                      (:files report))
            converted
@@ -4367,7 +4403,7 @@
                     target
                     (and (Files/isRegularFile target
                                               (make-array java.nio.file.LinkOption 0))
-                        (= -1 (Files/mismatch source-path target)))
+                         (= -1 (Files/mismatch source-path target)))
                     overwrite?
                     {:input (str source-path) :relative relative}
                     #(do
@@ -4479,14 +4515,14 @@
                         :entry-module entry-module})))
          entry-relative (str (:relative-path entry-file))
          entry-parent (or (.getParent (Path/of entry-relative
-                                                (make-array String 0)))
+                                               (make-array String 0)))
                           (Path/of "" (make-array String 0)))
          loader-relative-path
          (or loader-relative-path
              (str (.resolve entry-parent "aguafria_hot_reload.zig")))
          loader-relative-path (str/replace (str loader-relative-path) "\\" "/")
          loader-target (.normalize (.resolve (.toPath output-root)
-                                            loader-relative-path))
+                                             loader-relative-path))
          _ (when-not (.startsWith loader-target (.toPath output-root))
              (throw
               (ex-info "Development loader path escapes the output project"
@@ -4542,7 +4578,7 @@
                             relative-path)
                            source)
                   target (.normalize (.resolve (.toPath output-root)
-                                              relative-path))]
+                                               relative-path))]
               (io/make-parents (.toFile target))
               (Files/writeString
                target source StandardCharsets/UTF_8
@@ -4699,7 +4735,7 @@
                  source
                  (runtime/development-source
                   module
-                 (when bootstrap?
+                  (when bootstrap?
                     {:bootstrap-declaration entry-declaration
                      :bootstrap-source
                      (str "_ = @import("
@@ -4790,7 +4826,7 @@
                [(token-text parsed (inc mut-token))
                 {:import-name import-name
                  :public? (= "pub" (when visibility
-                                      (token-text parsed visibility)))
+                                     (token-text parsed visibility)))
                  :source-order source-order
                  :init-node init-node}])))
          (map-indexed vector (:root-decls parsed)))))
@@ -4859,11 +4895,11 @@
   [^File cache-file cache-key clojure-source report]
   (write-ast-cache!
    cache-file
-   (pr-str {:cache-version rendered-conversion-cache-version
-            :cache-key cache-key
-            :clojure-source clojure-source
-            :report (dissoc report :elapsed-ms :output-path :written?
-                            :conversion-cache-hit?)})))
+   (artifact/print-data {:cache-version rendered-conversion-cache-version
+                         :cache-key cache-key
+                         :clojure-source clojure-source
+                         :report (dissoc report :elapsed-ms :output-path :written?
+                                         :conversion-cache-hit?)})))
 
 (defn- write-converted-source!
   [^File output-file clojure-source overwrite? input]
@@ -4893,7 +4929,7 @@
     (if-let [{:keys [clojure-source report]}
              (read-rendered-conversion-cache cache-file cache-key)]
       (let [written? (write-converted-source! output-file clojure-source
-                                               overwrite? path)]
+                                              overwrite? path)]
         (assoc report
                :elapsed-ms (/ (- (System/nanoTime) started) 1e6)
                :ast-cache-hit? (:ast-cache-hit? parsed)
@@ -5048,7 +5084,7 @@
   (into (sorted-map)
         (comp
          (map (fn [[zig-name clojure-name]]
-                [(str clojure-name) zig-name]))
+                [(str clojure-name) (declaration-spelling zig-name)]))
          (filter (fn [[clojure-name zig-name]]
                    (not= clojure-name zig-name))))
         declaration-names))
@@ -5100,24 +5136,24 @@
                  imported-names (set (concat (map :import-name (vals imports))
                                              (vals import-calls)))]
              (merge (select-keys generated-by-name imported-names) owner)))]
-  {:schema-version 1
-   :modules
-   (into (sorted-map)
-         (map (fn [{:keys [namespace declaration-names relative] :as plan}]
-                (let [generated-modules (generated-for-plan plan)]
-                  [(str namespace)
-                   (cond-> {:relative-path (str relative)
-                            :renames (compact-declaration-renames declaration-names)
-                            :imports (catalog-imports plan)
-                            :source-orders
-                            (or (get source-orders-by-namespace (str namespace))
-                                {})}
-                     (seq generated-modules)
-                     (assoc :generated-modules generated-modules)
-                     (seq (get defaults-by-namespace (str namespace)))
-                     (assoc :compact-defaults
-                            (get defaults-by-namespace (str namespace))))])))
-         plans)})))
+     {:schema-version 1
+      :modules
+      (into (sorted-map)
+            (map (fn [{:keys [namespace declaration-names relative] :as plan}]
+                   (let [generated-modules (generated-for-plan plan)]
+                     [(str namespace)
+                      (cond-> {:relative-path (str relative)
+                               :renames (compact-declaration-renames declaration-names)
+                               :imports (catalog-imports plan)
+                               :source-orders
+                               (or (get source-orders-by-namespace (str namespace))
+                                   {})}
+                        (seq generated-modules)
+                        (assoc :generated-modules generated-modules)
+                        (seq (get defaults-by-namespace (str namespace)))
+                        (assoc :compact-defaults
+                               (get defaults-by-namespace (str namespace))))])))
+            plans)})))
 
 (defn- project-module-imports
   [plans]
@@ -5348,13 +5384,13 @@
         (when (and (not= false (:capture-build-modules? options))
                    (.isFile build-file))
           (mapv #(build-generated-modules input-root-file
-                                           (assoc options :build-steps %))
+                                          (assoc options :build-steps %))
                 build-profiles))
         source-module-build-graphs
         (when (and (not= false (:capture-build-modules? options))
                    (.isFile build-file))
           (mapv #(build-generated-modules input-root-file
-                                           (assoc options :build-steps %))
+                                          (assoc options :build-steps %))
                 source-module-build-profiles))
         _ (validate-live-build-graphs! input-root-file build-graphs)
         _ (validate-source-module-build-graphs!
@@ -5486,6 +5522,10 @@
                        :new-imports (sort (map (comp :import-name val) imports))})))
     (render-source-plan plan source parsed (:options tree))))
 
+(defn- report-edn
+  [report]
+  (str (artifact/print-data report) "\n"))
+
 (defn convert-tree!
   "Convert every `.zig` file below `input-root` into `output-root`.
 
@@ -5592,7 +5632,7 @@
                  :input-root (.getAbsolutePath input-root-file)
                  :build-steps (:build-steps build-graph)
                  :modules (:unresolved-path-modules build-graph)
-                :hint (str "These values are finalized while Zig executes their "
+                 :hint (str "These values are finalized while Zig executes their "
                             "producer steps; select a value-only profile or disable "
                             "capture until build-step path recreation is supported.")}))))
         _ (validate-source-module-build-graphs!
@@ -5683,15 +5723,15 @@
         _ (io/make-parents catalog-file)
         _ (Files/writeString
            (.toPath catalog-file)
-           (with-out-str (pprint/pprint catalog))
+           (report-edn catalog)
            StandardCharsets/UTF_8
            (into-array StandardOpenOption
                        [StandardOpenOption/CREATE
-                                       StandardOpenOption/TRUNCATE_EXISTING
-                                       StandardOpenOption/WRITE]))
+                        StandardOpenOption/TRUNCATE_EXISTING
+                        StandardOpenOption/WRITE]))
         report (merge
                 {:input-root (.getAbsolutePath (.getCanonicalFile (io/file input-root)))
-                :output-root (.getAbsolutePath output-file)
+                 :output-root (.getAbsolutePath output-file)
                  :catalog-path (.getAbsolutePath catalog-file)
                  :namespace-prefix (symbol (str namespace-prefix))
                  :generated-module-count
@@ -5715,27 +5755,27 @@
                  (if source-module-build-graphs
                    source-module-build-profiles
                    [])
-                :file-count (count reports)
-                :ast-cache-hit-count (count (filter :ast-cache-hit? reports))
-                :conversion-cache-hit-count
-                (count (filter :conversion-cache-hit? reports))
-                :declaration-count declarations
-                :structural-declaration-count
-                (reduce + (map :structural-declaration-count reports))
-                :raw-declaration-count (reduce + (map :raw-declaration-count reports))
-                :fallback-count fallbacks
-                :unresolved-syntax-count
-                (reduce + (map :unresolved-syntax-count reports))
-                :module-imports module-imports
-                :elapsed-ms (/ (- (System/nanoTime) started) 1e6)
-                :files reports}
+                 :file-count (count reports)
+                 :ast-cache-hit-count (count (filter :ast-cache-hit? reports))
+                 :conversion-cache-hit-count
+                 (count (filter :conversion-cache-hit? reports))
+                 :declaration-count declarations
+                 :structural-declaration-count
+                 (reduce + (map :structural-declaration-count reports))
+                 :raw-declaration-count (reduce + (map :raw-declaration-count reports))
+                 :fallback-count fallbacks
+                 :unresolved-syntax-count
+                 (reduce + (map :unresolved-syntax-count reports))
+                 :module-imports module-imports
+                 :elapsed-ms (/ (- (System/nanoTime) started) 1e6)
+                 :files reports}
                 asset-bundle)]
     (when-let [report-output (:report-output options)]
       (let [report-file (.getCanonicalFile (io/file report-output))]
         (io/make-parents report-file)
         (Files/writeString
          (.toPath report-file)
-         (with-out-str (pprint/pprint report))
+         (report-edn report)
          StandardCharsets/UTF_8
          (into-array StandardOpenOption
                      [StandardOpenOption/CREATE

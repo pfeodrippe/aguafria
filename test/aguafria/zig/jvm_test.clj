@@ -41,7 +41,9 @@
   (let [commands (atom [])
         original shell/sh
         result (with-redefs [shell/sh (fn [& arguments]
-                                        (swap! commands conj (take 2 arguments))
+                                        (swap! commands conj
+                                               {:thread (.getName (Thread/currentThread))
+                                                :command (vec arguments)})
                                         (apply original arguments))]
                  (f))]
     (is (empty? @commands) (str "Warm handler launched processes: " @commands))
@@ -88,7 +90,7 @@
     (is (= :u16 (:type (value/type-info (:child (:array array))))))
     (is (values= 4 (:len (:array array))))
     (is (= :i32 (:type (value/type-info (:payload (:error_union error-union))))))
-    (is (true? (:is_const (:pointer (ak/typeInfo [:*const :u8])))))
+    (is (values= true (:const (:attrs (:pointer (ak/typeInfo [:*const :u8]))))))
     (is (nil? (:segment (value/realize! integer))))
     (is (some? (ak/TypeOf integer)))))
 
@@ -575,6 +577,18 @@
   (is (thrown? clojure.lang.ArityException (a/array [1 2])))
   (is (nil? (ns-resolve 'aguafria.zig 'array-init))))
 
+(deftest composed-strings-retain-native-pointers-and-comptime-source
+  (with-open [hello (ak/++ "he" "llo")
+              jello (ak/++ "je" "llo")
+              mutable (ak/var hello)]
+    (is (= [:*const [:array 5 {:sentinel 0} :u8]] (value/qualified-type hello)))
+    (is (seq (:comptime-expression (value/realize! hello))))
+    (is (values= (mapv int "hello") @hello))
+    (is (value/zig-pointer? (a/value hello)))
+    (is (nil? (:comptime-expression (value/realize! mutable))))
+    (ak/= mutable jello)
+    (is (values= (mapv int "jello") @mutable))))
+
 (deftest sentinel-arrays-execute-on-the-jvm
   (with-open [array (a/array [1 25 3 4] {:sentinel 0} :u8)
               embedded (a/array [1 0 0 4] {:sentinel 0} :u8)
@@ -763,6 +777,21 @@
           (ak/= mode :.inactive)
           (is (true? (ak/== mode :.inactive)))))
       (finally (remove-ns (ns-name namespace))))))
+
+(deftest test-allocator-resource-survives-separate-jvm-calls-and-threads
+  (let [allocator zig-testing/allocator]
+    (with-open [list (ak/var :.empty (std/ArrayList :u21))]
+      (try
+        (array-list/append list allocator 42)
+        @(future (array-list/append list allocator 43))
+        (is (values= [42 43] (array-list/-items list)))
+        (with-open [other (ak/var :.empty (std/ArrayList :u21))]
+          (try
+            (array-list/append other allocator 44)
+            (is (values= [44] (array-list/-items other)))
+            (is (values= [42 43] (array-list/-items list)))
+            (finally (array-list/deinit other allocator))))
+        (finally (array-list/deinit list allocator))))))
 
 (deftest bound-container-methods-preserve-native-receivers
   (with-open [list (ak/var :.empty (std/ArrayList :u21))]

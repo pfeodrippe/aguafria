@@ -5,6 +5,19 @@ pub fn Inspector(comptime declarations: anytype) type {
     return struct {
         const std = @import("std");
 
+        const VisitedTypes = struct {
+            buckets: [1024][]const type = @splat(&.{}),
+
+            fn visit(comptime self: *VisitedTypes, comptime T: type) bool {
+                // Names select buckets; only native type equality establishes
+                // whether a type was already visited, including hash collisions.
+                const index = std.hash.Wyhash.hash(0, @typeName(T)) % self.buckets.len;
+                inline for (self.buckets[index]) |Seen| if (Seen == T) return false;
+                self.buckets[index] = self.buckets[index] ++ [_]type{T};
+                return true;
+            }
+        };
+
         pub inline fn log(comptime message: []const u8) void {
             const encoded = comptime std.fmt.bytesToHex(message[0..message.len].*, .lower);
             @compileLog("aguafria.operation.hex:" ++ encoded);
@@ -31,6 +44,11 @@ pub fn Inspector(comptime declarations: anytype) type {
                 };
             }
             return result ++ "\"";
+        }
+
+        pub fn comptimeExpression(comptime value: anytype, comptime source: []const u8) []const u8 {
+            _ = value;
+            return "{:comptime-expression " ++ source ++ "}";
         }
 
         pub fn comptimeValue(comptime value: anytype) []const u8 {
@@ -157,6 +175,17 @@ pub fn Inspector(comptime declarations: anytype) type {
                         if (fieldDeclarationSchema(T, declaration[0].get(), declaration[1])) |identity|
                             return identity;
                     }
+                    // Share visited types across branches and roots. Callback
+                    // signatures often lead back to structures already inspected.
+                    comptime var visited: VisitedTypes = .{};
+                    inline for (.{ false, true }) |function_roots| {
+                        inline for (declarations) |declaration| {
+                            const Root = declaration[0].get();
+                            if ((@typeInfo(Root) == .@"fn") != function_roots) continue;
+                            if (reachableDeclarationSchema(T, Root, declaration[1], &visited)) |identity|
+                                return identity;
+                        }
+                    }
                 },
                 else => {},
             }
@@ -167,7 +196,7 @@ pub fn Inspector(comptime declarations: anytype) type {
             if (depth == 16) return null;
             const info = @typeInfo(Root);
             if (info == .@"fn") {
-                const function_expression = "(aguafria.keyword/field (aguafria.keyword/typeInfo " ++ expression ++ ") \"fn\")";
+                const function_expression = "(aguafria.zig/field (aguafria.keyword/typeInfo " ++ expression ++ ") :fn)";
                 if (info.@"fn".return_type) |Return| {
                     const result_expression = "(aguafria.zig/unwrap (aguafria.zig/field " ++ function_expression ++ " \"return_type\"))";
                     if (T == Return) return result_expression;
@@ -210,6 +239,54 @@ pub fn Inspector(comptime declarations: anytype) type {
                 if (T == field_type) return field_expression;
                 if (wrappedDeclarationSchema(T, field_type, field_expression, 0)) |identity|
                     return identity;
+            }
+            return null;
+        }
+
+        fn reachableDeclarationSchema(comptime T: type, comptime Root: type, comptime expression: []const u8, comptime visited: *VisitedTypes) ?[]const u8 {
+            if (T == Root) return expression;
+            if (!visited.visit(Root)) return null;
+            const info = @typeInfo(Root);
+            switch (info) {
+                .@"struct", .@"union" => {
+                    const fields = if (info == .@"struct") info.@"struct" else info.@"union";
+                    inline for (fields.field_names, fields.field_types) |name, Field| {
+                        const field_expression = "(aguafria.keyword/FieldType " ++ expression ++ " " ++ quoted(name) ++ ")";
+                        if (reachableDeclarationSchema(T, Field, field_expression, visited)) |identity|
+                            return identity;
+                    }
+                },
+                .pointer, .optional, .array, .vector => {
+                    const Child = switch (info) {
+                        .pointer => |p| p.child,
+                        .optional => |o| o.child,
+                        .array => |a| a.child,
+                        .vector => |v| v.child,
+                        else => unreachable,
+                    };
+                    const child_expression = "(aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++ expression ++ ") " ++ quoted(@tagName(info)) ++ ") \"child\")";
+                    return reachableDeclarationSchema(T, Child, child_expression, visited);
+                },
+                .error_union => |e| {
+                    const payload_expression = "(aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++ expression ++ ") \"error_union\") \"payload\")";
+                    return reachableDeclarationSchema(T, e.payload, payload_expression, visited);
+                },
+                .@"fn" => |f| {
+                    const function_expression = "(aguafria.zig/field (aguafria.keyword/typeInfo " ++ expression ++ ") :fn)";
+                    if (f.return_type) |Return| {
+                        const result_expression = "(aguafria.zig/unwrap (aguafria.zig/field " ++ function_expression ++ " \"return_type\"))";
+                        if (reachableDeclarationSchema(T, Return, result_expression, visited)) |identity|
+                            return identity;
+                    }
+                    inline for (f.param_types, 0..) |parameter, index| {
+                        if (parameter) |Parameter| {
+                            const parameter_expression = "(aguafria.zig/unwrap (aguafria.zig/index (aguafria.zig/field " ++ function_expression ++ " \"param_types\") " ++ std.fmt.comptimePrint("{d}", .{index}) ++ "))";
+                            if (reachableDeclarationSchema(T, Parameter, parameter_expression, visited)) |identity|
+                                return identity;
+                        }
+                    }
+                },
+                else => {},
             }
             return null;
         }
@@ -356,6 +433,21 @@ pub fn Inspector(comptime declarations: anytype) type {
                 // with a structurally similar type or guessed from a display name.
                 else => "nil",
             };
+        }
+
+        pub fn callableSignature(comptime T: type) []const u8 {
+            if (@typeInfo(T) != .@"fn") @compileError("Imported declaration is not a function");
+            const info = @typeInfo(T).@"fn";
+            var result: []const u8 = "{:args [";
+            inline for (info.param_types, 0..) |parameter, index| {
+                result = result ++ std.fmt.comptimePrint("{{:name argument_{d} :type ", .{index});
+                result = result ++ if (parameter) |P| schema(P) else ":anytype";
+                // Reflection exposes the concrete types, but not which typed
+                // parameters are comptime. Generic aliases retain source literals.
+                result = result ++ if (info.is_generic) " :properties {:jvm/literal? true}} " else "} ";
+            }
+            if (info.attrs.varargs) result = result ++ "{:type :anytype :properties {:zig/variadic true}} ";
+            return result ++ "] :return " ++ (if (info.return_type) |R| schema(R) else "nil") ++ "}";
         }
     };
 }

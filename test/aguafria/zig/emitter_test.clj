@@ -6,6 +6,15 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest source-string-escaping-is-independent-of-repl-print-settings
+  (let [text "hello \"☔\"\n"
+        expected (emit/emit-expr text)
+        identifier (emit/identifier "while")]
+    (binding [*print-length* 1 *print-level* 1 *print-meta* true
+              *print-dup* true *print-readably* false *print-namespace-maps* false]
+      (is (= expected (emit/emit-expr text)))
+      (is (= identifier (emit/identifier "while"))))))
+
 (deftest inspection-hooks-preserve-ordinary-emission
   (let [context (the-ns 'aguafria.zig.emitter-test)
         observations (atom [])
@@ -31,6 +40,47 @@
            (set (keep :placement @observations))))
     (is (nil? emit/*expression-observer*))))
 
+(deftest inspection-records-the-operator-selected-by-emission
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        observations (atom [])
+        observer (fn [observation]
+                   (swap! observations conj observation)
+                   (:source observation))]
+    (doseq [[form native-form]
+            [['(+ left right) '(aguafria.keyword/+ left right)]
+             ['(- number) '(aguafria.keyword/- number)]
+             ['(mod left right) '(aguafria.keyword/mod left right)]
+             ['(a/op "+" left right) '(aguafria.keyword/+ left right)]
+             ['(a/op "-" number) '(aguafria.keyword/- number)]]]
+      (reset! observations [])
+      (is (= (emit/emit-expr context form)
+             (binding [emit/*expression-observer* observer]
+               (emit/emit-expr context form))))
+      (is (= native-form (:form (last @observations))))
+      (is (= form (:source-form (last @observations)))))
+    (reset! observations [])
+    (binding [emit/*expression-observer* observer]
+      (emit/emit-expr context '(callee (+ left right))))
+    (is (= '(callee (+ left right)) (:form (last @observations)))
+        "An inner operator must not change its enclosing call's identity")))
+
+(deftest inspection-resolves-native-structural-constructors
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        observations (atom [])
+        observer (fn [observation]
+                   (swap! observations conj observation)
+                   (:source observation))]
+    (doseq [[form function expected]
+            [['(vector [1 2] :u8) 'aguafria.zig/vector "@Vector(2, u8){1, 2}"]
+             ['(array [1 2] :u8) 'aguafria.zig/array "[_]u8{1, 2}"]]]
+      (is (= expected (emit/emit-expr context form)))
+      (reset! observations [])
+      (is (= expected
+             (binding [emit/*expression-observer* observer]
+               (emit/emit-expr context form))))
+      (let [metadata (:var-meta (last @observations))]
+        (is (= function (symbol (str (ns-name (:ns metadata))) (str (:name metadata)))))))))
+
 (deftest nested-access-expands-to-existing-native-operations
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[compact expanded]
@@ -50,13 +100,13 @@
 (deftest keyword-field-access-rejects-invalid-arity
   (doseq [form '[(:x) (:x point 0)]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exactly one value"
-                         (emit/emit-expr form)))))
+                          (emit/emit-expr form)))))
 
 (deftest inferred-member-calls-are-not-keyword-field-access
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[form expected] [['(:.init) ".init()"]
-                            ['(:.init 7) ".init(7)"]
-                            ['(:.fromPair 1 2) ".fromPair(1, 2)"]]]
+                             ['(:.init 7) ".init(7)"]
+                             ['(:.fromPair 1 2) ".fromPair(1, 2)"]]]
       (is (= expected (emit/emit-expr form)))
       (is (= expected (emit/emit-expr context form))))))
 
@@ -68,10 +118,10 @@
     (is (= "result: {\n    break :result 42;\n}"
            (emit/emit-stmt-in context form)))
     (doseq [form '[(a/with-block result (ak/break result 42))
-                  (a/with-block "result" (ak/break "result" 42))
-                  (a/with-block)]]
+                   (a/with-block "result" (ak/break "result" 42))
+                   (a/with-block)]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"keyword label"
-                           (emit/emit-expr context form))))))
+                            (emit/emit-expr context form))))))
 
 (deftest array-elements-and-native-operator-vars
   (let [context (the-ns 'aguafria.zig.emitter-test)]
@@ -92,7 +142,7 @@
              (emit/emit-expr context (list 'a/vector elements type)))))
     (doseq [form '[(a/vector [1]) (a/vector 1 :i32) (a/vector [1] {} :i32)]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"vector expects"
-                           (emit/emit-expr context form))))))
+                            (emit/emit-expr context form))))))
 
 (deftest sentinel-array-options
   (doseq [[form expected]
@@ -102,10 +152,10 @@
            ['(a/array [1] {} :u8) "[_]u8{1}"]]]
     (is (= expected (emit/emit-expr (the-ns 'aguafria.zig.emitter-test) form))))
   (doseq [form '[(a/array [1] {:sentinal 0} :u8)
-                (a/array [1] :sentinel :u8)
-                (a/array [1] {:sentinel 0 :length 1} :u8)]]
+                 (a/array [1] :sentinel :u8)
+                 (a/array [1] {:sentinel 0 :length 1} :u8)]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"array options"
-                         (emit/emit-expr (the-ns 'aguafria.zig.emitter-test) form)))))
+                          (emit/emit-expr (the-ns 'aguafria.zig.emitter-test) form)))))
 
 (deftest array-type-options
   (doseq [[schema expected]
@@ -150,7 +200,7 @@
             twice (emit/qualify-form consumer once)
             reference (:aguafria/zig-reference (meta twice))]
         (is (= reference (:aguafria/zig-reference
-                           (meta (emit/qualify-form consumer twice)))))
+                          (meta (emit/qualify-form consumer twice)))))
         (is (= (str (:import-alias reference) ".worker") (:zig-name reference)))
         (is (= "worker" (:zig-name (:aguafria/zig-reference
                                     (meta (emit/qualify-form source twice)))))))
@@ -163,6 +213,45 @@
       (finally
         (remove-ns (ns-name consumer))
         (remove-ns (ns-name source))))))
+
+(deftest import-discovery-walks-symbol-metadata-and-retains-conflicts
+  (let [reference (fn [module order]
+                    (with-meta 'dependency/value
+                      {:aguafria/zig-reference
+                       {:import-alias "dependency" :import-name module
+                        :import-namespace (symbol module) :source-order order}}))
+        nested (reference "library" 7)
+        receiver (with-meta 'receiver
+                   {:zig/type [:optional [:* nested]]})
+        declaration {:body [(list 'consume {:items [receiver]})]}
+        imports (emit/declaration-imports [declaration])]
+    (is (= {"dependency" {:alias "dependency" :import-name "library"
+                          :namespace 'library :source-order 7}}
+           imports))
+    (is (= imports (emit/declaration-imports [declaration declaration])))
+    (is (= 7 (get-in (emit/declaration-imports
+                      [declaration {:body [(reference "library" 9)]}])
+                     ["dependency" :source-order])))
+    (let [conflicting (reference "other.library" 9)
+          error (try
+                  (emit/declaration-imports [declaration {:body [conflicting]}])
+                  (catch clojure.lang.ExceptionInfo error error))]
+      (is (instance? clojure.lang.ExceptionInfo error))
+      (is (= "Two required namespaces resolve to the same Zig import alias"
+             (ex-message error)))
+      (is (identical? conflicting (:form (ex-data error)))))
+    (let [explicit {:kind :const :name 'dependency
+                    :attributes {:zig/import-name "library"
+                                 :zig/import-namespace 'library}}]
+      (is (= imports (emit/declaration-imports [explicit declaration]))))
+    (doseq [key [:var :tag]]
+      (is (= imports
+             (emit/declaration-imports
+              [{:body [(with-meta 'receiver {key nested})]}]))))
+    (let [changed (assoc declaration :body [(reference "updated.library" 8)])]
+      (is (= "updated.library"
+             (get-in (emit/declaration-imports [changed])
+                     ["dependency" :import-name]))))))
 
 (deftest lexical-bindings-shadow-namespace-aliases
   (let [context (the-ns 'aguafria.zig.emitter-test)]
@@ -185,10 +274,10 @@
 (deftest captured-names-shadow-aliases-only-in-their-body
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [form '[(a/while-loop {:payload [ak]} optional (ak/= :_ ak))
-                  (a/if-capture {:payload [ak]} optional ak 0)
-                  (case [:some] [ak] ak)
-                  (a/catch-capture [ak] fallible ak)
-                  (ak/errdefer [ak] (ak/= :_ ak))]]
+                   (a/if-capture {:payload [ak]} optional ak 0)
+                   (case [:some] [ak] ak)
+                   (a/catch-capture [ak] fallible ak)
+                   (ak/errdefer [ak] (ak/= :_ ak))]]
       (let [qualified (emit/qualify-form context form)]
         (is (empty? (emit/declaration-imports [{:body [qualified]}])) (pr-str qualified))))
     (let [qualified (emit/qualify-form
@@ -201,19 +290,44 @@
 (deftest nested-functions-shadow-namespace-aliases
   (let [context (the-ns 'aguafria.zig.emitter-test)
         declaration (emit/prepare-declaration
-                      context
-                      {:kind :const :name 'Example
-                       :value '(a/struct
-                                 [(a/fn from-local :u32 []
-                                    (ak/const ak 7)
-                                    (ak/return ak))
-                                  (a/fn from-parameter :u32 [[a :u32]]
-                                    a)])})
+                     context
+                     {:kind :const :name 'Example
+                      :value '(a/struct
+                               [(a/fn from-local :u32 []
+                                  (ak/const ak 7)
+                                  (ak/return ak))
+                                (a/fn from-parameter :u32 [[a :u32]]
+                                  a)])})
         source (emit/emit-static-dependency-module "nested-shadow" [declaration])]
     (is (empty? (emit/declaration-imports [declaration])))
     (is (str/includes? source "const ak = 7;"))
     (is (str/includes? source "return ak;"))
     (is (str/includes? source "return a;"))))
+
+(deftest container-functions-shadow-namespace-aliases
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration (emit/prepare-declaration
+                     context
+                     {:kind :const :name 'Example
+                      :value '(a/struct
+                               [(a/fn a :u32 [] 7)
+                                (a/fn run :u32 [] (a))])})
+        source (emit/emit-static-dependency-module "container-shadow" [declaration])]
+    (is (empty? (emit/declaration-imports [declaration])))
+    (is (str/includes? source "return a();"))
+    (is (not (str/includes? source "@import(\"aguafria.zig\")")))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+         (emit/prepare-declaration
+          context {:kind :const :name 'Unknown
+                   :value '(a/struct [(a/fn run :u32 [] (missing))])}))))
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        value '(a/struct [(a/fn run :u32 [] (a))
+                          (a/fn a :u32 [] 7)])]
+    (with-redefs [project/converted-module? (constantly true)]
+      (let [declaration (emit/prepare-declaration
+                         context {:kind :const :name 'Converted :value value})]
+        (is (empty? (emit/declaration-imports [declaration])))))))
 
 (deftest parameter-names-shadow-aliases-in-dependent-signatures
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -235,15 +349,15 @@
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [[form expected]
             [['(a/struct [[:x {:doc "Coordinate" :default 3} :u8]
-                           (a/fn-decl answer :u8 [] 42)])
+                          (a/fn-decl answer :u8 [] 42)])
               ["struct {" "/// Coordinate" "x: u8 = 3" "fn answer() u8" "return 42;"]]
              ['(a/enum {:type :u8}
-                 [:red [:blue {:doc "Blue" :zig/name "@\"deep blue\""} 4]])
+                       [:red [:blue {:doc "Blue" :zig/name "@\"deep blue\""} 4]])
               ["enum(u8)" "red," "/// Blue" "@\"deep blue\" = 4"]]
              ['(a/union {:enum? true} [[:value :u32] [:empty :void]])
               ["union(enum)" "value: u32" "empty: void"]]
              ['(a/struct {:layout :packed :type :u16}
-                 [[:low :u8] [:high :u8]])
+                         [[:low :u8] [:high :u8]])
               ["packed struct(u16)" "low: u8" "high: u8"]]
              ['(a/opaque [(a/fn-decl size :usize [] 0)])
               ["opaque {" "fn size() usize"]]
@@ -282,7 +396,7 @@
   (doseq [member ["@\"align\"" "@\"two words\"" "false"]]
     (is (= (str "information." member)
            (emit/emit-expr (list 'field 'information
-                                (list 'identifier-literal member)))))))
+                                 (list 'identifier-literal member)))))))
 
 (deftest clojure-local-names-can-use-zig-reserved-words
   (is (= "anytype" (emit/emit-type :anytype)))
@@ -304,13 +418,13 @@
     (is (= '(deref pointer) (emit/qualify-form *ns* form)))
     (is (= "pointer.*" (emit/emit-expr form)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                         #"Unresolved Zig reference"
-                         (emit/qualify-form *ns* '(nonexistent/deref pointer))))))
+                          #"Unresolved Zig reference"
+                          (emit/qualify-form *ns* '(nonexistent/deref pointer))))))
 
 (deftest direct-comptime-let-is-a-block-not-an-expression-statement
   (let [source (emit/emit-stmt '(comptime
-                               (let [^{:var :i32} value 1]
-                                 (set! value 2))) 0)]
+                                 (let [^{:var :i32} value 1]
+                                   (set! value 2))) 0)]
     (is (str/includes? source "comptime {"))
     (is (str/includes? source "var value: i32 = 1;"))
     (is (not (str/includes? source "};")))))
@@ -334,12 +448,12 @@
       (is (= "comptime {\n    validate();\n}"
              (emit/emit-stmt (list 'comptime block)))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"comptime expects one"
-                         (emit/emit-stmt '(comptime))))
+                          (emit/emit-stmt '(comptime))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"comptime expects one"
-                         (emit/emit-stmt '(comptime 1 2))))
+                          (emit/emit-stmt '(comptime 1 2))))
     (is (not (contains? (emit/syntax-operators) 'comptime-stmt)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
-                         (emit/qualify-form context '(aguafria.zig/comptime-stmt 1))))))
+                          (emit/qualify-form context '(aguafria.zig/comptime-stmt 1))))))
 
 (deftest type-emission-test
   (is (= "i32" (emit/emit-type :i32)))
@@ -354,8 +468,8 @@
   (is (thrown? clojure.lang.ExceptionInfo (emit/emit-type [:! :u32 :u8])))
   (is (thrown? clojure.lang.ExceptionInfo (emit/emit-type '[! :u32])))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                       #"requires a payload"
-                       (emit/emit-type :!)))
+                        #"requires a payload"
+                        (emit/emit-type :!)))
   (is (= "Point" (emit/emit-type 'Point)))
   (is (= "*const i32" (emit/emit-type [:*const :i32])))
   (is (= "[*:0]const u8" (emit/emit-type [:sentinel-const :u8 0])))
@@ -399,7 +513,7 @@
       (is (empty? (emit/declaration-imports [{:type qualified}])))
       (is (= '[a ak b] (mapv :name (get-in qualified [1 2]))))))
   (let [signature '[:fn {} [{:name a :type :type :prefix "comptime"}
-                           {:name value :type a}] a]
+                            {:name value :type a}] a]
         qualified (emit/qualify-type (the-ns 'aguafria.zig.emitter-test) signature)]
     (is (= signature qualified))
     (is (empty? (emit/declaration-imports [{:type qualified}])))))
@@ -437,16 +551,16 @@
       (binding [*ns* caller-ns]
         (alias 'provider provider-symbol)
         (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo #"Unresolved Zig reference.*tick-auto"
-              (emit/prepare-declaration
-               caller-ns
-               {:kind :fn
-                :name 'run
-                :args []
-                :return :u32
-                :body '((provider/tick-auto))
-                :public? true
-                :implicit-return? true}))))
+             clojure.lang.ExceptionInfo #"Unresolved Zig reference.*tick-auto"
+             (emit/prepare-declaration
+              caller-ns
+              {:kind :fn
+               :name 'run
+               :args []
+               :return :u32
+               :body '((provider/tick-auto))
+               :public? true
+               :implicit-return? true}))))
       (finally
         (remove-ns caller-symbol)
         (remove-ns provider-symbol)))))
@@ -471,8 +585,8 @@
         (alias 'provider provider-symbol)
         (let [declaration
               (emit/prepare-declaration caller-ns
-                {:kind :fn :name 'run :args [] :return :u32
-                 :body '((provider/invoke-native)) :public? true :implicit-return? true})
+                                        {:kind :fn :name 'run :args [] :return :u32
+                                         :body '((provider/invoke-native)) :public? true :implicit-return? true})
               alias "@\"aguafria.emitter_macro_provider\""
               source (emit/emit-module (str caller-symbol) [declaration])]
           (is (str/includes? source (str "const " alias " = @import(")))
@@ -514,6 +628,29 @@
            clojure.lang.ExceptionInfo #"Unresolved Zig reference"
            (emit/validate-declaration-references!
             context (assoc declaration :body [reference]) '#{counter}))))))
+
+(deftest qualified-validation-does-not-enumerate-the-namespace-scope
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :fn :module "fixture.large-scope" :name 'answer
+                     :return :u32 :args [] :body '[fixture.large-scope/item0]}
+        names (into #{} (map #(symbol (str "item" %))) (range 10000))
+        qualified-symbols (atom 0)
+        make-symbol symbol]
+    (with-redefs [clojure.core/symbol
+                  (fn
+                    ([name] (make-symbol name))
+                    ([module name]
+                     (when (= "fixture.large-scope" module)
+                       (swap! qualified-symbols inc))
+                     (make-symbol module name)))]
+      (is (= declaration
+             (emit/validate-declaration-references! context declaration names))))
+    (is (zero? @qualified-symbols))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"Unresolved Zig reference"
+         (emit/validate-declaration-references!
+          context (assoc declaration :body '[(let [local 1] fixture.large-scope/local)])
+          names)))))
 
 (deftest clojure-macros-expand-in-declaration-test
   (let [context-ns (the-ns 'aguafria.zig.emitter-test)]
@@ -578,8 +715,8 @@
           :args []
           :return :type
           :body '((a/struct
-                    [(a/fn-decl sync :void [])
-                     (a/fn-decl call-sync :void [] (sync))]))})]
+                   [(a/fn-decl sync :void [])
+                    (a/fn-decl call-sync :void [] (sync))]))})]
     (is (some #{'(sync)} (tree-seq coll? seq (:body declaration))))))
 
 (deftest expression-emission-test
@@ -648,7 +785,7 @@
           (str "Equivalent mutable type syntax for " type))))
   (is (str/includes?
        (emit/emit-stmt '(let [^{:var [:array 4096 :u8]} buffer ak/undefined]
-                         (set! (a/index buffer 0) 42)))
+                          (set! (a/index buffer 0) 42)))
        "var buffer: [4096]u8 = undefined;"))
   (testing "boolean mutability retains inference and explicit types take precedence"
     (is (str/includes? (emit/emit-stmt '(let [^:var value 1] value))
@@ -673,14 +810,14 @@
                   :type-reference? true}}) nil)
       (binding [*ns* caller-ns] (alias 'provider provider-symbol))
       (doseq [metadata [{:var [:array 8 'provider/Point]}
-                       {:var true :zig/type [:array 8 'provider/Point]}
-                       {:var true :tag [:array 8 'provider/Point]}]]
+                        {:var true :zig/type [:array 8 'provider/Point]}
+                        {:var true :tag [:array 8 'provider/Point]}]]
         (let [declaration
               (emit/prepare-declaration caller-ns
-                {:kind :fn :name 'use-points :args [] :return :void
-                 :body [(list 'let [(with-meta 'points metadata)
-                                    'aguafria.keyword/undefined]
-                              '(aguafria.keyword/= :_ points))]})
+                                        {:kind :fn :name 'use-points :args [] :return :void
+                                         :body [(list 'let [(with-meta 'points metadata)
+                                                            'aguafria.keyword/undefined]
+                                                      '(aguafria.keyword/= :_ points))]})
               ;; Emission occurs outside the original caller namespace.
               source (emit/emit-declaration declaration)]
           (is (str/includes? source "var points: [8]provider.Point = undefined;")
@@ -731,13 +868,13 @@
                 "} else return .different_member_set;")
            (emit/emit-stmt
             '(for [item items] (use item)
-               (else-expression (return :.different_member_set))))))
+                  (else-expression (return :.different_member_set))))))
     (is (= (str "inline for (items) |item| {\n"
                 "    use(item);\n"
                 "} else unreachable;")
            (emit/emit-stmt
             '(inline-for [item items] (use item)
-                                (else-expression (unreachable)))))))
+                         (else-expression (unreachable)))))))
   (testing "while-else expressions terminate only when Zig requires it"
     (is (= (str "while ((head < max)) {\n"
                 "    advance();\n"
@@ -749,8 +886,8 @@
            '(while-loop
              {:else-expression
               (switch value
-                (case [0] zero)
-                (case-else other))}
+                      (case [0] zero)
+                      (case-else other))}
              ready
              (advance)))]
       (is (str/ends-with? source "\n}"))
@@ -779,7 +916,7 @@
 (deftest declaration-and-module-test
   (let [source (emit/emit-module
                 "demo"
-                 [{:kind :fn :name 'add :return :i32 :export? true
+                [{:kind :fn :name 'add :return :i32 :export? true
                   :args [{:name 'a :type :i32} {:name 'b :type :i32}]
                   :body ['(+ a b)]}
                  {:kind :const :name 'factor :type :i32 :value 3}])]
@@ -1196,10 +1333,10 @@
       (is (= "value = 9;" (emit/emit-stmt '(ak/= value 9)))))
     (testing "discard syntax does not permit unknown values or locals before declaration"
       (doseq [body ['[(ak/= :_ missing)]
-                   '[(ak/= missing 7)]
-                   '[(ak/= :_ value) (ak/var value 7 :u32)]]]
+                    '[(ak/= missing 7)]
+                    '[(ak/= :_ value) (ak/var value 7 :u32)]]]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
-                             (emit/prepare-declaration context (assoc declaration :body body))))))))
+                              (emit/prepare-declaration context (assoc declaration :body body))))))))
 
 (deftest destructuring-declarations-introduce-only-their-declared-locals
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -1210,11 +1347,11 @@
                (+ left right)]]
     (is (map? (emit/prepare-declaration context (assoc declaration :body good))))
     (doseq [body ['[(destructure {} [{:kind :const :name left}] left)]
-                 '[(destructure {} [{:kind :target :target left}] [1])]
-                 '[(destructure {} [{:kind :const :name left :type Missing}] [1])]
-                 '[(+ left 1) (destructure {} [{:kind :const :name left}] [1])]]]
+                  '[(destructure {} [{:kind :target :target left}] [1])]
+                  '[(destructure {} [{:kind :const :name left :type Missing}] [1])]
+                  '[(+ left 1) (destructure {} [{:kind :const :name left}] [1])]]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
-                           (emit/prepare-declaration context (assoc declaration :body body)))))))
+                            (emit/prepare-declaration context (assoc declaration :body body)))))))
 
 (deftest modulo-operands-are-validated
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -1246,10 +1383,10 @@
     (is (map? (emit/validate-declaration-references!
                context (assoc declaration :body [loop-form]))))
     (doseq [body [[loop-form '(set! _ fallback)]
-                 '[(while-loop {:else [(set! _ fallback) (const fallback 7)]} false)]]]
+                  '[(while-loop {:else [(set! _ fallback) (const fallback 7)]} false)]]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference `fallback`"
-                           (emit/validate-declaration-references!
-                            context (assoc declaration :body body)))))))
+                            (emit/validate-declaration-references!
+                             context (assoc declaration :body body)))))))
 
 (deftest converted-containers-know-only-their-declared-members
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -1261,7 +1398,7 @@
     (project/register-catalog! {:schema-version 1
                                 :modules {(str catalog-name) {:source-kind :zig}}})
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
-                         (emit/validate-declaration-references! context declaration)))
+                          (emit/validate-declaration-references! context declaration)))
     (binding [project/*catalog-namespace* catalog-name]
       (is (= declaration (emit/validate-declaration-references! context declaration)))
       (is (thrown-with-msg?
@@ -1343,19 +1480,19 @@
               "}")
          (emit/emit-function-body '((if available 42 (unreachable))) :usize)))
   (is (re-matches
-        #"\{\s+const result = compute\(\);\s+if \(result\) \{\s+return 42;\s+\}\s+unreachable;\s+\}"
-        (emit/emit-function-body
-          '((let [result (compute)]
-              (when result (return 42))
-              (unreachable)))
-          :usize)))
+       #"\{\s+const result = compute\(\);\s+if \(result\) \{\s+return 42;\s+\}\s+unreachable;\s+\}"
+       (emit/emit-function-body
+        '((let [result (compute)]
+            (when result (return 42))
+            (unreachable)))
+        :usize)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                       #"unreachable takes no arguments"
-                       (emit/emit-function-body '((unreachable 1)) :usize))))
+                        #"unreachable takes no arguments"
+                        (emit/emit-function-body '((unreachable 1)) :usize))))
 
 (deftest void-error-unions-and-noreturn-need-no-return-attribute
   (doseq [return-type [:void :!void [:! :void] [:error-union :void]
-                      [:error-union :anyerror :void]]]
+                       [:error-union :anyerror :void]]]
     (is (= "_ = result;"
            (emit/emit-function-body '((set! _ result)) return-type))))
   (is (= "return 42;" (emit/emit-function-body '(42) :!u32)))
@@ -1366,11 +1503,11 @@
 
 (deftest implicit-error-and-loop-expression-returns
   (doseq [return-type [:!void [:! :void] [:error-union :void]
-                      [:error-union :anyerror :void]]]
+                       [:error-union :anyerror :void]]]
     (is (= "return error.Failed;"
            (emit/emit-function-body '((error-value :Failed)) return-type)))
     (is (= "return try work();"
            (emit/emit-function-body '((try (work))) return-type))))
   (is (= "return while (ready) {\n    advance();\n} else 42;"
          (emit/emit-function-body
-           '((while-loop {:else-expression 42} ready (advance))) :usize))))
+          '((while-loop {:else-expression 42} ready (advance))) :usize))))

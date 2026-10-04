@@ -4,6 +4,7 @@
   Preparation expands Clojure macros (including explicit host escapes), then
   qualifies and validates data. Emission renders deterministic Zig source."
   (:require [aguafria.keyword :as keyword]
+            [aguafria.zig.artifact :as artifact]
             [aguafria.zig.debug :as debug]
             [aguafria.zig.project :as project]
             [aguafria.zig.signature :as signature]
@@ -60,6 +61,8 @@
   (set (map :name (keyword/language-keywords))))
 
 (def ^:dynamic *inspection-placement* nil)
+(def ^:dynamic ^:private *container-inspection-probes* nil)
+(def ^:dynamic ^:private *defer-inspection-probe* nil)
 
 (defn- identifier-source
   "Render a Clojure name as a legal, conventional Zig identifier.
@@ -84,7 +87,7 @@
                        (str/replace "!" "_bang")
                        (str/replace "/" "__"))]
         (if (contains? reserved-identifiers source)
-          (str "@" (pr-str source))
+          (str "@" (artifact/print-data source))
           source)))))
 
 (defn identifier
@@ -710,7 +713,7 @@
                                  (:else options) (assoc :else (scoped error (:else options))))]
                    (into [options (qualify condition)]
                          (map-indexed #(scoped (if (and (not= 'while-loop operator) (pos? %1))
-                                                error payload) %2))
+                                                 error payload) %2))
                          body))
 
                  (case inline-case case-else inline-case-else)
@@ -846,6 +849,29 @@
     (cond
       captured
       (qualify-form context-ns (with-meta captured (meta form)))
+
+      (= 'container operator)
+      (let [[_ options members] form
+            members (mapv (fn [member]
+                            (loop [member member]
+                              (if-let [expansion (and (seq? member)
+                                                      (expand-clojure-macro-once context-ns member))]
+                                (recur (:expanded expansion))
+                                member)))
+                          members)
+            names (keep (fn [[op name]]
+                          (when (contains? '#{fn-decl fn-proto-decl const-decl var-decl
+                                              extern-var-decl struct-decl import-decl}
+                                           (resolved-syntax-operator context-ns op))
+                            name))
+                        members)]
+        ;; A container's own declarations take precedence over namespace aliases.
+        ;; Reference validation separately enforces authored declaration order.
+        (with-meta
+          (list 'container (qualify-form context-ns options)
+                (binding [*lexical-bindings* (into *lexical-bindings* names)]
+                  (mapv #(qualify-form context-ns %) members)))
+          (meta form)))
 
       (contains? #{'if-capture 'if-capture-stmt 'while-loop
                    'case 'inline-case 'case-else 'inline-case-else
@@ -994,8 +1020,12 @@
 (defn- binding-symbols [form]
   (set (filter symbol? (tree-seq coll? seq form))))
 
+(def ^:dynamic ^:private *qualified-reference-scope* nil)
+
 (defn- known-reference? [context-ns names sym]
   (or (contains? names sym)
+      (and (= (:module *qualified-reference-scope*) (namespace sym))
+           (contains? (:names *qualified-reference-scope*) (symbol (name sym))))
       (keyword/resolve-token context-ns sym)
       (resolved-syntax-operator context-ns sym)
       (namespace-root-reference context-ns sym)
@@ -1077,7 +1107,7 @@
               scope (if converted?
                       (into names
                             (keep #(when (contains? #{:fn :fn-proto :const :var :extern-var
-                                                     :struct :import} (:kind %))
+                                                      :struct :import} (:kind %))
                                      (:name %)))
                             (:members (container-description context-ns form)))
                       names)]
@@ -1137,7 +1167,7 @@
           (doseq [key [:continue :else]]
             (body scope (get options key)))
           (doseq [value (vals (dissoc options :payload :error :label :body-label
-                                    :continue :else))]
+                                      :continue :else))]
             (validate-reference-form! context-ns scope value))
           (body scope forms))
 
@@ -1197,20 +1227,23 @@
   ([context-ns declaration]
    (validate-declaration-references! context-ns declaration *registered-declaration-names*))
   ([context-ns declaration names]
-   (let [names (if-let [module (:module declaration)]
-                 (into names (map #(symbol module (name %))) names)
-                 names)
-         scope (cond-> names (:name declaration) (conj (:name declaration)))
-         scope (reduce (fn [scope {:keys [name type properties]}]
-                         (when-not (:zig/variadic properties)
-                           (validate-reference-form! context-ns scope type))
-                         (conj scope name))
-                       scope (:args declaration))]
-     (doseq [key [:type :return :value :align]]
-       (validate-reference-form! context-ns scope (get declaration key)))
-     (doseq [field (when-not (:value declaration) (:fields declaration))]
-       (validate-reference-form! context-ns scope (:type field)))
-     (validate-reference-body! context-ns scope (:body declaration)))
+   ;; Keep the namespace scope separate from lexical bindings. Rebuilding all
+   ;; qualified names for every declaration makes generated-file loading O(n²).
+   (binding [*qualified-reference-scope*
+             (if-let [module (:module declaration)]
+               {:module module :names names}
+               *qualified-reference-scope*)]
+     (let [scope (cond-> names (:name declaration) (conj (:name declaration)))
+           scope (reduce (fn [scope {:keys [name type properties]}]
+                           (when-not (:zig/variadic properties)
+                             (validate-reference-form! context-ns scope type))
+                           (conj scope name))
+                         scope (:args declaration))]
+       (doseq [key [:type :return :value :align]]
+         (validate-reference-form! context-ns scope (get declaration key)))
+       (doseq [field (when-not (:value declaration) (:fields declaration))]
+         (validate-reference-form! context-ns scope (:type field)))
+       (validate-reference-body! context-ns scope (:body declaration))))
    declaration))
 
 (defn- host-escape-plan
@@ -1280,7 +1313,7 @@
 
          (contains? declaration :return)
          (update :return #(binding [*lexical-bindings*
-                                   (into *lexical-bindings* (map :name (:args declaration)))]
+                                    (into *lexical-bindings* (map :name (:args declaration)))]
                             (qualify-type context-ns %)))
 
          (contains? declaration :value)
@@ -1542,10 +1575,25 @@
   [op]
   (when (symbol? op) (name op)))
 
+(defn- record-native-call!
+  [function arguments form]
+  (when (and *inspection-placement*
+             (contains? #{:operator :call}
+                        (some-> (ns-resolve 'aguafria.keyword function)
+                                meta :aguafria/token :kind)))
+    (swap! *inspection-placement* assoc
+           :native-form (with-meta (cons function arguments) (meta form)))))
+
+(defn- prefix-expression
+  [operator arguments form]
+  (let [rendered (str "(" operator (emit-expr (first arguments)) ")")]
+    (record-native-call! (symbol "aguafria.keyword" operator) arguments form)
+    rendered))
+
 (defn- zig-string
   [s]
   ;; Clojure's string escapes are accepted by Zig for the common escape set.
-  (pr-str s))
+  (artifact/print-data s))
 
 (defn- one-string-argument
   [operator args form]
@@ -1648,6 +1696,7 @@
   (let [rendered (if (and (= ".." operator) (= 1 (count args)))
                    (str (emit-expr (first args)) "..")
                    (str/join (str " " operator " ") (map emit-expr args)))]
+    (record-native-call! (symbol "aguafria.keyword" operator) args form)
     ;; Zig ranges are grammar productions used by `for` and `switch`, not
     ;; ordinary binary expressions. Parenthesizing the range itself is invalid.
     (if (contains? #{".." "..."} operator)
@@ -1912,7 +1961,7 @@
     (let [operator (:zig-token token)]
       (cond
         (and (= 1 (count args)) (contains? prefix-operators operator))
-        (str "(" operator (emit-expr (first args)) ")")
+        (prefix-expression operator args form)
 
         (contains? infix-operators operator)
         (parenthesized-infix operator args form)
@@ -2193,8 +2242,7 @@
           (cond
             (and operator (= 1 (count operands))
                  (contains? prefix-operators operator))
-            (str "(" (get prefix-operators operator)
-                 (emit-expr (first operands)) ")")
+            (prefix-expression (get prefix-operators operator) operands form)
 
             (and operator (contains? infix-operators operator))
             (parenthesized-infix (get infix-operators operator) operands form)
@@ -2399,20 +2447,20 @@
 
         (= "mod" (operator-name op))
         (if (= 2 (count args))
-          (str "@mod(" (emit-expr (first args)) ", "
-               (emit-expr (second args)) ")")
+          (let [rendered (str "@mod(" (emit-expr (first args)) ", "
+                              (emit-expr (second args)) ")")]
+            (record-native-call! 'aguafria.keyword/mod args form)
+            rendered)
           (fail! "Clojure mod expects a numerator and denominator" form))
 
         (contains? infix-operators (operator-name op))
         (if (and (= 1 (count args))
                  (contains? prefix-operators (operator-name op)))
-          (str "(" (get prefix-operators (operator-name op))
-               (emit-expr (first args)) ")")
+          (prefix-expression (get prefix-operators (operator-name op)) args form)
           (parenthesized-infix (get infix-operators (operator-name op)) args form))
 
         (and (contains? prefix-operators (operator-name op)) (= 1 (count args)))
-        (str "(" (get prefix-operators (operator-name op))
-             (emit-expr (first args)) ")")
+        (prefix-expression (get prefix-operators (operator-name op)) args form)
 
         (and (known-type-reference op)
              (= 1 (count args))
@@ -2453,29 +2501,31 @@
 
 (defn- observe-expression [form rendered placement]
   (if (and *expression-observer* (seq? form))
-    (*expression-observer*
-     (merge (when (seq? (first form))
-              (let [[operator receiver member :as target] (first form)]
-                (cond
-                  (and (keyword? operator) (= 2 (count target)))
-                  {:method-call? true :receiver receiver :member operator}
+    (let [observed-form (or (:native-form placement) form)]
+      (*expression-observer*
+       (merge (when (seq? (first form))
+                (let [[operator receiver member :as target] (first form)]
+                  (cond
+                    (and (keyword? operator) (= 2 (count target)))
+                    {:method-call? true :receiver receiver :member operator}
 
-                  (and (= 'field (resolved-syntax-operator (or *keyword-context* *ns*) operator))
-                       (= 3 (count target)))
-                  {:method-call? true :receiver receiver :member member})))
-            placement
-            {:form form :source rendered
-             :declaration-name (:name *emitting-declaration*)
-             :declaration-kind (:kind *emitting-declaration*)
-             :location (merge debug/*source* (select-keys (meta form) [:line :column]))
-             :var-meta (some-> (or (resolve-context-var (or *keyword-context* *ns*) (first form))
-                                   (when (and (symbol? (first form))
-                                              (structural-operator? (first form)))
-                                     (some-> (find-ns 'aguafria.zig)
-                                             (ns-resolve (first form))))) meta)
-             :render (fn [expression]
-                       (binding [*expression-observer* nil *inspection-placement* nil]
-                         (emit-expr* expression)))}))
+                    (and (= 'field (resolved-syntax-operator (or *keyword-context* *ns*) operator))
+                         (= 3 (count target)))
+                    {:method-call? true :receiver receiver :member member})))
+              placement
+              {:form observed-form :source-form form :source rendered
+               :defer-probe *defer-inspection-probe*
+               :declaration-name (:name *emitting-declaration*)
+               :declaration-kind (:kind *emitting-declaration*)
+               :location (merge debug/*source* (select-keys (meta form) [:line :column]))
+               :var-meta (some-> (or (when (and (symbol? (first observed-form))
+                                                (structural-operator? (first observed-form)))
+                                       (some-> (find-ns 'aguafria.zig)
+                                               (ns-resolve (first observed-form))))
+                                     (resolve-context-var (or *keyword-context* *ns*) (first observed-form))) meta)
+               :render (fn [expression]
+                         (binding [*expression-observer* nil *inspection-placement* nil]
+                           (emit-expr* expression)))})))
     rendered))
 
 (defn- emit-expr-with-placement [form]
@@ -4361,23 +4411,26 @@
   [form]
   (let [{:keys [kind name type value has-value? attributes] :as declaration}
         (nested-declaration form)]
-    (case kind
-      :enum-field
-      (str (:leading-source declaration)
-           (declaration-notes declaration)
-           (identifier (or (:zig/name attributes) name))
-           (when has-value? (str " = " (emit-expr value))) ",")
+    (binding [*defer-inspection-probe*
+              (when (and *container-inspection-probes* (#{:field :tuple-field} kind))
+                #(swap! *container-inspection-probes* conj %))]
+      (case kind
+        :enum-field
+        (str (:leading-source declaration)
+             (declaration-notes declaration)
+             (identifier (or (:zig/name attributes) name))
+             (when has-value? (str " = " (emit-expr value))) ",")
 
-      :tuple-field
-      (str (:leading-source declaration)
-           (declaration-notes declaration)
-           (when-let [prefix (:zig/prefix attributes)] (str prefix " "))
-           (emit-type type)
-           (when-let [align (:align attributes)]
-             (str " align(" (emit-expr align) ")"))
-           (when has-value? (str " = " (emit-expr value))) ",")
+        :tuple-field
+        (str (:leading-source declaration)
+             (declaration-notes declaration)
+             (when-let [prefix (:zig/prefix attributes)] (str prefix " "))
+             (emit-type type)
+             (when-let [align (:align attributes)]
+               (str " align(" (emit-expr align) ")"))
+             (when has-value? (str " = " (emit-expr value))) ",")
 
-      (emit-declaration declaration))))
+        (emit-declaration declaration)))))
 
 (defn- emit-container
   [form]
@@ -4411,7 +4464,15 @@
             :opaque "opaque"
             (fail! "container kind must be :struct, :enum, :union, or :opaque"
                    form))
-          member-source (str/join "\n" (map emit-container-member members))
+          probes (when *expression-observer* (atom []))
+          member-source (binding [*container-inspection-probes* probes]
+                          (str/join "\n" (map emit-container-member members)))
+          member-source (str member-source
+                             (when (seq (some-> probes deref))
+                               ;; Resolve field types before inspecting them. A field
+                               ;; may refer to its own container through a pointer.
+                               (str "\ncomptime {\n"
+                                    (indent 1 (str/join "\n" @probes)) "\n}")))
           inner-source (str (when (seq member-source) (indent 1 member-source))
                             trailing)]
       (str layout-source kind-source " {"
@@ -4439,44 +4500,43 @@
                                :import-name import-name
                                :namespace (symbol (str import-namespace))}])))))
               declarations)]
-    (reduce
-     (fn [imports value]
-       (if-let [reference
-                (and (symbol? value)
-                     (:aguafria/zig-reference (meta value)))]
-         (let [{:keys [import-alias import-name import-namespace source-order]}
-               (if (= :import-member (:kind reference))
-                 ;; `a/defimport` members use the external module's actual
-                 ;; import name and the local Zig alias. A declaration-only
-                 ;; hot slice no longer contains the defimport descriptor, so
-                 ;; retain this edge on the member Var itself and synthesize
-                 ;; its `@import` here.
-                 {:import-alias (:module reference)
-                  :import-name (:import reference)
-                  :source-order (:source-order reference)}
-                 reference)]
-           (if (and import-alias import-name)
-             (let [entry {:alias import-alias
-                          :import-name import-name
-                          :namespace import-namespace
-                          :source-order source-order}]
-               (if-let [existing (get imports import-alias)]
-                 (if (= (select-keys existing [:alias :import-name :namespace])
-                        (select-keys entry [:alias :import-name :namespace]))
-                   (assoc imports import-alias
-                          (assoc existing :source-order
-                                 (or (:source-order existing) source-order)))
-                   (fail! "Two required namespaces resolve to the same Zig import alias"
-                          value {:alias import-alias
-                                 :first existing
-                                 :second entry}))
-                 (assoc imports import-alias entry)))
-             imports))
-         imports))
-     explicit
-     (tree-seq #(or (coll? %) (and (symbol? %) (seq (select-keys (meta %) [:var :zig/type :tag]))))
-               #(if (coll? %) (seq %) (vals (select-keys (meta %) [:var :zig/type :tag])))
-               declarations))))
+    (letfn [(visit [imports value]
+              (let [imports
+                    (if-let [reference
+                             (and (symbol? value)
+                                  (:aguafria/zig-reference (meta value)))]
+                      (let [{:keys [import-alias import-name import-namespace source-order]}
+                            (if (= :import-member (:kind reference))
+                              ;; Imported members retain the module name and
+                              ;; local alias needed by declaration-only slices.
+                              {:import-alias (:module reference)
+                               :import-name (:import reference)
+                               :source-order (:source-order reference)}
+                              reference)]
+                        (if (and import-alias import-name)
+                          (let [entry {:alias import-alias
+                                       :import-name import-name
+                                       :namespace import-namespace
+                                       :source-order source-order}]
+                            (if-let [existing (get imports import-alias)]
+                              (if (= (select-keys existing [:alias :import-name :namespace])
+                                     (select-keys entry [:alias :import-name :namespace]))
+                                (assoc imports import-alias
+                                       (assoc existing :source-order
+                                              (or (:source-order existing) source-order)))
+                                (fail! "Two required namespaces resolve to the same Zig import alias"
+                                       value {:alias import-alias
+                                              :first existing
+                                              :second entry}))
+                              (assoc imports import-alias entry)))
+                          imports))
+                      imports)]
+                (cond
+                  (coll? value) (reduce visit imports value)
+                  (symbol? value) (reduce visit imports
+                                          (vals (select-keys (meta value) [:var :zig/type :tag])))
+                  :else imports)))]
+      (reduce visit explicit declarations))))
 
 (defn- synthesized-import-declarations
   ([declarations]

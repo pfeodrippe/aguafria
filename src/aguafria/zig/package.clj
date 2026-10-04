@@ -561,8 +561,8 @@
   (if (#{"defstruct" "struct-decl"} (name operator))
     (list 'a/container (assoc attributes :kind :struct) (first payload))
     (letfn [(find-container [value]
-              (when (seq? value)
-                (case (some-> value first name)
+              (when (and (seq? value) (symbol? (first value)))
+                (case (name (first value))
                   "container" value
                   "return" (find-container (second value))
                   nil)))]
@@ -822,18 +822,18 @@
 
       :prepare
       {:exec-fn aguafria.zig.package/prepare!
-       :exec-args {:config \"aguafria-packages.edn\"
-                   :output \"resources/aguafria/zig-packages.edn\"}}
+       :exec-args {:config \"aguafria-packages.edn\"}}
 
   The config is either the package map itself or `{:packages package-map}`.
   Public nested Zig modules are exposed both as nested `aguafria.pkg.*`
   namespaces and as unambiguous flattened Vars in the package root namespace.
 
-  Add `generated` to the project's classpath. Rerun prep after changing packages,
+  The catalog and namespace entry points are written under `generated`; keep
+  that directory ignored and add it to the project's classpath.
+  Rerun prep after changing packages,
   then start a fresh REPL; no `aguafria.pkg` bootstrap require is necessary."
   [{:keys [config output generated-dir]
     :or {config "aguafria-packages.edn"
-         output "resources/aguafria/zig-packages.edn"
          generated-dir "generated"}}]
   (let [configuration (read-edn config)
         packages (or (:packages configuration) configuration)
@@ -854,7 +854,9 @@
                  :packages specs
                  :schema-version 1
                  :zig-version (:zig-version (runtime/toolchain-information)))
-        output-file (.getCanonicalFile (io/file output))
+        output-file (.getCanonicalFile
+                     (if output (io/file output)
+                         (io/file generated-dir "aguafria/zig-packages.edn")))
         entrypoints (prepare/write-entrypoints!
                      {:kind :packages :namespaces namespaces
                       :generated-dir generated-dir})]

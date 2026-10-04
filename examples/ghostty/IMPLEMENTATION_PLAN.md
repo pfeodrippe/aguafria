@@ -5,7 +5,34 @@ Ghostty. Generated namespaces are ordinary structural Aguafria code—there are
 no raw Zig declaration strings—and they can rematerialize a standalone project
 without reading the original Ghostty `.zig` files.
 
-## Host and upstream baseline
+## Zig 0.17 migration checkpoint — October 3, 2026
+
+The sections below record the completed **0.16 baseline**, not evidence that
+the 0.17 migration is complete. Current evidence and remaining work are tracked
+in `../learn/AGENT_TODO.md` and the root
+`PROJECT_NREPL_VERIFICATION_2026-10-03.md`.
+
+- Vendor macOS native build: 221/221 steps. Focused GUI/config/font/tmux native
+  tests: 219/219. These are native tests, not visible application verification.
+- Conversion: 1,051 files / 20,292 declarations, with zero raw fallbacks or
+  unresolved syntax. A subsequent standalone materialization exposed quoted
+  identifier resolution; the converter repair has native/JVM regression tests.
+- The independent VT artifact rebuilt in 212.81 seconds. Five JVM tests pass
+  29 assertions, including cleanup, title reload and queue capacity 4 → 3 → 4.
+  Focus reload also passes after full preparation, following the generic
+  batched Var-metadata synchronization repair.
+- AOT: 3/3 functions and 14/14 operations, zero gaps, one 304 KB library with
+  609 KB debug data (42 handlers). Incremental retry: 22.70 seconds. A nested
+  Zig function named `a` now correctly shadows the namespace alias; emitter
+  regressions pass 68 tests / 397 assertions.
+- Fresh JVM: expected bridge values `[1 73 79 4]`, zero native compilations,
+  four bundle hits and three disk hits. Cold source-graph initialization took
+  145.73 seconds; repeated calls took 10.42 ms. Startup latency remains open.
+  Persistent focus-reload regression passes another four assertions: six
+  distinct project JVM tests / 33 assertions across the verification runs.
+- The user explicitly removed Ghostty GUI verification from the current scope.
+
+## Historical 0.16 host and upstream baseline
 
 - Host: macOS 15.1 arm64, Xcode 16.1 (SDK 15.1), Java 23, Zig 0.16.0.
 - Upstream: `ghostty-org/ghostty` commit

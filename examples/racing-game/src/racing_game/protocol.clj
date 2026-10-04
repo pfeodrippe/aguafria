@@ -44,9 +44,9 @@
 
 (a/defconst replay-golden-ticks :u32 1200)
 
-(a/defconst replay-golden-intent-count :u16 301)
+(a/defconst replay-golden-intent-count :u16 599)
 
-(a/defconst replay-golden-fingerprint :u64 0xaaf601ce97cfb964)
+(a/defconst replay-golden-fingerprint :u64 0x402374bf7dd532e9)
 
 ;; Native discriminants are internal implementation details. Model messages
 ;; use the ordinary words documented by driving-plan-name, never these numbers.

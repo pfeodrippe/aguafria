@@ -1625,7 +1625,7 @@
               (ak/as (ak/splat 15) (a/type [:vector 16 :u8]))) [:vector 16 :u8])
         high-unsigned
         (ak/as (ak/>> packed-bytes
-               (ak/as (ak/splat 4) (a/type [:vector 16 :u8]))) [:vector 16 :u8])
+               (ak/as (ak/splat 4) [:vector 16 :u3])) [:vector 16 :u8])
         low-signed
         (ak/as (- (ak/as (ak/intCast low-unsigned)
                   (a/type [:vector 16 :i16]))

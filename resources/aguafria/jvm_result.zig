@@ -262,6 +262,21 @@ pub const __aguafria_jvm = struct {
     }
 
     pub fn borrowedResult(value: anytype) usize {
+        return borrowedResultWithType(value, null);
+    }
+
+    pub fn borrowedFieldResult(value: anytype, comptime Receiver: type, comptime identity: []const u8, comptime member: []const u8) usize {
+        const container = switch (@typeInfo(Receiver)) {
+            .pointer => |p| if (p.size == .one)
+                "(aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++ identity ++ ") :pointer) :child)"
+            else
+                identity,
+            else => identity,
+        };
+        return borrowedResultWithType(value, "(aguafria.keyword/FieldType " ++ container ++ " " ++ member ++ ")");
+    }
+
+    fn borrowedResultWithType(value: anytype, comptime nominal_type: ?[]const u8) usize {
         const T = @TypeOf(value);
         if (comptime @typeInfo(T) != .@"struct" or !@hasDecl(T, "aguafria_borrowed_view")) return result(value);
         const P = @typeInfo(@TypeOf(value.pointer)).pointer;
@@ -276,6 +291,9 @@ pub const __aguafria_jvm = struct {
         if (comptime hasStructuralType(P.child)) {
             writer.writeAll(" :native-type ") catch @panic("Cannot encode native view type");
             writeStructuralType(writer, P.child) catch @panic("Cannot encode native view type");
+        } else if (nominal_type) |identity| {
+            writer.writeAll(" :native-type ") catch @panic("Cannot encode native view type");
+            writer.writeAll(identity) catch @panic("Cannot encode native view type");
         }
         writer.writeAll("}}") catch @panic("Cannot encode native view");
         return sink.finish();
@@ -838,6 +856,28 @@ pub const __aguafria_jvm = struct {
         const writer = &sink.writer;
         writeComptimeExpression(writer, value) catch @panic("Cannot inspect comptime JVM result");
         return sink.finish();
+    }
+
+    pub fn concatenationResult(comptime value: anytype) usize {
+        const T = @TypeOf(value);
+        if (@typeInfo(T) == .pointer) {
+            const pointer = @typeInfo(T).pointer;
+            if (pointer.size == .one and @typeInfo(pointer.child) == .array and
+                @typeInfo(pointer.child).array.child == u8)
+            {
+                // Keep both the literal expression for comptime parameters and
+                // native storage for ordinary pointer operations on its result.
+                var sink = NativeWriter.init();
+                defer sink.deinit();
+                const writer = &sink.writer;
+                writer.writeAll("{:aguafria.jvm/comptime-expression {:native ") catch
+                    @panic("Cannot encode concatenation result");
+                writeNativeResult(writer, value) catch @panic("Cannot encode concatenation result");
+                writer.writeAll("}}") catch @panic("Cannot encode concatenation result");
+                return sink.finish();
+            }
+        }
+        return result(value);
     }
 
     fn writeResult(writer: *std.Io.Writer, value: anytype) !void {

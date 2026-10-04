@@ -10,7 +10,7 @@
   (let [replaced? (atom false)
         body (walk/postwalk
               (fn [form]
-                (if (and (not @replaced?) (= expected (pr-str form)))
+                (if (and (not @replaced?) (= expected form))
                   (do (reset! replaced? true) (replacement form))
                   form))
               (:body descriptor))]
@@ -68,7 +68,8 @@
       :project :tigerbeetle
       :complexity :medium
       :label "comptime scalar caller"
-      :edit #(replace-form % "(* value 2)" (constantly '(* value 3)))
+      :edit #(replace-form % '(aguafria.keyword/* value 2)
+                           (constantly '(aguafria.keyword/* value 3)))
       :verify-change
       #(verified-value "comptime caller change" 15 (target/comptime-caller))
       :verify-restore
@@ -89,7 +90,7 @@
        :label "real QueueType comptime method body"
        :edit #(replace-form
                %
-               "(return (field (field self any) count))"
+               '(return (field (field self any) count))
                (fn [form]
                  (list 'return
                        (nth (iterate (fn [value] (list '+ value 0))
@@ -141,8 +142,8 @@
        :edit
        (fn [declaration context]
          (let [scale (fresh-scale context)]
-           (replace-form declaration "(* value 2)"
-                         (constantly (list '* 'value scale)))))
+           (replace-form declaration '(aguafria.keyword/* value 2)
+                         (constantly (list 'aguafria.keyword/* 'value scale)))))
        :verify-change
        (fn [context]
          (verified-value "fresh comptime caller"
@@ -173,7 +174,7 @@
        (fn [declaration context]
          (replace-form
           declaration
-          "(return (field (field self any) count))"
+          '(return (field (field self any) count))
           (fn [form]
             (list 'return
                   (list '+ (second form)

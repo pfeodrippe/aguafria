@@ -13,7 +13,8 @@
 
 (defn- verified-terminal-value
   [label expected actual address]
-  (let [same-terminal? (= address (terminal-address))]
+  (let [actual (a/value actual)
+        same-terminal? (= address (terminal-address))]
     (when-not (and (= expected actual) same-terminal?)
       (throw (ex-info "Hot-reload behavior did not become observable"
                       {:label label
@@ -23,20 +24,16 @@
     {:value actual
      :same-terminal? same-terminal?}))
 
-(defn- verified-terminal
-  [label address]
-  (let [same-terminal? (= address (terminal-address))]
-    (when-not same-terminal?
-      (throw (ex-info "Hot reload replaced the live terminal"
-                      {:label label :same-terminal? false})))
-    {:same-terminal? true}))
+(defn- queue-fill-count
+  []
+  ((requiring-resolve 'ghostty-agua.queue-bridge/fill-count)))
 
 (defn- replace-form
   [descriptor expected replacement]
   (let [replaced? (atom false)
         body (walk/postwalk
               (fn [form]
-                (if (and (not @replaced?) (= expected (pr-str form)))
+                (if (and (not @replaced?) (= expected form))
                   (do (reset! replaced? true) (replacement form))
                   form))
               (:body descriptor))]
@@ -88,7 +85,7 @@
       :complexity :medium
       :label "converted focus encoder through bridge"
       :edit #(replace-form %
-                           "(string-literal \"\\\"\\\\x1B[I\\\"\")"
+                           '(string-literal "\"\\x1B[I\"")
                            (fn [_]
                              '(string-literal "\"\\x1B[X\"")))
       :verify-change
@@ -101,13 +98,17 @@
                                  (int \I) (core/focus-final-byte true) address))})))
 
 (defn complex!
-  "Measure a method-compatible edit to Ghostty's real generic queue type."
+  "Change the generic queue's limit, verify native behavior, then restore it."
   ([] (complex! 1))
-  ([identity-depth]
+  ([reserved-slots]
+   (when-not (<= 1 reserved-slots 3)
+     (throw (ex-info "Reserve between one and three queue slots"
+                     {:reserved-slots reserved-slots})))
    (let [blocking-queue
          (requiring-resolve 'ghostty.src.datastruct.blocking-queue/BlockingQueue)
          address (terminal-address)]
      (a/await! 'ghostty.src.datastruct.blocking-queue)
+     (verified-terminal-value "BlockingQueue baseline" 4 (queue-fill-count) address)
      (benchmark/measure-edit!
       {:var blocking-queue
        :project :ghostty
@@ -115,12 +116,15 @@
        :label "real BlockingQueue comptime method body"
        :edit #(replace-form
                %
-               "(== (field self len) bounds)"
+               '(aguafria.keyword/== (field self len) bounds)
                (fn [form]
-                 (nth (iterate (fn [value] (list 'and value true)) form)
-                      identity-depth)))
-       :verify-change #(verified-terminal "BlockingQueue change" address)
-       :verify-restore #(verified-terminal "BlockingQueue restore" address)}))))
+                 (list (first form) (second form)
+                       (list 'aguafria.keyword/- 'bounds reserved-slots))))
+       :verify-change #(verified-terminal-value "BlockingQueue change"
+                                                (- 4 reserved-slots)
+                                                (queue-fill-count) address)
+       :verify-restore #(verified-terminal-value "BlockingQueue restore"
+                                                 4 (queue-fill-count) address)}))))
 
 (defn simple-series!
   "Measure fresh hand-written leaf artifacts in one terminal session."
@@ -166,7 +170,7 @@
                              (str "\"\\x1B[" character "\""))]
            (replace-form
             declaration
-            "(string-literal \"\\\"\\\\x1B[I\\\"\")"
+            '(string-literal "\"\\x1B[I\"")
             (constantly
              (list 'if
                    (list 'aguafria.keyword/==
@@ -206,16 +210,17 @@
        (fn [declaration context]
          (replace-form
           declaration
-          "(== (field self len) bounds)"
+          '(aguafria.keyword/== (field self len) bounds)
           (fn [form]
             (list 'and form
                   (list 'aguafria.keyword/==
                         (:fresh-value context)
                         (:fresh-value context))))))
        :verify-change (fn [_]
-                        (verified-terminal "fresh BlockingQueue" address))
-       :verify-restore #(verified-terminal "BlockingQueue series restore"
-                                           address)}))))
+                        (verified-terminal-value "fresh BlockingQueue"
+                                                 4 (queue-fill-count) address))
+       :verify-restore #(verified-terminal-value "BlockingQueue series restore"
+                                                 4 (queue-fill-count) address)}))))
 
 (defn run-distributions!
   "Run fresh simple/medium/complex samples against one terminal instance."
