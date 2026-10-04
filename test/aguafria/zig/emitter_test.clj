@@ -123,6 +123,57 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"keyword label"
                             (emit/emit-expr context form))))))
 
+(deftest scoped-captures-respect-inner-bindings-and-field-names
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        enclosing '[input item point]]
+    (is (= '[input]
+           (emit/scoped-captures context
+                                 '(a/with-block :result
+                                    (let [input (ak/+ input 1)] (ak/break :result input)))
+                                 enclosing)))
+    (is (= '[point]
+           (emit/scoped-captures context '(a/field point input) enclosing)))
+    (is (= '[input]
+           (emit/scoped-captures context
+                                 '(a/with-block :result
+                                    (ak/const item input)
+                                    (ak/for [point item] (ak/= :_ point))
+                                    (ak/break :result item))
+                                 enclosing)))
+    (is (empty? (emit/scoped-captures context
+                                      '(a/with-block :result
+                                         (let [input 7] (ak/break :result input)))
+                                      enclosing)))
+    (is (= '[input]
+           (emit/scoped-captures context
+                                 '(a/with-block :result
+                                    (let [item (ak/var input :i32)]
+                                      (ak/break :result item)))
+                                 enclosing)))
+    (is (= '[point]
+           (emit/scoped-captures context
+                                 '(a/with-block :result
+                                    (ak/for [{:keys [input]} point]
+                                      (ak/= :_ input)))
+                                 enclosing)))
+    (is (= '[point]
+           (emit/scoped-captures context
+                                 '(a/if-capture {:payload [input] :error [item]}
+                                                point (ak/+ input 1) (ak/= :_ item))
+                                 enclosing)))
+    (is (= '[point]
+           (emit/scoped-captures context
+                                 '(a/while-loop {:payload [input] :error [item]
+                                                 :continue [(ak/= :_ input)]
+                                                 :else [(ak/= :_ item)]}
+                                                point (ak/= :_ input))
+                                 enclosing)))
+    (is (= '[input]
+           (emit/scoped-captures context
+                                 '(a/with-block :result
+                                    (a/fn helper :i32 [[point :i32]] (ak/+ point input)))
+                                 enclosing)))))
+
 (deftest array-elements-and-native-operator-vars
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (is (= "[_]i32{1, 2}" (emit/emit-expr context '(a/array [1 2] :i32))))
@@ -1104,6 +1155,32 @@
     (is (not (str/includes? implementation "__active_depth")))
     (is (not (str/includes? implementation "_outermost")))))
 
+(deftest jvm-adapters-count-invocations-without-per-image-tls
+  (let [declaration {:kind :fn :name 'identity :return :u32
+                     :declaration-key [:fn 'identity]
+                     :args [{:name 'value :type :u32}] :body ['value]}
+        specs {[:fn 'identity]
+               {:implementation "__impl" :dispatch-type "__fn_type"
+                :dispatch "__dispatch" :getter "__implementation_address"
+                :setter "__set_dispatch" :active-counter "__active_calls"
+                :active-depth "__active_depth" :active-tracking "__track_active_calls"
+                :active-tracking-setter "__set_active_tracking"
+                :active-getter "__active_call_count"
+                :publication-epoch "__publication_epoch"
+                :publication-epoch-setter "__set_publication_epoch"}}
+        adapter (assoc declaration :jvm-adapter? true)
+        adapter-source (emit/emit-reloadable-module "demo.adapter" [adapter] specs)
+        authored-source (emit/emit-reloadable-module "demo.adapter" [declaration] specs)]
+    (is (not (str/includes? adapter-source "threadlocal var")))
+    (is (not (str/includes? adapter-source "__active_depth")))
+    (is (str/includes? adapter-source "@atomicRmw(usize, &__active_calls, .Add"))
+    (is (str/includes? adapter-source "@atomicRmw(usize, &__active_calls, .Sub"))
+    (is (str/includes? authored-source "threadlocal var __active_depth"))
+    (is (str/includes? authored-source "__active_depth += 1"))
+    (is (= (emit/emit-module "demo.adapter" [declaration])
+           (emit/emit-module "demo.adapter" [adapter]))
+        "adapter tracking does not alter ordinary static Zig emission")))
+
 (deftest reloadable-module-reserves-publication-locals-test
   (let [declaration {:kind :fn :name 'choose :return :usize
                      :declaration-key [:fn 'choose]
@@ -1410,6 +1487,8 @@
                                         (fn-decl helper :u32 [] 7)]))))))))
 
 (deftest implicit-return-test
+  (is (= "return result: {\n    break :result 42;\n};"
+         (emit/emit-function-body '((with-block :result (break :result 42))) :i32)))
   (is (= "return (a + b);"
          (emit/emit-function-body '((+ a b)) :i32)))
   (is (= (str "if ((x < 0)) {\n"
@@ -1439,6 +1518,35 @@
               "    continue;\n"
               "}")
          (emit/emit-function-body '((while ready (continue))) :i32))))
+
+(deftest generated-adapter-source-does-not-depend-on-call-site-lines
+  (let [declaration (fn [line adapter?]
+                      {:kind :fn :name 'adapter :return :i32 :args []
+                       :declaration-key [:fn 'adapter]
+                       :jvm-adapter? adapter? :implicit-return? true
+                       :body [(list 'with-block :result
+                                    (with-meta '(break :result 42)
+                                      {:line line :column 5}))]})
+        first-source (emit/emit-declaration (declaration 10 true))
+        moved-source (emit/emit-declaration (declaration 99 true))
+        authored-source (emit/emit-declaration (declaration 10 false))
+        specs {[:fn 'adapter] {:dispatch "adapter_dispatch"
+                               :dispatch-type "adapter_type"
+                               :implementation "adapter_impl"
+                               :getter "adapter_getter"
+                               :setter "adapter_setter"
+                               :emit-getter? true}}
+        reloadable (fn [line adapter?]
+                     (emit/emit-reloadable-module
+                      "demo.adapter" [(declaration line adapter?)] specs))]
+    (is (= first-source moved-source))
+    (is (not (str/includes? first-source "// Aguafria form:")))
+    (is (str/includes? authored-source "// Aguafria form: 10:5"))
+    (is (str/includes? first-source "return result:"))
+    (is (= (reloadable 10 true) (reloadable 99 true)))
+    (is (str/includes? (reloadable 10 true) "if (@inComptime())"))
+    (is (not (str/includes? (reloadable 10 true) "// Aguafria form:")))
+    (is (str/includes? (reloadable 10 false) "// Aguafria form: 10:5"))))
 
 (deftest saturating-left-shift-assignment-test
   (is (= "value <<|= shift;" (emit/emit-stmt '(<<|= value shift))))

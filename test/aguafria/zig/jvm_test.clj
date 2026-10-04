@@ -12,6 +12,7 @@
             [aguafria.zig :as a]
             [clojure.edn :as edn]
             [aguafria.zig.jvm :as native-call]
+            [aguafria.zig.explain :as explain]
             [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
             [clojure.java.io :as io]
@@ -108,6 +109,31 @@
                     (get-in (a/value callable) [:function :function-type])))
     (is (values= 42 ((:function callable) 41)))))
 
+(deftest comptime-aggregate-constants-retain-their-producing-expressions
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.precompile-comptime-receiver-fixture :reload))
+  (doseq [[reference element count bytes]
+          [['aguafria.zig.precompile-comptime-receiver-fixture/first-root :u16 3 6]
+           ['aguafria.zig.precompile-comptime-receiver-fixture/second-root :u32 5 20]
+           ['aguafria.zig.precompile-comptime-receiver-fixture/inferred-root :u16 3 6]]]
+    (let [root (var-get (resolve reference))
+          settings (:settings root)]
+      (is (= :comptime-expression (:representation (value/realize! root))))
+      (is (= {:settings {:element {:type (name element)} :count count}} (a/value root)))
+      (is (= element (:type (value/type-info (:element settings)))))
+      (is (values= count (:count settings)))
+      (is (values= bytes ((:bytes settings)))))))
+
+(deftest function-constants-retain-callable-zig-expressions
+  (let [namespace (fixture)]
+    (binding [*ns* namespace runtime/*source-only-registration?* true]
+      (eval '(a/defn add-one :i32 [[x :i32]] (ak/+ x 1)))
+      (eval '(a/defconst callback add-one)))
+    (let [callback (var-get (ns-resolve namespace 'callback))]
+      (is (= :comptime-expression (:representation (value/realize! callback))))
+      (is (re-matches #"fn \(i32\).*i32" (:function-type (a/value callback))))
+      (is (values= 42 (callback 41))))))
+
 (deftest runtime-handler-reuse-is-independent-of-operand-values
   (ak/+ 1 2)
   (is (values= 300 (without-compilation #(ak/+ 100 200))))
@@ -123,6 +149,37 @@
     (is (values= 30 (without-compilation #(a/get array 2))))
     (a/slice array start 3)
     (is (values= [10 20 30 40] (without-compilation #(a/slice array start 4))))))
+
+(deftest runtime-operator-handlers-are-independent-of-calling-files
+  (let [left (fixture)
+        right (fixture)
+        run (fn [namespace file x y elements]
+              (let [events (atom [])]
+                (binding [*ns* namespace *file* file
+                          explain/*reporter* #(swap! events conj %)]
+                  (with-open [a (ak/i32 x)
+                              b (ak/i32 y)
+                              array (a/array elements :i32)
+                              product (ak/* a b)
+                              element (a/get array 1)]
+                    {:values [(a/value product) (a/value element)]
+                     :events @events}))))]
+    (try
+      (run left "first/project/caller.clj" 2 3 [10 20])
+      (let [first-call (run left "first/project/caller.clj" 4 5 [30 40])
+            second-call (run right "other/project/different.clj" 6 7 [50 60])
+            handlers (fn [result]
+                       (into #{} (keep :function) (:events result)))]
+        (is (= [20 40] (:values first-call)))
+        (is (= [42 60] (:values second-call)))
+        (is (seq (handlers first-call)))
+        (is (= (handlers first-call) (handlers second-call)))
+        (doseq [result [first-call second-call]]
+          (is (not-any? #(= :compiled (:event %)) (:events result))
+              (pr-str (:events result)))))
+      (finally
+        (remove-ns (ns-name left))
+        (remove-ns (ns-name right))))))
 
 (deftest array-length-changes-reuse-runtime-slice-handlers
   (letfn [(exercise [array start]
@@ -176,16 +233,16 @@
 
 (deftest computed-integer-conversions-reuse-checked-native-storage
   (doseq [[type first-value next-value] [[:i32 2 5] [:u5 7 31] [:c_uint 8 9]
-                                        [:u128 18446744073709551616N 18446744073709551617N]]]
+                                         [:u128 18446744073709551616N 18446744073709551617N]]]
     (with-open [first-result (ak/as (ak/+ first-value 0) type)]
       (is (values= first-value first-result)))
     (without-compilation
      #(with-open [next-result (ak/as (ak/+ next-value 0) type)]
         (is (values= next-value next-result)))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
-                       (ak/as (ak/+ 31 1) :u5)))
+                        (ak/as (ak/+ 31 1) :u5)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
-                       (ak/as (ak/- 0 1) :u32))))
+                        (ak/as (ak/- 0 1) :u32))))
 
 (deftest integer-operator-families-reuse-native-handlers
   (doseq [operation [ak/+% ak/-% ak/*% ak/+| ak/-| ak/*|]]
@@ -360,7 +417,7 @@
 (deftest container-backing-types-work-through-jvm-field-views
   (binding [*ns* (fixture)]
     (eval '(a/defstruct Packed {:layout :packed :type :u8}
-             [[:low :u4] [:high :u4]]))
+                        [[:low :u4] [:high :u4]]))
     (eval '(a/defenum Tag [:integer :empty]))
     (eval '(a/defunion Tagged {:type Tag}
              [[:integer :i32] [:empty :void]]))
@@ -553,6 +610,17 @@
                              (ak/= @item (ak/intCast i)))
                            (ak/break :init items)))))
   (is (nil? (ns-resolve 'aguafria.zig 'labeled-block))))
+
+(deftest scoped-captures-retain-the-native-execution-context
+  (doseq [test? [false true false]]
+    (with-open [counter (binding [runtime/*native-test-context?* test?]
+                          (ak/var (ak/+ (ak/i32 1) (ak/i32 0))))]
+      (is (= test? (= :test (:execution-context (value/info counter)))))
+      (is (= test? (a/value
+                    (a/with-block :result
+                      (ak/+= counter 1)
+                      (ak/break :result (a/field (ak/import "builtin") :is_test))))))
+      (is (values= 2 counter)))))
 
 (deftest arrays-and-operators-execute-on-the-jvm
   (with-open [left (a/array [1 2 3 4] :i32)
@@ -753,7 +821,7 @@
                  [[:minimum :f32]
                   [:maximum :f32]
                   (a/const-decl default {:attrs #{:public}} Threshold
-                                 {:minimum 0.25 :maximum 0.75})]))
+                                {:minimum 0.25 :maximum 0.75})]))
         (eval '(a/defenum Mode [:active :inactive]))
         (eval '(a/defn append-and-read :!u21 [[initial (std/ArrayList :u21)]]
                  (let [list (ak/var initial)]
@@ -1346,31 +1414,31 @@
       (ak/= choice flag)
       (is (values= expected
                    (ak/switch choice
-                     (case [true] (a/with-block :selected
-                                    (ak/+= calls 1)
-                                    (ak/break :selected (ak/i32 21))))
-                     (case [false] (a/with-block :selected
-                                     (ak/+= calls 10)
-                                     (ak/break :selected (ak/i32 42))))))))
+                              (case [true] (a/with-block :selected
+                                             (ak/+= calls 1)
+                                             (ak/break :selected (ak/i32 21))))
+                              (case [false] (a/with-block :selected
+                                              (ak/+= calls 10)
+                                              (ak/break :selected (ak/i32 42))))))))
     (is (values= 11 calls)))
   (is (values= {:ok nil}
                (ak/switch true
-                 (case [true] (try (zig-testing/expectEqual 1 1)))
-                 (case [false] (try (zig-testing/expectEqual 1 2))))))
+                          (case [true] (try (zig-testing/expectEqual 1 1)))
+                          (case [false] (try (zig-testing/expectEqual 1 2))))))
   (with-open [choice (ak/var true :bool)
               calls (ak/var 0 :i32)]
     (doseq [flag [true false]]
       (ak/= choice flag)
       (let [result (a/value
                     (ak/switch choice
-                      (case [true]
-                        (a/with-block :selected
-                          (ak/+= calls 1)
-                          (ak/break :selected
-                                    (try (ak/as 7 [:error-union :anyerror :i32])))))
-                      (case [false]
-                        (try (ak/as (a/error-value :SwitchFailure)
-                                    [:error-union :anyerror :i32])))))]
+                               (case [true]
+                                 (a/with-block :selected
+                                   (ak/+= calls 1)
+                                   (ak/break :selected
+                                             (try (ak/as 7 [:error-union :anyerror :i32])))))
+                               (case [false]
+                                 (try (ak/as (a/error-value :SwitchFailure)
+                                             [:error-union :anyerror :i32])))))]
         (if flag
           (is (= 7 (:ok result)))
           (is (some? (:error result))))))
@@ -1573,14 +1641,78 @@
       (binding [*ns* namespace]
         (eval '(a/defconst Mode
                  (a/container {:kind :enum :type :c_int}
-                               [(a/enum-field-decl :idle)
-                                (a/enum-field-decl :running)])))
+                              [(a/enum-field-decl :idle)
+                               (a/enum-field-decl :running)])))
         (eval '(a/defn running? :bool [[mode Mode]] (== mode :.running))))
       (let [running? (ns-resolve namespace 'running?)]
         (is (false? (running? :idle)))
         (is (true? (running? :running)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown Zig enum member"
                               (running? :missing))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest non-exhaustive-enums-export-only-real-members
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(a/defenum Mode {:type :u8}
+                 [[:idle 0]
+                  [:running 1]
+                  [:_]]))
+        (eval '(a/defenum NamedUnderscore {:type :u8}
+                 [[:underscore {:zig/name "@\"_\""} 7]]))
+        (eval '(a/defn running? :bool [[mode Mode]] (ak/== mode :.running))))
+      (let [mode (var-get (ns-resolve namespace 'Mode))
+            named-underscore (var-get (ns-resolve namespace 'NamedUnderscore))
+            running? (ns-resolve namespace 'running?)]
+        (with-open [idle (mode :idle)
+                    running (mode :running)
+                    underscore (named-underscore :_)]
+          (is (false? (running? idle)))
+          (is (true? (running? running)))
+          (is (= 7 (a/value (ak/intFromEnum underscore)))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown Zig enum member"
+                              (mode :_))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest type-layout-accessors-preserve-explicit-field-spellings
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(a/defstruct Record
+                 [[:logical {:zig/name "slice"} :u32]
+                  [:value {:zig/name "@\"const\""} :u64]]))
+        (eval '(a/defn read-slice :u32 [[record Record]] (:slice record)))
+        (eval '(a/defn read-const :u64 [[record Record]] (:const record))))
+      (let [record-type (var-get (ns-resolve namespace 'Record))]
+        (with-open [record (record-type {:slice 7 :const 9})]
+          (is (values= {:slice 7 :const 9} record))
+          (is (values= 7 ((ns-resolve namespace 'read-slice) record)))
+          (is (values= 9 ((ns-resolve namespace 'read-const) record)))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest private-adapter-cleanup-parameters-do-not-shadow-owner-declarations
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(a/defconst address :u32 7))
+        (eval '(a/defconst size :u32 9))
+        (eval '(a/defconst alignment :u32 11))
+        (eval '(a/defconst __aguafria_jvm_address_0 :u32 13))
+        (eval '(a/defstruct PrivateRecord {:attrs #{}}
+                            [[:value :u32]])))
+      (let [record-type (var-get (ns-resolve namespace 'PrivateRecord))]
+        (with-open [record (record-type {:value 42})]
+          (binding [*ns* namespace]
+            (with-open [field (a/field record :value)]
+              (is (values= 42 field))
+              (is (values= 42 (ak/+ field (ak/u32 0))))))))
+      (let [declarations (runtime/registered-declarations (ns-name namespace))
+            release (first (filter #(= '__jvm_release (:name %)) declarations))]
+        (is (seq release))
+        (is (= '__aguafria_jvm_address_1 (get-in release [:args 0 :name])))
+        (is (= #{'address 'size 'alignment '__aguafria_jvm_address_0}
+               (into #{} (map :name) (filter #(= :const (:kind %)) declarations)))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest quoted-native-export-is-looked-up-without-zig-syntax

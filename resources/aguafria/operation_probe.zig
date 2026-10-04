@@ -4,6 +4,7 @@
 pub fn Inspector(comptime declarations: anytype) type {
     return struct {
         const std = @import("std");
+        pub const requiresComptime = @import("jvm_result.zig").__aguafria_jvm.requiresComptime;
 
         const VisitedTypes = struct {
             buckets: [1024][]const type = @splat(&.{}),
@@ -49,6 +50,22 @@ pub fn Inspector(comptime declarations: anytype) type {
         pub fn comptimeExpression(comptime value: anytype, comptime source: []const u8) []const u8 {
             _ = value;
             return "{:comptime-expression " ++ source ++ "}";
+        }
+
+        pub fn comptimeArgument(comptime value: anytype, comptime source: []const u8) []const u8 {
+            const encoded = comptimeValue(value);
+            if (!std.mem.eql(u8, encoded, "nil")) return encoded;
+            switch (@typeInfo(@TypeOf(value))) {
+                .pointer => |p| {
+                    // An invalid UTF-8 byte literal is not a JVM string. Its
+                    // ordinary native value does not retain a source expression.
+                    if ((p.size == .slice and p.child == u8) or
+                        (p.size == .one and @typeInfo(p.child) == .array and @typeInfo(p.child).array.child == u8))
+                        return "nil";
+                },
+                else => {},
+            }
+            return comptimeExpression(value, source);
         }
 
         pub fn comptimeValue(comptime value: anytype) []const u8 {
@@ -165,14 +182,14 @@ pub fn Inspector(comptime declarations: anytype) type {
             switch (@typeInfo(T)) {
                 .@"struct", .@"enum", .@"union", .@"opaque", .@"fn" => {
                     inline for (declarations) |declaration| {
-                        if (T == declaration[0].get()) return declaration[1];
+                        if (T == declaration.get()) return declaration.name();
                     }
                     inline for (declarations) |declaration| {
-                        if (wrappedDeclarationSchema(T, declaration[0].get(), declaration[1], 0)) |identity|
+                        if (wrappedDeclarationSchema(T, declaration.get(), declaration.name(), 0)) |identity|
                             return identity;
-                        if (nestedDeclarationSchema(T, declaration[0].get(), declaration[1], 0)) |identity|
+                        if (nestedDeclarationSchema(T, declaration.get(), declaration.name(), 0)) |identity|
                             return identity;
-                        if (fieldDeclarationSchema(T, declaration[0].get(), declaration[1])) |identity|
+                        if (fieldDeclarationSchema(T, declaration.get(), declaration.name())) |identity|
                             return identity;
                     }
                     // Share visited types across branches and roots. Callback
@@ -180,9 +197,9 @@ pub fn Inspector(comptime declarations: anytype) type {
                     comptime var visited: VisitedTypes = .{};
                     inline for (.{ false, true }) |function_roots| {
                         inline for (declarations) |declaration| {
-                            const Root = declaration[0].get();
+                            const Root = declaration.get();
                             if ((@typeInfo(Root) == .@"fn") != function_roots) continue;
-                            if (reachableDeclarationSchema(T, Root, declaration[1], &visited)) |identity|
+                            if (reachableDeclarationSchema(T, Root, declaration.name(), &visited)) |identity|
                                 return identity;
                         }
                     }

@@ -105,9 +105,33 @@
 (defn- token [value]
   (subs (runtime/adapter-fingerprint value) 0 24))
 
+(defn- registered-adapter? [prepared key function]
+  (and (contains? @prepared key)
+       (runtime/registered-declaration?
+        (namespace function) [:fn (symbol (name function))])))
+
+(defn- adapter-local-names [namespace names]
+  (:names
+   (reduce
+    (fn [{:keys [used] :as state} preferred]
+      (let [selected
+            (first
+             (remove #(contains? used (emitter/identifier %))
+                     (cons preferred
+                           (map #(symbol (str "__aguafria_jvm_" preferred "_" %))
+                                (range)))))]
+        (-> state
+            (update :names conj selected)
+            (update :used conj (emitter/identifier selected)))))
+    {:names []
+     :used (into #{}
+                 (map #(emitter/identifier (or (:zig-name %) (:name %))))
+                 (runtime/registered-declarations (ns-name namespace)))}
+    names)))
+
 (defn- register! [namespace descriptor]
   (binding [emitter/*registered-declaration-names*
-            (set (map :name (:definitions (runtime/module-info (ns-name namespace)))))]
+            (set (map :name (runtime/registered-declarations (ns-name namespace))))]
     (runtime/register-declaration!
      (emitter/prepare-declaration
       namespace
@@ -157,29 +181,41 @@
 
 (defn- expression-without-runtime-inputs
   [namespace expression parameters]
-  (emitter/qualify-form
-   namespace
-   (if (empty? parameters)
-     expression
+  (let [expression (emitter/qualify-form namespace expression)
+        parameters (mapv #(update % :type (partial emitter/qualify-type namespace))
+                         parameters)]
+    (emitter/qualify-form
+     namespace
+     (if (empty? parameters)
+       (or (:aguafria/jvm-value-expression (meta expression)) expression)
      ;; @TypeOf must analyze unknown runtime operands, not evaluate a known
      ;; undefined pointer. Runtime locals preserve that distinction, including
      ;; pointer dereferences and slices. This block is used only for type queries.
-     (let [id (token [expression parameters])
-           label (keyword (str "jvm_type_" id))
-           names (into {} (map (fn [{:keys [name]}]
-                                 [name (symbol (str "__jvm_type_arg_" id "_" name))]) parameters))
-           expression (walk/postwalk-replace names expression)]
-       (list 'aguafria.zig/with-block label
-             (list* 'let
-                    (vec (mapcat (fn [{:keys [name type]}]
-                                   [(names name) (list 'aguafria.keyword/var
-                                                       'aguafria.keyword/undefined type)])
-                                 parameters))
-                    (concat
-                     (map (fn [{:keys [name]}]
-                            (list 'aguafria.keyword/= :_ (list 'aguafria.keyword/& (names name))))
-                          parameters)
-                     [(list 'aguafria.keyword/break label expression)])))))))
+       (let [id (token [expression parameters])
+             label (keyword (str "jvm_type_" id))
+             names (into {} (map (fn [{:keys [name]}]
+                                   [name (symbol (str "__jvm_type_arg_" id "_" name))]) parameters))
+             expression (walk/postwalk-replace names expression)]
+         (list 'aguafria.zig/with-block label
+               (list* 'let
+                      (vec (mapcat (fn [{:keys [name type]}]
+                                     [(names name) (list 'aguafria.keyword/var
+                                                         'aguafria.keyword/undefined type)])
+                                   parameters))
+                      (concat
+                       (map (fn [{:keys [name]}]
+                              (list 'aguafria.keyword/= :_ (list 'aguafria.keyword/& (names name))))
+                            parameters)
+                       [(list 'aguafria.keyword/break label expression)]))))))))
+
+(defn- expression-cleanup-name [native?]
+  (symbol (str "__jvm_release" (when native? "_native")
+               (when runtime/*native-test-context?* "_test"))))
+
+(defn- expression-value [descriptor materialize]
+  (value/native-value
+   (cond-> descriptor runtime/*native-test-context?* (assoc :execution-context :test))
+   materialize))
 
 (defn- native-expression-result
   [namespace expression parameters arguments {:keys [address size alignment path scalar-type native-type tuple-length comptime-expression]}]
@@ -195,7 +231,9 @@
                          (or (:aguafria/jvm-result-type (meta expression)) root-type)
                          (partition 2 path)))
         release-generation! (*retain-result-generation*)
-        result (value/native-value
+        test-context? runtime/*native-test-context?*
+        release (symbol module (str (expression-cleanup-name true)))
+        result (expression-value
                 {:module module :kind :return :type type}
                 (fn []
                   {:representation :native
@@ -208,8 +246,8 @@
                                           (re-matches #"[iu][0-9]+" (name scalar-type))))
                              {:kind :scalar :type scalar-type})
                    :close! #(try
-                              (runtime/invoke! (symbol module "__jvm_release_native")
-                                               [address size alignment])
+                              (binding [runtime/*native-test-context?* test-context?]
+                                (runtime/invoke! release [address size alignment]))
                               (finally (release-generation!)))}))]
     ;; The allocation already exists, so register its cleanup immediately.
     (value/value result)
@@ -225,7 +263,7 @@
         (native-expression-result namespace expression parameters arguments
                                   (assoc native :comptime-expression source))
         (let [snapshot (inspection-view (:snapshot envelope))]
-          (value/native-value
+          (expression-value
            {:module (str (ns-name namespace)) :kind :const
             :type (list 'aguafria.keyword/TypeOf source)}
            (constantly {:representation :comptime-expression
@@ -242,7 +280,7 @@
                     namespace
                     (list 'aguafria.keyword/TypeOf (list 'aguafria.zig/deref pointer))))
           release-generation! (*retain-result-generation*)
-          view (value/native-value
+          view (expression-value
                 {:kind (if mutable? :var :const) :type type}
                 (constantly {:representation :native
                              :segment (.reinterpret (MemorySegment/ofAddress address) size)
@@ -259,12 +297,12 @@
 
     (and (map? result) (= #{:aguafria.jvm/comptime} (set (keys result))))
     (let [{:keys [type value]} (:aguafria.jvm/comptime result)]
-      (value/native-value {:kind :const :type type}
-                          (constantly
-                           (cond-> {:representation :scalar :value value}
-                             (#{:comptime_int :comptime_float} type)
-                             (assoc :expression (expression-without-runtime-inputs
-                                                 namespace expression parameters))))))
+      (expression-value {:kind :const :type type}
+                        (constantly
+                         (cond-> {:representation :scalar :value value}
+                           (#{:comptime_int :comptime_float} type)
+                           (assoc :expression (expression-without-runtime-inputs
+                                               namespace expression parameters))))))
 
     (and (map? result) (= #{:aguafria.jvm/native} (set (keys result))))
     (native-expression-result namespace expression parameters arguments (:aguafria.jvm/native result))
@@ -312,7 +350,7 @@
                    :zig-name (str name) :declaration-kind :const
                    :symbol (symbol (str module) (str name)) :public? true}]
     (locking context
-      (when-not (ns-resolve context name)
+      (when-not (runtime/registered-declaration? module [:raw name])
         (binding [runtime/*source-only-registration?* true]
           (register! context {:kind :raw :name name
                               :declaration-key [:raw name] :code source})))
@@ -320,13 +358,35 @@
                    assoc :aguafria/zig-reference reference))
     (with-meta (:symbol reference) {:aguafria/zig-reference reference})))
 
+(defn- declared-member-reference [form]
+  (cond
+    (qualified-symbol? form)
+    (when-let [declaration (:aguafria/declaration (meta (find-var form)))]
+      {:declaration declaration :module (:module declaration)
+       :private? (false? (:public? declaration))})
+
+    (and (seq? form) (= 3 (count form))
+         (symbol? (first form)) (= "field" (name (first form)))
+         (or (symbol? (nth form 2)) (keyword? (nth form 2)) (string? (nth form 2))))
+    (when-let [{:keys [declaration module private?]} (declared-member-reference (second form))]
+      (let [context (the-ns (symbol module))
+            spelling (emitter/identifier (nth form 2))
+            members (:members (emitter/container-description context (:value declaration)))
+            member (first (filter #(= spelling (emitter/identifier (or (:zig-name %) (:name %))))
+                                  (filter :name members)))]
+        (when member
+          {:declaration member :module module
+           :private? (or private?
+                         (and (not (#{:field :tuple-field :enum-field} (:kind member)))
+                              (false? (:public? member))))})))
+
+    :else nil))
+
 (defn- private-adapter-context [context forms]
   (let [owners (into #{}
                      (keep (fn [form]
-                             (when (qualified-symbol? form)
-                               (let [declaration (:aguafria/declaration (meta (find-var form)))]
-                                 (when (false? (:public? declaration))
-                                   (:module declaration))))))
+                             (let [{:keys [module private?]} (declared-member-reference form)]
+                               (when private? module))))
                      (tree-seq coll? seq forms))]
     (when (> (count owners) 1)
       (throw (ex-info "A JVM adapter cannot access private declarations from different Zig modules"
@@ -349,7 +409,8 @@
 (defn- prepare-expression!
   "Register the exact adapter used by invocation, without executing it."
   [namespace expression parameters result-writer]
-  (let [parameters (mapv #(update % :type (partial emitter/qualify-type namespace))
+  (let [expression (emitter/qualify-form namespace expression)
+        parameters (mapv #(update % :type (partial emitter/qualify-type namespace))
                          parameters)
         result-writer (if (vector? result-writer)
                         (into [(first result-writer)]
@@ -360,9 +421,19 @@
     (locking namespace
     ;; Discovery and live values must carry the same resolved type references
     ;; before hashing, not only when register! qualifies the declaration.
-      (let [module (str (ns-name namespace))
-            helper-source (slurp (io/resource "aguafria/jvm_result.zig"))
-            call-name (symbol (str "__jvm_call_" (token [expression parameters helper-source result-writer])))
+      (let [local-names (adapter-local-names namespace (map :name parameters))
+            renames (zipmap (map :name parameters) local-names)
+            expression (walk/postwalk-replace renames expression)
+            parameters (mapv #(assoc %1 :name %2) parameters local-names)
+            module (str (ns-name namespace))
+            helper-source (slurp (io/resource (if (= 'layoutResult result-writer)
+                                                "aguafria/jvm_layout.zig"
+                                                "aguafria/jvm_result.zig")))
+            call-name (symbol (str "__jvm_call_"
+                                   (token (cond-> [expression parameters helper-source result-writer]
+                                            runtime/*native-test-context?* (conj :test)))))
+            release-name (expression-cleanup-name false)
+            release-native-name (expression-cleanup-name true)
             helper-name (result-helper-reference! helper-source)
             expression (let [metadata (meta expression)
                              replaced (walk/postwalk-replace {'__aguafria_jvm helper-name} expression)]
@@ -370,24 +441,30 @@
             [writer writer-arguments] (if (vector? result-writer)
                                         [(first result-writer) (rest result-writer)]
                                         [result-writer nil])
-            adapter-key [module call-name expression parameters helper-source result-writer]]
-        (when-not (contains? @prepared-adapters adapter-key)
+            adapter-key [module call-name expression parameters helper-source result-writer]
+            [release-address release-size release-alignment]
+            (adapter-local-names namespace '[address size alignment])]
+        (when-not (and (registered-adapter? prepared-adapters adapter-key
+                                            (symbol module (str call-name)))
+                       (runtime/registered-declaration? module [:fn release-name])
+                       (runtime/registered-declaration? module [:fn release-native-name]))
           (binding [runtime/*source-only-registration?* true]
             (register! namespace
-                       {:kind :fn :name '__jvm_release
-                        :qualified-name (symbol module "__jvm_release")
-                        :declaration-key [:fn '__jvm_release]
-                        :return :void :args [{:name 'address :type :usize}]
-                        :body [(list (list 'field helper-name :release) 'address)]})
+                       {:kind :fn :name release-name
+                        :qualified-name (symbol module (str release-name))
+                        :declaration-key [:fn release-name]
+                        :return :void :args [{:name release-address :type :usize}]
+                        :body [(list (list 'field helper-name :release) release-address)]})
             (register! namespace
-                       {:kind :fn :name '__jvm_release_native
-                        :qualified-name (symbol module "__jvm_release_native")
-                        :declaration-key [:fn '__jvm_release_native]
+                       {:kind :fn :name release-native-name
+                        :qualified-name (symbol module (str release-native-name))
+                        :declaration-key [:fn release-native-name]
                         :return :void
-                        :args [{:name 'address :type :usize}
-                               {:name 'size :type :usize}
-                               {:name 'alignment :type :usize}]
-                        :body [(list (list 'field helper-name :releaseNative) 'address 'size 'alignment)]})
+                        :args [{:name release-address :type :usize}
+                               {:name release-size :type :usize}
+                               {:name release-alignment :type :usize}]
+                        :body [(list (list 'field helper-name :releaseNative)
+                                     release-address release-size release-alignment)]})
             (register! namespace
                        {:kind :fn :name call-name
                         :qualified-name (symbol module (str call-name))
@@ -397,9 +474,10 @@
                                       expression writer-arguments)]})))
         {:function (symbol module (str call-name))
          :context namespace
-         :release (symbol module "__jvm_release")
-         :release-native (symbol module "__jvm_release_native")
+         :release (symbol module (str release-name))
+         :release-native (symbol module (str release-native-name))
          :expression expression
+         :parameters parameters
          :adapter-key adapter-key}))))
 
 (defn- precompile-expression! [adapter]
@@ -409,6 +487,26 @@
     (runtime/precompile-function! function))
   (swap! prepared-adapters conj (:adapter-key adapter)))
 
+(defn- invoke-adapter!
+  [{:keys [function release expression adapter-key context parameters]} arguments]
+  (binding [runtime/*native-test-context?*
+            (or runtime/*native-test-context?*
+                (some #(and (value/zig-value? %)
+                            (= :test (:execution-context (value/info %)))) arguments))]
+    (locking context
+      (runtime/invoke-with-result!
+       function arguments
+       (fn [address retain-generation!]
+         (try
+           (let [result (edn/read-string
+                         (.getString (.reinterpret (MemorySegment/ofAddress address)
+                                                   Long/MAX_VALUE) 0))]
+             (swap! prepared-adapters conj adapter-key)
+             (binding [*retain-result-generation* retain-generation!]
+               (expression-result context expression parameters arguments result)))
+           (finally
+             (runtime/invoke! release [address]))))))))
+
 (defn- invoke-expression!
   ([namespace expression parameters arguments]
    (invoke-expression! namespace expression parameters arguments 'result))
@@ -417,27 +515,20 @@
              (or runtime/*native-test-context?*
                  (some #(and (value/zig-value? %)
                              (= :test (:execution-context (value/info %)))) arguments))]
-     (locking namespace
-       (let [{:keys [function release expression adapter-key context]}
-             (prepare-expression! namespace expression parameters result-writer)]
-         (runtime/invoke-with-result!
-          function arguments
-          (fn [address retain-generation!]
-            (try
-              (let [result (edn/read-string
-                            (.getString (.reinterpret (MemorySegment/ofAddress address)
-                                                      Long/MAX_VALUE) 0))]
-                (swap! prepared-adapters conj adapter-key)
-                (binding [*retain-result-generation* retain-generation!]
-                  (expression-result context expression parameters arguments result)))
-              (finally
-                (runtime/invoke! release [address]))))))))))
+     (invoke-adapter! (prepare-expression! namespace expression parameters result-writer)
+                      arguments))))
 
 (defn comptime-constant-value!
   "Read storage-free constants through Zig's value transport, never @sizeOf."
-  [{:keys [module name]}]
-  (inspection-view
-   (invoke-expression! (the-ns (symbol module)) (symbol module (str name)) [] [] 'comptimeResult)))
+  [{:keys [module name type] :as declaration}]
+  (let [namespace (symbol module)
+        context (or (find-ns namespace) (create-ns namespace))
+        reference (with-meta (symbol module (str name))
+                    {:aguafria/zig-reference (runtime/declaration-reference declaration)})]
+    ;; Pure-Zig editor documents register native declarations, not Clojure Vars.
+    ;; The published descriptor supplies the reference and exact Zig spelling.
+    (invoke-expression! context reference [] []
+                        (if type 'storageFreeConstantResult 'comptimeResult))))
 
 (defn qualify-native-type
   "Bind declaration references to their source namespace before moving a type
@@ -510,6 +601,29 @@
                       :fn)
                 "return_type"))))
 
+(defn argument-reader-type
+  "Preserve an inline container parameter's exact Zig type. Re-emitting its
+  literal creates a different nominal type; reflect the original parameter."
+  [{:keys [module name args]} index]
+  (let [type (:type (nth args index))
+        inline-container? (some #(and (seq? %) (symbol? (first %))
+                                      (= "container" (clojure.core/name (first %))))
+                                (tree-seq coll? seq type))]
+    (if-not inline-container?
+      type
+      (qualify-native-type
+       (the-ns 'aguafria.zig.jvm)
+       (list 'aguafria.zig/unwrap
+             (list 'aguafria.zig/index
+                   (list 'aguafria.zig/field
+                         (list 'aguafria.zig/field
+                               (list 'aguafria.keyword/typeInfo
+                                     (list 'aguafria.keyword/TypeOf
+                                           (symbol module (str name))))
+                               :fn)
+                         "param_types")
+                   index))))))
+
 (defn- inspection-context [context type]
   ;; Structural schemas need no producer's lexical scope. Reuse their reader
   ;; across constructors, operators, fields and tuple results. Nominal and
@@ -524,6 +638,45 @@
         adapter (prepare-expression! (inspection-context context type) (inspection-expression type)
                                      [{:name 'address :type :usize}] 'inspectResult)]
     (precompile-expression! adapter)))
+
+(defn- layout-adapter [type]
+  (let [type (qualify-native-type (the-ns 'aguafria.zig.jvm) type)
+        module (symbol (str "aguafria.jvm.layout-" (token type)))
+        context (or (find-ns module) (create-ns module))]
+    (prepare-expression! context (list 'aguafria.zig/type type) [] 'layoutResult)))
+
+(defn- bind-reflected-layout [schema]
+  (when schema
+    (let [schema (walk/postwalk
+                  (fn [item]
+                    (if (and (map? item) (= :slice (:kind item)))
+                      (let [{:keys [pointer-offset length-offset]} item
+                            word-layout (if (= 8 (.byteSize ValueLayout/ADDRESS))
+                                          ValueLayout/JAVA_LONG ValueLayout/JAVA_INT)]
+                        (assoc item
+                               :ownership :borrowed
+                               :set-fn (fn [^MemorySegment storage ^MemorySegment backing length]
+                                         (.set storage ValueLayout/ADDRESS pointer-offset backing)
+                                         (if (= 8 (.byteSize word-layout))
+                                           (.set storage ValueLayout/JAVA_LONG length-offset (long length))
+                                           (.set storage ValueLayout/JAVA_INT length-offset (int length)))
+                                         storage)
+                               :read-fn (fn [^MemorySegment storage]
+                                          {:address (.address (.get storage ValueLayout/ADDRESS pointer-offset))
+                                           :length (if (= 8 (.byteSize word-layout))
+                                                     (.get storage ValueLayout/JAVA_LONG length-offset)
+                                                     (.get storage ValueLayout/JAVA_INT length-offset))})))
+                      item)) schema)]
+      schema)))
+
+(defn reflected-layout!
+  "Read native construction layout from Zig reflection, without reading a
+  value or calling the function that owns the type. Field offsets and slice
+  member offsets are compiler-authored, including anonymous nominal types."
+  [module type]
+  (let [adapter (layout-adapter (qualify-native-type (the-ns (symbol module)) type))]
+    (bind-reflected-layout
+     (invoke-adapter! adapter []))))
 
 (defn precompile-result-reader!
   "Prepare the ordinary native value reader in its producer's scope, without
@@ -621,8 +774,8 @@
            (contains? #{'type 'aguafria.zig/type} (first type)))
       (constructor-type (second type))
 
-      (and (seq? type) (qualified-symbol? (first type)))
-      (emitter/qualify-form (the-ns (symbol (namespace (first type)))) type)
+      (seq? type)
+      (emitter/qualify-type (the-ns 'aguafria.zig.jvm) type)
 
       (vector? type)
       (mapv constructor-type type)
@@ -647,7 +800,8 @@
                              :declaration-key [:const 'Type] :public? true
                              :value container})]
     (locking context
-      (when-not (contains? @prepared-adapters module)
+      (when-not (and (contains? @prepared-adapters module)
+                     (runtime/registered-declaration? module [:const 'Type]))
         (runtime/register-declaration! descriptor)
         (intern context 'Type (runtime/declaration-type-value descriptor))
         (runtime/refresh-declaration-var! descriptor)
@@ -685,7 +839,7 @@
   (let [{:keys [context name function]} (coercion-location type input-type nil)
         qualified-name function]
     (locking context
-      (when-not (contains? @prepared-coercions qualified-name)
+      (when-not (registered-adapter? prepared-coercions qualified-name qualified-name)
         (binding [runtime/*source-only-registration?* true]
           (register! context
                      {:kind :fn :name name :qualified-name qualified-name
@@ -718,7 +872,9 @@
       (runtime/precompile-function! function)
       ;; Returning/printing a native value must not introduce its first decoder
       ;; build after restart. Prepare the same owner's reflection adapter too.
-      (precompile-inspection! (the-ns (symbol (namespace function))) type))
+      (precompile-inspection! (the-ns (symbol (namespace function))) type)
+      (when (seq? type)
+        (precompile-expression! (layout-adapter type))))
     (when (or numeric? (= :bool type))
       (let [storage-type [:array 1 type]
             function (prepare-coercion! storage-type storage-type 'input)]
@@ -744,14 +900,17 @@
     function))
 
 (defn precompile-literal-coercion!
-  "Prepare the normal computed-type constructor for explicit literal data.
-  The compiler supplies the type; data is retained from the initializer, not
-  evaluated to discover values. This does not warm arbitrary future values."
+  "Prepare an explicit initializer and the reusable aggregate constructor.
+  Zig supplies the type and layout; the initializer is not evaluated."
   [schema argument]
   (let [type (constructor-type schema)
         function (prepare-literal-coercion! type argument)]
     (runtime/precompile-function! function)
     (precompile-inspection! (the-ns (symbol (namespace function))) type)
+    ;; Live aggregate construction asks Zig for its layout, then passes the
+    ;; data through the runtime constructor when that layout is encodable.
+    (when (and (seq? type) (or (map? argument) (vector? argument)))
+      (precompile-coercion! type))
     ;; mutable! stores primitive literals in an owned one-element array. Both
     ;; forms of the constructor must be prepared without reading undefined data.
     (when (primitive-literal? argument)
@@ -766,7 +925,9 @@
   [input-type result-type]
   (let [input-type (constructor-type input-type)
         result-type (constructor-type result-type)]
-    (when-not (= input-type result-type)
+    ;; Null has no runtime storage. The ordinary JVM call encodes nil directly
+    ;; in the destination type instead of passing an input of type `null`.
+    (when-not (or (= input-type result-type) (= :null input-type))
       (runtime/precompile-function!
        (prepare-coercion! result-type input-type 'input)))
     ;; Error results cross library boundaries by name, never by a library-local
@@ -792,7 +953,7 @@
                        (symbol (str "__jvm_construct_" (token [expression parameters]))))
         name (symbol (str (ns-name context)) (str local-name))]
     (locking context
-      (when-not (contains? @prepared-coercions name)
+      (when-not (registered-adapter? prepared-coercions name name)
         (binding [runtime/*source-only-registration?* true]
           (register! context {:kind :fn :name local-name :qualified-name name
                               :declaration-key [:fn local-name] :return type
@@ -852,7 +1013,9 @@
                      ;; A computed type has no JVM ABI until Zig resolves it.
                      ;; Supply ordinary data in its native result context instead
                      ;; of claiming the JVM operand already has that type.
-                     (and (or (seq? type)
+                     (and (or (and (seq? type)
+                                   (not (and (or (map? argument) (vector? argument))
+                                             (reflected-layout! (str (ns-name *ns*)) type))))
                               (and compiler-type? (coll? argument)))
                           (or (nil? argument) (boolean? argument) (number? argument)
                               (char? argument) (string? argument)
@@ -918,11 +1081,12 @@
   "Apply a concrete function's parameter types to deferred builtin arguments."
   [module declaration arguments]
   (let [context (the-ns (symbol module))]
-    (mapv (fn [{:keys [type]} argument]
+    (mapv (fn [index argument]
             (if (instance? ContextualCall argument)
-              (coerce! argument (qualify-native-type context type))
+              (coerce! argument (qualify-native-type
+                                 context (argument-reader-type declaration index)))
               argument))
-          (:args declaration) arguments)))
+          (range (count (:args declaration))) arguments)))
 
 (defn invoke-value!
   "Public Var call: retain numeric results; internal ABI calls remain scalars."
@@ -993,7 +1157,7 @@
         {:keys [context name function]}
         (function-adapter-location module 'assign [expression parameters])]
     (locking context
-      (when-not (contains? @prepared-adapters function)
+      (when-not (registered-adapter? prepared-adapters function function)
         (binding [runtime/*source-only-registration?* true]
           (register! context {:kind :fn :name name :qualified-name function
                               :declaration-key [:fn name] :return :void
@@ -1048,7 +1212,7 @@
           {:keys [context name function]} (function-adapter-location module 'assign [expression parameters])
           qualified-name function]
       (locking context
-        (when-not (contains? @prepared-adapters qualified-name)
+        (when-not (registered-adapter? prepared-adapters qualified-name qualified-name)
           (binding [runtime/*source-only-registration?* true]
             (register! context {:kind :fn
                                 :name name
@@ -1129,13 +1293,38 @@
 
 (declare signature-arguments call-parameters call-expression-plan)
 
+(defn- canonical-comptime-object [expression]
+  ;; Literal objects and JVM maps emit the same named initializer. Keep one
+  ;; adapter identity, without changing ordered or executable source expressions.
+  (walk/postwalk
+   (fn [form]
+     (let [fields (when (and (seq? form) (= 2 (count form))
+                             (= 'object (first form)) (vector? (second form)))
+                    (second form))
+           entries (when (and fields
+                              (every? #(and (vector? %) (= 2 (count %))
+                                            (or (keyword? (first %)) (symbol? (first %))
+                                                (string? (first %)))) fields))
+                     (mapv (fn [[field item]]
+                             [(if (symbol? field) (clojure.core/keyword (name field)) field) item])
+                           fields))]
+       (if (and entries
+                (= (count entries) (count (distinct (map first entries))))
+                (every? #(or (nil? %) (number? %) (boolean? %) (char? %)
+                             (string? %) (keyword? %) (vector? %) (map? %))
+                        (tree-seq coll? seq (mapv second entries))))
+         (into {} entries)
+         form)))
+   expression))
+
 (defn- builtin-arguments [signature]
-  ;; Compiler-dependent parameter types remain in source. Zig supplies the
-  ;; actual type; native handles keep their explicit transport types.
+  ;; Dependent builtin parameter spellings are documentation placeholders.
+  ;; Keep operands in Zig's call context so the compiler resolves their types.
   (mapv (fn [parameter]
           (cond-> parameter
             (or (symbol? (:type parameter)) (seq? (:type parameter)))
-            (assoc-in [:properties :jvm/literal?] true)))
+            (-> (assoc :type :anytype)
+                (assoc-in [:properties :jvm/literal?] true))))
         (signature/builtin-arguments signature)))
 
 (defn- call-inputs [argument-declarations arguments]
@@ -1201,8 +1390,8 @@
                     (if (or (nil? expected) (#{:anytype 'anytype} expected))
                       expression
                       (list 'aguafria.keyword/as expression (constructor-type expected))))
-                  (comptime-expression original) (comptime-expression original)
-                  (instance? PreparedExpression argument) (:expression argument)
+                  (comptime-expression original) (canonical-comptime-object (comptime-expression original))
+                  (instance? PreparedExpression argument) (canonical-comptime-object (:expression argument))
                   (instance? PreparedType argument) (type-expression (:schema argument))
                   (value/zig-type? argument) (type-expression argument)
                   (#{:type 'type} expected) (type-expression argument)
@@ -1214,8 +1403,12 @@
                       (with-meta (:symbol reference) {:aguafria/zig-reference reference})))
                   (value/zig-error? argument) (value/error-form argument)
                   (primitive-literal? argument) argument
-                  ;; A JVM Character is a Zig character literal, not a Java
-                  ;; object pointer or a string. Keep its code point in source.
+                  ;; Concrete integer parameters can carry character code points
+                  ;; at runtime. Generic/comptime characters remain Zig literals.
+                  (and (char? argument) (not literal?) (keyword? expected)
+                       (or (#{:usize :isize} expected)
+                           (re-matches #"[iu][0-9]+" (name expected))))
+                  (lift (int argument) expected false)
                   (char? argument) argument
                   (and (#{:comptime_int :comptime_float} inferred) (number? argument)) argument
                   ;; Untyped source numbers stay comptime values for generic
@@ -1306,67 +1499,70 @@
           ;; expression is used only for type analysis, never execution.
           (list 'aguafria.keyword/TypeOf type-expression))))))
 
+(defn- scoped-argument-declarations [entries]
+  (mapv #(if (:mutable? %) {:type :usize}
+             {:type :anytype :properties {:jvm/literal? true}}) entries))
+
+(defn- prepare-scoped-plan! [caller form entries {:keys [parameters expression-arguments]} result?]
+  (let [replacements (into {}
+                           (map (fn [[{:keys [name type mutable?]} argument]]
+                                  [name (if mutable?
+                                          (list 'aguafria.zig/deref
+                                                (list 'aguafria.keyword/as
+                                                      (list 'aguafria.keyword/ptrFromInt argument)
+                                                      [:* type]))
+                                          argument)]))
+                           (map vector entries expression-arguments))
+        context (the-ns caller)
+        expression (binding [emitter/*local-type-bindings* (zipmap (map :name entries) (repeat false))
+                             emitter/*local-name-bindings* replacements]
+                     (emitter/qualify-form context form))
+        name (symbol (str "__jvm_scope_"
+                          (token (cond-> [expression parameters]
+                                   result? (conj :result)
+                                   runtime/*native-test-context?* (conj :test)))))
+        function (symbol (str caller) (str name))
+        result-type (when result? (scoped-result-type-expression expression))]
+    (when (or (not result?) result-type)
+      (locking context
+        (when-not (registered-adapter? prepared-adapters function function)
+          (binding [runtime/*source-only-registration?* true]
+            (register! context
+                       (cond-> {:kind :fn :name name :qualified-name function
+                                :declaration-key [:fn name] :args parameters
+                                :return :void :body [expression]}
+                         result-type (assoc :zig-prefix "inline"
+                                            :return [:error-union :anyerror result-type]
+                                            :body [(list 'return expression)]))))
+          (swap! prepared-adapters conj function))))
+    {:context context :function function :parameters parameters
+     :expression (if result-type (apply list name (map :name parameters)) expression)}))
+
 (defn invoke-scoped!
   "Execute native scoped syntax with JVM lexical captures in the same process.
   Mutable captures are passed by address, not silently copied into parameters."
   ([caller form locals] (invoke-scoped! caller form locals false))
   ([caller form locals result?]
-   (let [entries (sort-by (comp str key) locals)
-         mutable? #(and (value/zig-value? %) (= :var (:kind (value/info %))))
-         operands (mapv (fn [[_ v]]
-                          (if (mutable? v) (.address ^MemorySegment (value/segment v)) v))
-                        entries)
-         {:keys [parameters arguments expression-arguments]}
-         (call-inputs (mapv (fn [[_ v]]
-                              (if (mutable? v)
-                                {:type :usize}
-                                {:type :anytype :properties {:jvm/literal? true}})) entries)
-                      operands)
-         replacements (into {}
-                            (map (fn [[[name v] argument]]
-                                   [name (if (mutable? v)
-                                           (list 'aguafria.zig/deref
-                                                 (list 'aguafria.keyword/as
-                                                       (list 'aguafria.keyword/ptrFromInt argument)
-                                                       [:* (value/qualified-type v)]))
-                                           argument)]))
-                            (map vector entries expression-arguments))
-         expression (binding [emitter/*local-type-bindings* (zipmap (keys locals) (repeat false))
-                              emitter/*local-name-bindings* replacements]
-                      (emitter/qualify-form (the-ns caller) form))
-         context (the-ns caller)
-         name (symbol (str "__jvm_scope_"
-                           (token (cond-> [expression parameters]
-                                    result? (conj :result)))))
-         qualified-name (symbol (str caller) (str name))]
-     (if result?
+   (binding [runtime/*native-test-context?*
+             (or runtime/*native-test-context?*
+                 (some #(and (value/zig-value? %)
+                             (= :test (:execution-context (value/info %)))) (vals locals)))]
+     (let [values (sort-by (comp str key) locals)
+           entries (mapv (fn [[name v]]
+                           (let [mutable? (and (value/zig-value? v) (= :var (:kind (value/info v))))]
+                             {:name name :mutable? mutable?
+                              :type (when mutable? (value/qualified-type v))})) values)
+           operands (mapv (fn [[entry [_ v]]]
+                            (if (:mutable? entry) (.address ^MemorySegment (value/segment v)) v))
+                          (map vector entries values))
+           inputs (call-inputs (scoped-argument-declarations entries) operands)
+           {:keys [context expression parameters function]}
+           (prepare-scoped-plan! caller form entries inputs result?)]
        (try
-         (if-let [result-type (scoped-result-type-expression expression)]
-           (do
-             (locking context
-               (when-not (contains? @prepared-adapters qualified-name)
-                 (binding [runtime/*source-only-registration?* true]
-                   (register! context {:kind :fn :name name :qualified-name qualified-name
-                                       :declaration-key [:fn name]
-                                       :zig-prefix "inline"
-                                       :return [:error-union :anyerror result-type]
-                                       :args parameters :body [(list 'return expression)]}))
-                 (swap! prepared-adapters conj qualified-name)))
-             (invoke-expression! context
-                                 (apply list name (map :name parameters))
-                                 parameters arguments))
-           (invoke-expression! context expression parameters arguments))
-         (finally (java.lang.ref.Reference/reachabilityFence locals)))
-       (locking context
-         (when-not (contains? @prepared-adapters qualified-name)
-           (binding [runtime/*source-only-registration?* true]
-             (register! context {:kind :fn :name name :qualified-name qualified-name
-                                 :declaration-key [:fn name] :return :void
-                                 :args parameters :body [expression]}))
-           (swap! prepared-adapters conj qualified-name))
-         (try
-           (runtime/invoke! qualified-name arguments)
-           (finally (java.lang.ref.Reference/reachabilityFence locals))))))))
+         (if result?
+           (invoke-expression! context expression parameters (:arguments inputs))
+           (runtime/invoke! function (:arguments inputs)))
+         (finally (java.lang.ref.Reference/reachabilityFence locals)))))))
 
 (defn- describe-native-type!
   [target]
@@ -1425,10 +1621,14 @@
   (let [container (if (and (vector? type) (#{:* :*const} (first type)))
                     (last type)
                     type)
-        reference (cond
-                    (qualified-symbol? container) container
-                    (and (seq? container) (qualified-symbol? (first container)))
-                    (first container))
+        reference (some (fn [candidate]
+                          (when (and (qualified-symbol? candidate)
+                                     (:aguafria/declaration
+                                      (some-> candidate find-var meta)))
+                            candidate))
+                        (if (seq? container)
+                          (tree-seq coll? seq container)
+                          [container]))
         declaration (some-> reference find-var meta :aguafria/declaration)
         context (some-> declaration :module symbol find-ns)]
     (when context
@@ -1449,6 +1649,8 @@
                       form))
                   receiver)
         {:keys [context container]} (member-owner receiver)
+        receiver (if context (emitter/qualify-type context receiver) receiver)
+        address (if context (emitter/qualify-type context address) address)
         member-name (native-member-name member)
         ordinary (list '(field __aguafria_jvm :fieldView) 'input_0 member-name)
         type (list 'type container)
@@ -1596,7 +1798,7 @@
                       (list 'aguafria.keyword/ptrCast (list 'aguafria.keyword/& field))
                       [(if mutable? :* :*const) [:array 1 field-type]])]
     (locking context
-      (when-not (contains? @prepared-adapters qualified-name)
+      (when-not (registered-adapter? prepared-adapters qualified-name qualified-name)
         (binding [runtime/*source-only-registration?* true]
           (register! context
                      {:kind :fn :name accessor :qualified-name qualified-name
@@ -1621,6 +1823,10 @@
   (let [field (symbol module (str name))]
     (variable-storage-view! module field
                             (or type (list 'aguafria.keyword/TypeOf field)) false)))
+
+(defn- comptime-field-expression [receiver member]
+  (with-meta (list '(field __aguafria_jvm :lookupField) receiver (native-member-name member))
+    {:aguafria/jvm-value-expression (list 'aguafria.zig/field receiver member)}))
 
 (defn variable-view!
   "Borrow a top-level variable, letting Zig resolve its inferred storage type."
@@ -1733,6 +1939,19 @@
     (and (= "++" (:zig-token syntax)) (empty? parameters)) 'concatenationResult
     (:result-type handler-plan) 'inspectResult))
 
+(defn- runtime-index-operand? [operand]
+  (cond
+    (instance? ContextualCall operand)
+    (boolean (some runtime-index-operand? (:arguments operand)))
+
+    (instance? PreparedOperand operand)
+    (not= :comptime_int (:type operand))
+
+    (value/zig-value? operand)
+    (not= :comptime_int (value/qualified-type operand))
+
+    :else false))
+
 (defn- syntax-call-declarations [syntax argument-count handler-plan runtime-slice?]
   (cond
     (= 'type (:name syntax))
@@ -1770,6 +1989,17 @@
 
     (= 'assoc! (:name syntax))
     (assoc-native! (first arguments) (rest arguments))
+
+    (= 'assign-expr (:name syntax))
+    (let [[operator target operand] arguments
+          assignment-name (when (string? operator) (keyword/token-name operator))
+          assignment (when assignment-name
+                       (ns-resolve 'aguafria.keyword (clojure.core/symbol assignment-name)))]
+      (when-not (and (= 3 (count arguments))
+                     (= :assignment (get-in (meta assignment) [:aguafria/token :kind])))
+        (throw (ex-info "assign-expr expects an assignment operator string, target, and value"
+                        {:arguments arguments})))
+      (assignment target operand))
 
     (keyword/result-context-required? (:zig-name syntax))
     (->ContextualCall syntax (vec arguments))
@@ -1810,9 +2040,7 @@
 
     (and (= 'slice (:name syntax))
          (ordinary-array-type (first arguments))
-         (some #(and (value/zig-value? %)
-                     (not= :comptime_int (value/qualified-type %)))
-               (rest arguments)))
+         (some runtime-index-operand? (rest arguments)))
     (let [[receiver start end] arguments]
       (runtime-array-operation! receiver :runtimeArraySlice
                                 [start (or end (second (ordinary-array-type receiver)))]))
@@ -1840,9 +2068,7 @@
                                  (:aguafria/zig-reference (meta receiver))))
           handler-plan (handlers/operator-plan syntax arguments)
           runtime-slice? (and (= 'slice (:name syntax))
-                              (some #(and (value/zig-value? %)
-                                          (not (#{:comptime_int} (value/qualified-type %))))
-                                    (rest arguments)))
+                              (some runtime-index-operand? (rest arguments)))
           declarations (syntax-call-declarations syntax (count arguments) handler-plan runtime-slice?)
           operands (or (:arguments handler-plan) arguments)
           storage-source? (and (= 'slice (:name syntax)) (value/zig-value? receiver)
@@ -1859,8 +2085,10 @@
           {:keys [context expression expression-arguments writer]}
           (call-expression-plan {:aguafria/syntax syntax} inputs handler-plan)
           expression (if native-field?
-                       (list '(field __aguafria_jvm :lookupField)
-                             (first expression-arguments) (name member))
+                       (if (comptime-expression receiver)
+                         (comptime-field-expression (first expression-arguments) member)
+                         (list '(field __aguafria_jvm :lookupField)
+                               (first expression-arguments) (name member)))
                        expression)
           result (invoke-expression! context expression parameters arguments
                                      (or (syntax-result-writer syntax parameters handler-plan)
@@ -1884,14 +2112,21 @@
         :else (value/retain-owners! result [receiver])))))
 
 (defn- signature-arguments [signature-or-reference]
-  (mapv (fn [parameter]
-          (cond-> parameter
-            ;; Preserve the sentinel when passing a source string as a C string.
-            (= [:sentinel-const :u8 0] (:type parameter))
-            (assoc-in [:properties :jvm/literal?] true)))
-        (:args (if (map? signature-or-reference)
-                 (signature/callable-declaration signature-or-reference)
-                 (signature/declaration signature-or-reference)))))
+  (let [source-signature? (or (string? signature-or-reference)
+                              (re-find #"\bfn\s" (or (:signature signature-or-reference) "")))]
+    (mapv (fn [parameter]
+            (cond-> parameter
+              ;; A source literal receives its dependent parameter type from
+              ;; Zig, just as it does for builtin signatures. Reflected alias
+              ;; parameter identities already denote concrete types.
+              (and source-signature? (seq? (:type parameter)))
+              (assoc-in [:properties :jvm/literal?] true)
+              ;; Preserve the sentinel when passing a source string as a C string.
+              (= [:sentinel-const :u8 0] (:type parameter))
+              (assoc-in [:properties :jvm/literal?] true)))
+          (:args (if (map? signature-or-reference)
+                   (signature/callable-declaration signature-or-reference)
+                   (signature/declaration signature-or-reference))))))
 
 (defn- reference-source [reference]
   (when-let [source (let [metadata (some-> (:symbol reference) find-var meta)]
@@ -1975,6 +2210,11 @@
          syntax (or token-syntax value-syntax)
          parameters (cond
                       (= 'type (:name syntax)) [{:name 'T :type :type}]
+                      (and (= :const (:kind declaration)) (symbol? (:value declaration)))
+                      (when-let [target (ns-resolve (the-ns (symbol (:module declaration)))
+                                                    (:value declaration))]
+                        (mapv #(update % :type (partial qualify-native-type (:ns (meta target))))
+                              (call-parameters (meta target) argument-count)))
                       declaration (:args declaration)
                       (or (re-find #"\bfn\s" (or (:signature reference) ""))
                           (= :global-const (:category reference)))
@@ -1987,11 +2227,14 @@
        parameters))))
 
 (defn- call-result-expression [expression declaration expression-arguments reference]
-  (let [index (first (keep-indexed
-                      (fn [index parameter]
-                        (when (and (= (:name parameter) (:return declaration))
-                                   (#{:type 'type} (:type parameter)))
-                          index)) (:args declaration)))
+  (let [inferred-error-return? (or (emitter/inferred-error-payload (:return declaration))
+                                   (= "!" (str/trim (or (:zig-qualifiers declaration) ""))))
+        index (when-not inferred-error-return?
+                (first (keep-indexed
+                        (fn [index parameter]
+                          (when (and (= (:name parameter) (:return declaration))
+                                     (#{:type 'type} (:type parameter)))
+                            index)) (:args declaration))))
         type-form (when index (nth expression-arguments index))
         parameter-names (set (map :name (:args declaration)))
         stable-return? (and reference (:return declaration)
@@ -2026,6 +2269,14 @@
           {:aguafria/jvm-result-type result-type}))
       expression)))
 
+(defn- comptime-function-body? [{:keys [body module]}]
+  (let [form (first body)
+        operator (when (seq? form) (first form))]
+    (and (= 1 (count body))
+         (or (= 'comptime operator)
+             (= "comptime" (:zig-token
+                            (keyword/resolve-token (the-ns (symbol module)) operator)))))))
+
 (defn- call-expression-plan
   "Build the callable adapter shared by invocation and compile-only preparation."
   ([metadata inputs] (call-expression-plan metadata inputs nil))
@@ -2040,7 +2291,14 @@
                   declaration (symbol (:module declaration))
                   imported? (symbol (str "aguafria.jvm.imported-" (token reference)))
                   :else (symbol (str "aguafria.jvm.expression-" (token syntax))))
-         context (or (find-ns module) (create-ns module))
+         receiver (first expression-arguments)
+         receiver-type (if (and (seq? receiver) (= 2 (count receiver))
+                                (#{'type 'aguafria.zig/type} (first receiver)))
+                         (second receiver)
+                         receiver)
+         context (or (when (= 'field (:name syntax))
+                       (:context (member-owner receiver-type)))
+                     (find-ns module) (create-ns module))
          expression-arguments (if (:float-literals? handler-plan)
                                 (mapv #(list '(field __aguafria_jvm :parseComptimeFloat) %)
                                       expression-arguments)
@@ -2056,6 +2314,10 @@
                                               (or declaration (signature/callable-declaration reference))
                                               expression-arguments
                                               (when imported? reference))
+                      expression)
+         expression (if (and declaration (comptime-function-body? declaration))
+                      (with-meta (list 'aguafria.keyword/comptime expression)
+                        (meta expression))
                       expression)]
      {:context context :expression expression :parameters parameters
       :expression-arguments expression-arguments
@@ -2102,15 +2364,19 @@
 
 (defn- slice-signature-plan [receiver address indices]
   (let [ordinary-array? (and (vector? receiver) (= :array (first receiver)) (= 3 (count receiver)))
-        runtime-index? (some #(not= :comptime_int (:type %)) indices)
+        operands (mapv #(prepared-operand % {:type :usize}) indices)
+        runtime-index? (some runtime-index-operand? operands)
         mutable? (= :* (first address))]
     (if (and ordinary-array? runtime-index?)
-      {:module 'aguafria.jvm.array-storage
-       :expression '((field __aguafria_jvm :runtimeArraySlice) input_0 input_1 input_2 input_3)
-       :types [[(if mutable? :many :many-const) (nth receiver 2)] :usize :usize :usize]}
+      (assoc (runtime-array-plan
+              :runtimeArraySlice
+              (into [(->PreparedOperand [(if mutable? :many :many-const) (nth receiver 2)])
+                     (->PreparedOperand :usize)]
+                    (if (= 1 (count operands))
+                      (conj operands (->PreparedOperand :usize)) operands)))
+             :writer 'borrowedResult)
       (let [syntax {:kind :syntax :name 'slice :symbol 'aguafria.zig/slice}
-            operands (into [(->PreparedOperand address)]
-                           (map #(if (map? %) (:literal %) (->PreparedOperand %))) indices)
+            operands (into [(->PreparedOperand address)] operands)
             {:keys [parameters expression-arguments]}
             (call-inputs (into [{:type :anytype}]
                                (repeat (count indices)
@@ -2126,8 +2392,20 @@
 (defn- precompile-operand-readers! [operands]
   (doseq [operand (tree-seq coll? seq operands)]
     (cond
-      (and (instance? PreparedOperand operand) (structural-schema? (:type operand)))
-      (precompile-inspection! *ns* (:type operand))
+      (instance? PreparedExpression operand)
+      (doseq [reference (distinct (filter qualified-symbol?
+                                          (tree-seq coll? seq (:expression operand))))
+              :let [declaration (:aguafria/declaration (meta (find-var reference)))]
+              :when (= :const (:kind declaration))]
+        (precompile-expression!
+         (prepare-expression! (the-ns (symbol (namespace reference))) reference []
+                              (if (:type declaration) 'storageFreeConstantResult 'comptimeResult))))
+
+      (instance? PreparedOperand operand)
+      (let [type (:type operand)]
+        (precompile-inspection! *ns* type)
+        (when (seq? type)
+          (precompile-expression! (layout-adapter type))))
 
       (and (instance? PreparedType operand) (qualified-symbol? (:schema operand)))
       (let [type (:schema operand)
@@ -2137,7 +2415,8 @@
           ;; Ordinary JVM field access first resolves a lazy type constant.
           ;; Prepare that same reader without loading or evaluating it.
           (precompile-expression!
-           (prepare-expression! (the-ns (symbol (namespace type))) type [] 'comptimeResult))
+           (prepare-expression! (the-ns (symbol (namespace type))) type []
+                                (if (:type declaration) 'storageFreeConstantResult 'comptimeResult)))
 
           (:aguafria/zig-reference (meta (find-var type)))
           (let [syntax (:aguafria/syntax (meta (find-var 'aguafria.zig/type)))
@@ -2152,87 +2431,106 @@
   "Prepare borrowed field/index views from compiler-confirmed receiver and
   address types. Uses the normal view helpers without allocating a receiver."
   [{:keys [kind receiver address reference member indices] :as signature}]
-  (when (= :index kind)
-    (precompile-operand-readers! (mapv #(prepared-operand % nil) indices)))
-  (cond
-    (and (= :address kind) reference)
-    (let [syntax (:aguafria/token (meta (find-var 'aguafria.keyword/&)))
-          module (symbol (str "aguafria.jvm.expression-" (token syntax)))
-          context (or (find-ns module) (create-ns module))
-          {:keys [expression-arguments parameters]}
-          (call-inputs [{:type :anytype :properties {:jvm/literal? true}}]
-                       [(var-get (find-var reference))])
-          expression (apply list 'aguafria.keyword/& expression-arguments)
-          adapter (prepare-expression! context expression parameters 'result)]
-      (precompile-expression! adapter)
-      (precompile-inspection! (:context adapter)
-                              (list 'aguafria.keyword/TypeOf expression))
-      (assoc signature :status :prepared))
-
-    (= :address kind)
-    (do (precompile-coercion! receiver)
+  (let [member (if (symbol? member) (keyword (name member)) member)]
+    (when (#{:index :slice} kind)
+      (precompile-operand-readers! (mapv #(prepared-operand % nil) indices)))
+    (cond
+      (and (= :address kind) reference)
+      (let [syntax (:aguafria/token (meta (find-var 'aguafria.keyword/&)))
+            module (symbol (str "aguafria.jvm.expression-" (token syntax)))
+            context (or (find-ns module) (create-ns module))
+            {:keys [expression-arguments parameters]}
+            (call-inputs [{:type :anytype :properties {:jvm/literal? true}}]
+                         [(var-get (find-var reference))])
+            expression (apply list 'aguafria.keyword/& expression-arguments)
+            adapter (prepare-expression! context expression parameters 'result)]
+        (precompile-expression! adapter)
+        (precompile-inspection! (:context adapter)
+                                (list 'aguafria.keyword/TypeOf expression))
         (assoc signature :status :prepared))
 
-    (and (= :field kind) (:comptime-type receiver))
-    (let [type (:comptime-type receiver)
-          type-value (when (qualified-symbol? type) (some-> (find-var type) var-get))
-          variable (container-variable type-value member)]
-      (if variable
-        (let [owner (:module (value/type-info type-value))
-              field (list 'aguafria.zig/field (list 'type type) member)
-              field-type (or (:type variable) (list 'aguafria.keyword/TypeOf field))]
-          (runtime/precompile-function!
-           (prepare-variable-storage! owner field field-type true)))
-        (let [syntax {:kind :syntax :name 'field :symbol 'aguafria.zig/field}
-              module (symbol (str "aguafria.jvm.expression-" (token syntax)))
-              context (or (find-ns module) (create-ns module))
-              expression (list 'aguafria.zig/field (type-expression type) member)]
+      (= :address kind)
+      (do (precompile-coercion! receiver)
+          (assoc signature :status :prepared))
+
+      (and (= :field kind) (:comptime-type receiver))
+      (let [type (:comptime-type receiver)
+            type-value (when (qualified-symbol? type) (some-> (find-var type) var-get))
+            variable (container-variable type-value member)]
+        (if variable
+          (let [owner (:module (value/type-info type-value))
+                field (list 'aguafria.zig/field (list 'type type) member)
+                field-type (or (:type variable) (list 'aguafria.keyword/TypeOf field))]
+            (runtime/precompile-function!
+             (prepare-variable-storage! owner field field-type true)))
+          (let [syntax {:kind :syntax :name 'field :symbol 'aguafria.zig/field}
+                {:keys [context expression]}
+                (call-expression-plan
+                 {:aguafria/syntax syntax}
+                 {:parameters [] :expression-arguments [(type-expression type) member]})]
+            (precompile-expression!
+             (prepare-expression! context expression []
+                                  ['declarationFieldResult (type-expression type)
+                                   (native-member-name member)]))))
+        (assoc signature :status :prepared))
+
+      (and (= :field kind) (:comptime-expression receiver))
+      (let [operands [(prepared-operand receiver nil) member]
+            syntax {:kind :syntax :name 'field :symbol 'aguafria.zig/field}
+            inputs (call-inputs (repeat 2 {:type :anytype :properties {:jvm/literal? true}})
+                                operands)
+            {:keys [context expression parameters]}
+            (call-expression-plan {:aguafria/syntax syntax} inputs)
+            expression (comptime-field-expression (first (:expression-arguments inputs)) member)]
+        (precompile-operand-readers! operands)
+        (precompile-expression! (prepare-expression! context expression parameters
+                                                     'comptimeExpressionResult))
+        (assoc signature :status :prepared))
+
+      :else
+      (let [ordinary-array? (and (vector? receiver) (= :array (first receiver))
+                                 (= 3 (count receiver)))
+            mutable? (and (sequential? address) (= :* (first address)))
+            {:keys [module expression types parameters writer]}
+            (case kind
+              :deref
+              {:module (symbol (str "aguafria.jvm.pointee-" (token receiver)))
+               :expression '((field __aguafria_jvm :dereferenceView) input_0)
+               :types [receiver]}
+
+              :slice (slice-signature-plan receiver address indices)
+              :field
+              (field-view-plan receiver member address)
+
+              :index
+              (if ordinary-array?
+                (runtime-array-plan :arrayIndexView
+                                    [(->PreparedOperand [(if mutable? :many :many-const) (nth receiver 2)])
+                                     (->PreparedOperand :usize)
+                                     (prepared-operand (first indices) {:type :usize})])
+                (let [index (first indices)
+                      comptime? (and (map? index) (contains? index :comptime))]
+                  (index-plan receiver (->PreparedOperand address)
+                              (prepared-operand index {:type (if comptime? :comptime_int :usize)})
+                              comptime?))))
+            context (or (find-ns module) (create-ns module))
+            parameters (or parameters
+                           (mapv (fn [index type]
+                                   {:name (symbol (str "input_" index)) :type type})
+                                 (range) types))
+            adapter (prepare-expression! context expression parameters (or writer 'borrowedResult))]
+        (when (and (= :index kind) (index-reflection? receiver))
           (precompile-expression!
-           (prepare-expression! context expression []
-                                ['declarationFieldResult (type-expression type)
-                                 (native-member-name member)]))))
-      (assoc signature :status :prepared))
-
-    :else
-    (let [ordinary-array? (and (vector? receiver) (= :array (first receiver))
-                               (= 3 (count receiver)))
-          mutable? (and (sequential? address) (= :* (first address)))
-          {:keys [module expression types parameters writer]}
-          (case kind
-            :deref
-            {:module (symbol (str "aguafria.jvm.pointee-" (token receiver)))
-             :expression '((field __aguafria_jvm :dereferenceView) input_0)
-             :types [receiver]}
-
-            :slice (slice-signature-plan receiver address indices)
-            :field
-            (field-view-plan receiver member address)
-
-            :index
-            (if ordinary-array?
-              (runtime-array-plan :arrayIndexView
-                                  [(->PreparedOperand [(if mutable? :many :many-const) (nth receiver 2)])
-                                   (->PreparedOperand :usize)
-                                   (prepared-operand (first indices) {:type :usize})])
-              (let [index (first indices)
-                    comptime? (and (map? index) (contains? index :comptime))]
-                (index-plan receiver (->PreparedOperand address)
-                            (prepared-operand index {:type (if comptime? :comptime_int :usize)})
-                            comptime?))))
-          context (or (find-ns module) (create-ns module))
-          parameters (or parameters
-                         (mapv (fn [index type]
-                                 {:name (symbol (str "input_" index)) :type type})
-                               (range) types))
-          adapter (prepare-expression! context expression parameters (or writer 'borrowedResult))]
-      (when (and (= :index kind) (index-reflection? receiver))
-        (precompile-expression!
-         (prepare-expression! context
-                              (list '(field __aguafria_jvm :indexRequiresComptime)
-                                    (list 'type receiver))
-                              [] 'inspectResult)))
-      (precompile-expression! adapter)
-      (assoc signature :status :prepared))))
+           (prepare-expression! context
+                                (list '(field __aguafria_jvm :indexRequiresComptime)
+                                      (list 'type receiver))
+                                [] 'inspectResult)))
+        (precompile-expression! adapter)
+        ;; A borrowed pointee is decoded separately from the view envelope.
+        ;; Use the child in Zig's observed pointer schema, not a new type guess.
+        (when (and (= :deref kind) (vector? receiver) (#{:* :*const} (first receiver)))
+          (precompile-inspection! context (peek receiver)))
+        (assoc signature :status :prepared)))))
 
 (defn- prepared-operand [argument declaration]
   (cond
@@ -2253,11 +2551,15 @@
     (and (map? argument) (contains? argument :comptime-expression))
     (let [expression (:comptime-expression argument)]
       (if (qualified-symbol? expression)
-        (let [function (var-get (find-var expression))]
-          (when-not (:aguafria/zig-reference (meta function))
-            (throw (ex-info "Prepared function requires a native declaration"
-                            {:function expression})))
-          function)
+        (let [reference (find-var expression)
+              declaration (:aguafria/declaration (meta reference))]
+          (if (= :const (:kind declaration))
+            (->PreparedExpression expression)
+            (let [function (var-get reference)]
+              (when-not (:aguafria/zig-reference (meta function))
+                (throw (ex-info "Prepared function requires a native declaration"
+                                {:function expression})))
+              function)))
         (->PreparedExpression (emitter/qualify-form *ns* expression))))
     (and (map? argument) (contains? argument :literal)) (:literal argument)
     (and (map? argument) (contains? argument :comptime))
@@ -2269,8 +2571,8 @@
       (emitter/emit-type type)
       (->PreparedOperand type))))
 
-(defn- precompile-inputs
-  ([arguments declarations] (precompile-inputs arguments declarations nil))
+(defn- prepared-call-inputs
+  ([arguments declarations] (prepared-call-inputs arguments declarations nil))
   ([arguments declarations reference]
    (let [declarations (mapv (fn [argument declaration]
                               (cond-> (or declaration {:type :anytype})
@@ -2280,14 +2582,34 @@
                             arguments (concat declarations (repeat nil)))
          operands (mapv prepared-operand arguments declarations)
          declarations (if reference (reference-arguments reference declarations operands) declarations)]
-     (precompile-operand-readers! operands)
      ;; Use the actual call planner, including contextual primitive parameters,
      ;; comptime arguments and lossless unsigned/integer carriers. These are
      ;; type-only placeholders, never allocated or passed to native code.
-     (cond-> (select-keys (call-inputs declarations operands) [:parameters :expression-arguments])
+     (cond-> (assoc (select-keys (call-inputs declarations operands) [:parameters :expression-arguments])
+                    :operands operands)
        (some #(get-in % [:properties :jvm/peer-float?]) declarations)
        (assoc :inspection-types
               (into #{} (keep #(when (instance? PreparedOperand %) (:type %))) operands))))))
+
+(defn- precompile-inputs
+  ([arguments declarations] (precompile-inputs arguments declarations nil))
+  ([arguments declarations reference]
+   (let [inputs (prepared-call-inputs arguments declarations reference)]
+     (precompile-operand-readers! (:operands inputs))
+     (dissoc inputs :operands))))
+
+(defn call-result-identity
+  "Plan the native result type of a compiler-observed function call. Uses the
+  ordinary call planner without compiling readers, allocating or invoking it."
+  [function arguments]
+  (let [metadata (meta (find-var function))
+        reference (when-not (:aguafria/declaration metadata)
+                    (:aguafria/zig-reference metadata))
+        inputs (prepared-call-inputs arguments (call-parameters metadata (count arguments))
+                                     reference)
+        {:keys [context expression parameters]} (call-expression-plan metadata inputs)]
+    (list 'aguafria.keyword/TypeOf
+          (expression-without-runtime-inputs context expression parameters))))
 
 (defn precompile-construction!
   "Prepare typed construction from compiler-observed JVM input representations,
@@ -2340,8 +2662,16 @@
   "Prepare a member call from compiler-observed receiver/argument types.
   Shares the normal JVM method planner; never constructs or invokes a receiver."
   [{:keys [receiver address member args] :as signature}]
-  (let [native? (not (and (map? receiver) (contains? receiver :comptime-type)))
-        receiver-type (emitter/qualify-type *ns* (if native? receiver (:comptime-type receiver)))
+  (let [member (if (symbol? member) (keyword (name member)) member)
+        native? (not (and (map? receiver)
+                          (or (contains? receiver :comptime-type)
+                              (contains? receiver :comptime-expression))))
+        receiver-type (emitter/qualify-type
+                       *ns* (cond
+                              (:comptime-expression receiver)
+                              (list 'aguafria.keyword/TypeOf (:comptime-expression receiver))
+                              native? receiver
+                              :else (:comptime-type receiver)))
         mutable? (and native? (= :* (first address)))
         operands (if native? args (into [receiver] args))
         inputs (precompile-inputs operands
@@ -2349,16 +2679,51 @@
                                           {:type :anytype :properties {:jvm/literal? true}}))
         {:keys [context expression parameters]}
         (method-plan receiver-type member mutable? native? inputs)]
+    (when-not native?
+      (precompile-storage! {:kind :field :receiver receiver :member member}))
     (precompile-expression! (prepare-expression! context expression parameters 'result))
+    (assoc signature :status :prepared)))
+
+(defn precompile-scoped!
+  "Prepare the ordinary scoped adapter from compiler-observed capture schemas.
+  Mutable captures keep their native storage addresses; no body is executed."
+  [{:keys [caller form captures types result?] :as signature}]
+  (when-not (= (* 2 (count captures)) (count types))
+    (throw (ex-info "Scoped capture signature does not match its bindings"
+                    {:captures captures :types types})))
+  (let [entries (mapv (fn [name [type address]]
+                        {:name name :type (constructor-type type)
+                         :mutable? (and (vector? address) (= :* (first address)))})
+                      captures (partition 2 types))
+        inputs (precompile-inputs
+                (mapv (fn [entry [type _]] (if (:mutable? entry) :usize type))
+                      entries (partition 2 types))
+                (scoped-argument-declarations entries))
+        {:keys [context expression parameters function]}
+        (prepare-scoped-plan! caller form entries inputs result?)]
+    (if result?
+      (precompile-expression! (prepare-expression! context expression parameters 'result))
+      (runtime/precompile-function! function))
     (assoc signature :status :prepared)))
 
 (defn precompile-assignment!
   "Compile the ordinary assignment adapter using types observed by Zig, without
   making storage or performing the write."
   [{:keys [function operation target operand] :as signature}]
-  (if (= "=" operation)
+  (cond
+    (contains? #{:comptime_int :comptime_float} (if (map? target) (:type target) target))
+    (assoc signature :status :unsupported :reason :comptime-only-mutation)
+
+    (= "=" operation)
     (let [preparation
           (cond
+            (and (map? operand) (contains? operand :contextual-argument))
+            (let [[context input] (:contextual-argument operand)]
+              (when-not (= target context)
+                (throw (ex-info "Assignment context differs from its target"
+                                {:target target :context context})))
+              (precompile-assignment! (assoc signature :operand input)))
+
             (and (map? operand) (contains? operand :contextual-call))
             (precompile-construction! target operand)
 
@@ -2378,6 +2743,7 @@
             (not (map? operand)) (precompile-conversion! operand target)
             :else (precompile-coercion! target))]
       (merge signature (select-keys preparation [:status :reason :native-values-only?])))
+    :else
     (let [operand-type (when (and (map? operand) (number? (:literal operand)))
                          (handlers/assignment-signature-operand-type target operation))
           inputs
@@ -2400,6 +2766,9 @@
          (string? (first arguments))
          aguafria.zig/error-value
          (or (keyword? (first arguments)) (string? (first arguments)))
+         aguafria.zig/multiline-string
+         (and (vector? (first arguments)) (seq (first arguments))
+              (every? string? (first arguments)))
          false)))
 
 (defn source-concatenation-form?
@@ -2428,7 +2797,7 @@
                      arguments)
         expression (apply list function expression-arguments)]
     (precompile-expression! (prepare-expression! context expression parameters 'result))
-    (when (= function 'aguafria.zig/string-literal)
+    (when (#{'aguafria.zig/string-literal 'aguafria.zig/multiline-string} function)
       ;; The compiler observation uses the same structural pointer schema as
       ;; native result transport. An equivalent TypeOf expression would create
       ;; a different decoder identity and miss the persisted cache on restart.

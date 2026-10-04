@@ -3,6 +3,7 @@
   (:require [aguafria.zig :as a]
             [aguafria.zig.artifact :as artifact]
             [aguafria.zig.explain :as explain]
+            [aguafria.zig.precompile :as precompile]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -43,10 +44,17 @@
 
 (defn- check-coverage! [report]
   (let [coverage (:coverage report)
+        computed (precompile/coverage (:analysis report))
+        functions (mapcat :functions (:analysis report))
         selected (selected-namespaces)]
+    (assert (= computed
+               (select-keys (update coverage :namespaces dissoc :ignored)
+                            (keys computed)))
+            "Coverage totals must match the actual operation records")
     (assert (= selected (set (map :namespace (:analysis report))))
             "Preparation must include every host source namespace")
-    (assert (= (count selected) (get-in coverage [:namespaces :attempted])))
+    (assert (= (count selected) (count (:analysis report))
+               (get-in coverage [:namespaces :attempted])))
     (assert (zero? (get-in coverage [:namespaces :baseline-failures])))
     (assert (every? #{:analyzed :skipped}
                     (keys (get-in coverage [:namespaces :statuses])))
@@ -57,7 +65,11 @@
     (assert (= (get-in coverage [:declared-functions :total])
                (get-in coverage [:declared-functions :statuses :prepared]))
             (artifact/print-data (:declared-functions coverage)))
+    (assert (every? #(= :prepared (:status %)) functions)
+            (artifact/print-data (:declared-functions coverage)))
+    (assert (= (count functions) (get-in coverage [:declared-functions :total])))
     (assert (seq (get-in report [:scalar-constructor-profiles :types])))
+    (assert (seq (get-in report [:scalar-constructor-profiles :statuses])))
     (assert (every? #{:prepared}
                     (keys (get-in report [:scalar-constructor-profiles :statuses])))
             (artifact/print-data (:scalar-constructor-profiles report)))))

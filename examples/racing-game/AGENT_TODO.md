@@ -9,8 +9,95 @@ tests alone does not close visual QA items.
 
 ## October 3 — Zig 0.17 project verification
 
-- Latest corrected scalar-profile preparation61707/exec77766:21/43 completed
-  checkpoints,4588/4588 candidates,190/190 functions,zero subset failures.
+- October 4 focused startup follow-up: JFR namespace-only 82.875s, zero native
+  compiler events; 542/983 samples include converted C-binding loading (counts
+  overlap). Duplicate descriptor fingerprinting removed; 17/195 API/source
+  assertions pass. Lazy source emission rejected/reverted after fresh strict
+  checker took 123.118s. Static emission retained; new fresh checker 116.949s,
+  12 pure calls + 3 tests/16 assertions, one pack load, zero builds/new libraries
+  or missing/unapproved keys. No startup speedup established. Reports:
+  `racing-startup-optimized-restart-017.edn` and
+  `racing-startup-static-restart-017.edn`. Both children exited; coordinator
+  64820/PID44736 finished and stopped. Do not rerun unchanged whole AOT.
+  Final relevant API/source/native-host/private groups:21 distinct tests/213
+  assertions PASS; no claim of a startup speedup. Actual Tiger private member
+  preparation succeeds; broader Tiger failures remain a separate ledger.
+
+- Current getter/layout preparation:43/43 checkpoints,14434/14434 runtime
+  candidates,520/520 functions,zero baseline/handler failures. Published
+  one3946-handler pack in49.214min(existing cache,not cold). Distinct strict
+  restart driver`../../.tmp/racing-getter-layout-aot-restart-017.clj`PASS in
+  fresh64820/PID44736:12pure checks+3tests/16assertions,one packload,zero
+  builds/newlibs/unmatched keys/unapproved standalone handlers. Actual restart
+  evidence`.aguafria/precompile/racing-getter-layout-aot-restart-017.edn`.
+  Remaining: namespace/source setup82.155s for require+checks; warm12calls
+  24.853ms/30memory hits. Preparation/runtime cache parity gate is closed;
+  do not rerun the whole inventory without a related change.
+  Owned63797/PID4692 finished/stopped. Strict64820/PID44736 now coordinates
+  a fresh ordinary namespace-load JFR child (no native tests/game window),
+  driver`../../.tmp/racing-startup-profile-017.clj`,progress
+  `racing-startup-profile-progress`,future`racing-startup-profile`;
+  results`../../.tmp/racing-startup-profile-017.edn/.jfr/.log`. Profile startup
+  registration/planning cost before changing it; do not infer whole-AOT speedup
+  from microbenchmarks. Stop coordinator/child when finished; user sessions
+  remain preserved.
+
+- October4 latest: clean whole restart FAILED strictcache acceptance:12pure
+  checks+3tests/16assertionsPASS,but5namespace rootscompiled/newlibraries.
+  Exact compiler inputs reproduce4lazygetter roots pluslap-timing/Entry's
+  published layout root. Generic preparation now usesbothrealgetterbranches
+  andpublishedtype-layout compiler paths;ordinaryZig/keysunchanged.
+  EMPTY/FRESHsync+async regression2tests/28assertionsPASS,exactkeymembership,
+  zero builds/newlibs. Intermediate6assertionfailures werea separateunauthored
+  fieldhandler,not a layoutmiss;failedreportretained,finalusesa/value decoding.
+  Newcurrentwholepreparation63797/exec23509,target
+  `.aguafria/precompile/racing-getter-layout-aot-017.edn`,driver
+  `../../.tmp/racing-getter-layout-aot-017.clj`. Existingcache retained;notcold
+  timing. Fullpublication/freshstrictrestartstillpending. Old63554/PID95878
+  diagnosticjobfinished/stopped. Rootcacheparityreporthasdetails/evidence.
+- Latest clean preparation43/43 namespaces,14434/14434candidates,520/520functions,
+  zero baseline/handlerfailures. One3949-handler pack published in68.466min;
+  code41239136bytes/debug64109918bytes.90scalar constructors/5profiles prepared,
+  26exact external export exclusions.481result-context calls,73type declarations,
+  onecompiler directive are separate categories,not prepared runtime handlers.
+  Completed62545/PID83819 stopped/verifiedgone. Strictfresh63554/PID95878 now
+  checks ordinaryrequires/purecalls/laptests/exactkeys/no newlibs,not accepted
+  yet. Driver../../.tmp/racing-clean-cache-aot-restart-017.clj. Root report records
+  newly fixed compiler-only generic specialization and source-only callable
+  paths,withEMPTY-cache9/56 and unit3/15PASS;focusedTigerfresh8checks/onepack/
+  zero builds/newlibs. Those focused checks do not accept either whole project.
+- Permanent coverage gate now recomputes raw records and rejects stale totals,
+  duplicate namespace entries, partial handlers and empty scalar statuses.
+  Current unit1/17PASS in63366/PID78632;stopped afterpublication without native
+  warm-up. Actual acceptance usesnew63554/currentcore. Root cache report has
+  evidence and new source-only metadata read checks3/23 plus guarded1/5PASS.
+  No whole-preparation speedup or current full cache acceptance claimed.
+- October 4 explicit clean restart: owned61707/PID71439 stopped at30/43
+  namespaces,7447/7447 candidates,290/290 functions,zero subset failures.
+  Preserved partial report `.aguafria/precompile/racing-before-clean-cache-017.edn`.
+  User requested removal of the entire shared Zig cache. It was removed and
+  verified absent, reclaiming53.338GiB; toolchains/reports/project builds and
+  user sessions preserved. Fresh normal nREPL62545/PID83819/exec80739 runs
+  public a/precompile!,two workers,native invocation blocked. New driver
+  `../../.tmp/racing-clean-cache-aot-017.clj`; report/checkpoint target
+  `.aguafria/precompile/racing-clean-cache-aot-017.edn`. No publication/current
+  fresh restart acceptance yet. Do not reuse old report targets or loaded user
+  bindings as clean-run evidence. Historical packs below have been deleted.
+  Latest clean subset20/43,3894/3894 candidates,159/159 functions,zero failures.
+  Clean restart driver `../../.tmp/racing-clean-cache-aot-restart-017.clj` is
+  ready with distinct report/result paths;not run before publication. New Tiger
+  coverage gate1test/16assertionsPASS,raw records recomputed;no runtime warm-up.
+- Live JFR profile identified dependency sort serialization41.41% inclusive JVM
+  execution samples (not wall/native compiler time). Per-refresh print-key reuse
+  now saved with exact identical identities. Actual frozen Racing batches26modules/
+  1099batches:21377->4267 serializations;8 alternating medians63.211->18.793ms,
+  about3.4x for sorting only. Focused9/76 and actual fresh-child cache3/33PASS.
+  Verification62783/PID15204 and children stopped; active preparations keep their
+  previously loaded code. No whole-AOT speedup/clean restart claim yet. Pending
+  23namespace checkpoints,including monitor/physics;164result-context calls and
+  19type declarations separate from failures. Root cache report/raw evidence.
+- Latest corrected scalar-profile preparation61707/exec77766:24/43 completed
+  checkpoints,4952/4952 candidates,200/200 functions,zero subset failures.
   Final publication still pending. Permanent test/racing_game/cache_check.clj
   added;coverage gate1test/11assertionsPASS. Actual fresh restart must use
   ../../.tmp/racing-scalar-profile-aot-restart-017.clj and its distinct result
@@ -18,6 +105,11 @@ tests alone does not close visual QA items.
   scalar/callback tests2/16PASS. Native graph finaltests4/23PASS;actual Tiger
   probe6.301s/no semantic errors,not whole-project speedup. Core61626/61918
   completed/stopped;no live preparation classes or user sessions reloaded.
+  Per-calculation shared cyclic-source serialization now reuses canonical
+  entries with exact unchanged hashes. Focused4/31PASS;EMPTY/FRESH cache and
+  refresh3/18PASS. Six alternating synthetic measurements7.977ms->2.670ms
+  medians,not whole-project timing. Core62258 completed/stopped;activeprep
+  retains prior key-equivalent fingerprint calculator. See root cache report.
 - Current scalar-profile follow-up: new whole prep61707/exec77766 running public
   a/precompile! with two workers/native invocation blocked. Distinct driver
   ../../.tmp/racing-scalar-profile-aot-017.clj;report target

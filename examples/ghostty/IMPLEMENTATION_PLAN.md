@@ -12,6 +12,27 @@ the 0.17 migration is complete. Current evidence and remaining work are tracked
 in `../learn/AGENT_TODO.md` and the root
 `PROJECT_NREPL_VERIFICATION_2026-10-03.md`.
 
+- October 4 final native checkpoint: 66 source files regenerated with zero
+  converter fallbacks/unresolved syntax (65-file migration plus test-only OOM
+  allocator correction). VT matrix: 6,552 PASS / 54 skipped; focused OOM:71/71.
+  WASM and standalone builds passed. Four JVM/reload tests / 20 assertions pass,
+  including native state retention and focus/queue behavior changes.
+  Corrected public AOT: 3/3 namespaces,15/15 runtime candidates,3/3 functions,
+  one93-handlerpack;425.683s. Fresh consumer returned [1 73 79 4],four matching
+  bundle hits,zero runtime builds,three approved namespace disk hits;126.372s.
+  Startup latency remains open. Later eager-import core changes exposed an
+  alias traversal bug; fixed with permanent cross-module alias coverage.
+  Latest-core fresh consumer after eager-import/alias fixes passes the same
+  strict gate,136.047s; original pack reused without rebuilding. Evidence:
+  root migration report and .tmp/ghostty-*017 logs.
+- October 4 earlier follow-up: the final three DebugAllocator uses now use
+  SafeAllocator. Reflection, CRC naming and typed repetition errors from the
+  wider VT test compile were repaired. Zig 0.17's formatter migrated deprecated
+  enum builtins; the final source passes `zig fmt --check src`. Regenerated
+  65 affected files in 59.659 s with zero fallbacks/unresolved syntax. Final
+  standalone, native VT and four focused JVM/reload checks are in progress;
+  earlier partial checks do not validate this final source. Evidence:
+  root `.tmp/ghostty-safe-allocator-017.edn` and migration report.
 - Vendor macOS native build: 221/221 steps. Focused GUI/config/font/tmux native
   tests: 219/219. These are native tests, not visible application verification.
 - Conversion: 1,051 files / 20,292 declarations, with zero raw fallbacks or

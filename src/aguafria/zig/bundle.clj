@@ -157,7 +157,7 @@
 (defn candidate
   "Describe a packable emitted graph; unsupported configurations stay standalone."
   [artifact]
-  (when (str/starts-with? (:module artifact) "aguafria.jvm.")
+  (when (:jvm-adapter? artifact)
     (try
       (when (or (not= :shared (:development-panic artifact)) (:native-test-context? artifact))
         (throw (ex-info "Handler requires standalone linking"

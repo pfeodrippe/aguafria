@@ -6,9 +6,38 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
+(deftest descriptor-expansion-shares-one-fingerprinted-declaration
+  (let [symbol (with-meta 'input {:aguafria/zig-reference
+                                  {:kind :const :module "fixture.other"
+                                   :zig-name "input" :constant-fingerprint "value"}})
+        descriptors [{:kind :const :type :i32 :value symbol}
+                     {:kind :fn :args [] :return :i32 :body [42]}
+                     {:kind :struct :layout :extern
+                      :fields [{:name :value :type :i32 :properties {}}]}]
+        original runtime/declaration-info]
+    (doseq [descriptor descriptors]
+      (let [descriptor (assoc descriptor :module "fixture.descriptor-sharing"
+                              :name 'sample :declaration-key [(:kind descriptor) 'sample])
+            expected (original descriptor)
+            calls (atom 0)
+            expansion (with-redefs [runtime/declaration-info
+                                    (fn [declaration]
+                                      (swap! calls inc)
+                                      (original declaration))]
+                        (#'aguafria.zig/descriptor-expansion descriptor))
+            actual (eval (:descriptor-form expansion))]
+        (is (= 1 @calls))
+        (is (= (binding [*print-meta* true] (pr-str expected))
+               (binding [*print-meta* true] (pr-str actual))))
+        (is (= (:logical-id expected) (get-in expansion [:reference :logical-id])))
+        (is (= (:implementation-fingerprint expected)
+               (get-in expansion [:reference :implementation-fingerprint])))
+        (is (= (:schema-fingerprint expected)
+               (get-in expansion [:reference :schema-fingerprint])))))))
+
 (deftest attributes-require-sets-in-every-declaration-context
   (doseq [attributes [:comptime 'ak/comptime ak/comptime [:comptime]
-                     '(:comptime) nil {:comptime true}]]
+                      '(:comptime) nil {:comptime true}]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #":attrs must be a set"
                           (ak/normalize-attributes *ns* {:attrs attributes}))))
   (is (= {:attrs #{:comptime} :zig/prefix "comptime"}
@@ -23,10 +52,10 @@
         (refer 'clojure.core)
         (require '[aguafria.zig :as a] '[aguafria.keyword :as ak])
         (doseq [form '[(a/defn invalid :void {:attrs [:public]} [])
-                      (a/defvar invalid :i32 {:attrs ak/threadlocal} 0)
-                      (a/defstruct Invalid {:attrs :public} [])
-                      (a/defstruct Invalid
-                        [(a/fn method :void {:attrs [:public]} [])])]]
+                       (a/defvar invalid :i32 {:attrs ak/threadlocal} 0)
+                       (a/defstruct Invalid {:attrs :public} [])
+                       (a/defstruct Invalid
+                         [(a/fn method :void {:attrs [:public]} [])])]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (finally (remove-ns namespace-symbol)))))
 
@@ -38,13 +67,13 @@
         (refer 'clojure.core)
         (require '[aguafria.zig :as a])
         (doseq [[name initializer] [['flag false] ['text "hello"] ['empty nil]
-                                   ['record {:x 1}] ['tuple [1 2]]]]
+                                    ['record {:x 1}] ['tuple [1 2]]]]
           (eval (list 'a/defvar name initializer))
           (is (nil? (:type (last (runtime/collected-declarations declarations)))))
           (is (= initializer (:value (last (runtime/collected-declarations declarations))))))
         (doseq [form '[(a/defvar missing)
-                      (a/defvar misplaced {:public true} :bool false)
-                      (a/defvar misplaced "doc" :bool false)]]
+                       (a/defvar misplaced {:public true} :bool false)
+                       (a/defvar misplaced "doc" :bool false)]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (finally (remove-ns (ns-name scratch))))))
 
@@ -87,7 +116,7 @@
         (is (= "Inspectable function.\n\nReturns: :u32"
                (:doc (meta (ns-resolve scratch 'clean-function)))))
         (is (str/starts-with? (:doc (meta (ns-resolve scratch 'CleanPoint)))
-                             "Inspectable struct.")))
+                              "Inspectable struct.")))
       (finally
         (remove-ns namespace-symbol)))))
 
@@ -114,15 +143,15 @@
           (is (= "A named test Var." (:doc (meta first-var))))
           (is (:aguafria/test (meta first-var))))
         (doseq [form '[(a/defn old :- :i32 [] 1)
-                      (a/defn old {:attrs #{}} :- :i32 [] 1)
-                      (a/defn old {:attrs #{}} :i32 [] 1)
-                      (a/deftest "string name")
-                      (a/deftest nil)
-                      (a/deftest {:attrs #{}} old-test)
-                      (a/deftest old-test {:zig/test-name "old label"})
-                      (a/deftest old-test {:zig/test-name another-name})
-                      (a/deftest old-test {:zig/test-name nil})
-                      (a/deftest ^{:zig/test-name "old label"} old-test)]]
+                       (a/defn old {:attrs #{}} :- :i32 [] 1)
+                       (a/defn old {:attrs #{}} :i32 [] 1)
+                       (a/deftest "string name")
+                       (a/deftest nil)
+                       (a/deftest {:attrs #{}} old-test)
+                       (a/deftest old-test {:zig/test-name "old label"})
+                       (a/deftest old-test {:zig/test-name another-name})
+                       (a/deftest old-test {:zig/test-name nil})
+                       (a/deftest ^{:zig/test-name "old label"} old-test)]]
           (is (thrown? Exception (eval form)) (pr-str form))))
       (let [by-name (into {} (map (juxt :name identity)) (runtime/collected-declarations declarations))]
         (is (= :i32 (:return (by-name 'answer))))

@@ -721,7 +721,7 @@ pub const __aguafria_jvm = struct {
 
     // Reflect storage eligibility in Zig. A type value, function body or
     // aggregate containing either cannot be copied into a native allocation.
-    fn requiresComptime(comptime T: type) bool {
+    pub fn requiresComptime(comptime T: type) bool {
         return switch (@typeInfo(T)) {
             .type, .comptime_int, .comptime_float, .enum_literal, .@"fn", .null, .undefined => true,
             .array => |info| (info.len != 0 or info.sentinel_ptr != null) and requiresComptime(info.child),
@@ -850,6 +850,7 @@ pub const __aguafria_jvm = struct {
         // Type results remain callable type handles, not inspection maps.
         // Booleans retain JVM truth semantics; a boxed false is truthy.
         if (@TypeOf(value) == type or @TypeOf(value) == bool) return result(value);
+        if (@TypeOf(value) == BoundMethod) return result(value);
         if (@typeInfo(@TypeOf(value)) == .@"fn") return fieldResult(value);
         var sink = NativeWriter.init();
         defer sink.deinit();
@@ -995,7 +996,7 @@ pub const __aguafria_jvm = struct {
     pub fn comptimeResult(comptime value: anytype) usize {
         switch (@typeInfo(@TypeOf(value))) {
             .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => {},
-            else => return result(null),
+            else => return if (requiresComptime(@TypeOf(value))) result(value) else result(null),
         }
         var sink = NativeWriter.init();
         defer sink.deinit();
@@ -1005,5 +1006,9 @@ pub const __aguafria_jvm = struct {
         write(writer, value) catch @panic("Cannot write comptime result");
         writer.writeByte('}') catch @panic("Cannot write comptime result");
         return sink.finish();
+    }
+
+    pub fn storageFreeConstantResult(comptime value: anytype) usize {
+        return if (requiresComptime(@TypeOf(value))) comptimeResult(value) else result(null);
     }
 };

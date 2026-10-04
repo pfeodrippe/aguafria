@@ -3,7 +3,412 @@
 ## Zig 0.17.0 migration — October 3 (in progress)
 
 - Latest verification checkpoint:
-  - Corrected Racing61707 now21/43 checkpoints,4588/4588 candidates,190/190
+  - Current handles (October 4): source/linkage separation in runtime.clj is
+    UNDER VERIFICATION. Root55615 future eager-import-verification rerun with
+    a converted lazy test-container catalog; prior prototype failed normal
+    fixture registration, not an accepted gate. Fresh actual Tiger23 replay
+    exec95622/PID23529, .tmp/tiger-eager-separated-017.log; no result yet.
+    Previous fresh replay9prepared/14failed, not a new whole-project count.
+    Alias-fixed Ghostty restart completed136.047s, strict zero-build/original
+    bundle gate PASS (predates source/linkage split). Adjacent runtime68/2418
+    PASS also predates split. Learn eager-import-acceptance-017.edn PASS:
+    291 comparisons,288 transcripts,zero missing,18 JVM tests/123 assertions;
+    latest browser refresh pending and this run predates source/linkage split.
+    WholeTiger63619/PID46213 still working; main preparation remains pending.
+    Next: accept fixture and actual replay, final adjacent/restart/browser gates,
+    whole Tiger publication and concrete remaining compiler-context cases.
+  - October 4 current continuation (older checkpoints below are historical):
+    Ghostty final native VT 6,552 PASS/54 skips/zero failures; focused OOM71/71,
+    WASM and standalone builds PASS. Four actual JVM/reload tests20PASS.
+    Numeric comptime inspection import fix3tests20PASS; public Ghostty AOT
+    3/3 namespaces,15/15 candidates,3/3 functions,one93-handlerpack,425.683s.
+    Fresh consumer [1 73 79 4],four exact bundlehits,zero builds/unapproved
+    standalone hits,126.372s cold. A newer consumer after eager-import changes
+    failed on cross-namespace import-alias collision; fixed by per-module import
+    extraction. Alias-expanded fixture/restart running; fresh consumer exec31591
+    pending. Do not call earlier strict gate latest-core acceptance yet.
+    Null conversion planner permanent2/18PASS36.811s; actual fresh VSR603
+    compile-only prepares93.825ms. Eager-import prototype4/15PASS18.491s;
+    bounded actual23 replay9prepared/14failed(test-only Snap assertion).
+    Fresh public focused replay exec13459 now running to exclude warm-registry
+    effects. Report .aguafria/precompile/tiger-eager-fresh-017.edn under Tiger.
+    Whole Tiger exec63619/PID46213 remains running on its original core:
+    four checkpoints1,060/1,385;VSR1,051/1,376,325incomplete;main645operations/
+    2rootfailures/1,807.983s analysis. Main preparation/bundle pending.
+    Latest Learn inspection-import checkpoint291comparisons/288transcripts/
+    zero missing,18targetedJVMtests123PASS,browser11/11PASS27.913s;hash493754b7...
+    Full HTML/actual browser refresh required after final eager/null changes.
+    Current adjacent runtime suite exec73088; warm owned55615 future
+    eager-import-verification (expanded6fixtures). User REPLs/preview intact.
+    No goal completion, staging, commits or cache deletion this turn.
+  - October 4 vendor compatibility/current-tree gates: removed dead Tiger
+    SyncTarget alias plus three uncalled obsolete helpers; retained SyncStage.
+    Two files regenerated 5.959 s, zero fallback/unresolved syntax. Fresh
+    ordinary five-namespace precompile exec63619/PID46213 blocks native calls:
+    three namespaces complete, 9/9 candidates; VSR analysis 1,429 operations,
+    zero root failures, 479.458 s; VSR preparation/main analysis pending.
+    Do not add old focused IDs to these changed-source counts. Ghostty's three
+    DebugAllocator sites replaced with SafeAllocator; wider VT compile errors
+    repaired using actual reflection/CRC/typed-array APIs. Zig fmt itself
+    migrated remaining enum builtins; final src fmt check passes. Final 65-file
+    generation completed 59.659 s, zero fallback/unresolved. Final standalone
+    exec22791 and native VT exec23629 still running. The native VT run predates
+    final formatter rewrite and needs final-source verification; earlier
+    standalone exec95633/PID result and JVM 2/12 pass are not final acceptance.
+    Correct four JVM test names in Ghostty core_test.clj; run after final build.
+    Root report ZIG_0_17_0_MIGRATION_2026-10-03.md added. Core/Learn unchanged
+    by these vendor fixes; no redundant HTML refresh yet. Owned55615 remains;
+    preserve user REPLs/preview/shared cache and user-staged vendor changes.
+    No commits, staging, cache deletion or goal completion this turn.
+  - October 4 scoped-expression preparation: 1,070/1,386 prepared, 316 remaining,
+    213 cumulatively verified repaired IDs (focused saved inventory, not whole
+    Tiger publication). New closures: IDs 24/1153/1342, production replay 8.760 s
+    with native invocation blocked. Shared JVM/precompile planner uses actual
+    Zig capture/address schemas; lexical analysis supplies names only. Mutable
+    storage passed by address. Implicit labeled-block returns and parameter
+    shadowing fixed. Adapter call-site comments suppressed in implementation
+    AND comptime wrapper, authored source comments retained. Fresh restart:
+    1 test/8 PASS, 34.446 s; 5 scoped cases, changed inputs, one bundle, zero
+    builds/standalone disk hits, exact manifest keys. Emitter 76/459 PASS;
+    existing JVM labeled-block gate 1/6 PASS; adjacent 7/45 PASS, 13.174 s.
+    ID 50's six actual comptime-int mutation signatures now explicitly
+    unsupported (:comptime-only-mutation); classification, not a closure.
+    Remaining: 139 nominal, 96 placement, 78 unobserved, 1 scoped local-enum
+    context failure (ID 1391), 1 comptime mutation, 1 rejected upstream alias.
+    Evidence .tmp/tiger-scoped-production-017.edn and scoped-* verification.
+    Capture context boundary also fixed before mutable-address lowering:
+    actual normal/test/normal values and Zig builtin.is_test, 1/9 PASS 29.007 s.
+    No extra inventory closure. Earlier Learn refresh passed but predates this
+    final change. Final refresh exec5683/PID31808 exited successfully:
+    291 comparisons, 288 actual transcripts, zero missing outputs;
+    18 targeted JVM tests/123 PASS. Outcomes 164.912 s, blocks 31.891 s,
+    inlines 0.704 s, HTML 4.486 s, tests 4.968 s. Browser 11/11 PASS 25.999 s;
+    actual in-app preview reloaded, Clojure output visible. Built/served SHA256
+    8c6f9601b9cdae6708eb3c7ad34cb7d5fd8362863221262b7a198a62abaad3df.
+    Evidence build/scoped-acceptance-017.edn; all nine affected core/test files
+    pass cljfmt checks. Next: original local-enum result context (ID 1391),
+    genuine specializations/identity access, whole Tiger publication/restart.
+    Owned root55615 remains; validation children finished. User REPLs, preview
+    and shared cache untouched. No goal completion or cache clear.
+  - October4 context gate closed six IDs643/885/1362/1363/1424/1427:
+    coverage1067/1386,319remaining,210verified repairs (saved focused inventory,
+    NOT whole Tiger analysis/publication). Production replay6prepared11.542s,
+    native invocation blocked, globaltestfalse. Shared path defaultnormal,
+    only authoredtest/compilerrejection selects realtestenvironment. Separate
+    test adapter/cleanup identities; native values retain context; staticmember
+    lookup warmed with call. Fresh3tests18PASS77.493s, alternating normal/test
+    no runtime builds. Adjacentprivate/structuralbundle/nativevalue9/80PASS75.164s.
+    Latest Learn outputdriver .tmp/test-context-learn-017.clj finished:
+    291comparisons/288transcripts/0missing;18targetedJVMtests123PASS. Blocks
+    32.695s,outcomes164.355s,inlines1.243s,HTML7.795s,tests5.321s. Stale inputs
+    refreshed, guards retained, matchingZLS017 used. Actual IABreloaded and
+    Clojure output visible. Served/build hash
+    8123eba97cc60fa42f9f1c635491412c41ae938adf8e156b368eaef24048a332.
+    Reportbuild/test-context-acceptance-017.edn passed; verificationJVMexited.
+    Remaining139nominal/100placement/78unobserved/1comptime-onlyassignment/
+    1rejectedroot. Root55615warm; preserve userREPLs/preview/sharedcache.
+    Read-only placement breakdown80object/11range/4with-block/3switch-stmt/
+    2catch-capture. Do not recompile unchanged syntax as ordinary calls.
+    Rejectedroot actualvendorvsr.zig:59 references sync.Target; sync.zig only
+    exportsStage, cleanvendorcheckout. No inventedTarget/sourcefix made.
+    Next: sharedscoped-adapter preparation with actualcaptures/application
+    specializations; honestcomptime-mutationreason; wholeTigerpublication.
+  - October4 real-test-context work: prototype six Tiger records643/885/1362/
+    1363/1424/1427 prepared78.777s with native invocation blocked. NOT counted
+    until generic context preparation and permanent separate-JVM restart pass.
+    New discovery per-operation context/memo separation under verification:
+    owned55615 futuretest-context-verification, .tmp/test-context-verification-017.
+    Current coverage1061/1386,325remaining. Latest Learn refresh93235 exited0:
+    291comparisons/288transcripts/0missing,100/12905PASS; browser27589 11/11PASS.
+    Built/served hash12f3cd62cb5744f34d6ae842c0508a0ddf12f6d215f29b8ff8eeafe42e0f6e1e.
+    Strict private/structural fresh bundle2/14PASS50.986s; loaderfinal1/5PASS
+    86.817s (prior artifact22/23 had a transient fixture delimiter failure;
+    corrected fresh child verified). Preserve root55615/userREPLs/preview;
+    no cacheclear or goalcompletion. Next six production replay, then remaining
+    contexts/whole Tiger publication. Earlier checkpoints below are historical.
+  - October4 adapter TLS fix: JVM-only generated adapters use existing atomic
+    per-invocation tracking; no per-image active_depth TLS. Authored Zig retains
+    outermost recursion tracking and ordinary static emission stays unchanged.
+    Owned nREPL55615/serverexec15400: emitter74/441PASS,runtime68/2418PASS,
+    nativecounter1/9PASS(depths0/1/7/32,unwind0). Retirement/panic4/26PASS33.467s.
+    Loaderfreshchild640distinctfilecopies ofoneactualadapter,PASS; not640types.
+    Final artifact suite futuretls-artifact-final includes own-copy cleanup;
+    Learncurrentcore refreshexec93235, build/tls-tracking-acceptance-017.edn.
+    Coverage1061/1386,325unchanged. Need finish currentgates/browser check,
+    then remaining true compiler contexts/wholeTiger publication. Preserve user
+    REPLs60588/53717 andpreview63979. No cachedeletion/goalcompletion.
+  - October4 final private/editor acceptance: fresh discovery70tests/537PASS
+    393.296s; strict private bundle restart included. Fresh adjacent JVM/reload
+    5/44PASS16.657s. LaProf safe JVM3/51PASS(no GUI/devices/playback).
+    Learn currentcore291comparisons/288transcripts/zero missing,100/12905PASS;
+    browser11/11PASS27.535s; actual IABreloaded/Clojureoutputvisible, served/build
+    SHA2567069701677381326db5dfa964be974254aa57740c7c310eba1bf506a9892ca99.
+    Verification exec12644/6345/53532/99206/22367 allfinished; no owned validation
+    processes left from these. Root65284/PID52004 isgone(DYLD TLS exhaustion).
+    Coverage remains1061/1386,325gaps; do not inflate after rechecks. Next:remaining
+    genuinecompiler contexts, wholeTiger publication/restart, native-library TLS
+    resource ceiling. Crashhas566images/exactly1sharedsupportlib; otool/nm show
+    standalone expression adapter8-byte TLS active_depth generated by devcall
+    tracking. Investigate eliminating per-image TLS for JVM-only adapters while
+    retaining native-call retirement safety; no such emission change made yet.
+    No types guessed, no cache deletion, goal staysactive.
+  - October4 private nested/editor checkpoint:1,061/1,386 prepared,325remaining,
+    204verified repaired IDs. Categories139nominal/100placement/78unobserved/
+    7failed/1root. Saved focused inventory, not whole Tiger publication.
+    Four actual Tiger1133–1136 reprepare5.592s with native invocation blocked;
+    do not count twice. Native-only constants use registered reference metadata;
+    all adapter memo guards now check actual registry existence after complete
+    document replacement. Owned real nREPL repeat gate4executions/74assertions
+    PASS10.021s. Native AST sample69,636bytes/5,061nodes:11–34ms native including
+    launch;38–92ms complete parse;cached40.619ms/zero process. Helper remains
+    raw Zig, already fast; not an Aguafria-authored analyzer or full AIR dump.
+    Report NATIVE_TOOLING_AND_RELOAD_017.md. Fresh discoveryexec12644/PID17584;
+    Learnexec6345/PID17583 regenerates outcomes/blocks/inlines/HTML/tests.
+    Owned warm root65284/PID52004 crashed DYLD TLS pthread-key exhaustion;
+    it is gone. Interrupted adjacent native checks rerun freshexec53532;
+    LaProf safe JVM checks exec99206 with nrepl dependency (earlier41615 was
+    a missing-dependency launch error, not an acceptance failure).
+    Preserve user REPLs and preview63979. No cache deletion or goal completion.
+  - Structural syntax checkpoint: 1,057/1,386 prepared, 329 remaining,
+    200 cumulatively verified repaired IDs. Actual Tiger records
+    649/717/1005/1147/1370/1423 reprepare in 3.851s, native execution blocked.
+    Expanded separate preparation/runtime JVMs pass 2 tests/16 assertions
+    in 29.434s: one bundle, zero compilations/standalone hits, exact keys.
+    Assignment probes preserve Zig's destination AND original RHS type;
+    precompilation uses the ordinary conversion/construction path. This fixes
+    usize -> ?usize without guessing types or changing ordinary Zig emission.
+    Remaining categories: 139 nominal, 100 placement, 82 unobserved, 7 failed,
+    1 rejected root. Saved focused inventory only; whole Tiger publication
+    is unfinished. Evidence: .tmp/tiger-adapter-context-backlog-017.edn and
+    .tmp/structural-values-expanded-verification-017.edn.
+    Current final Learn refresh exec75623; fresh full discovery exec46142.
+    Both own their verification JVMs and exit on completion. Root65284 stays
+    warm. Preserve user REPLs/preview; no cache deletion.
+  - Pre-structural acceptance:65discovery tests/494assertionsPASS plus
+    separately tested true-cold variadic+broad restart2/14PASS,zero builds/new
+    libraries. Native probe5/5PASS,UTF8/generic2/10PASS. Final Learn100/12905,
+    291comparisons/288actualtranscripts/zero missing;browser11/11PASS26.266s.
+    Actual reloaded IAB shows Clojure output; served/build SHA256
+    30e2de1bc51491a7004736182608b5ae5f4d8cc8407b6efced05f6fe47463ca8.
+    Memoized schema experiment rejected:34.651s versus35.244s;no closures.
+    Latest139nominal reinspection completes only with isolated raised quota,
+    still0fullytyped. No production quota/memo change. Root65284/PID52004 warm.
+    Structural assignment/multiline gates PASS2tests/15assertions21.616s:
+    genuine separate preparation/runtimeJVMs,onebundle,zero builds/standalone
+    hits/exactmanifestkeys,changed assignment operands. Evidence .tmp/
+    structural-values-verification-017.edn. Added generic borrowed-pointee
+    decoder preparation from actual Zig pointer schema. Normal Zig source
+    unchanged; native calls blocked during preparation. Six Tiger operations
+    now targeted by tiger-structural-values-verification; don't count yet.
+    Final Learn refresh restarted after these edits; previous hash predates
+    them. Current coverage remains1051/1386,335gaps;
+    139nominal/106placement/82unobserved/7failed/1root. Six failures need actual
+    Zigtest context(PRNG/Snap);one comptime mutation has no native storage.
+    Existing old Markdown evidence reports are absent; don't recreate history.
+    No cache deletion or wholeTigerpublication. Preserve userREPLs/preview.
+  - Iterator checkpoint:1051/1386 prepared,335 gaps,194 repaired IDs;
+    52 closures since387,54 since389. Actual Tiger715/716 prepared5.427s with
+    native execution blocked. Fresh iterator2/13PASS23.478s:one bundle,zero
+    builds/standalone hits/exact manifest keys. Full discovery exec91937 exposes
+    variadic fixed-param indexing regression; fix now passes isolated nREPL1/9.
+    Fresh variadic+broad restart .tmp/variadic-context-restart-017.clj pending.
+    Remaining139identity/106placement/82unobserved/7failed/1root. Root65284 warm;
+    preserve userREPLs andpreview63979. No whole Tiger publication/cache deletion.
+    Latest accepted Learn browser11/11PASS27.233s; latest core needs finalrefresh.
+  - Generic-context checkpoint1049/1386prepared,337remaining,192verified IDs;
+    50closures since387 (52since389). Affected35records:2closed,33unresolved.
+    Tiger parse_addresses750/765prepare2.423s nativeblocked; affectedbatch25.235s.
+    Fresh3tests/16PASS22.658s,onebundleload/bundlehits/zerobuilds/nostandalonehits/
+    manifestkeys. Native probe5/5PASS; targetedadjacent13/104PASS21.192s.
+    Learnexec94504/PID27544finishedcurrentcorePASS291outcomes/288transcripts/
+    zero missing/100tests12905assertions; reportbuild/alias-catalog-acceptance-017.
+    Browser gatepending: systemnode lacksPlaywright; use existing dependency
+    runtime, no packageinstall needed. Root65284/PID52004warm; preserve userREPLs
+    andpreview63979. Iterator715/716prototype2prepared isuncounted; implement
+    sharedread-onlycall-result identityplanning+freshreuse. No cachedelete or
+    wholeTigerpublication. Savedinventory .tmp/tiger-adapter-context-backlog-017.edn.
+    Remaining141identity/106placement/82unobserved/7failed/1root.
+  - Alias/layout checkpoint1047/1386prepared,339remaining,190verified IDs;
+    48closures since387 (50since389), not whole Tiger publication. Both rejected
+    aliasprobes compileclean/prepared6.781s nativeblocked. Lazy catalog names,
+    enclosing-root exclusions and declaredtarget parameters; fixture2/9PASS6.131s,
+    native4/4PASS. Prior full discovery60/450had5fails/1error; signature13/128PASS.
+    Private/namedtuple fixesPASS, slice1/10PASS zerobuilds, runtimetuplefresh1/3PASS
+    44.626s. Root65284 alias-catalog-adjacent-verification completed61/470:
+    469PASS,onewarmfixturelookupfailure,zeroerrors; signature13/128PASS. Unchanged
+    fresh checkexec79131PASS1/8 in3.196s,zero runtime compilations. All owned
+    verification childJVMsfinished. Learnexec64944finishedPASS291outcomes/
+    288transcripts/0missing,100/12905 with matchingZLS; report
+    build/alias-catalog-acceptance-017.edn. Browserexec54610PASS11/11 in27.265s.
+    IAB Clojureoutputvisible; served/build hashf9098b638e3d1c1fd855483ae9fadd105e2a4444e02c119368b433f15a3404eb.
+    Remaining143identity/106placement/82unobserved/7failed/1root. Evidence .tmp/
+    tiger-alias-cycles-verification-017.edn andruntime-tuple-final-017.edn.
+    No cachedelete. Preserve userREPLs andpreview63979; ownedroot65284 remains
+    warm for targeted Tiger work. Next: compiler-only iterator identity prototype
+    for715/716, remainingidentity/placement contexts, permanent fresh-lookup test
+    isolation, then whole Tiger analysis/publication. Do not recount unchanged
+    wholeprojects or include unverified prototype results in prepared totals.
+  - Constant-container inspection checkpoint:1045/1386prepared,341remaining,
+    188verified IDs.46newops/60handlers42.672s; native execution blocked.
+    Root selection uses authored type metadata, Zigconfirms actualtype; imported
+    namespace aliases not recursively forced. New native+fresh consumer2/20PASS
+    24.883s,one bundleload/5hits/zero builds/newlibs/exactkeys. Nullschema repair
+    Cfresh12PASS24.991s. Remaining143identity/106placement/82unobserved/7failed/
+    2probes/1root. Evidence tiger-const-container-verification-017.edn and
+    const-container-restart-tests/evidence-017.edn; fresh coverage reflects real
+    authored call sites, not arbitrary additional external lookups. Root65284
+    const-container-adjacent-verification runs full discovery/signature suite;
+    Learn CLIexec57931 refreshes final fingerprint andHTML. Prior78427PASS
+    100/12905,291comparisons/288transcripts, but sourcechanged afterward.
+    No cacheclear/wholeTigerpublication; preserve userREPLs andpreview63979.
+  - Comptime aggregate checkpoint: focused999/1386prepared,387remaining,
+    142verified repairs. Remaining143identity/128unobserved/106placement/7failed/
+    2probes/1root. ActualTiger1006+1008 prepare with native calls blocked;
+    fresh fixture13bundlehits/one load/zero builds/newlibs/exactkeys,26PASS29.513s.
+    Evidence .tmp/comptime-receiver-cache-verification-017.edn and
+    tiger-comptime-receiver-verified-017.edn. Root65284 comptime-adjacent-verification
+    runs core/signature and then live tests; LaProf CLIexec62350, Learn CLIexec76870
+    refreshing outcomes/blocks/inlines/HTML/fullsuite into build/comptime-receiver-
+    acceptance-017.edn. Previous accepted Learn data predates this edit. No cache
+    deletion, no whole Tiger rerun/publication. Preserve userREPLs and preview.
+  - Latest focused adapter-context total997/1386,389remaining,140verified IDs;
+    not whole Tiger analysis/publication. New13 records: enum2/backing2/layout4/
+    authored comptime5. Remaining143identity/128unobserved/106placement/9failed/
+    2rejected probes/1root. Saved tiger-adapter-context-backlog-017.edn.
+    Private-owner fresh restart exposed namespace-prefix bundle eligibility;
+    metadata-based fix3tests/30PASS21.732s,onepack/zero builds/newlibs/exactkeys.
+    Comptime2/19PASS plus5actualTiger signatures56.927s, no native preparation
+    execution. La Professeure14/131PASS after final formatting. Core adapter
+    batch21/248PASS132.396s; post-format native pointer/live-reload4/28PASS25.241s.
+    Two-file/two-namespace multiplication/array/get regression checks identical
+    native handlers, changed values and zero compilations. Current-core Learn
+    refresh50829/exec72470PASS291 comparisons/288transcripts/zero missing outputs;
+    stages167181.853/31739.744/656.468/4363.528ms. Full Learn100/12905PASS.
+    Actual IAB page reloaded, Hello World Clojure output visible, no native code
+    token title tooltips; served/built hashb0d1324d726e6088abf23222d835d1cd437ab5767952caaa99e0c7afe8c62047.
+    Owned50829/PID53290 finished/stopped; root65284 remains warm. Browser suite
+    exec63024PASS11/11 in27118.656ms; preserve user56037/60588 and preview63979/PID48021.
+    Use installed matchingZLS0.17 at stable Library/Caches path documented below.
+    Root parity report retains failures and new focused evidence. No cache clear.
+  - Final signature/private suites20 distinct tests/153 assertionsPASS; private
+    group14/10051.449s, import6/5347.105s. Final Learn291comparisons/288transcripts/
+    zero missing outputs,Chrome11/11,servedhash9695d643a48a156f93181c87f33f4223b586d7229f0e90fb4b101868e320415d.
+    OwnedLearn50098/PID20220 stopped; root65284/PID52004 warm for Tiger repairs.
+    Next remaining adapter defects: `_` enum syntax marker exported as value;
+    fromBackingInt builtin doc `BackingInt(T)` emitted as concrete type;
+    synthetic constructor field spellings; internal address parameter shadowing.
+    Focused984/1386/402 remains distinct from whole analysis/publication/restart.
+  - Final signature checkpoint: named Zig `!T` return preserved, dependent source
+    literals retain Zig parameter context; concrete reflected aliases unchanged.
+    Import group6tests/53assertionsPASS47.105s, both fresh AOTonepack/zero builds/
+    no newlibs/exactkeys. ActualTigeru128 shlExact prepares1.068s with native
+    invocation blocked. Remaining29adapter replay verifies6more existing fixes;
+    latest focused984/1386,402remaining,127verified IDs. Categories143identity/
+    128unobserved/106placement/22failed/2probes/1root. Not whole acceptance.
+    Root65284 final adjacent/private gate running; final Learn50098/exec55897
+    includes last signature changes. Previous49805/PID3083 passed/stopped.
+    All evidence in root parity report/current-focused-backlog report.
+  - October4 final nested-signature spelling repair: method symbols must stay
+    symbols through identifier rendering. Fresh restart exposed10 builds after
+    earlier preparation; corrected paths nowzero builds. Stronger missing-probe/
+    observation/error gates pass14tests/100assertions in46.483s, including fresh
+    preparation and separate runtime JVM. Evidence root private-catalog report.
+    Ownedroot65284/PID52004 remains for29 remaining Tiger adapter replays.
+    Current-core Learn refresh49805/exec85049 runs withZLS0.17 after final edit;
+    previous49396/PID81766 finished/stopped. Prior current-core refresh291outcomes,
+    288transcripts/zero missing outputs,Chrome11/11/live DOM+hashPASS. Do not claim
+    later source fingerprint until the new refresh finishes. Preserve user56037,
+    60588 and preview63979. No unchanged Racing whole-AOT or cache deletion.
+  - October4 nested compiler identities: clean refinement recovers100/243;
+    actual ordinary preparation100operations/108variantsPASS in93.364s,
+    native invocation blocked. Facade replay20operations/14signaturesPASS;
+    previous generic dependency closure covers the two missing constants.
+    Private computed receivers retain owner scope; field plans canonicalize
+    metadata-qualified native identities. Adjacent suite12tests/90assertionsPASS.
+    Focused replacements in saved Tiger inventory977/1386,409gaps,not a fresh
+    whole-project rerun/publication. Root parity report has six categories and
+    concrete examples. Fresh private-member test runs on owned65284/PID52004.
+    First Learn refresh291outcomesPASS butHTMLstoppedZLS0.16; owned65401/PID52995
+    finished/stopped. Fresh current-core refresh49396/exec94086 explicitly uses
+    installedZLS0.17; final acceptance/layout still pending. Preserve user56037,
+    60588 and preview63979. Do not redo unchanged Racing wholepreparation.
+  - October 4 private static member repair passes 2/12, and actual Tiger
+    Headers.jv_blank prepares with native invocation blocked. Invocation and
+    preparation share declaring-module scope; private visibility is retained.
+    Startup JFR identifies C-binding loading in 542/983 samples; source/API
+    fingerprint sharing checks pass 17/195. Lazy batch emission was rejected
+    and reverted: 123.118s total. Static emission retained; strict fresh Racing
+    checker passes 12 pure calls + 3/16, zero builds/new libraries/missing keys,
+    but takes 116.949s. No whole-startup speedup established. Full Tiger inventory
+    remains the saved 857/1386 with 529 gaps, not relabeled after focused checks.
+    Whole acceptance and final Learn refresh remain pending. Root parity report
+    contains the separate evidence; owned Racing 64820 finished/stopped.
+    Stronger private-static invocation/restart passes1/3, preserving private
+    visibility and zero runtime builds; native host escape/reload tests3/15.
+    Final focused groups21 distinct tests/213 assertions PASS. No Learn source
+    or upstream output has been rewritten for these runtime/helper changes.
+  - Current getter/layout Racing preparation43/43,14434/14434 runtime candidates,
+    520/520 functions,zero failures. One3946-handler pack published49.214min,
+    genuine fresh strict gate12pure checks+3tests/16assertionsPASS,one packload,
+    zero builds/newlibs/unmatched keys/unapproved standalone handlers. Require+
+    checks82.155s remains slow; warm12calls24.853ms. Tiger old62544/PID83820
+    saved/stopped at4/5,857/1386,529gaps,without bundlepublication; partial
+    snapshot tiger-clean-cache-aot-stopped-017.edn. Anonymous argument native
+    identity/layout EMPTY/FRESH sync+async1/12PASS, raw/typed changed maps,
+    UTF-8/empty slices,zero builds/new libraries. Actual Tiger address parser
+    prepares without native invocation; no whole inventory acceptance claimed.
+    Adjacent9tests34pass/2cache failures revealed private computed-struct adapter
+    mismatch; final10tests/48assertionsPASS with zero failures/errors,including
+    fresh-child gates. Root report has evidence.
+  - October4 latest: cleanRacingfullrestartFAILED5namespacewrappercompiles/new
+    libraries despite12purechecks+3/16PASS. Exactgetter/layoutrootsreproduced;
+    EMPTY/FRESHsync+async2/28PASS nowincludesdirectstructconstruction. Newfull
+    Racing63797/exec23509preparationrunning,targetracing-getter-layout-aot-017;
+    nofreshwholeacceptanceyet. Dependencyfacadelimit512 keepssame32Mcharbound;
+    actual165-moduleVSRsecondpassold~1.1s/new<0.1ms,byteidenticalsources;
+    4/34cachetestsPASS,notwhole-AOTspeedup. Tigeroldwhole4/5,857/1386candidates,
+    529gaps,14prepared/10skipped/1failedfunctions;notaccepted. Corecache report
+    hasrawcategories. No unchangedLearnHTML/outcome stages repeated.
+  - Latest clean Racing42/43 namespaces,9847/9847candidates,385/385functions,
+    zero completed-subset failures;onlysimulation remains. Tigerwhole3/5,8/9,
+    VSR/main preparing. Racing's permanent raw-coverage gate1/17PASS rejects
+    stale totals,duplicate namespaces,partial handlers and missing scalar
+    statuses before runtimewarmup. Fresh restart JVM63366 remains game-unloaded.
+    Adapter registration/discovery now read immutable declaration metadata
+    without building native-runtime inspection reports;focused3/23 plus guarded
+    1/5PASS(overlap,not4unique tests). No type guessing/emission/key change or
+    whole-AOT speedup claim. Both live preps keepoldloadedcode. No unchanged
+    Learn output/HTML stages repeated. Root cache report/raw evidence.
+  - New compiler-only specialization repair uses existing authored closed calls
+    and actual Zig observations,no guessed values/types/native body execution.
+    Focused Tiger two namespaces3/3operations;fresh ordinary8checks,one packload,
+    exactkeys,zero compiles/new libraries/unbundled handlers,1.795s for require+
+    calls. Separate source-only wrapper mismatch repaired through existing
+    planners:EMPTY-cache fresh9/56 and unit3/15PASS;originalfailure preserved.
+    Stronger fresh callable1/8PASS saves actual prepared lookup keys.
+    Clean Racing now37/43,8502/8502candidates,338/338functions,zero failures;
+    sixpending. WholeTigerold-loaded3/5,8/9stillpendingVSR/main;focusedproof
+    doesnotreplacewholeacceptance. No unchanged HTML/outcome stages repeated.
+  - October4 user-requested shared-cache reset completed: entire
+    `/Users/pfeodrippe/.aguafria/zig` removed/verified absent,53.338GiB reclaimed.
+    Reports/toolchains/project builds/user sessions preserved. Historical cache
+    proofs remain reports,not currently existing packs. Owned Racing61707 and
+    Tiger62395 stopped; partial30/43 and3/5 inventories saved outside cache.
+    Fresh normal preparation62545/Racing and62544/Tiger now run public API with
+    native invocation blocked,new `*-clean-cache-aot-017.edn` report paths.
+    Publication/fresh exact-key acceptance pending. No Learn HTML/outcome stage
+    repeated for this deletion-only change. Root cache report records details.
+    Latest clean Racing subset20/43,3894/3894 candidates,159/159 functions,zero subset
+    failures. Tiger3/5,8/9 candidates;one unobserved comptime-scale multiplication.
+    New permanent Tiger coverage gate1/16PASS,recomputes raw records before any
+    native calls. Distinct clean restart drivers ready,not warmed/accepted.
+    Actual JVM profiling now identified repeated dependency serialization;
+    per-refresh key reuse keeps exact results/keys. Focused9/76 and actual
+    fresh-child cache3/33PASS. Actual frozen Racing sorting medians63.211->
+    18.793ms,21377->4267serializations,not whole-AOT timing. Verification62783
+    stopped;active preparations not reloaded. No unchanged Learn HTML stages
+    repeated for this identity-preserving runtime improvement. Root cache report.
+  - Corrected Racing61707 now24/43 checkpoints,4952/4952 candidates,200/200
     functions,zero subset failures;publication/fresh restart stillpending.
     Permanent project strict cachechecker coveragegate1/11PASS. Additional
     config/report2/12PASS and scalar/callback2/16PASS. Final native type-graph
@@ -12,6 +417,9 @@
     preserved. Zig type equality remains authoritative,hashcollisions tested.
     OldTiger4/5inventory notacceptedascurrent. Core61626/61918 stopped.
     No Learn outcome/HTML stage repeated;details in root cache report.
+    Current cyclicsource serializationreuse4/31PASS,EMPTY/FRESH/invalidation
+    3/18PASS,exact old/newhashes. Six alternating syntheticmedians7.977ms->
+    2.670ms,not whole-AOTtiming. Core62258 stopped;activejobs not reloaded.
   - Racing strictfresh61501 finished12purechecks+3/16PASS,zero builds/newlibs,
     one packload,but FAILED cache gate:two scalar coercions used standalone
     artifacts. Exactkeys differonly5vs8native link inputs. Generic validated

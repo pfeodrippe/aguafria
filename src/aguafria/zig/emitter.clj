@@ -390,7 +390,7 @@
                   :aguafria/zig-reference
                   (#(when (:type-reference? %) %)))))))
 
-(declare qualify-form qualify-type nested-declaration declaration-local-bindings)
+(declare qualify-form qualify-type nested-declaration declaration-local-bindings scoped-captures)
 
 (defn- declared-call-arguments [context-ns op reference]
   (when (and (symbol? op)
@@ -820,6 +820,18 @@
         (with-meta (apply list (list 'field (first args) (keyword (:member-name reference)))
                           (rest args))
           (meta form)))
+
+      (= 'with-block structural-op)
+      (let [captures (or (:aguafria/scoped-captures (meta form))
+                         (mapv (fn [name] [name (qualify-form context-ns name)])
+                               (scoped-captures context-ns form
+                                                (into *lexical-bindings* (keys *local-type-bindings*)))))]
+        ;; Retain the source template and its renamed enclosing references.
+        ;; Preparation and the JVM macro must plan the same lexical expression.
+        (with-meta (apply list qualified-op args)
+          (assoc (meta form)
+                 :aguafria/scoped-template (or (:aguafria/scoped-template (meta form)) form)
+                 :aguafria/scoped-captures captures)))
       :else (with-meta (apply list qualified-op args) (meta form)))))
 
 (defn qualify-form
@@ -886,7 +898,14 @@
                           (nested-declaration form))]
         (binding [*lexical-bindings*
                   (into *lexical-bindings*
-                        (declaration-local-bindings context-ns declaration))]
+                        (declaration-local-bindings context-ns declaration))
+                  *local-type-bindings*
+                  (merge *local-type-bindings*
+                         (into {} (map (fn [{:keys [name type]}]
+                                         [name (contains? #{:type 'type} type)])) (:args declaration)))
+                  *local-name-bindings*
+                  (merge *local-name-bindings* (zipmap (map :name (:args declaration))
+                                                       (map :name (:args declaration))))]
           (qualify-seq context-ns form)))
 
       (and (seq? form)
@@ -1016,6 +1035,115 @@
         (tree-seq coll? seq (:body declaration))))
 
 (declare nested-declaration container-description for-bindings validate-declaration-references!)
+
+(defn scoped-captures
+  "Return referenced enclosing bindings, respecting bindings inside the form.
+  This identifies lexical captures only; it does not assign any Zig types."
+  [context-ns form enclosing]
+  (let [enclosing (set enclosing)
+        captures (atom #{})]
+    (letfn [(operator [form]
+              (let [head (first form)]
+                (or (resolved-syntax-operator context-ns head)
+                    (some-> (keyword/resolve-token context-ns head) :zig-token symbol)
+                    head)))
+            (names [captures]
+              (mapcat (fn [capture]
+                        (let [pattern (if (seq? capture) (second capture) capture)]
+                          (map first (partition 2 (destructure-binding pattern nil)))))
+                      captures))
+            (body [forms bound]
+              (reduce (fn [bound form]
+                        (if (and (seq? form) (#{'const 'var} (operator form))
+                                 (symbol? (second form)))
+                          (do (doseq [value (drop 2 form)] (visit value bound))
+                              (conj bound (second form)))
+                          (do (visit form bound) bound)))
+                      bound forms))
+            (visit [form bound]
+              (cond
+                (symbol? form)
+                (when (and (enclosing form) (not (bound form)))
+                  (swap! captures conj form))
+
+                (map? form) (doseq [value (vals form)] (visit value bound))
+                (vector? form) (doseq [value form] (visit value bound))
+                (seq? form)
+                (if-let [expansion (binding [*lexical-bindings* (into enclosing bound)]
+                                     (expand-clojure-macro-once context-ns form))]
+                  (visit (:expanded expansion) bound)
+                  (let [op (operator form)
+                        args (rest form)]
+                    (cond
+                      (= 'quote op) nil
+                      (= 'let op)
+                      (let [scope (reduce (fn [scope [binding value]]
+                                            (visit value scope)
+                                            (into scope (if (vector? binding) binding [binding])))
+                                          bound (partition 2 (expand-bindings (first args))))]
+                        (body (rest args) scope))
+
+                      (#{'const 'var} op)
+                      (doseq [value args] (visit value bound))
+
+                      (#{'block 'do 'with-block} op)
+                      (body (if (= 'with-block op) (rest args) args) bound)
+
+                      (#{'for 'inline-for 'for-loop} op)
+                      (let [[options bindings forms] (if (= 'for-loop op)
+                                                       [(first args) (second args) (drop 2 args)]
+                                                       [nil (first args) (rest args)])
+                            pairs (for-bindings bindings form)]
+                        (visit options bound)
+                        (doseq [[_ value] pairs] (visit value bound))
+                        (body forms (into bound (names (map first pairs)))))
+
+                      (= 'dotimes op)
+                      (let [[binding limit] (first args)]
+                        (visit limit bound)
+                        (body (rest args) (conj bound binding)))
+
+                      (= 'field op) (visit (first args) bound)
+
+                      (= 'catch-capture op)
+                      (do (visit (second args) bound)
+                          (body (drop 2 args) (into bound (names (first args)))))
+
+                      (and (= 'errdefer op) (vector? (first args)))
+                      (body (rest args) (into bound (names (first args))))
+
+                      (#{'if-capture 'if-capture-stmt 'while-loop} op)
+                      (let [[options condition & forms] args
+                            payload (into bound (names (:payload options)))
+                            error (into bound (names (:error options)))]
+                        (visit condition bound)
+                        (visit (dissoc options :payload :error :continue :else) bound)
+                        (body (:continue options) payload)
+                        (body (:else options) error)
+                        (doseq [[index form] (map-indexed vector forms)]
+                          (visit form (if (or (= 'while-loop op) (zero? index)) payload error))))
+
+                      (declaration-name-operators op)
+                      (let [declaration (nested-declaration form)
+                            scope (reduce (fn [scope {:keys [name type properties]}]
+                                            (visit type scope)
+                                            (visit properties scope)
+                                            (conj scope name))
+                                          (conj bound (:name declaration)) (:args declaration))]
+                        (doseq [key [:type :return :value :align]]
+                          (visit (get declaration key) scope))
+                        (body (:body declaration) scope))
+
+                      (#{'case 'inline-case 'case-else 'inline-case-else} op)
+                      (let [ordinary? (#{'case 'inline-case} op)
+                            [patterns forms] (if ordinary? [(first args) (rest args)] [nil args])
+                            captures (when (and (vector? (first forms)) (next forms)) (first forms))]
+                        (visit patterns bound)
+                        (body (if captures (rest forms) forms) (into bound (names captures))))
+
+                      :else (doseq [value form] (visit value bound)))))))]
+      (visit form #{})
+      (vec (sort-by str @captures)))))
 
 (defn- binding-symbols [form]
   (set (filter symbol? (tree-seq coll? seq form))))
@@ -1327,7 +1455,12 @@
          (contains? declaration :body)
          (update :body
                  #(binding [*lexical-bindings*
-                            (declaration-local-bindings context-ns declaration)]
+                            (declaration-local-bindings context-ns declaration)
+                            *local-type-bindings*
+                            (into {} (map (fn [{:keys [name type]}]
+                                            [name (contains? #{:type 'type} type)])) (:args declaration))
+                            *local-name-bindings*
+                            (zipmap (map :name (:args declaration)) (map :name (:args declaration)))]
                     (mapv (partial qualify-form context-ns) %)))
 
          (contains? declaration :args)
@@ -2258,7 +2391,17 @@
                          (contains? (set (vals assignment-operators)) operator))
             (fail! "assign-expr expects an assignment operator string, target, and value"
                    form {:operator operator}))
-          (str (emit-expr target) " " operator " " (emit-expr value)))
+          (let [source (str (emit-expr target) " " operator " " (emit-expr value))]
+            (when *inspection-placement*
+              (reset! *inspection-placement*
+                      {:native-form (with-meta
+                                      (list (symbol "aguafria.keyword" operator) target value)
+                                      (meta form))
+                       :assignment operator
+                       :place-probe (fn [log label]
+                                      (str "(" label ": { " log "\n" source
+                                           ";\nbreak :" label "; })"))}))
+            source))
 
         (= op 'destructure)
         (let [[options bindings value :as all] args]
@@ -2491,6 +2634,8 @@
     (fail! "Cannot emit Zig expression" form {:class (class form)})))
 
 (def ^:dynamic ^:private *emitting-declaration* nil)
+(def ^:dynamic ^:private *emitting-root-declaration* nil)
+(def ^:dynamic ^:private *emitting-signature?* false)
 
 (def ^:dynamic *expression-observer*
   "Optional inspection-only emitter callback. Receives the original form, its
@@ -2517,6 +2662,10 @@
                :defer-probe *defer-inspection-probe*
                :declaration-name (:name *emitting-declaration*)
                :declaration-kind (:kind *emitting-declaration*)
+               :signature-position? *emitting-signature?*
+               :root-declaration-name (:name *emitting-root-declaration*)
+               :source-bindings (declaration-local-bindings
+                                 (or *keyword-context* *ns*) *emitting-declaration*)
                :location (merge debug/*source* (select-keys (meta form) [:line :column]))
                :var-meta (some-> (or (when (and (symbol? (first observed-form))
                                                 (structural-operator? (first observed-form)))
@@ -2558,7 +2707,9 @@
 (defn- form-source-comment
   [form]
   (let [{:keys [line column]} (meta form)]
-    (when (and *source-mapping?* line)
+    ;; JVM adapters are reusable across call sites. Their generated source must
+    ;; not change merely because the same expression moved to another line.
+    (when (and *source-mapping?* line (not (:jvm-adapter? *emitting-declaration*)))
       (str "// Aguafria form: " line (when column (str ":" column)) "\n"))))
 
 (defn- braced
@@ -3195,7 +3346,7 @@
   #{"const" "var" "set!" "assign" "while" "while-loop" "for" "inline-for" "for-loop"
     "dotimes" "when" "when-not"
     "if-capture-stmt"
-    "switch-stmt" "labeled-switch-stmt" "block" "with-block"
+    "switch-stmt" "labeled-switch-stmt" "block"
     "defer" "errdefer" "break" "break-label" "continue"
     "unreachable" "comment"
     "=" "+=" "-=" "*=" "/=" "%=" "+%=" "-%=" "*%="
@@ -3462,7 +3613,9 @@
            dependency-default-export? import-container]
     :as declaration}]
   (binding [debug/*source* source
-            *emitting-declaration* declaration]
+            *emitting-declaration* declaration
+            *emitting-signature?* (contains? #{:fn :fn-proto} kind)
+            *emitting-root-declaration* (or *emitting-root-declaration* declaration)]
     (let [declaration-name (or zig-name name)]
       (str
        leading-source
@@ -3572,7 +3725,8 @@
 
          :fn
          (let [body-source (binding [*source-mapping?*
-                                     (or *source-mapping?* (not= false emit-source-comment?))]
+                                     (or *source-mapping?* (not= false emit-source-comment?))
+                                     *emitting-signature?* false]
                              (emit-function-body body return implicit-return?))
                body-source (str (when (seq body-prefix-source)
                                   (str body-prefix-source
@@ -3628,11 +3782,14 @@
 
 (declare synthesized-import-declarations)
 
+(defn- per-invocation-tracking? [declaration]
+  (or (:jvm-adapter? declaration) (explicitly-exported? declaration)))
+
 (defn- emit-reloadable-function
   [declaration {:keys [implementation dispatch-type dispatch getter setter
                        active-counter active-depth active-tracking
                        publication-epoch emit-getter? linkable?]}]
-  (let [external-callback? (explicitly-exported? declaration)
+  (let [per-invocation? (per-invocation-tracking? declaration)
         declaration (cond-> declaration
                       (:development-export? declaration) (assoc :export? true))
         original-body-prefix-source (:body-prefix-source declaration)
@@ -3738,7 +3895,8 @@
         ;; dispatch path already uses every parameter, making those discards
         ;; pointlessly invalid in Zig.
         comptime-body-source
-        (binding [*reloadable-state-references?* false]
+        (binding [*reloadable-state-references?* false
+                  *emitting-declaration* declaration]
           (emit-function-body comptime-body
                               (:return declaration)
                               (:implicit-return? declaration)))
@@ -3769,7 +3927,7 @@
                     discard-source
                     "const " track-active " = !@inComptime() and @atomicLoad(bool, &"
                     active-tracking ", .acquire);\n"
-                    (if external-callback?
+                    (if per-invocation?
                       (str "if (" track-active ") { _ = @atomicRmw(usize, &"
                            active-counter ", .Add, 1, .acq_rel); }\n"
                            "defer if (" track-active
@@ -3964,6 +4122,9 @@
                      active-tracking-setter active-getter publication-epoch
                      publication-epoch-setter]}
              (some-> dispatch-specs first val)
+             track-depth? (some #(and (contains? dispatch-specs (:declaration-key %))
+                                      (not (per-invocation-tracking? %)))
+                                declarations)
              linkable? (boolean (seq linkable-declaration-keys))
              imports-source
              (->> imports
@@ -3973,7 +4134,8 @@
              helper-source
              (when active-counter
                (str "var " active-counter ": usize = 0;\n"
-                    "threadlocal var " active-depth ": usize = 0;\n\n"
+                    (when track-depth?
+                      (str "threadlocal var " active-depth ": usize = 0;\n\n"))
                     "var " active-tracking ": bool = true;\n\n"
                     (when linkable? "pub ")
                     "export fn " active-tracking-setter

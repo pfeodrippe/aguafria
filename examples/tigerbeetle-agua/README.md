@@ -92,6 +92,25 @@ use the shared `~/.aguafria/zig` cache. This does not instantiate every generic
 or prepare every namespace in the vendored project; pass additional namespaces
 to `a/precompile!` when working on them.
 
+After preparation, check ordinary calls in a fresh JVM with `test` on the
+classpath:
+
+```sh
+clojure -Sdeps '{:aliases {:cache-check {:extra-paths ["test"]}}}' -M:nrepl:cache-check
+```
+
+```clojure
+(require '[tigerbeetle-agua.cache-check :as cache-check])
+(cache-check/check! ".aguafria/precompile/tigerbeetle.edn"
+                    ".aguafria/precompile/tigerbeetle-restart.edn")
+```
+
+The checker rejects incomplete preparation before warming native calls. It then
+checks 16 pure walkthrough results, exact bundle keys, one bundle load, zero
+compilations, and no new or unapproved standalone handler libraries. Unrelated
+cache writes from other JVMs are reported separately. A published partial bundle
+is not complete coverage; inspect the preparation report when this gate rejects it.
+
 The first compile is intentionally substantial; later compatible declaration
 edits reuse Aguafria's cache and publish into running native hosts. Breaking
 signatures or layouts retain the old graph until a cooperative restart and any

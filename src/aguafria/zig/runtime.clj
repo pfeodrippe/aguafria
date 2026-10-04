@@ -71,7 +71,7 @@
 (def ^:dynamic *preserve-source-fingerprint?* false)
 (defonce ^LinkedHashMap development-dependency-entry-cache
   (LinkedHashMap. 64 0.75 true))
-(def ^:private development-dependency-entry-limit 64)
+(def ^:private development-dependency-entry-limit 512)
 (def ^:private development-dependency-entry-weight-limit (* 32 1024 1024))
 (defonce ^IdentityHashMap module-dependency-entry-cache
   (IdentityHashMap.))
@@ -942,6 +942,11 @@
   [value]
   (sha256 (artifact/print-data (canonical-fingerprint-value value))))
 
+(defn- canonical-vector-fingerprint
+  "Hash already serialized canonical elements with the ordinary vector encoding."
+  [elements]
+  (sha256 (str "[:vector [" (str/join " " elements) "]]")))
+
 (defn- source-data-fingerprint
   [value]
   (sha256 (artifact/print-data (canonical-fingerprint-value
@@ -989,11 +994,24 @@
            [logical-id schema-fingerprint])
          (:abi-type-dependency-fingerprints declaration))})
 
+(def ^:private ^:dynamic *fingerprint-sort-keys* nil)
+
+(defn- fingerprint-sort-key [fingerprint]
+  (if (and *fingerprint-sort-keys*
+           (nil? *print-length*) (nil? *print-level*)
+           (not *print-meta*) (not *print-dup*) *print-readably*)
+    (let [key [*print-namespace-maps* fingerprint]]
+      (or (get @*fingerprint-sort-keys* key)
+          (let [printed (pr-str fingerprint)]
+            (swap! *fingerprint-sort-keys* assoc key printed)
+            printed)))
+    (pr-str fingerprint)))
+
 (defn- sorted-fingerprints
   [fingerprints]
-  ;; Compute each printed key once, not on every sort comparison.
+  ;; Shared dependency tuples recur across declarations in one refresh.
   (->> fingerprints
-       (mapv (fn [fingerprint] [(pr-str fingerprint) fingerprint]))
+       (mapv (fn [fingerprint] [(fingerprint-sort-key fingerprint) fingerprint]))
        (sort-by first)
        (mapv second)))
 
@@ -2826,7 +2844,8 @@
   A converted module graph can contain thousands of source namespaces while
   Zig lazily analyzes only a handful. Retaining hooks outside this closure
   would both defeat that laziness and force target-specific declarations that
-  the real program never reaches."
+  the real program never reaches. Comptime checks retain compiler inputs
+  separately; they do not request runtime linkage hooks."
   [root-declarations]
   (let [by-logical-id (registered-declarations-by-logical-id)
         index-state @declaration-reference-index
@@ -2835,7 +2854,7 @@
         (mapv (fn [declaration]
                 [(:logical-id declaration)
                  (declaration-reference-logical-ids declaration)])
-              (remove #(= :test (:kind %)) root-declarations))
+              (remove #(contains? #{:test :comptime} (:kind %)) root-declarations))
         root-references
         (into {} (keep (fn [[logical-id references]]
                          (when logical-id [logical-id references])))
@@ -2913,7 +2932,11 @@
   [module logical-ids]
   (let [declarations
         (vec (vals (get-in @registry [(str module) :definitions])))
-        roots (filterv #(contains? logical-ids (:logical-id %)) declarations)]
+        ;; Importing a Zig container analyzes its comptime blocks even when
+        ;; no public callable is selected. Their prerequisites belong to the
+        ;; capsule just as the selected callable's prerequisites do.
+        roots (filterv #(or (= :comptime (:kind %))
+                            (contains? logical-ids (:logical-id %))) declarations)]
     (when (seq roots)
       (let [selected
             (->> (declarations-live-slice declarations roots)
@@ -2947,7 +2970,7 @@
              (sort-by (juxt :source-order (comp str :name)))
              vec)))))
 
-(defn- development-capsule-logical-ids
+(defn- development-capsule-closure
   "Close a live compiler capsule over references introduced by retained code.
 
   The ordinary linkage closure starts at the edited callable and follows its
@@ -2955,9 +2978,13 @@
   a unit because receiver-style calls do not identify individual methods in
   the converted form. Those additional methods can themselves reference other
   modules, so repeat selection and reference extraction until no retained
-  declaration introduces another logical id."
-  [dependency-snapshot root-logical-ids]
+  declaration introduces another logical id. Imported containers also retain
+  their comptime blocks, but their prerequisites do not activate runtime FFM
+  hooks. Zig decides which branches and lazy containers those checks analyze.
+  Follow imports from retained declarations, not the complete project catalog."
+  [dependency-snapshot root-logical-ids root-modules comptime-root-ids]
   (let [index-state @declaration-reference-index
+        root-modules (into #{} (map str) root-modules)
         container-signature
         (->> (keys dependency-snapshot)
              (keep
@@ -2984,31 +3011,47 @@
         ;; of every dependency module. The later source-snapshot cache still
         ;; fingerprints those bytes and therefore invalidates native artifacts
         ;; correctly.
-        cache-key [:capsule-v4 (:revision index-state)
+        cache-key [:capsule-v7 (:revision index-state)
                    (vec (keys dependency-snapshot)) container-signature
-                   root-logical-ids]]
+                   root-logical-ids root-modules comptime-root-ids]]
     (if-some [cached (get @development-capsule-closure-cache cache-key)]
       cached
       (let [by-logical-id (registered-declarations-by-logical-id)
-            result
-            (loop [logical-ids root-logical-ids]
+            declaration-ids
+            (loop [logical-ids (into root-logical-ids comptime-root-ids)
+                   imported-modules root-modules]
               (let [selected-modules
-                    (->> logical-ids
-                         (keep by-logical-id)
-                         (map (comp str :module))
-                         (filter #(contains? dependency-snapshot %))
-                         distinct)
-                    selected-declarations
-                    (mapcat #(dependency-live-slice-declarations
-                              % logical-ids)
-                            selected-modules)
+                    (into (set (filter #(contains? dependency-snapshot %) imported-modules))
+                          (comp (keep by-logical-id)
+                                (map (comp str :module))
+                                (filter #(contains? dependency-snapshot %)))
+                          logical-ids)
+                    selected-by-module
+                    (mapv #(dependency-live-slice-declarations % logical-ids)
+                          selected-modules)
+                    selected-declarations (vec (mapcat identity selected-by-module))
                     expanded
-                    (into logical-ids
+                    (into (into logical-ids
+                                (comp (filter #(= :comptime (:kind %)))
+                                      (keep :logical-id))
+                                selected-declarations)
                           (mapcat declaration-reference-logical-ids)
-                          selected-declarations)]
-                (if (= logical-ids expanded)
+                          selected-declarations)
+                    expanded-modules
+                    (into imported-modules
+                          ;; Import aliases are local to each Zig container.
+                          ;; Different namespaces can legitimately use `lib`
+                          ;; for different imports; resolve each module alone.
+                          (mapcat direct-declaration-dependencies selected-by-module))]
+                (if (and (= logical-ids expanded)
+                         (= imported-modules expanded-modules))
                   logical-ids
-                  (recur expanded))))]
+                  (recur expanded expanded-modules))))
+            ;; Keeping a file-as-container's methods in the source is not a
+            ;; request to export their state. Exported getters force Zig to
+            ;; analyze otherwise unused containers and test-only branches.
+            result {:declaration-ids declaration-ids
+                    :linkage-ids root-logical-ids}]
         (swap! development-capsule-closure-cache
                (fn [cached]
                  (let [cached (if (> (count cached) 1024) {} cached)]
@@ -3022,11 +3065,11 @@
   large converted module graph to Zig does not make it analyze every helper.
   A live slice gets a content-addressed source variant for the handful of
   declarations whose cells the outer artifact must actually expose to FFM."
-  [dependency-snapshot logical-ids]
+  [dependency-snapshot declaration-ids linkage-ids]
   (reduce-kv
    (fn [snapshot module {:keys [dispatch-entries state-entries] :as entry}]
      (let [slice-declarations
-           (dependency-live-slice-declarations module logical-ids)
+           (dependency-live-slice-declarations module declaration-ids)
            slice-keys
            (when slice-declarations
              (into #{} (map :declaration-key) slice-declarations))
@@ -3037,7 +3080,7 @@
                                            (:state-container-key declaration)
                                            (:declaration-key declaration)))))
            linkable-dispatch-entries
-           (vec (filter #(linkage-entry? logical-ids %) dispatch-entries))
+           (vec (filter #(linkage-entry? linkage-ids %) dispatch-entries))
            linkable-dispatch-entries
            (vec (filter selected? linkable-dispatch-entries))
            ;; Retain an exact referenced state's helpers even when its owning
@@ -3047,7 +3090,7 @@
            ;; Filtering on an already-live state generation left early-built
            ;; callers permanently detached from the canonical capsule.
            linkable-state-entries
-           (vec (filter #(and (linkage-entry? logical-ids %)
+           (vec (filter #(and (linkage-entry? linkage-ids %)
                               (selected? %))
                         state-entries))
            linkable-entries
@@ -3131,17 +3174,17 @@
      :weight-limit-chars development-linkage-snapshot-weight-limit}))
 
 (defn- linkable-development-dependency-snapshot
-  [dependency-snapshot logical-ids]
+  [dependency-snapshot declaration-ids linkage-ids]
   (let [cache-key
         [:dependency-live-slices-v12
          (mapv (fn [[module entry]]
                  (let [linkable-dispatch
                        (->> (:dispatch-entries entry)
-                            (filter #(linkage-entry? logical-ids %))
+                            (filter #(linkage-entry? linkage-ids %))
                             (mapv (comp :version-key :spec)))
                        linkable-state
                        (->> (:state-entries entry)
-                            (filter #(linkage-entry? logical-ids %))
+                            (filter #(linkage-entry? linkage-ids %))
                             (mapv (comp :version-key :spec)))]
                    [module
                     (or (:source-fingerprint entry)
@@ -3151,13 +3194,13 @@
                     linkable-dispatch
                     linkable-state]))
                dependency-snapshot)
-         logical-ids]]
+         declaration-ids linkage-ids]]
     (if-some [cached (get @development-linkage-snapshot-cache cache-key)]
       cached
       (cache-linkage-snapshot!
        cache-key
        (compute-linkable-development-dependency-snapshot
-        dependency-snapshot logical-ids)))))
+        dependency-snapshot declaration-ids linkage-ids)))))
 
 (defn- reachable-development-dependency-snapshot
   "Discard supplied modules that the exact compiler root cannot import.
@@ -3655,6 +3698,9 @@
   ([module-name source declarations dependency-snapshot development-root-source
     development-root-dependencies development-root-declarations]
    (let [development-dependencies? true
+         jvm-adapter? (boolean
+                       (or (str/starts-with? (str module-name) "aguafria.jvm.")
+                           (some :jvm-adapter? declarations)))
          profile-module (development-profile-module declarations)
          profile-root-declarations
          (or (when (= (str module-name) profile-module)
@@ -3690,17 +3736,22 @@
            (development-linkage-logical-ids development-root-declarations))
          development-linkage-logical-ids
          (development-linkage-logical-ids declarations)
-         development-capsule-logical-ids
-         (development-capsule-logical-ids
+         {:keys [declaration-ids linkage-ids]}
+         (development-capsule-closure
           dependency-snapshot
           ;; The retained native root can include state/types not referenced by
           ;; this JVM trampoline. Their foreign declarations must remain in the
           ;; compiler inputs, without adding them to the trampoline's FFM hooks.
           (into (into development-linkage-logical-ids profile-export-logical-ids)
-                retained-root-logical-ids))
+                retained-root-logical-ids)
+          (concat development-root-dependencies
+                  (direct-declaration-dependencies declarations))
+          (into #{} (mapcat declaration-reference-logical-ids)
+                (filter #(= :comptime (:kind %))
+                        (concat declarations development-root-declarations))))
          dependency-snapshot
          (linkable-development-dependency-snapshot
-          dependency-snapshot development-capsule-logical-ids)
+          dependency-snapshot declaration-ids linkage-ids)
          linkage-dependency-modules
          (development-linkage-modules dependency-snapshot
                                       development-linkage-logical-ids)
@@ -3723,9 +3774,9 @@
                            ;; reload still honors `:none`.
                            external-publication?
                            (assoc :development-debug-info :full)
-                           (str/starts-with? (str module-name) "aguafria.jvm.")
+                           jvm-adapter?
                            (assoc :optimize (:jvm-optimize @config))
-                           (str/starts-with? (str module-name) "aguafria.jvm.")
+                           jvm-adapter?
                            (update :zig-args into ["-ferror-tracing" "-funwind-tables"]))
                          :development-dependencies? development-dependencies?
                          :development-root-source development-root-source
@@ -3853,6 +3904,7 @@
                        (development-compiler-arguments compiler-options)
                        (root-module-arguments source-file compiler-options)))
          artifact {:module (str module-name) :hash source-hash :command command
+                   :jvm-adapter? jvm-adapter?
                    :development-panic effective-development-panic
                    :development-panic-support-path (:path panic-support)
                    :debug-format debug-format :native-test-context? *native-test-context?*}]
@@ -4237,6 +4289,7 @@
                          (when argument-spec
                            (bind-optional-spec
                             (assoc argument-spec
+                                   :reflected-layout (atom nil)
                                    :size-getter-handle
                                    (bind-long-getter (:size-getter argument-spec))
                                    :align-getter-handle
@@ -5104,7 +5157,8 @@
                     (-> value meta :aguafria/zig-reference
                         :type-reference?))))))
 
-(defn- declaration-reference-view
+(defn declaration-reference
+  "Describe a registered declaration's native identity and current state accessors."
   [{:keys [kind module name zig-name logical-id abi-fingerprint
            schema-fingerprint shape-fingerprint
            implementation-fingerprint value]
@@ -5154,7 +5208,7 @@
                                   :struct :import :raw :field}
                                 (:kind declaration))
                      (assoc :aguafria/zig-reference
-                            (declaration-reference-view declaration)))))
+                            (declaration-reference declaration)))))
     (when (#{:fn :fn-proto} (:kind declaration))
       ;; Passing `f` evaluates the Var to its ordinary JVM function. Carry the
       ;; same native identity on that value, not just on #'f, so imported and
@@ -5163,7 +5217,7 @@
                       (fn [root]
                         (if (instance? clojure.lang.IObj root)
                           (vary-meta root assoc :aguafria/zig-reference
-                                     (declaration-reference-view declaration))
+                                     (declaration-reference declaration))
                           root))))
     nil))
 
@@ -6104,6 +6158,9 @@
                        enum-members
                        (->> (:members container-description)
                             (filter #(= :enum-field (:kind %)))
+                            (remove #(and (= :enum container-kind)
+                                          (= "_" (emit/identifier
+                                                  (or (:zig-name %) (:name %))))))
                             vec)]
                    [qualified-name
                     {:declaration declaration
@@ -6592,7 +6649,10 @@
                               slice-element-type error-union?
                               error-payload-type nested-storage-spec]
                        :as field-spec}]
-                   (let [field-name (emit/identifier (:name field))
+                   (let [field-name (emit/identifier
+                                     (or (:zig-name field)
+                                         (get-in field [:properties :zig/name])
+                                         (:name field)))
                          field-name-literal (if (str/starts-with? field-name "@\"")
                                               (subs field-name 1)
                                               (emit/emit-expr field-name))
@@ -7169,6 +7229,26 @@
 (defn- registered-declarations-by-logical-id []
   (:by-logical (registered-declaration-index)))
 
+(defn inspection-callers
+  "Return registered concrete, zero-argument callers of these declarations.
+  Inspection uses their existing source calls to instantiate generic bodies;
+  this query does not choose operands, infer types, or invoke the callers."
+  [logical-ids]
+  (let [selected (set logical-ids)]
+    (if (empty? selected)
+      []
+      (let [{:keys [by-logical references]} (registered-declaration-index)]
+        (->> references
+             (keep (fn [[id dependencies]]
+                     (when (some selected dependencies)
+                       (let [declaration (get by-logical id)]
+                         (when (and (= :fn (:kind declaration))
+                                    (empty? (:args declaration))
+                                    (not (:jvm-adapter? declaration)))
+                           declaration)))))
+             (sort-by (comp str :qualified-name))
+             vec)))))
+
 (defn- declaration-name-lookup [registered-index declarations]
   (let [replaced (set (map :logical-id declarations))
         local-names (into {}
@@ -7233,6 +7313,10 @@
                                   [:abi-fingerprint]
                                   [:implementation-fingerprint
                                    :schema-fingerprint :shape-fingerprint])))])))
+        printed-basis-for
+        (memoize
+         (fn [id]
+           (artifact/print-data (canonical-fingerprint-value (basis-for id)))))
         graph (into {} (map (fn [d]
                               [(:logical-id d)
                                (if (dispatchable-declaration? d) #{}
@@ -7250,14 +7334,14 @@
                            (recur (pop pending) seen)
                            (recur (into (pop pending) (get graph id)) (conj seen id)))
                          seen))
-                     basis
-                     ;; Components can share large prerequisites. Reuse their
-                     ;; source basis within this immutable graph calculation.
-                     (mapv basis-for
+                     ;; Reuse serialized prerequisites across components while
+                     ;; retaining the exact ordinary canonical vector encoding.
+                     fingerprint
+                     (canonical-vector-fingerprint
+                      (map printed-basis-for
                            (sort (into reachable
                                        (mapcat #(remove local-ids (references %)))
-                                       reachable)))
-                     fingerprint (data-fingerprint basis)]
+                                       reachable))))]
                  (map #(vector % (data-fingerprint [% fingerprint])) modules))))
            components))))
 
@@ -7265,7 +7349,8 @@
   ([declarations]
    (refresh-live-declaration-references-uncached declarations nil))
   ([declarations target-declaration-keys]
-   (binding [*cyclic-implementation-fingerprints*
+   (binding [*fingerprint-sort-keys* (atom {})
+             *cyclic-implementation-fingerprints*
              (cyclic-implementation-fingerprints
               declarations (registered-declaration-index))]
      (letfn [(refresh-pass [declarations target-keys]
@@ -11481,6 +11566,18 @@
   []
   (vec (keys @registry)))
 
+(defn registered-declaration?
+  "Whether the current module snapshot contains this declaration key."
+  [module declaration-key]
+  (contains? (get-in @registry [(str module) :definitions]) declaration-key))
+
+(defn registered-declarations
+  "Return the current immutable declaration descriptors for a namespace.
+  Reads source metadata without inspecting native generations or call counts."
+  [module]
+  (locking compile-lock
+    (vec (vals (get-in @registry [(str module) :definitions])))))
+
 (defn module-info
   "Return inspectable information for a module/namespace, excluding native
   loader objects and method handles."
@@ -12119,7 +12216,14 @@
       (native-error-union-field-schema module #{} argument-binding)
       (native-storage-binding-schema
        module #{} expected-type (:nested-storage-binding argument-binding))
-      (native-type-schema module expected-type)))
+      (native-type-schema module expected-type)
+      (when (seq? expected-type)
+        (let [cached (:reflected-layout argument-binding)]
+          (or (when cached @cached)
+              (let [schema ((requiring-resolve 'aguafria.zig.jvm/reflected-layout!)
+                            module expected-type)]
+                (when cached (reset! cached schema))
+                schema))))))
 
 (defn- native-argument-address
   [module qualified-name expected-type argument argument-binding
@@ -12306,7 +12410,10 @@
                       (coerce-argument type argument)
                       (long
                        (native-argument-address
-                        module qualified-name type argument
+                        module qualified-name
+                        ((requiring-resolve 'aguafria.zig.jvm/argument-reader-type)
+                         declaration index)
+                        argument
                         (nth (:native-argument-bindings function-binding) index)
                         call-arena))))
                   (range) (:args declaration) arguments argument-modes)
@@ -12466,7 +12573,7 @@
       (index-declarations-incrementally! declarations)
       (publish-clojure-declaration-metadata! declarations))))
 
-(defn- compile-published-callable-slice!
+(defn- compile-published-declaration-slice!
   [declaration snapshot getter-keys]
   (let [module (:module declaration)
         declarations (declaration-live-slice (:declarations snapshot) declaration)]
@@ -12529,7 +12636,7 @@
   (let [module (:module declaration)
         definitions (vals (:definitions (get @registry module)))
         declaration-key (:declaration-key declaration)
-        image (when (= request-key :jvm-callable-declaration-keys)
+        image (when (#{:jvm-callable-declaration-keys :jvm-type-declaration-keys} request-key)
                 (some-> *prepared-namespace-images* deref (get module)))
         compiled-declaration
         (some #(when (= declaration-key (:declaration-key %)) %)
@@ -12543,24 +12650,31 @@
           (reset! added-request? true)
           (swap! registry update-in [module request-key]
                  (fnil conj #{}) declaration-key)))
-      (if (native-declaration-equivalent? compiled-declaration declaration)
-        (let [getter-keys (if (get-in image [:dispatch-specs declaration-key :emit-getter?])
-                            #{} #{declaration-key})]
-          (compile-published-callable-slice! compiled-declaration (:snapshot image) getter-keys))
-        (let [plan
-              (locking compile-lock
-                (let [state (get @registry module)]
-                  (binding [*propagate-dependent-changes?* false
-                            *exact-declaration-publication?* true
-                            *materialize-declaration* declaration
-                            *pending-declaration-keys*
-                            (conj (set (:pending-declaration-keys state)) declaration-key)]
-                    (let [plan (compilation-plan
-                                module state (vec (vals (:definitions state)))
-                                declaration declaration)]
-                      (retain-prepared-source-identities! module state plan)
-                      plan))))]
-          (compile-plan! module (refresh-plan-dependency-snapshots plan))))
+      (when (native-declaration-equivalent? compiled-declaration declaration)
+        ;; Zig can leave a declared implementation getter unanalyzed in the
+        ;; startup image. Ordinary calls select either branch from the loaded
+        ;; implementation address; prepare both without loading that image.
+        (doseq [getter-keys (if (= request-key :jvm-callable-declaration-keys)
+                              [#{} #{declaration-key}]
+                              [#{}])]
+          (compile-published-declaration-slice! compiled-declaration (:snapshot image) getter-keys)))
+      ;; The same JVM can call a Var immediately after source-only preparation,
+      ;; before any namespace image has been loaded. Prepare that ordinary
+      ;; demand path too; its exact declaration root differs from the image.
+      (let [plan
+            (locking compile-lock
+              (let [state (get @registry module)]
+                (binding [*propagate-dependent-changes?* false
+                          *exact-declaration-publication?* true
+                          *materialize-declaration* declaration
+                          *pending-declaration-keys*
+                          (conj (set (:pending-declaration-keys state)) declaration-key)]
+                  (let [plan (compilation-plan
+                              module state (vec (vals (:definitions state)))
+                              declaration declaration)]
+                    (retain-prepared-source-identities! module state plan)
+                    plan))))]
+        (compile-plan! module (refresh-plan-dependency-snapshots plan)))
       (catch Throwable error
         ;; A failed layout/callable request must not poison unrelated later
         ;; preparations in the same namespace. Keep existing requests intact.
@@ -12602,7 +12716,7 @@
                       #{} #{declaration-key})
         _ (swap! registry update-in [module :jvm-callable-declaration-keys]
                  (fnil conj #{}) declaration-key)
-        compilation (compile-published-callable-slice! declaration snapshot getter-keys)
+        compilation (compile-published-declaration-slice! declaration snapshot getter-keys)
         {:keys [compiled dispatch-specs jvm-callable-specs
                 jvm-value-specs jvm-type-specs]} compilation
         loaded (-> (load-module compiled declarations dispatch-specs
@@ -13118,6 +13232,12 @@
                  fields (if container-description
                           (container-storage-fields container-description)
                           fields)
+                 fields (mapv (fn [field]
+                                (if-let [spelling (or (:zig-name field)
+                                                      (get-in field [:properties :zig/name]))]
+                                  (assoc field :name (unquote-zig-identifier spelling))
+                                  field))
+                              fields)
                  qualified-name (symbol (:module declaration) (str (:name declaration)))
                  field-bindings (get-in @registry [(:module declaration) :types
                                                    qualified-name :field-bindings])
@@ -13418,12 +13538,14 @@
            :close! close!})))))
 
 (defn materialize-constant!
-  "Use value transport for inferred comptime constants, native storage otherwise."
+  "Let Zig select storage-free value transport before requesting native storage."
   [declaration]
-  (if (:type declaration)
-    (materialize-stored-constant! declaration)
-    (if-let [result ((requiring-resolve 'aguafria.zig.jvm/comptime-constant-value!) declaration)]
-      {:representation :scalar :value (:comptime_value result)}
+  (if-let [result ((requiring-resolve 'aguafria.zig.jvm/comptime-constant-value!) declaration)]
+    (if (zig-value/zig-value? result)
+      (assoc (zig-value/realize! result) :owners [result])
+      {:representation :scalar :value (:comptime_value result)})
+    (if (:type declaration)
+      (materialize-stored-constant! declaration)
       (let [view ((requiring-resolve 'aguafria.zig.jvm/constant-view!) declaration)]
         (assoc (zig-value/realize! view) :owners [view])))))
 
@@ -13567,7 +13689,13 @@
             ;; callee. Include those constructors and result storage, using the
             ;; same declared types already validated by the native call bridge.
             (when-not (:jvm-adapter? declaration)
-              (doseq [type (distinct (concat (map :type (:args declaration)) [result-reader-type]))
+              (doseq [type (distinct
+                            (concat (map-indexed
+                                     (fn [index _]
+                                       ((requiring-resolve 'aguafria.zig.jvm/argument-reader-type)
+                                        declaration index))
+                                     (:args declaration))
+                                    [result-reader-type]))
                       :when (and type (not (#{:void :noreturn} type)))]
                 ((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!)
                  ((requiring-resolve 'aguafria.zig.jvm/qualify-native-type)

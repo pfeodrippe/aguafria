@@ -22,12 +22,17 @@
                       "signature.zig" {:aguafria.zig.convert/parsed parsed})
            form (first (filter #(#{"defn" "defn-" "defextern"}
                                  (some-> % first name)) (:forms converted)))
-           bindings (first (filter vector? (drop 3 form)))]
+           bindings (first (filter vector? (drop 3 form)))
+           attributes (when (map? (nth form 3 nil)) (nth form 3))]
        (when-not form
          (throw (ex-info "Cannot read imported function signature" {:signature signature})))
        {:zig-name (:zig-name (first ((requiring-resolve 'aguafria.zig.convert/declaration-spans)
                                      parsed)))
-        :return (when-not result-placeholder? (nth form 2))
+        :return (when-not result-placeholder?
+                  (let [return (nth form 2)]
+                    (if (= "!" (:zig/qualifiers attributes))
+                      [:error-union return]
+                      return)))
         :args ((requiring-resolve 'aguafria.zig.emitter/parse-typed-bindings) bindings)}))))
 
 (defn builtin-arguments [signature]
@@ -55,12 +60,14 @@
                 module
                 (fn [declarations]
                   {:files {"__aguafria_signature_probe.zig"
-                           (slurp (io/resource "aguafria/operation_probe.zig"))}
+                           (slurp (io/resource "aguafria/operation_probe.zig"))
+                           "jvm_result.zig" (slurp (io/resource "aguafria/jvm_result.zig"))}
                    :source (str ((requiring-resolve 'aguafria.zig.emitter/emit-module)
                                  module declarations)
-                                "\nconst __aguafria_signature = @import(\"__aguafria_signature_probe.zig\").Inspector(.{ .{ struct {\n"
+                                "\nconst __aguafria_signature = @import(\"__aguafria_signature_probe.zig\").Inspector(.{ struct {\n"
                                 "    pub fn get() type { return @TypeOf(__aguafria_callable); }\n"
-                                "}, " (artifact/print-data identity) " } });\n"
+                                "    pub fn name() []const u8 { return " (artifact/print-data identity) "; }\n"
+                                "} });\n"
                                 "comptime { __aguafria_signature.log(\"aguafria.signature:\" ++ "
                                 "__aguafria_signature.callableSignature(@TypeOf(__aguafria_callable))); }\n")}))
         encoded (second (re-find #"\"aguafria\.operation\.hex:([0-9a-f]+)\""

@@ -135,6 +135,32 @@
     (is (not (re-find #"aguafria\.zig\.convert\.scratch"
                       (:zig-source rendered))))))
 
+(deftest native-only-constants-survive-complete-document-replacement
+  (let [root (.getCanonicalPath (File. "."))
+        project-id (str "editor-constants-test-" fixture-suffix)
+        uri (str (.toURI (File. root "test/fixtures/editor_constants.zig")))
+        constants (str "pub const exact: u128 = 1208925819614629174706177;\n"
+                       "pub const inferred = 5;\n"
+                       "pub const @\"escaped-name\": u32 = 7;\n")]
+    (editor/start-project! root {:project-id project-id})
+    (doseq [version (range 1 4)]
+      (let [source (str constants "pub fn marker() u32 { return " version "; }\n")
+            ticket (editor/evaluate! {:project-id project-id :uri uri
+                                      :source source :document-version version
+                                      :mode :file})
+            publication (editor/await! (:ticket-id ticket))]
+        (is (= :published (:status publication)))
+        (doseq [[line name expected] [[0 "exact" 1208925819614629174706177N]
+                                      [1 "inferred" 5]
+                                      [2 "escaped-name" 7]]]
+          (let [inspection (editor/inspect! project-id uri source
+                                            {:line line :character 12})
+                module (:module inspection)]
+            (is (= expected (:value inspection)))
+            (is (not (contains? (some-> module symbol find-ns ns-interns)
+                                (symbol name)))
+                "native constants do not need Clojure Vars")))))))
+
 (deftest evaluates-and-hot-reloads-pure-zig-in-one-runtime
   (let [root (.getCanonicalPath (File. "."))
         project-id (str "editor-live-test-" fixture-suffix)

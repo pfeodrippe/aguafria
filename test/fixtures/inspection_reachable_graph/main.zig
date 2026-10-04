@@ -13,14 +13,7 @@ fn Graph(comptime remaining: usize) type {
 }
 
 const Root = Graph(12);
-const Inspector = probe.Inspector(.{.{
-    struct {
-        pub fn get() type {
-            return Root;
-        }
-    },
-    "fixture/Root",
-}});
+const Inspector = probe.Inspector(.{TypeBox(Root, "fixture/Root")});
 
 fn Marker(comptime id: usize) type {
     return struct {
@@ -40,10 +33,14 @@ fn CollisionRoot(comptime id: usize) type {
     };
 }
 
-fn TypeBox(comptime T: type) type {
+fn TypeBox(comptime T: type, comptime expression: []const u8) type {
     return struct {
         pub fn get() type {
             return T;
+        }
+
+        pub fn name() []const u8 {
+            return expression;
         }
     };
 }
@@ -74,8 +71,8 @@ comptime {
     const Second = CollisionRoot(collision[1]);
     if (First == Second) @compileError("Collision requires distinct native types");
     const CollisionInspector = probe.Inspector(.{
-        .{ TypeBox(First), "fixture/first" },
-        .{ TypeBox(Second), "fixture/second" },
+        TypeBox(First, "fixture/first"),
+        TypeBox(Second, "fixture/second"),
     });
     const child = CollisionInspector.schema(Marker(collision[1]));
     if (!std.mem.startsWith(u8, child, "(aguafria.keyword/FieldType ") or

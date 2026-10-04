@@ -2,8 +2,10 @@
   (:require [aguafria.keyword :as k]
             [aguafria.std.c :as c]
             [aguafria.zig :as a]
+            [aguafria.zig.artifact :as artifact]
             [aguafria.zig.discovery :as discovery]
             [aguafria.zig.emitter :as emitter]
+            [aguafria.zig.explain :as explain]
             [aguafria.zig.jvm :as jvm]
             [aguafria.zig.precompile :as precompile]
             [aguafria.zig.runtime :as runtime]
@@ -26,6 +28,324 @@
     (is (zero? (:exit result)) (:err result))
     (is (str/blank? (:err result)))))
 
+(deftest preparation-keeps-test-and-runtime-contexts-distinct
+  (let [contexts (atom [])
+        operation {:status :observed :function 'aguafria.keyword/+
+                   :signatures [[:u32 :u32]]}
+        test-operation (assoc operation :function 'aguafria.keyword/- :declaration-kind :test)
+        report (with-redefs [discovery/analyze!
+                             (fn [_] {:operations [(assoc operation :declaration-kind :fn)
+                                                   test-operation test-operation]})
+                             jvm/precompile-call!
+                             (fn [{:keys [function]}]
+                               (swap! contexts conj runtime/*native-test-context?*)
+                               (when (and (= 'aguafria.keyword/- function)
+                                          (not runtime/*native-test-context?*))
+                                 (throw (ex-info "Test environment required"
+                                                 {:aguafria/phase :zig-compile})))
+                               {:status :prepared})]
+                 (with-redefs-fn {#'discovery/prepare-declared-functions! (constantly [])}
+                   #(discovery/prepare! 'fixture.context)))]
+    (is (= [false false true] @contexts))
+    (is (= [:runtime :test :test] (mapv :enclosing-context (:operations report))))
+    (is (= [:runtime :test :test]
+           (mapv #(get-in % [:handlers 0 :execution-context]) (:operations report))))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers (:operations report))))
+    (is (false? runtime/*native-test-context?*))))
+
+(deftest preparation-does-not-change-unrelated-failures-to-test-context
+  (doseq [[kind phase] [[:fn :zig-compile] [:test :adapter-planning]]]
+    (let [contexts (atom [])
+          report (with-redefs [discovery/analyze!
+                               (fn [_] {:operations [{:status :observed :declaration-kind kind
+                                                      :function 'aguafria.keyword/+
+                                                      :signatures [[:u32 :u32]]}]})
+                               jvm/precompile-call!
+                               (fn [_]
+                                 (swap! contexts conj runtime/*native-test-context?*)
+                                 (throw (ex-info "Unrelated failure" {:aguafria/phase phase})))]
+                   (with-redefs-fn {#'discovery/prepare-declared-functions! (constantly [])}
+                     #(discovery/prepare! 'fixture.context)))]
+      (is (= [false] @contexts))
+      (is (= :failed (get-in report [:operations 0 :handlers 0 :status])))
+      (is (= "Unrelated failure" (get-in report [:operations 0 :handlers 0 :message]))))))
+
+(defn- test-context-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.zig 'aguafria.zig.jvm 'aguafria.zig.runtime
+                         'aguafria.zig.precompile 'aguafria.zig.explain)
+                (aguafria.zig.runtime/configure! {:cache-dir ~cache})
+                (binding [aguafria.zig.runtime/*source-only-registration?* true]
+                  (require 'aguafria.zig.discovery-test-context-fixture))
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))]
+                    (let [report# (aguafria.zig.precompile/precompile!
+                                   {:analyze ['aguafria.zig.discovery-test-context-fixture]
+                                    :report-file ~(str cache "/report.edn")})
+                          analysis# (first (:analysis report#))]
+                      (assert (zero? (get-in analysis# [:baseline :exit])))
+                      (assert (not (:compiler-errors? analysis#)))
+                      (assert (empty? (:probe-failures analysis#)))
+                      (binding [aguafria.zig.runtime/*native-test-context?* true]
+                        (aguafria.zig.jvm/precompile-method!
+                         {:receiver {:comptime-type 'aguafria.zig.discovery-test-context-fixture/Helpers}
+                          :member :is-test :args []}))
+                      (prn {:operations (:operations analysis#)})))
+                  (let [events# (atom [])
+                        outputs# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                                   (mapv
+                                    (fn [test?#]
+                                      (binding [aguafria.zig.runtime/*native-test-context?* test?#]
+                                        (let [helpers# (var-get (resolve 'aguafria.zig.discovery-test-context-fixture/Helpers))]
+                                          (cond-> [(aguafria.zig/value ((:is-test helpers#)))]
+                                            test?# (conj (aguafria.zig/value ((:require-test helpers#))))))))
+                                    [false true false true]))]
+                    (prn {:outputs outputs# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Test-context JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest real-test-context-adapters-survive-restart-without-contaminating-runtime
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "test-context-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (test-context-jvm cache true)
+        test-operations (filter #(= :test (:enclosing-context %)) (:operations prepared))
+        restarted (test-context-jvm cache false)
+        events (:events restarted)]
+    (is (seq test-operations))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers test-operations))
+        (pr-str test-operations))
+    (is (some #(= :test (:execution-context %)) (mapcat :handlers test-operations)))
+    (is (= [[false] [true 7] [false] [true 7]] (:outputs restarted)))
+    (is (empty? (filter #(= :compiled (:event %)) events)) (pr-str events))
+    (is (seq (filter #(= :disk-cache-hit (:event %)) events))
+        "Real test-environment libraries remain standalone, outside runtime bundles")
+    (is (seq (filter #(= :memory-cache-hit (:event %)) events)))))
+
+(deftest nested-signature-catalog-uses-emitted-member-names
+  (let [catalog (#'discovery/container-declaration-catalog
+                 *ns* "Root" 'fixture/Root
+                 '(aguafria.zig/container {:kind :struct}
+                                          [(aguafria.zig/fn-decl is-ready? :bool [] true)
+                                           (aguafria.zig/fn-decl fn :bool [] true)
+                                           (aguafria.zig/fn-decl exact :bool
+                                                                 {:zig/name "exactZig"} [] true)]))]
+    (is (= ["@TypeOf(Root.is_ready_q)"
+            "@TypeOf(Root.@\"fn\")"
+            "@TypeOf(Root.exactZig)"]
+           (mapv first catalog)))
+    (is (= ['(aguafria.keyword/TypeOf (aguafria.zig/field fixture/Root :is-ready?))
+            '(aguafria.keyword/TypeOf (aguafria.zig/field fixture/Root :fn))
+            '(aguafria.keyword/TypeOf (aguafria.zig/field fixture/Root "exactZig"))]
+           (mapv #(edn/read-string (second %)) catalog)))))
+
+(deftest nested-type-initializers-exclude-their-dependent-catalog-roots
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-alias-initializer-fixture :reload))
+  (let [module 'aguafria.zig.discovery-alias-initializer-fixture
+        fail! (fn [& _] (throw (ex-info "Discovery executed native code" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (binding [runtime/*compile-only?* true]
+                   (discovery/prepare! module)))
+        call (first (filter #(= (symbol (str module) "make-box") (:function %))
+                            (:operations report)))
+        metadata (meta (ns-resolve module 'make-box))]
+    (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= 'Owner (:root-declaration-name call)))
+    (is (= #{[{:comptime-type :u32} {:literal 4 :type :comptime_int}]}
+           (set (:signatures call))))
+    (is (every? #(= :prepared (:status %)) (:handlers call)) (pr-str (:handlers call)))
+    (is (= ["comptime" "comptime"]
+           (mapv #(get-in % [:properties :zig/prefix]) (jvm/call-parameters metadata))))))
+
+(deftest nested-function-parameters-retain-compiler-identities
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-nested-parameters-fixture :reload))
+  (let [fail! (fn [& _] (throw (ex-info "Discovery executed native code" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (binding [runtime/*compile-only?* true]
+                   (discovery/prepare! 'aguafria.zig.discovery-nested-parameters-fixture)))
+        fields (filter #(and (= :field (:storage-kind %))
+                             (contains? #{:amount :other :value} (:member %)))
+                       (:operations report))]
+    (is (zero? (get-in report [:baseline :exit])))
+    (is (= :zig-compiler (:basis report)))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= 3 (count fields)))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers (:operations report)))
+        (pr-str (mapcat :handlers (:operations report))))
+    (doseq [field fields]
+      (is (= :observed (:status field)))
+      (is (not-any? nil? (tree-seq coll? seq (:signatures field)))
+          (pr-str (select-keys field [:form :signatures])))
+      (is (seq? (get-in field [:signatures 0 0]))
+          "An anonymous parameter retains its compiler reflection expression"))))
+
+(deftest constant-container-roots-analyze-concrete-method-bodies
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-const-container-fixture :reload))
+  (let [fail! (fn [& _] (throw (ex-info "Discovery executed native code" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (discovery/prepare! 'aguafria.zig.discovery-const-container-fixture))
+        operations (filter #(contains? #{'increment 'twice} (:declaration-name %))
+                           (:operations report))]
+    (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= 2 (count operations)))
+    (is (every? #(= :observed (:status %)) operations) (pr-str operations))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers operations))
+        (pr-str operations))
+    (let [increment (:increment (var-get (find-var
+                                          'aguafria.zig.discovery-const-container-fixture/Code)))
+          twice (:twice (var-get (find-var
+                                  'aguafria.zig.discovery-const-container-fixture/Cell)))]
+      (is (= 8 (a/value (increment 7))))
+      (is (= 14 (a/value (twice 7)))))))
+
+(deftest private-nested-containers-analyze-concrete-methods-without-execution
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-private-nested-fixture :reload))
+  (let [module 'aguafria.zig.discovery-private-nested-fixture
+        declaration (first (filter #(= 'Owner (:name %)) (runtime/registered-declarations module)))
+        source (emitter/emit-module module [declaration])
+        fail! (fn [& _] (throw (ex-info "Discovery executed native code" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (discovery/prepare! module))
+        operations (filter #(contains? #{'increment 'twice 'subtract} (:declaration-name %))
+                           (:operations report))
+        generic (first (filter #(= 'unspecialized (:declaration-name %)) (:operations report)))
+        construction (first (filter #(= 'aguafria.zig/init (:function %)) (:operations report)))
+        hidden '(aguafria.zig/field aguafria.zig.discovery-private-nested-fixture/Owner :Hidden)]
+    (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= 3 (count operations)))
+    (is (every? #(= :observed (:status %)) operations) (pr-str operations))
+    (is (every? #(= :u32 (get-in % [:signatures 0 0])) operations) (pr-str operations))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers operations)) (pr-str operations))
+    (is (= :unobserved (:status generic)))
+    (is (= [[hidden {:map {:min :u32 :max :u32}}]] (:signatures construction)))
+    (is (every? #(= :prepared (:status %)) (:handlers construction)))
+    (is (= 1 (count (filter :signature-position? (:operations report)))))
+    (is (= #{hidden}
+           (set (map #(get-in % [:signatures 0 0])
+                     (filter #(and (= 'contains (:declaration-name %))
+                                   (= :field (:storage-kind %))) (:operations report))))))
+    (is (= ["Owner.Hidden.increment" "Owner.Hidden.contains" "Owner.Hidden.unspecialized"
+            "Owner.Codes.twice" "Owner.Cells.subtract"]
+           (vec (#'discovery/container-inspection-paths (the-ns module) "Owner" (:value declaration)))))
+    (is (not (re-find #"pub (?:const Hidden|const Codes|const Cells|fn increment|fn twice|fn subtract)"
+                      source)))
+    (is (= source (emitter/emit-module module [declaration])))))
+
+(defn- private-nested-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.keyword 'aguafria.zig 'aguafria.zig.runtime
+                         'aguafria.zig.precompile 'aguafria.zig.explain)
+                (aguafria.zig.runtime/configure! {:cache-dir ~cache})
+                (binding [aguafria.zig.runtime/*source-only-registration?* true]
+                  (require 'aguafria.zig.discovery-private-nested-fixture))
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))]
+                    (let [report# (aguafria.zig.precompile/precompile!
+                                   {:analyze ['aguafria.zig.discovery-private-nested-fixture]
+                                    :coercions [:u32]
+                                    :report-file ~(str cache "/report.edn")})
+                          analysis# (first (:analysis report#))]
+                      (assert (zero? (get-in analysis# [:baseline :exit])))
+                      (assert (not (:compiler-errors? analysis#)))
+                      (assert (empty? (:probe-failures analysis#)))
+                      (prn {:prepared true})))
+                  (let [events# (atom [])
+                        outputs# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                                   (mapv
+                                    (fn [[minimum# maximum#]]
+                                      (let [range# (aguafria.zig/init
+                                                    {:min (aguafria.keyword/u32 minimum#)
+                                                     :max (aguafria.keyword/u32 maximum#)}
+                                                    (:Hidden aguafria.zig.discovery-private-nested-fixture/Owner))
+                                            lower# (:min range#)
+                                            upper# (:max range#)]
+                                        (mapv aguafria.zig/value
+                                              [lower# upper# (aguafria.keyword/<= lower# upper#)
+                                               (aguafria.keyword/<= upper# lower#)
+                                               (aguafria.keyword/+ lower# 1)
+                                               (aguafria.keyword/* lower# 2)
+                                               (aguafria.keyword/- lower# 1)])))
+                                    [[2 9] [10 21]]))]
+                    (prn {:outputs outputs# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Private nested JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest private-nested-fields-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "private-nested-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (private-nested-jvm cache true)
+        restarted (private-nested-jvm cache false)
+        events (:events restarted)
+        library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
+        entries (when library
+                  (set (keys (:entries (edn/read-string
+                                        (slurp (io/file (.getParentFile (io/file library))
+                                                        "manifest.edn")))))))]
+    (is (:prepared prepared))
+    (is (= [[2 9 true false 3 4 1] [10 21 true false 11 20 9]] (:outputs restarted)))
+    (is (empty? (filter #(= :compiled (:event %)) events)) (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (seq (filter #(= :bundle-cache-hit (:event %)) events)) (pr-str events))
+    (is (empty? (filter #(= :disk-cache-hit (:event %)) events)) (pr-str events))
+    (is (every? #(contains? entries
+                            (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)]))
+                (filter :artifact-key events)) (pr-str events))))
+
+(deftest type-refinement-retains-only-clean-isolated-observations
+  (let [queries (atom [])
+        inspect (fn [_ selected]
+                  (swap! queries conj selected)
+                  {:invalid? (contains? selected "bad")
+                   :operations [{:id "good" :status :unobserved}
+                                {:id "bad" :status :unobserved}
+                                {:id "unrelated" :status :unobserved}]
+                   :observed (cond-> {}
+                               (selected "good") (assoc "good" #{[:i32]})
+                               ;; Even a concrete observation from a rejected
+                               ;; compiler pass must not replace the old result.
+                               (selected "bad") (assoc "bad" #{[:u32]}))})
+        result (with-redefs-fn
+                 {#'discovery/inspect-operations! inspect
+                  #'discovery/compiler-errors? :invalid?}
+                 #(#'discovery/refine-type-identities!
+                   'fixture.refinement
+                   {:observed {"good" #{[nil]} "bad" #{[nil]}}}))]
+    (is (= {"good" #{[:i32]}} (:observed result)))
+    (is (= #{"bad"} (set (keys (:probe-failures result)))))
+    (is (= 3 (:inspection-attempts result)))
+    (is (:compiler-errors? result))
+    (is (= [#{"good" "bad"} #{"good"} #{"bad"}] @queries))))
+
 (deftest compiler-observed-function-operands-preserve-native-declarations
   (let [fail! (fn [& _] (throw (ex-info "Native execution during discovery" {})))
         report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
@@ -47,9 +367,40 @@
                      emitter/*lexical-bindings* #{'worker}]
              (#'discovery/declaration-argument-schema str 'worker "fallback"))))))
 
-(deftest type-expressions-prepare-the-ordinary-type-adapter
+(deftest generic-bodies-use-existing-source-specializations-without-execution
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-specialization-leaf-fixture :reload)
+    (require 'aguafria.zig.discovery-specialization-caller-fixture :reload))
   (let [fail! (fn [& _] (throw (ex-info "Native execution during discovery" {})))
         report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (discovery/analyze! 'aguafria.zig.discovery-specialization-leaf-fixture))
+        operations (into {} (map (juxt :declaration-name identity)) (:operations report))]
+    (is (zero? (get-in report [:baseline :exit])))
+    (is (= #{'(scale 5) '(scale 7) '(element-size (type [:array 3 :u8]))}
+           (set (map :form (:inspection-specializations report)))))
+    (is (= #{'aguafria.zig.discovery-specialization-caller-fixture/call-scale
+             'aguafria.zig.discovery-specialization-caller-fixture/second-scale
+             'aguafria.zig.discovery-specialization-caller-fixture/array-size}
+           (set (map :caller (:inspection-specializations report)))))
+    (is (= :zig-compiler (:basis report)))
+    (is (= :observed (:status (operations 'scale))))
+    (is (= [[:u32 {:literal 2 :type :comptime_int}]] (:signatures (operations 'scale))))
+    (is (= :observed (:status (operations 'element-size))))
+    (is (= [[{:comptime-type [:array 3 :u8]}]]
+           (:signatures (operations 'element-size))))
+    (is (some #{"--test-no-exec"} (:command report)))
+    (is (zero? (:native-generation-count
+                (runtime/module-info "aguafria.zig.discovery-specialization-caller-fixture"))))
+    (is (= :unobserved (:status (operations 'no-call-site))))
+    (is (nil? (:signatures (operations 'no-call-site))))))
+
+(deftest type-expressions-prepare-the-ordinary-type-adapter
+  (let [fail! (fn [& _] (throw (ex-info "Native execution during discovery" {})))
+        report (with-redefs [runtime/invoke! fail!
+                             runtime/invoke-with-result! fail!
+                             runtime/module-info
+                             (fn [& _]
+                               (throw (ex-info "Preparation inspected runtime state" {})))]
                  (first (:analysis
                          (a/precompile!
                           {:analyze ['aguafria.zig.discovery-type-expression-fixture]}))))
@@ -243,24 +594,39 @@
 
 (deftest unused-concrete-functions-are-prepared-without-execution
   (let [fail! (fn [& _] (throw (ex-info "Native invocation during discovery" {})))
-        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
-                 (first (:analysis
-                         (precompile/precompile!
-                          {:analyze ['aguafria.zig.discovery-fixture]}))))
+        reporter explain/*reporter*
+        record! (fn [events event]
+                  (swap! events conj event)
+                  (when reporter (reporter event)))
+        prepared-events (atom [])
+        report (binding [explain/*reporter* #(record! prepared-events %)]
+                 (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                   (first (:analysis
+                           (precompile/precompile!
+                            {:analyze ['aguafria.zig.discovery-fixture]})))))
         functions (into {} (map (juxt :function identity)) (:functions report))
         function (ns-resolve 'aguafria.zig.discovery-fixture 'add-literal)
         commands (atom [])
+        ordinary-events (atom [])
+        prepared-keys (into #{} (keep :artifact-key) @prepared-events)
         original shell/sh]
     ;; No other declaration calls add-literal; observing calls alone misses it.
     (is (= :prepared (:status (functions 'aguafria.zig.discovery-fixture/add-literal))))
     (is (= :specialization (:reason (functions 'aguafria.zig.discovery-fixture/generic-add))))
     (is (= :test-runner (:reason (functions 'aguafria.zig.discovery-fixture/do-not-execute))))
     (is (= 4 (count functions)))
-    (with-redefs [shell/sh (fn [& arguments]
-                             (swap! commands conj (take 2 arguments))
-                             (apply original arguments))]
-      (is (= 42 (a/value (function 35)))))
-    (is (empty? @commands) (str @commands))))
+    (binding [explain/*reporter* #(record! ordinary-events %)]
+      (with-redefs [shell/sh (fn [& arguments]
+                               (swap! commands conj (take 4 arguments))
+                               (apply original arguments))]
+        (let [native (function 35)]
+          (try (is (= 42 (a/value native))) (finally (a/close! native))))))
+    (is (empty? @commands) (str @commands))
+    (is (seq (keep :artifact-key @ordinary-events))
+        "The check must observe an actual library lookup, not an already loaded function")
+    (is (every? prepared-keys (keep :artifact-key @ordinary-events))
+        (str "Ordinary invocation must use keys actually prepared: "
+             (mapv #(select-keys % [:event :module :artifact-key]) @ordinary-events)))))
 
 (deftest declaration-only-imports-remain-explicitly-unsupported
   (binding [runtime/*source-only-registration?* true]
@@ -292,8 +658,8 @@
     (is (= #{42 7 15}
            (set (map #(get-in % [:constructor-value :value]) literal-constructors))))
     (is (every? #(= :prepared (:status %)) (mapcat :handlers literal-constructors)))
-    (is (= [:computed-type-literal-construction]
-           (mapv :reason (mapcat :handlers (remove :literal-constructor? constructors)))))
+    (is (every? #(= :prepared (:status %))
+                (mapcat :handlers (remove :literal-constructor? constructors))))
     (with-redefs [shell/sh (fn [& arguments]
                              (swap! commands conj (take 2 arguments))
                              (apply original arguments))]
@@ -302,6 +668,21 @@
               box (a/init {:value number} box-type)]
           (is (= number (a/value (:value box)))))))
     (is (empty? @commands) (str @commands))))
+
+(deftest numeric-comptime-type-identities-retain-their-imports
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-sized-type-fixture :reload))
+  (let [fail! (fn [& _] (throw (ex-info "Native invocation during discovery" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (discovery/prepare! 'aguafria.zig.discovery-sized-type-fixture))
+        constructors (filter :literal-constructor? (:operations report))]
+    (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:root-failures report)))
+    (is (some #{'(aguafria.zig.discovery-sized-type-fixture/Buffer :u64 4)}
+              (:type-identities report)))
+    (is (seq constructors))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers constructors)))))
 
 (deftest type-identities-do-not-guess-the-type-of-anytype-constants
   (let [inspect #'discovery/observed-type-identities
@@ -314,6 +695,183 @@
     (is (= '[(example/Type 5)]
            (inspect (assoc constant :observed {"0" [[{:literal 5 :type :comptime_int}]]}))))
     (is (= [] (inspect (assoc constant :observed {"0" [[{:comptime-type [:* nil]}]]}))))))
+
+(deftest generic-value-results-retain-the-ordinary-call-identity
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-call-result-fixture :reload))
+  (let [fail! (fn [& _] (throw (ex-info "Executed a body" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (discovery/prepare! 'aguafria.zig.discovery-call-result-fixture))
+        methods (filter :method-call? (:operations report))]
+    (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= 1 (count (:call-result-identities report))))
+    (is (= 2 (count methods)))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers methods))
+        (pr-str (mapcat :handlers methods)))))
+
+(defn- iterator-result-jvm [cache prepare?]
+  (let [code
+        `(do
+           (require 'aguafria.keyword 'aguafria.zig 'aguafria.std.mem
+                    'aguafria.zig.runtime 'aguafria.zig.precompile
+                    'aguafria.zig.explain)
+           (aguafria.zig.runtime/configure! {:cache-dir ~cache})
+           (binding [aguafria.zig.runtime/*source-only-registration?* true]
+             (require 'aguafria.zig.discovery-call-result-fixture))
+           (if ~prepare?
+             (with-redefs [aguafria.zig.runtime/invoke!
+                           (fn [& _#] (throw (ex-info "Executed a body" {})))
+                           aguafria.zig.runtime/invoke-with-result!
+                           (fn [& _#] (throw (ex-info "Executed a body" {})))]
+               (let [report# (aguafria.zig.precompile/precompile!
+                              {:analyze ['aguafria.zig.discovery-call-result-fixture]
+                               :report-file ~(str cache "/report.edn")})
+                     analysis# (first (:analysis report#))]
+                 (assert (zero? (get-in analysis# [:baseline :exit])))
+                 (assert (not (:compiler-errors? analysis#)))
+                 (assert (empty? (:probe-failures analysis#)))
+                 (assert (every? #(= :prepared (:status %))
+                                 (mapcat :handlers (:operations analysis#))))
+                 (prn {:prepared true})))
+             (let [events# (atom [])
+                   outputs#
+                   (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                     (mapv (fn [input#]
+                             (let [iterator#
+                                   (aguafria.keyword/var
+                                    (aguafria.std.mem/splitScalar
+                                     :u8 (aguafria.keyword/as input# [:slice-const :u8]) \,))]
+                               (mapv (fn [_#]
+                                       (aguafria.zig/value ((:next iterator#))))
+                                     (range 3))))
+                           ["one,two" "a,b"]))]
+               (prn {:outputs outputs# :events @events#})))
+           (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Iterator result JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest generic-value-result-methods-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "iterator-results-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (iterator-result-jvm cache true)
+        restarted (iterator-result-jvm cache false)
+        events (:events restarted)
+        library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
+        prepared-entries (when library
+                           (set (keys (:entries (edn/read-string
+                                                 (slurp (io/file (.getParentFile (io/file library))
+                                                                 "manifest.edn")))))))]
+    (is (:prepared prepared))
+    (is (= [["one" "two" nil] ["a" "b" nil]] (:outputs restarted)))
+    (is (empty? (filter #(= :compiled (:event %)) events)) (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (seq (filter #(= :bundle-cache-hit (:event %)) events)) (pr-str events))
+    (is (empty? (filter #(= :disk-cache-hit (:event %)) events)) (pr-str events))
+    (is (every? #(contains? prepared-entries
+                            (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)]))
+                (filter :artifact-key events)) (pr-str events))))
+
+(deftest generic-calls-retain-concrete-parameter-context
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-generic-parameter-fixture :reload))
+  (let [module 'aguafria.zig.discovery-generic-parameter-fixture
+        fail! (fn [& _] (throw (ex-info "Discovery executed native code" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (discovery/prepare! module))
+        call (first (filter #(= (symbol (str module) "parse-value") (:function %))
+                            (:operations report)))
+        options (get-in call [:signatures 0 2])]
+    (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= {:comptime-expression '(object [])} options)
+        (pr-str (:signatures call)))
+    (is (every? #(= :prepared (:status %)) (:handlers call)) (pr-str (:handlers call)))))
+
+(deftest comptime-object-operands-share-the-jvm-map-representation
+  (let [canonical #'jvm/canonical-comptime-object]
+    (is (= {} (canonical '(object []))))
+    (is (= {:base 16 :nested {:enabled true}}
+           (canonical '(object [[:base 16]
+                                [:nested (object [[:enabled true]])]]))))
+    (is (= '(object [[:value (example/read)]])
+           (canonical '(object [[:value (example/read)]]))))
+    (is (= '(object [[:value 1] [:value 2]])
+           (canonical '(object [[:value 1] [:value 2]]))))))
+
+(defn- generic-parameter-jvm [cache prepare?]
+  (let [code
+        `(do
+           (require 'aguafria.keyword 'aguafria.zig 'aguafria.zig.runtime
+                    'aguafria.zig.precompile 'aguafria.zig.explain
+                    'clojure.edn 'clojure.java.io)
+           (aguafria.zig.runtime/configure! {:cache-dir ~cache})
+           (binding [aguafria.zig.runtime/*source-only-registration?* true]
+             (require 'aguafria.zig.discovery-generic-parameter-fixture))
+           (if ~prepare?
+             (with-redefs [aguafria.zig.runtime/invoke!
+                           (fn [& _#] (throw (ex-info "Executed a body" {})))
+                           aguafria.zig.runtime/invoke-with-result!
+                           (fn [& _#] (throw (ex-info "Executed a body" {})))]
+               (let [report# (aguafria.zig.precompile/precompile!
+                              {:analyze ['aguafria.zig.discovery-generic-parameter-fixture]
+                               :report-file ~(str cache "/report.edn")})
+                     analysis# (first (:analysis report#))
+                     calls# (filter #(= 'aguafria.zig.discovery-generic-parameter-fixture/parse-value
+                                        (:function %)) (:operations analysis#))]
+                 (assert (zero? (get-in analysis# [:baseline :exit])))
+                 (assert (not (:compiler-errors? analysis#)))
+                 (assert (empty? (:probe-failures analysis#)))
+                 (assert (seq calls#))
+                 (assert (every? #(= :prepared (:status %)) (mapcat :handlers calls#)))
+                 (prn {:prepared-calls (count calls#)})))
+             (let [events# (atom [])
+                   outputs# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                              (mapv (fn [number#]
+                                      (aguafria.zig/value
+                                       ((resolve 'aguafria.zig.discovery-generic-parameter-fixture/parse-value)
+                                        :u16 (aguafria.keyword/u16 number#) {})))
+                                    [42 0 99]))]
+               (assert (= [{:ok 42} {:error {:name "InvalidNumber"}} {:ok 99}] outputs#))
+               (prn {:outputs outputs# :events @events#})))
+           (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Generic parameter JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest generic-comptime-options-and-error-results-survive-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "generic-parameters-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (generic-parameter-jvm cache true)
+        restarted (generic-parameter-jvm cache false)
+        events (:events restarted)
+        library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
+        prepared-entries (when library
+                           (set (keys (:entries (edn/read-string
+                                                 (slurp (io/file (.getParentFile (io/file library))
+                                                                 "manifest.edn")))))))]
+    (is (= 1 (:prepared-calls prepared)))
+    (is (= [{:ok 42} {:error {:name "InvalidNumber"}} {:ok 99}] (:outputs restarted)))
+    (is (empty? (filter #(= :compiled (:event %)) events)) (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (seq (filter #(= :bundle-cache-hit (:event %)) events)) (pr-str events))
+    (is (empty? (filter #(= :disk-cache-hit (:event %)) events)) (pr-str events))
+    (is (every? #(contains? prepared-entries
+                            (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)]))
+                (filter :artifact-key events)) (pr-str events))))
 
 (deftest compiler-observes-comptime-formats-and-typed-tuple-elements
   (binding [runtime/*source-only-registration?* true]
@@ -639,6 +1197,197 @@
     (is (= 5 (count (filter :literal-arguments operations))))
     (is (every? #(= :prepared (:status %)) (mapcat :handlers operations)))))
 
+(deftest structural-assignments-and-multiline-strings-are-observed
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-structural-values-fixture :reload))
+  (let [fail! (fn [& _] (throw (ex-info "Preparation executed a body" {})))
+        report (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                 (discovery/prepare! 'aguafria.zig.discovery-structural-values-fixture))
+        operations (:operations report)
+        assignments (filter :assignment operations)
+        text (first (filter #(= 'aguafria.zig/multiline-string (:function %)) operations))]
+    (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= #{"+=" "="} (set (map :assignment assignments))))
+    (is (some #(= [[[:optional :usize]
+                    {:contextual-argument [[:optional :usize] :usize]}]]
+                  (:signatures %)) assignments))
+    (doseq [type [:usize :u64]]
+      (is (some #(= [[[:optional type]
+                      {:contextual-argument [[:optional type] :null]}]]
+                    (:signatures %)) assignments)))
+    (is (= '(["hello" "world"]) (seq (:literal-arguments text))))
+    (is (every? #(= :prepared (:status %))
+                (mapcat :handlers (conj (vec assignments) text)))
+        (pr-str operations))
+    (is (= "amount += 2" (emitter/emit-expr '(assign-expr "+=" amount 2))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"assignment operator"
+                          (a/assign-expr "+" (k/var 1 :i32) 2)))))
+
+(defn- structural-values-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.keyword 'aguafria.zig 'aguafria.zig.runtime
+                         'aguafria.zig.precompile 'aguafria.zig.explain)
+                (aguafria.zig.runtime/configure! {:cache-dir ~cache})
+                (binding [aguafria.zig.runtime/*source-only-registration?* true]
+                  (require 'aguafria.zig.discovery-structural-values-fixture))
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))]
+                    (let [report# (aguafria.zig.precompile/precompile!
+                                   {:analyze ['aguafria.zig.discovery-structural-values-fixture]
+                                    :report-file ~(str cache "/report.edn")})
+                          analysis# (first (:analysis report#))]
+                      (assert (zero? (get-in analysis# [:baseline :exit])))
+                      (assert (not (:compiler-errors? analysis#)))
+                      (assert (empty? (:probe-failures analysis#)))
+                      (prn {:prepared true})))
+                  (let [events# (atom [])
+                        outputs# (binding
+                                  [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                                   (let [amount# (aguafria.keyword/var 10 :i32)]
+                                     (aguafria.zig/assign-expr "+=" amount# 77)
+                                     (let [incremented# (aguafria.zig/value amount#)]
+                                       (aguafria.zig/assign-expr "=" amount# 42)
+                                       [incremented# (aguafria.zig/value amount#)
+                                        (mapv (fn [type#]
+                                                (let [counter# (aguafria.keyword/var 10 type#)]
+                                                  (aguafria.zig/assign-expr "+=" counter# 77)
+                                                  (aguafria.zig/value counter#)))
+                                              [:u64 :usize :u8])
+                                        (let [oldest# (aguafria.keyword/var nil [:optional :usize])
+                                              index# (aguafria.keyword/usize 7)]
+                                          (aguafria.zig/assign-expr "=" oldest# index#)
+                                          (let [assigned# (aguafria.zig/value oldest#)]
+                                            (aguafria.zig/assign-expr "=" oldest# nil)
+                                            [assigned# (aguafria.zig/value oldest#)]))
+                                        (mapv (fn [initial#]
+                                                (let [sequence# (aguafria.keyword/var
+                                                                 initial# [:optional :u64])]
+                                                  (aguafria.keyword/= sequence# nil)
+                                                  (aguafria.zig/value sequence#)))
+                                              [11 42])
+                                        (aguafria.zig/value
+                                         @(aguafria.zig/multiline-string ["hello" "world"]))])))]
+                    (prn {:outputs outputs# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Structural values JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest structural-values-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "structural-values-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (structural-values-jvm cache true)
+        restarted (structural-values-jvm cache false)
+        events (:events restarted)
+        library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
+        entries (when library
+                  (set (keys (:entries (edn/read-string
+                                        (slurp (io/file (.getParentFile (io/file library))
+                                                        "manifest.edn")))))))]
+    (is (:prepared prepared))
+    (is (= [87 42 [87 87 87] [7 nil] [nil nil] (mapv int "hello\nworld")]
+           (:outputs restarted)))
+    (is (empty? (filter #(= :compiled (:event %)) events)) (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (seq (filter #(= :bundle-cache-hit (:event %)) events)) (pr-str events))
+    (is (empty? (filter #(= :disk-cache-hit (:event %)) events)) (pr-str events))
+    (is (every? #(contains? entries
+                            (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)]))
+                (filter :artifact-key events)) (pr-str events))))
+
+(defn- scoped-values-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.keyword 'aguafria.zig 'aguafria.zig.runtime
+                         'aguafria.zig.precompile 'aguafria.zig.explain
+                         'clojure.java.io)
+                (aguafria.zig.runtime/configure! {:cache-dir ~cache})
+                (binding [aguafria.zig.runtime/*source-only-registration?* true]
+                  (require 'aguafria.zig.discovery-scoped-fixture))
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Executed a body" {})))]
+                    (let [report# (aguafria.zig.precompile/precompile!
+                                   {:analyze ['aguafria.zig.discovery-scoped-fixture]
+                                    :report-file ~(str cache "/report.edn")})
+                          analysis# (first (:analysis report#))]
+                      (assert (not (:compiler-errors? analysis#)))
+                      (assert (empty? (:probe-failures analysis#)))
+                      (assert (every? #(contains? #{:prepared :skipped} (:status %))
+                                      (:functions analysis#)))
+                      (prn {:operations (:operations analysis#)})))
+                  (let [forms# (with-open
+                                [reader# (java.io.PushbackReader.
+                                          (clojure.java.io/reader
+                                           (clojure.java.io/resource
+                                            "aguafria/zig/discovery_scoped_fixture.clj")))]
+                                 (loop [forms# []]
+                                   (let [form# (read {:eof ::eof} reader#)]
+                                     (if (= ::eof form#) forms#
+                                         (recur (conj forms# form#))))))
+                        declarations# (into {} (map (juxt second identity)) (rest forms#))
+                        events# (atom [])
+                        outputs# (binding
+                                  [*ns* (the-ns 'aguafria.zig.discovery-scoped-fixture)
+                                   aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                                   (conj
+                                    (mapv
+                                     (fn [name#]
+                                       (mapv (fn [input#]
+                                               (aguafria.zig/value
+                                                (eval (list 'let
+                                                            [(symbol "input")
+                                                             (list 'aguafria.keyword/i32 input#)]
+                                                            (last (get declarations# name#))))))
+                                             [4 14]))
+                                     (mapv symbol ["read-only" "mutable" "shadowed" "propagates"]))
+                                    (aguafria.zig/value
+                                     (eval (last (get declarations# (symbol "closed")))))))]
+                    (prn {:outputs outputs# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Scoped values JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest scoped-values-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "scoped-values-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (scoped-values-jvm cache true)
+        scopes (filter :scoped-form (:operations prepared))
+        restarted (scoped-values-jvm cache false)
+        events (:events restarted)
+        library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
+        entries (when library
+                  (set (keys (:entries (edn/read-string
+                                        (slurp (io/file (.getParentFile (io/file library))
+                                                        "manifest.edn")))))))]
+    (is (= 5 (count scopes)))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers scopes)))
+    (is (= [[5 15] [7 17] [6 16] [{:ok 4} {:ok 14}] 5] (:outputs restarted)))
+    (is (empty? (filter #(= :compiled (:event %)) events)) (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (seq (filter #(= :bundle-cache-hit (:event %)) events)) (pr-str events))
+    (is (empty? (filter #(= :disk-cache-hit (:event %)) events)) (pr-str events))
+    (is (every? #(contains? entries
+                            (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)]))
+                (filter :artifact-key events)) (pr-str events))))
+
 (deftest preparation-preserves-source-function-calling-conventions
   (binding [runtime/*source-only-registration?* true]
     (require 'aguafria.zig.discovery-function-value-fixture :reload))
@@ -858,7 +1607,22 @@
     (is (= 2 (count slices)))
     (is (every? #(= :observed (:status %)) slices))
     (is (every? #(= :prepared (:status %)) (mapcat :handlers slices)) (pr-str slices))
-    (is (= #{:usize} (set (map last (mapcat :signatures slices)))))
+    (is (= #{{:contextual-call ['aguafria.keyword/intCast [:i32]]}}
+           (set (map last (mapcat :signatures slices)))))
+    (let [commands (atom [])
+          original shell/sh]
+      (with-redefs [shell/sh (fn [& args]
+                               (when (= "build-lib" (second args))
+                                 (swap! commands conj (vec args)))
+                               (apply original args))]
+        (with-open [array (a/array [1 2 3 4] :u8)
+                    start (k/i32 1)
+                    end (k/var 3 :i32)
+                    slice (a/slice array 0 (k/intCast end))
+                    trimmed (a/slice slice (k/intCast start) (k/intCast end))]
+          (is (= [1 2 3] (mapv int (a/value slice))))
+          (is (= [2 3] (mapv int (a/value trimmed))))))
+      (is (empty? @commands) (pr-str @commands)))
     ;; Standalone intCast still lacks a result location; do not count it as
     ;; callable just because the enclosing native slice supplies that context.
     (is (every? #(= :result-context-required (:reason %)) (mapcat :handlers casts)))))
@@ -1035,7 +1799,12 @@
         methods (filter :method-call? (:operations report))
         source (runtime/source 'aguafria.zig.discovery-private-methods-fixture)]
     (is (zero? (get-in report [:baseline :exit])) (:diagnostics report))
-    (is (= #{:is-clubs :truthy :increment :plus} (set (map :member methods))))
+    (is (not (:compiler-errors? report)) (:diagnostics report))
+    (is (empty? (:probe-failures report)))
+    (is (= #{:is-clubs :truthy :increment :plus :initial-value}
+           (set (map :member methods))))
+    (is (every? #(and (= :observed (:status %)) (seq (:handlers %))) methods)
+        (pr-str (map #(select-keys % [:member :status :reason]) methods)))
     (is (every? #(= :prepared (:status %)) (mapcat :handlers (:operations report)))
         (pr-str (mapcat :handlers (:operations report))))
     (is (str/includes? source "fn is_clubs("))
@@ -1110,11 +1879,20 @@
                       (let [report# (binding [aguafria.zig.runtime/*compile-only?* true]
                                       (aguafria.zig.discovery/prepare!
                                        namespace#))]
+                        (assert (not (:compiler-errors? report#))
+                                (:diagnostics report#))
+                        (assert (empty? (:probe-failures report#)))
                         (assert (every? #(= :prepared (:status %))
                                         (mapcat :handlers (:operations report#)))))))
                   (let [suit-type# (var-get (resolve 'aguafria.zig.discovery-private-methods-fixture/Suit))
                         variant-type# (var-get (resolve 'aguafria.zig.discovery-private-methods-fixture/Variant))
                         counter-type# (var-get (resolve 'aguafria.zig.discovery-private-methods-fixture/Counter))]
+                    (assert (ifn? (:initial-value counter-type#)))
+                    (assert (= 20 (aguafria.zig/value ((:initial-value counter-type#)))))
+                    (assert (not (str/includes?
+                                  (aguafria.zig.runtime/source
+                                   'aguafria.zig.discovery-private-methods-fixture)
+                                  "pub fn initial_value(")))
                     (with-open [suit# (aguafria.keyword/as :.clubs suit-type#)
                                 variant# (variant-type# {:int 1})
                                 counter# (aguafria.keyword/var (counter-type# {:value 20}))

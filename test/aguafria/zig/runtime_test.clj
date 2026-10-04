@@ -1,9 +1,33 @@
 (ns aguafria.zig.runtime-test
   (:require [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.artifact :as artifact]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
+
+(deftest registered-declarations-only-read-current-source-metadata
+  (let [module "fixture.declaration-metadata"
+        first-declaration {:name 'before :kind :const :value 1}
+        next-declaration {:name 'after :kind :const :value 2}
+        definitions {[:const 'before] first-declaration}
+        registry (atom {module {:definitions definitions
+                                :native-generations [:loaded-generation]}})
+        native-inspection! (fn [& _]
+                             (throw (ex-info "Source metadata inspected native state" {})))]
+    (with-redefs-fn
+      {#'runtime/registry registry
+       #'runtime/dispatch-version-views native-inspection!
+       #'runtime/native-generation-views native-inspection!}
+      (fn []
+        (let [snapshot (runtime/registered-declarations (symbol module))]
+          (is (= (vec (vals definitions)) snapshot))
+          (is (identical? first-declaration (first snapshot)))
+          (swap! registry assoc-in [module :definitions] {[:const 'after] next-declaration})
+          (is (= [next-declaration] (runtime/registered-declarations module)))
+          (is (= [first-declaration] snapshot) "Prior snapshots remain immutable"))
+        (is (= [] (runtime/registered-declarations "fixture.unregistered")))
+        (is (= [:loaded-generation] (get-in @registry [module :native-generations])))))))
 
 (deftest state-references-only-fingerprint-mutable-declarations
   (with-redefs [runtime/declaration-info
@@ -24,7 +48,7 @@
     (with-redefs [runtime/state-reference
                   (fn [_] (swap! calls inc) {:accessor "state_accessor"})]
       (is (= "state_accessor"
-             (:state-accessor (#'runtime/declaration-reference-view
+             (:state-accessor (runtime/declaration-reference
                                {:kind :var :module "fixture.state-reference" :name 'counter}))))
       (is (= 1 @calls) "Publishing metadata computes a state reference once"))))
 
@@ -63,6 +87,41 @@
           (#'runtime/retain-prepared-source-identities! module published plan)
           (is (= published (get @registry module)))
           (is (empty? @indexed) "Published identities remain untouched"))))))
+
+(deftest callable-preparation-covers-published-and-source-only-demand-paths
+  (doseq [[kind request-key getters]
+          [[:fn :jvm-callable-declaration-keys [#{} #{[:fn 'call]}]]
+           [:struct :jvm-type-declaration-keys [#{}]]]]
+    (let [module "fixture.prepared-call-paths"
+          declaration {:module module :kind kind :name 'call
+                       :declaration-key [:fn 'call]}
+          registry (atom {module {:source-only? true
+                                  :definitions {[:fn 'call] declaration}}})
+          image {:snapshot {:declarations [declaration]}
+                 :dispatch-specs {[:fn 'call] {:emit-getter? true}}}
+          paths (atom [])
+          plan {:primary {:declarations [declaration]}}]
+      (with-redefs-fn
+        {#'runtime/registry registry
+         #'runtime/ensure-converted-dependency-sources! (fn [& _])
+         #'runtime/native-declaration-equivalent? =
+         #'runtime/compile-published-declaration-slice!
+         (fn [compiled snapshot getters]
+           (is (= declaration compiled))
+           (is (= (:snapshot image) snapshot))
+           (swap! paths conj [:published getters]))
+         #'runtime/compilation-plan (fn [& _] plan)
+         #'runtime/refresh-plan-dependency-snapshots identity
+         #'runtime/retain-prepared-source-identities! (fn [& _])
+         #'runtime/compile-plan! (fn [_ input]
+                                   (swap! paths conj :source-only-demand)
+                                   input)}
+        #(binding [runtime/*prepared-namespace-images* (atom {module image})]
+           (is (= plan (#'runtime/precompile-declaration-generation!
+                        declaration request-key)))
+           (is (= (conj (mapv (fn [keys] [:published keys]) getters) :source-only-demand) @paths))
+           (is (nil? (get-in @registry [module :generation])))
+           (is (nil? (get-in @registry [module :functions]))))))))
 
 (deftest converted-dependency-loading-preserves-registered-source-only-definitions
   (let [module "fixture.converted-root"
@@ -196,8 +255,8 @@
        (fn [declarations]
          (cond-> #{:callable-dependency}
            (some #{retained} declarations) (conj :retained-state-type)))
-       #'runtime/development-capsule-logical-ids
-       (fn [_ logical-ids]
+       #'runtime/development-capsule-closure
+       (fn [_ logical-ids _ _]
          (reset! observed logical-ids)
          (throw stop))}
       #(is (identical? stop
@@ -254,6 +313,72 @@
         (is (= expected actual))
         (is (vector? actual))
         (is (= (vec input) @printed))))))
+
+(deftest fingerprint-sort-keys-reuse-only-complete-metadata-free-printing
+  (let [sort-fingerprints #'runtime/sorted-fingerprints
+        shared [[[:module :struct "a"] "schema-a" "implementation-a" "shape-a"]
+                [[:module :struct "z"] "schema-z" "implementation-z" "shape-z"]]
+        changed (assoc-in shared [1 2] "new-implementation")
+        printed (atom [])
+        original pr-str]
+    (with-bindings {#'runtime/*fingerprint-sort-keys* (atom {})}
+      (with-redefs [pr-str (fn [value]
+                             (swap! printed conj value)
+                             (original value))]
+        (is (= shared (sort-fingerprints (reverse shared))))
+        (is (= shared (sort-fingerprints shared)))
+        (is (= 2 (count @printed)))
+        (is (= changed (sort-fingerprints (reverse changed))))
+        (is (= 3 (count @printed)) "A changed identity needs a new key")
+        (binding [*print-namespace-maps* false]
+          (is (= shared (sort-fingerprints shared))))
+        (is (= 5 (count @printed)) "Namespace-map printer modes do not share keys")
+        (doseq [settings [{#'*print-length* 1}
+                          {#'*print-level* 1}
+                          {#'*print-meta* true}
+                          {#'*print-dup* true}
+                          {#'*print-readably* false}]]
+          (with-bindings settings
+            (let [before (count @printed)
+                  expected (vec (sort-by original shared))]
+              (is (= expected (sort-fingerprints shared)))
+              (is (= (+ before 2) (count @printed))))))))
+    (is (nil? (var-get #'runtime/*fingerprint-sort-keys*)))
+    (let [a (with-meta [:same] {:line 1})
+          b (with-meta [:same] {:line 2})]
+      (with-bindings {#'runtime/*fingerprint-sort-keys* (atom {})
+                      #'*print-meta* true}
+        (is (= (vec (sort-by pr-str [b a])) (sort-fingerprints [b a])))))))
+
+(deftest fingerprint-refresh-sort-key-storage-is-per-calculation
+  (let [declaration (runtime/declaration-info
+                     {:module "fixture.sort-key-scope" :kind :fn :name 'f
+                      :declaration-key [:fn 'f] :args [] :return :i32 :body [42]})
+        observed (atom [])
+        sort-fingerprints @#'runtime/sorted-fingerprints]
+    (with-redefs-fn
+      {#'runtime/registered-declaration-index
+       (constantly {:by-logical {} :by-module {}})
+       #'runtime/sorted-fingerprints
+       (fn [fingerprints]
+         (swap! observed conj (var-get #'runtime/*fingerprint-sort-keys*))
+         (sort-fingerprints fingerprints))}
+      (fn []
+        (dotimes [_ 2]
+          (let [result (#'runtime/refresh-live-declaration-references-uncached
+                        [(assoc declaration :type-dependency-fingerprints
+                                [[[:outside :struct "T"] "schema" "implementation" "shape"]])])]
+            (is (= 1 (count result)))))))
+    (is (seq @observed))
+    (is (every? #(instance? clojure.lang.Atom %) @observed))
+    (is (= 2 (count (set @observed))) "Each calculation owns its storage")
+    (is (nil? (var-get #'runtime/*fingerprint-sort-keys*)))))
+
+(deftest inspection-without-generics-does-not-refresh-the-global-index
+  (with-redefs-fn
+    {#'runtime/registered-declaration-index
+     (fn [] (throw (ex-info "Unexpected declaration-index refresh" {})))}
+    #(is (= [] (runtime/inspection-callers [])))))
 
 (deftest declaration-name-lookups-reuse-the-immutable-registry-index
   (let [declarations (mapv (fn [n]
@@ -324,6 +449,41 @@
              clojure.lang.ExceptionInfo #"[Uu]nresolved|[Uu]nknown"
              (runtime/register-batch! [(declaration 0 'replacement 'base)]
                                       {:replace? true}))))
+      (finally
+        (swap! registry dissoc module)
+        (remove-ns (ns-name context))))))
+
+(deftest source-only-batches-emit-only-static-source
+  (let [module (str "aguafria.batch-lazy-source-" (random-uuid))
+        context (create-ns (symbol module))
+        registry (var-get #'runtime/registry)
+        declaration (fn [value]
+                      {:module module :kind :const :name 'answer :type :i32
+                       :value value :declaration-key [:const 'answer]})
+        original @#'runtime/emit-source!
+        emissions (atom [])]
+    (try
+      (with-redefs-fn
+        {#'runtime/emit-source!
+         (fn [module declarations]
+           (swap! emissions conj module)
+           (original module declarations))}
+        (fn []
+          (is (:source-only? (runtime/register-batch! [(declaration 42)] {})))
+          (is (= [module] @emissions))
+          (is (false? (:source-dirty? (get @registry module))))
+          (is (nil? (:reload-source (get @registry module))))
+          (is (nil? (:dependency-source (get @registry module))))
+          (let [source (runtime/source module)]
+            (is (= (emitter/emit-module module (vals (:definitions (get @registry module))))
+                   source))
+            (is (= [module] @emissions))
+            (is (= source (runtime/source module)))
+            (is (= [module] @emissions)))
+          (runtime/register-batch! [(declaration 43)] {})
+          (is (= [module module] @emissions))
+          (is (str/includes? (runtime/source module) "43"))
+          (is (= [module module] @emissions))))
       (finally
         (swap! registry dissoc module)
         (remove-ns (ns-name context))))))
@@ -581,6 +741,24 @@
       (is (not-any? #(= (:logical-id d) (first %))
                     (:callable-dependency-fingerprints d))))))
 
+(deftest serialized-vector-fingerprints-preserve-ordinary-encoding
+  (let [declaration-symbol
+        (with-meta 'fixture/Point
+          {:zig/name "point"
+           :aguafria/zig-reference {:module "fixture" :zig-name "point"
+                                    :logical-id "point-id"}})
+        inputs [[] [nil] [1 2 3] ["hello ☔" "\"quoted\ntext" :fixture/value]
+                [declaration-symbol '(+ 1 2) #{:b :a} {:right [3 4] :left [1 2]}]
+                [[:vector [:keyword nil "vector"]] [:map [["key" "value"]]]]]]
+    (doseq [input inputs]
+      (let [encoded (map #(artifact/print-data
+                           (#'runtime/canonical-fingerprint-value %)) input)
+            expected (#'runtime/data-fingerprint input)]
+        (is (= expected (#'runtime/canonical-vector-fingerprint encoded)))
+        (binding [*print-level* 1 *print-length* 1 *print-meta* true
+                  *print-namespace-maps* false]
+          (is (= expected (#'runtime/canonical-vector-fingerprint encoded))))))))
+
 (deftest cyclic-fingerprints-reuse-shared-source-within-one-calculation
   (let [module "fixture.shared-cyclic-sources"
         declarations
@@ -600,14 +778,28 @@
                     (#'runtime/cyclic-implementation-fingerprints
                      ds {:by-logical {} :by-module {}}))
         initial (declarations 8)
+        shared-id (#'runtime/canonical-fingerprint-value
+                   (:logical-id (second initial)))
+        print-data artifact/print-data
+        prints (atom 0)
         fingerprints
         (with-redefs-fn
           {#'runtime/nested-form-values
-           (fn [form] (swap! scans inc) (scan form))}
+           (fn [form] (swap! scans inc) (scan form))
+           #'artifact/print-data
+           (fn [& arguments]
+             (let [value (first arguments)]
+               (when (and (= 1 (count arguments))
+                          (vector? value) (= :vector (first value))
+                          (= 2 (count (second value)))
+                          (= shared-id (first (second value))))
+                 (swap! prints inc))
+               (apply print-data arguments)))}
           #(calculate initial))]
     (is (= (count initial) @scans)
         "Each declaration's source is scanned once, including shared prerequisites")
     (is (= 2 (count fingerprints)))
+    (is (= 1 @prints) "Shared prerequisites are serialized once across both cycles")
     (is (= fingerprints (calculate (vec (reverse initial))))
         "Component order does not affect artifact identity")
     (is (every? false? (map = (vals fingerprints)
@@ -1372,29 +1564,29 @@
         {#'aguafria.zig.runtime/development-linkage-snapshot-entry-limit 2
          #'aguafria.zig.runtime/development-linkage-snapshot-weight-limit 10
          #'aguafria.zig.runtime/compute-linkable-development-dependency-snapshot
-         (fn [dependencies _]
+         (fn [dependencies _ _]
            (swap! computations inc)
            dependencies)}
         (fn []
           (let [input (snapshot "first")
                 output (#'aguafria.zig.runtime/linkable-development-dependency-snapshot
-                        input #{})]
+                        input #{} #{})]
             (is (identical? output
                             (#'aguafria.zig.runtime/linkable-development-dependency-snapshot
-                             input #{})))
+                             input #{} #{})))
             (is (= 1 @computations)))
           (#'aguafria.zig.runtime/linkable-development-dependency-snapshot
-           (snapshot "other") #{})
+           (snapshot "other") #{} #{})
           (is (= 2 (count @cache)))
           (#'aguafria.zig.runtime/linkable-development-dependency-snapshot
-           (snapshot "third") #{})
+           (snapshot "third") #{} #{})
           (is (= 1 (count @cache)))
           (is (= 3 @computations))
           (doseq [_ (range 2)]
             (let [oversized (snapshot "more-than-ten")]
               (is (identical? oversized
                               (#'aguafria.zig.runtime/linkable-development-dependency-snapshot
-                               oversized #{})))))
+                               oversized #{} #{})))))
           (is (= 5 @computations))
           (is (= 1 (count @cache)))
           (is (= {:entry-count 1 :entry-limit 2 :weight-chars 5 :weight-limit-chars 10}
@@ -1402,7 +1594,7 @@
           (let [changed (snapshot "new")]
             (is (= changed
                    (#'aguafria.zig.runtime/linkable-development-dependency-snapshot
-                    changed #{"updated-reference"})))
+                    changed #{"updated-reference"} #{"updated-reference"})))
             (is (= 6 @computations)))))
       (finally
         (reset! cache original)))))
@@ -1443,6 +1635,44 @@
             (is (identical? entry (put! state entry)))
             (is (nil? (get-entry "large" state)))
             (is (= 2 (.size cache))))))
+      (finally
+        (.clear cache)
+        (.putAll cache original)))))
+
+(deftest dependency-facade-cache-retains-larger-unchanged-module-graphs
+  (let [cache (var-get #'runtime/development-dependency-entry-cache)
+        original (java.util.LinkedHashMap. cache)
+        emit-module emitter/emit-dependency-module
+        emitted (atom 0)
+        states (mapv (fn [index]
+                       (let [module (str "fixture.large-graph-" index)
+                             declaration (#'runtime/declaration-info
+                                          {:module module :kind :const :name 'value
+                                           :declaration-key [:const 'value]
+                                           :type :u32 :value index})]
+                         [module {:definitions {[:const 'value] declaration}}]))
+                     (range 128))]
+    (try
+      (.clear cache)
+      (with-redefs [emitter/emit-dependency-module
+                    (fn [module declarations]
+                      (swap! emitted inc)
+                      (emit-module module declarations))]
+        (let [read-graph #(mapv (fn [[module state]]
+                                  (#'runtime/development-dependency-entry
+                                   module state (constantly []))) states)
+              first-pass (read-graph)
+              second-pass (read-graph)]
+          (is (= 128 @emitted) "Unchanged dependencies must not be emitted again")
+          (is (every? true? (map identical? first-pass second-pass)))
+          (is (= 128 (.size cache)))
+          (is (<= (:weight-chars (#'runtime/development-dependency-entry-cache-stats))
+                  (* 32 1024 1024)))
+          (is (every? true?
+                      (map #(= (emit-module (first %1)
+                                            (vals (:definitions (second %1))))
+                               (:source %2))
+                           states first-pass)))))
       (finally
         (.clear cache)
         (.putAll cache original)))))
@@ -1725,7 +1955,7 @@
                            (list 'container {:kind :struct :layout :normal}
                                  [(list 'field-decl 'value field-type)]))})]
                {:declaration declaration
-                :reference (#'runtime/declaration-reference-view declaration)})))
+                :reference (runtime/declaration-reference declaration)})))
         baseline-result (describe :u32)
         changed-result (describe :u64)
         baseline (:declaration baseline-result)

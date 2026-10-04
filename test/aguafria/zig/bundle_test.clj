@@ -34,7 +34,7 @@
         source-file (io/file directory "module.zig")
         source (str "export fn __aguafria_fixture() void {}\n"
                     (apply str (repeat 1000 "// Shared module source.\n")))
-        artifact {:module "aguafria.jvm.fixture" :hash "fixture"
+        artifact {:module "aguafria.jvm.fixture" :hash "fixture" :jvm-adapter? true
                   :development-panic :shared
                   :development-panic-support-path "support.dylib"
                   :command ["zig" "build-lib" "-dynamic" "-femit-bin=unused"
@@ -45,6 +45,8 @@
           entry (#'bundle/materialize-entry! output candidate)
           group (first (:groups entry))]
       (is (some? candidate))
+      (is (some? (bundle/candidate (assoc artifact :module "project.private-owner"))))
+      (is (nil? (bundle/candidate (assoc artifact :jvm-adapter? false))))
       (is (not-any? #(contains? % :source) (:groups candidate)))
       (is (every? #(re-matches #"[a-f0-9]{64}" (:source-key %)) (:groups candidate)))
       (is (not-any? #(contains? % :source) (:groups entry)))
@@ -95,7 +97,7 @@
         dependency (io/file directory "dependency.zig")
         root-source "const dependency = @import(\"dependency\");\nexport fn __aguafria_fixture() void {}\n"
         source "pub const value: u32 = 1;\n"
-        artifact {:module "aguafria.jvm.fixture" :hash "fixture"
+        artifact {:module "aguafria.jvm.fixture" :hash "fixture" :jvm-adapter? true
                   :development-panic :shared
                   :development-panic-support-path "support.dylib"
                   :command ["zig" "build-lib" "-dynamic" "-femit-bin=unused"
@@ -217,6 +219,7 @@
                                       (if (zero? n) "40" "fixture_value()")
                                       " + c.FIXTURE_INCREMENT + " n "; }\n"))
                     {:module (str "aguafria.jvm.external-bundle-test-" n)
+                     :jvm-adapter? true
                      :hash (str n)
                      :development-panic :shared
                      :development-panic-support-path (str support)
@@ -258,6 +261,7 @@
                             (spit source (str "// Aguafria development loader.\n"
                                               "export fn __aguafria_probe() i32 { return " n "; }\n"))
                             {:module (str "aguafria.jvm.bundle-test-" n)
+                             :jvm-adapter? true
                              :hash (str n) :development-panic :shared
                              :development-panic-support-path (str support)
                              :command [zig "build-lib" "-dynamic" "-femit-bin=unused"
