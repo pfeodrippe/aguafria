@@ -8,19 +8,19 @@
 (deftest local-type-constructors-respect-lexical-scope
   (let [body (fn [form]
                (-> (emit/prepare-declaration *ns* {:args [{:name 'callback :type :anytype}]
-                                                  :body [form]})
+                                                   :body [form]})
                    :body first emit/emit-expr))]
     (testing "locally declared types and their aliases are constructors"
       (let [source (body '(let [Local (aguafria.zig/struct [[:x :u8]])
-                               Alias Local
-                               value (Alias {:x 7})]
-                           value))]
+                                Alias Local
+                                value (Alias {:x 7})]
+                            value))]
         (is (str/includes? source "const value = Alias{.x = 7};"))))
     (testing "a nested ordinary function binding shadows the type"
       (let [source (body '(let [Local (aguafria.zig/struct [[:x :u8]])]
-                           (let [Local callback]
-                             (Local {:x 7}))
-                           (Local {:x 9})))]
+                            (let [Local callback]
+                              (Local {:x 7}))
+                            (Local {:x 9})))]
         (let [[_ local-name] (re-find #"const ([A-Za-z0-9_]+) = callback;" source)]
           (is (some? local-name))
           (is (str/includes? source (str local-name "(.{.x = 7})"))))
@@ -28,6 +28,22 @@
     (testing "ordinary functions receiving maps are not constructors"
       (is (str/includes? (body '(let [f callback] (f {:x 7})))
                          "f(.{.x = 7})")))))
+
+(deftest container-self-constructors-do-not-depend-on-an-interned-var
+  (let [context (create-ns (symbol (str "aguafria.self-constructor-" (random-uuid))))]
+    (try
+      (doseq [kind [:struct :union]]
+        (let [declaration {:kind :const :name 'Self
+                           :value (emit/struct-container-form
+                                   {:kind kind}
+                                   [[:value :u32]
+                                    [:zero {:const '(Self {:value 0})} 'Self]])}
+              source #(emit/emit-declaration (emit/prepare-declaration context declaration))
+              uninterned (source)]
+          (is (str/includes? uninterned "Self{.value = 0}"))
+          (intern context 'Self :unrelated-clojure-value)
+          (is (= uninterned (source)))))
+      (finally (remove-ns (ns-name context))))))
 
 (deftest constructors-preserve-zig-defaults
   (let [old-config (a/configuration)
@@ -45,8 +61,8 @@
                  [[:a {:default (default-number)} :i32]
                   [:b :i32]]))
         (eval '(a/defstruct Packed {:layout :packed}
-                 [[:low {:default 7} :u4]
-                  [:high :u4]]))
+                            [[:low {:default 7} :u4]
+                             [:high :u4]]))
         (eval '(a/defstruct Options
                  [[:enabled {:default true} :bool]
                   [:number {:default 9} [:optional :i32]]

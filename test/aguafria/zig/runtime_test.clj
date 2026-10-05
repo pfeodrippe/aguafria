@@ -1,10 +1,30 @@
 (ns aguafria.zig.runtime-test
-  (:require [aguafria.zig.runtime :as runtime]
+  (:require [aguafria.zig]
+            [aguafria.zig.runtime :as runtime]
             [aguafria.zig.artifact :as artifact]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
+
+(deftest tagged-union-wrapper-flags-match-container-attributes
+  (doseq [[options tagged?] [[{} false]
+                             [{:attrs #{'aguafria.keyword/enum}} true]
+                             [{:type :u8} true]]]
+    (let [module (str (ns-name *ns*))
+          declaration (emitter/prepare-declaration
+                       *ns* {:module module :kind :const :name 'Payload
+                             :declaration-key [:const 'Payload]
+                             :value (emitter/struct-container-form
+                                     (assoc options :kind :union)
+                                     [[:value :u32]])})
+          requests (fn [_ _] #{[:const 'Payload]})]
+      (with-redefs-fn {#'runtime/jvm-wrapper-requests requests}
+        (fn []
+          (let [spec (get (#'runtime/jvm-type-wrapper-specs module [declaration])
+                          (symbol module "Payload"))]
+            (is (= :union (:container-kind spec)))
+            (is (= tagged? (boolean (:tagged-union? spec))))))))))
 
 (deftest registered-declarations-only-read-current-source-metadata
   (let [module "fixture.declaration-metadata"
@@ -28,6 +48,114 @@
           (is (= [first-declaration] snapshot) "Prior snapshots remain immutable"))
         (is (= [] (runtime/registered-declarations "fixture.unregistered")))
         (is (= [:loaded-generation] (get-in @registry [module :native-generations])))))))
+
+(deftest lazy-layout-publication-holds-the-retirement-lock
+  (let [module "fixture.layout-publication"
+        declaration {:module module :name 'Tag :kind :const
+                     :declaration-key [:const 'Tag]}
+        registry (atom {module {}})
+        reached (atom false)
+        stopped (ex-info "Stop before native compilation" {})]
+    (with-redefs-fn
+      {#'runtime/registry registry
+       #'runtime/compile-published-declaration-slice!
+       (fn [target _ _]
+         (reset! reached true)
+         (is (Thread/holdsLock (var-get #'runtime/compile-lock)))
+         (is (= declaration target))
+         (is (= #{[:const 'Tag]}
+                (get-in @registry [module :jvm-type-declaration-keys])))
+         (throw stopped))}
+      #(let [error (try
+                     (#'runtime/materialize-published-declaration!
+                      declaration {:declarations [declaration]}
+                      :jvm-type-declaration-keys)
+                     (catch Throwable error error))]
+         (is (identical? stopped error))
+         (is @reached)))))
+
+(deftest nominal-layout-accessors-live-with-their-callable-abi
+  (let [module "fixture.retained-type"
+        logical-id [module :const "Tag"]
+        type-name (symbol module "Tag")
+        old-type {:declaration {:logical-id logical-id :schema-fingerprint "old"}
+                  :wrapper-generation 1}
+        new-type {:declaration {:logical-id logical-id :schema-fingerprint "new"}
+                  :wrapper-generation 2}
+        caller "fixture.retained-caller"
+        callable-id [caller :fn "echo"]
+        version-key [callable-id "abi"]
+        callable {:declaration {:logical-id callable-id :abi-fingerprint "abi"
+                                :abi-type-dependency-fingerprints [[logical-id "old"]]}}
+        old-arena (java.lang.foreign.Arena/ofShared)]
+    (with-open [current-arena (java.lang.foreign.Arena/ofShared)]
+      (try
+        (let [state {:module module :published-generation 2
+                     :types {type-name new-type}
+                     :native-generations
+                     [{:generation 1 :arena old-arena :types {type-name old-type}}
+                      {:generation 2 :arena current-arena :types {type-name new-type}}]}
+              registry (atom {module state
+                              caller {:functions {(symbol caller "echo") callable}
+                                      :dispatch-state {version-key {}}}})]
+          (with-redefs-fn
+            {#'runtime/registry registry
+             #'runtime/native-host-active? (constantly false)}
+            (fn []
+              (let [retained (#'runtime/retire-quiescent-generations! state)]
+                (is (= [1 2] (mapv :generation (:native-generations retained))))
+                (is (.isAlive (.scope old-arena)))
+                (swap! registry assoc-in [caller :dispatch-state] {})
+                (let [retired (#'runtime/retire-quiescent-generations! retained)]
+                  (is (= [2] (mapv :generation (:native-generations retired))))
+                  (is (= [1] (mapv :generation (:retired-generations retired))))
+                  (is (not (.isAlive (.scope old-arena))))
+                  (is (.isAlive (.scope current-arena))))))))
+        (finally
+          (when (.isAlive (.scope old-arena)) (.close old-arena)))))))
+
+(deftest private-adapter-publication-preserves-unchanged-callable-snapshots
+  (let [declaration (runtime/declaration-info
+                     {:module "fixture.snapshot-owner" :kind :fn :name 'answer
+                      :declaration-key [:fn 'answer] :return :i32 :args [] :body [42]})
+        key (:declaration-key declaration)
+        initial {:declarations [declaration] :root :original}
+        expanded {:declarations [declaration] :root :adapter
+                  :jvm-adapter-publication? true}
+        current {:declaration-compilation-snapshots {key initial}}
+        reconcile (fn [snapshot declaration]
+                    (get (#'runtime/reconciled-declaration-snapshots
+                          current {:compilation-snapshot snapshot
+                                   :loaded-declarations [declaration]}) key))]
+    (is (identical? initial (reconcile expanded declaration)))
+    (is (identical? expanded
+                    (reconcile expanded (assoc declaration :implementation-fingerprint "changed"))))
+    (is (identical? expanded
+                    (reconcile expanded (assoc declaration :abi-fingerprint "changed"))))
+    (let [source-edit (dissoc expanded :jvm-adapter-publication?)]
+      (is (identical? source-edit (reconcile source-edit declaration))))))
+
+(deftest private-adapter-publication-preserves-unchanged-constructor-snapshots
+  (let [declaration (runtime/declaration-info
+                     {:module "fixture.snapshot-layout" :kind :struct :name 'Item
+                      :declaration-key [:struct 'Item]
+                      :fields [{:name :value :type :u32}]})
+        key (:declaration-key declaration)
+        initial {:declarations [declaration] :root :original}
+        expanded {:declarations [declaration] :root :adapter
+                  :jvm-adapter-publication? true}
+        current {:declaration-compilation-snapshots {key initial}}
+        reconcile (fn [snapshot declaration]
+                    (get (#'runtime/reconciled-declaration-snapshots
+                          current {:compilation-snapshot snapshot
+                                   :loaded-declarations [declaration]}) key))]
+    (is (identical? initial (reconcile expanded declaration)))
+    (is (identical? expanded
+                    (reconcile expanded (assoc declaration :schema-fingerprint "changed"))))
+    (is (identical? expanded
+                    (reconcile expanded (assoc declaration :implementation-fingerprint "changed"))))
+    (let [source-edit (dissoc expanded :jvm-adapter-publication?)]
+      (is (identical? source-edit (reconcile source-edit declaration))))))
 
 (deftest state-references-only-fingerprint-mutable-declarations
   (with-redefs [runtime/declaration-info
@@ -175,7 +303,15 @@
             (:development-root-dependencies slice) (:development-root-declarations slice)]
            @inputs))
     (is (= (dissoc slice :compile-source)
-           (dissoc snapshot :materialization-type-declarations)))
+           (dissoc snapshot :materialization-type-declarations
+                   :jvm-adapter-publication?)))
+    (is (false? (:jvm-adapter-publication? snapshot)))
+    (with-bindings {#'runtime/*materialize-declaration* {:jvm-adapter? true}}
+      (with-redefs-fn
+        {#'runtime/compile-source! (fn [& _] {:library-path "adapter.dylib"})}
+        #(is (true? (get-in (#'runtime/compile-slice! "fixture.adapter" slice)
+                            [:compiled :compilation-snapshot
+                             :jvm-adapter-publication?])))))
     (is (= {["fixture.adapter" 'Local] local-type
             ["fixture.types" 'Imported] imported-type}
            (:materialization-type-declarations snapshot)))
@@ -265,6 +401,30 @@
                                                     [callable] {} "published root" [] [callable retained])
                          (catch Exception error error)))))
     (is (= #{:callable-dependency :retained-state-type} @observed))))
+
+(deftest retained-adapter-root-keeps-lazy-constant-source-prerequisites
+  (let [callable {:module "fixture.adapter" :kind :fn :name 'answer}
+        retained {:module "fixture.adapter" :kind :const :name 'SelectedType}
+        observed (atom nil)
+        stop (ex-info "Captured compiler inputs" {})]
+    (with-redefs-fn
+      {#'runtime/extend-development-dependency-snapshot (fn [snapshot & _] snapshot)
+       #'runtime/development-linkage-logical-ids (constantly #{:callable-dependency})
+       #'runtime/declaration-reference-logical-ids
+       (fn [declaration]
+         (if (= retained declaration) #{:foreign-type-factory} #{}))
+       #'runtime/development-capsule-closure
+       (fn [_ linkage-ids _ source-ids]
+         (reset! observed {:linkage linkage-ids :source source-ids})
+         (throw stop))}
+      #(is (identical? stop
+                       (try
+                         (#'runtime/compile-source! "fixture.adapter" "adapter"
+                                                    [callable] {} "published root" []
+                                                    [callable retained])
+                         (catch Exception error error)))))
+    (is (= #{:foreign-type-factory} (:source @observed)))
+    (is (= #{:callable-dependency} (:linkage @observed)))))
 
 (deftest root-context-scan-requires-an-import-and-keeps-member-semantics
   (let [members #'runtime/root-context-member-names
@@ -968,6 +1128,18 @@
     (is (= ['x 'Self 'method]
            (mapv :name (#'runtime/declarations-live-slice declarations [(second declarations)]))))))
 
+(deftest live-slices-use-declaration-keys-for-queue-identity
+  (let [guard (reify clojure.lang.IHashEq
+                (hasheq [_] (throw (ex-info "Hashed declaration bookkeeping" {}))))
+        declarations [{:kind :const :name 'leaf :logical-id ["queue" :const "leaf"]
+                       :declaration-key [:const 'leaf] :source-order 0 :value 1
+                       :bookkeeping guard}
+                      {:kind :const :name 'root :logical-id ["queue" :const "root"]
+                       :declaration-key [:const 'root] :source-order 1
+                       :value '[leaf leaf leaf root]}]]
+    (is (= declarations
+           (#'runtime/declarations-live-slice declarations [(second declarations)])))))
+
 (deftest local-type-metadata-participates-in-hot-slices-test
   (doseq [key [:var :zig/type :tag]]
     (let [type-decl (runtime/declaration-info
@@ -1327,6 +1499,9 @@
         js-api (info {:module module :kind :const :name 'JsApi
                       :declaration-key [:const 'JsApi]
                       :public? true :value :u32})
+        unrelated (info {:module module :kind :const :name 'Unused
+                         :declaration-key [:const 'Unused]
+                         :public? true :value :u64})
         method (info {:module module :kind :fn :name 'private-method
                       :declaration-key [:fn 'private-method]
                       :args [] :return :void :body []})
@@ -1350,13 +1525,21 @@
                :kind :const :name 'Api
                :declaration-key [:const 'Api]
                :value (list 'field root 'JsApi)})
+        typed-member (list 'field (list 'aguafria.zig/type root) "JsApi")
+        member-reader
+        (info {:module "fixture.reflecting-consumer"
+               :kind :fn :name 'read-member :jvm-adapter? true
+               :declaration-key [:fn 'read-member]
+               :args [] :return :usize
+               :body [(list '(field __aguafria_jvm :declarationFieldResult)
+                            typed-member (list 'aguafria.zig/type root) "JsApi")]})
         definitions
         (fn [declarations]
           (into {} (map (juxt :declaration-key identity)) declarations))]
     (try
       (reset! registry
               {module {:definitions
-                       (definitions [self field js-api method zig-test])}
+                       (definitions [self field js-api unrelated method zig-test])}
                "fixture.reflecting-consumer"
                {:definitions (definitions [first-class alias alias-use static-member])}})
       (reset! reference-index
@@ -1378,6 +1561,32 @@
         (is (not (contains? first-class-references (:logical-id self))))
         (is (contains? static-references (:logical-id js-api)))
         (is (not (contains? static-references (:logical-id self))))
+        (is (= #{(:logical-id js-api)}
+               (#'runtime/declaration-reference-logical-ids
+                (assoc static-member :value typed-member))))
+        (is (= #{(:logical-id js-api)}
+               (#'runtime/declaration-reference-logical-ids member-reader)))
+        (is (= #{(:logical-id js-api) (:logical-id unrelated)}
+               (#'runtime/declaration-reference-logical-ids
+                (assoc member-reader :jvm-adapter? false))))
+        (doseq [member ["Unused" 'dynamic-member '(computed-member)]]
+          (is (= #{(:logical-id js-api) (:logical-id unrelated)}
+                 (#'runtime/declaration-reference-logical-ids
+                  (assoc member-reader
+                         :body [(list '(field __aguafria_jvm :declarationFieldResult)
+                                      typed-member (list 'aguafria.zig/type root) member)])))
+              "Only the exact generated field-reader contract can narrow dependencies"))
+        (doseq [writer [:comptimeResult :storageFreeConstantResult]]
+          (let [reader (assoc member-reader
+                              :body [(list (list 'field '__aguafria_jvm writer) root)])]
+            (is (empty? (#'runtime/declaration-reference-logical-ids reader)))
+            (is (= #{(:logical-id js-api) (:logical-id unrelated)}
+                   (#'runtime/declaration-reference-logical-ids
+                    (assoc reader :jvm-adapter? false))))))
+        (doseq [member ['JsApi :JsApi "JsApi"]]
+          (is (= #{(:logical-id js-api)}
+                 (#'runtime/declaration-reference-logical-ids
+                  (assoc static-member :value (list 'field root member))))))
         (is (not (contains? (#'runtime/declaration-reference-logical-ids alias)
                             (:logical-id js-api))))
         (is (contains? (#'runtime/declaration-reference-logical-ids alias-use)
@@ -1392,8 +1601,52 @@
                         (assoc first-class :kind :comptime :value nil
                                :body [(list 'set! '_ (list 'reflect root))]))
                        (:logical-id js-api)))
-        (is (= #{'JsApi}
+        (is (= #{'JsApi 'Unused}
                (set (map :name retained)))))
+      (finally
+        (reset! registry old-registry)
+        (reset! reference-index old-index)))))
+
+(deftest nested-string-members-retain-exact-reexported-declarations
+  (let [registry (var-get #'runtime/registry)
+        reference-index (var-get #'runtime/declaration-reference-index)
+        old-registry @registry
+        old-index @reference-index
+        info runtime/declaration-info
+        root (fn [module]
+               (with-meta 'dependency
+                 {:aguafria/zig-reference {:kind :namespace-root
+                                           :module module :import-name module
+                                           :zig-name "dependency"}}))
+        selected (info {:module "fixture.member-leaf" :kind :const
+                        :name 'selected-value :zig-name "selected_value"
+                        :declaration-key [:const 'selected-value]
+                        :public? true :type :u32 :value 31})
+        unrelated (info {:module "fixture.member-leaf" :kind :const
+                         :name 'unrelated :declaration-key [:const 'unrelated]
+                         :public? true :type :u32 :value 99})
+        alias (info {:module "fixture.member-exports" :kind :const
+                     :name 'api :declaration-key [:const 'api]
+                     :public? true :value (root "fixture.member-leaf")})
+        consumer (info {:module "fixture.member-consumer" :kind :fn
+                        :name 'read-value :declaration-key [:fn 'read-value]
+                        :args [] :return :u32
+                        :body [(list 'field
+                                     (list 'field (root "fixture.member-exports") "api")
+                                     "selected_value")]})
+        definitions (fn [declarations]
+                      (into {} (map (juxt :declaration-key identity)) declarations))]
+    (try
+      (reset! registry {"fixture.member-leaf"
+                        {:definitions (definitions [selected unrelated])}
+                        "fixture.member-exports" {:definitions (definitions [alias])}
+                        "fixture.member-consumer" {:definitions (definitions [consumer])}})
+      (reset! reference-index {:by-module {} :by-logical {} :references {} :revision 0
+                               :extraction-version
+                               (var-get #'runtime/declaration-reference-extraction-version)})
+      (#'runtime/registered-declarations-by-logical-id)
+      (is (= #{(:logical-id selected) (:logical-id alias)}
+             (#'runtime/declaration-reference-logical-ids consumer)))
       (finally
         (reset! registry old-registry)
         (reset! reference-index old-index)))))
@@ -1787,6 +2040,36 @@
               (is (= direct repeated))
               (is (= 2 (:miss-count @cache)))
               (is (= 1 (:hit-count @cache)))))))
+      (finally
+        (reset! cache empty-cache)))))
+
+(deftest module-source-cache-tracks-native-type-accessor-identities
+  (let [cache (var-get #'runtime/module-source-cache)
+        empty-cache (var-get #'runtime/empty-module-source-cache)
+        module "fixture.finalized-type"
+        declaration (emitter/prepare-declaration
+                     *ns* {:module module :kind :const :name 'Tag
+                           :declaration-key [:const 'Tag]
+                           :value (emitter/enum-container-form {:type :u8} [:ready])})
+        finalized (assoc declaration :schema-fingerprint "final-schema")]
+    (reset! cache empty-cache)
+    (try
+      (with-redefs-fn
+        {#'runtime/jvm-wrapper-requests
+         (fn [_ request]
+           (if (= :jvm-type-declaration-keys request) #{[:const 'Tag]} #{}))}
+        (fn []
+          (let [initial (#'runtime/module-sources module [declaration])
+                current (#'runtime/module-sources module [finalized])
+                repeated (#'runtime/module-sources module [finalized])]
+            (is (= (:source-fingerprint declaration) (:source-fingerprint finalized)))
+            (is (not= (:compile-source initial) (:compile-source current)))
+            (is (str/includes? (:compile-source current)
+                               (get-in current [:jvm-type-specs
+                                                (symbol module "Tag") :size-getter])))
+            (is (= current repeated))
+            (is (= 2 (:miss-count @cache)))
+            (is (= 1 (:hit-count @cache))))))
       (finally
         (reset! cache empty-cache)))))
 

@@ -25,6 +25,15 @@ in `../learn/AGENT_TODO.md` and the root
   Latest-core fresh consumer after eager-import/alias fixes passes the same
   strict gate,136.047s; original pack reused without rebuilding. Evidence:
   root migration report and .tmp/ghostty-*017 logs.
+- Latest October 4 refresh after literal-initializer fixes: public AOT retains
+  15/15 candidates and 3/3 functions (457.249 s). Fresh ordinary JVM returns
+  `[1 73 79 4]`, four exact manifest bundle hits, one bundle, zero builds or
+  unapproved standalone handlers (121.496 s cold). This supersedes an
+  intermediate consumer that compiled two queue-bridge namespace images.
+  The final fresh consumer after static-member and union-wrapper core edits
+  passes the same strict gate in 121.835 s. Evidence:
+  `.tmp/ghostty-member-final-bundle-restart-017.log` at the repository root.
+  No cold-start improvement is claimed.
 - October 4 earlier follow-up: the final three DebugAllocator uses now use
   SafeAllocator. Reflection, CRC naming and typed repetition errors from the
   wider VT test compile were repaired. Zig 0.17's formatter migrated deprecated

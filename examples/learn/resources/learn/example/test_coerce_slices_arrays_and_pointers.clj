@@ -22,8 +22,8 @@
         (k/as (k/& (a/init [\h \e \l \l 111] [:array 5 :u8])) [:error-union :anyerror [:slice-const :u8]])
         y
         (k/as (k/& (a/init [1.2 3.4] [:array 2 :f32])) [:error-union :anyerror [:slice-const :f32]])]
-    (try (testing/expectEqualStrings (try x1) (try x2)))
-    (try (testing/expectEqual 1.2 (a/get (try y) 0)))))
+    (k/try (testing/expectEqualStrings (k/try x1) (k/try x2)))
+    (k/try (testing/expectEqual 1.2 (a/get (k/try y) 0)))))
 
 ;; Likewise, it works when the destination type is an optional.
 (a/deftest *const-N-T-to-?const-T
@@ -37,7 +37,7 @@
 
 ;; In this cast, the array length becomes the slice length.
 (a/deftest *N-T-to-T
-  (let [buf (k/var (deref "hello") [:array 5 :u8])
+  (let [buf (k/var (a/deref "hello") [:array 5 :u8])
         x (k/as (k/& buf) [:slice :u8])
         buf2 (a/init [1.2 3.4] [:array 2 :f32])
         x2 (k/as (k/& buf2) [:slice-const :f32])]
@@ -49,7 +49,7 @@
 
 ;; Single-item pointers to arrays can be coerced to many-item pointers.
 (a/deftest *N-T-to-*T
-  (let [buf (k/var (deref "hello") [:array 5 :u8])
+  (let [buf (k/var (a/deref "hello") [:array 5 :u8])
         x (k/as (k/& buf) [:many :u8])]
     (try (testing/expectEqual \o (a/get x 4)))
     ;; x[5] would be an uncaught out of bounds pointer dereference!
@@ -57,7 +57,7 @@
 
 ;; Likewise, it works when the destination type is an optional.
 (a/deftest *N-T-to-?*T
-  (let [buf (k/var (deref "hello") [:array 5 :u8])
+  (let [buf (k/var (a/deref "hello") [:array 5 :u8])
         x (k/as (k/& buf) [:optional [:many :u8]])]
     (try (testing/expectEqual \o (a/get (a/unwrap x) 4)))))
 

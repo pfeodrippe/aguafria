@@ -7,7 +7,7 @@
 
 (a/defn- concat [:error-union [:slice :u8]]
   [[allocator mem/Allocator] [a [:slice-const :u8]] [b [:slice-const :u8]]]
-  (let [result (try ((:alloc allocator) :u8 (k/+ (:len a) (:len b))))]
+  (let [result (k/try ((:alloc allocator) :u8 (k/+ (:len a) (:len b))))]
     (k/memcpy (a/slice result 0 (:len a)) a)
     (k/memcpy (a/slice result (:len a)) b)
     result))
@@ -16,7 +16,7 @@
   (let [buffer (k/var k/undefined [:array 100 :u8])
         fba (k/var ((:init heap/FixedBufferAllocator) (k/& buffer)))
         allocator ((:allocator fba))
-        result (try (concat allocator "foo" "bar"))]
+        result (k/try (concat allocator "foo" "bar"))]
     (try (testing/expectEqualStrings "foobar" result))))
 
 (comment

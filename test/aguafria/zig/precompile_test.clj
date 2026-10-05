@@ -2,6 +2,7 @@
   (:require [aguafria.zig :as a]
             [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
+            [aguafria.std.math :as math]
             [aguafria.std.testing :as zig-testing]
             [aguafria.zig.artifact :as artifact]
             [aguafria.zig.explain :as explain]
@@ -9,6 +10,7 @@
             [aguafria.zig.precompile :as precompile]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.value :as value]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -16,6 +18,147 @@
             [clojure.test :refer [deftest is testing]])
   (:import [java.nio.file Files]
            [java.util.concurrent TimeUnit]))
+
+(deftest storage-free-imported-results-do-not-prepare-address-readers
+  (let [fail! (fn [& _] (throw (ex-info "Preparation invoked native code" {})))]
+    (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+      (binding [runtime/*compile-only?* true runtime/*source-only-registration?* true]
+        (doseq [[function type] [['aguafria.std.math/maxInt :u8]
+                                 ['aguafria.std.math/maxInt :i32]
+                                 ['aguafria.std.math/minInt :i32]]]
+          (is (= :prepared
+                 (:status (jvm/precompile-call!
+                           {:function function :args [{:comptime-type type}]}))))))))
+  (doseq [[result expected] [[(math/maxInt :u8) 255]
+                             [(math/maxInt :i32) 2147483647]
+                             [(math/minInt :i32) -2147483648]]]
+    (is (= :comptime_int (value/qualified-type result)))
+    (is (= expected (a/value result)))))
+
+(defn- constant-coercion-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.zig 'aguafria.zig.jvm 'aguafria.zig.runtime
+                         'aguafria.zig.explain 'aguafria.keyword)
+                (aguafria.zig/configure! {:cache-dir ~cache})
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))]
+                    (let [report# (aguafria.zig/precompile!
+                                   {:analyze ['aguafria.zig.jvm-comptime-narrowing-fixture]
+                                    :report-file ~(str cache "/report.edn")})]
+                      (prn {:coverage (:coverage report#)
+                            :operations (get-in report# [:analysis 0 :operations])})))
+                  (let [events# (atom [])
+                        results#
+                        (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                          (with-open [x# (aguafria.keyword/u64 255)
+                                      y# (aguafria.keyword/u16 x#)
+                                      z# (aguafria.keyword/u8 y#)
+                                      small# (aguafria.keyword/u32 1234)
+                                      wide# (aguafria.keyword/u64 small#)]
+                            (mapv aguafria.zig/value [x# y# z# wide#])))]
+                    (prn {:results results# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Constant-coercion JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest compiler-observed-constant-coercions-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "constant-coercion-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (constant-coercion-jvm cache true)
+        restarted (constant-coercion-jvm cache false)
+        events (:events restarted)
+        hits (filter #(= :bundle-cache-hit (:event %)) events)
+        constants (filter #(some (fn [signature]
+                                   (some (fn [argument]
+                                           (and (map? argument) (:constant-coercion argument)))
+                                         signature))
+                                 (:signatures %))
+                          (:operations prepared))]
+    (is (seq constants))
+    (is (every? #(= :prepared (:status %)) (mapcat :handlers constants)))
+    (is (= 0 (get-in prepared [:coverage :runtime-candidates :not-fully-prepared])))
+    (is (= [255 255 255 1234] (:results restarted)))
+    (is (seq hits))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events)) (pr-str events))
+    (is (empty? (filter #(and (= :disk-cache-hit (:event %))
+                              (str/starts-with? (or (:module %) "") "aguafria.jvm.")) events))
+        (pr-str events))))
+
+(defn- try-operand-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.zig 'aguafria.zig.runtime 'aguafria.zig.explain
+                         'aguafria.std.testing)
+                (aguafria.zig/configure! {:cache-dir ~cache})
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))]
+                    (let [report# (aguafria.zig/precompile!
+                                   {:analyze ['aguafria.zig.discovery-try-operand-fixture]
+                                    :report-file ~(str cache "/report.edn")})]
+                      (prn {:coverage (:coverage report#)
+                            :operations (get-in report# [:analysis 0 :operations])})))
+                  (let [events# (atom [])
+                        results#
+                        (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                          (require 'aguafria.zig.discovery-try-operand-fixture)
+                          (let [checked# (resolve 'aguafria.zig.discovery-try-operand-fixture/checked)
+                                result# (try (checked# 1234))
+                                alias# result#]
+                            [(aguafria.zig/value
+                              (aguafria.std.testing/expectEqual 1234 alias#))
+                             (let [result# (try (checked# 4321))]
+                               (aguafria.zig/value
+                                (aguafria.std.testing/expectEqual 4321 result#)))
+                             (let [result# 9876]
+                               (aguafria.zig/value
+                                (aguafria.std.testing/expectEqual 9876 result#)))]))]
+                    (prn {:results results# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Try-operand JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest compiler-confirmed-try-operands-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "try-operands-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (try-operand-jvm cache true)
+        restarted (try-operand-jvm cache false)
+        events (:events restarted)
+        calls (filter #(= 'aguafria.std.testing/expectEqual (:function %))
+                      (:operations prepared))
+        signatures (set (mapcat (fn [call]
+                                  (mapcat #'aguafria.zig.discovery/signature-variants
+                                          (:signatures call))) calls))
+        last-call (last calls)]
+    (is (contains? signatures [{:literal 1234 :type :comptime_int} :i32]))
+    (is (contains? signatures [{:literal 1234 :type :comptime_int} [:error-union :anyerror :i32]]))
+    (is (= [[{:literal 9876 :type :comptime_int} {:literal 9876 :type :comptime_int}]]
+           (:signatures last-call)) (pr-str last-call))
+    (is (= 0 (get-in prepared [:coverage :runtime-candidates :not-fully-prepared])))
+    (is (= [{:ok nil} {:ok nil} {:ok nil}] (:results restarted)))
+    (is (seq (filter #(= :bundle-cache-hit (:event %)) events)))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events)) (pr-str events))
+    (is (empty? (filter #(and (= :disk-cache-hit (:event %))
+                              (str/starts-with? (or (:module %) "") "aguafria.jvm.")) events))
+        (pr-str events))))
 
 (deftest eager-import-closure-excludes-unreachable-catalog-modules
   (project/register-catalog!
@@ -61,7 +204,7 @@
                           (runtime/registered-declarations test-state))))
     (is (empty? (names-for unreachable)))))
 
-(defn- eager-import-jvm [cache prepare?]
+(defn- namespace-prerequisite-jvm [cache prepare? module]
   (let [code `(do
                 (require 'aguafria.zig 'aguafria.zig.runtime 'aguafria.zig.explain
                          'aguafria.zig.project)
@@ -80,15 +223,15 @@
                                 aguafria.zig.runtime/invoke-with-result!
                                 (fn [& _#] (throw (ex-info "Executed native code" {})))]
                     (let [report# (aguafria.zig/precompile!
-                                   {:namespaces ['aguafria.zig.precompile-eager-owner-fixture]
+                                   {:namespaces ['~module]
                                     :coercions [:u32]})]
                       (assert (= [:prepared] (mapv :status (:functions report#))))
                       (prn {:prepared true})))
                   (let [events# (atom [])
                         result# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
-                                  (require 'aguafria.zig.precompile-eager-owner-fixture)
+                                  (require '~module)
                                   (aguafria.zig/value
-                                   ((resolve 'aguafria.zig.precompile-eager-owner-fixture/selected-value))))]
+                                   ((resolve '~(symbol (str module) "selected-value")))))]
                     (prn {:result result# :events @events#})))
                 (shutdown-agents))
         result (shell/sh (str (System/getProperty "java.home") "/bin/java")
@@ -99,12 +242,12 @@
       (throw (ex-info "Eager import JVM failed" result)))
     (edn/read-string (:out result))))
 
-(deftest eager-import-prerequisites-reuse-the-bundle-after-restart
+(defn- verify-namespace-prerequisite-restart [module prefix expected]
   (let [cache (str (Files/createTempDirectory
                     (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
-                    "eager-import-" (make-array java.nio.file.attribute.FileAttribute 0)))
-        prepared (eager-import-jvm cache true)
-        restarted (eager-import-jvm cache false)
+                    prefix (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (namespace-prerequisite-jvm cache true module)
+        restarted (namespace-prerequisite-jvm cache false module)
         events (:events restarted)
         library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
         entries (when library
@@ -113,7 +256,268 @@
                                (slurp (io/file (.getParentFile (io/file library))
                                                "manifest.edn")))))))]
     (is (:prepared prepared))
-    (is (= 11 (:result restarted)))
+    (is (= expected (:result restarted)))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events)) (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (seq (filter #(= :bundle-cache-hit (:event %)) events)))
+    (is (empty? (filter #(and (= :disk-cache-hit (:event %))
+                              (str/starts-with? (or (:module %) "") "aguafria.jvm.")) events))
+        (pr-str events))
+    (is (every? #(contains? entries
+                            (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)]))
+                (filter #(= :bundle-cache-hit (:event %)) events)))))
+
+(deftest eager-import-prerequisites-reuse-the-bundle-after-restart
+  (verify-namespace-prerequisite-restart
+   'aguafria.zig.precompile-eager-owner-fixture "eager-import-" 11))
+
+(deftest nested-string-members-reuse-the-bundle-after-restart
+  (verify-namespace-prerequisite-restart
+   'aguafria.zig.precompile-member-owner-fixture "nested-members-" 31))
+
+(deftest forwarded-file-container-types-reuse-the-bundle-after-restart
+  (verify-namespace-prerequisite-restart
+   'aguafria.zig.precompile-module-type-owner-fixture "module-types-" 38))
+
+(deftest static-field-readers-do-not-activate-unrelated-test-state
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.precompile-lazy-member-owner-fixture :reload))
+  (let [type 'aguafria.zig.precompile-lazy-member-owner-fixture/api
+        fail! (fn [& _] (throw (ex-info "Preparation executed native code" {})))
+        prepared (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
+                   (jvm/precompile-storage!
+                    {:kind :field :receiver {:comptime-type type}
+                     :address :void :member :selected}))]
+    (is (= :prepared (:status prepared)))
+    (is (= 31 (a/value (a/field (var-get (find-var type)) :selected))))
+    (is (thrown? Exception
+                 (runtime/precompile-type!
+                  'aguafria.zig.precompile-eager-test-state-fixture/TestOnly)))))
+
+(defn- static-field-reader-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.zig 'aguafria.zig.jvm 'aguafria.zig.runtime
+                         'aguafria.zig.bundle 'aguafria.zig.explain 'aguafria.zig.project)
+                (aguafria.zig/configure! {:cache-dir ~cache})
+                (aguafria.zig.project/register-catalog!
+                 {:schema-version 1
+                  :modules {"aguafria.zig.precompile-lazy-member-owner-fixture"
+                            {:source-kind :zig :source-orders {"api" 0}}
+                            "aguafria.zig.precompile-lazy-member-leaf-fixture"
+                            {:source-kind :zig :source-orders {"selected" 0 "TestOnly" 1}}
+                            "aguafria.zig.precompile-eager-test-state-fixture"
+                            {:source-kind :zig :source-orders {"TestOnly" 0}}}})
+                (if ~prepare?
+                  (binding [aguafria.zig.runtime/*compile-only?* true
+                            aguafria.zig.runtime/*source-only-registration?* true
+                            aguafria.zig.bundle/*preparing* (atom {})]
+                    (require 'aguafria.zig.precompile-lazy-member-owner-fixture)
+                    (with-redefs [aguafria.zig.runtime/invoke!
+                                  (fn [& _#] (throw (ex-info "Executed native code" {})))
+                                  aguafria.zig.runtime/invoke-with-result!
+                                  (fn [& _#] (throw (ex-info "Executed native code" {})))]
+                      (let [prepared# (aguafria.zig.jvm/precompile-storage!
+                                       {:kind :field
+                                        :receiver {:comptime-type
+                                                   'aguafria.zig.precompile-lazy-member-owner-fixture/api}
+                                        :address :void :member :selected})
+                            bundles# (aguafria.zig.runtime/finish-precompile-bundles!
+                                      aguafria.zig.bundle/*preparing*)]
+                        (prn {:prepared (= :prepared (:status prepared#))
+                              :bundles bundles#}))))
+                  (let [events# (atom [])
+                        result# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                                  (require 'aguafria.zig.precompile-lazy-member-owner-fixture)
+                                  (aguafria.zig/value
+                                   (aguafria.zig/field
+                                    (var-get (find-var
+                                              'aguafria.zig.precompile-lazy-member-owner-fixture/api))
+                                    :selected)))]
+                    (prn {:result result# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Static field reader JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest static-field-alias-readers-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "static-field-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (static-field-reader-jvm cache true)
+        restarted (static-field-reader-jvm cache false)
+        events (:events restarted)
+        hits (filter #(= :bundle-cache-hit (:event %)) events)
+        library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
+        entries (when library
+                  (set (keys (:entries
+                              (edn/read-string
+                               (slurp (io/file (.getParentFile (io/file library))
+                                               "manifest.edn")))))))]
+    (is (:prepared prepared))
+    (is (= 31 (:result restarted)))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events)) (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
+    (is (seq hits))
+    (is (empty? (filter #(and (= :disk-cache-hit (:event %))
+                              (str/starts-with? (or (:module %) "") "aguafria.jvm.")) events))
+        (pr-str events))
+    (is (every? #(contains? entries
+                            (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)])) hits))))
+
+(deftest compiler-observed-references-load-as-alias-namespaces-before-preparation
+  (doseq [kind [:function :type]]
+    (let [code `(do
+                  (require 'aguafria.zig 'aguafria.keyword 'aguafria.zig.runtime
+                           'aguafria.zig.jvm)
+                  (binding [aguafria.zig.runtime/*source-only-registration?* true]
+                    (require 'aguafria.zig.precompile-lazy-reference-owner-fixture))
+                  (assert (nil? (find-var
+                                 'aguafria.zig.precompile-lazy-reference-leaf-fixture/Command)))
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))]
+                    (binding [aguafria.zig.runtime/*compile-only?* true]
+                      (prn
+                       (if (= ~kind :function)
+                         (aguafria.zig.runtime/precompile-function!
+                          'aguafria.zig.precompile-lazy-reference-leaf-fixture/native-id)
+                         (aguafria.zig.jvm/precompile-call!
+                          {:function 'aguafria.keyword/==
+                           :args ['aguafria.zig.precompile-lazy-reference-leaf-fixture/Command
+                                  {:comptime :.version}]})))))
+                  (shutdown-agents))
+          result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                           "--enable-native-access=ALL-UNNAMED"
+                           "-cp" (System/getProperty "java.class.path")
+                           "clojure.main" "-e" (pr-str code))]
+      (is (zero? (:exit result)) (str (:out result) (:err result)))
+      (when (zero? (:exit result))
+        (is (= :prepared (:status (edn/read-string (:out result)))))))))
+
+(defn- private-payload-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.zig 'aguafria.zig.runtime 'aguafria.zig.explain)
+                (aguafria.zig/configure! {:cache-dir ~cache})
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Executed native code" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Executed native code" {})))]
+                    (let [report# (aguafria.zig/precompile!
+                                   {:namespaces ['aguafria.zig.precompile-private-payload-fixture]
+                                    :coercions ['aguafria.zig.precompile-private-payload-fixture/Holder
+                                                'aguafria.zig.precompile-private-payload-fixture/Command]
+                                    :report-file ~(str cache "/report.edn")})]
+                      (prn (select-keys report# [:functions :coercions :bundles]))))
+                  (let [events# (atom [])
+                        result#
+                        (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                          (require 'aguafria.zig.precompile-private-payload-fixture)
+                          (let [holder# ((resolve 'aguafria.zig.precompile-private-payload-fixture/Holder)
+                                         {:maybe {:value 13}})
+                                command# ((resolve 'aguafria.zig.precompile-private-payload-fixture/Command)
+                                          {:payload {:value 23}})]
+                            [(aguafria.zig/value holder#) (aguafria.zig/value command#)
+                             (aguafria.zig/value
+                              ((resolve 'aguafria.zig.precompile-private-payload-fixture/read-holder) holder#))
+                             (aguafria.zig/value
+                              ((resolve 'aguafria.zig.precompile-private-payload-fixture/read-command) command#))]))]
+                    (prn {:result result# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Private payload JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest private-payload-layouts-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "private-payload-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (private-payload-jvm cache true)
+        restarted (private-payload-jvm cache false)
+        events (:events restarted)
+        hits (filter #(= :bundle-cache-hit (:event %)) events)
+        entries (into #{}
+                      (mapcat #(keys (:entries
+                                      (edn/read-string
+                                       (slurp (io/file cache "bundles" (:id %) "manifest.edn"))))))
+                      (get-in prepared [:bundles :packs]))]
+    (is (every? #(= :prepared (:status %)) (concat (:functions prepared) (:coercions prepared))))
+    (is (= [{:maybe {:value 13}} {:payload {:value 23}} 13 23] (:result restarted)))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events))
+        (pr-str events))
+    (is (every? #(= "aguafria.zig.precompile-private-payload-fixture" (:module %))
+                (filter #(= :disk-cache-hit (:event %)) events))
+        (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))))
+    (is (seq hits))
+    (is (every? #(entries (artifact/key-for :bundle-entry [(:module %) (:artifact-key %)])) hits))))
+
+(defn- object-initializer-jvm [cache prepare?]
+  (let [code `(do
+                (require 'aguafria.zig 'aguafria.zig.runtime 'aguafria.zig.explain)
+                (aguafria.zig/configure! {:cache-dir ~cache})
+                (if ~prepare?
+                  (with-redefs [aguafria.zig.runtime/invoke!
+                                (fn [& _#] (throw (ex-info "Executed native code" {})))
+                                aguafria.zig.runtime/invoke-with-result!
+                                (fn [& _#] (throw (ex-info "Executed native code" {})))]
+                    (let [report# (aguafria.zig/precompile!
+                                   {:analyze ['aguafria.zig.discovery-object-initializer-fixture]
+                                    :calls [{:function 'aguafria.zig/object
+                                             :args [{:comptime []}]}
+                                            {:function 'aguafria.zig/object
+                                             :args [{:comptime [[:value 31]]}]}]})]
+                      (let [constructors# (filter :constructor?
+                                                  (mapcat :operations (:analysis report#)))]
+                        (assert (= 2 (count constructors#)))
+                        (assert (every? #(= :prepared (:status %))
+                                        (mapcat :handlers constructors#))))
+                      (assert (= [:prepared :prepared] (mapv :status (:calls report#))))
+                      (prn {:prepared true})))
+                  (let [events# (atom [])
+                        results#
+                        (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                          (require 'aguafria.zig.discovery-object-initializer-fixture)
+                          (let [T# ((resolve 'aguafria.zig.discovery-object-initializer-fixture/Record)
+                                    :u32)]
+                            (mapv aguafria.zig/value
+                                  [(aguafria.zig/init (aguafria.zig/object []) T#)
+                                   (aguafria.zig/init
+                                    (aguafria.zig/object [[:value 31]]) T#)])))]
+                    (prn {:results results# :events @events#})))
+                (shutdown-agents))
+        result (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                         "--enable-native-access=ALL-UNNAMED"
+                         "-cp" (System/getProperty "java.class.path")
+                         "clojure.main" "-e" (pr-str code))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Object initializer JVM failed" result)))
+    (edn/read-string (:out result))))
+
+(deftest literal-object-constructors-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "object-initializer-" (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (object-initializer-jvm cache true)
+        restarted (object-initializer-jvm cache false)
+        events (:events restarted)
+        library (:path (first (filter #(= :bundle-loaded (:event %)) events)))
+        entries (when library
+                  (set (keys (:entries
+                              (edn/read-string
+                               (slurp (io/file (.getParentFile (io/file library))
+                                               "manifest.edn")))))))]
+    (is (:prepared prepared))
+    (is (= [{:value 0} {:value 31}] (:results restarted)))
     (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events)) (pr-str events))
     (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
     (is (seq (filter #(= :bundle-cache-hit (:event %)) events)))
@@ -535,6 +939,156 @@
       (when-not (zero? (.exitValue process))
         (throw (ex-info "Lazy getter test JVM failed" {:output text :log (str output)})))
       (edn/read-string (last (str/split-lines text))))))
+
+(defn- callable-snapshot-jvm [cache prepare?]
+  (let [code
+        (pr-str
+         `(do
+            (require 'aguafria.zig 'aguafria.zig.runtime 'aguafria.zig.explain
+                     'aguafria.keyword 'clojure.java.io)
+            (aguafria.zig/configure! {:cache-dir ~cache})
+            (let [events# (atom [])
+                  result#
+                  (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                    (if ~prepare?
+                      (with-redefs [aguafria.zig.runtime/invoke!
+                                    (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))
+                                    aguafria.zig.runtime/invoke-with-result!
+                                    (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))]
+                        (:coverage
+                         (aguafria.zig/precompile!
+                          {:analyze ['aguafria.zig.precompile-callable-snapshot-fixture]
+                           :report-file ~(str cache "/report.edn")})))
+                      (do
+                        (require 'aguafria.zig.precompile-callable-snapshot-fixture)
+                        (let [namespace# 'aguafria.zig.precompile-callable-snapshot-fixture
+                              callback# (var-get (ns-resolve namespace# (symbol "callback")))
+                              spawn# (ns-resolve 'aguafria.std.Thread (symbol "spawn"))
+                              first-thread# (aguafria.keyword/try (spawn# {} callback# []))
+                              second-thread# (aguafria.keyword/try (spawn# {} callback# []))]
+                          (callback#)
+                          ((:join first-thread#))
+                          ((:join second-thread#))
+                          (aguafria.zig/value ((ns-resolve namespace# (symbol "current-count"))))))))]
+              (prn {:result result# :events @events#}))
+            (shutdown-agents)))
+        output (Files/createTempFile "aguafria-callable-snapshot-" ".log"
+                                     (make-array java.nio.file.attribute.FileAttribute 0))
+        process (.start (doto (ProcessBuilder.
+                               ^java.util.List
+                               [(str (System/getProperty "java.home") "/bin/java")
+                                "--enable-native-access=ALL-UNNAMED"
+                                "-cp" (System/getProperty "java.class.path")
+                                "clojure.main" "-e" code])
+                          (.redirectErrorStream true)
+                          (.redirectOutput (.toFile output))))]
+    (when-not (.waitFor process 120 TimeUnit/SECONDS)
+      (.destroyForcibly process)
+      (throw (ex-info "Callable snapshot JVM timed out" {:log (str output)})))
+    (let [text (slurp (.toFile output))]
+      (when-not (zero? (.exitValue process))
+        (throw (ex-info "Callable snapshot JVM failed" {:output text :log (str output)})))
+      (edn/read-string (last (str/split-lines text))))))
+
+(deftest private-adapters-preserve-prepared-callables-after-restart
+  (let [cache (str (Files/createTempDirectory "aguafria-callable-snapshot-"
+                                              (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (callable-snapshot-jvm cache true)
+        restarted (callable-snapshot-jvm cache false)
+        events (:events restarted)]
+    (is (zero? (get-in prepared [:result :runtime-candidates :not-fully-prepared])))
+    (is (= 1235 (:result restarted)))
+    (is (some #(= :compiled (:event %)) (:events prepared)))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events))
+        (pr-str events))
+    (is (empty? (filter #(and (= :disk-cache-hit (:event %))
+                              (str/starts-with? (str (:module %)) "aguafria.jvm.")) events))
+        (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))))))
+
+(defn- comptime-storage-jvm [cache prepare?]
+  (let [namespaces ['aguafria.zig.discovery-comptime-alias-fixture
+                    'aguafria.zig.discovery-self-initializer-fixture
+                    'aguafria.zig.discovery-comptime-construction-fixture]
+        code `(do
+                (require 'aguafria.zig 'aguafria.zig.runtime 'aguafria.zig.explain
+                         'aguafria.keyword)
+                (aguafria.zig/configure! {:cache-dir ~cache})
+                (let [events# (atom [])
+                      result#
+                      (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
+                        (if ~prepare?
+                          (with-redefs [aguafria.zig.runtime/invoke!
+                                        (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))
+                                        aguafria.zig.runtime/invoke-with-result!
+                                        (fn [& _#] (throw (ex-info "Preparation invoked native code" {})))]
+                            (:coverage
+                             (aguafria.zig/precompile!
+                              {:analyze '~namespaces :report-file ~(str cache "/report.edn")})))
+                          (do
+                            (doseq [namespace# '~namespaces] (require namespace#))
+                            (let [aliases#
+                                  (binding [*ns* (the-ns 'aguafria.zig.discovery-comptime-alias-fixture)]
+                                    [(aguafria.zig/value
+                                      (eval '~'(let [Tag (a/unwrap (:tag_type (:union (k/typeInfo Tagged))))
+                                                     info (:enum (k/typeInfo Tag))
+                                                     names (:field_names info)
+                                                     values (:field_values info)]
+                                                 (k/+ (:len names) (:len values)))))
+                                     (aguafria.zig/value
+                                      (eval '~'(let [info (:fn (k/typeInfo (k/TypeOf consume)))
+                                                     types (:param_types info)]
+                                                 (k/== (a/unwrap (a/get types 0)) (a/type :u32)))))])
+                                  commands#
+                                  (binding [*ns* (the-ns 'aguafria.zig.discovery-comptime-construction-fixture)]
+                                    [(aguafria.zig/value
+                                      (eval '~'(let [command (Command {:name "increment" :function increment})]
+                                                 ((:function command) 41))))
+                                     (aguafria.zig/value
+                                      (eval '~'(let [items (a/array [(Command {:name "increment" :function increment})]
+                                                                    Command)]
+                                                 ((:function (a/get items 0)) 41))))])
+                                  threshold# (var-get (find-var 'aguafria.zig.discovery-self-initializer-fixture/Threshold))
+                                  numeric# (var-get (find-var 'aguafria.zig.discovery-self-initializer-fixture/Numeric))]
+                              (with-open [sample# (threshold# {:minimum 0.25 :maximum 0.75})
+                                          zero# (numeric# {:int 0})]
+                                (conj (into aliases# commands#) (aguafria.zig/value sample#)
+                                      (aguafria.zig/value (:int zero#))))))))]
+                  (prn {:result result# :events @events#}))
+                (shutdown-agents))
+        output (Files/createTempFile "aguafria-comptime-storage-" ".log"
+                                     (make-array java.nio.file.attribute.FileAttribute 0))
+        process (.start (doto (ProcessBuilder.
+                               ^java.util.List
+                               [(str (System/getProperty "java.home") "/bin/java")
+                                "--enable-native-access=ALL-UNNAMED"
+                                "-cp" (System/getProperty "java.class.path")
+                                "clojure.main" "-e" (pr-str code)])
+                          (.redirectErrorStream true)
+                          (.redirectOutput (.toFile output))))]
+    (when-not (.waitFor process 120 TimeUnit/SECONDS)
+      (.destroyForcibly process)
+      (throw (ex-info "Comptime storage JVM timed out" {:log (str output)})))
+    (let [text (slurp (.toFile output))]
+      (when-not (zero? (.exitValue process))
+        (throw (ex-info "Comptime storage JVM failed" {:output text :log (str output)})))
+      (edn/read-string (last (str/split-lines text))))))
+
+(deftest comptime-storage-and-nominal-constructors-reuse-the-bundle-after-restart
+  (let [cache (str (Files/createTempDirectory "aguafria-comptime-storage-"
+                                              (make-array java.nio.file.attribute.FileAttribute 0)))
+        prepared (comptime-storage-jvm cache true)
+        restarted (comptime-storage-jvm cache false)
+        events (:events restarted)]
+    (is (zero? (get-in prepared [:result :runtime-candidates :not-fully-prepared])))
+    (is (= [4 true 42 42 {:minimum 0.25 :maximum 0.75} 0] (:result restarted)))
+    (is (some #(= :compiled (:event %)) (:events prepared)))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events))
+        (pr-str events))
+    (is (empty? (filter #(and (= :disk-cache-hit (:event %))
+                              (str/starts-with? (str (:module %)) "aguafria.jvm.")) events))
+        (pr-str events))
+    (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))))))
 
 (deftest published-callables-prepare-lazy-and-reachable-getters
   (doseq [async? [false true]]

@@ -18,7 +18,7 @@
     (k/= :_ (k/& start))
     (let [all-together-slice (a/slice all-together start)
           ;; String concatenation example.
-          hello-world (try (mem/print all-together-slice "{s} {s}" [hello world]))]
+          hello-world (k/try (mem/print all-together-slice "{s} {s}" [hello world]))]
       ;; Generally, you can use UTF-8 and not worry about whether something is a
       ;; string. If you don't need to deal with individual characters, no need
       ;; to decode.

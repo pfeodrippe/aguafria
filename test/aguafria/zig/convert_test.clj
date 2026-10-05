@@ -35,6 +35,17 @@
     (is (= report (edn/read-string encoded)))
     (is (= 1 (count (filter #{\newline} encoded))))))
 
+(deftest string-dereferences-use-the-native-jvm-api
+  (let [{:keys [clojure-source report]}
+        (convert/convert-file "test/fixtures/string_deref.zig"
+                              {:namespace 'fixture.string-deref})]
+    (is (str/includes? clojure-source "(a/deref \"hi\")"))
+    (is (not (str/includes? clojure-source "@\"hi\"")))
+    (is (zero? (:fallback-count report)))
+    (is (:success? (convert/verify-file "test/fixtures/string_deref.zig"
+                                        {:namespace 'fixture.string-deref
+                                         :mode :build-obj})))))
+
 (deftest comptime-statements-use-the-same-public-keyword-as-expressions
   (let [result (convert/verify-file "test/fixtures/comptime_forms.zig"
                                     {:namespace 'fixture.comptime-forms
@@ -49,12 +60,24 @@
                                      :mode :test :throw? false})]
     (is (:success? result) (pr-str result))
     (is (contains-form? (read-forms (:clojure-source result))
-                        '(a/assign-expr "=" :_ (try (value)))))
+                        '(a/assign-expr "=" :_ (k/try (value)))))
     (binding [*ns* *ns*]
       (load-string (:clojure-source result)))
     (let [exercise (ns-resolve 'fixture.discard-assignment-expression 'exercise)]
       (is (= 42 (:ok (value/decoded (exercise 0)))))
       (is (= 1 (:ok (value/decoded (exercise 1))))))))
+
+(deftest converted-for-else-locals-retain-their-block-scope
+  (let [result (convert/verify-file "test/fixtures/for_else_local_scope.zig"
+                                    {:namespace 'fixture.for-else-local-scope
+                                     :mode :test :throw? false})]
+    (is (:success? result) (pr-str result))
+    (is (zero? (:fallback-count result)))
+    (binding [*ns* *ns*]
+      (load-string (:clojure-source result)))
+    (let [find (ns-resolve 'fixture.for-else-local-scope 'find)]
+      (is (= 3 (value/decoded (find [1 2 3] 3))))
+      (is (= 7 (value/decoded (find [1 2 3] 4)))))))
 
 (deftest quoted-and-plain-identifiers-share-the-same-reference
   (let [result (convert/verify-file "test/fixtures/quoted_identifier_references.zig"
@@ -119,9 +142,9 @@
 
 (deftest arithmetic-and-comparison-operators-use-the-native-jvm-bridge
   (doseq [[tag operator] {:add 'k/+ :sub 'k/- :mul 'k/* :div 'k//
-                         :less_than 'k/< :greater_than 'k/>
-                         :less_or_equal 'k/<= :greater_or_equal 'k/>=
-                         :bit_and 'k/&}]
+                          :less_than 'k/< :greater_than 'k/>
+                          :less_or_equal 'k/<= :greater_or_equal 'k/>=
+                          :bit_and 'k/&}]
     (is (= operator (get @#'convert/binary-operators tag)))))
 
 (deftest unreachable-expressions-remain-native-keywords
@@ -291,7 +314,7 @@
 (deftest converted-c-types-support-forward-references-and-reloading
   (let [output ".aguafria/test/forward-c-types.clj"]
     (convert/convert-file! "test/fixtures/primitive_values.zig" output
-                          {:namespace 'fixture.forward-c-types :overwrite? true})
+                           {:namespace 'fixture.forward-c-types :overwrite? true})
     (dotimes [_ 2]
       (is (= 'fixture.forward-c-types
              (:namespace (convert/load-converted! output)))))))
@@ -400,7 +423,7 @@
         original (:aguafria/declaration (meta encoder))]
     (is (= 73 (value/decoded (gained))))
     (let [registered (some #(when (= (:declaration-key original)
-                                    (:declaration-key %)) %)
+                                     (:declaration-key %)) %)
                            (:definitions (runtime/module-info (:module original))))]
       (is (= (:abi-fingerprint registered)
              (:abi-fingerprint (:aguafria/declaration (meta encoder))))
@@ -414,6 +437,24 @@
         (runtime/register-declaration! original)
         (runtime/await! (:module original))))
     (is (= 73 (value/decoded (gained))))))
+
+(deftest catalog-limits-bulk-loading-to-the-current-generated-tree
+  (let [output (.toFile
+                (java.nio.file.Files/createTempDirectory
+                 "aguafria-current-catalog"
+                 (make-array java.nio.file.attribute.FileAttribute 0)))
+        report (convert/convert-tree!
+                "test/fixtures/import_tree" output
+                {:namespace-prefix (symbol (str "fixture.current-catalog-" (gensym)))
+                 :overwrite? true})
+        unrelated (io/file output "retained.clj")]
+    (spit unrelated "This is not a converted namespace.")
+    (let [loaded (convert/load-tree! output)]
+      (is (= (:file-count report) (:file-count loaded)))
+      (is (= (:declaration-count report) (:declaration-count loaded)))
+      (is (= (set (map :output-path (:files report)))
+             (set (map :path (:files loaded))))))
+    (is (= "This is not a converted namespace." (slurp unrelated)))))
 
 (deftest converted-relative-imports-are-normal-requires-test
   (let [output (.toFile
@@ -509,7 +550,7 @@
   (let [input "test/fixtures/build_options_project"
         source (fn [profile]
                  (get-in (convert/build-generated-modules input
-                                                         {:build-steps profile})
+                                                          {:build-steps profile})
                          [:modules-by-path "src/root.zig" "build_options"]))]
     (is (str/includes? (source ["-Danswer=73" "inspection-only"])
                        "pub const answer: u32 = 73;"))
@@ -884,8 +925,8 @@
         loaded (convert/load-tree! tiger-root)]
     (testing "the pinned complete corpus was structurally converted"
       (is (= 245 (:file-count report)))
-      (is (= 4483 (:declaration-count report)))
-      (is (= 4483 (:structural-declaration-count report)))
+      (is (= 4442 (:declaration-count report)))
+      (is (= 4442 (:structural-declaration-count report)))
       (is (zero? (:raw-declaration-count report)))
       (is (zero? (:fallback-count report)))
       (is (zero? (:unresolved-syntax-count report)))
@@ -894,8 +935,8 @@
              (set (keys vopr-generated))))
       (let [source (get vopr-generated "vsr_vopr_options")]
         (is (str/includes? (if (map? source)
-                            (:source-template source)
-                            source)
+                             (:source-template source)
+                             source)
                            "accounting")))
       (is (every? #(zero? (:unresolved-syntax-count %)) (:files report)))
       (is (every? #(not (re-find raw-boundary-pattern (slurp %)))
@@ -904,10 +945,10 @@
                        (filter #(str/ends-with? (.getName ^java.io.File %) ".clj"))))))
     (testing "all checked-in files load like normal Clojure namespaces"
       (is (= 245 (:file-count loaded)))
-      (is (= 4483 (:declaration-count loaded)))
+      (is (= 4442 (:declaration-count loaded)))
       (is (every? :source-only? (:files loaded)))
       (is (every? #(= (:namespace %)
-                       (some-> (:namespace %) find-ns ns-name))
+                      (some-> (:namespace %) find-ns ns-name))
                   (:files loaded))))
     (testing "storage uses normal aliases and real local declarations"
       (let [storage (the-ns 'tigerbeetle.src.storage)]
@@ -1068,8 +1109,8 @@
                 (alias '~'stdx '~module)
                 (eval
                  '~'(aguafria.zig/defn probe :bool
-                    []
-                    (stdx/zeroed (& [0 0 0])))))
+                      []
+                      (stdx/zeroed (& [0 0 0])))))
               (aguafria.zig.runtime/await! '~caller-module)
               (let [probe# (ns-resolve caller-ns# '~'probe)
                     before-value# (probe#)
@@ -1083,11 +1124,11 @@
                 (binding [*ns* (the-ns '~module)]
                   (eval
                    '~'(aguafria.zig/defn zeroed :bool
-                      "Checks that a byteslice is zeroed."
-                      {:attrs #{:public}}
-                      [[bytes [:slice-const :u8]]]
-                      (aguafria.keyword/return
-                       (== (aguafria.zig/field bytes len) 0)))))
+                        "Checks that a byteslice is zeroed."
+                        {:attrs #{:public}}
+                        [[bytes [:slice-const :u8]]]
+                        (aguafria.keyword/return
+                         (== (aguafria.zig/field bytes len) 0)))))
                 (aguafria.zig.runtime/await! '~module)
                 (let [after-generation#
                       (->> (:declarations
@@ -1318,7 +1359,7 @@
         original-help (shell/sh original-executable "--help")
         converted-help (shell/sh converted-executable "--help")]
     (is (= 245 (:file-count report)))
-    (is (= 4483 (:declaration-count report)))
+    (is (= 4442 (:declaration-count report)))
     (is (= (:declaration-count report)
            (:structural-declaration-count report)))
     (is (zero? (:raw-declaration-count report)))
@@ -1332,7 +1373,7 @@
     (is (= 245 (:zig-file-count materialized)))
     (is (= 372 (:asset-file-count materialized)))
     (is (= 617 (:file-count materialized)))
-    (is (= 4483 (:declaration-count materialized)))
+    (is (= 4442 (:declaration-count materialized)))
     (is (zero? (:exit git-result)) (:err git-result))
     (is (zero? (:exit git-dir-result)) (:err git-dir-result))
     (is (= 40 (count git-commit)))

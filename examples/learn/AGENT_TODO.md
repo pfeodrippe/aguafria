@@ -2,21 +2,964 @@
 
 ## Zig 0.17.0 migration — October 3 (in progress)
 
+- Accepted storage/proof snapshot: 2434/2741, 307 incomplete, 353.884 s;
+  285 analyzed, two deliberate load failures, native invocation blocked.
+  Zero shared `Cannot emit Zig type` exceptions. Fresh owned nREPL 54267:
+  56/56 in 10.556 s, 277 exact producer hits, one pack, zero builds/standalone.
+  Pack 4305 handlers / 4194 reused, 23624288 native / 54377163 debug bytes,
+  ID `3eab96efde4a2be0e55910da0226895f5570ce1a9d482e76cdf4c76f32596942`.
+  Stable identities: 28 common closures, four regressions ALL deliberate
+  compile-failure lessons, 39 additions / one removal; no host regression.
+  Remaining scopes: 93 host / 136 syntax-only / 57 compile-failure / 15
+  cross-target / six runtime-failure. Host failed preparation is 21 operations:
+  14 scope/result/phase, four comptime remainder, three variadic. Other 72 are
+  unobserved, placement, mutation/representation, nominal or specialization gaps.
+  Evidence `.tmp/learn-storage-proof-{aot-summary,classified,errors,bodies}-017.edn`.
+  Preparation PID 2905 and owned consumer PID 20451 exited; user services intact.
+  Next separate batch underway: compiler-backed destination profiles (four
+  target rows) and shared generic/variadic routing (add 0/1/2), then focused
+  actual-body restart checks. Do not rerun this whole batch after tiny edits.
+- Type-source proof repair frozen: five actual namespaces 65/71 -> 71/71,
+  errors [], native invocation blocked, 5.999 s. Closure validation rejects
+  detached lexical names (a/array/slice are not namespace operands); proof is
+  a real declaration in the compiler dependency graph, not appended source.
+  Anonymous source vs synthetic named type is compiler-proven false; preserve
+  canonical prepared handler, don't claim nominal equivalence. Permanent proof
+  gate three tests / 15 assertions, final fresh run green.
+  Evidence `.tmp/type-source-proof-closed-017.edn`.
+  Combined frozen normal whole API is now running with fresh in-process
+  analysis; report `learn-storage-proof-017.edn`, accepted above.
+- Shared `Cannot emit Zig type` cascade traced to the first invalid scoped
+  adapter in test-comptime-evaluation, operation 20. A mutable capture's value
+  descriptor was used as its storage type. Preparation now takes the exact
+  compiler-observed address child and rejects comptime-only mutable storage
+  before registering an adapter. Focused origin -> tuple -> while normal API:
+  50/53, zero exceptions / invalid declarations; original perform-fn Zig test
+  passes. Permanent scoped gate: ten tests / 79 assertions, fresh four-body
+  producer/consumer exact-pack checks green. Whole closure count still pending.
+  Evidence `.tmp/{first-emission-error-evidence,learn-scoped-comptime-storage}-017.edn`.
+- `test_arrays` ID 59 singleton regression repaired: tuple-profile compiler query
+  uses explicit caller in the existing emitter API. Actual 69/72 -> 70/72 with
+  errors [] and nil-context calls zero. Permanent tuple/pointer-capture fixture
+  four tests / 26 assertions, three actual bodies, fresh producer/consumer exact
+  pack and zero builds/standalone. Not yet counted in whole closure inventory.
+  All-native-image discriminator for shared emission error is green: selected
+  tuple 16/16 and while 1/1 after exact all-lesson load order. Failure is in other
+  handler preparation, not namespace-image loading alone. First-failure capture
+  identified the invalid scoped adapter above; don't repeat the broad gate unchanged.
+- Normal fresh API attempt: 2376/2741, 365 incomplete, 317.217 s; NOT accepted.
+  It restores 14 anonymous-constructor preparation rows lost by the saved-analysis
+  shortcut (original lexical source metadata is required). Strict fresh owned
+  nREPL 53414 check passes 56/56 in 10.841 s: 277 exact hits, one producer pack,
+  zero builds/standalone. Pack ID:
+  `856c41bb4d2b00cb1a72c1bb974e207f51f290e73323f694e6587c27c42f7d0d`.
+  It has 4245 handlers, 23269552 native / 53530233 debug bytes. Stable identities
+  vs accepted whole: 27 closures, 61 regressions, 39 added, one removed; not a
+  new accepted delta. Shared leaf failure captures 347 events, literal descriptors
+  used inside emitted pointer types; isolated full two-namespace API is green.
+  All-retained-image interaction being isolated, no Clojure type inference.
+  Evidence `.tmp/learn-lexical-control-fresh-{aot-summary,classified,errors,bodies}-017.edn`.
+  Owned check server 61039 exited; user services untouched.
+- Current combined attempt is NOT accepted: 2362/2741 candidates, 379 incomplete;
+  stable identities 17 closures / 64 regressions / 39 additions / one removal.
+  All 56 selected authored bodies return correctly through fresh real nREPL,
+  but nine builds violate cache acceptance (zero standalone). Exact failed
+  tuple/scalar signatures prepare in isolated replay. Investigating all-load
+  state versus serialized/restored-analysis context; normal API fresh-analysis
+  comparison is running, not another broad regression rerun. Evidence root
+  `.tmp/learn-lexical-control-{aot-summary,classified,bodies-failed}-017.edn`.
+- Matching current HTML gate green: 291 comparisons, 288 transcripts / zero
+  missing, 229.710 s; 14 browser tests pass in 27.656 s. Served/built hash
+  `37a8c57bc64d87e4dc68d665dacfa8836d1765347eafc8910296be249444c915`.
+  Existing preview reloaded, 302 annotated code panels, no native titles;
+  pointer-local x has actual ZLS generated-Zig i32. No screenshot claim: hidden
+  in-app viewport has zero width; maintained Chrome tests verify real layouts.
+- Frozen broad emitter/runtime/bundle gate now passes 194 tests / 3,337
+  assertions, zero failures. Whole handler planning reached all 285 analyzed
+  namespaces; final bundle linking and strict 56-body consumer remain pending.
+  Matching whole HTML regeneration is running once against these frozen edits.
+- Permanent source-only metadata parity regression passes five tests / 29
+  assertions, with five lexical bodies plus four direct pointer/block outputs,
+  50 exact producer-pack hits, zero builds/standalone. The earlier explicit
+  tag demand-root mismatch is fixed; whole acceptance still pending below.
+- Frozen tagged-union strict gate green: two unchanged bodies, 14 exact hits /
+  one loaded producer pack / zero builds/standalone. Explicit union tag layout
+  now prepares under its actual frozen constructor-demand snapshot; generic
+  dependency traversal keeps unused layouts lazy. Pure four tests / 21
+  assertions green. Whole handler preparation launched from fresh compiler
+  analysis; source-only native fixture regression also running.
+- Expanded UTF-8 regression gate: five tests / 87 assertions green, covering
+  byte slices and explicit optional/error-union byte-slice payloads at varied
+  lengths, unchanged sentinel/comptime source, values lesson changed runtime
+  data, and strict fresh constructor bundle reuse. The optional case previously
+  compiled one length-specific conversion; shared owned encoder removes it.
+- Constructor-cache regression fixed: explicit `[]const u8` JVM string coercion
+  now uses the existing owner-scoped UTF-8 slice encoder rather than generating
+  `[N:0]u8` backing/coercion handlers per length. Other string targets keep their
+  original path. Two focused tests / 25 assertions green, including fresh
+  producer/consumer exact-pack parity and empty/ASCII/Unicode warm reuse with
+  no launched processes. Earlier four coercion builds are eliminated.
+- Borrowed compiler-child metadata gate green: five lexical bodies plus direct
+  pointer/deref/inner-block outputs, 50 exact hits / one producer pack / zero
+  builds/standalone. Three tagged adapter misses closed; tightened source-only
+  load still exposes one enum type-binding frozen demand-root cache mismatch.
+  Final whole handler plan awaits this last parity fix; no count extrapolation.
+- Fresh compiler-only analysis finished in 98.983 s: 285/287 namespaces,
+  two deliberate load failures, zero analysis failures, one ignored quota
+  lesson. Native invocation blocked. Its 2,892 observations are an analysis
+  inventory, not new prepared coverage; final handler preparation is pending.
+  La Professeure's separate regression suite passes 14 tests / 131 assertions.
+- Final parity work: namespace-relative versus imported reference metadata in
+  scoped parameter identities; compiler-confirmed reflected type-expression
+  variants; borrowed pointee readers retaining their exact type/module/owner.
+  Earlier broad emitter/runtime/bundle run: 194 tests / 3,337 assertions, two
+  failures in one constructor-cache regression, correct outputs but four new
+  coercion builds. Focused rerun underway; no blanket green claim.
+- Combined acceptance underway: fresh whole compiler analysis, four bounded
+  workers, native invocation blocked. Prior schemas are rejected globally:
+  imported jvm_result.zig bytes and observer metadata changed. New checkpoint
+  `.aguafria/precompile/learn-lexical-control-analysis-017.edn` is analysis-only,
+  NOT prepared coverage. Final handler plan follows once parity fixes freeze.
+- Actual five lexical lessons now 5/5, 46 exact hits / one 121-handler pack /
+  zero builds, 3.314 s. Combined permanent fixtures five tests / 52 assertions.
+  Direct inner pointer subforms still build three reader/layout dependencies;
+  enclosing native switch success does not close those direct cache rows.
+  Actual seven control tests now 7/7 correct, but three builds remain: two
+  scoped metadata identities and one reflected Tag comparison. Shared canonical
+  planner/dependency fix in progress; no whole-count change claimed.
+- Union payload encoder frozen: five tests / 25 assertions, including fresh
+  optimized 42 -> 43, void, 64-alignment and retained slice storage. Inspection
+  transformed-graph regression two tests / seven assertions, real compile-only
+  imported provider proof. Mutable aligned address attrs omit false; immutable
+  constness stays true. Address/owner regression 12 assertions green.
+- Maintained restart checker now inventories 56 bodies across 26 lessons;
+  four tests / 21 assertions green. It includes new controls, five lexical
+  lessons and four whole destructuring mains. Final combined restart pending.
+- First nine lexical operands frozen with strict fresh-JVM cache parity:
+  permanent fixture two tests / 22 assertions; adjacent anonymous-container
+  one / seven green. Actual four-Learn-namespace producer has 128 handlers,
+  one pack f08177fd2484359f5b6d681c0b6189b7f951e484b68da7e218e6be6284f42df4;
+  consumer 13 exact hits, one pack, zero builds or standalone helpers. Exact
+  IDs: struct_name 2/5, aligned_struct_fields 1, locally_scoped_global_variable
+  0/1, switch_tagged_union 2/3/4/9. Original native signatures stay unresolved;
+  separate JVM signatures are Zig-confirmed, nominal-equivalence? false.
+  Synthetic typeName preserves ordinary JVM behavior, not native nominal
+  equality. Enclosing print/instance operations remain open. Independent
+  review found no actionable first-nine defects. Whole headline remains the
+  accepted 2387/2703 until one frozen multi-fix checkpoint. Evidence root
+  `.tmp/nominal-direct-container-evidence-017.edn` and reproducible gate.
+- Destructuring dependency fixes frozen: permanent three tests / 23 assertions
+  green, including two fresh JVMs, typed u32/i8 children and retained tuple
+  owners. Actual four unchanged main bodies 4/4, 28 exact pack hits, one pack
+  `c2a01fe1c90aee82dc22312be978939612ba966f0339a761546a2b422bf41f98`,
+  zero builds or standalone helpers; latest consumer 2.024 s. Compiler-owned
+  tuple queries memoized by source/dependency identity: two queries / 465.585 ms.
+  Evidence `.aguafria/precompile-tests/destructuring-baseline-6416697555420002157`
+  producer-summary.edn, consumer.edn, result-schemas.edn, permanent-tests-2.log.
+  Four assignment rows are placement accounting, not new cache closures.
+  Worker 50066 / PID 25959 closed; subsequent transport-resource changes
+  require a new combined pack for final acceptance. Whole count not updated.
+- Destructuring cold baseline narrows six suspected rows to two real cache
+  defects: four mixed/to-existing assignment rows already have zero builds.
+  Four unchanged main bodies return correctly, but block tuple compiles four
+  index dependencies and return-value tuple compiles two literal print adapters
+  after its u32 elements are decoded to raw JVM integers. Producer 40.612 s,
+  one 97-handler pack; consumer 7.873 s, 19 hits / one pack / six builds /
+  zero standalone disk hits. Generic tuple schema/dependency fix underway;
+  no closures claimed. Cache root `.aguafria/precompile-tests/destructuring-baseline-7657942651568634757`
+  contains producer-summary.edn, consumer.edn and result-schemas.edn.
+- Scoped-control follow-up underway: switch/while structural functions must
+  capture syntax as macros, using existing scoped bridge. Explicit result role
+  distinguishes switch statements and loops without :else-expression; try in
+  statements retains an error-union void result. Seven focused tests / 42
+  assertions pass, including unchanged native source, label/value shadowing,
+  while error-capture else-expression and contextual control-result syntax.
+  A propagating statement throws its native error so later ordinary forms
+  cannot hide it. Actual six-lesson consumer 6/7 passes but has three builds;
+  no strict acceptance. Pointer-union failure is constructor {:ok 42} decoding
+  zero before native switch mutation, not capture copying. Generic encoder
+  fix delegated separately. Consumer extraction now rejects missing bodies
+  (initial syntaxquote-qualified selector selected none, not acceptance).
+  Reuse producer only while source unchanged; transport resource edits mean
+  final combined regeneration is required. Native scoped fixture gate running.
+- Earlier lexical development history: ordinary JVM/preparation
+  share anonymous-type-plan registration; explicit initializer provenance feeds
+  a separate compiler query marked ordinary-jvm / nominal-equivalence? false.
+  Native signatures remain original; JVM signatures recorded separately. Nine
+  focused operands prepare. Empty-cache fixture strict gate passes, but actual
+  four-Learn-namespace restart still compiled two string readers (11 pack hits,
+  correct outputs). The query must use ordinary named-mode logical typeName
+  emission, not clean inspection's pointer-to-array result. New exact-mode
+  producer/consumer pending. Owned worker 49625 / PID 15471, root port metadata
+  restored to 55615. Compiler/source edits follow the accepted HTML snapshot
+  below; do not call that snapshot acceptance of unfinished lexical changes.
+  No Clojure type inference or reconstructed native nominal equality.
+- Frozen support-only parsing optimization: 17 tests / 137 assertions green.
+  Five samples, same 24 cached artifact keys and same pack/cache: median cached
+  finish 1081.167 -> 78.638 ms (92.7% less), AST/version calls 24/24 -> 0/0,
+  zero native compiler calls both. Cached preparation 30.671 -> 25.126 ms;
+  2400 direct lookups 125.138 -> 133.807 ms, so no runtime lookup win claimed.
+  Only supplier-validated fragments are masked for the extern trigger; original
+  import/export and asset eligibility remain intact. Permanent regressions
+  retain user extern/link checks, same-name externs outside support, mismatched
+  supplier/cache identity, UTF-8 and test assets. Native sources/keys unchanged.
+  Owned workers exited. Evidence root `.tmp/bundle-support-ast-{gate-result,
+  perf-baseline,perf-after}-017.edn` and their reproducible scripts. This is
+  focused preparation performance, not a whole-project speedup measurement.
+- Maintained post-preparation gate: `learn.bundle-cache-check` plus unit tests
+  added under `test/learn`; ordinary selected bodies evaluated in fresh owned
+  nREPL 49835. 40/40 pass in 8.423 s, 189 exact hits / one producer pack /
+  zero native builds or standalone JVM helpers. Same accepted whole pack ID
+  as below. Failed error-union returns are rejected even if no JVM exception
+  was thrown; fresh-state and exact bundle guards fail closed. Units two tests
+  / 16 assertions green, including the expected body-count guard. Evidence
+  root `.tmp/learn-maintained-cache-{check,unit}-017.*`.
+  This is a 12-lesson regression gate, not all Learn subform coverage.
+  Owned worker PID 19768 / 49835 exited; user 53717 / PID 89334 remained live
+  and the Learn port file is restored to it.
+- Read-only next-host grouping of saved placement/unobserved rows: 13 viable
+  dependency/control follow-ups (not established closures). Six destructuring
+  dependencies: mixed assignment ID 6, to-existing 5/7/9, block tuple 10,
+  return-value tuple 4. Existing JVM paths are tuple Seqable/Indexed reads and
+  vector `assign!` RHS snapshots; prepare those same real-compiler-derived
+  conversions/storage dependencies, preserving swaps/discards/ownership.
+  Seven self-contained controls: tagged union 7/10, modify union 7, inferred
+  errors 14, merging errors 11, dispatch 27, while-else 3. Reuse scoped plans,
+  compiler captures and explicit statement/result distinction. Four parent
+  exit controls, 17 range fragments, five generated bindings and one deliberate
+  target compileError are not independent runtime adapters. Host-unobserved
+  29 = 24 compiler-pruned constant/target/specialization branches plus five
+  unused generic add-explicit operations. Saved Zig contains their probes;
+  compiler logs omit them. Do not force unreachable code or guess signatures.
+- Latest accepted frozen checkpoint: 2387/2703 prepared, 316 incomplete;
+  285 analyzed / 287 attempts, two deliberate load failures, zero analysis
+  failures, one ignored quota lesson. Native invocation blocked. Warm replan
+  575.341 s: 243 previous compiler analyses reused with exact regenerated
+  artifact hash equality, 42 reanalyzed. Compared with the accepted scoped
+  checkpoint: four common closures, zero regressions, zero additions, four
+  contextual-address observations removed (not closures). One whole bundle
+  `3b1eb2726aa7fec64f1693fd32a9a5752d6b5079cd230be2279eabbc912b2d70`:
+  4115 handlers, 3544 reused, 22,652,464 native / 52,270,744 debug bytes.
+  98 explicit exclusions: 67 native-test-context, 27 external exports,
+  four panic profiles. Fresh consumer passes 40/40 ordinary actual bodies
+  in 8.643 s: 189 exact hits, one producer pack, zero builds or standalone
+  JVM helpers. Seven analyses and one semantic validation still occur;
+  do not describe the gate as no compiler work whatsoever. Evidence:
+  root `.tmp/learn-wrapper-link-resumed-{aot-summary,classified,bodies}-017.edn`;
+  public `.aguafria/precompile/learn-wrapper-link-resumed-017.edn`.
+- Matching frozen-code HTML: 291/291 outcomes, 288 transcripts / zero missing,
+  14/14 browser tests. Whole pipeline 249.382 s, browser 27.198 s; built and
+  served SHA256 `6ef3c047177c2d489fd86eef37f644adda9ba4236f7143ef9a18e225d9a545fe`.
+  Existing in-app tab reloaded; 302 code panels have type reports and zero
+  type tooltip elements carry native `title` attributes. Evidence:
+  root `.tmp/learn-wrapper-link-resumed-{html,browser}-017.*`.
+- Remaining 316 scope split: 106 host, 135 syntax-only, 53 deliberate compile
+  failures, 15 cross-target, seven deliberate runtime failures. Categories:
+  53 compiler-rejected roots, four comptime/representation, 29 failed handlers,
+  53 inspection placement, 23 nominal/non-runtime, two specialization,
+  152 unobserved. Two examples per category are in the audit report. The
+  link policy correctly moves four unsupported external calls to failures;
+  the discarded 2391 headline below was never accepted AOT readiness.
+- Completed performance batch rationale: avoid parsing support-only graphs for extern checks
+  after validating/masking the exact supplied support fragments. Retain
+  original import/export facts; actual user extern declarations and asset
+  expressions still require the compiler parser. Focus supplier mismatch,
+  UTF-8, user function/variable, same-name outside-fragment, and cached finish
+  regressions. The sampled producer stack shows redundant AST/helper work;
+  the measured frozen result is above. No whole audit per small edit.
+- Link validation frozen: 10 tests / 81 assertions green, broader runtime
+  77 tests / 2469 assertions green. Exact compiler-owned support-fragment
+  provenance includes its actual command supplier and cache identity; user
+  extern declarations outside those spans still require real linking. AST
+  checks actual `keyword_extern` (not export/prototype token truthiness), with
+  UTF-8 span regressions. Current replan reuses prior compiler observations
+  only where regenerated startup artifact hashes exactly match; all other
+  namespaces get real Zig analysis. No production resume API. Producer/report
+  root `.tmp/learn-wrapper-link-resumed-*-017.*`, public
+  `.aguafria/precompile/learn-wrapper-link-resumed-017.edn`; whole pack,
+  40-body strict fresh consumer and matching HTML/browser gates passed above.
+- Next shared host batch (read-only plan, NOT closures): 19 lexical container
+  rows across `result_type_propagation` ID 4, `struct_name` 2/5,
+  `test_aligned_struct_fields` 1/4/9, `test_locally_scoped_global_variable` 0/1,
+  packed struct/union equality ID 1 each, and `test_switch_tagged_union`
+  2/3/4/5/6/8/9/11/12. First gate nine direct type operands. Separate four
+  `test_anonymous_struct/check` receiver-specialization rows (7–10).
+  Preserve `.tmp/anonymous-struct-identity-017.edn`: reconstructed `@Struct`
+  is NOT nominally equal to either original type; don't repeat that failed
+  approach. Extract ordinary JVM anonymous-container descriptor planning,
+  then let Zig confirm its actual synthetic representation in a separate
+  inspection copy; never relabel it as the original lexical native type.
+  Both ordinary demand/preparation must choose identical declaration keys.
+  Original native emission and lesson source stay unchanged. Start only after
+  current frozen checkpoint, with blocked native execution + owned storage,
+  alignment/union/static/equality/typeName regressions and strict fresh pack.
+- Previous rejected attempt, NOT accepted AOT readiness: whole compiler analysis
+  reaches 2391/2703 (312 incomplete), 285 analyzed / 287 attempts, zero analysis
+  failures. Stable identities show eight prepared-stage closures, zero
+  regressions and four removed contextual-address observations. Bundle link
+  fails on authored external symbols in five namespaces; four apparent
+  operation closures lack actual link proof. Preserve the completed compiler
+  observations and replan handlers after fixing link validation. Required
+  policy: user/external declarations trigger real linking with configured
+  inputs before collection; exact compiler-owned support fragments supplied
+  by the command's support artifact retain cheap semantic validation. No
+  symbol-name whitelist, disabled linker checks or split packs. Latest usable
+  whole pack at that time was the 2383/2707 checkpoint below. Evidence:
+  root `.tmp/learn-wrapper-publication-{classified,aot}-017.*` and public
+  `.aguafria/precompile/learn-wrapper-publication-017.edn` (failed bundle).
+- Historical HTML checkpoint before that link-validation edit passes 291/291 outcomes,
+  288 transcripts / zero missing, browser 14/14. Total pipeline 268.325 s;
+  served/built SHA256 fce6d2b4d779d5df076c708e06965d932f038af1b5501c0cd9c8825923da4d23.
+  That fingerprint predates the accepted frozen checkpoint above.
+  Evidence: root `.tmp/learn-wrapper-publication-{html,browser}-017.*`.
+- Frozen aggregate-address follow-up: three focused tests / 25 assertions pass,
+  including six correct fresh-JVM results, compiler-derived backing type,
+  owned storage, map/struct input, one producer pack and zero builds/standalone
+  helpers. The unchanged Learn switch body returns 1 with the same strict cache
+  gate. No lesson source changed. Preparation now follows the callable's real
+  frozen image when requesting nominal layouts. Two literal address rows defer
+  to their callee; report those as denominator removals, not closures. Broader
+  runtime units pass 77 tests / 2469 assertions. Whole AOT and current HTML
+  verification are running once for this frozen batch, followed by a 40-body
+  fresh consumer of the new whole pack. Evidence: owned `aggregate-address-2390800827483008043`
+  and `learn-switch-address-12374796512670956170` reports;
+  root `.tmp/learn-wrapper-publication-*-017.*` for the new checkpoint.
+- Current follow-up, not a new whole checkpoint: function-source retention and
+  ordinary native-wrapper bundle eligibility pass exact Learn do-op calls
+  [11 -1], one 69-handler pack, zero builds/standalone JVM loads. Per-module
+  Debug/ReleaseSafe modes remain intact; real compiler proof plus restart gates
+  pass five tests / 32 assertions. Native enum lifetime/publication follow-up
+  passes five tests / 41 assertions, including an empty-cache restart;
+  unit checks pass 17. The 37-body restart remains green in 6.802 s with one
+  exact whole-producer pack and zero builds/standalone helpers. Root cause of missing enum exports
+  was retirement restoring state while lazy layout publication lacked its
+  lock. Nominal accessors now live with callable ABIs. Source cache also tracks
+  finalized type-accessor identities. Next: aggregate-pointer result context,
+  then freeze this batch for one whole audit and current HTML verification.
+  The prior page remains served, but core edits invalidate its outcome
+  fingerprint; default-tool render retry correctly rejects all stale outputs.
+  Evidence: root `.tmp/enum-{request-writer,accessor-lock-fixed}-017.log` and
+  owned cache `learn-function-source-10694513550720692290` reports.
+- Latest frozen whole checkpoint: 2383/2707 prepared, 324 incomplete; 285
+  analyzed / 287 attempts, two deliberate load failures, zero analysis
+  failures, one ignored lesson. Preparation 598.621 s, four bounded workers,
+  native invocation blocked. Stable identities: 20 closures, three regressions,
+  33 added observations, zero removals. One 3611-handler bundle, 609 reused;
+  19,784,448 native / 48,075,288 debug bytes; 63 explicit exclusions (62 test
+  context, one external export). Current fresh JVM: 37/37 actual bodies,
+  166 exact hits / one whole-producer pack / zero builds or standalone JVM
+  helpers, 6.711 s. Minimal follow-up uses Zig type equality to avoid a
+  redundant conversion of an inferred allocator result; empty-cache two-JVM
+  regression passes seven assertions. Whole count was not rerun for it.
+  Page: 291/291 outcomes, 288 transcripts / zero missing, browser 14/14;
+  built/served SHA256 f00e95f6cccc3cbc89ceb0720e239b8d0a41c797b537a654798a2c3b58a1907b.
+  Evidence: root `.tmp/learn-scoped-reflection-{aot-summary,classified,bodies,html}-017.edn`,
+  `.tmp/native-parameter-restart-017.log`. Next: exact native function source
+  retention for `test_functions` add/sub2 and aggregate address context for
+  `test_switch_dispatch_loop`; then batch host inspection/nominal failures.
+  Do not claim all 324 incomplete items are host bugs; current host scope is
+  111, syntax-only 136, intentional compile failures 53, cross-target 15,
+  intentional runtime failures nine.
+- Terminal defaults installed and verified: `/opt/homebrew/bin/zig` 0.17.0;
+  both `/Users/pfeodrippe/.local/bin/zls` and `/opt/homebrew/bin/zls` point to
+  persistent upstream eab2be0 ZLS 0.17.0-dev. Verified from root and Learn;
+  old Homebrew ZLS was unlinked, not deleted.
+  Default ZLS JSON-RPC initializes with no `AGUAFRIA_ZLS` override. User REPLs
+  and preview server unchanged; no cache deletion or whole audit per patch.
+
+- Previous whole checkpoint: 2335/2674 prepared, 339 incomplete; 285 analyzed
+  of 287 attempts, two deliberate load failures, zero analysis failures, one
+  ignored lesson. Warm preparation 293.193 s, native invocation blocked.
+  Stable identities: nine closures, zero regressions, 17 omitted switch cases
+  restored (not fixes). One 3485-handler bundle, 3439 reused; 19,082,832 native
+  and 46,542,944 debug bytes; 45 explicit exclusions. Fresh JVM passes 17/17
+  actual bodies in 5.159 s, zero builds/standalone helpers; its bundle ID is
+  checked against the whole producer. Page retry passes 291/291 outcomes /
+  288 transcripts / zero missing outputs; browser 14/14. First enum-export
+  shared-REPL failure remains unexplained; isolated, repeated and lazy calls
+  pass, so do not claim it fixed. Page SHA256 a9746f876a3c2bbae6d5943a604c494c179677807e57e6278eb83d411718e847.
+  This precedes subsequent reflection/scoped edits. Evidence: root `.tmp/learn-scope-sentinel-*-017.edn`
+  and `.tmp/learn-whole-bodies-017.edn`. No new whole audit per small patch.
+
+- Frozen reflection/scoped follow-up: three lessons 127/127 runtime candidates,
+  zero failed handlers or rejected probes; two result-context forms remain
+  deferred to their enclosing casts. Ordinary fresh JVM passes all 20 bodies
+  in 3.563 s: 65 exact hits / one producer pack / zero builds or standalone
+  JVM helpers. Preparation 13.062 s; 184-handler pack, 182 reused. Denominator
+  includes four explicit k/try operations and two restored statement blocks;
+  do not add subset counts to whole counts. Focused gate nine tests / 57
+  assertions; empty-cache scope and reified-field restarts seven assertions
+  each; open-error and existing transport suite eight tests / 35 assertions.
+  Storage provenance—not shared reader identity—authorizes same-image error
+  copies. Independent open-error images reject explicitly, preserving the
+  target; closed sets still remap names. No Clojure type inference.
+  Evidence: root `.tmp/scoped-type-{lessons,bodies}-final-017.edn`,
+  `.tmp/{scoped,reflection}-restart-gate-017.log` and focused suite logs.
+  The whole checkpoint and HTML regeneration now complete as recorded above.
+
+- Completed frozen follow-up: thirteen lessons 286/296, zero failed handlers;
+  six regressions + one index gap close, and 17 switch operations are restored.
+  Actual fresh JVM: 17/17 bodies / one bundle / zero builds or standalone
+  helpers, 5.208 s. Compiler-observed string storage is prepared too; isolated
+  empty-cache restart passes six assertions. Sentinel-slice lessons now 13/13
+  (two more closures); fresh-cache restart eight assertions, real mismatch
+  reports its intended native panic. Adjacent nine tests / 68 assertions pass.
+  Whole preparation and HTML checkpoint completed above. Next is shared host
+  inspection/nominal gaps. Targeted evidence at root
+  `.tmp/{scope-error,sentinel-slice}-*-017.edn`; whole count below is not updated
+  by adding subset counts.
+
+- Previous whole checkpoint: 2315/2657 prepared, 342 incomplete; 287 attempts,
+  284 analyzed, two deliberate load failures and one switch analysis failure.
+  Warm preparation 344.954 s, native workloads blocked. One bundle: 3443
+  handlers / 2699 reused / 18,850,112 native / 45,908,611 debug bytes, 45
+  exclusions. Stable identities: 39 closures, six regressions, net 33 common
+  improvements; 17 switch operations omitted, not counted as fixes.
+  Page 291/291 outcomes / 288 transcripts / zero missing, browser 14/14 pass;
+  fresh JVM red at 16/17 bodies, two compilations and one failed compilation.
+  Current follow-up batches lexical retention, error-union construction and
+  compiler-known type-table indices. Do not run whole audits per small edit.
+  Evidence: root `.tmp/learn-comptime-context-{aot-summary,classified,bodies,
+  html}-017.edn`; category table in `LEARN_AOT_AUDIT_2026-10-05.md`.
+
+- Previous shared-cause subset (not a whole inventory): eight affected namespaces
+  118/139 → 138/139, twenty verified closures; 157 prepared handler records,
+  zero failed handlers; 25.055 s with native invocation blocked and warm
+  artifacts. Remaining root is intentionally invalid naked `_start` → `abort`.
+  Comptime type-table indexing now uses the ordinary call/result plan; native
+  reflection decides comptime storage provenance. Grouped gate 13 tests /
+  99 assertions passes. A stronger empty-cache, two-JVM ordinary-subform test
+  and TLS restart pass together: two tests / 12 assertions in 65.101 s, correct
+  aliases/constructors/TLS state, one bundle per fresh consumer, zero compilations
+  or standalone JVM helpers. Named container
+  self-initializers now emit consistently before/after Var interning. Next:
+  batch host/local-type inspection gaps.
+  Evidence: repository `.tmp/signature-final-{lessons,gate}-017.edn`,
+  `.tmp/snapshot-guards-017.edn`, `.tmp/storage-and-tls-restart-017.edn`.
+- Previous completed frozen-batch measurement:
+  2293/2674 prepared, 381 incomplete; 287 attempts, 285 analyzed, two deliberate
+  load failures and one ignored namespace. 545.157 s with existing artifacts,
+  four bounded virtual-thread workers and native application invocation blocked.
+  One bundle: 3254 handlers, 451 reused, 17,888,864 native / 43,683,337 debug bytes;
+  45 exclusions (44 native-test-context, one external export). Alpha-normalized
+  operation identities show zero additions/removals and four regressions.
+  Evidence: `.aguafria/precompile/learn-batched-017.edn`, repository
+  `.tmp/learn-batched-{aot-summary,classified}-017.edn`.
+- Follow-up batch, not a whole-count replacement: native function references
+  use the declared parameter's Zig coercion in both ordinary calls and preparation;
+  private method-result queries retain their owner through canonical deref forms.
+  Two focused tests / 22 assertions pass, including native function addresses.
+  Actual two-lesson preparation closes
+  the `do-op add`, `do-op sub2` and private `categorize` regressions; 19/22 prepare,
+  zero failed handler records. An invalid comptime error-cast variant is still
+  compiler-rejected and must not be hidden. Evidence:
+  `.tmp/adapter-batched-regressions-017.edn`, `.tmp/adapter-real-lessons-017.edn`.
+- Latest 14-body restart: all bodies correct, one bundle, no standalone JVM
+  helpers; one TLS namespace compilation kept strict acceptance red. Its cause
+  is private-adapter publication replacing an unchanged callable's snapshot.
+  Snapshot preservation passes two focused tests / 18 assertions, including
+  source-only/published demand paths and ABI/source change guards. Real TLS
+  sequence now uses its original prepared callable key with zero compilations.
+  Empty-cache, two-JVM integration regression passes six assertions in 31.082 s:
+  correct thread-local state, one bundle, zero new compilations or standalone
+  JVM helpers. Evidence:
+  `.tmp/tls-image-key-trace-017.edn`, `.tmp/callable-snapshot-restart-017.edn`.
+- Current batch page: 291 outcome comparisons, 288 transcripts, zero missing;
+  HTML-only resume used pinned ZLS after the PATH 0.16 rejection, without
+  rerunning outcomes. Browser 14/14 passes; existing IAB reloaded/visually checked.
+  Built/served SHA256:
+  26c267cbdb48d4f17b8d799a3d801c7cff7a045a4a933410a7446e55b81495b2.
+  Evidence: repository `.tmp/learn-batched-html-017.edn` and browser log.
+  Follow-up JVM adapter changes are subsequent to that page checkpoint.
+
+- Preceding whole measurement: 2297/2674 runtime candidates prepared,
+  377 incomplete, down from 387 with 16 net additional candidates. Common
+  operation identities gain ten prepared entries; failed-handler operations
+  29 → 22. Warm-artifact preparation: 225.923 s; native invocation blocked.
+  One bundle: 3137 handlers, 17,237,200 native / 41,687,918 debug bytes,
+  3098 reused. This precedes the current batched adapter/scope edits.
+  Evidence: `.aguafria/precompile/learn-error-payload-whole-017.edn` and
+  `.tmp/learn-error-payload-whole-{summary,classified}-017.edn` at repository root.
+  Current category table: `LEARN_AOT_AUDIT_2026-10-05.md` at repository root.
+- Earlier batch gates: compiler-confirmed imported factory result identity,
+  method-result reader and type-equivalence preparation now pass the stronger
+  five-body fresh-JVM restart: one bundle, zero builds or standalone helpers,
+  8 assertions in 71.678 s (`.tmp/method-batched-restart-017.edn`). The preceding
+  six-lesson 14-body trace is not rerun until whole-bundle publication.
+  Converted for-else lexical scopes pass real Zig and reference-validation
+  checks: 3 tests / 16 assertions in 3.258 s
+  (`.tmp/scope-batched-gate-017.edn`). Tiger regeneration: 245 modules /
+  4442 declarations / zero raw fallbacks; current catalog is authoritative
+  for bulk loading, so unlisted files remain untouched. Fresh corpus/catalog
+  load passes 2 tests / 23 assertions in 146.320 s
+  (`.tmp/tiger-batched-load-017.edn`). Owned long-lived REPL's stale loaded-lib
+  entry is not treated as a fresh loader failure or worked around.
+  The whole preparation and HTML checkpoint completed as recorded above;
+  follow-up patches use focused checks, not another whole audit.
+- The post-enum HTML evidence below is historical; current core edits require
+  a fresh page acceptance run. Do not rerun or report it after every patch.
+
+- October 5 checkpoint (supersedes the older bundle/browser evidence):
+  - Enum-to-union provenance is fixed without changing the lesson:
+    `test_coerce_unions_enums.clj` now passes all four ordinary JVM body forms.
+    Compile-only preparation covers 15/15 runtime operations; native execution
+    is blocked. Current fresh consumer: 13 exact hits / one bundle / zero
+    compilations or standalone JVM handlers in 2.623 s.
+  - The real REPL then exposed stale enum readers after schema redefinition.
+    Declaration lookups now identify their receiver schema generation; retained
+    function results use their native image's enum accessors. Incompatible enum
+    arguments are rejected before FFI. Function reevaluation adopts the new
+    schema. Native member bytes and emitted names remain authoritative.
+    Unsigned transport bytes are normalized to JVM bytes at the transport
+    boundary. Current gate: 5 tests / 41 assertions pass in 73.226 s, including
+    u8/u16/i8 boundary values and fresh-cache AOT / one-bundle restart.
+    Adjacent cache guards: 3 tests / 23 assertions pass in 165.136 s;
+    runtime: 72 tests / 2,442 assertions pass in 471 ms.
+  - Final post-enum HTML verification passes: 291 outcome comparisons,
+    288 REPL transcripts, zero missing outputs, 286.808 s. Browser 14/14 pass
+    in 31.094 s. Built and served SHA256:
+    a37f50160b70b0239335400eea8c169b7daa921323e4da2a95db9b77e462cc15.
+    Existing IAB reloaded and side-by-side Hello World visually checked.
+  - Full post-enum Learn preparation published: 2271/2658 runtime candidates
+    prepared, 387 incomplete; 703.431 s with valid artifacts available, not cold.
+    287 attempts / 285 analyzed / two deliberate load failures / one ignored.
+    One3043-handler bundle: 16,658,560 native / 38,823,500 debug bytes;466reused;
+    63 exclusions (62 native-test-context, one external export).
+    Eight old failures prepare; seven operations gain failed carried-error
+    variants alongside their still-prepared original handlers. Net improvement
+    is one. Full categories with two examples: LEARN_AOT_AUDIT_2026-10-05.md.
+    Fresh consumers of this exact whole bundle: values5bodyforms/nativeoutput
+    match/32exacthits/onebundle/zerobuilds2.136s; enum4correctforms/13exacthits/
+    onebundle/zerobuilds2.404s. No unapproved standalone JVM helpers.
+    Tiger main489/644 remains an older snapshot, not current acceptance.
+    Preparation planners were frozen;
+    the subsequent byte-decoding fix does not run during compile-only preparation
+    and changes neither generated Zig nor handler identity.
+    Current evidence: .tmp/enum-coercion-gate-017.edn,
+    .tmp/enum-coercion-repair-guards-017.edn,
+    .tmp/enum-repair-runtime-gate-017.edn,
+    .tmp/enum-live-redefinition-017.edn,
+    .tmp/learn-enum-coercion-{aot,restart}-017.edn,
+    .tmp/learn-post-enum-refresh-017.edn,
+    .tmp/learn-post-enum-browser-017.log,
+    .tmp/learn-post-enum-observations-{aot,classified}-017.edn,
+    .tmp/learn-post-enum-{values,body}-restart-017.edn.
+  - Next: carried-error boundary. Ordinary optional/error-union body evaluation
+    reproduces failure: host Clojure try leaves anyerror!?i32 intact for optional
+    unwrap. Other new variants include Thread.join and string comparisons.
+    Preserve native behavior and do not discard variants to improve counts.
+    Evidence: .tmp/learn-try-carrier-diagnostic-017.edn.
+    Direct prefix-try prototype is insufficient: the transport adapter returns
+    usize, so Zig correctly rejects propagated anyerror. Inspect the existing
+    native error-union schema/view path for an explicit error/payload boundary;
+    do not add Clojure compiler hooks or guess payload layouts. No production
+    change from this prototype, and no carried-error closure claimed.
+  - Shared bundle eligibility now preserves each handler's original root:
+    exact `@import("root")` calls bind to that entry's original module graph.
+    Real Zig AST spans distinguish test-only `@embedFile` from active assets;
+    emitted tests are preserved, and test-only `@import` still stays guarded.
+    Full gate: 26 tests / 257 assertions pass in 296.503 s, including fresh JVMs.
+  - Actual Tiger Grid reader: 3/3 artifacts packed into one 336,176-byte library
+    in 3.729 s. Fresh JVM resolves all 78 exports from one bundle in 165.257 ms,
+    without compilation. Preparation blocks application execution. This is a
+    targeted check, not closure of all 502 historical asset exclusions.
+  - Earlier HTML (superseded above): 291 outcome comparisons pass; 288 transcripts; zero missing
+    outputs; 231.457 s. Browser 14/14 pass in 27.580 s. Built and served SHA256:
+    f671da083663ac6e31284753ace3c5dd16c6d2e67d4d6980f08d96d97d20dd4f.
+    Existing IAB reloaded and side-by-side Hello World visually checked.
+  - The older enum diagnostic (2/4 JVM body forms failing) is superseded by
+    the enum preparation, restart and schema-reload checks above.
+  - Evidence: .tmp/root-bundle-production-gate-017.edn,
+    .tmp/tiger-root-reader-bundle-017.edn,
+    .tmp/tiger-root-reader-bundle-restart-017.edn,
+    .tmp/learn-post-root-bundle-refresh-017.edn,
+    .tmp/learn-post-root-bundle-browser-all-017.log,
+    .tmp/learn-enum-union-jvm-diagnostic-017.edn.
+
 - Latest verification checkpoint:
-  - Current handles (October 4): source/linkage separation in runtime.clj is
-    UNDER VERIFICATION. Root55615 future eager-import-verification rerun with
-    a converted lazy test-container catalog; prior prototype failed normal
-    fixture registration, not an accepted gate. Fresh actual Tiger23 replay
-    exec95622/PID23529, .tmp/tiger-eager-separated-017.log; no result yet.
-    Previous fresh replay9prepared/14failed, not a new whole-project count.
-    Alias-fixed Ghostty restart completed136.047s, strict zero-build/original
-    bundle gate PASS (predates source/linkage split). Adjacent runtime68/2418
-    PASS also predates split. Learn eager-import-acceptance-017.edn PASS:
-    291 comparisons,288 transcripts,zero missing,18 JVM tests/123 assertions;
-    latest browser refresh pending and this run predates source/linkage split.
-    WholeTiger63619/PID46213 still working; main preparation remains pending.
-    Next: accept fixture and actual replay, final adjacent/restart/browser gates,
-    whole Tiger publication and concrete remaining compiler-context cases.
+  - Production constant/coercion and storage-free-reader repairs are adopted.
+    Gate .tmp/constant-coercion-production-gate-017.edn: 6 tests / 88 assertions
+    pass in 32.925 s, including a new-cache compile-only AOT producer and fresh
+    JVM consumer with one bundle and zero compilations. Immutable checked
+    constructor provenance survives narrowing; widening reuses typed handlers;
+    mutable, runtime-function and out-of-range narrowing still fail in Zig.
+    Current-code coercion guard rerun PASS6tests88assertions38.058s:
+    .tmp/constant-coercion-final-gate-017.edn. The earlier 6/88 gate predates
+    the subsequent shared peer/try preparation repairs.
+    Actual Learn targeted AOT: 4 namespaces, 69/72 runtime candidates prepared,
+    zero failed handlers in 10.984 s. Remaining three switch-range placements
+    in error_union_parsing_u64.clj lines 9–11 are syntax, not callable values.
+    test_coerce_large_to_small 3/3, test_wraparound_semantics 11/11, values 28/28;
+    error_union_parsing_u64 27/30. Native execution blocked throughout preparation.
+    Public report: .aguafria/precompile/learn-constant-production-017.edn;
+    summary .tmp/learn-constant-production-aot-summary-017.edn. Fresh affected
+    ordinary-body consumer PASS3.363s: eight actual forms across these four
+    lessons, correct output, 52 exact target-bundle hits / one bundle, zero
+    compilations or standalone JVM-handler hits. Its first pass exposed three
+    misses; the shared peer planner now retains typed-handler identity for
+    Zig-declared comptime_int results, and compile-only probes prepare the
+    payload and JVM-carried error union around Clojure try. All schemas come
+    from Zig; native emitted behavior is unchanged. Latest production emitter,
+    peer and try gate83tests526PASS31.558s, with aliases/shadowed bindings and
+    a new-cache two-JVM zero-build regression. Adjacent/private-type gate
+    77tests2475PASS111.630s. Evidence .tmp/learn-constant-production-restart-
+    017.edn, .tmp/try-peer-production-gate-017.edn and .tmp/coercion-adjacent-
+    production-gate-017.edn. All8 touched standard Clojure source/test files
+    pass cljfmt check; git diff check PASS. Latest HTML refresh PASS230.239s:
+    291 outcome comparisons/288transcripts/zero missing; browser14/14PASS
+    27.576s. Built/served SHA256b02543d85799ba617fc3d69a164ef818b03de2916777320fd55f023f89c8d0a5.
+    Live IAB reloaded and side-by-side hello visually checked. Evidence:
+    .tmp/learn-post-constant-refresh-017.edn and
+    .tmp/learn-post-constant-browser-all-017.log.
+    No post-repair whole Learn count until full inventory refresh.
+    Corrected Tiger main inventory finished76min45.696s: 645operations,
+    zero rejected roots;489/644runtimecandidates prepared155incomplete,
+    821prepared/78unsupported/0failedhandlerrecords. One810-handler bundle
+    published;502artifacts excluded for relative-or-dynamic-assets. Exact
+    categories:58non-runtime/nominal,50placement,37unobserved,9rejectedprobes,
+    1comptime receiver. A further handler-only type-declaration entry is excluded
+    from the644runtime total. Evidence .tmp/tiger-corrected-main-{aot,inventory}-
+    017.edn and public .aguafria/precompile/tiger-corrected-main-017.edn in
+    examples/tigerbeetle-agua. This is main only, not the historical whole2030
+    inventory; loaded Clojure planners predate peer/try changes. No post-repair
+    acceptance claim. Ownedworker30439 finished normally; native freeze lifted.
+    Next inspect concrete asset exclusions without restarting the full audit.
+    This checkpoint supersedes the
+    older production-pending/freeze notes below.
+  - Corrected Learn full inventory has now published: 2270/2658 runtime
+    candidates prepared, 388 incomplete, 617.131 s, native execution blocked.
+    287 namespace attempts: 285 analyzed, 2 deliberately invalid load failures,
+    1 quota example ignored. This replaces the historical 2264/2658 count.
+    Exact purpose-enriched inventory: .tmp/learn-corrected-observations-
+    classified-017.edn. Intentional upstream failures/syntax/cross-target cases
+    remain separated from ordinary host gaps; they are not all library defects.
+    Genuine red regression: `(k/u8 (k/u64 255))` fails in ordinary JVM evaluation
+    although the same native Zig const expression succeeds. Permanent test
+    typed-literal-coercion-retains-comptime-provenance currently 1 assertion
+    passes, 1 error. Preserve compiler-confirmed comptime provenance without
+    treating runtime or mutable values as constants. Production changes are
+    still frozen until the corrected Tiger analysis/preparation publishes.
+    Fresh-JVM consumer of this exact published Learn bundle PASS2.213s: all5
+    values.clj body forms match native output,34exactbundlehits/onebundle,
+    zero compilations/unmatched hits/unapproved standalone handlers. Evidence:
+    .tmp/learn-corrected-values-restart-017.edn. Corrected Tiger whole count
+    remains pending; typed narrowing red/prototype evidence is separate from
+    this unchanged production bundle.
+    Isolated typed-narrowing prototype2tests60PASS22.813s, including runtime
+    function/mutable/out-of-range rejection and numeric identity checks.
+    Native compile-only observer prototype exports the exact typed integer
+    value for a narrowing cast, but only the operand type for runtime widening;
+    no Clojure type guessing. Compiler-derived bundle/restart prototype PASS:
+    native execution blocked during preparation; fresh JVM returns255 in616ms
+    with4bundlehits/onebundle/zero compilations. Evidence .tmp/typed-literal-
+    coercion-{aot,restart}-prototype-017.edn. Adopt shared production fix after
+    frozen Tiger snapshot publishes, then run permanent regressions and targeted
+    actual Learn preparation. Production implementation remains unchanged.
+    Another confirmed preparation-only defect: imported math/maxInt/minInt
+    return declared comptime_int values, but preparation asks for impossible
+    address readers. Permanent regression storage-free-imported-results-do-not-
+    prepare-address-readers is red1test6PASS3errors; ordinary calls pass. Isolated
+    storage-free schema guard prototype1test9PASS563ms. Evidence .tmp/storage-
+    free-reader-{red,prototype}-017.edn. Adopt alongside narrowing after frozen
+    snapshot publishes; do not subtract prototype closures from whole counts.
+    Narrowing implementation plan: retain a separate immutable coercion source
+    in ZigValue state, not the operator planner's comptime-expression; preserve
+    address owners and never stamp runtime ABI function results as literals.
+    Factor numeric result ownership out of invoke-value! so native function
+    results stay runtime. Keep ordinary operator signature reuse unchanged.
+    In native operation_probe, use Zig integer signedness/width reflection to
+    decide whether an @as needs a constant; encode the exact typed value at
+    the call site only in that compiler-required branch. The observer should
+    delegate such conversion observations to precompile-literal-coercion!
+    plus normal scalar storage preparation. Native call-site prototype avoids
+    passing a runtime value into a comptime helper for widening. Replace the
+    old literal-arithmetic test's incorrect known-i64 rejection guard with an
+    actual mutable/runtime i64 guard; permanent native-function-result guard
+    already added. No per-example inferred types or unsafe @intCast shortcut.
+    Native negative control confirms Zig also rejects narrowing echo(255)'s
+    u64 runtime result to u8: .tmp/typed-runtime-coercion-negative-017.log.
+    All3 touched permanent test/fixture files pass cljfmt; git diff check PASS.
+  - Current October 4 checkpoint (supersedes old live handles below):
+    Recursive reader production gate9tests53PASS50.578s; actual inline-else
+    AOT14/18operations,4unsupported/0failedhandlers,18.707s. Native helpers
+    are unfrozen; Ghostty strict consumer finished131.733s,4exacthits/one
+    bundle/zero compilations before the reader edit. No startup speedup claim.
+    Tiger regenerated245files/4442structuraldeclarations,zero unresolved
+    syntax/fallbacks. Both previously rejected Grid/ReplicaReformat roots now
+    compile(exit0) with native execution blocked. Emission mapping defect:
+    probe construction observed its own result-type expressions, shifting
+    later operation IDs. Shared observer guard fixes this: actual Tiger642
+    operations identical in full/empty/selective passes,zero differences.
+    Regression1test8PASS536.630ms with actual full/selective Zig observations;
+    cljfmt check PASS. Tiger1375/2030 is historical and its failure signatures
+    are unreliable where IDs shifted: do not subtract targeted closures from
+    it. Fresh four-operation compiler/preparation replay completed4/4prepared
+    in82.377s; source-based selection, no old numeric IDs/signatures reused.
+    Exact internal static-field and type-name readers no longer retain an
+    unused container's public state surface; ordinary user reflection still
+    does. Shared operand-reader preparation now includes a field's lazy type
+    alias getter. Native laziness/explicit-test-only rejection2tests23PASS
+    1.735s; fresh two-JVM onebundle/zero-compilation regression1test7PASS
+    16.875s. Before repair it compiled exactly one alias getter. All6 touched
+    source/test files pass cljfmt check. Adjacent namespace/bundle gate4tests
+    29PASS57.419s; runtime72tests2442PASS485ms with exact-reader negative guards.
+    Current corrected main inventory exec24369: regenerated245files in6.654s,
+    4442 structural declarations/zero fallback/unresolved syntax; actual full
+    main analysis/preparation running, native invocation blocked. Report will
+    be tiger-corrected-main-017.edn; do not use historical shifted signatures.
+    Learn corrected full inventory exec27224 runs in parallel (bounded2workers,
+    native execution blocked), reportlearn-corrected-observations-017.edn.
+    Shared core/native inputs are now frozen for these acceptance snapshots.
+    Do not clear caches or mutate user REPLs; do not recount old signatures.
+    Learn HTML refresh45.432s PASS291comparisons/288transcripts/zero missing;
+    browser14/14PASS26.580s. Built/served SHA256
+    a921132fcf027cc2c68f56dcf175313da890e9ec2fbc224de4a8356f5ab258f6.
+    Actual IAB reloaded and visually checked. Latest refresh did not rerun the
+    historical18JVMtests123assertions. Evidence .tmp/learn-post-recursive-
+    refresh-017.edn, .tmp/learn-post-recursive-browser-all-017.log,
+    .tmp/tiger-probe-mapping-fixed-017.log, .tmp/probe-identity-regression-
+    017.edn. Next corrected Tiger observations/preparation, unused Snap-state
+    activation, meaningful remaining gaps, final counts and affected restart
+    gates. No near-finished or full acceptance claim. Latest evidence also:
+    .tmp/tiger-probe-repair-replay-017.edn, .tmp/static-field-cache-red-017.edn,
+    .tmp/static-field-cache-gate-017.edn, .tmp/lazy-field-reader-gate-017.edn,
+    .tmp/static-field-adjacent-gate-017.edn, .tmp/runtime-bounded-reader-final-
+    017.edn.
+  - October 4 latest continuation: Tiger exec29375/PID87840 completed normally
+    in 3699.756 s. Published baseline is 1375/2030 runtime candidates prepared,
+    655 incomplete, 1976 prepared/329 failed handler records, 23/35 declared
+    functions prepared (12 expected skips). This separate JVM loaded the old
+    planner before this continuation's fixes: no post-repair acceptance claim.
+    Exact inventory: .tmp/tiger-scoped-final-inventory-017.edn; full failures:
+    .tmp/tiger-scoped-final-handler-failures-017.edn. Largest grouped failures
+    include 135 unwrap-arity variants and 22 test-only Snap comptime assertions.
+    Do representative targeted replays, not another full audit.
+    Recursive-reader explicit Writer.Error prototype: 1 test/6 assertions pass,
+    including public a/value and compiler inspection; preparation native calls
+    blocked. Native helper still unchanged until Ghostty restart exec41837
+    exits. Runtime tagged enum-union attrs fixed through the regular attribute
+    normalizer; 72 runtime tests/2432 assertions pass in 435 ms.
+    Loaded-pack exact-key reuse added to bundle lookup. Unit/native integration
+    2 tests/81 assertions pass in 1.132 s. Ghostty prior fresh exec20948 has
+    correct output and zero compilations but fails the one-bundle assertion
+    after newer targeted AOT publishes overlapping keys (two packs selected);
+    evidence .tmp/ghostty-queue-closure-restart-017.edn. New actual strict
+    consumer exec41837/PID5700 running; no pass claim yet. Cold load 129.188 s
+    remains unimproved. All five modified source/test files pass cljfmt check.
+  - October4 continuation: addedactualstdreference regression(stdout/Thread.spawn/
+    mem.print) andrecursive-sliceinspectionfixture; bothreproducefailures.
+    Importedreferenceplanner nowpreservesactualreferencein result-reader-type.
+    JVM testgatepending; nativehelpers/emitterstillfrozenforPID87840. That run
+    loadedClojureplannerbeforeedit andis a pre-repairbaseline, notpost-fixproof.
+    Coldloadper-fingerprintdiagnosticexec32928running; no perfclaim/adoption.
+    Update: stdreaderreference+automaticreaderpreparation3tests20PASS17.490s,
+    freshcache2-JVM exactbundle/zerocompiles gateincluded; Thread.spawn+mem.print
+    ordinary/compile-only4PASS. ActualsavedZigreplay3ops8handlersprepared1.569s;
+    targetednewAOThello+slices+threadlocalrunningin55615(imported-targeted-aot-job).
+    No newwholeLearncountclaimed. Newper-fingerprintprofile122.696s:118022
+    declaration-info calls; multiplefingerprintpasses pluswholeconvertedgraph
+    dominatecoldload, notonegiantfingerprint. No printerprototypeadopted.
+    TargetedAOTcompleted10.425s:3namespaces/49operationsallprepared,
+    58handlersprepared,5declaredfunctions(1prepared/4expectedskips),0baseline
+    failures,gaps,deferred. Publictargetreport .tmp/learn-imported-result-
+    targeted-aot-017.edn. Runtimequeueclosurefix(bystabledeclarationkey) is
+    source-onlyClojurechange; TigeroldJVMunchanged. Dense300nodeprototype
+    sameoutput554.202->51.211ms; actualVSR/Multiversion/StateMachineclosures
+    same. Runtime71tests2426PASS455ms. End-to-endperfnotyetmeasured.
+    Recursivesliceinspectionregressionstillred: nativehelpereditdeferreduntil
+    Tigerpublishes; explicitwritererrorcontractneeded,inferredsetsloop.
+  - Learn full final-core AOT exec25404/PID6648 finished1255.309s:287attempted,
+    285analyzed/2deliberatelyinvalidloadfailures,1quotaignore;2264/2658runtime
+    candidatesprepared,394incomplete,2800uniquehandlerpack(15388096native/
+    36193740debugbytes),72reusedentries. Publiclearn-scoped-final-017.edn and
+    .tmp/learn-scoped-final-inventory-017.edn nowauthoritativeforthiscore.
+    Freshvalues exec62814PASS2.183s:5actualJVMbodyforms matchnative main,
+    34exactmanifestbundlehits/onebundle/0compiles/unapprovedstandalone.
+    No broad0-errorsclaim: pendingimportednominalreturnreferencebug confirmed.
+    TigerVSRcheckpointpublished1376candidates/1076prepared/300incomplete,
+    nofailedhandlers; main646operationspreparedreportstillpending. Partial
+    VSRcounts not addedto oldwholebaseline. TigerPID87840 sourcefrozen.
+    Ghosttyfirstprinterprototype169.231s=noimprovement; second132.561s likewise
+    notmaterialgain. SecondguardrejectedpackIDafterLearnpublishedsharedkeys;
+    read-onlymanifestaudit verifiesall4exactkeys exist in originalGhostty AND
+    selectedLearnpack,correctoutputs/onebundle/zerobuilds. No coreprinterchange.
+    Ownedverificationchildrenended;55615anduserREPLs/previewuntouched.
+  - Latest continuation diagnostics (not final coverage): partial121Learn
+    namespace checkpoints721/919runtimecandidatesprepared,198incomplete;
+    .tmp/learn-scoped-partial-inventory-017.edn retains exactcategories and
+    up to2actualexamplespercategory. Currentruns stilllive. MainTigeranalysis
+    finished646operations/2rejectedroots1440.938s; preparationongoing.
+    Ghosttycoldloadprofile154.836s(JFR) isolates140.234s in converteddependency
+    loading versus148ms compile-plan and144ms load-module. Threadtrace shows
+    declarationfingerprintserialization. Byte-identicalprinterprototype
+    .tmp/ghostty-cold-load-prototype-017.clj is isolated, no corechanges.
+    FreshLearnrepro .tmp/std-result-reference-red-017.edn proves stdstdout
+    result identity loses actual stdreference and invents Aguafriaowner. Fix
+    call-result-expression/result-reader-type after frozenrunspublish; test
+    both ordinary import calls and compile-onlypreparation. This is genuine,
+    separate from deliberatecompile-errors and missingexternalobjects.
+  - Scoped result context continuation: actualmain319 now fullyprepared from
+    fresh Zig inspection,1/1 observed signature67.606s,nativeexecutionblocked.
+    Multiversion is a struct and .single_release is a shorthand constructor
+    function, not a union tag. Nine-case main replay group closed; no addition
+    to old fullTiger totals. Generic scope plan accepts actual Zig destination
+    type; outer casts use the same scoped preparation plan. JVM1test6PASS5.373s.
+    Expanded fresh two-JVM/named-enum gate2tests16PASS41.443s,onebundle/zero
+    builds; adjacent152tests2933PASS23.038s; observer/nilcontext2tests9PASS.
+    Formatter applied. ActualVSR1390 freshinspection91.267s yields contextnil
+    (nominal type exists only in local scope). Correctly unsupported; notclosed.
+    Fullrecount/newLearnfingerprint refresh running; check handles below.
+  - Current handles (October 4, supersedes historical entries below):
+    Finalmarkertransport7tests100PASS74.609s; strict4scope(namedenumincluded)
+    restart1test9PASS40.526s,onebundle/zero builds. Rebuilds resumed on frozen
+    source; current handles supersede cancelled IDs below. Newfullcountpending.
+    Resumed fullTiger exec29375/PID87840 writes
+    tiger-scoped-final-five-017.edn; Learn exec2512/PID87859 writes
+    scoped-context-final-learn-refresh-017.log; Ghostty exec86263/PID87877
+    writes ghostty-scoped-context-017.edn. All three are running on frozen
+    source. Use these handles, not the cancelled ones below.
+    Learn exec2512 completed PASS:291 outcome comparisons,288 transcripts,
+    zero missing output,18 JVM tests/123 assertions. New tooltip suite adds3
+    browser regressions; current full browser14/14PASS28.553s. IAB reloaded
+    and visually checked; built/servedSHA256
+    2905948d8277b2c97e35b5e612c5901fbd4a31d9cf940e48ff7d88cb74f9416a.
+    FullTiger/Ghostty runs remain pending. Browser evidence:
+    .tmp/scoped-context-final-browser-017.log.
+    Ghostty AOT exec86263 completed PASS487.419s:15/15 candidates,3/3
+    functions,one96-handlerbundle(589392 native bytes,1326231 debug bytes),
+    no standalone entries,nativeexecutionblocked. Fresh strict consumer
+    exec16938 uses the new report; logghostty-scoped-context-restart-017.log.
+    Inventory classifier .tmp/tiger-preparation-inventory-017.clj verifies
+    exact operation category totals and retains two concrete examples each;
+    validated on oldbaseline only. Apply to current fullTiger when published.
+    FullLearnAOT final-core refresh exec25404/PID6648 writes
+    learn-scoped-final-017.edn(.d); source-dirresources/learn/example,
+    explicitquota-ignoreunchanged,nativeexecutionblocked,parallelism2.
+    Ghostty consumerPID5350. Tiger currentVSRanalysis1430operations/
+    zero root failures505.178s; preparationstillrunning. These are observed
+    operations, not fullyprepared counts.
+    Ghostty strict consumer exec16938/PID5350 completed PASS131.894s:
+    outputs[1,73,79,4],four exactmanifestbundlehits,onebundle,zero compilations
+    and unapproved standalone JVMhandlers. Three authorednamespace images
+    load separately from disk. Cold load remains slow; do not claim startup
+    latency solved. Evidence .tmp/ghostty-bundle-restart-017.edn and
+    .tmp/ghostty-scoped-context-restart-017.log. Owned consumer exited.
+    Next after frozen snapshot: remove stale Grid.RepairTableResult alias
+    (only reference in vendor Zig is its declaration) and unused
+    ReplicaReformat.done plus its otherwise-unused local Result union.
+    done reads nonexistent result; main uses pending/format instead. Source
+    references checked across vendored *.zig. Regenerate only affected modules
+    and recheck actual rejected roots; do not invent missing members. These
+    two root failures are not claimed repaired yet.
+    Finalaliascleanuphello.clj a/k emitsbyte-identical Zig. Incremental full
+    outcomes/HTML18.219sPASS,finalbrowser14/14PASS27.780s. ActualIABreloaded,
+    canonical panel checked; built/servedSHA256
+    bd0159a4bbb21c83458d6250ff4e14eb0a4f618ec7e32be0f62026abf5bc20e8.
+    This supersedes the earlier HTML hashes only; same frozen core/native
+    source for AOT jobs. Evidence .tmp/learn-final-alias-017.edn and
+    .tmp/learn-final-alias-browser-017.log.
+    Continuation: keep core/native source frozen until exec29375 and25404
+    publish. Learn has288 source files,one explicitquotaignore; initial
+    sequential load/test-check phasefinished and bounded2-worker analysis
+    is producing checkpoints. Don't count log's namespace-finished counter
+    as all completed jobs (load/analysis failures also write checkpoints).
+    After reports: use preparation-inventory on actual newfullreports,write
+    categorycounts/2examples,strictfreshTiger/valueschecks. Then stalevendor
+    rootcleanup/regenerateaffectedmodules and targetedrootrecheck; standalone
+    authored/test/asset entries must stay clearly distinguished from handlers.
+    No nativecacheclear or userapp/session interruption. Goalactive.
+    The broader transport gate exposed1failure/3errors in callable fields.
+    Dedicated BoundMethod envelope now separates transportcontrol from ordinary
+    struct snapshots. Stopped only owned66270/66293/69127 pre-final checks;
+    exec23988/29532/77721 cancelled, not acceptance. Marker transport and fresh
+    scope restart have passed before restarting final runs. Existing reports
+    below remain historical. FullTiger oldbaseline file preserved.
+    Subsequent Ghostty strict restart uses report ghostty-scoped-context-017.edn
+    via -Daguafria.acceptance.ghostty-report. Root test futures finished.
+    Owned55615/PID59848 preserved. Do not change core while these snapshot runs
+    are active. Old Ghostty/Learn checkpoints below predate scoped changes.
+    Private nested struct payload schema repair uses exactFieldType and existing
+    compiler-layout reader. Repro before: optionalbytes+two mapconstructor
+    errors; after2tests9PASS6.279s. Runtime+adjacent78tests2463PASS23.120s.
+    Compile-only/privateemptycache freshrestart1test7PASS23.132s: correct
+    optional/unionmaps+native13/23,one readerbundle,zero builds. Authornamespace
+    images remain separate diskhits; no standalone JVMreader allowed. Exact
+    manifestkeys checked. Compilerlayout's existing supported-type limits
+    unchanged; do not claim every possible privatepayload shape is supported.
+    Final Learn refreshexec18984 PASS291comparisons/288transcripts/zero missing,
+    18tests123PASS; browser11/11PASS25.720s. Actual IAB reloaded and checked;
+    served/builtSHA256f3b744b288347c5ae0b17e3aaf51c8a044461fb8ad9a80d20a928428ad7147f5.
+    Ghostty strictrestartexec25732PASS142.888s,four exactmanifestbundlehits,
+    onebundle,zero builds. All validation children finished; owned55615 kept.
+    Next scopedunion319/VSR1390 expectedresultcontext then wholeTiger recount.
+    Operator result-reader preparation now uses real Zig storageSchema logs
+    and the ordinary reader planner. Focused5tests26PASS36.561s,including
+    fresh two-JVM fixture/onebundle/zero builds/standalone hits. Actual Tiger
+    concat reinspection+prep2/2operations,69signatures PASS81.199s; restart
+    two correct strings,seven exactmanifestbundlehits,onebundle,zero builds.
+    No extra main operation closure (176/186 already counted); separate reader
+    warmth gap closed. Adjacent7tests134PASS48.366s. Clean identity-refinement
+    reader observations now retained;
+    rejected-pass schemas excluded. Learn final fingerprint refresh pending.
+  - Previous checkpoint (superseded where stated above):
+    Current round eight verified main preparation closures:526/528/52/230/51/
+    545/176/186. Former nine-case preparation group now only319scopedunion.
+    Actual concat reinspection/preparationPASS58.714s,17cluster+52process
+    signatures,all69handlers prepared,nativeinvocationblocked. Cross-project
+    ordinary restart hits operatorbundle but compiles four result readers;
+    no zero-build closure for this separate reader-identity/preparation gap.
+    545fresh61.217sPASS; optional-helperprivatechild2tests3PASS3.487s.
+    Decoder still loses private optionalPayload/unionPayload schemas; open.
+    Forwarded module type freshbundle1test7PASS18.336s; runtime70/2425PASS.
+    Ghostty refreshed AOT15/15,3/3,one96handlerbundle459.924s; fresh strict
+    restartPASS125.025s,four exactbundlehits,zero builds. Learn checkpoint
+    PASS291comparisons/288transcripts/zero missing/18tests123; inspection-only
+    resource change requires new fingerprint refresh, runningexec89755.
+    Concat serialization quota reproduced by standalone Zig regression;
+    helper now uses same bounded10M budget as other inspection helpers,
+    application code unchanged. Concat/serializer3tests10PASS3.611s. Learn
+    final fingerprint refreshexec89755PASS; browser11/11PASS26.999s; actual
+    IAB reloaded/visuallychecked. Served/built SHA256bdaebf1f14d43b08...match.
+    Validation childrenfinished; userREPLs/preview and owned55615 preserved.
+    Next: scopedunion319/VSR1390context,privatepayloadschemas;
+    reconcilewholeTiger. Reader pending notes below are historical.
+    No wholeTiger-count claim/cacheclear. CheckAI_MEMORY beforecommunications.
+    AI_MEMORY.md contains only communicated notes; no repeated explanations.
+    Eager23/23 actualVSR replay PASS154.834s; fixture4/20PASS; runtime68/2418
+    PASS(last rerun227ms). WholeTiger baseline completed1487/2029,542gaps,
+    3603.910s on older core. Concrete56-case fresh replay25prepared/31incomplete
+    PASS253.589s(native calls blocked):24new main closures, null alreadycounted.
+    Object initializer repair3/21PASS, fresh isolated bundle1/7PASS25.956s,
+    zero builds/standalone handler hits; actualVSR317 real Zig reinspection+
+    normal prep1/1PASS45.385s(.tmp/tiger-object-constructor-017.edn).
+    VSR saved-baseline325minus25verifiedclosures=300remaining, notwholecount.
+    Adjacent13tests86PASS92.121s. Learn build/eager-import-acceptance-017 PASS:
+    291comparisons/288transcripts/zero missing,18tests123PASS; browser11/11PASS.
+    Ghostty current AOT15/15candidates,3/3functions,93handlers457.249s;
+    fresh correct outputs/fourmanifestbundlehits/onebundle/zero builds121.496s.
+    Previous HTML driver rejected251stale transcripts after concurrent core
+    edits; guard not weakened. Earlier Ghostty consumer compiled2namespace
+    images; superseded by new public AOT and strict zero-build gate above.
+    Static string/keyword member dependency fix4tests28PASS37.935s (symbol
+    access already worked); exact nested aliases and separate-JVM gates.
+    Main29-case replay20prepared/9incomplete218.239s,20additional main closures.
+    Runtime69tests2422PASS670ms. Union accessor uses actual Zig @FieldType;
+    native/JVM2tests9PASS6.224s. Direct Clojure nested-native union payload
+    construction exposed a separate missing-schema case, still open.
+    Fresh9-case replay0prepared/9incomplete94.989s, no new closure: Format
+    accessor error gone, then missing tigerbeetle alias; parse_args now reaches
+    unregistered callable. StateMachineType/process_args graph edges present
+    in cached AND current extraction: diagnose materialization, not typeguessing.
+    Evidence .tmp/tiger-nested-union-replay-017.edn. Latest Ghostty strict
+    consumer PASS121.835s: correct values/four exactbundlehits/onebundle/zero builds.
+    Final Learn member/union acceptance PASS291comparisons/288transcripts/
+    zero missing/18tests123assertions; browser11/11PASS25.548s. PATH ZLS016
+    correctly rejected; resumed onlyHTML/tests with documentedmatchingZLS017.
+    Actual IAB reloaded/visuallyinspected; served/builtSHA25672a5e7dcc15b193...
+    Validation children finished; owned55615 preserved alongside user sessions.
+    Next: source-materialization gaps and nestedpayloadconstruction;
+    repair local-enum result context or mark honest unsupported; reconcile
+    focused closures with wholepublication. KeepuserREPLs/preview/cache intact.
   - October 4 current continuation (older checkpoints below are historical):
     Ghostty final native VT 6,552 PASS/54 skips/zero failures; focused OOM71/71,
     WASM and standalone builds PASS. Four actual JVM/reload tests20PASS.

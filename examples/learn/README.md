@@ -74,6 +74,7 @@ clojure -M:serve           # http://127.0.0.1:8096/
 clojure -M:test            # snapshot/build/evaluation regressions
 node --test test/highlight_test.cjs # exact-text Clojure highlighting regressions
 node --test test/layout_test.cjs    # browser layout regressions (Playwright + Chrome)
+node --test test/type_tooltip_test.cjs # Zig-tool hover, keyboard and source-span checks
 clojure -M:verify          # fail for missing, stale or mismatching evidence
 clojure -M:dev:nrepl       # dedicated local development REPL
 ```
@@ -84,6 +85,18 @@ exceeds Zig's compile-time evaluation quota. It remains in the documentation and
 outcome verification. Override with `:ignore []` when explicitly investigating it.
 Generic `a/precompile!` also accepts `:ignore [namespace ...]`; ignored selections
 are reported separately, never counted as prepared operations.
+
+After preparing the Learn namespaces, check selected ordinary JVM test bodies
+against that exact bundle in a fresh JVM:
+
+```sh
+clojure -M:dev -m learn.bundle-cache-check .aguafria/precompile/your-report.edn
+```
+
+This gate evaluates 40 top-level bodies from 12 safe lessons; it does not run
+all Learn subforms. It rejects failed assertion returns, new native builds,
+standalone JVM handlers, and any pack other than the producer's single bundle.
+Deliberate panic/exit examples remain isolated in the complete audit.
 
 `serve` reuses the existing HTML snapshot; restarting it does not invalidate
 recorded REPL output. After compiler or example changes, rerun the verification
@@ -132,7 +145,7 @@ Generic container methods also have ordinary, completable Vars. Require
 `[aguafria.std.ArrayList :as array-list]`, then call
 `(array-list/append list allocator \☔)`. This is equivalent to
 `((a/field list :append) allocator \☔)`, in native code and from the JVM.
-The method mutates the original `ak/var` receiver, not a copied list. Use
+The method mutates the original `k/var` receiver, not a copied list. Use
 `array-list/deinit` with the same allocator to release the list's allocation;
 closing the native value handle alone only releases its container storage.
 Fields have corresponding getters: `(array-list/-items list)` and

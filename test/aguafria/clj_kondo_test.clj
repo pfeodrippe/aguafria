@@ -69,6 +69,17 @@
                            (try (k/break :result answer))))")]
     (is (empty? findings) (pr-str findings))))
 
+(deftest native-payload-and-error-captures-are-lexical-bindings
+  (let [findings
+        (lint "(ns fixture (:require [aguafria.zig :as a] [aguafria.keyword :as k]))
+               (let [source 1 bias 2]
+                 (a/block (try (k/+ source bias)))
+                 (a/if-capture {:payload [item] :error [err]} source
+                   (k/+ item bias) err)
+                 (a/if-capture-stmt {:payload [item]} source (k/= :_ item))
+                 (a/catch-capture [err] source (k/+ bias err)))")]
+    (is (empty? findings) (pr-str findings))))
+
 (deftest native-array-initializer-retains-binding-uses
   (let [source "(ns fixture (:require [aguafria.zig :as a] [aguafria.keyword :as k]))
                 (a/defstruct Point [[:x :i32] [:y :i32]])
@@ -86,6 +97,28 @@
     (let [findings (lint "(ns fixture (:require [aguafria.zig :as a]))
                          (a/with-block :result (let [unused 1] 42))")]
       (is (= ["unused binding unused"] (mapv :message findings))))))
+
+(deftest native-switch-and-loop-captures-are-lexical
+  (let [findings
+        (lint "(ns fixture (:require [aguafria.zig :as a] [aguafria.keyword :as k]))
+               (let [source 1 state 0]
+                 (a/switch-stmt source
+                   (case [:.ok] [(a/pointer-capture value)] (k/+= @value state))
+                   (case-else (k/= state 1)))
+                 (a/labeled-switch vm source
+                   (case [0] (k/continue vm state))
+                   (case-else state))
+                 (a/labeled-switch-stmt exit source
+                   (case [0] (a/break-label exit))
+                   (case-else (k/= state 1)))
+                 (a/while-loop {:label loop :payload [item] :error [err]
+                                :continue (k/+= state item) :else [(k/= state err)]}
+                   source (k/= state item) (k/continue loop)))")]
+    (is (empty? findings) (pr-str findings)))
+  (let [findings (lint "(ns fixture (:require [aguafria.zig :as a]))
+                       (let [source 1 unused 2]
+                         (a/switch source (case [0] source) (case-else source)))")]
+    (is (= ["unused binding unused"] (mapv :message findings)))))
 
 (defn- findings-of [kind findings]
   (filter #(= kind (:type %)) findings))

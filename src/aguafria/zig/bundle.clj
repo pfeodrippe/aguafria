@@ -7,6 +7,7 @@
             [clojure.string :as str])
   (:import [java.lang.foreign Arena SymbolLookup]
            [java.nio.channels FileChannel]
+           [java.nio.charset StandardCharsets]
            [java.nio.file Files StandardCopyOption StandardOpenOption]
            [java.util UUID]))
 
@@ -14,6 +15,7 @@
 (def ^:dynamic *preparing* nil)
 (defonce ^:private locks (atom {}))
 (defonce ^:private images (atom {}))
+(defonce ^:private loaded-artifacts (atom {}))
 
 (defn- lock-for [key]
   (get (swap! locks #(if (contains? % key) % (assoc % key (Object.)))) key))
@@ -43,22 +45,51 @@
 (defn- index-file [cache-dir artifact]
   (io/file cache-dir "bundles" "index" (str (artifact-id artifact) ".edn")))
 
+(defn- cache-root [cache-dir]
+  (str (.normalize (.toAbsolutePath (.toPath (io/file cache-dir))))))
+
 (defn find-artifact
-  "One direct index lookup. Missing/incomplete packs are cache misses, not scans."
+  "Reuse an exact entry in a loaded pack before one direct disk-index lookup.
+  Missing/incomplete packs are cache misses, not scans."
   [cache-dir artifact]
-  (let [{:keys [id prefix exports library-bytes debug-bytes] :as entry}
-        (read-edn (index-file cache-dir artifact))]
-    (when (and (= version (:version entry))
-               (= (artifact-id artifact) (:artifact entry))
-               (string? id) (re-matches #"[a-f0-9]{64}" id)
-               (string? prefix) (vector? exports) (every? string? exports))
-      (let [directory (io/file cache-dir "bundles" id)
-            library (io/file directory (System/mapLibraryName "aguafria_bundle"))
-            debug (io/file (str library ".dwarf"))]
-        (when (and (file? library) (= library-bytes (.length library))
-                   (or (nil? debug-bytes) (and (file? debug) (= debug-bytes (.length debug)))))
-          (assoc entry :library (.getAbsolutePath library)
-                 :debug (when debug-bytes (.getAbsolutePath debug))))))))
+  (let [root (cache-root cache-dir)
+        key (artifact-id artifact)]
+    (or (get-in @loaded-artifacts [root key])
+        (let [{:keys [id prefix exports library-bytes debug-bytes] :as entry}
+              (read-edn (index-file cache-dir artifact))]
+          (when (and (= version (:version entry))
+                     (= key (:artifact entry))
+                     (string? id) (re-matches #"[a-f0-9]{64}" id)
+                     (string? prefix) (vector? exports) (every? string? exports))
+            (let [directory (io/file cache-dir "bundles" id)
+                  library (io/file directory (System/mapLibraryName "aguafria_bundle"))
+                  debug (io/file (str library ".dwarf"))]
+              (when (and (file? library) (= library-bytes (.length library))
+                         (or (nil? debug-bytes)
+                             (and (file? debug) (= debug-bytes (.length debug)))))
+                (assoc entry :cache-root root :library (.getAbsolutePath library)
+                       :debug (when debug-bytes (.getAbsolutePath debug))))))))))
+
+(defn- retain-loaded-artifacts! [entry]
+  (let [manifest (read-edn (io/file (.getParentFile (io/file (:library entry)))
+                                    "manifest.edn"))]
+    (when (and (:cache-root entry)
+               (= version (:version manifest))
+               (= (:id entry) (:id manifest))
+               (= (:library-bytes entry) (:library-bytes manifest)))
+      (let [common (merge (dissoc manifest :entries)
+                          (select-keys entry [:cache-root :library :debug]))
+            entries (into {}
+                          (keep (fn [[key {:keys [prefix exports] :as item}]]
+                                  (when (and (string? key) (re-matches #"[a-f0-9]{64}" key)
+                                             (string? prefix) (vector? exports)
+                                             (every? string? exports))
+                                    [key (merge common item {:artifact key})])))
+                          (:entries manifest))]
+        ;; Existing loaded exports stay usable even if a later preparation
+        ;; points the disk index at a different, overlapping pack.
+        (swap! loaded-artifacts update (:cache-root entry)
+               #(merge entries %))))))
 
 ;; This lexer is only for emitted ABI identifier isolation, never type inference.
 ;; Strings, character literals, quoted identifiers, multiline strings and comments
@@ -78,30 +109,131 @@
                                declarations))
      :dynamic-exports? (boolean (some #(= ["@" "export"] (vec %))
                                       (partition 2 1 significant)))
+     :external-declaration-syntax? (boolean (some #{"extern"} significant))
      :exports (mapv #(nth % 2) declarations)
      :imports (into []
-                    (keep (fn [[at builtin open argument]]
+                    (keep (fn [[at builtin open argument close after]]
                             (when (and (= "@" at) (= "(" open)
                                        (#{"embedFile" "import"} builtin))
-                              [builtin argument])))
-                    (partition 4 1 significant))}))
+                              [builtin (when (or (= ")" close)
+                                                 (and (= "," close) (= ")" after)))
+                                         argument)])))
+                    (partition-all 6 1 significant))}))
 
-(defn- source-analysis [source key]
+(defn- mask-linked-support [source fragments]
+  (let [bytes (.getBytes ^String source StandardCharsets/UTF_8)]
+    (doseq [fragment fragments
+            :let [length (alength (.getBytes ^String fragment StandardCharsets/UTF_8))]]
+      (loop [from 0]
+        (let [start (.indexOf ^String source ^String fragment (int from))]
+          (when (not (neg? start))
+            (let [offset (alength (.getBytes ^String (subs source 0 start) StandardCharsets/UTF_8))]
+              (java.util.Arrays/fill bytes (int offset) (int (+ offset length)) (byte 32)))
+            (recur (+ start (count fragment)))))))
+    (String. bytes StandardCharsets/UTF_8)))
+
+(defn- library-source-analysis
+  ([source] (library-source-analysis source []))
+  ([source linked-support-fragments]
+   (let [analysis (analyze-source source)
+         asset-import? (some (fn [[kind argument]]
+                               (or (= "embedFile" kind) (nil? argument)
+                                   (and argument
+                                        (or (str/includes? argument "/")
+                                            (str/ends-with? argument ".zig\"")))))
+                             (:imports analysis))
+         masked-source (when (or asset-import? (:external-declaration-syntax? analysis))
+                         (mask-linked-support source linked-support-fragments))
+         application-extern? (and (:external-declaration-syntax? analysis)
+                                  (some #{"extern"} (tokens masked-source)))
+         parsed (when (or asset-import? application-extern?)
+                  ((requiring-resolve 'aguafria.zig.convert/parse-source)
+                   masked-source))
+        ;; Only supplier-validated support spans are omitted from this trigger.
+        ;; Original imports/exports still determine graph eligibility. Zig's
+        ;; AST distinguishes external function/storage declarations from layout
+        ;; qualifiers and text. An external declaration requires real linking,
+        ;; not rejection: it may be unused or supplied by this exact graph.
+         external-declarations?
+         (boolean
+          (or (some (fn [declaration]
+                      (when-some [token (nth declaration 5 nil)]
+                        (= :keyword_extern (get-in parsed [:tokens token 0]))))
+                    (vals (:function-prototype-index parsed)))
+              (some (fn [declaration]
+                      (when-some [token (nth declaration 2 nil)]
+                        (= :keyword_extern (get-in parsed [:tokens token 0]))))
+                    (vals (:var-index parsed)))))
+         analysis (assoc analysis :external-declarations? external-declarations?)]
+     (if-not asset-import?
+       analysis
+       (let [tests (mapv (fn [index]
+                           (let [{:keys [first-token last-token]} (nth (:nodes parsed) index)
+                                 [_ start] (nth (:tokens parsed) first-token)
+                                 [_ end length] (nth (:tokens parsed) last-token)]
+                             [start (+ end length)]))
+                         (keys (:test-index parsed)))]
+         (if-not (seq tests)
+           analysis
+           (let [bytes (.getBytes ^String source StandardCharsets/UTF_8)]
+            ;; build-lib ignores test-only embedFile calls, but Zig still
+            ;; resolves test imports. Mask only AST-confirmed embedded calls
+            ;; for eligibility; the emitted source remains unchanged.
+             (doseq [index (keys (:builtin-index parsed))
+                     :let [{:keys [first-token last-token]} (nth (:nodes parsed) index)
+                           [_ start token-length] (nth (:tokens parsed) first-token)
+                           [_ end length] (nth (:tokens parsed) last-token)]
+                     :when (and (= "@embedFile"
+                                   (String. bytes (int start) (int token-length)
+                                            StandardCharsets/UTF_8))
+                                (some (fn [[test-start test-end]]
+                                        (<= test-start start (+ end length) test-end))
+                                      tests))]
+               (java.util.Arrays/fill bytes (int start) (int (+ end length)) (byte 32)))
+             (assoc (analyze-source (String. bytes StandardCharsets/UTF_8))
+                    :external-declarations? external-declarations?))))))))
+
+(defn- source-analysis [source key linked-support]
   ;; Keep only small lexical facts, not source or token vectors. The lifetime
   ;; is one preparation; content changes select a different key.
-  (if-not *preparing*
-    (analyze-source source)
-    (locking *preparing*
-      (or (get-in @*preparing* [:source-analyses key])
-          (let [analysis (analyze-source source)]
-            (swap! *preparing* assoc-in [:source-analyses key] analysis)
-            analysis)))))
+  (let [key [key (artifact/key-for :bundle-linked-support linked-support)]]
+    (if-not *preparing*
+      (library-source-analysis source (:fragments linked-support))
+      (locking *preparing*
+        (or (get-in @*preparing* [:source-analyses key])
+            (let [analysis (library-source-analysis source (:fragments linked-support))]
+              (swap! *preparing* assoc-in [:source-analyses key] analysis)
+              analysis))))))
+
+(defn- linked-compiler-support [artifact]
+  (let [{:keys [path hash fragments] :as support} (:compiler-owned-linkage-support artifact)]
+    ;; This provenance comes from the runtime's compiler-owned support build,
+    ;; not an extern name. It applies only with that immutable image present in
+    ;; the actual link command. User declarations outside exact source spans
+    ;; remain subject to the real linker even when they use the same names.
+    (when (and (= path (:development-panic-support-path artifact))
+               (some #{path} (:command artifact)) (file? path)
+               (string? hash) (not (str/blank? hash))
+               (vector? fragments) (every? #(and (string? %) (not (str/blank? %))) fragments))
+      support)))
 
 (defn- rename-identifiers [source renames]
   (apply str (map #(get renames % %) (tokens source))))
 
+(defn- bind-root-imports [source module-name]
+  (loop [remaining (seq (tokens source)), previous [], output (transient [])]
+    (if-let [token (first remaining)]
+      (let [significant? (not (or (str/blank? token) (str/starts-with? token "//")))
+            replacement (if (and (= ["@" "import" "("] previous) (= "\"root\"" token))
+                          (artifact/print-data module-name)
+                          token)]
+        (recur (next remaining)
+               (if significant? (vec (take-last 3 (conj previous token))) previous)
+               (conj! output replacement)))
+      (apply str (persistent! output)))))
+
 (defn- validate-source! [{:keys [deps analysis]}]
-  (let [allowed (into #{"std" "builtin"}
+  (let [allowed (into #{"std" "builtin" "root"}
                       (map #(first (str/split % #"=" 2))) deps)]
     (when (:external-exports? analysis)
       (throw (ex-info "Bundle requires compiler-owned function exports" {:reason :external-exports})))
@@ -128,7 +260,7 @@
           (recur (next remaining) [] []
                  (conj groups {:name name :path path :deps deps :flags flags}) link-args))
 
-        (or (#{"-ODebug" "-Osafe" "-Ofast" "-Osmall"
+        (or (#{"-Odebug" "-Osafe" "-Ofast" "-Osmall"
                "-ferror-tracing" "-funwind-tables" "-fPIC"} argument)
             (re-matches #"-(?:I|D).+" argument))
         (recur (next remaining) deps (conj flags argument) groups link-args)
@@ -157,17 +289,24 @@
 (defn candidate
   "Describe a packable emitted graph; unsupported configurations stay standalone."
   [artifact]
-  (when (:jvm-adapter? artifact)
+  (when (or (:jvm-adapter? artifact) (:jvm-wrapper? artifact))
     (try
       (when (or (not= :shared (:development-panic artifact)) (:native-test-context? artifact))
         (throw (ex-info "Handler requires standalone linking"
                         {:reason (if (:native-test-context? artifact) :native-test-context :panic-profile)})))
       (let [{:keys [groups link-args]} (module-groups artifact)
+            linked-support (linked-compiler-support artifact)
             groups (mapv (fn [group]
                            (let [source (slurp (:path group))
-                                 key (artifact/key-for :bundle-source source)]
+                                 key (artifact/key-for :bundle-source source)
+                                 analysis (source-analysis source key linked-support)]
                              (assoc group :source source :source-key key
-                                    :analysis (source-analysis source key)))) groups)
+                                    :implicit-root?
+                                    (and (some #{["import" "\"root\""]}
+                                               (:imports analysis))
+                                         (not-any? #(= "root" (first (str/split % #"=" 2)))
+                                                   (:deps group)))
+                                    :analysis analysis))) groups)
             _ (doseq [group groups] (validate-source! group))
             names (->> groups (mapcat #(get-in % [:analysis :exports])) distinct sort vec)
             forwarder (first (str/split (:source (first groups))
@@ -176,6 +315,8 @@
           (assoc artifact
                  :groups (mapv #(-> %
                                     (dissoc :source :analysis)) groups)
+                 :requires-link-validation?
+                 (boolean (some #(get-in % [:analysis :external-declarations?]) groups))
                  :link-args link-args :exports names :forwarder forwarder)))
       (catch clojure.lang.ExceptionInfo error
         (when *preparing*
@@ -202,7 +343,7 @@
         renames (into {} (map #(vector % (str prefix %))) (:exports artifact))]
     (assoc artifact :prefix prefix :entry (names "root")
            :groups
-           (mapv (fn [{:keys [name deps source-key] :as group}]
+           (mapv (fn [{:keys [name deps source-key implicit-root?] :as group}]
                    ;; Zig type names include the file basename. Preserve it,
                    ;; rather than leaking bundle IDs into reflected type names.
                    (let [source (slurp (:path group))
@@ -212,7 +353,8 @@
                                               :path (:path group) :module name})))
                          path (io/file directory (names name) (.getName (io/file (:path group))))]
                      (io/make-parents path)
-                     (spit path (rename-identifiers source renames))
+                     (spit path (cond-> (rename-identifiers source renames)
+                                  implicit-root? (bind-root-imports (names "root"))))
                      (assoc group :new-name (names name) :new-path (.getAbsolutePath path)
                             :new-deps
                             (mapv (fn [dependency]
@@ -220,7 +362,12 @@
                                           target (or target alias)]
                                       (when-not (names target)
                                         (throw (ex-info "Missing bundle module" {:dependency dependency})))
-                                      (str alias "=" (names target)))) deps)))) groups))))
+                                      (str alias "=" (names target))))
+                                  ;; Zig's implicit root is per original graph,
+                                  ;; not the aggregate library's module.
+                                  (cond-> deps
+                                    implicit-root? (conj (str (names "root") "=root")))))))
+                 groups))))
 
 (defn- response-argument [argument]
   ;; Zig response files use Args.IteratorGeneral quoting.
@@ -323,13 +470,17 @@
                                     (subvec link-args 0 (count (:link-args %)))) candidates)
         compiler-groups (group-by #(vector (first (:command %))
                                            (:development-panic-support-path %)
-                                           (:debug-format %) (:forwarder %)
-                                           (get-in % [:groups 0 :flags])) candidates)
+                                           (:debug-format %) (:forwarder %)) candidates)
         groups (group-by #(vector (first (:command %))
                                   (:development-panic-support-path %)
                                   (:debug-format %) (:forwarder %)
                                   (:link-args %)
                                   (get-in % [:groups 0 :flags])) candidates)
+        ;; All accepted :flags are Zig per-module options. materialize-entry!
+        ;; and build-pack! preserve them before each module's -M, which resets
+        ;; that option scope. Different optimization/safety modes therefore do
+        ;; not require separate packs; global compiler/panic/debug/link inputs
+        ;; still must agree, and each artifact key retains its original flags.
         _ (when (or (> (count compiler-groups) 1) (not extended-links?))
             (throw (ex-info "A single AOT bundle requires compatible compiler configurations"
                             {:aguafria/phase :bundle-compile
@@ -358,6 +509,7 @@
                       (try
                         (let [lookup (SymbolLookup/libraryLookup (.toPath (io/file path)) arena)
                               image {:lookup lookup :arena arena}]
+                          (retain-loaded-artifacts! entry)
                           (swap! images assoc path image)
                           (explain/event! {:event :bundle-loaded :path path})
                           image)

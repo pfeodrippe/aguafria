@@ -85,15 +85,15 @@
     (try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi")))))))
 
 (a/deftest peer-type-resolution-*zero-u8-const-u8-slice-and-anyerror-u8-slice
-  (let [data (k/var @"hi")
+  (let [data (k/var (a/deref "hi"))
         slice (a/slice data 0)]
-    (try (testing/expectEqual 0 (:len (try (peerTypeEmptyArrayAndSliceAndError true slice)))))
-    (try (testing/expectEqual 1 (:len (try (peerTypeEmptyArrayAndSliceAndError false slice))))))
+    (try (testing/expectEqual 0 (:len (k/try (peerTypeEmptyArrayAndSliceAndError true slice)))))
+    (try (testing/expectEqual 1 (:len (k/try (peerTypeEmptyArrayAndSliceAndError false slice))))))
   (k/comptime
-   (let [data (k/var @"hi")
+   (let [data (k/var (a/deref "hi"))
          slice (a/slice data 0)]
-     (try (testing/expectEqual 0 (:len (try (peerTypeEmptyArrayAndSliceAndError true slice)))))
-     (try (testing/expectEqual 1 (:len (try (peerTypeEmptyArrayAndSliceAndError false slice))))))))
+     (try (testing/expectEqual 0 (:len (k/try (peerTypeEmptyArrayAndSliceAndError true slice)))))
+     (try (testing/expectEqual 1 (:len (k/try (peerTypeEmptyArrayAndSliceAndError false slice))))))))
 
 (a/deftest peer-type-resolution-*const-T-and-?*T
   (let [a (k/as (k/ptrFromInt 0x123456780) [:*const :usize])

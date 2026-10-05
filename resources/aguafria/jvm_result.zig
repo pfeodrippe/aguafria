@@ -50,6 +50,14 @@ pub const __aguafria_jvm = struct {
         return std.fmt.parseFloat(f128, text) catch @panic("Invalid JVM float literal");
     }
 
+    pub fn enumCoercionRequiresConstant(comptime Result: type, comptime Input: type) bool {
+        if (@typeInfo(Input) != .@"enum" or @typeInfo(Result) != .@"union") return false;
+        inline for (@typeInfo(Result).@"union".field_types) |Field| {
+            if (Field != void) return true;
+        }
+        return false;
+    }
+
     fn Borrowed(comptime Pointer: type) type {
         return struct {
             pub const aguafria_borrowed_view = true;
@@ -284,6 +292,9 @@ pub const __aguafria_jvm = struct {
         defer sink.deinit();
         const writer = &sink.writer;
         writer.print("{{:aguafria.jvm/borrowed {{:address {d} :size {d} :alignment {d} :mutable? {s} :native-kind :{s}", .{ @intFromPtr(value.pointer), @sizeOf(P.child), @alignOf(P.child), if (P.attrs.@"const") "false" else "true", @tagName(@typeInfo(P.child)) }) catch @panic("Cannot encode native view");
+        if (P.attrs.@"align") |alignment| {
+            writer.print(" :pointer-alignment {d}", .{alignment}) catch @panic("Cannot encode native pointer alignment");
+        }
         writeTupleLength(writer, P.child) catch @panic("Cannot encode native tuple length");
         if (@typeInfo(P.child) == .int or @typeInfo(P.child) == .float) {
             writer.print(" :scalar-type :{s}", .{@typeName(P.child)}) catch @panic("Cannot encode native view type");
@@ -501,31 +512,28 @@ pub const __aguafria_jvm = struct {
             .array, .vector => {
                 try writer.writeByte('[');
                 const length = if (@typeInfo(T) == .array) @typeInfo(T).array.len else @typeInfo(T).vector.len;
-                inline for (0..length) |index| {
-                    try writeAt(writer, value[index], path ++ .{ if (@typeInfo(T) == .array) "array" else "vector", "child" });
-                    try writer.writeByte(' ');
+                const Child = if (@typeInfo(T) == .array) @typeInfo(T).array.child else @typeInfo(T).vector.child;
+                if (comptime @typeInfo(T) == .vector or requiresComptime(Child)) {
+                    inline for (0..length) |index| {
+                        try writeAt(writer, value[index], path ++ .{ if (@typeInfo(T) == .array) "array" else "vector", "child" });
+                        try writer.writeByte(' ');
+                    }
+                } else {
+                    for (0..length) |index| {
+                        try writeAt(writer, value[index], path ++ .{ "array", "child" });
+                        try writer.writeByte(' ');
+                    }
                 }
                 try writer.writeByte(']');
             },
-            .@"struct" => |info| {
-                try writer.writeByte(if (info.is_tuple) '[' else '{');
-                inline for (info.field_names) |field_name| {
-                    if (!info.is_tuple) {
-                        try write(writer, @as([]const u8, field_name));
-                        try writer.writeByte(' ');
-                    }
-                    try write(writer, @field(value, field_name));
-                    try writer.writeByte(' ');
-                }
-                try writer.writeByte(if (info.is_tuple) ']' else '}');
-            },
+            .@"struct" => try inspect(writer, value),
             else => @compileError("This Zig result requires an explicit native-value wrapper for JVM callers"),
         }
     }
 
     // Inspection follows value fields, never arbitrary pointers. Envelopes keep
     // field names distinct from user maps and preserve anonymous/generic types.
-    fn inspect(writer: *std.Io.Writer, value: anytype) !void {
+    fn inspect(writer: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
         const T = @TypeOf(value);
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
@@ -719,6 +727,17 @@ pub const __aguafria_jvm = struct {
         return sink.finish();
     }
 
+    pub fn nominalResult(value: anytype, comptime Candidate: type, comptime identity: []const u8) usize {
+        if (comptime @TypeOf(value) != Candidate or hasStructuralType(Candidate) or requiresComptime(Candidate)) {
+            return result(value);
+        }
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        writeNativeResultWithIdentity(&sink.writer, value, &.{}, identity) catch
+            @panic("Cannot encode nominal JVM result");
+        return sink.finish();
+    }
+
     // Reflect storage eligibility in Zig. A type value, function body or
     // aggregate containing either cannot be copied into a native allocation.
     pub fn requiresComptime(comptime T: type) bool {
@@ -839,6 +858,12 @@ pub const __aguafria_jvm = struct {
     }
 
     fn writeComptimeExpression(writer: *std.Io.Writer, comptime value: anytype) !void {
+        if (@typeInfo(@TypeOf(value)) == .@"enum") {
+            try writer.writeAll("{:aguafria.jvm/comptime-expression {:native ");
+            try writeNativeResult(writer, value);
+            try writer.writeAll("}}");
+            return;
+        }
         try writer.writeAll("{:aguafria.jvm/comptime-expression {:type-name ");
         try write(writer, @as([]const u8, @typeName(@TypeOf(value))));
         try writer.writeAll(" :snapshot ");
@@ -882,8 +907,12 @@ pub const __aguafria_jvm = struct {
     }
 
     fn writeResult(writer: *std.Io.Writer, value: anytype) !void {
+        return writeResultAt(writer, value, &.{});
+    }
+
+    fn writeResultAt(writer: *std.Io.Writer, value: anytype, comptime path: []const []const u8) !void {
         const T = @TypeOf(value);
-        if (T == BoundMethod) return write(writer, value);
+        if (T == BoundMethod) return writer.writeAll("{:aguafria.jvm/bound-method true}");
         if (comptime requiresComptime(T) and switch (@typeInfo(T)) {
             .@"struct", .@"union", .array, .vector, .optional, .error_union, .@"fn" => true,
             else => false,
@@ -893,7 +922,7 @@ pub const __aguafria_jvm = struct {
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
                 if (comptime hasStructuralType(T)) {
-                    try writeNativeResult(writer, value);
+                    try writeNativeResultAt(writer, value, path);
                 } else if (info.is_tuple) {
                     // A tuple is a collection of public results, not an
                     // inspection snapshot. Retain each element's native type
@@ -905,7 +934,7 @@ pub const __aguafria_jvm = struct {
                     }
                     try writer.writeByte(']');
                 } else {
-                    try writeNativeResult(writer, value);
+                    try writeNativeResultAt(writer, value, path);
                 }
             },
             .comptime_int, .comptime_float => {
@@ -915,12 +944,43 @@ pub const __aguafria_jvm = struct {
                 try write(writer, value);
                 try writer.writeAll("}}");
             },
-            .int, .float, .array, .vector, .pointer => try writeNativeResult(writer, value),
+            .int, .float, .array, .vector, .pointer, .optional, .@"enum" => try writeNativeResultAt(writer, value, path),
+            .error_union => {
+                try writer.writeAll("{:aguafria.jvm/error-union {:type ");
+                if (comptime hasStructuralType(T)) {
+                    try writeStructuralType(writer, T);
+                } else {
+                    try writer.writeAll("nil");
+                }
+                try writer.writeAll(" :value ");
+                if (value) |payload| {
+                    try writer.writeAll("{:ok ");
+                    if (@typeInfo(@TypeOf(payload)) == .optional) {
+                        try writeNativeResultAt(writer, payload, path ++ .{ "error_union", "payload" });
+                    } else {
+                        try writeResultAt(writer, payload, path ++ .{ "error_union", "payload" });
+                    }
+                    try writer.writeByte('}');
+                } else |err| {
+                    try writer.writeAll("{:error {:name ");
+                    try write(writer, @errorName(err));
+                    try writer.writeAll("}}");
+                }
+                try writer.writeAll("}}");
+            },
             else => try write(writer, value),
         }
     }
 
     fn writeNativeResult(writer: *std.Io.Writer, value: anytype) !void {
+        return writeNativeResultAt(writer, value, &.{});
+    }
+
+    fn writeNativeResultAt(writer: *std.Io.Writer, value: anytype, comptime path: []const []const u8) !void {
+        return writeNativeResultWithIdentity(writer, value, path, null);
+    }
+
+    fn writeNativeResultWithIdentity(writer: *std.Io.Writer, value: anytype, comptime path: []const []const u8, comptime identity: ?[]const u8) !void {
         // Preserve the exact type, ownership and address of runtime results.
         // Inspection still produces ordinary EDN through write/inspectResult.
         const T = @TypeOf(value);
@@ -928,8 +988,21 @@ pub const __aguafria_jvm = struct {
         const bytes = aguafria_jvm_allocate(size, @alignOf(T)) orelse return error.OutOfMemory;
         errdefer aguafria_jvm_release_native(@intFromPtr(bytes), size, @alignOf(T));
         @memcpy(bytes[0..size], std.mem.asBytes(&value));
-        try writer.print("{{:aguafria.jvm/native {{:address {d} :size {d} :alignment {d} :path []", .{ @intFromPtr(bytes), size, @alignOf(T) });
+        try writer.print("{{:aguafria.jvm/native {{:address {d} :size {d} :alignment {d} :path ", .{ @intFromPtr(bytes), size, @alignOf(T) });
+        try write(writer, path);
         try writeTupleLength(writer, T);
+        if (@typeInfo(T) == .@"enum") {
+            try writer.writeAll(" :enum-schema {:kind :enum :members [");
+            inline for (@typeInfo(T).@"enum".field_names) |name| {
+                const member = @field(T, name);
+                try writer.writeAll("{:name ");
+                try write(writer, @as([]const u8, name));
+                try writer.writeAll(" :bytes [");
+                for (std.mem.asBytes(&member)) |byte| try writer.print("{d} ", .{byte});
+                try writer.writeAll("]} ");
+            }
+            try writer.writeAll("]}");
+        }
         if (@typeInfo(T) == .int or @typeInfo(T) == .float) {
             try writer.writeAll(" :scalar-type :");
             try writer.writeAll(@typeName(T));
@@ -937,6 +1010,9 @@ pub const __aguafria_jvm = struct {
         if (comptime hasStructuralType(T)) {
             try writer.writeAll(" :native-type ");
             try writeStructuralType(writer, T);
+        } else if (identity) |name| {
+            try writer.writeAll(" :native-type ");
+            try writer.writeAll(name);
         }
         try writer.writeAll("}}");
     }
@@ -974,9 +1050,14 @@ pub const __aguafria_jvm = struct {
             .@"struct", .@"union", .@"enum", .@"opaque" => {},
             else => return fieldResult(value),
         }
+        if (@typeInfo(Container) == .@"enum" and @TypeOf(value) == Container and
+            !@hasDecl(Container, name))
+        {
+            return comptimeExpressionResult(@field(Container, name));
+        }
         if (@hasDecl(Container, name)) {
             switch (@typeInfo(@TypeOf(value))) {
-                .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.attrs.@"const") {
+                .int, .float, .@"enum" => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.attrs.@"const") {
                     return comptimeExpressionResult(@field(Container, name));
                 },
                 else => {},

@@ -10,6 +10,7 @@
             [learn.jvm-body-test]
             [learn.jvm-audit-test]
             [learn.jvm-audit-report-test]
+            [learn.bundle-cache-check-test]
             [learn.source-fidelity-test]))
 
 (deftest type-tooltips-preserve-code-and-label-evidence
@@ -1288,7 +1289,8 @@
 (defn -main [& _]
   (let [{:keys [fail error]} (run-tests 'learn.reference-test 'learn.source-fidelity-test
                                         'learn.jvm-body-test 'learn.jvm-audit-test
-                                        'learn.jvm-audit-report-test)]
+                                        'learn.jvm-audit-report-test
+                                        'learn.bundle-cache-check-test)]
     (shutdown-agents)
     (when (pos? (+ fail error))
       (System/exit 1))))

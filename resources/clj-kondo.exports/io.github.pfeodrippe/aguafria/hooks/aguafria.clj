@@ -25,14 +25,20 @@
 (defn- native-expression
   [node]
   (let [operator (when (= :list (:tag node))
-                   (some-> node :children first sexpr))]
+                   (some-> node :children first sexpr))
+        resolved (when (symbol? operator)
+                   (select-keys (api/resolve {:name operator}) [:ns :name]))]
     (cond
       (or (= :quote (:tag node)) (#{'quote 'clojure.core/quote} operator)) node
       ;; Host escapes contain ordinary Clojure, including real try/catch.
       ;; Do not apply the surrounding native syntax rewrites inside them.
-      (and (symbol? operator)
-           (= {:ns 'aguafria.zig :name 'clj!}
-              (select-keys (api/resolve {:name operator}) [:ns :name]))) node
+      (= {:ns 'aguafria.zig :name 'clj!} resolved) node
+      (= {:ns 'aguafria.keyword :name 'continue} resolved)
+      (call-node 'do (mapv native-expression (drop 2 (:children node))))
+      (= {:ns 'aguafria.keyword :name 'break} resolved)
+      (call-node 'do (mapv native-expression (take-last 1 (rest (:children node)))))
+      (= {:ns 'aguafria.zig :name 'break-label} resolved)
+      (call-node 'do [])
       (:children node)
       (assoc node :children
              (mapv native-expression
@@ -46,6 +52,77 @@
   [{:keys [node]}]
   ;; Resolve eagerly: the hooks API's analysis context ends when this call returns.
   {:node (call-node 'do (mapv native-expression (drop 2 (:children node))))})
+
+(defn native-scope
+  [{:keys [node]}]
+  {:node (call-node 'do (mapv native-expression (rest (:children node))))})
+
+(defn- capture-branch [captures condition branch]
+  (let [bindings (mapcat (fn [capture]
+                           (let [pointer? (= :list (:tag capture))]
+                             [(if pointer? (second (:children capture)) capture)
+                              (if pointer? (call-node 'atom [condition]) condition)]))
+                         (:children captures))]
+    (if (seq bindings)
+      (call-node 'let [(api/vector-node bindings) (native-expression branch)])
+      (native-expression branch))))
+
+(defn native-if-capture
+  [{:keys [node]}]
+  (let [[_ options condition then else] (:children node)
+        options (into {} (map (fn [[key value]] [(sexpr key) value]))
+                      (partition 2 (:children options)))
+        condition (native-expression condition)]
+    {:node (call-node 'if
+                      [condition
+                       (capture-branch (:payload options) condition then)
+                       (if else
+                         (capture-branch (:error options) condition else)
+                         (token nil))])}))
+
+(defn native-catch-capture
+  [{:keys [node]}]
+  (let [[_ captures expression handler] (:children node)
+        expression (native-expression expression)]
+    {:node (call-node 'do
+                      [expression (capture-branch captures expression handler)])}))
+
+(defn native-switch
+  "Analyze native cases and their payload bindings without Clojure case semantics."
+  [{:keys [node]}]
+  (let [[operator & arguments] (:children node)
+        labeled? (contains? #{'labeled-switch 'labeled-switch-stmt}
+                            (:name (api/resolve {:name (sexpr operator)})))
+        [condition & cases] (if labeled? (rest arguments) arguments)
+        condition (native-expression condition)
+        branches
+        (mapv (fn [prong]
+                (let [[operator & forms] (:children prong)
+                      ordinary? (contains? #{'case 'inline-case} (sexpr operator))
+                      [patterns forms] (if ordinary? [(first forms) (rest forms)] [nil forms])
+                      captures (when (and (= :vector (:tag (first forms))) (next forms))
+                                 (first forms))
+                      forms (if captures (rest forms) forms)
+                      patterns (remove #(= '_ (sexpr %)) (:children patterns))]
+                  (call-node 'do
+                             (concat (mapv native-expression patterns)
+                                     [(capture-branch captures condition (call-node 'do forms))]))))
+              cases)]
+    {:node (call-node 'do (cons condition branches))}))
+
+(defn native-while
+  "Keep loop payload/error bindings lexical and labels as syntax."
+  [{:keys [node]}]
+  (let [[_ options condition & body] (:children node)
+        options (into {} (map (fn [[key value]] [(sexpr key) value]))
+                      (partition 2 (:children options)))
+        condition (native-expression condition)
+        payload (capture-branch (:payload options) condition
+                                (call-node 'do (concat body (when-let [step (:continue options)] [step]))))
+        otherwise (capture-branch (:error options) condition
+                                  (call-node 'do (concat (:children (:else options))
+                                                         (when-let [value (:else-expression options)] [value]))))]
+    {:node (call-node 'do [condition payload otherwise])}))
 
 (defn native-for
   "Treat native captures as lexical bindings; pointer capture is not multiplication."

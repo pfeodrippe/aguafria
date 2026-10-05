@@ -3,8 +3,8 @@
 
   Require this namespace as `k`. Every Zig `@` function is exposed as a real,
   documented Var, generated from the installed Zig compiler and matching ZLS
-  language-reference data. Ordinary readable Zig forms such as `if`, `while`,
-  and `try` stay unqualified."
+  language-reference data. Use `k/try` to unwrap a native error union both in
+  an Aguafria declaration and during ordinary JVM evaluation."
   (:require [aguafria.zig.value :as value]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -180,6 +180,9 @@
   (cond
     (= "comptime" (:zig-token token))
     identity
+
+    (= "try" (:zig-token token))
+    value/try-value!
 
     (= "var" (:zig-token token))
     (fn [& arguments]
@@ -384,10 +387,12 @@
                     "Inside an Aguafria declaration, evaluate one expression, statement, or block during Zig compilation. Use (k/comptime expression), (k/comptime (do ...)), or (k/comptime (let [...] ...)). In ordinary JVM evaluation this is identity: its argument evaluates normally once and its result is returned unchanged.\n\n")
                   (when (= "var" (:zig-token token))
                     "JVM: (k/var value) or (k/var value type) creates owned mutable native storage. Assign with (k/= handle value). In an Aguafria let initializer, declares a Zig var.\n\n")
+                  (when (= "try" (:zig-token token))
+                    "Unwrap one native Zig error union. In Zig, emits try and propagates errors. On the JVM, returns the typed successful payload or throws ExceptionInfo with :aguafria/phase :native-error and :error-name. Clojure's unqualified try remains its exception-handling special form.\n\n")
                   "Zig `" (:zig-token token) "` keyword, mechanically discovered "
                   "from Zig " (:zig-version generated-catalog) " `"
                   (get-in generated-catalog [:sources :tokenizer :path]) "`. "
-                  (when-not (#{"var" "comptime"} (:zig-token token))
+                  (when-not (#{"var" "comptime" "try"} (:zig-token token))
                     "This Var is syntax and is only valid inside an Aguafria declaration."))
         :zig/name (:zig-token token)
         :zig/source (get-in generated-catalog [:sources :tokenizer :path])

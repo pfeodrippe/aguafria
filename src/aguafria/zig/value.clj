@@ -11,7 +11,8 @@
 (declare decoded info realize! type type-info qualified-type value-state
          decode-packed-backing decode-struct decode-value-segment
          encode-packed-backing
-         write-struct! write-value-segment! sequence-values sequence-element)
+         write-struct! write-value-segment! sequence-values sequence-element
+         storage-alignment)
 
 (defonce ^:private ^Cleaner native-cleaner (Cleaner/create))
 
@@ -751,7 +752,7 @@
   "Encode one active Zig union field from a single-entry Clojure map. Tagged
   unions remain decodable after arbitrary Zig calls; untagged unions retain
   exact bytes but require an explicit interpretation when read back."
-  [^MemorySegment native-segment {:keys [fields] :as schema} value]
+  [^MemorySegment native-segment {:keys [fields alignment]} value]
   (when-not (and (map? value) (= 1 (count value)))
     (throw (ex-info "Zig unions require exactly one active field"
                     {:value value
@@ -764,15 +765,24 @@
       (throw (ex-info "Unknown Zig union field"
                       {:field requested
                        :known-fields (mapv (comp field-key :name) fields)})))
-    (.fill native-segment (byte 0))
     (if (or (= :void type) (zero? byte-size))
-      (when-not (nil? field-value)
-        (throw (ex-info "A void Zig union field requires nil"
-                        {:field name :value field-value})))
-      (write-value-segment! (.asSlice native-segment 0 byte-size)
-                            type schema field-value {:field name}))
-    (init-fn native-segment
-             (when (pos? byte-size) (.asSlice native-segment 0 byte-size))))
+      (do
+        (when-not (nil? field-value)
+          (throw (ex-info "A void Zig union field requires nil"
+                          {:field name :value field-value})))
+        (.fill native-segment (byte 0))
+        (init-fn native-segment nil))
+      ;; A generated union initializer may store its tag before loading the
+      ;; payload. Destination bytes therefore cannot double as payload storage.
+      ;; The compiler's union alignment also satisfies every field alignment.
+      (let [alignment (storage-alignment alignment)]
+        (with-open [scratch (Arena/ofConfined)]
+          (let [payload (.allocate scratch (long byte-size) alignment)]
+            ;; Keep *allocation-arena* unchanged: pointees of slices/pointers
+            ;; belong to the caller, not to this temporary payload allocation.
+            (write-value-segment! payload type schema field-value {:field name})
+            (.fill native-segment (byte 0))
+            (init-fn native-segment payload))))))
   native-segment)
 
 (defn- write-optional!
@@ -997,9 +1007,19 @@
 
 (defn- native-tuple-length
   [zig-value]
-  (let [{:keys [tuple-length schema]} (realize! zig-value)]
+  (let [{:keys [tuple-length schema representation] :as state} (realize! zig-value)]
     (or tuple-length
-        (when (:tuple? schema) (count (:fields schema))))))
+        (when (:tuple? schema) (count (:fields schema)))
+        (when (and (= :native representation)
+                   (nil? (:kind schema)))
+          ;; Callable ABI returns do not carry the expression envelope's tuple
+          ;; length. Reflect the original return type instead of decoding its
+          ;; elements into untyped JVM numbers. Cache a negative result too.
+          (if (contains? state :tuple-length)
+            tuple-length
+            (let [length ((requiring-resolve 'aguafria.zig.jvm/tuple-length!) zig-value)]
+              (swap! (value-state zig-value) assoc :tuple-length length)
+              length))))))
 
 (defn- sequence-values
   [zig-value]
@@ -1032,58 +1052,62 @@
 (defn copy-native!
   "Copy native storage without transferring image-local error integers.
   By-value aggregates retain pointer bytes and ownership. Error-bearing borrowed
-  storage requires a dedicated alias-preserving bridge, never a silent deep copy."
-  [^MemorySegment destination destination-schema
-   ^MemorySegment source source-schema]
-  (when-not (= (.byteSize destination) (.byteSize source))
-    (throw (ex-info "Native storage layouts differ across images"
-                    {:source-size (.byteSize source)
-                     :destination-size (.byteSize destination)})))
-  (if (or (identical? destination-schema source-schema)
-          (not (or (error-bearing-schema? source-schema)
-                   (error-bearing-schema? destination-schema))))
-    (.copyFrom destination source)
-    (let [kind (:kind source-schema)]
-      (when-not (= kind (:kind destination-schema))
-        (throw (ex-info "Missing compiler schema for cross-image error transport"
-                        {:source-kind kind :destination-kind (:kind destination-schema)})))
-      (case kind
-        :error-union
-        (if-let [error ((:error-fn source-schema) source)]
-          ((:set-error-fn destination-schema) destination (:name error))
-          (if (zero? (:payload-size source-schema))
-            ((:set-ok-fn destination-schema) destination nil)
-            (let [payload (.asSlice destination 0 (long (:payload-size destination-schema)))]
-              (copy-native! payload (:payload-schema destination-schema)
-                            ((:payload-segment-fn source-schema) source)
-                            (:payload-schema source-schema))
-              ((:set-ok-fn destination-schema) destination payload))))
+  storage requires a dedicated alias-preserving bridge, never a silent deep copy.
+  Provenance is the actual storage producer/consumer image, not a layout reader."
+  ([destination destination-schema source source-schema]
+   (copy-native! destination destination-schema source source-schema {}))
+  ([^MemorySegment destination destination-schema
+    ^MemorySegment source source-schema
+    {:keys [source-image destination-image]}]
+   (when-not (= (.byteSize destination) (.byteSize source))
+     (throw (ex-info "Native storage layouts differ across images"
+                     {:source-size (.byteSize source)
+                      :destination-size (.byteSize destination)})))
+   (if (or (and source-image destination-image (= source-image destination-image))
+           (not (or (error-bearing-schema? source-schema)
+                    (error-bearing-schema? destination-schema))))
+     (.copyFrom destination source)
+     (let [kind (:kind source-schema)]
+       (when-not (= kind (:kind destination-schema))
+         (throw (ex-info "Missing compiler schema for cross-image error transport"
+                         {:source-kind kind :destination-kind (:kind destination-schema)})))
+       (case kind
+         :error-union
+         (if-let [error ((:error-fn source-schema) source)]
+           ((:set-error-fn destination-schema) destination (:name error))
+           (if (zero? (:payload-size source-schema))
+             ((:set-ok-fn destination-schema) destination nil)
+             (let [payload (.asSlice destination 0 (long (:payload-size destination-schema)))]
+               (copy-native! payload (:payload-schema destination-schema)
+                             ((:payload-segment-fn source-schema) source)
+                             (:payload-schema source-schema))
+               ((:set-ok-fn destination-schema) destination payload))))
 
-        :optional
-        (if-not ((:present-fn source-schema) source)
-          ((:set-fn destination-schema) destination false nil)
-          (let [payload (.asSlice destination 0 (long (:payload-size destination-schema)))]
-            (copy-native! payload (:child-schema destination-schema)
-                          ((:payload-segment-fn source-schema) source)
-                          (:child-schema source-schema))
-            ((:set-fn destination-schema) destination true payload)))
+         :optional
+         (if-not ((:present-fn source-schema) source)
+           ((:set-fn destination-schema) destination false nil)
+           (let [payload (.asSlice destination 0 (long (:payload-size destination-schema)))]
+             (copy-native! payload (:child-schema destination-schema)
+                           ((:payload-segment-fn source-schema) source)
+                           (:child-schema source-schema))
+             ((:set-fn destination-schema) destination true payload)))
 
-        (:array :vector)
-        (let [length (long (or (:storage-length source-schema) (:length source-schema)))
-              from-size (or (:element-size source-schema)
-                            (when (pos? length) (quot (.byteSize source) length)))
-              to-size (or (:element-size destination-schema)
-                          (when (pos? length) (quot (.byteSize destination) length)))]
-          (doseq [index (range length)]
-            (copy-native! (.asSlice destination (* index to-size) to-size)
-                          (:element-schema destination-schema)
-                          (.asSlice source (* index from-size) from-size)
-                          (:element-schema source-schema))))
+         (:array :vector)
+         (let [length (long (or (:storage-length source-schema) (:length source-schema)))
+               from-size (or (:element-size source-schema)
+                             (when (pos? length) (quot (.byteSize source) length)))
+               to-size (or (:element-size destination-schema)
+                           (when (pos? length) (quot (.byteSize destination) length)))]
+           (doseq [index (range length)]
+             (copy-native! (.asSlice destination (* index to-size) to-size)
+                           (:element-schema destination-schema)
+                           (.asSlice source (* index from-size) from-size)
+                           (:element-schema source-schema))))
 
-        (throw (ex-info "Cross-image error transport requires an alias-preserving bridge for this storage"
-                        {:aguafria/phase :native-error-transport :kind kind
-                         :reason :unsupported-error-bearing-storage})))))
-  destination)
+         (throw (ex-info "Cross-image error transport requires an alias-preserving bridge for this storage"
+                         {:aguafria/phase :native-error-transport :kind kind
+                          :reason :unsupported-error-bearing-storage})))))
+   destination))
 
 (defn set-value!
   "Write a semantic Clojure value into a live native `a/defvar` and return
@@ -1094,7 +1118,7 @@
     (when-not (= :var (:kind descriptor))
       (throw (ex-info "Only an a/defvar Zig value is mutable"
                       (merge (info zig-value) {:value new-value}))))
-    (let [{:keys [representation segment schema]} (realize! zig-value)]
+    (let [{:keys [representation segment schema native-image]} (realize! zig-value)]
       (when-not (= :native representation)
         (throw (ex-info "Mutable Zig state has no native storage"
                         (info zig-value))))
@@ -1105,7 +1129,9 @@
                             {:expected (type zig-value) :actual (type new-value)})))
           (copy-native! segment schema
                         (aguafria.zig.value/segment new-value)
-                        (:schema (realize! new-value)))
+                        (:schema (realize! new-value))
+                        {:destination-image native-image
+                         :source-image (:native-image (realize! new-value))})
           (swap! (value-state zig-value) update :owners (fnil conj []) new-value))
         (binding [*allocation-arena* (:allocation-arena schema)]
           (write-value-segment! segment (:type descriptor) schema new-value
@@ -1161,7 +1187,7 @@
 (defn array-element-view
   "Borrow one array element as an immutable native value, retaining its owner."
   [array-value index]
-  (let [{:keys [segment schema generation alignment]} (realize! array-value)
+  (let [{:keys [segment schema generation alignment native-image]} (realize! array-value)
         {:keys [length element-type element-schema]} schema]
     (when-not (and (integer? index) (<= 0 index) (< index length))
       (throw (ex-info "Array element index is out of bounds" {:index index :length length})))
@@ -1171,7 +1197,7 @@
        (constantly {:representation :native
                     :segment (.asSlice ^MemorySegment segment (* index element-size) element-size)
                     :size element-size :alignment alignment
-                    :schema element-schema :generation generation
+                    :schema element-schema :generation generation :native-image native-image
                     :owners [array-value]})))))
 
 (defn retain-owners!
@@ -1180,6 +1206,14 @@
   (when (zig-value? result)
     (realize! result)
     (swap! (value-state result) update :owners (fnil into []) owners))
+  result)
+
+(defn retain-coercion-expression!
+  "Retain an immutable constructor's source for later checked Zig coercions."
+  [result expression]
+  (when (and (zig-value? result) (not= :var (:kind (info result))))
+    (realize! result)
+    (swap! (value-state result) assoc :coercion-expression expression))
   result)
 
 (defn retain-mutation-owners!
@@ -1199,30 +1233,32 @@
 
 (defn address-value
   "Own a pointer to existing storage, retaining its pointee without copying it."
-  [owner mutable?]
-  (let [{:keys [segment pointer-alignment]} (realize! owner)
-        child (qualified-type owner)
-        type (if-let [alignment (or pointer-alignment (:align (info owner)))]
-               [:* {:const? (not mutable?) :align alignment} child]
-               [(if mutable? :* :*const) child])
-        arena (Arena/ofShared)]
-    (try
-      (let [storage (.allocate arena java.lang.foreign.ValueLayout/ADDRESS)
-            result (native-value
-                    {:kind :const :type type}
-                    (constantly {:representation :native
-                                 :segment storage
-                                 :size (.byteSize storage)
-                                 :alignment (.byteAlignment java.lang.foreign.ValueLayout/ADDRESS)
-                                 :owners [owner]
-                                 :schema {:kind :pointer :child-type child}
-                                 :close! #(.close arena)}))]
-        (.set storage java.lang.foreign.ValueLayout/ADDRESS 0 segment)
-        (realize! result)
-        result)
-      (catch Throwable failure
-        (.close arena)
-        (throw failure)))))
+  ([owner mutable?]
+   (address-value owner mutable? (qualified-type owner)))
+  ([owner mutable? child]
+   (let [{:keys [segment pointer-alignment]} (realize! owner)
+         type (if-let [alignment (or pointer-alignment (:align (info owner)))]
+                [:* (cond-> {:align alignment}
+                      (not mutable?) (assoc :const? true)) child]
+                [(if mutable? :* :*const) child])
+         arena (Arena/ofShared)]
+     (try
+       (let [storage (.allocate arena java.lang.foreign.ValueLayout/ADDRESS)
+             result (native-value
+                     {:kind :const :type type}
+                     (constantly {:representation :native
+                                  :segment storage
+                                  :size (.byteSize storage)
+                                  :alignment (.byteAlignment java.lang.foreign.ValueLayout/ADDRESS)
+                                  :owners [owner]
+                                  :schema {:kind :pointer :child-type child}
+                                  :close! #(.close arena)}))]
+         (.set storage java.lang.foreign.ValueLayout/ADDRESS 0 segment)
+         (realize! result)
+         result)
+       (catch Throwable failure
+         (.close arena)
+         (throw failure))))))
 
 (defn array-elements-pointer
   "Borrow an ordinary array's element storage as a many-item pointer.
@@ -1253,7 +1289,7 @@
   "Copy owned native storage into an independently owned JVM handle.
   Slice/pointer owners remain reachable; new pointees live in the copy's arena."
   [source zig-type schema options kind]
-  (let [{:keys [segment size alignment tuple-length]} (realize! source)
+  (let [{:keys [segment size alignment tuple-length native-image]} (realize! source)
         requested-alignment (storage-alignment (get options :align 1))
         alignment (max alignment requested-alignment)
         arena (Arena/ofShared)]
@@ -1267,6 +1303,7 @@
                       (constantly {:representation :native
                                    :segment storage :size size :alignment alignment
                                    :tuple-length tuple-length
+                                   :native-image native-image
                                    :owners [source]
                                    :schema (assoc schema :allocation-arena arena)
                                    :close! #(.close arena)}))]
@@ -1287,6 +1324,45 @@
   [source alignment]
   (storage-copy source (qualified-type source) (:schema (realize! source))
                 {:align alignment} (:kind (info source))))
+
+(defn try-value!
+  "Return a native error union's successful payload, or throw its named error.
+  Native storage uses Zig's payload accessor and schema. The returned value owns
+  a by-value copy and retains pointer/slice owners, as a Zig try expression does."
+  [input]
+  (letfn [(fail [error]
+            (throw (ex-info (str "Native Zig error: " (name (:name error)))
+                            {:aguafria/phase :native-error
+                             :error-name (keyword (:name error))})))
+          (invalid []
+            (throw (ex-info "k/try requires a native Zig error union"
+                            {:argument-type (class input)})))]
+    (cond
+      (zig-value? input)
+      (let [{:keys [representation segment schema generation alignment]} (realize! input)
+            {:keys [kind error-fn payload-type payload-size payload-schema
+                    payload-segment-fn]} schema]
+        (when-not (and (= :native representation) (= :error-union kind)) (invalid))
+        (if-let [error (error-fn segment)]
+          (fail error)
+          (when-not (= :void payload-type)
+            (let [payload (if (zero? payload-size)
+                            (.asSlice ^MemorySegment segment 0 0)
+                            (payload-segment-fn segment))
+                  view (native-value
+                        (merge (select-keys (info input) [:module :execution-context])
+                               {:kind :const :type payload-type})
+                        (constantly {:representation :native
+                                     :segment payload :size payload-size
+                                     :alignment (min alignment (.maxByteAlignment ^MemorySegment payload))
+                                     :schema payload-schema :generation generation
+                                     :owners [input]}))]
+              (storage-copy view (qualified-type view) payload-schema {} :const)))))
+
+      ;; These envelopes are produced by the native expression result writer.
+      (and (map? input) (= #{:ok} (set (keys input)))) (:ok input)
+      (and (map? input) (= #{:error} (set (keys input)))) (fail (:error input))
+      :else (invalid))))
 
 (defn slice-element-view
   "Borrow an element's native storage, retaining the slice and its library owner."

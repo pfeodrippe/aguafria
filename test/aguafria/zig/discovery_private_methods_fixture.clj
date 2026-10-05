@@ -19,11 +19,14 @@
 
 (a/defstruct Counter
   [[:value :i32]
+   [:Category {:const (a/enum [:small :large])} :type]
    (a/fn- initial-value :i32 [] 20)
    (a/fn- increment :void [[self [:* Counter]]]
           (k/+= (:value self) 1))
    (a/fn- plus :i32 [[self Counter] [amount :i32]]
-          (k/+ (:value self) amount))])
+          (k/+ (:value self) amount))
+   (a/fn- category Category [[self Counter]]
+          (if (k/< (:value self) 20) :.small :.large))])
 
 (a/deftest never-run
   (let [suit (k/as :.clubs Suit)
@@ -34,5 +37,6 @@
     (k/= :_ ((:truthy variant)))
     ((:increment counter))
     (k/= :_ ((:plus counter) amount))
+    (k/= :_ ((:category counter)))
     (k/= :_ ((:initial-value Counter))))
   (k/unreachable))

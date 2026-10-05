@@ -1252,7 +1252,9 @@
       (= :field_access tag) (translate-field context node-index)
       (= :grouped_expression tag) (translate-expr context a)
       (= :unwrap_optional tag) (list 'unwrap (translate-expr context a))
-      (= :deref tag) (list 'deref (translate-expr context a))
+      (= :deref tag)
+      (let [pointer (translate-expr context a)]
+        (list (if (string? pointer) 'a/deref 'deref) pointer))
       (= :array_access tag)
       (list 'index (translate-expr context a) (translate-expr context b))
 
@@ -1276,7 +1278,7 @@
       (list 'k/-% (translate-expr context a))
       (= :bit_not tag) (list 'k/bit-not (translate-expr context a))
       (= :address_of tag) (list 'k/& (translate-expr context a))
-      (= :try tag) (list 'try (translate-expr context a))
+      (= :try tag) (list 'k/try (translate-expr context a))
       (= :comptime tag) (list 'comptime (translate-expr context a))
       (= :nosuspend tag) (list 'nosuspend (translate-expr context a))
       (= :unreachable_literal tag) (list 'unreachable)
@@ -3809,26 +3811,32 @@
       (when (instance? DynamicClassLoader loader)
         (.addURL ^DynamicClassLoader loader url)))))
 
+(declare conversion-output-file)
+
 (defn load-tree!
-  "Bulk-load every generated `.clj` namespace below `root`, one module at a
+  "Bulk-load the catalog's generated namespaces below `root`, one module at a
   time, using `load-converted!`. Returns serializable per-file reports.
+  A tree without a catalog loads its `.clj` files.
   `:paths` selects an explicit set of generated files inside that root."
   ([root] (load-tree! root {}))
   ([root options]
    (let [root-file (.getCanonicalFile (io/file root))
          _ (add-generated-classpath-root! root-file)
          catalog-file (io/file root-file "aguafria-project.edn")
-         _ (when (.isFile catalog-file)
-             (project/load-catalog! catalog-file))
-         files (if-some [paths (:paths options)]
-                 (mapv
-                  (fn [path]
-                    (let [file (.getCanonicalFile (io/file path))]
-                      (when-not (.startsWith (.toPath file) (.toPath root-file))
-                        (throw (ex-info "Converted file is outside the generated root"
-                                        {:path (str file) :root (str root-file)})))
-                      file))
-                  paths)
+         catalog (when (.isFile catalog-file)
+                   (project/load-catalog! catalog-file))
+         paths (or (:paths options)
+                   (when catalog
+                     (mapv #(conversion-output-file root-file %)
+                           (sort (keys (:modules catalog))))))
+         files (if-some [paths paths]
+                 (mapv (fn [path]
+                         (let [file (.getCanonicalFile (io/file path))]
+                           (when-not (.startsWith (.toPath file) (.toPath root-file))
+                             (throw (ex-info "Converted file is outside the generated root"
+                                             {:path (str file) :root (str root-file)})))
+                           file))
+                       paths)
                  (->> (file-seq root-file)
                       (filter #(and (.isFile ^File %)
                                     (str/ends-with? (.getName ^File %) ".clj")))

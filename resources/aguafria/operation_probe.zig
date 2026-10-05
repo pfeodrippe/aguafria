@@ -6,6 +6,16 @@ pub fn Inspector(comptime declarations: anytype) type {
         const std = @import("std");
         pub const requiresComptime = @import("jvm_result.zig").__aguafria_jvm.requiresComptime;
 
+        pub fn indexRequiresComptime(comptime T: type) bool {
+            return switch (@typeInfo(T)) {
+                .pointer => |info| requiresComptime(info.child),
+                .array => |info| requiresComptime(info.child),
+                .vector => |info| requiresComptime(info.child),
+                .@"struct" => |info| info.is_tuple,
+                else => false,
+            };
+        }
+
         const VisitedTypes = struct {
             buckets: [1024][]const type = @splat(&.{}),
 
@@ -31,6 +41,25 @@ pub fn Inspector(comptime declarations: anytype) type {
             return std.fmt.comptimePrint("{{:literal {d} :type :{s}}}", .{ value, @typeName(@TypeOf(value)) });
         }
 
+        pub fn integerCoercionRequiresConstant(comptime Result: type, comptime Input: type) bool {
+            if (@typeInfo(Result) != .int or @typeInfo(Input) != .int) return false;
+            const result = @typeInfo(Result).int;
+            const input = @typeInfo(Input).int;
+            const accepts_runtime = if (result.signedness == input.signedness)
+                result.bits >= input.bits
+            else
+                result.signedness == .signed and result.bits > input.bits;
+            return !accepts_runtime;
+        }
+
+        pub fn constantCoercion(comptime value: anytype) []const u8 {
+            const identity = schema(@TypeOf(value));
+            return std.fmt.comptimePrint(
+                "{{:constant-coercion [{s} (aguafria.keyword/as {d} {s})]}}",
+                .{ identity, value, identity },
+            );
+        }
+
         fn quoted(comptime bytes: []const u8) []const u8 {
             var result: []const u8 = "\"";
             for (bytes) |byte| {
@@ -48,7 +77,7 @@ pub fn Inspector(comptime declarations: anytype) type {
         }
 
         pub fn comptimeExpression(comptime value: anytype, comptime source: []const u8) []const u8 {
-            _ = value;
+            _ = @TypeOf(value);
             return "{:comptime-expression " ++ source ++ "}";
         }
 
@@ -69,6 +98,7 @@ pub fn Inspector(comptime declarations: anytype) type {
         }
 
         pub fn comptimeValue(comptime value: anytype) []const u8 {
+            @setEvalBranchQuota(10_000_000);
             const T = @TypeOf(value);
             return switch (@typeInfo(T)) {
                 .comptime_int, .comptime_float => literal(value),
@@ -84,6 +114,15 @@ pub fn Inspector(comptime declarations: anytype) type {
                 },
                 .type => "{:comptime-type " ++ schema(value) ++ "}",
                 .null => ":null",
+                .error_set => named_error: {
+                    const name = @errorName(value);
+                    const identity = if (T == anyerror)
+                        "[:error-set [:" ++ name ++ "]]"
+                    else
+                        schema(T);
+                    break :named_error "{:comptime-expression (aguafria.keyword/as (aguafria.zig/field (aguafria.zig/type " ++
+                        identity ++ ") :" ++ name ++ ") " ++ identity ++ ")}";
+                },
                 .pointer => |p| pointer: {
                     if ((p.size == .slice and p.child == u8) or
                         (p.size == .one and @typeInfo(p.child) == .array and @typeInfo(p.child).array.child == u8))
@@ -115,20 +154,26 @@ pub fn Inspector(comptime declarations: anytype) type {
                 .@"struct", .@"union", .@"enum", .@"opaque" => {},
                 else => return argumentSchema(T),
             }
+            if (@typeInfo(Container) == .@"enum" and T == Container and !@hasDecl(Container, name))
+                return declarationExpression(Container, member_form);
             if (@hasDecl(Container, name)) {
                 switch (@typeInfo(T)) {
-                    .int, .float => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.attrs.@"const") {
-                        const identity = schema(Container);
-                        const expression = if (identity[0] == '[' or identity[0] == '(')
-                            "(type " ++ identity ++ ")"
-                        else
-                            identity;
-                        return "{:comptime-expression (aguafria.zig/field " ++ expression ++ " " ++ member_form ++ ")}";
+                    .int, .float, .@"enum" => if (@typeInfo(@TypeOf(&@field(Container, name))).pointer.attrs.@"const") {
+                        return declarationExpression(Container, member_form);
                     },
                     else => {},
                 }
             }
             return argumentSchema(T);
+        }
+
+        fn declarationExpression(comptime Container: type, comptime member_form: []const u8) []const u8 {
+            const identity = schema(Container);
+            const expression = if (identity[0] == '[' or identity[0] == '(')
+                "(type " ++ identity ++ ")"
+            else
+                identity;
+            return "{:comptime-expression (aguafria.zig/field " ++ expression ++ " " ++ member_form ++ ")}";
         }
 
         pub fn argumentSchema(comptime T: type) []const u8 {
@@ -138,6 +183,20 @@ pub fn Inspector(comptime declarations: anytype) type {
             // this finite domain; do not infer it from the Clojure expression.
             if (T == bool)
                 return "{:representations [:bool {:comptime false} {:comptime true}]}";
+            if (@typeInfo(T) == .error_set) {
+                const identity = schema(T);
+                const names = @typeInfo(T).error_set.error_names orelse return identity;
+                if (std.mem.eql(u8, identity, "nil")) return identity;
+                var result: []const u8 = "{:representations [" ++ identity;
+                for (names) |name| {
+                    // JVM errors cross native-library boundaries by name.
+                    // Keep the addressable variant and each named expression.
+                    result = result ++
+                        " {:comptime-expression (aguafria.keyword/as (aguafria.zig/field (aguafria.zig/type " ++
+                        identity ++ ") :" ++ name ++ ") " ++ identity ++ ")}";
+                }
+                return result ++ "]}";
+            }
             // A declared tuple is still a nominal container, not a JVM vector
             // of independently supplied arguments. Preserve the declaration
             // only after Zig establishes that it denotes this exact type.
@@ -178,27 +237,37 @@ pub fn Inspector(comptime declarations: anytype) type {
             return schema(T);
         }
 
+        pub fn declaredSchema(comptime T: type, comptime Declaration: type, comptime expression: []const u8) []const u8 {
+            if (T == Declaration) return expression;
+            return schema(T);
+        }
+
         fn declarationSchema(comptime T: type) ?[]const u8 {
             switch (@typeInfo(T)) {
                 .@"struct", .@"enum", .@"union", .@"opaque", .@"fn" => {
-                    inline for (declarations) |declaration| {
-                        if (T == declaration.get()) return declaration.name();
-                    }
-                    inline for (declarations) |declaration| {
-                        if (wrappedDeclarationSchema(T, declaration.get(), declaration.name(), 0)) |identity|
-                            return identity;
-                        if (nestedDeclarationSchema(T, declaration.get(), declaration.name(), 0)) |identity|
-                            return identity;
-                        if (fieldDeclarationSchema(T, declaration.get(), declaration.name())) |identity|
-                            return identity;
-                    }
-                    // Share visited types across branches and roots. Callback
-                    // signatures often lead back to structures already inspected.
+                    // Search containers before unrelated function signatures.
+                    // Merely resolving a foreign prototype can reject its ABI
+                    // on this target, even though the queried type is unrelated.
                     comptime var visited: VisitedTypes = .{};
-                    inline for (.{ false, true }) |function_roots| {
+                    const order = if (@typeInfo(T) == .@"fn") .{ true, false } else .{ false, true };
+                    inline for (order) |function_roots| {
                         inline for (declarations) |declaration| {
+                            if (declaration.function_root != function_roots) continue;
+                            if (T == declaration.get()) return declaration.name();
+                        }
+                        inline for (declarations) |declaration| {
+                            if (declaration.function_root != function_roots) continue;
                             const Root = declaration.get();
-                            if ((@typeInfo(Root) == .@"fn") != function_roots) continue;
+                            if (wrappedDeclarationSchema(T, Root, declaration.name(), 0)) |identity|
+                                return identity;
+                            if (nestedDeclarationSchema(T, Root, declaration.name(), 0)) |identity|
+                                return identity;
+                            if (fieldDeclarationSchema(T, Root, declaration.name())) |identity|
+                                return identity;
+                        }
+                        inline for (declarations) |declaration| {
+                            if (declaration.function_root != function_roots) continue;
+                            const Root = declaration.get();
                             if (reachableDeclarationSchema(T, Root, declaration.name(), &visited)) |identity|
                                 return identity;
                         }
@@ -243,6 +312,13 @@ pub fn Inspector(comptime declarations: anytype) type {
         }
 
         fn fieldDeclarationSchema(comptime T: type, comptime Root: type, comptime expression: []const u8) ?[]const u8 {
+            if (@typeInfo(Root) == .@"union") {
+                if (@typeInfo(Root).@"union".tag_type) |Tag| {
+                    if (T == Tag)
+                        return "(aguafria.zig/unwrap (aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++
+                            expression ++ ") :union) :tag_type))";
+                }
+            }
             return switch (@typeInfo(Root)) {
                 .@"struct" => |s| fieldsDeclarationSchema(T, expression, s.field_names, s.field_types),
                 .@"union" => |u| fieldsDeclarationSchema(T, expression, u.field_names, u.field_types),
@@ -266,6 +342,14 @@ pub fn Inspector(comptime declarations: anytype) type {
             const info = @typeInfo(Root);
             switch (info) {
                 .@"struct", .@"union" => {
+                    if (info == .@"union") {
+                        if (info.@"union".tag_type) |Tag| {
+                            const tag_expression = "(aguafria.zig/unwrap (aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++
+                                expression ++ ") :union) :tag_type))";
+                            if (reachableDeclarationSchema(T, Tag, tag_expression, visited)) |identity|
+                                return identity;
+                        }
+                    }
                     const fields = if (info == .@"struct") info.@"struct" else info.@"union";
                     inline for (fields.field_names, fields.field_types) |name, Field| {
                         const field_expression = "(aguafria.keyword/FieldType " ++ expression ++ " " ++ quoted(name) ++ ")";
@@ -450,6 +534,16 @@ pub fn Inspector(comptime declarations: anytype) type {
                 // with a structurally similar type or guessed from a display name.
                 else => "nil",
             };
+        }
+
+        pub fn storageSchema(comptime T: type) []const u8 {
+            if (requiresComptime(T)) return "nil";
+            return Inspector(.{}).schema(T);
+        }
+
+        pub fn runtimeSchema(comptime T: type) []const u8 {
+            if (requiresComptime(T)) return "nil";
+            return schema(T);
         }
 
         pub fn callableSignature(comptime T: type) []const u8 {

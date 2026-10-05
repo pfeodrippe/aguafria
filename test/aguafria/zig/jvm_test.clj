@@ -61,6 +61,19 @@
     (is (= [:*const :u32] (value/qualified-type (ak/& integer))))
     (is (values= 1234 @(ak/& integer)))))
 
+(deftest optional-record-array-fields-do-not-unroll-runtime-transport
+  (let [namespace (fixture)]
+    (binding [*ns* namespace]
+      (eval '(a/defstruct Buffer [[:bytes [:array 2048 :u8]] [:used :usize]]))
+      (eval '(a/defstruct Holder [[:buffer [:optional Buffer]]]))
+      (eval '(a/defn make-holder Holder []
+               (Holder {:buffer (Buffer {:bytes (ak/splat 7) :used 2048})})))
+      (let [holder ((ns-resolve namespace 'make-holder))
+            buffer (:buffer holder)
+            snapshot (a/value buffer)]
+        (is (= 2048 (get snapshot "used")))
+        (is (= (vec (repeat 2048 7)) (get snapshot "bytes")))))))
+
 (deftest runtime-tuples-preserve-native-storage
   (let [result (ak/mulWithOverflow (ak/u64 12) (ak/u64 10))
         mutable (ak/var result)]
@@ -80,6 +93,40 @@
     (is (= :missing (nth mutable 2 :missing)))
     (is (= :missing (nth mutable -1 :missing)))
     (is (thrown? IndexOutOfBoundsException (nth mutable 2)))))
+
+(deftest optional-field-layout-helpers-do-not-shadow-owner-declarations
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (doseq [name '[storage storage_address present value_address payload]]
+          (eval (list 'a/defconst name :u32 31)))
+        (eval '(a/defstruct Holder [[:maybe [:optional :u64]]])))
+      (let [Holder @(ns-resolve namespace 'Holder)]
+        (is (= {:maybe 7} (a/value (Holder {:maybe 7}))))
+        (is (= {:maybe nil} (a/value (Holder {:maybe nil})))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest optional-field-layout-helpers-preserve-private-child-scope
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(a/defstruct Holder
+                 [(a/struct-decl Payload [[:value :u32]])
+                  [:maybe [:optional Payload]]]))
+        (eval '(a/defn make-holder Holder []
+                 (Holder {:maybe (a/init {:value 7} (a/field Holder :Payload))})))
+        (eval '(a/defn read-holder :u32 [[holder Holder]]
+                 (:value (a/unwrap (:maybe holder))))))
+      (is (values= 7
+                   ((ns-resolve namespace 'read-holder)
+                    ((ns-resolve namespace 'make-holder)))))
+      (is (= {:maybe {:value 7}}
+             (a/value ((ns-resolve namespace 'make-holder)))))
+      (let [Holder @(ns-resolve namespace 'Holder)
+            holder (Holder {:maybe {:value 13}})]
+        (is (= {:maybe {:value 13}} (a/value holder)))
+        (is (values= 13 ((ns-resolve namespace 'read-holder) holder))))
+      (finally (remove-ns (ns-name namespace))))))
 
 (deftest comptime-aggregates-retain-compiler-expressions
   (let [integer (ak/typeInfo :u8)
@@ -180,6 +227,23 @@
       (finally
         (remove-ns (ns-name left))
         (remove-ns (ns-name right))))))
+
+(deftest byte-slice-string-lengths-reuse-owned-native-storage
+  (doseq [type [[:slice-const :u8]
+                [:optional [:slice-const :u8]]
+                [:error-union [:error-set [:Oops]] [:slice-const :u8]]]]
+    (let [snapshot (fn [text]
+                     (let [bytes (mapv (fn [byte] (bit-and 0xff byte))
+                                       (.getBytes ^String text java.nio.charset.StandardCharsets/UTF_8))]
+                       (if (= :error-union (first type)) {:ok bytes} bytes)))]
+      (with-open [primed (ak/as "warm" type)]
+        (is (= (snapshot "warm") (a/value primed))))
+      (doseq [text ["" "hi" "bonjour ☔" "longer text with another UTF-8 symbol: λ"]]
+        (without-compilation
+         #(with-open [slice (ak/as text type)]
+            (is (= type (value/qualified-type slice)))
+            (is (= (snapshot text) (a/value slice)))
+            (is (.isAlive (.scope (value/segment slice))))))))))
 
 (deftest array-length-changes-reuse-runtime-slice-handlers
   (letfn [(exercise [array start]
@@ -440,8 +504,7 @@
                 floating (ak/f32 quotient)]
       (is (values= 2 integer))
       (is (= (float (/ 7.0 3.0)) (float (a/value floating))))))
-  ;; Retaining literal context must not silently narrow explicitly typed values.
-  (with-open [typed (ak/i64 2)]
+  (with-open [typed (ak/var 2 :i64)]
     (is (thrown? clojure.lang.Compiler$CompilerException (ak/i32 typed)))))
 
 (deftest literal-arithmetic-composes-with-native-operands
@@ -458,6 +521,38 @@
     (is (true? (ak/== sum 3))))
   (is (false? (ak/< 3 2)))
   (is (true? (ak/== (ak/+ 1 1) 2))))
+
+(deftest typed-literal-coercion-retains-comptime-provenance
+  (require 'aguafria.zig.jvm-comptime-narrowing-fixture :reload)
+  (is (= 255 (a/value ((resolve 'aguafria.zig.jvm-comptime-narrowing-fixture/narrow-known-integer)))))
+  (with-open [x (ak/u64 255)
+              y (ak/u8 x)]
+    (is (= :u64 (value/qualified-type x)))
+    (is (= :u8 (value/qualified-type y)))
+    (is (= 255 (a/value y))))
+  (with-open [runtime-value (ak/var 255 :u64)]
+    (is (thrown? clojure.lang.Compiler$CompilerException (ak/u8 runtime-value))))
+  (let [echo (resolve 'aguafria.zig.jvm-comptime-narrowing-fixture/echo-integer)]
+    (with-open [runtime-result (echo 255)]
+      (is (thrown? clojure.lang.Compiler$CompilerException (ak/u8 runtime-result)))))
+  (with-open [too-large (ak/u64 256)]
+    (is (thrown? clojure.lang.Compiler$CompilerException (ak/u8 too-large)))))
+
+(deftest known-widening-coercions-reuse-typed-handlers
+  (with-open [x (ak/u32 1)
+              y (ak/u64 x)]
+    (is (= 1 (a/value y)))
+    (is (identical? x (ak/u32 x))))
+  (let [events (atom [])
+        results (binding [explain/*reporter* #(swap! events conj %)]
+                  (mapv (fn [number]
+                          (with-open [x (ak/u32 number)
+                                      y (ak/u64 x)]
+                            (a/value y)))
+                        [1234 4321]))]
+    (is (= [1234 4321] results))
+    (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) @events))
+        (pr-str @events))))
 
 (deftest numeric-results-retain-native-identity
   (doseq [type [:i8 :u8 :i32 :u32 :i64 :u64 :f32 :f64 :c_int :c_uint]]
@@ -610,6 +705,26 @@
                              (ak/= @item (ak/intCast i)))
                            (ak/break :init items)))))
   (is (nil? (ns-resolve 'aguafria.zig 'labeled-block))))
+
+(deftest scoped-shorthand-constructors-retain-their-destination-type
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.discovery-scoped-context-fixture :reload))
+  (let [choice-type 'aguafria.zig.discovery-scoped-context-fixture/Choice
+        read-value (requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/read-value)]
+    (with-open [input (ak/i32 9)
+                choice (ak/as (a/with-block :result
+                                (ak/break :result (:.first input))) choice-type)]
+      (is (values= {:value 9} choice))
+      (is (values= 9 (read-value choice)))
+      (is (values= 9 (read-value (a/with-block :result
+                                   (ak/break :result (:.first input)))))))
+    (is (values= 17 ((requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/typed-local) 17)))
+    (is (values= 19 ((requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/typed-cast) 19)))
+    (is (values= {:ok {:value 23}}
+                 ((requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/propagates) 23)))
+    (is (values= [0 1]
+                 (mapv (requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/typed-enum)
+                       [4 14])))))
 
 (deftest scoped-captures-retain-the-native-execution-context
   (doseq [test? [false true false]]
@@ -1030,6 +1145,36 @@
           (is (values= 7 (a/field instance :x))))
         (is (values= :enum (:kind (value/type-info (eval '(a/enum [:red :blue]))))))
         (is (values= :union (:kind (value/type-info (eval '(a/union [[:number :i32]])))))))
+      (finally (remove-ns (ns-name namespace))))))
+
+(deftest union-payload-accessors-preserve-nested-type-scope
+  (let [namespace (fixture)]
+    (try
+      (binding [*ns* namespace]
+        (eval '(a/defunion Command
+                 {:attrs #{ak/enum}}
+                 [(a/struct-decl Payload [[:value :u32]])
+                  [:payload Payload]
+                  [:empty :void]]))
+        (eval '(a/defn is-empty :bool [[command Command]]
+                 (ak/== command :.empty)))
+        (eval '(a/defn read-payload :u32 [[command Command]]
+                 (:value (:payload command))))
+        (eval '(a/defn payload-value :u32 [[n :u32]]
+                 (let [command (a/init {:payload (a/init {:value n}
+                                                         (a/field Command :Payload))}
+                                       Command)]
+                   (:value (:payload command))))))
+      (let [Command @(ns-resolve namespace 'Command)
+            empty-command (Command {:empty nil})
+            payload-command (Command {:payload {:value 23}})
+            payload-value (ns-resolve namespace 'payload-value)
+            is-empty (ns-resolve namespace 'is-empty)]
+        (is (value/zig-value? empty-command))
+        (is (= {:payload {:value 23}} (a/value payload-command)))
+        (is (values= 23 ((ns-resolve namespace 'read-payload) payload-command)))
+        (is (values= 31 (payload-value 31)))
+        (is (true? (is-empty empty-command))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest variable-types-can-be-inferred-without-a-placeholder

@@ -1,6 +1,8 @@
 (ns aguafria.zig.peer-call-test
   (:require [aguafria.keyword :as k]
+            [aguafria.std.math :as math]
             [aguafria.std.testing :as native-testing]
+            [aguafria.zig :as a]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.explain :as explain]
             [aguafria.zig.jvm :as jvm]
@@ -29,6 +31,27 @@
   (let [events (atom [])]
     (binding [explain/*reporter* #(swap! events conj %)]
       {:result (f) :events @events})))
+
+(deftest compiler-comptime-integers-use-the-prepared-peer-handler
+  (doseq [[expected actual] [[(math/minInt :i32) (k/i32 -2147483648)]
+                             [(math/maxInt :i32) (k/i32 2147483647)]]]
+    (let [prepared (recorded
+                    #(binding [runtime/*compile-only?* true]
+                       (jvm/precompile-call!
+                        {:function 'aguafria.std.testing/expectEqual
+                         :args [{:literal (a/value expected)
+                                 :type :comptime_int}
+                                :i32]})))
+          keys (into #{} (keep :artifact-key) (:events prepared))
+          called (recorded #(native-testing/expectEqual expected actual))
+          imported (filter #(and (:artifact-key %)
+                                 (str/starts-with? (or (:module %) "")
+                                                   "aguafria.jvm.imported-"))
+                           (:events called))]
+      (is (= :prepared (get-in prepared [:result :status])))
+      (is (= {:ok nil} (:result called)))
+      (is (seq (:events called)))
+      (is (every? #(keys (:artifact-key %)) imported) (pr-str imported)))))
 
 (deftest changed-values-reuse-handlers-without-changing-native-emission
   (is (= {:ok nil} (native-testing/expectEqual 3735928544 (k/as 3735928544 :usize))))

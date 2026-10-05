@@ -1,5 +1,6 @@
 (ns aguafria.zig.jvm-result-type-test
-  (:require [aguafria.zig.convert :as convert]
+  (:require [aguafria.zig :as a]
+            [aguafria.zig.convert :as convert]
             [aguafria.zig.emitter :as emit]
             [aguafria.zig.explain :as explain]
             [aguafria.zig.jvm :as jvm]
@@ -59,7 +60,7 @@
                (binding [explain/*reporter* #(swap! events conj %)]
                  (value/decoded (apply (ns-resolve module name) args))))]
     (with-redefs [runtime/invoke! (fn [& _]
-                                   (throw (ex-info "Invocation during preparation" {})))]
+                                    (throw (ex-info "Invocation during preparation" {})))]
       (doseq [name '[anonymous make_array optional make_slice fallible]]
         (is (= :prepared (:status (runtime/precompile-function! (ns-resolve module name)))))))
     (is (= {:left 3 :right 5} (call 'anonymous)))
@@ -70,3 +71,16 @@
     (is (= {:ok 11} (call 'fallible false)))
     (is (= :Failed (get-in (call 'fallible true) [:error :name])))
     (is (not-any? #(= :compiled (:event %)) @events) (pr-str @events))))
+
+(deftest native-inspection-supports-recursive-slice-payloads
+  (let [module (load-fixture! "test/fixtures/jvm_recursive_slice_result")]
+    (doseq [[name expected snapshot]
+            [['leaf {:text [104 101 108 108 111]} {:text "hello"}]
+             ['branch {:children [{:text [104 101 108 108 111]}]}
+              {:children [{:text "hello"}]}]]]
+      (with-redefs [runtime/invoke! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))
+                    runtime/invoke-with-result! (fn [& _] (throw (ex-info "Native invocation during preparation" {})))]
+        (is (= :prepared (:status (runtime/precompile-function! (ns-resolve module name))))))
+      (with-open [result ((ns-resolve module name))]
+        (is (= expected (a/value result)))
+        (is (= snapshot (jvm/inspect-value! result)))))))

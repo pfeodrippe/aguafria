@@ -86,6 +86,15 @@
 (def ^:private namespaces-by-name
   (delay (into {} (map (juxt :name identity)) (:namespaces @generated-catalog))))
 
+(def ^:private containers-by-namespace
+  (delay
+    (into {}
+          (comp (mapcat :members)
+                (filter #(= :container (:category %)))
+                (map (fn [{:keys [symbol] :as member}]
+                       [(clojure.core/symbol (str (namespace symbol) "." (name symbol))) member])))
+          (:namespaces @generated-catalog))))
+
 (defonce ^:private installation-lock
   (Object.))
 
@@ -112,25 +121,34 @@
 
 (defn- reference-form-builder
   [reference]
-  (with-meta
-    (fn [& arguments]
-      (if (contains? #{:function :type-function :field :global-const} (:category reference))
-        ((requiring-resolve 'aguafria.zig.jvm/invoke-reference!) reference arguments)
-        (with-meta (apply list (:symbol reference) arguments)
-          {:aguafria/zig-reference reference})))
-    {:aguafria/zig-reference reference}))
+  (if (= :container (:category reference))
+    (let [type (with-meta (:symbol reference) {:aguafria/zig-reference reference})]
+      ((requiring-resolve 'aguafria.zig.value/zig-type)
+       {:module (namespace type) :name (symbol (name type)) :type type}
+       #((requiring-resolve 'aguafria.zig.jvm/coerce!) % type)))
+    (with-meta
+      (fn [& arguments]
+        (if (contains? #{:function :type-function :field :global-const} (:category reference))
+          ((requiring-resolve 'aguafria.zig.jvm/invoke-reference!) reference arguments)
+          (with-meta (apply list (:symbol reference) arguments)
+            {:aguafria/zig-reference reference})))
+      {:aguafria/zig-reference reference})))
 
 (defn- member-reference
   [member]
-  (cond-> {:category (:category member)
-           :signature (:signature member)
-           :kind :std
-           :symbol (:symbol member)
-           :zig-name (:zig-name member)}
-    (:receiver-method member)
-    (assoc :receiver-method? true :member-name (:name member))
-    (= :field (:category member))
-    (assoc :field-accessor? true :member-name (:field-name member))))
+  (let [owner (when (= :field (:category member))
+                (get @containers-by-namespace (symbol (namespace (:symbol member)))))]
+    (cond-> {:category (:category member)
+             :signature (:signature member)
+             :kind :std
+             :symbol (:symbol member)
+             :zig-name (:zig-name member)}
+      (:receiver-method member)
+      (assoc :receiver-method? true :member-name (:name member))
+      (= :field (:category member))
+      (assoc :field-accessor? true :member-name (:field-name member))
+      owner
+      (assoc :owner-type (:symbol owner)))))
 
 (defn- member-doc
   [{:keys [category documentation signature display-signature source zig-name zig-version]}]

@@ -5,6 +5,15 @@
   {aguafria.c/defbindings hooks.aguafria/c-bindings
    aguafria.keyword/for hooks.aguafria/native-for
    aguafria.zig/with-block hooks.aguafria/native-block
+   aguafria.zig/block hooks.aguafria/native-scope
+   aguafria.zig/if-capture hooks.aguafria/native-if-capture
+   aguafria.zig/if-capture-stmt hooks.aguafria/native-if-capture
+   aguafria.zig/catch-capture hooks.aguafria/native-catch-capture
+   aguafria.zig/switch hooks.aguafria/native-switch
+   aguafria.zig/switch-stmt hooks.aguafria/native-switch
+   aguafria.zig/labeled-switch hooks.aguafria/native-switch
+   aguafria.zig/labeled-switch-stmt hooks.aguafria/native-switch
+   aguafria.zig/while-loop hooks.aguafria/native-while
    aguafria.zig/inline-for hooks.aguafria/native-for
    aguafria.zig/defn hooks.aguafria/function-declaration
    aguafria.zig/defn- hooks.aguafria/function-declaration

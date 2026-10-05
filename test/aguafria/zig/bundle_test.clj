@@ -3,7 +3,9 @@
             [aguafria.keyword :as k]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]
+            [aguafria.zig.artifact :as artifact]
             [aguafria.zig.bundle :as bundle]
+            [aguafria.zig.convert :as convert]
             [aguafria.zig.explain :as explain]
             [aguafria.zig.jvm :as jvm]
             [aguafria.zig.precompile :as precompile]
@@ -28,6 +30,44 @@
     (is (= #{first-id second-id} (set (map :artifact-id (:standalone result)))))
     (is (= [exclusion exclusion] (mapv #(dissoc % :artifact-id) (:standalone result))))))
 
+(deftest loaded-packs-reuse-exact-entries-after-overlapping-publication
+  (let [directory (.toFile (Files/createTempDirectory "aguafria-overlapping-packs-"
+                                                      (make-array java.nio.file.attribute.FileAttribute 0)))
+        artifact {:module "aguafria.jvm.overlap" :hash "same-handler"}
+        other-artifact (assoc artifact :hash "changed-handler")
+        key (#'bundle/artifact-id artifact)
+        old-id (apply str (repeat 64 "a"))
+        new-id (apply str (repeat 64 "b"))
+        old-library (io/file directory "bundles" old-id
+                             (System/mapLibraryName "aguafria_bundle"))
+        new-library (io/file directory "bundles" new-id
+                             (System/mapLibraryName "aguafria_bundle"))
+        item {:prefix "pack_old_" :exports ["__aguafria_probe"]}
+        manifest {:version 2 :id old-id :library-bytes 3 :entries {key item}}
+        old-entry (merge (dissoc manifest :entries) item
+                         {:artifact key :cache-root (#'bundle/cache-root directory)
+                          :library (.getAbsolutePath old-library)})
+        loaded (atom {})]
+    (io/make-parents old-library)
+    (spit (io/file (.getParentFile old-library) "manifest.edn")
+          (artifact/print-data manifest))
+    (io/make-parents new-library)
+    (spit new-library "new")
+    (let [index (#'bundle/index-file directory artifact)]
+      (io/make-parents index)
+      (spit index (artifact/print-data
+                   (assoc old-entry :id new-id :prefix "pack_new_"))))
+    (with-redefs-fn {#'bundle/loaded-artifacts loaded}
+      (fn []
+        (is (= new-id (:id (bundle/find-artifact directory artifact))))
+        (#'bundle/retain-loaded-artifacts! old-entry)
+        (is (= old-entry (bundle/find-artifact directory artifact)))
+        (is (nil? (bundle/find-artifact directory other-artifact)))
+        (is (nil? (bundle/find-artifact (io/file directory "other-cache") artifact)))
+        (with-redefs-fn {#'bundle/read-edn
+                         (fn [_] (throw (ex-info "Loaded entry read the disk index" {})))}
+          (fn [] (is (= old-entry (bundle/find-artifact directory artifact)))))))))
+
 (deftest bundle-materialization-keeps-source-on-disk-and-validates-its-identity
   (let [directory (.toFile (Files/createTempDirectory "aguafria-bundle-sources-"
                                                       (make-array java.nio.file.attribute.FileAttribute 0)))
@@ -46,6 +86,7 @@
           group (first (:groups entry))]
       (is (some? candidate))
       (is (some? (bundle/candidate (assoc artifact :module "project.private-owner"))))
+      (is (some? (bundle/candidate (assoc artifact :jvm-adapter? false :jvm-wrapper? true))))
       (is (nil? (bundle/candidate (assoc artifact :jvm-adapter? false))))
       (is (not-any? #(contains? % :source) (:groups candidate)))
       (is (every? #(re-matches #"[a-f0-9]{64}" (:source-key %)) (:groups candidate)))
@@ -88,6 +129,279 @@
                        (jvm/precompile-call! {:function 'aguafria.keyword//
                                               :args [:i32 :i32]})))
           (is (some #(= :compile-failed (:event %)) @events))))
+      (finally (runtime/configure! configuration)))))
+
+(deftest external-link-validation-uses-zigs-declaration-metadata
+  (let [analyze #'bundle/library-source-analysis]
+    (is (:external-declarations?
+         (analyze "extern fn native_value() i32;\n")))
+    (is (:external-declarations?
+         (analyze "extern var native_storage: i32;\n")))
+    (is (:external-declarations?
+         (analyze "const Container = struct { extern fn native_value() i32; };\n")))
+    (is (false? (:external-declarations?
+                 (analyze "const Container = extern struct { value: i32 };\n"))))
+    (is (false? (:external-declarations?
+                 (analyze "// extern fn missing() void;\nconst text = \"extern\";\n"))))))
+
+(deftest linked-support-provenance-exempts-only-exact-supplied-source-spans
+  (let [analyze #'bundle/library-source-analysis
+        fragment "const Support = struct { extern fn native_value() i32; };\n"
+        source (str fragment "export fn __aguafria_probe() i32 { return 1; }\n")]
+    (is (:external-declarations? (analyze source)))
+    (is (false? (:external-declarations? (analyze source [fragment]))))
+    (is (:external-declarations?
+         (analyze (str source "extern fn native_value() i32;\n") [fragment])))
+    (is (:external-declarations?
+         (analyze (str source "extern var user_storage: i32;\n") [fragment])))
+    (is (false? (:external-declarations?
+                 (analyze (str "// π🙂 UTF-8 before support\n" source) [fragment]))))
+    (is (:external-declarations?
+         (analyze (str "// π🙂 UTF-8 before support\n" source "extern fn native_value() i32;\n")
+                  [fragment])))
+    (is (:external-declarations?
+         (analyze source [(str fragment "// different compiler support\n")])))))
+
+(deftest linked-support-provenance-requires-its-exact-artifact-in-the-command
+  (let [directory (.toFile (Files/createTempDirectory "aguafria linkage provenance "
+                                                      (make-array java.nio.file.attribute.FileAttribute 0)))
+        source-file (io/file directory "module.zig")
+        support-file (io/file directory (System/mapLibraryName "support"))
+        fragment "const Support = struct { extern fn native_value() i32; };\n"
+        artifact {:module "aguafria.jvm.linkage-provenance" :hash "fixture" :jvm-adapter? true
+                  :development-panic :shared :development-panic-support-path (str support-file)
+                  :compiler-owned-linkage-support {:path (str support-file) :hash "compiler-support-identity"
+                                                   :fragments [fragment]}
+                  :command ["zig" "build-lib" "-dynamic" "-femit-bin=unused"
+                            (str support-file) "-Osafe" (str "-Mroot=" source-file)]}]
+    (spit support-file "unit fixture for compiler-owned linkage provenance")
+    (spit source-file (str fragment "export fn __aguafria_probe() i32 { return 1; }\n"))
+    (binding [bundle/*preparing* (atom {})]
+      (is (false? (:requires-link-validation? (bundle/candidate artifact))))
+      (is (:requires-link-validation?
+           (bundle/candidate (assoc artifact :command
+                                    (vec (remove #{(str support-file)} (:command artifact)))))))
+      (is (:requires-link-validation?
+           (bundle/candidate (assoc-in artifact [:compiler-owned-linkage-support :path] "other-library"))))
+      (is (:requires-link-validation?
+           (bundle/candidate (assoc-in artifact [:compiler-owned-linkage-support :hash] "")))))))
+
+(defn- support-only-candidate-fixture []
+  (let [directory (.toFile (Files/createTempDirectory "aguafria support-only analysis "
+                                                      (make-array java.nio.file.attribute.FileAttribute 0)))
+        source-file (io/file directory "module.zig")
+        support-file (io/file directory (System/mapLibraryName "support"))
+        fragment "const Support = struct { extern fn native_value() i32; };\n"
+        source (str "// π🙂 UTF-8 before support\n" fragment
+                    "export fn __aguafria_probe() i32 { return 1; }\n")
+        artifact {:module "aguafria.jvm.support-only-analysis" :hash "fixture" :jvm-adapter? true
+                  :development-panic :shared :development-panic-support-path (str support-file)
+                  :compiler-owned-linkage-support {:path (str support-file) :hash "compiler-support-identity"
+                                                   :fragments [fragment]}
+                  :command ["zig" "build-lib" "-dynamic" "-femit-bin=unused"
+                            (str support-file) "-Osafe" (str "-Mroot=" source-file)]}]
+    (spit support-file "unit fixture for compiler-owned linkage provenance")
+    (spit source-file source)
+    {:artifact artifact :source-file source-file :source source :fragment fragment}))
+
+(defn- tracking-ast-parser [calls]
+  (let [parse convert/parse-source]
+    (fn [source & [options]]
+      (swap! calls inc)
+      ;; Invoke the captured two-arity function directly: its one-arity overload
+      ;; delegates through the Var and would count the same parse twice.
+      (parse source (or options {})))))
+
+(deftest trusted-support-only-utf8-source-does-not-need-the-compiler-ast
+  (let [{:keys [artifact source-file source fragment]} (support-only-candidate-fixture)
+        calls (atom 0)]
+    (with-redefs [convert/parse-source (tracking-ast-parser calls)]
+      (binding [bundle/*preparing* (atom {})]
+        (is (false? (:requires-link-validation? (bundle/candidate artifact))))
+        (is (= 0 @calls))
+        (is (= source (slurp source-file)))
+        (is (false? (:external-declarations?
+                     (#'bundle/library-source-analysis
+                      (str source "// extern fn ignored() void;\nconst text = \"extern\";\n") [fragment]))))
+        (is (= 0 @calls))
+        ;; Masking supplied implementation text must not erase original graph
+        ;; export/import eligibility, even if it contains such source text.
+        (spit source-file (str source "export fn application_export() void {}\n"))
+        (is (nil? (bundle/candidate artifact)))
+        (is (= :external-exports (:reason (first (vals (:excluded @bundle/*preparing*))))))
+        (is (= 0 @calls))))))
+
+(deftest user-externs-outside-support-spans-still-need-zigs-ast
+  (let [{:keys [source fragment]} (support-only-candidate-fixture)]
+    (doseq [[addition external?]
+            [["extern fn user_value() i32;\n" true]
+             ["extern var user_storage: i32;\n" true]
+             ["extern fn native_value() i32;\n" true]
+             ["const Layout = extern struct { value: i32 };\n" false]]]
+      (let [calls (atom 0)]
+        (with-redefs [convert/parse-source (tracking-ast-parser calls)]
+          (is (= external?
+                 (:external-declarations? (#'bundle/library-source-analysis (str source addition) [fragment]))))
+          (is (= 1 @calls)))))))
+
+(deftest supplier-and-fragment-changes-do-not-reuse-a-support-only-analysis
+  (let [{:keys [artifact fragment]} (support-only-candidate-fixture)
+        calls (atom 0)]
+    (with-redefs [convert/parse-source (tracking-ast-parser calls)]
+      (binding [bundle/*preparing* (atom {})]
+        (is (false? (:requires-link-validation? (bundle/candidate artifact))))
+        (is (false? (:requires-link-validation? (bundle/candidate artifact))))
+        (is (= 0 @calls))
+        (is (:requires-link-validation?
+             (bundle/candidate (assoc artifact :command
+                                      (vec (remove #{(:development-panic-support-path artifact)} (:command artifact)))))))
+        (is (= 1 @calls))
+        (is (:requires-link-validation?
+             (bundle/candidate (assoc-in artifact [:compiler-owned-linkage-support :path] "other-library"))))
+        (is (= 1 @calls))
+        (is (false? (:requires-link-validation? (bundle/candidate artifact))))
+        (is (= 1 @calls))
+        (is (:requires-link-validation?
+             (bundle/candidate (assoc-in artifact [:compiler-owned-linkage-support :fragments]
+                                        [(str fragment "// changed compiler support\n")]))))
+        (is (= 2 @calls))
+        (is (false? (:requires-link-validation?
+                     (bundle/candidate (assoc-in artifact [:compiler-owned-linkage-support :hash]
+                                                "another-compiler-support-artifact")))))
+        (is (= 2 @calls))
+        (is (= 4 (count (:source-analyses @bundle/*preparing*))))))))
+
+(deftest asset-inspection-still-needs-ast-and-keeps-the-emitted-source
+  (let [{:keys [artifact source-file source fragment]} (support-only-candidate-fixture)]
+    (doseq [[addition eligible?]
+            [["test \"asset\" { _ = @embedFile(\"not-packaged.txt\"); }\n" true]
+             ["const user_asset = @embedFile(\"not-packaged.txt\");\n" false]]]
+      (let [calls (atom 0)
+            original (str source addition)]
+        (spit source-file original)
+        (with-redefs [convert/parse-source (tracking-ast-parser calls)]
+          (binding [bundle/*preparing* (atom {})]
+            (is (= eligible? (some? (bundle/candidate artifact))))
+            (is (= 1 @calls))
+            (is (= original (slurp source-file)))))))
+    ;; Even when AST inspection also masks a test-only asset, support provenance
+    ;; never exempts exports or imports in the original compiler graph.
+    (doseq [[addition reason]
+            [["const supplied_import = @import(\"payload.zig\");\n" :relative-or-dynamic-assets]
+             ["export fn supplied_export() void {}\n" :external-exports]]]
+      (let [calls (atom 0)
+            supplied (str fragment addition)
+            original (str "// π🙂 UTF-8 before support\n" supplied
+                          "export fn __aguafria_probe() i32 { return 1; }\n"
+                          "test \"asset\" { _ = @embedFile(\"not-packaged.txt\"); }\n")
+            artifact (assoc-in artifact [:compiler-owned-linkage-support :fragments] [supplied])]
+        (spit source-file original)
+        (with-redefs [convert/parse-source (tracking-ast-parser calls)]
+          (binding [bundle/*preparing* (atom {})]
+            (is (nil? (bundle/candidate artifact)))
+            (is (= reason (:reason (first (vals (:excluded @bundle/*preparing*))))))
+            (is (= 1 @calls))
+            (is (= original (slurp source-file)))))))))
+
+(deftest cached-finish-does-not-parse-compiler-supplied-support
+  (let [{:keys [artifact source-file source]} (support-only-candidate-fixture)
+        artifact (assoc artifact :cached? true :bundle {:id "previous-pack"})
+        collected (atom {:artifacts {(#'bundle/artifact-id artifact) artifact}})
+        calls (atom 0)]
+    (with-redefs-fn
+      {#'convert/parse-source (tracking-ast-parser calls)
+       #'bundle/build-pack! (fn [_ artifacts _ _]
+                             {:id "cached-pack" :handlers (count artifacts) :cached? true})}
+      #(binding [bundle/*preparing* collected]
+         (let [result (bundle/finish! "unused" collected {})]
+           (is (= 1 (:packed-handlers result)))
+           (is (= 1 (:reused-handlers result)))
+           (is (= 1 (count (:packs result))))
+           (is (true? (get-in result [:packs 0 :cached?])))
+           (is (= 0 @calls))
+           (is (= source (slurp source-file))))))))
+
+(deftest unresolved-external-calls-fail-before-observation-without-poisoning-the-pack
+  (let [configuration (runtime/configuration)
+        directory (.toFile (Files/createTempDirectory "aguafria external linkage "
+                                                      (make-array java.nio.file.attribute.FileAttribute 0)))
+        cache (str (io/file directory "cache"))
+        provider-source (io/file directory "provider.zig")
+        provider (io/file directory (System/mapLibraryName "provider"))
+        collected (atom {})
+        events (atom [])
+        ready (atom [])
+        compile! (fn [name source]
+                   (let [module (str "aguafria.jvm.link-validation-" name)]
+                     (#'runtime/compile-source!
+                      module source [{:module module :kind :raw :name 'fixture
+                                      :value source :public? false}])))
+        callbacks {:run-command (fn [command cwd]
+                                  (apply shell/sh (concat command [:dir cwd])))
+                   :preserve-debug! #'runtime/preserve-native-debug!}]
+    (try
+      (runtime/configure! {:cache-dir cache})
+      (spit provider-source "export fn supplied_value() i32 { return 42; }\n")
+      (let [result (shell/sh (runtime/zig-executable) "build-lib" "-dynamic" "-Osafe"
+                             (str "-femit-bin=" provider) (str provider-source))]
+        (is (zero? (:exit result)) (pr-str result)))
+      (binding [runtime/*compile-only?* true
+                bundle/*preparing* collected
+                explain/*reporter* #(swap! events conj %)]
+        (let [failure (try
+                        (compile! "retry"
+                                  (str "extern fn missing_value() i32;\n"
+                                       "export fn __aguafria_probe() i32 { return missing_value(); }\n"))
+                        nil
+                        (catch Exception error
+                          (last (take-while some? (iterate ex-cause error)))))]
+          (is (= :zig-compile (:aguafria/phase (ex-data failure))))
+          (is (str/includes? (:stderr (ex-data failure)) "undefined symbol"))
+          (is (not (some #{"-fno-emit-bin"} (:command (ex-data failure)))))
+          (is (empty? (:artifacts @collected))))
+        (let [source (str "extern fn unused_value() i32;\n"
+                          "export fn __aguafria_probe() i32 { return 41; }\n")
+              unused (compile! "retry" source)]
+          (is (:requires-link-validation? (bundle/candidate unused)))
+          (is (.isFile (io/file (:library-path unused))))
+          (is (some #(= :link-validated (:event %)) @events))
+          (reset! events [])
+          (is (:cached? (compile! "retry" source)))
+          (is (some #(= :disk-cache-hit (:event %)) @events))
+          (is (not-any? #(= :link-validated (:event %)) @events))
+          (runtime/configure! {:zig-args [(.getAbsolutePath provider)]})
+          (let [supplied (compile! "supplied"
+                                   (str "extern fn supplied_value() i32;\n"
+                                        "export fn __aguafria_probe() i32 { return supplied_value(); }\n"))
+                assembled (when (and (str/includes? (str/lower-case (System/getProperty "os.name")) "mac")
+                                     (= "aarch64" (System/getProperty "os.arch")))
+                            (compile! "assembled"
+                                      (str "comptime { asm (\".globl _in_graph_value\\n_in_graph_value:\\n mov w0, #43\\n ret\"); }\n"
+                                           "extern fn in_graph_value() i32;\n"
+                                           "export fn __aguafria_probe() i32 { return in_graph_value(); }\n")))
+                artifacts (cond-> [unused supplied] assembled (conj assembled))
+                result (bundle/finish! cache collected callbacks)]
+            (reset! ready artifacts)
+            (is (= (count artifacts) (count (:artifacts @collected))))
+            (is (:requires-link-validation? (bundle/candidate supplied)))
+            (when assembled
+              (is (:requires-link-validation? (bundle/candidate assembled))))
+            (is (= 1 (count (:packs result))))
+            (is (= (count artifacts) (:packed-handlers result)))
+            (is (empty? (:standalone result)))
+            (is (every? #(some? (bundle/find-artifact cache %)) artifacts)))))
+      ;; Compilation/preparation above never invokes the prepared native code.
+      (let [entries (mapv #(bundle/find-artifact cache %) @ready)]
+        (with-open [arena (Arena/ofConfined)]
+          (let [lookup (SymbolLookup/libraryLookup (.toPath (io/file (:library (first entries)))) arena)
+                values (mapv (fn [entry]
+                               (let [handle (.downcallHandle
+                                             (Linker/nativeLinker)
+                                             (.get (.find lookup (str (:prefix entry) "__aguafria_probe")))
+                                             (FunctionDescriptor/of ValueLayout/JAVA_INT (make-array MemoryLayout 0))
+                                             (make-array java.lang.foreign.Linker$Option 0))]
+                                 (.invokeWithArguments handle (ArrayList.)))) entries)]
+            (is (= (vec (take (count entries) [41 42 43])) values)))))
       (finally (runtime/configure! configuration)))))
 
 (deftest shared-source-analysis-is-reused-without-caching-eligibility
@@ -139,17 +453,23 @@
                 (is (= 3 (count @scans)))))))))))
 
 (deftest incompatible-configurations-do-not-silently-create-multiple-libraries
-  (let [records [{:module "aguafria.jvm.first" :command ["zig"]
-                  :groups [{:flags ["-ODebug"]}]}
-                 {:module "aguafria.jvm.second" :command ["zig"]
-                  :groups [{:flags ["-Osafe"]}]}]]
-    (with-redefs [bundle/candidate identity]
-      (let [failure (try
-                      (bundle/finish! "unused" (atom {:artifacts (zipmap (range) records)}) {})
-                      nil
-                      (catch clojure.lang.ExceptionInfo error (ex-data error)))]
-        (is (= :incompatible-bundle-configurations (:reason failure)))
-        (is (= 2 (count (:configurations failure))))))))
+  (doseq [difference [{:command ["other-zig"]}
+                      {:development-panic-support-path "other-support"}
+                      {:debug-format nil}
+                      {:forwarder "different panic forwarder"}]]
+    (let [first-record {:module "aguafria.jvm.first" :command ["zig"]
+                        :development-panic-support-path "support" :debug-format :dwarf
+                        :forwarder "panic forwarder" :groups [{:flags ["-Odebug"]}]}
+          records [first-record (merge first-record difference
+                                       {:module "aguafria.jvm.second"
+                                        :groups [{:flags ["-Osafe"]}]})]]
+      (with-redefs [bundle/candidate identity]
+        (let [failure (try
+                        (bundle/finish! "unused" (atom {:artifacts (zipmap (range) records)}) {})
+                        nil
+                        (catch clojure.lang.ExceptionInfo error (ex-data error)))]
+          (is (= :incompatible-bundle-configurations (:reason failure)))
+          (is (= 2 (count (:configurations failure)))))))))
 
 (deftest conflicting-native-link-lists-do-not-share-a-bundle
   (let [records [{:module "aguafria.jvm.first" :command ["zig"]
@@ -184,7 +504,54 @@
     (is (thrown? clojure.lang.ExceptionInfo
                  (parse {:command (into base ["-framework"])})))
     (is (thrown? clojure.lang.ExceptionInfo
-                 (parse {:command (into base ["-unknown-option" "-Mroot=root.zig"])})))))
+                 (parse {:command (into base ["-unknown-option" "-Mroot=root.zig"])})))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (parse {:command (into base ["-ODebug" "-Mroot=root.zig"])})))))
+
+(deftest mixed-per-module-optimization-profiles-preserve-their-compiler-modes
+  (let [directory (.toFile (Files/createTempDirectory "aguafria mixed mode bundle "
+                                                      (make-array java.nio.file.attribute.FileAttribute 0)))
+        cache (str (io/file directory "cache"))
+        zig (runtime/zig-executable)
+        support-source (io/file directory "support.zig")
+        support (io/file directory (System/mapLibraryName "support"))
+        callbacks {:run-command (fn [command cwd]
+                                  (apply shell/sh (concat command [:dir cwd])))
+                   :preserve-debug! (fn [& _])}]
+    (spit support-source "export fn support() void {}\n")
+    (let [result (shell/sh zig "build-lib" "-dynamic" "-Ofast"
+                           (str "-femit-bin=" support) (str support-source))]
+      (is (zero? (:exit result)) (pr-str result)))
+    (let [artifacts
+          (mapv (fn [mode]
+                  (let [source (io/file directory (str (name mode) ".zig"))
+                        flags (cond-> [(str "-O" (name mode))]
+                                (= :safe mode) (into ["-ferror-tracing" "-funwind-tables"]))]
+                    (spit source (str "// Aguafria development loader.\n"
+                                      "const builtin = @import(\"builtin\");\n"
+                                      "comptime { if (builtin.optimize != ." (name mode)
+                                      ") @compileError(\"Entry optimization mode changed\"); }\n"
+                                      "export fn __aguafria_mode() i32 { return "
+                                      "if (builtin.optimize == .debug) 10 else 20; }\n"))
+                    {:module (str "fixture." (name mode)) :hash (artifact/key-for :fixture-mode flags)
+                     :jvm-wrapper? true :development-panic :shared
+                     :development-panic-support-path (str support)
+                     :command (into [zig "build-lib" "-dynamic" "-femit-bin=unused" (str support)]
+                                    (concat flags [(str "-Mroot=" source)]))}))
+                [:debug :safe])
+          result (bundle/finish! cache (atom {:artifacts (zipmap (range) artifacts)}) callbacks)
+          entries (mapv #(bundle/find-artifact cache %) artifacts)]
+      (is (= 1 (count (:packs result))))
+      (is (= 2 (:packed-handlers result)))
+      (is (= 1 (count (set (map :library entries)))))
+      (with-open [arena (Arena/ofConfined)]
+        (let [lookup (SymbolLookup/libraryLookup (.toPath (io/file (:library (first entries)))) arena)]
+          (doseq [[expected entry] (map vector [10 20] entries)]
+            (let [handle (.downcallHandle (Linker/nativeLinker)
+                                          (.get (.find lookup (str (:prefix entry) "__aguafria_mode")))
+                                          (FunctionDescriptor/of ValueLayout/JAVA_INT (make-array MemoryLayout 0))
+                                          (make-array java.lang.foreign.Linker$Option 0))]
+              (is (= expected (.invokeWithArguments handle (ArrayList.)))))))))))
 
 (deftest appended-native-dependencies-and-translated-c-share-one-bundle
   (let [directory (.toFile (Files/createTempDirectory "aguafria native bundle "
@@ -244,6 +611,101 @@
                                           (make-array java.lang.foreign.Linker$Option 0))]
               (is (= (+ 42 n) (.invokeWithArguments handle (ArrayList.)))))))))))
 
+(defn root-bundle-values! [cache artifacts]
+  (let [entries (mapv #(bundle/find-artifact cache %) artifacts)
+        events (atom [])]
+    (assert (every? some? entries))
+    (binding [explain/*reporter* #(swap! events conj %)]
+      {:values
+       (mapv (fn [entry]
+               (let [lookup (bundle/symbol-lookup entry)
+                     handle (.downcallHandle
+                             (Linker/nativeLinker)
+                             (.get (.find lookup "__aguafria_probe"))
+                             (FunctionDescriptor/of ValueLayout/JAVA_INT
+                                                    (make-array MemoryLayout 0))
+                             (make-array java.lang.foreign.Linker$Option 0))]
+                 (.invokeWithArguments handle (ArrayList.))))
+             entries)
+       :packs (count (set (map :id entries)))
+       :events (frequencies (map :event @events))})))
+
+(deftest bundled-import-root-preserves-each-handler-module-graph
+  (let [directory (.toFile (Files/createTempDirectory
+                            "aguafria bundle roots "
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
+        cache (str (io/file directory "cache"))
+        zig (runtime/zig-executable)
+        support-source (io/file directory "support.zig")
+        support (io/file directory (System/mapLibraryName "support"))
+        child (io/file directory "child.zig")
+        callbacks {:run-command (fn [command cwd]
+                                  (apply shell/sh (concat command [:dir cwd])))
+                   :preserve-debug! (fn [& _])}]
+    (spit support-source "export fn bundle_root_test_support() void {}\n")
+    (spit child (str "pub fn read() i32 {\n"
+                     "    return @import( // entry root\n"
+                     "        \"root\",\n"
+                     "    ).value;\n}\n"
+                     "test \"test-only asset\" { _ = @embedFile(\"not-packaged.zig\"); }\n"
+                     "pub const Nested = struct {\n"
+                     "    test \"nested test-only asset\" { _ = @embedFile(\"not-packaged.zig\"); }\n"
+                     "};\n"))
+    (let [built (shell/sh zig "build-lib" "-dynamic" "-Osafe"
+                          (str "-femit-bin=" support) (str support-source))]
+      (is (zero? (:exit built)) (pr-str built)))
+    (let [artifacts
+          (mapv (fn [n]
+                  (let [source (io/file directory (str "handler_" n ".zig"))]
+                    (spit source
+                          (str "// Aguafria development loader.\n"
+                               "pub const value: i32 = " (+ 42 n) ";\n"
+                               "const child = @import(\"child\");\n"
+                               "export fn __aguafria_probe() i32 {\n"
+                               "    return child.read() + @import(\"root\").value;\n}\n"))
+                    {:module (str "aguafria.jvm.bundle-root-test-" n)
+                     :hash (str n) :jvm-adapter? true
+                     :development-panic :shared
+                     :development-panic-support-path (str support)
+                     :command [zig "build-lib" "-dynamic" "-femit-bin=unused"
+                               (str support) "-Osafe" "--dep" "child"
+                               (str "-Mroot=" source) (str "-Mchild=" child)]}))
+                (range 2))]
+      (is (every? some? (map bundle/candidate artifacts)))
+      (when (every? bundle/candidate artifacts)
+        (let [result (bundle/finish! cache (atom {:artifacts (zipmap (range) artifacts)})
+                                     callbacks)
+              entries (mapv #(bundle/find-artifact cache %) artifacts)]
+          (is (= 1 (count (:packs result))))
+          (is (= 2 (:packed-handlers result)))
+          (is (empty? (:standalone result)))
+          (is (= 1 (count (set (map :library entries)))))
+          (with-open [arena (Arena/ofConfined)]
+            (let [lookup (SymbolLookup/libraryLookup
+                          (.toPath (io/file (:library (first entries)))) arena)]
+              (doseq [[n entry] (map-indexed vector entries)]
+                (let [handle (.downcallHandle
+                              (Linker/nativeLinker)
+                              (.get (.find lookup (str (:prefix entry) "__aguafria_probe")))
+                              (FunctionDescriptor/of ValueLayout/JAVA_INT
+                                                     (make-array MemoryLayout 0))
+                              (make-array java.lang.foreign.Linker$Option 0))]
+                  (is (= (* 2 (+ 42 n)) (.invokeWithArguments handle (ArrayList.))))))))
+          (let [code `(do (require 'aguafria.zig.bundle-test)
+                          (prn (root-bundle-values!
+                                ~cache ~(mapv #(select-keys % [:module :hash]) artifacts)))
+                          (shutdown-agents))
+                child (shell/sh (str (System/getProperty "java.home") "/bin/java")
+                                "--enable-native-access=ALL-UNNAMED" "-cp"
+                                (System/getProperty "java.class.path")
+                                "clojure.main" "-e" (pr-str code))]
+            (is (zero? (:exit child)) (:err child))
+            (when (zero? (:exit child))
+              (let [result (edn/read-string (:out child))]
+                (is (= [84 86] (:values result)))
+                (is (= 1 (:packs result)))
+                (is (= {:bundle-loaded 1} (:events result)))))))))))
+
 (deftest more-than-64-handlers-and-existing-packs-become-one-real-library
   (let [directory (.toFile (Files/createTempDirectory "aguafria single bundle "
                                                       (make-array java.nio.file.attribute.FileAttribute 0)))
@@ -295,7 +757,23 @@
             repeated (bundle/finish! cache (collect cached) callbacks)]
         (is (= before (count @commands)))
         (is (= 1 (count (:packs repeated))))
-        (is (true? (get-in repeated [:packs 0 :cached?])))))))
+        (is (true? (get-in repeated [:packs 0 :cached?]))))
+      (let [events (atom [])
+            first-entry (first entries)
+            last-artifact (last artifacts)]
+        (binding [explain/*reporter* #(swap! events conj %)]
+          (bundle/symbol-lookup first-entry)
+          (bundle/finish! cache (collect [last-artifact]) callbacks)
+          (let [entry (bundle/find-artifact cache last-artifact)
+                lookup (bundle/symbol-lookup entry)
+                handle (.downcallHandle (Linker/nativeLinker)
+                                        (.get (.find lookup "__aguafria_probe"))
+                                        (FunctionDescriptor/of ValueLayout/JAVA_INT
+                                                               (make-array MemoryLayout 0))
+                                        (make-array java.lang.foreign.Linker$Option 0))]
+            (is (= (:id first-entry) (:id entry)))
+            (is (= 64 (.invokeWithArguments handle (ArrayList.))))))
+        (is (= 1 (count (filter #(= :bundle-loaded (:event %)) @events))))))))
 
 (deftest isolation-renames-identifiers-not-zig-source-text
   (let [rename (ns-resolve 'aguafria.zig.bundle 'rename-identifiers)
@@ -338,6 +816,41 @@
                  (validate {:analysis (analyze "const x = @import(\"neighbor.zig\");") :deps []})))
     (is (thrown? clojure.lang.ExceptionInfo
                  (validate {:analysis (analyze "const x = @embedFile(\"data.txt\");") :deps []})))))
+
+(deftest root-import-binding-only-rewrites-complete-import-calls
+  (let [source (str "// @import(\"root\")\n"
+                    "const text = \"@import(\\\"root\\\")\";\n"
+                    "const multiline = \\\\@import(\"root\")\n;\n"
+                    "const @\"root\" = 1;\n"
+                    "const actual = @import ( // root dependency\n"
+                    "  \"root\" );\n")
+        expected (str/replace source "  \"root\" );" "  \"handler_root\" );")]
+    (is (= expected (#'bundle/bind-root-imports source "handler_root")))
+    (is (nil? (#'bundle/validate-source!
+               {:deps [] :analysis (#'bundle/analyze-source
+                                    "const x = @import(\"root\");")})))
+    (is (nil? (#'bundle/validate-source!
+               {:deps [] :analysis (#'bundle/analyze-source
+                                    "const x = @import(\"root\",);")})))
+    (doseq [source ["const x = @import(\"root\" ++ \".zig\");"
+                    "const x = @import(if (true) \"root\" else \"std\");"
+                    "const x = @embedFile(\"data\" ++ \".txt\");"]]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (#'bundle/validate-source!
+                    {:deps [] :analysis (#'bundle/analyze-source source)}))))))
+
+(deftest library-assets-are-classified-by-zig-test-spans
+  (let [test-only (str "// Unicode before byte spans: ☔\n"
+                       "test \"asset\" { _ = @embedFile(\"absent.txt\"); }\n"
+                       "const Nested = struct {\n"
+                       "    test \"nested\" { _ = @embedFile(\"nested.txt\"); }\n"
+                       "};\n")]
+    (is (empty? (:imports (#'bundle/library-source-analysis test-only))))
+    (doseq [source [(str test-only "const runtime = @embedFile(\"absent.txt\");\n")
+                    "test \"import\" { _ = @import(\"absent.zig\"); }\n"]]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (#'bundle/validate-source!
+                    {:deps [] :analysis (#'bundle/library-source-analysis source)}))))))
 
 (defn phase! [cache action]
   (runtime/configure! {:cache-dir cache})

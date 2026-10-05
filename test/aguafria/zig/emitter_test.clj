@@ -15,6 +15,47 @@
       (is (= expected (emit/emit-expr text)))
       (is (= identifier (emit/identifier "while"))))))
 
+(deftest extern-declarations-preserve-visibility-and-library
+  (doseq [[prefix public? expected]
+          [[nil true "pub extern "]
+           [nil false "extern "]
+           ["extern" true "pub extern "]
+           ["extern" false "extern "]
+           ["extern \"c\"" true "pub extern \"c\" "]
+           ["pub extern \"c\"" true "pub extern \"c\" "]]]
+    (let [options {:name 'external
+                   :public? public?
+                   :zig-prefix prefix
+                   :emit-source-comment? false}]
+      (is (= (str expected "fn external(value: i32) callconv(.c) i32;")
+             (emit/emit-declaration
+              (assoc options :kind :fn-proto :return :i32 :callconv :.c
+                     :args [{:name 'value :type :i32}]))))
+      (is (= (str expected "var external: i32;")
+             (emit/emit-declaration
+              (assoc options :kind :extern-var :type :i32)))))))
+
+(deftest declaration-modifiers-do-not-remove-public-visibility
+  (doseq [[kind prefix tail]
+          [[:fn "inline" "fn modified(value: i32) i32 {\n    return value;\n}"]
+           [:var "threadlocal" "var modified: i32 = 7;"]
+           [:const "extern \"c\"" "const modified: i32 = 7;"]
+           [:struct "" "const modified = struct {\n    value: i32,\n};"]]]
+    (doseq [public? [true false]]
+      (is (= (str (when public? "pub ")
+                  (when (seq prefix) (str prefix " ")) tail)
+             (emit/emit-declaration
+              {:kind kind :name 'modified :public? public? :export? false
+               :zig-prefix prefix :emit-source-comment? false
+               :implicit-return? true :type :i32 :value (when-not (= :struct kind) 7)
+               :fields [{:name 'value :type :i32}]
+               :return :i32 :args [{:name 'value :type :i32}] :body ['value]})))))
+  (is (= "pub export fn exported() i32 {\n    return 7;\n}"
+         (emit/emit-declaration
+          {:kind :fn :name 'exported :public? true :export? true
+           :zig-prefix "export" :emit-source-comment? false
+           :return :i32 :args [] :body [7] :implicit-return? true}))))
+
 (deftest inspection-hooks-preserve-ordinary-emission
   (let [context (the-ns 'aguafria.zig.emitter-test)
         observations (atom [])
@@ -39,6 +80,27 @@
     (is (= #{:field :deref :index :slice :statement}
            (set (keep :placement @observations))))
     (is (nil? emit/*expression-observer*))))
+
+(deftest inspection-observes-scoped-statements-without-changing-native-emission
+  (let [context (the-ns 'aguafria.zig.emitter-test)]
+    (doseq [source ['(a/block (ak/+= counter 1))
+                    '(ak/comptime (a/block (ak/+= counter 1)))
+                    '(a/if-capture-stmt {:payload [item]} source
+                                        (ak/= target item))]]
+      (let [form (emit/qualify-form context source)
+            ordinary (emit/emit-stmt-in context form)
+            observations (atom [])
+            inspected (binding [emit/*expression-observer*
+                                (fn [observation]
+                                  (swap! observations conj observation)
+                                  (:source observation))]
+                        (emit/emit-stmt-in context form))
+            scoped (filter #(get-in % [:var-meta :aguafria/scoped?]) @observations)]
+        (is (= ordinary inspected))
+        (is (= 1 (count scoped)))
+        (is (= :statement (:placement (first scoped))))
+        (is (fn? (:place-probe (first scoped))))
+        (is (some? (:aguafria/scoped-template (meta (:form (first scoped))))))))))
 
 (deftest inspection-records-the-operator-selected-by-emission
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -109,6 +171,30 @@
                              ['(:.fromPair 1 2) ".fromPair(1, 2)"]]]
       (is (= expected (emit/emit-expr form)))
       (is (= expected (emit/emit-expr context form))))))
+
+(deftest scoped-result-context-is-only-forwarded-to-the-initializer
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        scopes (atom [])
+        form '(ak/const choice Choice
+                        (a/with-block :result
+                          (ak/break :result (:.first input))))
+        plain (emit/emit-stmt-in context form)]
+    (is (emit/scoped-result-context-required? context (last form)))
+    (is (emit/scoped-result-context-required?
+         context '(a/with-block :result (ak/break :result :.first))))
+    (is (not (emit/scoped-result-context-required?
+              context '(a/with-block :result (ak/break :result (ak/as (ak/intCast input) :i32))))))
+    (is (not (emit/scoped-result-context-required?
+              context '(a/with-block :result
+                         (a/with-block :inner (ak/break :inner (:.first input)))
+                         (ak/break :result input)))))
+    (binding [emit/*expression-observer*
+              (fn [{:keys [form source result-context]}]
+                (swap! scopes conj {:form form :context result-context})
+                source)]
+      (is (= plain (emit/emit-stmt-in context form))))
+    (is (= 'Choice (:context (first (filter #(= "with-block" (name (first (:form %)))) @scopes)))))
+    (is (every? #(nil? (:context %)) (filter #(= "break" (name (first (:form %)))) @scopes)))))
 
 (deftest keyword-labeled-native-blocks
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -1337,6 +1423,11 @@
                  :type :u32
                  :value (list 'aguafria.keyword/+ state-symbol 1)
                  :declaration-key [:const 'answer]}
+        derived-pointer {:kind :var
+                         :name 'pointer
+                         :type [:* :u32]
+                         :value (list 'aguafria.keyword/& state-symbol)
+                         :declaration-key [:var 'pointer]}
         runtime-reader {:kind :fn
                         :name 'read-answer
                         :return :u32
@@ -1346,7 +1437,7 @@
         source
         (emit/emit-reloadable-module
          "demo.comptime-state"
-         [state derived runtime-reader]
+         [state derived derived-pointer runtime-reader]
          {}
          {[:var 'io-threaded]
           {:accessor "__state_io_threaded_reference"
@@ -1354,8 +1445,17 @@
            :setter "__state_io_threaded_set_address"
            :size-getter "__state_io_threaded_size"
            :align-getter "__state_io_threaded_alignment"
-           :pointer-align-getter "__state_io_threaded_pointer_alignment"}})]
+           :pointer-align-getter "__state_io_threaded_pointer_alignment"}
+          [:var 'pointer]
+          {:accessor "__state_pointer_reference"
+           :getter "__state_pointer_address"
+           :setter "__state_pointer_set_address"
+           :size-getter "__state_pointer_size"
+           :align-getter "__state_pointer_alignment"
+           :pointer-align-getter "__state_pointer_pointer_alignment"}})]
     (is (str/includes? source "const answer: u32 = (io_threaded + 1);"))
+    (is (str/includes? source
+                       "var pointer: *u32 = if (@typeInfo(*u32) == .void) {} else (&io_threaded);"))
     (is (str/includes? source
                        "return __state_io_threaded_reference().*;"))))
 
@@ -1464,6 +1564,38 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference `fallback`"
                             (emit/validate-declaration-references!
                              context (assoc declaration :body body)))))))
+
+(deftest for-else-blocks-have-sequential-local-scope
+  (let [context (the-ns 'aguafria.zig.emitter-test)
+        declaration {:kind :fn :name 'example :return :void
+                     :args [{:name 'items :type [:slice-const :u8]}]}
+        loop-form '(for [item items]
+                     (set! _ item)
+                     (else-clause (const fallback 7) (set! _ fallback)))]
+    (doseq [loop-head '[for inline-for]]
+      (is (map? (emit/prepare-declaration
+                 context (assoc declaration :body [(cons loop-head (rest loop-form))])))))
+    (is (map? (emit/prepare-declaration
+               context (assoc declaration :body
+                              '[(for-loop {:label :search} [item items]
+                                          (set! _ item)
+                                          (else-clause (const fallback 7) (set! _ fallback)))]))))
+    (doseq [[body missing]
+            [[[loop-form '(set! _ fallback)] "fallback"]
+             ['[(for [item items]
+                  (set! _ item)
+                  (else-clause (set! _ fallback) (const fallback 7)))] "fallback"]
+             ['[(for [item items] (else-clause (set! _ item)))] "item"]
+             ['[(for [item items] (else-expression item))] "item"]]]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo (re-pattern (str "Unresolved Zig reference `" missing "`"))
+           (emit/validate-declaration-references! context (assoc declaration :body body)))))
+    (is (= '[items]
+           (emit/scoped-captures context loop-form '[items item fallback])))
+    (is (= '[item items]
+           (emit/scoped-captures context
+                                 '(for [item items] (else-expression item))
+                                 '[items item])))))
 
 (deftest converted-containers-know-only-their-declared-members
   (let [context (the-ns 'aguafria.zig.emitter-test)

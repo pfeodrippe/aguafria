@@ -22,9 +22,9 @@
 
 (a/deftest using-typeInfo-with-runtime-values
   (let [index (k/var 0 :usize)]
-    (try (testing/expect (k/! (try (isFieldOptional Struct1 index)))))
+    (try (testing/expect (k/! (k/try (isFieldOptional Struct1 index)))))
     (k/+= index 1)
-    (try (testing/expect (try (isFieldOptional Struct1 index))))
+    (try (testing/expect (k/try (isFieldOptional Struct1 index))))
     (k/+= index 1)
     (try (testing/expectError (a/error-value :IndexOutOfBounds)
                               (isFieldOptional Struct1 index)))))

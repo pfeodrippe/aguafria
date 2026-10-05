@@ -15,8 +15,8 @@
   (debug/assert (k/== x 1235)))
 
 (a/deftest thread-local-storage
-  (let [thread1 (try (thread/spawn {} testTls []))
-        thread2 (try (thread/spawn {} testTls []))]
+  (let [thread1 (k/try (thread/spawn {} testTls []))
+        thread2 (k/try (thread/spawn {} testTls []))]
     (testTls)
     ((:join thread1))
     ((:join thread2))))

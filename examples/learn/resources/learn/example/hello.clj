@@ -1,11 +1,11 @@
 (ns learn.example.hello
-  (:require [aguafria.keyword :as ak]
+  (:require [aguafria.keyword :as k]
             [aguafria.std.Io.File :as std-file]
             [aguafria.std.process :as process]
             [aguafria.std.process.Init :as process-init]
-            [aguafria.zig :as az]))
+            [aguafria.zig :as a]))
 
-(az/defn main :!void
+(a/defn main :!void
   [[process-init process/Init]]
   (try
     (-> (std-file/stdout)

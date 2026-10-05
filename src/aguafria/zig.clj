@@ -1353,7 +1353,10 @@
 ;; namespaces.
 (doseq [operator (emitter/syntax-operators)
         :when (and (not (contains? '#{let when when-not for dotimes case
-                                      array vector assoc! merge! debug! range with-block}
+                                      array vector assoc! merge! debug! range with-block
+                                      block if-capture if-capture-stmt catch-capture
+                                      switch switch-stmt labeled-switch labeled-switch-stmt
+                                      while-loop}
                                    operator))
                    (not (special-symbol? operator))
                    (or (= operator 'type)
@@ -1456,18 +1459,95 @@
   ([start] (invoke-syntax! 'range start))
   ([start end] (invoke-syntax! 'range start end)))
 
+(clojure.core/defn- scoped-expansion [form environment]
+  (let [locals (emitter/scoped-captures *ns* form (keys environment))]
+    `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
+      '~(ns-name *ns*) '~form
+      (hash-map ~@(mapcat (clojure.core/fn [local] [(list 'quote local) local]) locals))
+      ~(emitter/scoped-result? *ns* form))))
+
+(defmacro block
+  "Execute statements in one native scope, preserving local bindings and try.
+  From the JVM, the scoped bridge compiles the body without evaluating its
+  statements first. An unlabeled Zig block has a void result."
+  {:aguafria/syntax '{:kind :syntax :name block :symbol aguafria.zig/block}
+   :aguafria/scoped? true}
+  [& body]
+  (scoped-expansion &form &env))
+
+(defmacro if-capture
+  "Native conditional with payload/error bindings: (a/if-capture
+  {:payload [value] :error [err]} result then else). Branches execute only
+  when selected; captures and the result type are checked by Zig."
+  {:aguafria/syntax '{:kind :syntax :name if-capture :symbol aguafria.zig/if-capture}
+   :aguafria/scoped? true}
+  [options condition then & otherwise]
+  (scoped-expansion &form &env))
+
+(defmacro if-capture-stmt
+  "Statement form of a/if-capture, with the same native capture bindings."
+  {:aguafria/syntax '{:kind :syntax :name if-capture-stmt :symbol aguafria.zig/if-capture-stmt}
+   :aguafria/scoped? true}
+  [options condition then & otherwise]
+  (scoped-expansion &form &env))
+
+(defmacro catch-capture
+  "Unwrap a native error union, binding its error in the selected handler.
+  (a/catch-capture [err] result handler) works inside Zig and from the JVM."
+  {:aguafria/syntax '{:kind :syntax :name catch-capture :symbol aguafria.zig/catch-capture}
+   :aguafria/scoped? true}
+  [capture expression handler]
+  (scoped-expansion &form &env))
+
 (defmacro with-block
   "A scoped, labeled Zig block: (a/with-block :result ... (k/break :result value)).
   Labels are keywords, not variables. Returns the value of the matching break.
   Inside Aguafria emits a native labeled block; from the JVM executes the same
   block in process, capturing lexical values."
-  {:aguafria/syntax '{:kind :syntax :name with-block :symbol aguafria.zig/with-block}}
+  {:aguafria/syntax '{:kind :syntax :name with-block :symbol aguafria.zig/with-block}
+   :aguafria/scoped? true}
   [label & body]
-  (let [locals (emitter/scoped-captures *ns* &form (keys &env))]
-    `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
-      '~(ns-name *ns*) '~&form
-      (hash-map ~@(mapcat (clojure.core/fn [local] [(list 'quote local) local]) locals))
-      true)))
+  (scoped-expansion &form &env))
+
+(defmacro switch
+  "Execute a native value-producing switch, retaining its case syntax.
+  From the JVM, Zig checks the cases and enclosing lexical captures together."
+  {:aguafria/syntax '{:kind :syntax :name switch :symbol aguafria.zig/switch}
+   :aguafria/scoped? true}
+  [value & cases]
+  (scoped-expansion &form &env))
+
+(defmacro switch-stmt
+  "Execute a native switch statement with lexical payload/tag captures.
+  Only the selected case runs; the JVM bridge returns no value."
+  {:aguafria/syntax '{:kind :syntax :name switch-stmt :symbol aguafria.zig/switch-stmt}
+   :aguafria/scoped? true}
+  [value & cases]
+  (scoped-expansion &form &env))
+
+(defmacro labeled-switch
+  "Execute a value-producing native dispatch loop.
+  The label and its continue forms stay together in the native scope."
+  {:aguafria/syntax '{:kind :syntax :name labeled-switch :symbol aguafria.zig/labeled-switch}
+   :aguafria/scoped? true}
+  [label value & cases]
+  (scoped-expansion &form &env))
+
+(defmacro labeled-switch-stmt
+  "Execute a labeled native switch statement, preserving its continue targets."
+  {:aguafria/syntax '{:kind :syntax :name labeled-switch-stmt
+                      :symbol aguafria.zig/labeled-switch-stmt}
+   :aguafria/scoped? true}
+  [label value & cases]
+  (scoped-expansion &form &env))
+
+(defmacro while-loop
+  "Execute a native while loop with options, captures and lexical state.
+  An :else-expression supplies its value; other loops are statements."
+  {:aguafria/syntax '{:kind :syntax :name while-loop :symbol aguafria.zig/while-loop}
+   :aguafria/scoped? true}
+  [options condition & body]
+  (scoped-expansion &form &env))
 
 (clojure.core/defn- container-function-form
   [form name return declaration public?]

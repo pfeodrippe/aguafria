@@ -15,6 +15,9 @@ fn Graph(comptime remaining: usize) type {
 const Root = Graph(12);
 const Inspector = probe.Inspector(.{TypeBox(Root, "fixture/Root")});
 
+const Tagged = union(enum(u8)) { count: u32, empty: void };
+const TaggedInspector = probe.Inspector(.{TypeBox(Tagged, "fixture/Tagged")});
+
 fn Marker(comptime id: usize) type {
     return struct {
         const identity = id;
@@ -35,6 +38,8 @@ fn CollisionRoot(comptime id: usize) type {
 
 fn TypeBox(comptime T: type, comptime expression: []const u8) type {
     return struct {
+        pub const function_root = @typeInfo(T) == .@"fn";
+
         pub fn get() type {
             return T;
         }
@@ -46,6 +51,10 @@ fn TypeBox(comptime T: type, comptime expression: []const u8) type {
 }
 
 comptime {
+    const Tag = @typeInfo(Tagged).@"union".tag_type.?;
+    const tag_expression = "(aguafria.zig/unwrap (aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo fixture/Tagged) :union) :tag_type))";
+    if (!std.mem.eql(u8, TaggedInspector.schema(Tag), tag_expression))
+        @compileError("Implicit union tag identity was not resolved");
     const anonymous = @Tuple(&.{u32});
     const schema = Inspector.schema(anonymous);
     if (!std.mem.eql(u8, schema, "(aguafria.keyword/Tuple (aguafria.keyword/& [:u32 ]))"))

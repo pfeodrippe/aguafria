@@ -6,8 +6,8 @@
 (a/deftest coerce-to-optionals-wrapped-in-error-union
   (let [x (k/as 1234 [:error-union :anyerror [:optional :i32]])
         y (k/as nil [:error-union :anyerror [:optional :i32]])]
-    (try (testing/expectEqual 1234 (a/unwrap (try x))))
-    (try (testing/expectEqual nil (try y)))))
+    (k/try (testing/expectEqual 1234 (a/unwrap (k/try x))))
+    (k/try (testing/expectEqual nil (k/try y)))))
 
 (comment
   (coerce-to-optionals-wrapped-in-error-union))

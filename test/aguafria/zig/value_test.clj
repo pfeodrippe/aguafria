@@ -6,11 +6,32 @@
             [clojure.pprint :as pprint]
             [clojure.test :refer [deftest is]]))
 
+(deftest aligned-addresses-use-canonical-pointer-attributes
+  (doseq [alignment [2 64]
+          mutable? [false true]]
+    (with-open [arena (java.lang.foreign.Arena/ofConfined)]
+      (let [storage (.allocate arena 4 alignment)
+            owner (value/native-value
+                   {:kind (if mutable? :var :const) :type :u32}
+                   (constantly {:representation :native
+                                :segment storage :size 4 :alignment alignment
+                                :pointer-alignment alignment
+                                :schema {:kind :int :bits 32 :signed? false}}))]
+        (with-open [pointer (value/address-value owner mutable?)]
+          (is (= [:* (cond-> {:align alignment}
+                       (not mutable?) (assoc :const? true)) :u32]
+                 (value/qualified-type pointer)))
+          (is (identical? owner (first (:owners (value/realize! pointer)))))
+          (is (= (.address storage)
+                 (.address (.get ^java.lang.foreign.MemorySegment
+                            (:segment (value/realize! pointer))
+                                 java.lang.foreign.ValueLayout/ADDRESS 0)))))))))
+
 (deftest native-sequential-values-support-clojure-destructuring
   (doseq [type [[:array 3 :i32]
-               [:array 3 {:sentinel 0} :i32]
-               [:vector 3 :i32]
-               [:slice :i32]]]
+                [:array 3 {:sentinel 0} :i32]
+                [:vector 3 :i32]
+                [:slice :i32]]]
     (with-open [native (ak/var [1 2 3] type)]
       (let [[x y z missing :as original] native
             [head & tail] native]
@@ -39,9 +60,9 @@
 
 (deftest native-handles-have-consistent-inspection-tags
   (doseq [[input type expected] [[42 :i32 42]
-                               [true :bool true]
-                               [2.5 :f32 2.5]
-                               [[1 2 3] [:array 3 :u16] [1 2 3]]]]
+                                 [true :bool true]
+                                 [2.5 :f32 2.5]
+                                 [[1 2 3] [:array 3 :u16] [1 2 3]]]]
     (with-open [native (ak/var input type)]
       (let [printed (str "#aguafria.zig.value.ZigValue[" (pr-str expected) "]")]
         (is (= expected @native))
@@ -67,11 +88,11 @@
         (require '[aguafria.zig :as a] '[aguafria.keyword :as ak])
         (eval '(a/defn- Box :type [[T {:zig/prefix "comptime"} :type]]
                  (a/struct [[:item T]
-                             [:next [:optional [:* :u32]]]])))
+                            [:next [:optional [:* :u32]]]])))
         (eval '(a/defn make-box (Box (a/type [:array 2 :u21])) []
                  (a/init {:item [9748 9786]
-                           :next (ak/as (ak/ptrFromInt 4) [:* :u32])}
-                          (Box (a/type [:array 2 :u21]))))))
+                          :next (ak/as (ak/ptrFromInt 4) [:* :u32])}
+                         (Box (a/type [:array 2 :u21]))))))
       (with-open [native ((ns-resolve context 'make-box))]
         (let [decoded @native]
           (is (= [9748 9786] (:item decoded)))

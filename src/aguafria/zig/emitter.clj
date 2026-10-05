@@ -95,7 +95,7 @@
   [x]
   (source-map/mark x (identifier-source x)))
 
-(declare zig-string emit-expr emit-stmt emit-statements emit-type emit-block-expr
+(declare zig-string emit-expr emit-result-expr emit-stmt emit-statements emit-type emit-block-expr
          postfix-source multiline-string-tail? indent braced capture-source
          emit-container emit-while-loop emit-for emit-for-loop emit-let-expr)
 
@@ -145,6 +145,11 @@
   "Lexically scoped local names and whether their initializers produce types."
   {})
 (def ^:dynamic *local-name-bindings* {})
+(def ^:dynamic ^:private *jvm-switch-source* nil)
+(def ^:dynamic ^:private *result-context* nil)
+(def ^:dynamic ^:private *result-context-origin* nil)
+(def ^:dynamic ^:private *branch-result-context* nil)
+(def ^:dynamic ^:private *function-return-context* nil)
 (def ^:dynamic *named-module-imports?* false)
 (def ^:dynamic *logical-type-names?* false)
 
@@ -191,6 +196,12 @@
        "    }\n"
        "    return type_name;\n"
        "}"))
+
+(defn logical-type-name-helper-source
+  "The ordinary JVM/development type-name helper, for compile-only probes that
+  need its exact result representation without changing dependency identity."
+  []
+  logical-type-name-helper)
 
 (defn- current-keyword-token
   [op]
@@ -618,6 +629,21 @@
                             *local-name-bindings* local-names]
                     (qualify-form context-ns value))
             names (if (vector? binding-name) binding-name [binding-name])
+            jvm-operand (when (symbol? binding-name)
+                          (cond
+                            (and (seq? value) (= 'try (first value)) (= 2 (count value))
+                                 (not (:aguafria/native-try? (meta value))))
+                            (second value)
+                            (symbol? value) (:aguafria/jvm-operand (meta value))))
+            jvm-field-source (when (symbol? binding-name)
+                               (if (and (seq? value) (= 3 (count value))
+                                        (symbol? (first value)) (= "field" (name (first value))))
+                                 value
+                                 (:aguafria/jvm-field-source (meta value))))
+            jvm-initializer (when (and (symbol? binding-name)
+                                       (not (:var (keyword/normalize-attributes context-ns (meta binding-name))))
+                                       (not (and (seq? value) (= 'var (first value)))))
+                              value)
             later-names (set (mapcat (fn [[binding]]
                                        (if (vector? binding) binding [binding]))
                                      (next pairs)))
@@ -633,6 +659,27 @@
                                                 (dissoc (meta name) :zig/name))
                                               name)]))
                                names)
+            replacements (if jvm-operand
+                           (update replacements binding-name
+                                   #(vary-meta % assoc :aguafria/jvm-operand jvm-operand))
+                           replacements)
+            replacements (if jvm-field-source
+                           (update replacements binding-name
+                                   #(vary-meta % assoc :aguafria/jvm-field-source jvm-field-source))
+                           replacements)
+            replacements (if (some? jvm-initializer)
+                           (update replacements binding-name
+                                   #(vary-meta % assoc :aguafria/jvm-initializer jvm-initializer))
+                           replacements)
+            replacements (if (symbol? binding-name)
+                           (update replacements binding-name
+                                   #(vary-meta % assoc :aguafria/jvm-binding-source
+                                               {:initializer value
+                                                :variable? (boolean
+                                                            (or (:var (keyword/normalize-attributes
+                                                                       context-ns (meta binding-name)))
+                                                                (and (seq? value) (= 'var (first value)))))}))
+                           replacements)
             qualified-binding (if (vector? binding-name)
                                 (with-meta (mapv replacements binding-name) (meta binding-name))
                                 (replacements binding-name))
@@ -706,11 +753,16 @@
                  (let [[options condition & body] args
                        payload (:payload options)
                        error (:error options)
-                       options (cond-> (qualify (dissoc options :payload :error :continue :else))
+                       options (cond-> (qualify (dissoc options :payload :error :continue :else
+                                                       :else-expression :label :body-label))
+                                 (contains? options :label) (assoc :label (:label options))
+                                 (contains? options :body-label) (assoc :body-label (:body-label options))
                                  payload (assoc :payload (scoped payload payload))
                                  error (assoc :error (scoped error error))
                                  (:continue options) (assoc :continue (scoped payload (:continue options)))
-                                 (:else options) (assoc :else (scoped error (:else options))))]
+                                 (:else options) (assoc :else (scoped error (:else options)))
+                                 (contains? options :else-expression)
+                                 (assoc :else-expression (scoped error (:else-expression options))))]
                    (into [options (qualify condition)]
                          (map-indexed #(scoped (if (and (not= 'while-loop operator) (pos? %1))
                                                  error payload) %2))
@@ -719,7 +771,21 @@
                  (case inline-case case-else inline-case-else)
                  (let [ordinary? (contains? #{'case 'inline-case} operator)
                        [patterns body] (if ordinary? [(first args) (rest args)] [nil args])
-                       captures (first body)]
+                       captures (first body)
+                       captures (if (and ordinary? *jvm-switch-source* (vector? captures))
+                                  (mapv (fn [capture]
+                                          (let [pointer? (seq? capture)
+                                                name (if pointer? (second capture) capture)
+                                                name (when (symbol? name)
+                                                       (vary-meta name assoc :aguafria/jvm-switch-capture
+                                                                  {:receiver *jvm-switch-source*
+                                                                   :patterns (qualify patterns)
+                                                                   :pointer? (boolean pointer?)}))]
+                                            (if name
+                                              (if pointer? (with-meta (list (first capture) name) (meta capture)) name)
+                                              capture)))
+                                        captures)
+                                  captures)]
                    (when (and (vector? captures) (next body))
                      (concat (when ordinary? [(qualify patterns)])
                              [(scoped captures captures)]
@@ -747,13 +813,36 @@
                     (resolve-zig-reference context-ns op))
         parameters (when-not (or structural? token)
                      (declared-call-arguments context-ns op reference))
-        args (cond
+        args (binding [*jvm-switch-source*
+                       (cond
+                         (contains? #{'labeled-switch 'labeled-switch-stmt} structural-op)
+                         (qualify-form context-ns (second raw-args))
+                         (or (= "switch" (:zig-token token))
+                             (contains? #{'switch 'switch-stmt} structural-op))
+                         (qualify-form context-ns (first raw-args))
+                         :else *jvm-switch-source*)]
+               (cond
                (and (= "@as" (:zig-name token)) (= 2 (count raw-args)))
                [(qualify-form context-ns (first raw-args))
                 (qualify-type context-ns (second raw-args))]
 
                (and structural? (= 'type structural-op))
                (mapv #(qualify-type context-ns %) raw-args)
+
+               (contains? #{'labeled-switch 'labeled-switch-stmt} structural-op)
+               (into [(first raw-args)] (map #(qualify-form context-ns %)) (rest raw-args))
+
+               (or (= 'continue structural-op) (= "continue" (:zig-token token)))
+               (if (seq raw-args)
+                 (into [(first raw-args)] (map #(qualify-form context-ns %)) (rest raw-args))
+                 [])
+
+               (or (= 'break-label structural-op) (= "break-label" (:zig-token token)))
+               raw-args
+
+               (and (or (= 'break structural-op) (= "break" (:zig-token token)))
+                    (= 2 (count raw-args)))
+               [(first raw-args) (qualify-form context-ns (second raw-args))]
 
                (and structural? (= 'field structural-op)
                     (= 2 (count raw-args)))
@@ -782,7 +871,7 @@
                            (qualify-form context-ns argument)
                            (list 'type (qualify-type context-ns argument)))
                          (qualify-form context-ns argument)))
-                     (range) raw-args))
+                     (range) raw-args)))
         qualified-op (cond
                        structural? structural-op
                        (= :keyword (:kind token)) (symbol (:zig-token token))
@@ -811,7 +900,10 @@
       (do
         (when-not (= 1 (count args))
           (fail! "A field accessor requires exactly one receiver" form))
-        (with-meta (list 'field (first args) (keyword (:member-name reference))) (meta form)))
+        (with-meta (list 'field (first args) (keyword (:member-name reference)))
+          (cond-> (meta form)
+            (:owner-type reference)
+            (assoc :aguafria/field-owner (:owner-type reference)))))
 
       (:receiver-method? reference)
       (do
@@ -821,7 +913,9 @@
                           (rest args))
           (meta form)))
 
-      (= 'with-block structural-op)
+      (contains? #{'with-block 'block 'if-capture 'if-capture-stmt 'catch-capture
+                   'switch 'switch-stmt 'labeled-switch 'labeled-switch-stmt 'while-loop}
+                 structural-op)
       (let [captures (or (:aguafria/scoped-captures (meta form))
                          (mapv (fn [name] [name (qualify-form context-ns name)])
                                (scoped-captures context-ns form
@@ -832,7 +926,9 @@
           (assoc (meta form)
                  :aguafria/scoped-template (or (:aguafria/scoped-template (meta form)) form)
                  :aguafria/scoped-captures captures)))
-      :else (with-meta (apply list qualified-op args) (meta form)))))
+      :else (with-meta (apply list qualified-op args)
+              (cond-> (meta form)
+                (= "try" (:zig-token token)) (assoc :aguafria/native-try? true))))))
 
 (defn qualify-form
   "Replace keyword aliases with canonical `aguafria.keyword/...` Var symbols.
@@ -854,6 +950,20 @@
                    (or (resolved-syntax-operator context-ns (first form))
                        (some-> (keyword/resolve-token context-ns (first form))
                                :zig-token symbol)))
+        form (if (and (seq? form)
+                      (contains? #{'with-block 'block 'if-capture 'if-capture-stmt
+                                   'catch-capture 'switch 'switch-stmt 'labeled-switch
+                                   'labeled-switch-stmt 'while-loop} operator))
+               (vary-meta form assoc
+                          :aguafria/scoped-template
+                          (or (:aguafria/scoped-template (meta form)) form)
+                          :aguafria/scoped-captures
+                          (or (:aguafria/scoped-captures (meta form))
+                              (mapv (fn [name] [name (qualify-form context-ns name)])
+                                    (scoped-captures
+                                     context-ns form
+                                     (into *lexical-bindings* (keys *local-type-bindings*))))))
+               form)
         captured (when (seq? form) (lower-capture-form operator form))]
    ;; Type-bearing binding metadata is source code too. Capture its defining
    ;; namespace before declaration emission happens in a different context.
@@ -966,7 +1076,11 @@
       (and (symbol? form) (contains? *local-type-bindings* form))
       (let [replacement (get *local-name-bindings* form form)]
         (if (instance? clojure.lang.IObj replacement)
-          (with-meta replacement (assoc (meta form)
+          (with-meta replacement (assoc (merge (select-keys (meta replacement)
+                                                            [:aguafria/jvm-operand :aguafria/jvm-field-source
+                                                             :aguafria/jvm-initializer :aguafria/jvm-binding-source
+                                                             :aguafria/jvm-switch-capture])
+                                               (meta form))
                                         :aguafria/local? true
                                         :aguafria/local-type? (get *local-type-bindings* form)))
           replacement))
@@ -1036,6 +1150,66 @@
 
 (declare nested-declaration container-description for-bindings validate-declaration-references!)
 
+(defn scoped-result?
+  "Whether native scoped syntax returns a value, without inferring its type."
+  [context-ns form]
+  (let [operator (or (resolved-syntax-operator context-ns (first form)) (first form))]
+    (case operator
+      (if-capture-stmt switch-stmt labeled-switch-stmt) false
+      while-loop (contains? (second form) :else-expression)
+      true)))
+
+(defn scoped-result-context-required?
+  "Whether a scoped result contains syntax that needs a Zig destination type."
+  [context-ns [_ label & body :as form]]
+  (letfn [(operator [form]
+            (when (seq? form)
+              (or (resolved-syntax-operator context-ns (first form))
+                  (some-> (keyword/resolve-token context-ns (first form)) :zig-token symbol)
+                  (first form))))
+          (contextual? [form]
+            (if (and (keyword? form) (str/starts-with? (name form) "."))
+              true
+              (when (seq? form)
+                (let [head (first form)]
+                  (or (and (keyword? head) (str/starts-with? (name head) "."))
+                      (keyword/result-context-required?
+                       (:zig-name (keyword/resolve-token context-ns head)))
+                      (case (operator form)
+                        if (or (contextual? (nth form 2 nil)) (contextual? (nth form 3 nil)))
+                        (let do block) (contextual? (last form))
+                        (switch labeled-switch)
+                        (some #(contextual? (last %))
+                              (drop (if (= 'labeled-switch (operator form)) 3 2) form))
+                        while-loop
+                        (or (contextual? (:else-expression (second form)))
+                            (some loop-break-contextual? (drop 3 form)))
+                        false))))))
+          (loop-break-contextual? [form]
+            (cond
+              (and (seq? form) (= 'break (operator form)))
+              (contextual? (last form))
+              (and (seq? form)
+                   (contains? #{'quote 'container 'fn-decl 'while-loop 'while
+                                'for 'inline-for 'for-loop 'dotimes} (operator form))) false
+              (coll? form) (some loop-break-contextual? form)
+              :else false))
+          (visit [form]
+            (cond
+              (and (seq? form) (contains? #{'quote 'container 'fn-decl} (operator form))) false
+              (and (= 'break (operator form)) (= label (second form)))
+              (contextual? (nth form 2 nil))
+              (coll? form) (some visit form)
+              :else false))]
+    (boolean
+     (case (operator form)
+       with-block (some visit body)
+       if-capture
+       (or (contextual? (nth form 3 nil)) (contextual? (nth form 4 nil)))
+       catch-capture (contextual? (nth form 3 nil))
+       (switch labeled-switch while-loop) (contextual? form)
+       false))))
+
 (defn scoped-captures
   "Return referenced enclosing bindings, respecting bindings inside the form.
   This identifies lexical captures only; it does not assign any Zig types."
@@ -1093,15 +1267,33 @@
                       (let [[options bindings forms] (if (= 'for-loop op)
                                                        [(first args) (second args) (drop 2 args)]
                                                        [nil (first args) (rest args)])
-                            pairs (for-bindings bindings form)]
+                            pairs (for-bindings bindings form)
+                            else-form (when (and (seq? (last forms))
+                                                 (#{'else-clause 'else-expression}
+                                                  (operator (last forms))))
+                                        (last forms))]
                         (visit options bound)
                         (doseq [[_ value] pairs] (visit value bound))
-                        (body forms (into bound (names (map first pairs)))))
+                        (body (if else-form (butlast forms) forms)
+                              (into bound (names (map first pairs))))
+                        (when else-form (body (rest else-form) bound)))
 
                       (= 'dotimes op)
                       (let [[binding limit] (first args)]
                         (visit limit bound)
                         (body (rest args) (conj bound binding)))
+
+                      (#{'labeled-switch 'labeled-switch-stmt} op)
+                      (do (visit (second args) bound)
+                          (body (drop 2 args) bound))
+
+                      (= 'continue op)
+                      (when (= 2 (count args)) (visit (second args) bound))
+
+                      (= 'break op)
+                      (when (seq args) (visit (last args) bound))
+
+                      (= 'break-label op) nil
 
                       (= 'field op) (visit (first args) bound)
 
@@ -1117,9 +1309,12 @@
                             payload (into bound (names (:payload options)))
                             error (into bound (names (:error options)))]
                         (visit condition bound)
-                        (visit (dissoc options :payload :error :continue :else) bound)
+                        (visit (dissoc options :payload :error :continue :else :else-expression
+                                       :label :body-label) bound)
                         (body (:continue options) payload)
                         (body (:else options) error)
+                        (when (contains? options :else-expression)
+                          (visit (:else-expression options) error))
                         (doseq [[index form] (map-indexed vector forms)]
                           (visit form (if (or (= 'while-loop op) (zero? index)) payload error))))
 
@@ -1277,11 +1472,20 @@
                                          [(first args) (second args) (drop 2 args)]
                                          [{} (first args) (rest args)])
               pairs (for-bindings bindings form)
+              else-form (when (and (seq? (last forms))
+                                   (contains? #{'else-clause 'else-expression}
+                                              (or (resolved-syntax-operator
+                                                   context-ns (first (last forms)))
+                                                  (first (last forms)))))
+                          (last forms))
               scope (into names (binding-symbols
                                  (concat (map first pairs)
                                          [(:label options) (:body-label options)])))]
           (doseq [[_ value] pairs] (check value))
-          (body scope forms))
+          (body scope (if else-form (butlast forms) forms))
+          (when else-form
+            (body (into names (binding-symbols [(:label options)]))
+                  (rest else-form))))
 
         (= 'dotimes op)
         (do (check (second (first args)))
@@ -1448,7 +1652,12 @@
          (update :value
                  #(binding [*local-type-bindings*
                             (cond-> *local-type-bindings*
-                              (= :struct (:kind declaration))
+                              (or (= :struct (:kind declaration))
+                                  (and (= :const (:kind declaration))
+                                       (seq? (:value declaration))
+                                       (= 'container
+                                          (resolved-syntax-operator
+                                           context-ns (first (:value declaration))))))
                               (assoc (:name declaration) true))]
                     (qualify-form context-ns %)))
 
@@ -1852,7 +2061,7 @@
             (str/replace-first (emit-stmt branch) #";\s*$" "")
 
             :else
-            (emit-expr branch)))]
+            (emit-result-expr branch)))]
     (str "(if (" (emit-expr test) ") " (branch-source then)
          (when (= 3 (count args))
            (str " else " (branch-source else)))
@@ -1881,7 +2090,7 @@
             (str/replace-first (emit-stmt branch) #";\s*$" "")
 
             :else
-            (emit-expr branch)))]
+            (emit-result-expr branch)))]
     (str "(if (" (emit-expr test) ") "
          (captures-source (:payload options) form)
          (branch-source then)
@@ -1914,7 +2123,7 @@
     (emit-stmt target)
 
     :else
-    (emit-expr target)))
+    (emit-result-expr target)))
 
 (defn- emit-switch-case
   [clause]
@@ -2045,7 +2254,9 @@
   (case (:kind token)
     :primitive
     (if (:constructor? token)
-      (str "@as(" (:zig-token token) ", " (emit-expr (first args)) ")")
+      (str "@as(" (:zig-token token) ", "
+           (binding [*result-context* (keyword (:zig-token token))]
+             (emit-expr (first args))) ")")
       (fail! "This Zig primitive is not a value constructor" form {:token token}))
 
     :call
@@ -2073,7 +2284,8 @@
           (cond
             contextual? (contextual-source (mapv :source inspected-arguments))
             (= "@as" (:zig-name token))
-            (str "@as(" (emit-type (second args)) ", " (emit-expr (first args)) ")")
+            (str "@as(" (emit-type (second args)) ", "
+                 (binding [*result-context* (second args)] (emit-expr (first args))) ")")
             :else
             (str (if logical-type-name?
                    "__aguafria_type_name"
@@ -2485,7 +2697,7 @@
                   (str/replace-first (emit-stmt handler) #";\s*$" "")
 
                   :else
-                  (emit-expr handler))]
+                  (emit-result-expr handler))]
             (str "(" (emit-expr value) " catch "
                  (captures-source captures form) handler-source ")")))
 
@@ -2567,10 +2779,19 @@
 
         (= op 'slice-sentinel)
         (if (= 4 (count args))
-          (let [[target start end sentinel] args]
-            (str (postfix-source target) "[" (emit-expr start) ".."
-                 (when (some? end) (emit-expr end)) " :"
-                 (emit-expr sentinel) "]"))
+          (let [[target start end sentinel] args
+                receiver (postfix-source target)
+                start (emit-expr start)
+                end (when (some? end) (emit-expr end))
+                sentinel (emit-expr sentinel)]
+            (when *inspection-placement*
+              (reset! *inspection-placement*
+                      {:placement :slice-sentinel
+                       :place-probe (fn [log label]
+                                      (str receiver "[(" label ": { " log
+                                           " break :" label " " start "; }).." end
+                                           " :" sentinel "]"))}))
+            (str receiver "[" start ".." end " :" sentinel "]"))
           (fail! "slice-sentinel expects a target, start, optional end, and sentinel" form))
 
         (= op 'try)
@@ -2662,12 +2883,16 @@
                :defer-probe *defer-inspection-probe*
                :declaration-name (:name *emitting-declaration*)
                :declaration-kind (:kind *emitting-declaration*)
+               :result-context *result-context*
+               :result-context-origin *result-context-origin*
                :signature-position? *emitting-signature?*
                :root-declaration-name (:name *emitting-root-declaration*)
                :source-bindings (declaration-local-bindings
                                  (or *keyword-context* *ns*) *emitting-declaration*)
                :location (merge debug/*source* (select-keys (meta form) [:line :column]))
-               :var-meta (some-> (or (when (and (symbol? (first observed-form))
+               :var-meta (some-> (or (when (:aguafria/native-try? (meta observed-form))
+                                       (find-var 'aguafria.keyword/try))
+                                     (when (and (symbol? (first observed-form))
                                                 (structural-operator? (first observed-form)))
                                        (some-> (find-ns 'aguafria.zig)
                                                (ns-resolve (first observed-form))))
@@ -2677,9 +2902,46 @@
                            (emit-expr* expression)))})))
     rendered))
 
+(defn- inspection-result-envelope? [form]
+  ;; This is a source/control boundary check, not type inference. An external
+  ;; exit cannot be moved into a detached result query or result adapter.
+  (not-any? (fn [part]
+              (and (seq? part) (symbol? (first part))
+                   (contains? #{"return" "break" "break-label" "continue"}
+                              (name (first part)))))
+            (tree-seq coll? seq form)))
+
+(defn- emit-result-expr [form]
+  ;; Result arms share their parent's real destination/peer envelope. Operand
+  ;; and condition emission deliberately does not propagate this context.
+  (binding [*result-context* (:type *branch-result-context*)
+            *result-context-origin* (:origin *branch-result-context*)]
+    (emit-expr form)))
+
+(defn- emit-function-result [form]
+  (let [context (when (and *function-return-context*
+                           (not (inferred-error-payload *function-return-context*))
+                           (inspection-result-envelope? form))
+                  *function-return-context*)]
+    (binding [*result-context* context
+              *result-context-origin* (when context :return-destination)]
+      (emit-expr form))))
+
 (defn- emit-expr-with-placement [form]
   (binding [*inspection-placement* (when *expression-observer* (atom nil))]
-    (let [rendered (emit-expr* form)
+    (let [operator (when (seq? form)
+                     (or (resolved-syntax-operator (or *keyword-context* *ns*) (first form))
+                         (first form)))
+          branch-context
+          (cond
+            *result-context* {:type *result-context* :origin *result-context-origin*}
+            (and (contains? #{'if 'if-capture 'catch-capture 'switch 'labeled-switch} operator)
+                 (inspection-result-envelope? form))
+            {:type (list 'aguafria.keyword/TypeOf form) :origin :peer-envelope})
+          rendered (binding [*result-context* nil
+                             *result-context-origin* nil
+                             *branch-result-context* branch-context]
+                     (emit-expr* form))
           observed (observe-expression form rendered (some-> *inspection-placement* deref))
           placement (some-> *inspection-placement* deref)]
       (if (map? observed)
@@ -2756,7 +3018,7 @@
                            form))]
     (when-not (map? options)
       (fail! (str kind " local options must be a map") form))
-    (let [rendered (emit-expr value)]
+    (let [rendered (binding [*result-context* t] (emit-expr value))]
       (str (when-let [prefix (:prefix options)] (str prefix " "))
            kind " " (identifier n)
            (when (and t (not= t '_)) (str ": " (emit-type t)))
@@ -3124,7 +3386,7 @@
                                  (fail! "comment expects one string" form))
                (= op 'return) (case (count args)
                                 0 "return;"
-                                1 (str "return " (emit-expr (first args)) ";")
+                                1 (str "return " (emit-function-result (first args)) ";")
                                 (fail! "return expects zero or one expression" form))
                (= op 'const) (emit-local "const" args form)
                (= op 'var) (emit-local "var" args form)
@@ -3155,7 +3417,7 @@
                      (str (emit-expr target) " = " (emit-expr value) ";")))
                  (fail! "set! expects a target and value" form))
                (contains? #{'switch-stmt 'labeled-switch-stmt} op)
-               (emit-expr form)
+               (emit-expr* form)
                (contains? #{'switch 'labeled-switch} op)
                ;; A value-producing switch used only for side effects must be
                ;; parenthesized before its semicolon. Without the grouping Zig
@@ -3241,6 +3503,10 @@
                  (let [nested (first args)]
                    (str "comptime "
                         (cond
+                          (and *expression-observer* (seq? nested)
+                               (= 'block (first nested)))
+                          (emit-stmt nested level)
+
                           (and (seq? nested) (contains? #{'do 'block} (first nested)))
                           (braced (rest nested) level)
 
@@ -3301,6 +3567,8 @@
                                      (fail! "unreachable takes no arguments" form))
                :else (str (emit-expr form) ";"))))]
      (let [op (when (seq? form) (first form))
+           structural-op (when op
+                           (resolved-syntax-operator (or *keyword-context* *ns*) op))
            token (when op (current-keyword-token op))
            assignment (cond
                         (= op 'set!) "="
@@ -3308,12 +3576,20 @@
                         (:zig-token token)
                         (contains? assignment-operators (operator-name op))
                         (get assignment-operators (operator-name op)))
-           inspect? (and *expression-observer* assignment
-                         (not (vector? (second form)))
-                         (not (contains? #{:_ '_} (second form))))
+           scoped-statement? (contains? #{'block 'with-block 'if-capture-stmt
+                                          'switch-stmt 'labeled-switch-stmt 'while-loop}
+                                        (or structural-op op))
+           inspect? (and *expression-observer*
+                         (or scoped-statement?
+                             (and assignment
+                                  (not (vector? (second form)))
+                                  (not (contains? #{:_ '_} (second form))))))
            rendered (if inspect?
                       (observe-expression
-                       (with-meta (cons (symbol "aguafria.keyword" assignment) (rest form)) (meta form))
+                       (if scoped-statement?
+                         form
+                         (with-meta (cons (symbol "aguafria.keyword" assignment) (rest form))
+                           (meta form)))
                        rendered
                        {:assignment assignment :placement :statement
                         :place-probe (fn [log label]
@@ -3356,7 +3632,7 @@
   [form level]
   (let [rendered
         (if-not (seq? form)
-          (str "return " (emit-expr form) ";")
+          (str "return " (emit-function-result form) ";")
           (let [[op & args] form]
             (cond
               (contains? #{'return 'unreachable} op)
@@ -3399,7 +3675,7 @@
               (emit-stmt form level)
 
               :else
-              (str "return " (emit-expr form) ";"))))]
+              (str "return " (emit-function-result form) ";"))))]
     (if (and (seq? form)
              (or (contains? #{'return 'unreachable} (first form))
                  (contains? non-value-statement-ops (operator-name (first form)))
@@ -3422,7 +3698,8 @@
   ([forms return-type]
    (emit-function-body forms return-type true))
   ([forms return-type implicit-return?]
-   (cond
+   (binding [*function-return-context* return-type]
+    (cond
      (and (= 1 (count forms))
           (seq? (first forms))
           (contains? #{'raw-statements 'raw-statement-chunks} (ffirst forms)))
@@ -3440,7 +3717,7 @@
      (emit-statements forms 0)
 
      :else
-     (emit-returning-statements forms 0))))
+     (emit-returning-statements forms 0)))))
 
 (defn parse-typed-bindings
   "Parse `[x :- :i32 y :- :f64]`, `[x :i32 y :f64]`, or
@@ -3549,9 +3826,11 @@
 
 (defn- declaration-prefix
   [zig-prefix default-prefix]
-  (if (some? zig-prefix)
-    (when (seq zig-prefix) (str zig-prefix " "))
-    default-prefix))
+  (let [prefix (if (some? zig-prefix) zig-prefix (str/trim (or default-prefix "")))]
+    (str (when (and (str/starts-with? (or default-prefix "") "pub ")
+                    (not= "pub" (first (str/split (or prefix "") #"\s+"))))
+           "pub ")
+         (when (seq prefix) (str prefix " ")))))
 
 (defn- explicitly-exported?
   [{:keys [attributes]}]
@@ -3640,7 +3919,7 @@
          (let [rendered (if-let [import (namespace-root-import declaration)]
                           (str "@import(" (zig-string (:import-name import)) ")"
                                (named-module-selector (:import-namespace import)))
-                          (emit-expr value))]
+                          (binding [*result-context* type] (emit-expr value)))]
            (str (declaration-prefix zig-prefix
                                     (when (not= false public?) "pub "))
                 "const " (identifier declaration-name)
@@ -3651,7 +3930,7 @@
                 (expression-terminator rendered)))
 
          :var
-         (let [rendered (emit-expr value)]
+         (let [rendered (binding [*result-context* type] (emit-expr value))]
            (str (declaration-prefix zig-prefix
                                     (when (not= false public?) "pub "))
                 "var " (identifier declaration-name)
@@ -3662,8 +3941,7 @@
                 (expression-terminator rendered)))
 
          :extern-var
-         (str (declaration-prefix zig-prefix
-                                  (when public? "pub extern "))
+         (str (declaration-prefix zig-prefix (str (when public? "pub ") "extern "))
               "var " (identifier declaration-name)
               (when type (str ": " (emit-type type)))
               (when align (str " align(" (emit-expr align) ")"))
@@ -3706,8 +3984,7 @@
                 "}"))
 
          :fn-proto
-         (str (declaration-prefix zig-prefix
-                                  (when public? "pub "))
+         (str (declaration-prefix zig-prefix (str (when public? "pub ") "extern "))
               "fn " (identifier declaration-name) "("
               (->> args
                    (map (fn [{:keys [name properties type]}]
@@ -4025,9 +4302,10 @@
 (defn- emit-reloadable-state
   [declaration {:keys [accessor getter setter size-getter align-getter pointer-align-getter
                        linkable? emit-native-helpers?]}]
-  (let [name (if-let [path (:state-path declaration)]
-               (str/join "." (map identifier path))
-               (identifier (or (:zig-name declaration) (:name declaration))))
+  (binding [*reloadable-state-references?* false]
+    (let [name (if-let [path (:state-path declaration)]
+                 (str/join "." (map identifier path))
+                 (identifier (or (:zig-name declaration) (:name declaration))))
         ;; Zig deliberately analyzes many declarations lazily. A typed global
         ;; may therefore use an initializer which is valid only for the
         ;; non-void arm of a comptime-selected type, while remaining perfectly
@@ -4036,56 +4314,56 @@
         ;; make Zig analyze it. Preserve the original initializer for every
         ;; material type, but give a comptime-selected void state its canonical
         ;; empty value so instrumentation does not change what compiles.
-        declaration
-        (if-let [type (:type declaration)]
-          (assoc declaration
-                 :value
-                 (list 'raw
-                       (str "if (@typeInfo(" (emit-type type)
-                            ") == .void) {} else "
-                            (emit-expr (:value declaration)))))
-          declaration)]
-    (str (when-not (:state-path declaration) (emit-declaration declaration)) "\n\n"
-         "var " accessor "_pointer: @TypeOf(&" name ") = &" name ";\n\n"
-         "pub fn " accessor "() @TypeOf(&" name ") {\n"
-         "    return @atomicLoad(@TypeOf(&" name "), &" accessor
-         "_pointer, .acquire);\n"
-         "}"
-         (when emit-native-helpers?
-           (str "\n\n"
-                (when linkable? "pub ")
-                "export fn " getter "() callconv(.c) usize {\n"
-                "    return @intFromPtr(&" name ");\n"
-                "}\n\n"
-                (when linkable? "pub ")
-                "export fn " setter "(" setter
-                "_address: usize) callconv(.c) void {\n"
-                "    @atomicStore(@TypeOf(&" name "), &" accessor
-                "_pointer, @ptrFromInt(" setter "_address), .release);\n"
-                "}\n\n"
-                (when linkable? "pub ")
-                "export fn " size-getter "() callconv(.c) usize {\n"
-                "    return @sizeOf(@TypeOf(" name "));\n"
-                "}\n\n"
-                (when linkable? "pub ")
-                "export fn " align-getter "() callconv(.c) usize {\n"
-                "    return @typeInfo(@TypeOf(&" name ")).pointer.attrs.@\"align\" orelse @alignOf(@TypeOf(" name "));\n"
-                "}\n\n"
-                (when linkable? "pub ")
-                "export fn " pointer-align-getter "() callconv(.c) usize {\n"
-                "    return @typeInfo(@TypeOf(&" name ")).pointer.attrs.@\"align\" orelse 0;\n"
-                "}")))))
+          declaration
+          (if-let [type (:type declaration)]
+            (assoc declaration
+                   :value
+                   (list 'raw
+                         (str "if (@typeInfo(" (emit-type type)
+                              ") == .void) {} else "
+                              (emit-expr (:value declaration)))))
+            declaration)]
+      (str (when-not (:state-path declaration) (emit-declaration declaration)) "\n\n"
+           "var " accessor "_pointer: @TypeOf(&" name ") = &" name ";\n\n"
+           "pub fn " accessor "() @TypeOf(&" name ") {\n"
+           "    return @atomicLoad(@TypeOf(&" name "), &" accessor
+           "_pointer, .acquire);\n"
+           "}"
+           (when emit-native-helpers?
+             (str "\n\n"
+                  (when linkable? "pub ")
+                  "export fn " getter "() callconv(.c) usize {\n"
+                  "    return @intFromPtr(&" name ");\n"
+                  "}\n\n"
+                  (when linkable? "pub ")
+                  "export fn " setter "(" setter
+                  "_address: usize) callconv(.c) void {\n"
+                  "    @atomicStore(@TypeOf(&" name "), &" accessor
+                  "_pointer, @ptrFromInt(" setter "_address), .release);\n"
+                  "}\n\n"
+                  (when linkable? "pub ")
+                  "export fn " size-getter "() callconv(.c) usize {\n"
+                  "    return @sizeOf(@TypeOf(" name "));\n"
+                  "}\n\n"
+                  (when linkable? "pub ")
+                  "export fn " align-getter "() callconv(.c) usize {\n"
+                  "    return @typeInfo(@TypeOf(&" name ")).pointer.attrs.@\"align\" orelse @alignOf(@TypeOf(" name "));\n"
+                  "}\n\n"
+                  (when linkable? "pub ")
+                  "export fn " pointer-align-getter "() callconv(.c) usize {\n"
+                  "    return @typeInfo(@TypeOf(&" name ")).pointer.attrs.@\"align\" orelse 0;\n"
+                  "}"))))))
 
 (defn- emit-development-declaration
   "Emit one non-dispatched declaration in a reloadable module.
 
-  Container-level constants and comptime blocks must preserve Zig's direct
+  Container-level initializers and comptime blocks must preserve Zig's direct
   access to module state. Routing a referenced defvar through its atomically
   swappable runtime pointer makes an otherwise comptime-known initializer a
   runtime expression (for example `const io = io_threaded.io()`). Runtime
   function bodies continue to use the stable state accessor."
   [declaration]
-  (if (contains? #{:const :comptime} (:kind declaration))
+  (if (contains? #{:const :var :comptime} (:kind declaration))
     (binding [*reloadable-state-references?* false]
       (emit-declaration declaration))
     (emit-declaration declaration)))
