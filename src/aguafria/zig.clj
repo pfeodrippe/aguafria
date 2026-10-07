@@ -8,6 +8,7 @@
                             fn get get-in range struct type vector])
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.analysis :as analysis]
+            [aguafria.zig.declaration-data :as declaration-data]
             [aguafria.zig.debug :as debug]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.explain :as explanation]
@@ -591,10 +592,7 @@
         descriptor (if host-expressions
                      (dissoc descriptor ::emitter/host-expressions)
                      (runtime/declaration-info descriptor))
-        text (binding [*print-meta* true] (pr-str descriptor))
-        size 12000
-        chunks (->> (clojure.core/range 0 (count text) size)
-                    (mapv #(subs text % (min (count text) (+ % size)))))]
+        chunks (declaration-data/write-chunks descriptor)]
     {:descriptor-form
      (if host-expressions
        `(binding [*ns* (the-ns '~(ns-name *ns*))]
@@ -1356,7 +1354,7 @@
                                       array vector assoc! merge! debug! range with-block
                                       block if-capture if-capture-stmt catch-capture
                                       switch switch-stmt labeled-switch labeled-switch-stmt
-                                      while-loop}
+                                      while-loop inline-for for-loop}
                                    operator))
                    (not (special-symbol? operator))
                    (or (= operator 'type)
@@ -1547,6 +1545,24 @@
   {:aguafria/syntax '{:kind :syntax :name while-loop :symbol aguafria.zig/while-loop}
    :aguafria/scoped? true}
   [options condition & body]
+  (scoped-expansion &form &env))
+
+(defmacro inline-for
+  "Execute a native inline loop, retaining its compile-time iterator bindings.
+  The JVM bridge captures the input and mutable outer state; Zig unrolls the
+  body, including type-valued expressions and loop-local control flow."
+  {:aguafria/syntax '{:kind :syntax :name inline-for :symbol aguafria.zig/inline-for}
+   :aguafria/scoped? true}
+  [bindings & body]
+  (scoped-expansion &form &env))
+
+(defmacro for-loop
+  "Execute a native for loop with options and lexical captures.
+  Labels and their nested break/continue targets remain in the same native
+  scope; an else-expression supplies the loop's value."
+  {:aguafria/syntax '{:kind :syntax :name for-loop :symbol aguafria.zig/for-loop}
+   :aguafria/scoped? true}
+  [options bindings & body]
   (scoped-expansion &form &env))
 
 (clojure.core/defn- container-function-form

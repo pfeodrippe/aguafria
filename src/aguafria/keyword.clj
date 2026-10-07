@@ -239,8 +239,8 @@
 
 (defn- scoped-token-expansion
   [form environment result?]
-  (let [referenced (set (filter symbol? (tree-seq coll? seq form)))
-        locals (filter referenced (keys environment))]
+  (let [locals ((requiring-resolve 'aguafria.zig.emitter/scoped-captures)
+                *ns* form (keys environment))]
     `((requiring-resolve 'aguafria.zig.jvm/invoke-scoped!)
       '~(ns-name *ns*) '~form
       (hash-map ~@(mapcat (fn [local] [(list 'quote local) local]) locals))
@@ -257,10 +257,10 @@
                         ;; An alias is still safe to recover when every loaded
                         ;; namespace maps it to the same target.
                         (let [aliased-targets (->> (all-ns)
-                                                  (keep #(get (ns-aliases %) namespace-symbol))
-                                                  distinct
-                                                  (take 2)
-                                                  vec)]
+                                                   (keep #(get (ns-aliases %) namespace-symbol))
+                                                   distinct
+                                                   (take 2)
+                                                   vec)]
                           (when (= 1 (count aliased-targets))
                             (first aliased-targets))))]
       (when target-ns
@@ -401,8 +401,10 @@
         (let [v (ns-resolve *ns* (symbol (:name token)))]
           (alter-var-root v (constantly (fn [form environment & _]
                                           (scoped-token-expansion form environment
-                                                                  (= "switch" (:zig-token token))))))
-          (alter-meta! v assoc :macro true
+                                                                  ((requiring-resolve
+                                                                    'aguafria.zig.emitter/scoped-result?)
+                                                                   *ns* form)))))
+          (alter-meta! v assoc :macro true :aguafria/scoped? true
                        :doc "Native scoped control form. Runs native Zig in the same process, captures lexical values and preserves mutable native storage. Only the selected switch branch executes; switch returns its native result."))))))
 
 (doseq [entry (:reader-tokens generated-catalog)]
@@ -424,9 +426,9 @@
                      ;; Zig recognizes iN/uN algorithmically, outside its static
                      ;; primitive table. Expose widths through 128 as Vars;
                      ;; larger widths use the same API via (k/as value :u256).
-                     (clojure.core/for [prefix ["i" "u"] bits (range 129)
-                           :let [name (str prefix bits)]]
-                       {:name name :zig-token name}))]
+                      (clojure.core/for [prefix ["i" "u"] bits (range 129)
+                                         :let [name (str prefix bits)]]
+                        {:name name :zig-token name}))]
   (let [token (primitive-token entry)]
     (intern-token!
      token

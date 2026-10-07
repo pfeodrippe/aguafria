@@ -161,13 +161,13 @@
      :snippets
      (mapv (fn [index [_ kind attributes source]]
              (cond-> {:id (str "snippet-" (inc index))
-              :kind kind
-              :attributes attributes
-              :source source
-              :source-sha256 (text-sha256 source)
-              :status (if (= "shell_samp" kind) :zig-only :pending)
-              :reason (when (= "shell_samp" kind)
-                        "ZIG_ONLY: compiler/shell command, not application source.")}
+                      :kind kind
+                      :attributes attributes
+                      :source source
+                      :source-sha256 (text-sha256 source)
+                      :status (if (= "shell_samp" kind) :zig-only :pending)
+                      :reason (when (= "shell_samp" kind)
+                                "ZIG_ONLY: compiler/shell command, not application source.")}
                (get-in publication [:source-only source])
                (assoc :published? false
                       :upstream-difference (get-in publication [:source-only source]))
@@ -223,15 +223,15 @@
         (let [spans (when *type-source-map* (atom []))
               rendered (binding [source-map/*spans* spans]
                          (emitter/emit-module
-         (str namespace-symbol)
-         (map-indexed (fn [index declaration]
-                        (cond-> declaration
-                          (nil? (:source-order declaration))
-                          (assoc :source-order index)))
+                          (str namespace-symbol)
+                          (map-indexed (fn [index declaration]
+                                         (cond-> declaration
+                                           (nil? (:source-order declaration))
+                                           (assoc :source-order index)))
                       ;; A first require may also register imported declarations
                       ;; in this batch. They belong to their own module, not to
                       ;; the lesson's root (notably builtin/os is not root.os).
-                      (filter #(= (str namespace-symbol) (:module %)) (runtime/collected-declarations declarations)))))]
+                                       (filter #(= (str namespace-symbol) (:module %)) (runtime/collected-declarations declarations)))))]
           (if spans
             (let [mapped (source-map/extract rendered @spans)]
               (reset! *type-source-map* mapped)
@@ -249,8 +249,8 @@
 
 (defn require-structural! [report]
   (when (some pos? (map #(get report % 0)
-                       [:fallback-count :raw-declaration-count
-                        :unresolved-syntax-count]))
+                        [:fallback-count :raw-declaration-count
+                         :unresolved-syntax-count]))
     (throw (ex-info "Non-structural translation rejected" report))))
 
 (defn compiler-fingerprint []
@@ -289,8 +289,8 @@
                   :when (and (symbol? namespace)
                              (str/starts-with? (str namespace) "learn."))]
               (let [resource (str (-> (str namespace)
-                                     (str/replace "." "/")
-                                     (str/replace "-" "_")) ".clj")]
+                                      (str/replace "." "/")
+                                      (str/replace "-" "_")) ".clj")]
                 (or (io/resource resource)
                     (throw (ex-info "Missing lesson dependency" {:resource resource})))))
             (mapcat
@@ -534,22 +534,22 @@
                 (throw (ex-info "Fragment behavior differs from original Zig"
                                 {:comparison comparison})))
               (assoc base
-                   :status :translated
-                   :verification (or (:status comparison) :syntax-roundtrip-passed)
-                   :verification-scope (cond
-                                         fixture :shared-context-fixture
-                                         comparison :shared-module-discovery
-                                         :else :explanatory-block)
-                   :comparison comparison
-                   :fingerprint (fragment-fingerprint)
-                   :authored-source (:source override)
-                   :context-review (:context-only override)
-                   :note "Explanatory fragment: displayed syntax rendered without evaluating declarations; emitted Zig parsed. Surrounding definitions/imports may be omitted by the reference; this is not a standalone execution test."
-                   :clojure-path output
-                   :clojure-sha256 (sha256 output)
-                   :emitted-path emitted-path
-                   :emitted-sha256 (sha256 emitted-path)
-                   :report report))))
+                     :status :translated
+                     :verification (or (:status comparison) :syntax-roundtrip-passed)
+                     :verification-scope (cond
+                                           fixture :shared-context-fixture
+                                           comparison :shared-module-discovery
+                                           :else :explanatory-block)
+                     :comparison comparison
+                     :fingerprint (fragment-fingerprint)
+                     :authored-source (:source override)
+                     :context-review (:context-only override)
+                     :note "Explanatory fragment: displayed syntax rendered without evaluating declarations; emitted Zig parsed. Surrounding definitions/imports may be omitted by the reference; this is not a standalone execution test."
+                     :clojure-path output
+                     :clojure-sha256 (sha256 output)
+                     :emitted-path emitted-path
+                     :emitted-sha256 (sha256 emitted-path)
+                     :report report))))
         (catch Exception failure
           (assoc base :status :compiler-gap
                  :error (.getMessage failure) :details (ex-data failure)))))))
@@ -694,8 +694,8 @@
   (let [runs [original emitted]
         expect (:expect scenario)
         executed? (every? #(and (integer? (:exit %))
-                               (not (:timed-out? %))
-                               (not (:execution-error %))) runs)
+                                (not (:timed-out? %))
+                                (not (:execution-error %))) runs)
         success? (and executed? (every? #(zero? (:exit %)) runs))
         comparison
         (cond
@@ -811,15 +811,15 @@
 
 (defn verify-inlines! []
   (let [snippets (inline/translate (filterv #(= "syntax" (:kind %))
-                                           (:snippets (inventory))))
+                                            (:snippets (inventory))))
         authored (vec (sort-by :id
-                              (vals (into {} (for [snippet snippets
-                                                   :when (= :translated (:status snippet))]
-                                               [(:source snippet) snippet])))))
+                               (vals (into {} (for [snippet snippets
+                                                    :when (= :translated (:status snippet))]
+                                                [(:source snippet) snippet])))))
         executable (filterv :standalone? authored)
         fingerprint (inline-fingerprint)
         checked (mapv #(select-keys % [:id :source :source-sha256
-                                      :clojure-source :zig-source :standalone?]) authored)
+                                       :clojure-source :zig-source :standalone?]) authored)
         previous (when (.isFile (io/file "build/inline-outcomes.edn"))
                    (read-edn "build/inline-outcomes.edn"))
         cached? (and (= fingerprint (:fingerprint previous))
@@ -850,20 +850,20 @@
      (current-inlines snippets (when (.isFile (io/file path)) (read-edn path)))))
   ([snippets report]
    (let [current? (and (= (inline-fingerprint) (:fingerprint report))
-                      (= :output-matched (get-in report [:comparison :status])))
-        checked (when current? (into {} (map (juxt :source identity)) (:snippets report)))]
-    (mapv (fn [{:keys [source] :as snippet}]
-            (let [evidence (get checked source)
-                  fields [:source :source-sha256 :clojure-source :zig-source :standalone?]]
-              (if (and evidence (= (select-keys snippet fields) (select-keys evidence fields)))
-                (assoc snippet
-                       :verification (cond
-                                       (:standalone? snippet) :output-matched
-                                       (= :syntax-note (:form-kind snippet)) :reviewed-syntax-note
-                                       (= :reference (:form-kind snippet)) :catalog-var-matched
-                                       :else :syntax-emission-passed))
-                snippet)))
-          snippets))))
+                       (= :output-matched (get-in report [:comparison :status])))
+         checked (when current? (into {} (map (juxt :source identity)) (:snippets report)))]
+     (mapv (fn [{:keys [source] :as snippet}]
+             (let [evidence (get checked source)
+                   fields [:source :source-sha256 :clojure-source :zig-source :standalone?]]
+               (if (and evidence (= (select-keys snippet fields) (select-keys evidence fields)))
+                 (assoc snippet
+                        :verification (cond
+                                        (:standalone? snippet) :output-matched
+                                        (= :syntax-note (:form-kind snippet)) :reviewed-syntax-note
+                                        (= :reference (:form-kind snippet)) :catalog-var-matched
+                                        :else :syntax-emission-passed))
+                 snippet)))
+           snippets))))
 
 (defn doctest-tool! []
   (let [source (.getAbsolutePath (io/file upstream-dir "tools/doctest.zig"))
@@ -1011,7 +1011,7 @@
 
           allocation-address?
           (let [valid? (every? #(when-let [[_ address] (re-matches #"ptr=i32@([0-9a-fA-F]+)\n" %)]
-                                 (pos? (.signum (java.math.BigInteger. address 16))))
+                                  (pos? (.signum (java.math.BigInteger. address 16))))
                                outputs)]
             {:status (if valid? :output-matched :observation-mismatch)
              :normalization (:normalization review)
@@ -1028,6 +1028,13 @@
 (def ^:dynamic *example-context* nil)
 
 (defonce ^:private repl-capture-lock (Object.))
+
+(defn- print-outcome-progress! [status file]
+  ;; Native REPL capture redirects process-wide stdout. Keep build progress
+  ;; outside that interval so it cannot become part of a lesson transcript.
+  (locking repl-capture-lock
+    (println status file)
+    (flush)))
 
 (defn parallel-builds
   "Bound independent compiler processes using virtual JVM worker threads.
@@ -1183,65 +1190,65 @@
   With no comment calls, capture evaluation of the actual declarations instead."
   ([source context] (capture-comment-repl! source context nil))
   ([source context source-path]
-  (let [calls (comment-calls source)
-        namespace-symbol (second (read-string source))
-        namespaces-before (set (map ns-name (all-ns)))]
-    (when (find-ns namespace-symbol)
-      (throw (ex-info "Cannot capture over an existing lesson namespace"
-                      {:namespace namespace-symbol})))
-    (try
-      (binding [*ns* (create-ns namespace-symbol)
-                *example-context* context]
-        (refer 'clojure.core)
-        (if (empty? calls)
-          (binding [*file* (or source-path "REPL")]
-            (loop [forms (source-map/read-forms source) evaluations []]
-              (if-let [form (first forms)]
-                (let [evaluation (capture-repl-evaluation!
-                                  namespace-symbol (pr-str form) :declaration #(eval form))
-                      evaluations (conj evaluations evaluation)]
-                  (if (:exception evaluation)
-                    {:evaluations evaluations :scope :load-error}
-                    (recur (next forms) evaluations)))
-                {:evaluations evaluations :scope :declarations})))
-          (let [load-result
-              (when (seq calls)
-                (capture-repl-evaluation!
-                 namespace-symbol
-                 (pr-str (if source-path
-                           (list 'load-file source-path)
-                           (list 'load-string source)))
-                 :load
-                 #(if source-path
-                    (clojure.lang.Compiler/load
-                     (clojure.lang.LineNumberingPushbackReader. (java.io.StringReader. source))
-                     source-path (.getName (io/file source-path)))
-                    (load-string source))))]
-          (if (:exception load-result)
+   (let [calls (comment-calls source)
+         namespace-symbol (second (read-string source))
+         namespaces-before (set (map ns-name (all-ns)))]
+     (when (find-ns namespace-symbol)
+       (throw (ex-info "Cannot capture over an existing lesson namespace"
+                       {:namespace namespace-symbol})))
+     (try
+       (binding [*ns* (create-ns namespace-symbol)
+                 *example-context* context]
+         (refer 'clojure.core)
+         (if (empty? calls)
+           (binding [*file* (or source-path "REPL")]
+             (loop [forms (source-map/read-forms source) evaluations []]
+               (if-let [form (first forms)]
+                 (let [evaluation (capture-repl-evaluation!
+                                   namespace-symbol (pr-str form) :declaration #(eval form))
+                       evaluations (conj evaluations evaluation)]
+                   (if (:exception evaluation)
+                     {:evaluations evaluations :scope :load-error}
+                     (recur (next forms) evaluations)))
+                 {:evaluations evaluations :scope :declarations})))
+           (let [load-result
+                 (when (seq calls)
+                   (capture-repl-evaluation!
+                    namespace-symbol
+                    (pr-str (if source-path
+                              (list 'load-file source-path)
+                              (list 'load-string source)))
+                    :load
+                    #(if source-path
+                       (clojure.lang.Compiler/load
+                        (clojure.lang.LineNumberingPushbackReader. (java.io.StringReader. source))
+                        source-path (.getName (io/file source-path)))
+                       (load-string source))))]
+             (if (:exception load-result)
             ;; A rejected definition never reaches the comment recipe. Report
             ;; the actual load failure, not a call that could not have run.
-            {:evaluations [load-result] :scope :load-error}
-            {:evaluations
-             (mapv (fn [form]
-                     (capture-repl-evaluation!
-                      namespace-symbol
-                      (str/trimr
-                       (with-out-str
-                         (pprint/with-pprint-dispatch pprint/code-dispatch
-                           (pprint/pprint form))))
-                      :comment
-                      #(eval form)))
-                   calls)}))))
-      (finally
+               {:evaluations [load-result] :scope :load-error}
+               {:evaluations
+                (mapv (fn [form]
+                        (capture-repl-evaluation!
+                         namespace-symbol
+                         (str/trimr
+                          (with-out-str
+                            (pprint/with-pprint-dispatch pprint/code-dispatch
+                              (pprint/pprint form))))
+                         :comment
+                         #(eval form)))
+                      calls)}))))
+       (finally
         ;; A recipe can require another lesson (for example its object library).
         ;; Retire only lessons this capture created, not any pre-existing REPL
         ;; namespace, so the next independent recipe can load its own source.
-        (doseq [created (map ns-name (all-ns))
-                :when (and (not (contains? namespaces-before created))
-                           (or (= created namespace-symbol)
-                               (str/starts-with? (str created) "learn.example.")))]
-          (remove-ns created)
-          (dosync (alter @#'clojure.core/*loaded-libs* disj created))))))))
+         (doseq [created (map ns-name (all-ns))
+                 :when (and (not (contains? namespaces-before created))
+                            (or (= created namespace-symbol)
+                                (str/starts-with? (str created) "learn.example.")))]
+           (remove-ns created)
+           (dosync (alter @#'clojure.core/*loaded-libs* disj created))))))))
 
 (defn- interrupted-repl-capture
   [directory checkpoint process]
@@ -1360,16 +1367,16 @@
         front-end-diagnostic
         (when front-end?
           (locking repl-capture-lock
-           (let [source (slurp (:clojure-path translation))]
-            (try
-              (emit-clojure source (second (read-string source)) {})
-              nil
-              (catch Exception failure (.getMessage failure))))))]
+            (let [source (slurp (:clojure-path translation))]
+              (try
+                (emit-clojure source (second (read-string source)) {})
+                nil
+                (catch Exception failure (.getMessage failure))))))]
     (if-not (= :translated (:status translation))
       {:file file
        :status (if (and (if source-artifact?
-                         (= (:sha256 example) (:sha256 original))
-                         (zero? (:exit original)))
+                          (= (:sha256 example) (:sha256 original))
+                          (zero? (:exit original)))
                         (or (= :zig-only (:status translation))
                             (and front-end?
                                  (= (:diagnostic translation) front-end-diagnostic))))
@@ -1434,21 +1441,21 @@
          overrides (read-edn "resources/learn/overrides.edn")
          results (binding [*example-context* context]
                    (parallel-builds jobs (fn [{:keys [file] :as example}]
-                           (let [path (str "build/outcomes/" (example-id file) ".edn")
-                                 translation (translations file)
-                                 inputs {:compiler (:fingerprint tool)
-                                         :sources (example-source-inputs file overrides)}
-                                 cached (when (.isFile (io/file path)) (read-edn path))
-                                 reuse? (reusable-example? cached inputs translation
-                                                           #{:upstream-outcome-passed :reviewed-special-case-passed})
-                                 result (if reuse?
-                                          cached
-                                          (assoc (verify-example! tool example translation)
-                                                 :inputs inputs :artifacts (translation-artifacts translation)))]
-                             (when-not reuse? (write-edn! path result))
-                             (println (if reuse? :cached-outcome (:status result)) file)
-                             (flush)
-                             result)) examples))
+                                           (let [path (str "build/outcomes/" (example-id file) ".edn")
+                                                 translation (translations file)
+                                                 inputs {:compiler (:fingerprint tool)
+                                                         :sources (example-source-inputs file overrides)}
+                                                 cached (when (.isFile (io/file path)) (read-edn path))
+                                                 reuse? (reusable-example? cached inputs translation
+                                                                           #{:upstream-outcome-passed :reviewed-special-case-passed})
+                                                 result (if reuse?
+                                                          cached
+                                                          (assoc (verify-example! tool example translation)
+                                                                 :inputs inputs :artifacts (translation-artifacts translation)))]
+                                             (when-not reuse? (write-edn! path result))
+                                             (print-outcome-progress!
+                                              (if reuse? :cached-outcome (:status result)) file)
+                                             result)) examples))
          summary (frequencies (map :status results))
          failures (filterv #(not (contains? #{:upstream-outcome-passed
                                               :reviewed-special-case-passed}
@@ -1496,9 +1503,9 @@
 (defn repl-panel [transcript]
   (when-not (= [] (:evaluations transcript))
     (str "<div class=\"learn-repl\" aria-label=\"Recorded REPL evaluation\">"
-       "<p class=\"learn-repl-label\">REPL</p><pre><samp>"
-       (str/join "\n" (map repl-evaluation (or (:evaluations transcript) [transcript])))
-       "</samp></pre></div>")))
+         "<p class=\"learn-repl-label\">REPL</p><pre><samp>"
+         (str/join "\n" (map repl-evaluation (or (:evaluations transcript) [transcript])))
+         "</samp></pre></div>")))
 
 (defn type-tooltip [{:keys [line column type types basis status signature message]}]
   (str (case basis
@@ -1515,8 +1522,8 @@
   "Attach compact source-span metadata; the displayed/copyable code stays exact."
   [source file]
   (let [namespace-symbol (some->> (source-map/read-forms source)
-                                 (filter #(and (seq? %) (= 'ns (first %))))
-                                 first second)
+                                  (filter #(and (seq? %) (= 'ns (first %))))
+                                  first second)
         mapped (atom nil)
         unavailable (atom nil)
         observations
@@ -1533,14 +1540,14 @@
                       (str "Zig analysis unavailable: "
                            (ex-message (last (take-while some? (iterate ex-cause error)))))))))
         report (analysis/analyze-source source {:file file
-                                               :zls-observations observations
-                                               :unavailable @unavailable
-                                               :observations (vals (a/debug-reports))})
+                                                :zls-observations observations
+                                                :unavailable @unavailable
+                                                :observations (vals (a/debug-reports))})
         _ (analysis/write-report! report "build/types")
         spans (str "[" (str/join "," (map (fn [{:keys [start end] :as form}]
-                                           (str "[" start "," end ","
-                                                (pr-str (type-tooltip form)) "]"))
-                                         (:forms report))) "]")]
+                                            (str "[" start "," end ","
+                                                 (pr-str (type-tooltip form)) "]"))
+                                          (:forms report))) "]")]
     (str "<code class=\"language-clojure\" data-type-report=\""
          (escape-html spans) "\">" (escape-html source) "</code>")))
 
@@ -1595,7 +1602,7 @@
         inputs (into {} (map (juxt :id :source-sha256)) (:snippets catalog))]
     (filterv
      (fn [{:keys [id source-sha256 status clojure-path clojure-sha256
-                 emitted-path emitted-sha256] :as result}]
+                  emitted-path emitted-sha256] :as result}]
        (and (= source-sha256 (get inputs id))
             (or (= :zig-only status)
                 (= :compiler-gap status)
@@ -1831,12 +1838,12 @@
   (case command
     "snapshot" (snapshot! argument)
     "inventory" (do (write-edn! "build/inventory.edn" (inventory))
-                      (println "Wrote build/inventory.edn"))
+                    (println "Wrote build/inventory.edn"))
     "translate" (prn (translate!))
     "blocks" (prn (translate-blocks!))
     "inlines" (prn (verify-inlines!))
     "outcomes" (prn (verify-outcomes! (:examples (inventory))
-                                    {:jobs (if argument (Integer/parseInt argument) 4)}))
+                                      {:jobs (if argument (Integer/parseInt argument) 4)}))
     "build" (prn (build!))
     "verify" (verify!)
     "serve" (serve! (if argument (Integer/parseInt argument) 8096))

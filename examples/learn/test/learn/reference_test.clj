@@ -8,6 +8,7 @@
             [learn.inline :as inline]
             [learn.reference :as ref]
             [learn.jvm-body-test]
+            [learn.jvm-assertions-test]
             [learn.jvm-audit-test]
             [learn.jvm-audit-report-test]
             [learn.bundle-cache-check-test]
@@ -722,6 +723,23 @@
               ["build/outcomes.edn" [failure]]]
              @writes)))))
 
+(deftest outcome-progress-waits-for-native-repl-capture
+  (let [output (java.io.StringWriter.)
+        attempted (promise)
+        worker (atom nil)]
+    (binding [*out* output]
+      (locking @#'ref/repl-capture-lock
+        (reset! worker
+                (future
+                  (deliver attempted true)
+                  (#'ref/print-outcome-progress!
+                   :upstream-outcome-passed "example.zig")))
+        (is (= true (deref attempted 1000 :timeout)))
+        (is (= :blocked (deref @worker 50 :blocked)))
+        (is (= "" (str output))))
+      (is (nil? (deref @worker 1000 :timeout))))
+    (is (= ":upstream-outcome-passed example.zig\n" (str output)))))
+
 (deftest incremental-outcomes-rerun-only-invalidated-examples
   (let [reports (atom {})
         executions (atom [])
@@ -1288,7 +1306,8 @@
 
 (defn -main [& _]
   (let [{:keys [fail error]} (run-tests 'learn.reference-test 'learn.source-fidelity-test
-                                        'learn.jvm-body-test 'learn.jvm-audit-test
+                                        'learn.jvm-body-test 'learn.jvm-assertions-test
+                                        'learn.jvm-audit-test
                                         'learn.jvm-audit-report-test
                                         'learn.bundle-cache-check-test)]
     (shutdown-agents)

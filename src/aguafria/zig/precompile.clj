@@ -46,6 +46,17 @@
        distinct
        vec))
 
+(defn- prepare-native-test-owners! [module]
+  (mapv (fn [test]
+          (try
+            (runtime/precompile-test! test)
+            (catch Exception error
+              (assoc (discovery/error-report error) :test test :status :failed))))
+        (->> (runtime/registered-declarations module)
+             (filter #(= :test (:kind %)))
+             (map #(symbol (str module) (str (:name %))))
+             sort)))
+
 (defn- load-namespace! [namespace images]
   (let [before (set (runtime/registered-modules))]
     (binding [runtime/*source-only-registration?* true]
@@ -64,9 +75,13 @@
                         (catch Exception error
                           (assoc (discovery/error-report error)
                                  :namespace (symbol module) :status :failed)))
-                image (assoc image :test-checks
+                image (assoc image
+                             :test-checks
                              (vec (get-in @runtime/*prepared-namespace-images*
-                                          [module :test-checks])))]
+                                          [module :test-checks]))
+                             :test-owners
+                             (runtime/call-with-precompile-configuration
+                              configuration #(prepare-native-test-owners! module)))]
             (swap! images assoc module image)
             ;; The compilation snapshot includes dependencies that were already
             ;; loaded before this run, as well as newly required namespaces.
@@ -132,6 +147,7 @@
   a claim to have evaluated every source form or instantiated every generic."
   [analysis]
   (let [functions (mapcat :functions analysis)
+        constant-readers (mapcat :constant-readers analysis)
         operations (mapcat :operations analysis)
         non-call? #(contains? #{:type-declaration :compiler-directive} (:reason %))
         deferred? #(and (= :observed (:status %))
@@ -174,6 +190,15 @@
      :declared-functions {:total (count functions)
                           :statuses (frequencies (map :status functions))
                           :skip-reasons (frequencies (keep :reason functions))}
+     :constant-readers {:total (count constant-readers)
+                        :statuses (frequencies (map :status constant-readers))
+                        :skip-reasons (frequencies (keep :reason constant-readers))}
+     :declared-initializer-operations
+     (let [initializers (filter #(= :declared-constant (:execution-plan %)) operations)]
+       {:total (count initializers)
+        :owner-handlers (frequencies (map :status (mapcat :handlers initializers)))
+        :independent-call-handlers
+        (frequencies (map :status (mapcat :independent-call-handlers initializers)))})
      :gaps (frequencies
             (concat (keep #(when-not (= :observed (:status %))
                              (or (:reason %) (:status %))) operations)
@@ -193,6 +218,8 @@
   reported in :namespace-images, including failures and lazy imports.
   Test definition checks encountered during loading use the normal test compiler
   path without executing tests; their outcomes appear in each image's :test-checks.
+  Final native test snapshots are also prepared after the namespace has loaded,
+  including later declarations; these outcomes appear in each image's :test-owners.
 
   :calls supplies exact native argument types for builtin/operator/imported or
   generic call adapters. Use {:comptime value} for source-level comptime inputs.
@@ -205,6 +232,11 @@
   used to prepare supported handlers automatically. It also prepares their
   concrete top-level callables and reports each unsupported or failed function
   separately, including functions not called by another example form.
+  Lazy constant readers and their cleanup use the ordinary demand plan without
+  reading values; their preparation is reported separately as :constant-readers.
+  A complete declared constant initializer retains that reader as its owning
+  comptime plan. Its separately attempted standalone call handlers remain in
+  :independent-call-handlers; owner preparation does not make them runtime calls.
   :source-dirs discovers all
   .clj namespaces in directories already on the classpath. Per-operation gaps
   and compiler errors remain in :analysis. :parallelism defaults to 2; analysis
@@ -280,7 +312,10 @@
                                                :scalar-constructor-profiles (:statuses scalar-profiles)
                                                :test-definition-checks
                                                (frequencies
-                                                (map :status (mapcat :test-checks (vals @images))))))
+                                                (map :status (mapcat :test-checks (vals @images))))
+                                               :native-test-owner-checks
+                                               (frequencies
+                                                (map :status (mapcat :test-owners (vals @images))))))
                           :duration-ms (/ (- (System/nanoTime) started) 1e6))
             bundles (try
                       (when bundle?

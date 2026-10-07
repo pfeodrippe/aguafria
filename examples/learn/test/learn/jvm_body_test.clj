@@ -2,7 +2,8 @@
   "Evaluate the authored test bodies as ordinary JVM code, not native tests."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
-            [learn.jvm-audit :as audit]))
+            [learn.jvm-audit :as audit]
+            [learn.jvm-assertions :as assertions]))
 
 (defn evaluate-test-bodies! [source]
   (let [resource (io/resource source)
@@ -12,7 +13,8 @@
     (binding [*ns* (the-ns namespace)
               *file* (.getPath resource)]
       (mapv (fn [[_ test-name & body]]
-              (eval (cons 'do (drop-while #(or (string? %) (map? %)) body)))
+              (assertions/call-with-checks
+               #(eval (cons 'do (drop-while (fn [form] (or (string? form) (map? form))) body))))
               test-name)
             (filter #(and (seq? %) (symbol? (first %))
                           (= "deftest" (name (first %)))) forms)))))
@@ -30,7 +32,7 @@
         forms (audit/read-forms (slurp resource))
         namespace (second (first forms))
         main (first (filter #(and (seq? %) (= 'a/defn (first %))
-                                 (= 'main (second %))) forms))
+                                  (= 'main (second %))) forms))
         body (rest (drop-while #(not (vector? %)) (drop 2 main)))]
     (require namespace)
     (binding [*ns* (the-ns namespace)
@@ -40,7 +42,7 @@
                         (binding [*out* writer *err* writer] (invoke))
                         (str writer)))
             native-output (capture #((ns-resolve namespace 'main)))
-            jvm-output (capture #(eval (cons 'do body)))]
+            jvm-output (capture #(assertions/call-with-checks (fn [] (eval (cons 'do body)))))]
         (is (not (empty? native-output)))
         (is (= native-output jvm-output))))))
 

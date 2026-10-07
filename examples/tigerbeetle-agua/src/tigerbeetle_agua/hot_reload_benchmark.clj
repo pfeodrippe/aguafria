@@ -1,6 +1,7 @@
 (ns tigerbeetle-agua.hot-reload-benchmark
   "Reproducible hot-reload measurements over TigerBeetle's generated graph."
-  (:require [aguafria.zig.benchmark :as benchmark]
+  (:require [aguafria.zig :as a]
+            [aguafria.zig.benchmark :as benchmark]
             [clojure.walk :as walk]
             [tigerbeetle-agua.hot-reload-leaf :as leaf]
             [tigerbeetle-agua.hot-reload-target :as target]))
@@ -20,12 +21,18 @@
                        :expected expected})))
     (assoc descriptor :body body)))
 
+(defn- scalar-snapshot [native]
+  (try
+    (a/value native)
+    (finally (a/close! native))))
+
 (defn- verified-value
-  [label expected actual]
-  (when-not (= expected actual)
-    (throw (ex-info "Hot-reload behavior did not become observable"
-                    {:label label :expected expected :actual actual})))
-  {:value actual})
+  [label expected native]
+  (let [actual (scalar-snapshot native)]
+    (when-not (= expected actual)
+      (throw (ex-info "Hot-reload behavior did not become observable"
+                      {:label label :expected expected :actual actual})))
+    {:value actual}))
 
 (defn- fresh-leaf-value
   [context]
@@ -82,7 +89,7 @@
    (let [queue-size
          (requiring-resolve 'tigerbeetle-agua.hot-reload-queue-target/queue-size)
          queue-type (requiring-resolve 'tigerbeetle.src.queue/QueueType)
-         expected (queue-size)]
+         expected (scalar-snapshot (queue-size))]
      (benchmark/measure-edit!
       {:var queue-type
        :project :tigerbeetle
@@ -163,7 +170,7 @@
    (let [queue-size
          (requiring-resolve 'tigerbeetle-agua.hot-reload-queue-target/queue-size)
          queue-type (requiring-resolve 'tigerbeetle.src.queue/QueueType)
-         expected (queue-size)]
+         expected (scalar-snapshot (queue-size))]
      (benchmark/measure-fresh-edits!
       {:var queue-type
        :project :tigerbeetle

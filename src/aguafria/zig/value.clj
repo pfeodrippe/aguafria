@@ -633,6 +633,9 @@
 (defn- decode-value-segment
   [^MemorySegment native-segment zig-type schema]
   (cond
+    (= :scalar (:kind schema))
+    (decode-value-segment native-segment (:type schema) (dissoc schema :kind))
+
     (= :packed-struct (:kind schema))
     (decode-packed-struct native-segment schema)
 
@@ -891,9 +894,21 @@
                        :expected #{:ok :error}}))))
   native-segment)
 
+(defn float32-value
+  "Encode an f32 ABI scalar, including IEEE infinity and NaN.
+  Finite values retain Clojure's checked narrowing."
+  [value]
+  (if (Double/isFinite (double value))
+    (float value)
+    (unchecked-float value)))
+
 (defn- write-value-segment!
   [^MemorySegment native-segment zig-type schema value context]
   (cond
+    (= :scalar (:kind schema))
+    (write-value-segment! native-segment (:type schema) (dissoc schema :kind)
+                          value (assoc context :declared-type zig-type))
+
     (= :packed-struct (:kind schema))
     (write-packed-struct! native-segment schema value)
 
@@ -939,7 +954,7 @@
 
     (= :f32 zig-type)
     (.set native-segment java.lang.foreign.ValueLayout/JAVA_FLOAT 0
-          (float value))
+          (float32-value value))
 
     (= :f64 zig-type)
     (.set native-segment java.lang.foreign.ValueLayout/JAVA_DOUBLE 0
@@ -1173,6 +1188,14 @@
                 :else form))]
       (qualify (type zig-value)))))
 
+(defn storage-type
+  "Return the compiler-reported type of a handle's materialized storage."
+  [zig-value]
+  (let [{:keys [native-type schema]} (realize! zig-value)]
+    (or native-type
+        (when (= :scalar (:kind schema)) (:type schema))
+        (qualified-type zig-value))))
+
 (defn native-value
   "Create a lazy Zig value. Public for tooling; normal users receive these
   from `a/defconst` and function results."
@@ -1207,6 +1230,29 @@
     (realize! result)
     (swap! (value-state result) update :owners (fnil into []) owners))
   result)
+
+(defn retain-storage-provenance!
+  "Recover an exact borrowed alias's schema and storage image from its owners.
+  A layout reader or an equal value does not establish storage identity."
+  [view owners]
+  (let [{target :segment :as state} (realize! view)
+        target-type (qualified-type view)
+        seen (java.util.IdentityHashMap.)]
+    (letfn [(owner-storage [owner]
+              (when (and (zig-value? owner) (not (.containsKey seen owner)))
+                (.put seen owner true)
+                (let [{storage :segment parents :owners :as candidate} (realize! owner)]
+                  (if (and target storage (:schema candidate)
+                           (= target-type (qualified-type owner))
+                           (= (.address ^MemorySegment target) (.address ^MemorySegment storage))
+                           (= (.byteSize ^MemorySegment target) (.byteSize ^MemorySegment storage)))
+                    candidate
+                    (some owner-storage parents)))))]
+      (when-let [storage (some owner-storage owners)]
+        (swap! (value-state view)
+               merge (select-keys storage [:native-image :generation])
+               {:schema (or (:schema state) (:schema storage))}))))
+  (retain-owners! view owners))
 
 (defn retain-coercion-expression!
   "Retain an immutable constructor's source for later checked Zig coercions."

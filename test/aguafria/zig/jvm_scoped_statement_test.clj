@@ -14,6 +14,7 @@
   (let [fail! (fn [& _] (throw (ex-info "Requested a comptime-only runtime adapter" {})))]
     (with-redefs-fn
       {#'jvm/precompile-inputs fail!
+       #'jvm/prepared-call-inputs fail!
        #'jvm/prepare-scoped-plan! fail!
        #'runtime/precompile-function! fail!}
       #(doseq [type [:comptime_int :comptime_float :type :null :undefined]
@@ -30,10 +31,10 @@
         inputs (atom [])
         compiled (atom [])]
     (with-redefs-fn
-      {#'jvm/precompile-inputs
+      {#'jvm/prepared-call-inputs
        (fn [types declarations]
          (swap! inputs conj [types declarations])
-         {:parameters [] :expression-arguments []})
+         {:parameters [] :expression-arguments [] :operands []})
        #'jvm/prepare-scoped-plan!
        (fn [_ _ entries _ _ _]
          (swap! plans conj entries)
@@ -51,7 +52,8 @@
                 (:status (jvm/precompile-scoped!
                           {:caller (ns-name *ns*) :form '(a/while-loop {} ready)
                            :captures ['state] :types [value-type address] :result? false}))))
-         (is (= [{:name 'state :type expected-type :mutable? mutable?}] (last @plans)))
+         (is (= [{:name 'state :type expected-type :mutable? mutable? :comptime? false}]
+                (last @plans)))
          (is (= [[(if mutable? :usize value-type)]
                  [(if mutable? {:type :usize}
                       {:type :anytype :properties {:jvm/literal? true}})]]
@@ -67,7 +69,14 @@
              ['(a/labeled-switch vm input (case [0] (k/continue vm 1))) true]
              ['(a/labeled-switch-stmt vm input (case [0] (k/continue vm 1))) false]
              ['(a/while-loop {} ready (k/+= state 1)) false]
-             ['(a/while-loop {:else-expression false} ready (k/break true)) true]]]
+             ['(a/while-loop {:else-expression false} ready (k/break true)) true]
+             ['(k/for [item items] (k/= :_ item)) false]
+             ['(k/for [item items] (k/= :_ item) (a/else-expression 12)) true]
+             ['(a/inline-for [item items] (k/= :_ item)) false]
+             ['(a/for-loop {:label outer} [item items] (a/break-label outer)) false]
+             ['(a/for-loop {} [item items] (k/= :_ item) (a/else-expression 12)) true]
+             ['(k/while ready (k/continue)) false]
+             ['(k/while ready (k/continue) (a/else-expression 12)) true]]]
       (is (= result? (emitter/scoped-result? context form)))
       (let [expanded (binding [*ns* context] (macroexpand-1 form))]
         (is (= result? (last expanded)))
@@ -81,7 +90,13 @@
               '(a/switch-stmt input (case [0] (set! state 1)))]
              [emitter/emit-expr
               '(while-loop {:else-expression false} ready (break true))
-              '(a/while-loop {:else-expression false} ready (break true))]]]
+              '(a/while-loop {:else-expression false} ready (break true))]
+             [emitter/emit-stmt-in
+              '(inline-for [item items] (set! state item))
+              '(a/inline-for [item items] (set! state item))]
+             [emitter/emit-stmt-in
+              '(for-loop {:label outer} [item items] (break-label outer))
+              '(a/for-loop {:label outer} [item items] (break-label outer))]]]
       (is (= (emit context plain) (emit context namespaced))))
     (is (= #{'source 'state}
            (set (emitter/scoped-captures
@@ -100,6 +115,31 @@
                                     (case [:.add] (continue vm (a/get code ip)))
                                     (case [:.end] result))
                  '[vm code ip result]))))))
+
+(deftest native-for-owners-capture-outer-values-not-iterators-or-labels
+  (let [context (the-ns 'aguafria.zig.jvm-scoped-statement-test)]
+    (doseq [form ['(a/inline-for [item items] (k/+= total item))
+                  '(a/for-loop {:label outer} [item items]
+                               (k/for [nested items]
+                                 (k/+= total nested)
+                                 (k/continue outer)))]]
+      (is (= #{'items 'total}
+             (set (emitter/scoped-captures context form '[outer item nested items total])))))))
+
+(deftest for-labels-preserve-same-named-lexical-values
+  (let [context (the-ns 'aguafria.zig.jvm-scoped-statement-test)
+        form '(a/for-loop {:label outer :body-label inner} [item items]
+                          (k/+= total outer)
+                          (k/continue outer))
+        qualified (binding [emitter/*local-type-bindings* {'outer false 'inner false}
+                            emitter/*local-name-bindings* {'outer '(deref address)
+                                                           'inner 'some-value}]
+                    (emitter/qualify-form context form))]
+    (is (= #{'items 'total 'outer}
+           (set (emitter/scoped-captures context form '[outer inner item items total]))))
+    (is (= {:label 'outer :body-label 'inner} (second qualified)))
+    (is (= '(aguafria.keyword/+= total (deref address)) (nth qualified 3)))
+    (is (= '(continue outer) (nth qualified 4)))))
 
 (deftest labels-do-not-hide-same-named-value-captures
   (let [context (the-ns 'aguafria.zig.jvm-scoped-statement-test)]
@@ -171,6 +211,22 @@
          (is (nil? (jvm/invoke-scoped! (ns-name *ns*) '(a/switch-stmt 0) {} false)))
          (is (= 2 @calls))))))
 
+(deftest scoped-results-remove-only-the-generated-error-carrier
+  (let [result (atom {:ok 42})]
+    (with-redefs-fn
+      {#'jvm/prepare-scoped-plan!
+       (fn [& _] {:context *ns* :function 'fixture/result :parameters []
+                  :expression 42 :propagates-errors? true})
+       #'jvm/invoke-expression! (fn [& _] @result)}
+      #(do
+         (is (= 42 (jvm/invoke-scoped! (ns-name *ns*) '(a/with-block :done) {} true)))
+         (reset! result {:error {:name "Rejected"}})
+         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Rejected"
+                               (jvm/invoke-scoped! (ns-name *ns*) '(a/with-block :done) {} true)))
+         (reset! result {:ok {:error {:name "OriginalResult"}}})
+         (is (= {:error {:name "OriginalResult"}}
+                (jvm/invoke-scoped! (ns-name *ns*) '(a/with-block :done) {} true)))))))
+
 (defn- scoped-statement-jvm [cache producer?]
   (let [code
         `(do
@@ -212,7 +268,7 @@
                                         [(second form#) (cons (symbol "do") (drop 4 form#))]))
                      expected# (mapv symbol ["comptime-loop-capture"
                                              "contextual-switch" "label-value-collision"
-                                             "while-error-capture"])
+                                             "while-error-capture" "for-else-value"])
                      _# (when-not (= (set expected#) (set (keys bodies#)))
                           (throw (ex-info "Missing scoped fixture bodies" {:found (keys bodies#)})))
                      events# (atom [])
@@ -261,7 +317,8 @@
     (is (= [{:name 'comptime-loop-capture :value {:ok nil}}
             {:name 'contextual-switch :value {:ok nil}}
             {:name 'label-value-collision :value {:ok nil}}
-            {:name 'while-error-capture :value {:ok nil}}]
+            {:name 'while-error-capture :value {:ok nil}}
+            {:name 'for-else-value :value {:ok nil}}]
            (:results consumer)) (pr-str (:results consumer)))
     (is (empty? misses) (pr-str misses))
     (is (seq hits))

@@ -2,6 +2,260 @@
 
 ## Zig 0.17.0 migration — October 3 (in progress)
 
+- October6 latest frozen scalar batch:2472/2772prepared,300incomplete;
+  zero closures/regressions versus the preceding accepted batch. Producer
+  287attempted/285analyzed in693.564s;127constant readers,126prepared and one
+  deliberate compileLog rejection. One4634-handlerpack,25,275,680native/
+  58,278,676debug bytes. Expanded public fresh gate80/80bodies+3/3IEEEconstants,
+  349exacthits/1load/zero new or standalone handlers,10.838s. Matching HTML
+  291/291outcomes/browser8/8/highlighter6/6;served hash7743c725…1abee.
+  Stronger36body+12nativeowner gate initially returned correct results but RED for two
+  redundant native-test-library builds. Root/dependency JVM-helper exclusion
+  closes one miss; final native-test snapshot preparation closes the remaining
+  late-authored-declaration mismatch. Keep definition-time checks separate.
+  Empty-cache/fresh-JVM regression1test/14assertions GREEN;five focused
+  snapshot/inspection tests21assertions GREEN. Final-owner-only whole follow-up
+  202prepared/21expected failures,zero status changes,61.656s;17additional
+  native test libraries prepared. Fresh36body+12owner gate now GREEN,200hits/
+  1load/zero builds or standalone,6.818s. Maintained verifier now includes
+  native owners:80bodies+3constants+12owners GREEN,349hits/1load/zero builds or
+  standalone,10.125s;verifier units5tests/30assertions GREEN.
+  Actual fresh owned nREPL repeats this maintained gate GREEN in9.979s,349hits/
+  1load/zero builds/standalone. Temporary49459/PID96540 stopped after verification;
+  user53717/60588 and HTTP63979 preserved.
+  Separate fresh delta17/17native tests GREEN,exactpreparedpaths/zero builds or
+  standalone JVM handlers,7.568s. No repeat of full operation analysis/HTML
+  needed for this cache-only repair.
+  Evidence `.tmp/learn-native-scalars-final-*.edn` and
+  `.tmp/learn-final-native-owners-017.edn` and
+  `.tmp/learn-final-owner-delta-replay-017.edn`.
+  Current acceptance summary:LEARN_CACHE_ACCEPTANCE_2026-10-06.md. This is not
+  completion of every detached observation or the whole application migration.
+- Next:retain this frozen acceptance;do not repeat whole analysis/HTML for
+  cache-only edits. Review remaining83host rows for genuinely independent
+  handler contracts, retaining native-owner evidence separately. Broader
+  application frozen revalidation remains outside current Learn acceptance.
+- Entries below are earlier frozen checkpoints; do not report their timings
+  or pack identity as current.
+- October6 accepted frozen checkpoint:2472/2772prepared,300incomplete;
+  eight closures/zero regressions/unchanged inventory versus the preceding
+  2464 checkpoint. Compile-only producer287attempted/285analyzed,
+  349.769s; one4473-handlerpack,24,492,336native/56,438,087debugbytes.
+  Public fresh consumer79/79top-levelbodies/36namespaces:343exacthits,
+  1load/zero compiled or standalone handlers,10.511s. One external-export
+  validation is a non-emitting compiler command, not zero compiler work.
+  Full-body consumer36/36 plus12/12nativeowners:200exacthits/1load,
+  zero compiled or standalone handlers,6.758s. Matching HTML291/291outcomes,
+  browser8/8/highlighter6/6; live304examples/302annotated/zero tooltip titles
+  or transcript leaks. Evidence `.tmp/learn-staged-contract-final-*.edn`.
+  These are bounded gates, not acceptance of all2772detached observations.
+- New extra prime-constant JVM body exposed computed scalar storage handling.
+  Generic encoder/decoder repair and shared lazy reader now give the authored
+  body4exactbundlehits/1load/zero builds or standalone,1.179s. Expanded wide
+  scalar checks found f128 precision/storage loss and f32 infinity marshalling.
+  Native bytes retain f16/f80/f128; compiler-reported materialized storage types
+  are shared by invocation and coercion. Focused native14tests/169assertions
+  GREEN. Strict empty-cache/fresh-AOT gate10assertions GREEN:24/24observations,
+  seven readers prepared; five authored bodies twice,20exacthits/1load,
+  zero builds or standalone handlers, zero warm commands. Actual Learn IEEE
+  infinity/negative infinity/NaN native checks pass; finite overflow stays checked.
+  Interrupted stale `learn-scalar-final` whole producer/HTML jobs; partial logs
+  are diagnostic only. Current core differs from the accepted checkpoint;
+  `learn-native-scalars-final` whole preparation/HTML and expanded public
+  consumer are complete;see the current acceptance entry above.
+  Extra inline-while ordinary body remains an unavailable comptime-local owner;
+  its original native test owner passes. Keep these scopes distinct.
+- Current user priority is Learn precompilation sign-off, not waiting on whole
+  application revalidation. Required: repair feasible host gaps, frozen complete
+  classified recount, matching fresh-JVM bundle consumer and HTML/browser gates.
+- Focused identity parity now GREEN: three tests/35assertions; four authored
+  bodies twice,26exact producer bundle hits/1load/zero compiled or standalone
+  JVM handlers. Both original pointer typeInfo projections have identical
+  producer/public identities and byte-identical native source. Evidence
+  `.tmp/comptime-source-operand-final-017.edn`. This closes the two known misses
+  in the focused gate, not yet the whole consumer's frozen pack acceptance.
+- Public inline-for/for-loop owners retain native loops and labeled exits.
+  Initial native gate1test/10assertions green for three unchanged Learn bodies;
+  separate fresh raw-memory mutation guard rejects before changing sum0 and
+  uses only the producer pack. Expanded permanent test13assertions GREEN inside
+  combined118tests/1403assertions,62.548s,zero failures/errors; evidence
+  `.tmp/learn-contracts-focused-gate-017.edn`.
+  Options-aware native-for lint gate17tests/57assertions green. Iterator scope
+  excludes else branches; labels are syntax, same-named value uses retained.
+  Whole count unchanged until next frozen audit.
+- Accepted bounded shared repair: compiler-validated result transport for retained
+  immutable scoped captures (`test-switch`11). Same-invocation native guards,
+  distinct bridge mismatch envelope, staged validation before publication;
+  original application error values remain data. No Clojure type inference.
+- Guarded-result final frozen GREEN: native8tests/54assertions, separate host
+  application-error propagation1test/3assertions; final fresh same-pack consumer
+  13/13strict checks, nine bodies twice with both negatives first,27exacthits/
+  1load/zero builds,standalone or semantic queries. Pack055dce5ba7e9464b0e89a5fda1c2df9ce8f66d3b22b5aced4c82fe9092196428,
+  103handlers. Original test-switch11prepared. Source/evidence/history in
+  `.tmp/scoped-result-final-017.edn`. Legacy statement guard path unchanged;
+  this is not a universal statement error-name collision repair. Current whole
+  AOT/HTML jobs launched after freeze; old aggregate count remains2467/2772
+  until matching recount. Child workers closed; root owned60017idle.
+- Earlier failed result-consumer attempts and their repairs remain recorded
+  in `.tmp/scoped-result-final-017.edn`; they are superseded by the strict
+  fresh acceptance above. Do not rerun those old snapshots as current gates.
+- Replay strength: `learn.jvm-assertions/call-with-checks` observes actual native
+  std.testing expectation results, so discarded returned failures cannot pass
+  the JVM body gate. Four tests/23assertions green including real native success
+  and discarded failure; bundle-verifier integration five tests/23assertions
+  green. Both `learn.jvm-body-test` and the public bundle verifier now use it.
+  Next fresh consumer covers18namespaces including nested-while,
+  parse-u64 and switch bodies; `.tmp/learn-guarded-result-bodies-017.clj`.
+- Permanent fresh-bundle verifier expands to79top-level bodies/36safe lessons;
+  namespace inventory and discarded-expectation regressions5tests/23assertions
+  green. Matching final pack run still pending. Three original comptime native
+  owners are checked separately, not called successful detached fragments.
+- Read-only comptime owner review saved `.tmp/learn-comptime-owner-plan-017.md`:
+  four signed-remainder fragments lost closed const evaluation; five mutable
+  comptime_int rows need compiler-local storage. All three complete native
+  test owners already prepared. No nine-row closure inferred from that fact.
+- Ten nonlocal child rows mapped exactly in `.tmp/learn-nonlocal-owner-plan-017.md`:
+  four labeled-inner-loop, three ordinary-function-return and three native-test
+  owner cases. Child exclusion and verified callable-owner coverage must remain
+  separate; do not change :failed to :prepared merely because owner runs.
+- Already-started Tiger focused host work completed separately:3tests/
+  51assertions green, same native host/state/PID through two edits/restores,
+  JVM/native outputs4096/8192/4096/12288/4096. Final worker cache-backed,
+  zero compiler commands; all owned workers closed, user services untouched.
+  Evidence `.tmp/tiger-vsr-owned-host-{summary,cleanup}-017.edn`. Not whole AOT.
+- Latest frozen whole checkpoint, October6:2467/2772 prepared,305incomplete,
+  528.301s. Comparison to previous inventory:4common closures/0regressions,
+  31additions/0removals. Old denominator is2449/2741;18of31new loop rows
+  prepare. Remaining scopes88host/137syntax-only/57intentional-compile-failure/
+  17cross-target/6intentional-runtime-failure. Compiler-only producer blocks
+  native execution;287attempted/285analyzed/two deliberate load failures.
+  One4421-handlerpack,24256240native/55997285debug bytes, exact ID
+  814dd21f0540d37d5eeddf0a99bc349f535de93a52b78826304fd7836316b81d.
+- Fresh combined consumer:33/33authored bodies across13namespaces correct,
+  0compiled/185exact bundle hits/1load,7.819s. Strict acceptance is RED:
+  test-pointer-casting typeInfo pointer/child field projections use two
+  standalone artifacts; identical native bodies have different planner names.
+  Trace canonical operand/reference identity; do not whitelist these misses.
+  Two subprocesses are version/bootstrap and --show-builtin metadata, not
+  handler compilation. Evidence `.tmp/learn-phase-identity-final-bodies-017.edn`.
+- Matching HTML regenerated:291/291outcomes,355authoredinline/250syntaxchecks,
+  424.668s. Browser14/14green,32.287s; served/generated SHA256
+  d350248ed6e954ae3db7e5d0b8929072d195743034c5750bf4f31b28daf2dcc4.
+  Actual in-app panel reloaded:304examples/302typed panels, no native title
+  attributes on typed spans, one custom tooltip. Expected-failure outputs are
+  present. Evidence `.tmp/learn-phase-identity-final-html-017.edn`.
+- Scoped loop parity focused gates:actual test-for48/51,all seven new whole
+  loops prepared;four original bodies,21exact hits/1load/zero builds or
+  standalone. Five-body permanent fixture30/34,22exact hits/zero misses.
+  Result carrier unwrap preserves real i32 and nested error unions. Anonymous
+  naming gate14/14green; lazy10,000-name regression performs zero identifier
+  scans absent destructuring. Current frozen core gate86tests/1207assertions.
+- Racing descriptor DAG now loads:2676unique nodes/107073transport chars,
+  instead of an exponential tree exceeding Java's2GiB array limit. Separate
+  SIGTRAP traced by disassembly to safe/fast `.auto` error-tracing ABI mismatch.
+  Dev reloadable compilation now requires uniform error tracing; ordinary
+  static builds unchanged. Permanent native four tests / 81 assertions pass,
+  including all nine cross-profile pairs. Actual fresh Racing two-edit gate
+  passes one test / 15 assertions in 113.857 seconds: state/PID retained,
+  original behavior restored and stopped. All 41 generation commands retain
+  tracing; four synchronous reporter events are not the command total.
+  Owned workers stopped; user services preserved.
+- Entries below are historical checkpoints. The current whole measurement
+  above is not fresh-bundle acceptance until its two identity misses close.
+- October6 scoped batch focused evidence accepted: actual anonymous-struct
+  fields7–10 now ordinary-JVM prepared (native unresolved signatures remain),
+  fourteen/fourteen namespace operations,85-handlerpack,18exacthits/1load,
+  zero fresh builds/standalone/semantic processes; original+changed fields and
+  reversed map insertion order pass. Permanent2tests26assertions. Evidence
+  `.tmp/anonymous-host-learn-evidence-017.edn`. Actual immutable test-if13 /
+  optionals23 prepared,67/68 namespace operations,83handlers; five authored
+  bodies twice,33exacthits/1load/zero builds+semantic processes; dead comparison
+  remains unobserved. Permanent4tests37assertions. Whole count NOT refreshed.
+- Root Racing require exposed exponential metadata serialization past Java's
+  array-size limit. New declaration-data graph transport retains metadata and
+  sharing; five focused graph/API tests351assertions green. Exact borrowed
+  alias schema/image recovery also repaired and tested (qualifiedtype, native
+  address,size identity required). Combined rootgate7tests367assertions green,
+  5.966s, `.tmp/root-shared-metadata-borrowed-017.edn`. Fresh Racing then exited
+  nativeSIGTRAP133 during actual test; no sign-off, native crash investigation
+  pending. Owned11060 is gone; user services preserved.
+- October 6 declared-phase focused gate closes actual switch-on-errors11/12:
+  both prepared with compiler-observed comptime u1=1; kind=0 remains pruned.
+  Fresh JVM returns SystemResources for authored function/direct value body
+  and the exact FileOpenError1 type; four exact pack hits, one pack load,
+  zero new builds or standalone handlers. Pack
+  afd84017fa089e4361bf1608e6fb798b40dac6e47c1fcc29881b6c02926926e5.
+  A strengthened check sees one bootstrap `zig version` query, no semantic
+  build/test/inspection. Permanent combined gate remains pending; whole count
+  unchanged until the batch audit. Evidence `.tmp/scoped-comptime-actual-*`.
+- Compiler probe for anonymous-struct7–10: original receiver has zero runtime
+  size and four comptime fields. Repeated literal is NOT the same anonymous
+  native type. Separate ordinary-JVM map-plan refinement is being investigated;
+  no closure or nominal-equivalence claim. Source `.tmp/anonymous-host-compiler-probes-017.clj`.
+- October 6 focused HTTP real-nREPL reload gate: one test /19 assertions,
+  zero failures/errors, 6.877 s. Two native handler edits preserve the listener
+  host ID, request count and JVM PID; original behavior restored before stop.
+  Evidence `.tmp/http-owned-reload-2026-10-06.edn`. Owned57236/PID86399 exited0
+  and PID absent. This is a focused application gate, not a new Learn count or
+  whole-project sign-off while the shared core batch is still changing.
+- Failed-adapter staged-validation regression: one test/five assertions green;
+  failed compiler candidate leaves registry, adapter/coercion/proof caches
+  unchanged, then valid candidate prepares. Immutable-value integration still
+  pending. New scoped proof cache must include compiler identity/version.
+- October 6 complete read-only review of57 placement/unobserved host rows:
+  placement28 = 11destructure +11for-range +6switch-range grammar;
+  unobserved29 =13target-pruned +11constant/specialization-pruned +5unused
+  generic add-explicit body. No new closures or fabricated compiler types.
+  Membership/examples in LEARN_AOT_REMAINING_2026-10-06.md. Preserve original
+  2741denominator for stable comparisons; syntax roles are not failed handlers.
+  Other29host rows remain separately visible. Shared comptime/immutable work
+  resumed after interruption; final acceptance includes application projects.
+- New whole measurement: 2441/2741 prepared, 300 incomplete, 372.418 s;
+  eight common closures / one host regression / no added or removed rows.
+  Regression test-switch-on-errors11 runtime-parameterizes declared comptime
+  kind but retains specialized error-set result; repair before acceptance.
+  Fresh owned nREPL 56/56, 277 exact hits / one4315-handlerpack / zero builds
+  or standalone handlers, 11.082 s. Core gate 194tests/3337assertions green.
+  HTML full pipeline 291/291 + browser14/14 green, served/generated SHA
+  437a251433b3070d414bd3210c736b24a39609623025ae628d09fe48b759968f.
+  Owned 55166/PID50292 and55200/PID58525 exited. User services preserved.
+  Remaining86host/136syntax-only/57compile-failure/15cross-target/6runtime-failure.
+  Host:15failed/29unobserved/28placement/8mutation-representation/4nominal/
+  1variadic-frame/1root. Evidence learn-destination-variadic reports in .tmp.
+  Next batch: compiler-confirmed comptime captures and immutable initializer
+  retention with native live-value proof; no unsafe stale provenance.
+- Earlier pending notes below are historical; current measurement above is
+  provisional because its explicit host regression has not been repaired yet.
+- Destination + variadic sources/tests frozen. Destination actual producer
+  126/126; three unchanged fresh bodies 34 exact hits / one260-handlerpack /
+  zero builds or standalone, 3.907 s. Stronger permanent fixture is now green:
+  four tests / 30 assertions, 66/66producer, twofreshbodies / 27exacthits /
+  one106-handlerpack / zero misses. Inspection wrappers preserve Zig's real
+  peer destination via compiler-exact @as; native source stays unchanged.
+  The first incomplete-fixture fallback panic is NOT a valid-bundle regression
+  or a foreign-alias transport fix. All owned destination workers exited.
+  Combined whole `learn-destination-variadic-017.edn` and fresh HTML validation
+  launched once after freeze; counts pending. Previous HTML fingerprints
+  expire after core changes and render guard rejects stale transcripts.
+- Read-only next-seven triage: test-if13 / test-if-optionals23 fail discarded
+  error captures after detached runtime inputs revive original dead branches;
+  need compiler-proven immutable initializer retention, not result types.
+  Inline-switch4/26 and switch-on-errors6/18 require real function/test return
+  owners; continue-equivalent10 additionally requires owning while. Preserve
+  original branches and validate real owners; never count owner success as
+  successful detached preparation. Design investigation only, not closures.
+- Next focused variadic batch frozen: shared runtime/preparation generic
+  parameter classification and actual variadic arity, preserving compiler C
+  aliases. Three permanent tests / 25 assertions green; fresh nine results,
+  23 exact pack hits, one pack, zero builds or standalone loads. Actual
+  test-defining-variadic-function is 30/36 prepared, zero failed handlers:
+  remaining one cVaStart requires its enclosing frame, five operations are
+  target-guarded/unobserved. Original native test 1/1 passed. Owned 54441 JVM
+  exited and root port file remains absent. Evidence
+  `.tmp/variadic-{focused-test-results,fixture-producer,fixture-consumer,learn-focused,learn-native-test}-017.edn`.
+  Destination companion batch has actual 126/126, errors []; all four target
+  rows prepared with compiler schemas usize/u32/optional-u32. Its fresh-body
+  cache gate is pending. Do not add focused gains to the accepted whole count.
 - Accepted storage/proof snapshot: 2434/2741, 307 incomplete, 353.884 s;
   285 analyzed, two deliberate load failures, native invocation blocked.
   Zero shared `Cannot emit Zig type` exceptions. Fresh owned nREPL 54267:

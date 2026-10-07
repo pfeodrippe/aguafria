@@ -50,6 +50,61 @@ pub const __aguafria_jvm = struct {
         return std.fmt.parseFloat(f128, text) catch @panic("Invalid JVM float literal");
     }
 
+    pub fn scopedCaptureSupported(comptime T: type) bool {
+        return switch (@typeInfo(T)) {
+            .int, .bool, .void, .error_set, .@"enum" => true,
+            .optional => |info| scopedCaptureSupported(info.child),
+            .error_union => |info| scopedCaptureSupported(info.payload),
+            .array => |info| scopedCaptureSupported(info.child),
+            .@"struct" => |info| fields: {
+                inline for (info.field_types) |Field| {
+                    if (!scopedCaptureSupported(Field)) break :fields false;
+                }
+                break :fields true;
+            },
+            // eql compares floating zeros equal despite their different bits.
+            // Pointers/slices can retain a stable address with mutable contents.
+            else => false,
+        };
+    }
+
+    pub fn proveScopedCapture(comptime actual: anytype, comptime candidate: anytype) void {
+        if (@TypeOf(actual) != @TypeOf(candidate)) @compileError("scoped capture type differs");
+        if (comptime !scopedCaptureSupported(@TypeOf(actual))) @compileError("scoped capture has unsupported value semantics");
+        if (!std.meta.eql(actual, candidate)) @compileError("scoped capture value differs");
+    }
+
+    pub fn scopedCaptureMatches(actual: anytype, comptime candidate: @TypeOf(actual)) bool {
+        if (comptime !scopedCaptureSupported(@TypeOf(actual))) @compileError("scoped capture has unsupported value semantics");
+        return std.meta.eql(actual, candidate);
+    }
+
+    // This is a bridge precondition failure, not an application's error value.
+    // It uses the ordinary owned writer so the normal release path still runs.
+    pub fn scopedCaptureMismatch() usize {
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        sink.writer.writeAll("{:aguafria.jvm/scoped-capture-mismatch true}") catch
+            @panic("Cannot encode scoped capture mismatch");
+        return sink.finish();
+    }
+
+    pub fn scopedResultSupported(comptime T: type) bool {
+        return switch (@typeInfo(T)) {
+            .int, .float, .bool, .void, .error_set, .@"enum", .comptime_int, .comptime_float, .null, .type => true,
+            .optional => |info| scopedResultSupported(info.child),
+            .error_union => |info| scopedResultSupported(info.payload),
+            // First retained result contract: no result may borrow a capture's
+            // storage. Reflect the real result type, not the source spelling.
+            else => false,
+        };
+    }
+
+    pub fn scopedResult(value: anytype) usize {
+        if (comptime !scopedResultSupported(@TypeOf(value))) @compileError("retained scoped result has unsupported value semantics");
+        return result(value);
+    }
+
     pub fn enumCoercionRequiresConstant(comptime Result: type, comptime Input: type) bool {
         if (@typeInfo(Input) != .@"enum" or @typeInfo(Result) != .@"union") return false;
         inline for (@typeInfo(Result).@"union".field_types) |Field| {
@@ -1075,6 +1130,9 @@ pub const __aguafria_jvm = struct {
     }
 
     pub fn comptimeResult(comptime value: anytype) usize {
+        if (@typeInfo(@TypeOf(value)) == .float and @TypeOf(value) != f32 and @TypeOf(value) != f64) {
+            return result(value);
+        }
         switch (@typeInfo(@TypeOf(value))) {
             .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => {},
             else => return if (requiresComptime(@TypeOf(value))) result(value) else result(null),
@@ -1085,11 +1143,28 @@ pub const __aguafria_jvm = struct {
         // This is a transport envelope, not a field path in the source value.
         writer.writeAll("{:comptime_value ") catch @panic("Cannot write comptime result");
         write(writer, value) catch @panic("Cannot write comptime result");
+        switch (@typeInfo(@TypeOf(value))) {
+            .int, .float, .bool => writer.print(" :scalar-type :{s}", .{@typeName(@TypeOf(value))}) catch
+                @panic("Cannot write comptime result type"),
+            else => {},
+        }
         writer.writeByte('}') catch @panic("Cannot write comptime result");
         return sink.finish();
     }
 
     pub fn storageFreeConstantResult(comptime value: anytype) usize {
         return if (requiresComptime(@TypeOf(value))) comptimeResult(value) else result(null);
+    }
+
+    pub fn constantResult(comptime pointer: anytype, comptime explicit_type: bool) usize {
+        const T = @typeInfo(@TypeOf(pointer)).pointer.child;
+        const inferred_scalar = !explicit_type and switch (@typeInfo(T)) {
+            .int, .float, .bool, .comptime_int, .comptime_float, .enum_literal, .null, .type => true,
+            else => false,
+        };
+        if (comptime inferred_scalar or requiresComptime(T)) return comptimeResult(pointer.*);
+        // Borrow the declaration, not a temporary copy of its value. The JVM
+        // result retains this library generation for the lifetime of the view.
+        return borrowedResult(Borrowed(@TypeOf(pointer)){ .pointer = pointer });
     }
 };

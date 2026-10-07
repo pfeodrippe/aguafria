@@ -74,6 +74,17 @@
       (k/= result 42)
       (is (= 42 (a/value (k/try result)))))))
 
+(deftest borrowed-error-union-assignment-preserves-the-original-storage
+  (with-open [source (k/var 7 [:error-union [:error-set [:Rejected]] :u32])
+              pointer (k/& source)
+              alias (a/deref pointer)]
+    (is (= (.address (value/segment source)) (.address (value/segment alias))))
+    (is (identical? (:schema (value/realize! source)) (:schema (value/realize! alias))))
+    (k/= alias (a/error-value :Rejected))
+    (is (= :Rejected (get-in (a/value source) [:error :name])))
+    (k/= alias 9)
+    (is (= 9 (a/value (k/try source))))))
+
 (deftest native-string-and-container-members-compose
   (is (= [104 101 108 108 111] (a/value (a/deref "hello"))))
   (let [sentinel (k/as "hello" [:* {:sentinel 0 :size :slice :const? true} :u8])

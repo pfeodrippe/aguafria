@@ -1,5 +1,6 @@
 (ns learn.bundle-cache-check-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [aguafria.zig.jvm :as jvm]
+            [clojure.test :refer [deftest is testing]]
             [learn.bundle-cache-check :as check]))
 
 (deftest authored-bodies-keep-scope-and-source-order
@@ -27,9 +28,22 @@
                  (check/main-bodies '[(a/defn main :void [[input :u32]] input)])))))
 
 (deftest checked-source-inventory-has-every-expected-body
-  (is (= 26 (count check/checked-lessons)))
-  (is (= 56 (reduce + (map #(count (:bodies (#'check/read-lesson %)))
-                           check/checked-lessons)))))
+  (is (= 37 (count check/checked-lessons)))
+  (is (= 80 check/expected-body-count))
+  (is (= check/expected-body-count
+         (reduce + (map #(count (:bodies (#'check/read-lesson %)))
+                        check/checked-lessons))))
+  (is (= 3 (count check/checked-constants)))
+  (is (= 12 (count check/checked-native-owners))))
+
+(deftest a-discarded-native-assertion-error-fails-the-body
+  (with-redefs [jvm/invoke-reference! (fn [_ _] {:error {:name "TestExpectedEqual"}})]
+    (let [result (#'check/evaluate-body
+                  {:form '(do (aguafria.zig.jvm/invoke-reference!
+                               {:symbol 'aguafria.std.testing/expectEqual} [1 2])
+                              nil)})]
+      (is (= :failed (:status result)))
+      (is (= ["Native testing expectation failed during JVM replay"] (:causes result))))))
 
 (def valid-report
   {:producer-bundle-id "producer"
@@ -52,6 +66,14 @@
                    [{:bodies [{:status :passed :result {:error :Mismatch}}]}])]
            ["native build" (assoc valid-report :compiled [{:event :compiled}])]
            ["failed build" (assoc valid-report :compiled [{:event :compile-failed}])]
+           ["missing constant" (assoc valid-report :expected-constant-count 1
+                                      :constant-results [])]
+           ["failed constant" (assoc valid-report :expected-constant-count 1
+                                     :constant-results [{:status :failed}])]
+           ["missing native owner" (assoc valid-report :expected-native-owner-count 1
+                                          :native-owner-results [])]
+           ["failed native owner" (assoc valid-report :expected-native-owner-count 1
+                                         :native-owner-results [{:status :failed}])]
            ["standalone helper" (assoc valid-report :standalone [{:module "aguafria.jvm.x"}])]
            ["wrong pack" (assoc valid-report :bundles #{"another"})]
            ["no pack" (assoc valid-report :bundles #{})]

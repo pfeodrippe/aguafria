@@ -42,10 +42,9 @@
 (configure-ime-probe!)
 
 (a/defconst ime-probe-api
-  (ak/import (a/clj! (:translated-zig-path
-                       (ac/translate-zig!
-                        (io/file (la-professeure.build/root) "tools/test/studio_ime_probe.h")
-                        {:args ["-lc"]})))))
+  (ak/import (a/clj! (ac/import! "la_professeure_studio_ime_probe"
+                                (io/file (la-professeure.build/root) "tools/test/studio_ime_probe.h")
+                                {:args ["-lc"]}))))
 
 (a/defn ime-probe! :bool [[commit? :bool]]
   (when (ak/== studio/studio-window ak/null) (ak/return false))

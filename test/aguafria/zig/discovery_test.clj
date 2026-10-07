@@ -1716,6 +1716,20 @@
            (:declared-functions summary)))
     (is (= {:prepared 2 :partial 1 :failed 1} (:handler-records summary)))))
 
+(deftest coverage-reports-constant-readers-without-inflating-operation-coverage
+  (let [summary (precompile/coverage
+                 [{:constant-readers [{:status :prepared}
+                                     {:status :failed}
+                                     {:status :skipped :reason :compiler-rejected-root}]
+                   :operations [{:status :observed :handlers [{:status :prepared}]}
+                                {:status :unobserved}]}])]
+    (is (= {:total 3 :statuses {:prepared 1 :failed 1 :skipped 1}
+            :skip-reasons {:compiler-rejected-root 1}}
+           (:constant-readers summary)))
+    (is (= {:total 2 :fully-prepared 1 :not-fully-prepared 1}
+           (:runtime-candidates summary)))
+    (is (= {:prepared 1} (:handler-records summary)))))
+
 (deftest coverage-groups-count-each-incomplete-operation-once
   (let [summary (precompile/coverage
                  [{:operations [{:status :observed :handlers []}

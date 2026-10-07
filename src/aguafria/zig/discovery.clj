@@ -107,12 +107,29 @@
 
 (declare operand-schema)
 
-(defn- scoped-capture-schemas [render references]
-  (mapcat (fn [[_ reference]]
-            [(operand-schema render (render reference)
-                             {:properties {:jvm/literal? true}} reference "argumentSchema")
-             (str "__aguafria_probe.schema(@TypeOf(&(" (render reference) ")))")])
-          references))
+(defn- scoped-capture-contracts [references parameters]
+  (let [parameters (into {} (map (juxt :name identity)) parameters)]
+    (into {}
+          (keep (fn [[name reference]]
+                  (let [parameter (get parameters reference)]
+                    (when (= "comptime" (get-in parameter [:properties :zig/prefix]))
+                      [name {:phase :comptime :type (:type parameter)}]))))
+          references)))
+
+(defn- scoped-capture-schemas
+  ([render references] (scoped-capture-schemas render references {}))
+  ([render references contracts]
+   (mapcat (fn [[name reference]]
+             [(if (= :comptime (get-in contracts [name :phase]))
+                ;; The declaring parameter supplies the phase; Zig supplies
+                ;; both the actual native type and value in this specialization.
+                (str "\"{:comptime-capture [\" ++ __aguafria_probe.schema(@TypeOf("
+                     (render reference) ")) ++ \" \" ++ __aguafria_probe.comptimeValue("
+                     (render reference) ") ++ \"]}\"")
+                (operand-schema render (render reference)
+                                {:properties {:jvm/literal? true}} reference "argumentSchema"))
+              (str "__aguafria_probe.schema(@TypeOf(&(" (render reference) ")))")])
+           references)))
 
 (defn- field-reference? [form]
   (and (seq? form) (symbol? (first form))
@@ -195,6 +212,114 @@
                 (visit form))))]
     (expand form #{})))
 
+(defn- compile-scoped-constant-proof!
+  "Optionally prove closed immutable captures in their original lexical scope.
+  A failed proof is evidence only: it does not register declarations or replace
+  the ordinary observation. Both native type and value must agree at comptime."
+  [caller form capture-types]
+  (let [context (the-ns caller)
+        captures (set (keys capture-types))
+        canonical (fn [form]
+                    (binding [emitter/*local-name-bindings* (zipmap captures captures)
+                              emitter/*local-type-bindings* (zipmap captures (repeat false))]
+                      (artifact/print-data (emitter/qualify-form context form))))
+        expected (canonical form)
+        matches (atom [])
+        result
+        (runtime/inspect-module!
+         caller
+         (fn [declarations]
+           (let [reserved-labels (into #{}
+                                       (keep #(when (or (symbol? %) (keyword? %))
+                                                (emitter/identifier %)))
+                                       (tree-seq coll? seq declarations))]
+             {:source
+              (str "const __aguafria_scoped_proof = @import(\"jvm_result.zig\").__aguafria_jvm;\n"
+                   (binding [emitter/*expression-observer*
+                             (fn [{:keys [form source source-bindings place-probe render]}]
+                               (if-let [template (:aguafria/scoped-template (meta form))]
+                                 (if (= expected (canonical template))
+                                   (let [references (:aguafria/scoped-captures (meta form))
+                                         candidates
+                                         (into (array-map)
+                                               (keep
+                                                (fn [[name reference]]
+                                                  (when (and (captures name)
+                                                             (:aguafria/jvm-initializer (meta reference)))
+                                                    (let [candidate (initializer-source reference)]
+                                                      (when-not (some (set source-bindings)
+                                                                      (tree-seq coll? seq candidate))
+                                                        [name {:source candidate
+                                                               :native-source (render candidate)
+                                                               :reference (render reference)}])))))
+                                               references)]
+                                     (let [index (count @matches)]
+                                       (swap! matches conj candidates)
+                                       (if (seq candidates)
+                                         (let [proof
+                                               (str "comptime { if ("
+                                                    (str/join " and "
+                                                              (for [[name {:keys [reference]}] candidates]
+                                                                (str "@TypeOf(" reference ") == "
+                                                                     (emitter/emit-type (get capture-types name)))))
+                                                    ") { "
+                                                    (apply str
+                                                           (for [[_ {:keys [reference native-source]}] candidates]
+                                                             (str "__aguafria_scoped_proof.proveScopedCapture("
+                                                                  reference ", " native-source "); ")))
+                                                    "@compileLog(\"aguafria.scoped.proof.accepted:" index "\"); } }")]
+                                           {:source
+                                            (if place-probe
+                                              (place-probe proof "aguafria_scoped_constant_proof")
+                                          ;; A value observation has no statement
+                                          ;; placement callback. Keep its actual
+                                          ;; destination, owners and rendered
+                                          ;; value in the original lexical scope.
+                                          ;; Reuse the emitter's collision-safe
+                                          ;; lexical naming scope for this label.
+                                              (let [label (first (remove reserved-labels
+                                                                         (repeatedly #(emitter/identifier
+                                                                                       (#'emitter/binding-temp form)))))]
+                                                (str "(" label ": { " proof " break :" label " " source "; })")))})
+                                         source)))
+                                   source)
+                                 source))]
+                     (emitter/emit-module (str caller) declarations)))
+              :files {"jvm_result.zig" (slurp (io/resource "aguafria/jvm_result.zig"))}})))
+        log (second (str/split (:err result) #"Compile Log Output:\r?\n" 2))
+        accepted (mapv #(Long/parseLong (second %))
+                       (re-seq #"\"aguafria\.scoped\.proof\.accepted:([0-9]+)\"" (or log "")))
+        selected (distinct (map #(nth @matches %) accepted))
+        candidates (when (= 1 (count selected)) (first selected))
+        proven? (and (= 1 (:exit result)) (seq candidates)
+                     (seq accepted)
+                     (not (re-find #"(?m)error: (?!found compile log statement)" (:err result))))]
+    (merge {:proven? (boolean proven?)
+            :candidates (when proven? candidates)
+            :matches (count @matches) :accepted accepted :basis :zig-compiler}
+           (select-keys result [:exit :err :command :source-path]))))
+
+(defn prove-scoped-constants!
+  "Prove value-only scoped captures; storage-observing/opaque scopes retain
+  their ordinary runtime contract. Value equality cannot establish an address."
+  [caller form capture-types]
+  (let [context (the-ns caller)
+        names (keys capture-types)
+        canonical (binding [emitter/*local-name-bindings* (zipmap names names)
+                            emitter/*local-type-bindings* (zipmap names (repeat false))]
+                    (emitter/qualify-form context form))
+        storage-heads #{"&" "pointer-capture" "deref" "slice" "slice-sentinel"
+                        "intFromPtr" "ptrCast" "constCast" "raw" "raw-statements"
+                        "asm" "asm-expr"}
+        observed (into #{}
+                       (keep #(when (and (seq? %) (symbol? (first %))
+                                         (storage-heads (name (first %))))
+                                (first %)))
+                       (tree-seq coll? seq canonical))]
+    (if (seq observed)
+      {:proven? false :reason :scoped-storage-identity-observed :forms observed}
+      (compile-scoped-constant-proof! caller canonical capture-types))))
+
 (defn- jvm-anonymous-type-source
   "Retain an explicit container macro and its explicit lexical type operands.
   This is source provenance, not a schema inferred from the Clojure expression."
@@ -208,7 +333,7 @@
               (and (seq? form) (symbol? (first form))
                    (= "container" (name (first form))))
               (let [names (into #{} (filter #(and (symbol? %)
-                                                (:aguafria/local? (meta %))))
+                                                  (:aguafria/local? (meta %))))
                                 (tree-seq coll? seq form))
                     captures (emitter/scoped-captures context form names)
                     locals (mapv (fn [name] [name (source name visiting)]) captures)]
@@ -490,7 +615,15 @@
       (str "\"{:map {\" ++ "
            (join-schemas (map (fn [[key item]]
                                 (str (artifact/print-data (str (artifact/print-data key) " ")) " ++ "
-                                     (operand-schema render (render item) parameter item "argumentSchema"))) form))
+                                     ;; A map inherits its containing argument's
+                                     ;; phase. A string accepted by a comptime
+                                     ;; parameter cannot acquire a runtime slice
+                                     ;; alternative merely because it is nested.
+                                     (if (and (string? item)
+                                              (not= "comptime"
+                                                    (get-in parameter [:properties :zig/prefix])))
+                                       (str "__aguafria_probe.jvmMapStringArgumentSchema(" (render item) ")")
+                                       (operand-schema render (render item) parameter item "argumentSchema")))) form))
            " ++ \"}}\"")
 
       :else
@@ -531,7 +664,9 @@
 (defn- observer [operations selected]
   (fn [{:keys [form source-form source location var-meta render placement place-probe defer-probe assignment
                method-call? receiver member declaration-name declaration-kind root-declaration-name
-               source-bindings signature-position? result-context result-context-origin]}]
+               declared-constant-initializer?
+               source-bindings signature-position? result-context result-context-origin
+               result-context-envelope source-parameters]}]
     ;; Probe construction must not observe its own emitted type expressions.
     (binding [emitter/*lexical-bindings* (into emitter/*lexical-bindings* source-bindings)
               emitter/*expression-observer* nil
@@ -549,6 +684,7 @@
                                              (or emitter/*keyword-context* *ns*) form))))
             capture-references (when scoped? (:aguafria/scoped-captures (meta form)))
             captures (when scoped? (mapv first capture-references))
+            capture-contracts (scoped-capture-contracts capture-references source-parameters)
             source-literal? (and function
                                  ((requiring-resolve 'aguafria.zig.jvm/source-literal-call?)
                                   function (rest form)))
@@ -715,14 +851,22 @@
                                  {:id id :function function :form (artifact/print-data (or source-form form))
                                   :declaration-name declaration-name
                                   :declaration-kind declaration-kind
+                                  :declared-constant-initializer? declared-constant-initializer?
                                   :root-declaration-name root-declaration-name
                                   :signature-position? signature-position?
-                                  :scoped-form (when scoped? (:aguafria/scoped-template (meta form)))
+                                  :scoped-form (when scoped?
+                                                 (vary-meta (:aguafria/scoped-template (meta form))
+                                                            assoc :aguafria/scoped-capture-contracts
+                                                            capture-contracts))
                                   :scope-captures captures
+                                  :scope-capture-contracts capture-contracts
                                   :scope-result? scope-result?
                                   :scope-result-context? scope-result-context?
                                   :scope-result-context-origin (when scope-result-context?
                                                                  result-context-origin)
+                                  :scope-result-envelope (when (and scope-result-context?
+                                                                    result-context-envelope)
+                                                           (artifact/print-data result-context-envelope))
                                   :result-reader? (and (or operator? method-call?)
                                                        (not (needs-result-context? source)))
                                   :returns-type? (or (= :type (:return declaration))
@@ -851,14 +995,19 @@
 
                               scoped?
                               (concat
-                               (scoped-capture-schemas render capture-references)
+                               (scoped-capture-schemas render capture-references capture-contracts)
                                (when scope-result-context?
+                                 (when-let [use! (:aguafria/use-peer-envelope! (meta result-context))]
+                                   (use!))
                                  [(str "__aguafria_probe.schema("
                                        (emitter/emit-type result-context) ")")]))
 
                               contextual-scope
                               (concat [(str "__aguafria_probe.schema(@TypeOf(" (render form) "))")]
-                                      (scoped-capture-schemas render (:references contextual-scope)))
+                                      (scoped-capture-schemas
+                                       render (:references contextual-scope)
+                                       (scoped-capture-contracts (:references contextual-scope)
+                                                                 source-parameters)))
 
                               (= :index placement)
                               (map-indexed
@@ -905,7 +1054,13 @@
                        "{ __aguafria_probe.log(" payload "); " result-log reader-log
                        (when-not noreturn?
                          (str "break :" label " "))
-                       source "; })"))))))))))
+                       (if scope-result-context?
+                         ;; This inspection block would otherwise sever the
+                         ;; parent's peer/return destination at its break. The
+                         ;; original native envelope supplies this exact type.
+                         (str "@as(" (emitter/emit-type result-context) ", " source ")")
+                         source)
+                       "; })"))))))))))
 
 (defn- root-declarations [declarations]
   (filterv (fn [{:keys [kind args jvm-adapter?]}]
@@ -1441,7 +1596,13 @@
   (or (structural-type? argument)
       (#{:comptime_float :null :undefined} argument)
       (and (map? argument)
-           (or (and (#{:comptime_int :comptime_float} (:type argument))
+           (or (and (= #{:comptime-capture} (set (keys argument)))
+                    (= 2 (count (:comptime-capture argument)))
+                    (or (structural-type? (first (:comptime-capture argument)))
+                        (contains? #{:type :comptime_int :comptime_float}
+                                   (first (:comptime-capture argument))))
+                    (supported-argument? (second (:comptime-capture argument))))
+               (and (#{:comptime_int :comptime_float} (:type argument))
                     (number? (:literal argument)))
                (and (= #{:constant-coercion} (set (keys argument)))
                     (= 2 (count (:constant-coercion argument)))
@@ -1557,6 +1718,21 @@
              (filter #(contains? #{:fn :fn-proto :test} (:kind %)))
              (sort-by (comp str :name)))))
 
+(defn- prepare-constant-readers! [module rejected-roots]
+  (let [prepare (requiring-resolve 'aguafria.zig.jvm/precompile-constant-reader!)]
+    (mapv (fn [{:keys [name] :as declaration}]
+            (let [constant (symbol (str module) (str name))]
+              (if (contains? rejected-roots name)
+                {:constant constant :status :skipped :reason :compiler-rejected-root}
+                (try
+                  (prepare declaration)
+                  (catch Exception error
+                    (assoc (error-report error) :constant constant :status :failed))))))
+          (->> (runtime/registered-declarations module)
+               (remove :jvm-adapter?)
+               (filter #(= :const (:kind %)))
+               (sort-by (comp str :name))))))
+
 (defn- prepare-in-observed-context [declaration-kind prepare]
   ;; JVM callers normally use build-lib. Only a compiler rejection inside an
   ;; authored test warrants testing the same adapter in Zig's test environment.
@@ -1571,6 +1747,84 @@
         (binding [runtime/*native-test-context?* true]
           (assoc (prepare) :execution-context :test))
         (throw error)))))
+
+(defn- retain-declared-initializer-owner [module readers operation]
+  (if (and (= :observed (:status operation))
+           (:declared-constant-initializer? operation))
+    (let [constant (symbol (str module) (str (:root-declaration-name operation)))
+          reader (or (get readers constant)
+                     {:constant constant :status :failed :reason :unprepared-constant-owner})]
+      (assoc operation
+             :enclosing-context :comptime
+             :execution-plan :declared-constant
+             :independent-call? false
+             :independent-call-handlers (:handlers operation)
+             :handlers [(assoc reader :execution-context :comptime)]))
+    operation))
+
+(defn- refine-jvm-map-representations!
+  "Reflect unknown native field receivers as independently supplied JVM maps.
+  Query the actual lexical receiver, never a reconstructed anonymous type.
+  Native observations stay intact; map field adapters do not borrow that
+  receiver's storage or claim its nominal identity."
+  [report]
+  (let [candidates (filterv
+                    (fn [{:keys [status signatures storage-kind method-call? jvm-value-sources]}]
+                      (and (= :observed status) (= :field storage-kind)
+                           (not method-call?) (seq signatures)
+                           (not-any? identity jvm-value-sources)
+                           (every? #(nil? (first %)) signatures)))
+                    (:operations report))]
+    (when (seq candidates)
+      (let [ids (set (map :id candidates))
+            operations (atom [])
+            inventory (observer operations #{})
+            result
+            (binding [*inspection-specializations* (:inspection-specializations report)
+                      *local-type-identities* (:local-type-identities report)
+                      *observed-type-identities* (vec (concat (:type-identities report)
+                                                              (:call-result-identities report)))
+                      *rejected-inspection-roots* (set (keys (:root-failures report)))]
+              (runtime/inspect-module!
+               (:namespace report)
+               (fn [declarations]
+                 (let [declarations (inspection-declarations (:namespace report) declarations)
+                       source
+                       (binding [emitter/*expression-observer*
+                                 (fn [{:keys [form render place-probe source] :as event}]
+                                   (let [before (count @operations)
+                                         unchanged (inventory event)
+                                         operation (when (< before (count @operations)) (peek @operations))]
+                                     (if (and (ids (:id operation)) place-probe)
+                                       {:source
+                                        (place-probe
+                                         (str "__aguafria_probe.log("
+                                              (artifact/print-data
+                                               (str "aguafria.jvm-map:" (:id operation) ":"))
+                                              " ++ __aguafria_probe.jvmMapArgumentSchema(@TypeOf("
+                                              (render (second form)) "))); ")
+                                         (str "aguafria_jvm_map_" (:id operation)))}
+                                       unchanged)))]
+                         (emitter/emit-module (str (:namespace report)) declarations))]
+                   {:source (str "const __aguafria_probe = @import(\"operation_probe.zig\").Inspector(.{"
+                                 (type-catalog (:namespace report) declarations #{})
+                                 "});\n" source (roots declarations))
+                    :files {"operation_probe.zig" (slurp (io/resource "aguafria/operation_probe.zig"))
+                            "jvm_result.zig" (slurp (io/resource "aguafria/jvm_result.zig"))}}))))
+            schemas (when-not (compiler-errors? result)
+                      (compiler-observations (:err result) "aguafria\\.jvm-map"))
+            observed (into {}
+                           (for [{:keys [id signatures]} candidates
+                                 :let [maps (filter #(and (map? %) (contains? % :map)) (get schemas id))]
+                                 :when (seq maps)]
+                             [id (set (for [schema maps signature signatures]
+                                        (assoc signature 0 schema)))]))]
+        {:basis :zig-compiler :representation :ordinary-jvm-map
+         :nominal-equivalence? false :native-storage? false
+         :sources (into {} (map (juxt :id #(select-keys % [:form :declaration-name :signatures]))) candidates)
+         :observed observed :compiler-errors? (compiler-errors? result)
+         :command (:command result) :source-path (:source-path result)
+         :diagnostics (:err result)}))))
 
 (defn- refine-jvm-type-representations!
   "Query ordinary JVM container descriptors separately from the native body.
@@ -1615,23 +1869,23 @@
             reader-declarations
             (binding [runtime/*source-only-registration?* true]
               (into []
-                  (keep (fn [{:keys [id function storage-kind signatures]}]
+                    (keep (fn [{:keys [id function storage-kind signatures]}]
                           ;; This closed unary call has no runtime operands. Ask
                           ;; Zig about the exact JVM descriptor's actual result;
                           ;; do not reuse an original lexical type's reader.
-                          (when (and (nil? storage-kind)
-                                     (= 1 (count (first signatures)))
-                                     (:aguafria/token (meta (find-var function))))
-                            (let [name (symbol (str "Result_" id))
-                                  descriptor (emitter/prepare-declaration
-                                              context {:kind :const :name name
-                                                       :declaration-key [:const name]
-                                                       :module (str module) :public? true
-                                                       :value (list function
-                                                                    (list 'aguafria.zig/type (get types id)))})]
-                              (runtime/register-declaration! descriptor)
-                              descriptor))))
-                  candidates))
+                            (when (and (nil? storage-kind)
+                                       (= 1 (count (first signatures)))
+                                       (:aguafria/token (meta (find-var function))))
+                              (let [name (symbol (str "Result_" id))
+                                    descriptor (emitter/prepare-declaration
+                                                context {:kind :const :name name
+                                                         :declaration-key [:const name]
+                                                         :module (str module) :public? true
+                                                         :value (list function
+                                                                      (list 'aguafria.zig/type (get types id)))})]
+                                (runtime/register-declaration! descriptor)
+                                descriptor))))
+                    candidates))
             result
             (runtime/inspect-module!
              module
@@ -1731,8 +1985,8 @@
                                       (list 'aguafria.keyword/TypeOf
                                             (list 'aguafria.zig/with-block :pointer_type
                                                   (list 'let [root (list (if pointer-mutable?
-                                                                         'aguafria.keyword/var 'aguafria.keyword/as)
-                                                                       'aguafria.keyword/undefined root-type)]
+                                                                           'aguafria.keyword/var 'aguafria.keyword/as)
+                                                                         'aguafria.keyword/undefined root-type)]
                                                         (list 'aguafria.keyword/break :pointer_type
                                                               (list 'aguafria.keyword/&
                                                                     (reduce (fn [value member]
@@ -1862,25 +2116,25 @@
                             root (register type-source)
                             _ (alias-type root)
                             query-source (binding [emitter/*keyword-context* caller]
-                                    (initializer-source
-                                     (walk/prewalk
-                                      (fn [form]
-                                        (if-let [source (jvm-value-type-source caller form)]
+                                           (initializer-source
+                                            (walk/prewalk
+                                             (fn [form]
+                                               (if-let [source (jvm-value-type-source caller form)]
                                           ;; A typed native constructor becomes a type-only
                                           ;; leaf, not a reconstructed anonymous @Struct.
-                                          (if (:pointer? source)
-                                            form
-                                            (let [root (register (:type-source source))
-                                                  path (concat (when-let [member (first (:capture-fields source))]
-                                                                 [member])
-                                                               (:fields source))
-                                                  type (reduce (fn [type member]
-                                                                 (list 'aguafria.keyword/FieldType type (name member)))
-                                                               root path)]
-                                              (list 'aguafria.keyword/as 'aguafria.keyword/undefined
-                                                    (alias-type type))))
-                                          form))
-                                      input-source)))
+                                                 (if (:pointer? source)
+                                                   form
+                                                   (let [root (register (:type-source source))
+                                                         path (concat (when-let [member (first (:capture-fields source))]
+                                                                        [member])
+                                                                      (:fields source))
+                                                         type (reduce (fn [type member]
+                                                                        (list 'aguafria.keyword/FieldType type (name member)))
+                                                                      root path)]
+                                                     (list 'aguafria.keyword/as 'aguafria.keyword/undefined
+                                                           (alias-type type))))
+                                                 form))
+                                             input-source)))
                             schema (binding [emitter/*keyword-context* caller]
                                      (let [render #(emitter/emit-expr %)]
                                        (operand-schema render (render query-source) nil query-source "argumentSchema")))]
@@ -1938,20 +2192,22 @@
   unsupported/unobserved operations instead of executing them for discovery."
   [module]
   (let [report (analyze! module)
+        jvm-maps (refine-jvm-map-representations! report)
         jvm-refinement (refine-jvm-type-representations! report)
         jvm-values (refine-jvm-value-representations! report)
         jvm-constructions (inspect-jvm-construction-inputs! report)
         report (cond-> report
+                 jvm-maps (assoc :jvm-map-representation-refinement (dissoc jvm-maps :observed))
                  jvm-refinement (assoc :jvm-representation-refinement (dissoc jvm-refinement :observed :plans))
                  jvm-values (assoc :jvm-value-representation-refinement (dissoc jvm-values :observed :plans)))
         type-preparation-errors
         (into {}
-                (keep (fn [type]
-                        (try (runtime/precompile-type! type) nil
-                             (catch Exception error [type (error-report error)]))))
-                (distinct (concat (when-not (:compiler-errors? jvm-refinement) (vals (:plans jvm-refinement)))
-                                  (when-not (:compiler-errors? jvm-values) (vals (:plans jvm-values)))
-                                  (when-not (:compiler-errors? jvm-constructions) (vals (:plans jvm-constructions))))))
+              (keep (fn [type]
+                      (try (runtime/precompile-type! type) nil
+                           (catch Exception error [type (error-report error)]))))
+              (distinct (concat (when-not (:compiler-errors? jvm-refinement) (vals (:plans jvm-refinement)))
+                                (when-not (:compiler-errors? jvm-values) (vals (:plans jvm-values)))
+                                (when-not (:compiler-errors? jvm-constructions) (vals (:plans jvm-constructions))))))
         prepare-call (requiring-resolve 'aguafria.zig.jvm/precompile-call!)
         prepare-type (requiring-resolve 'aguafria.zig.jvm/precompile-coercion!)
         prepare-literal-type (requiring-resolve 'aguafria.zig.jvm/precompile-literal-coercion!)
@@ -1989,156 +2245,169 @@
         (into {}
               (keep (fn [{:keys [type status handlers] :as dependency}]
                       (when-let [failure (or (when (= :failed status) dependency)
-                                            (first (remove #(= :prepared (:status %)) handlers)))]
+                                             (first (remove #(= :prepared (:status %)) handlers)))]
                         [type (assoc failure :status :failed :dependency :construction-input)])))
-              construction-dependencies)]
+              construction-dependencies)
+        functions (prepare-declared-functions! module)
+        constant-readers (prepare-constant-readers! module (set (keys (:root-failures report))))
+        reader-plans (into {} (map (juxt :constant identity)) constant-readers)]
     (assoc (cond-> report
              jvm-constructions
              (assoc :jvm-construction-input-refinement
                     (assoc (dissoc jvm-constructions :observed :plans)
                            :dependencies construction-dependencies)))
-           :functions (prepare-declared-functions! module)
+           :functions functions
+           :constant-readers constant-readers
            :operations
            (mapv
-            (fn [{:keys [status signatures result-reader-types declaration-kind constructor? literal-constructor? constructor-value constructor-source conversion? contextual-input? contextual-plan contextual-scope requires-result-context? concrete-function? argument-sources function storage-kind address-reference member assignment literal-arguments method-call? scoped-form scope-captures scope-result? scope-result-context?] :as operation}]
-              (let [operation (assoc operation :enclosing-context
-                                     (if (= :test declaration-kind) :test :runtime))]
-                (if-not (= :observed status)
-                  operation
-                  (let [jvm-types (get-in jvm-refinement [:observed (:id operation)])
-                        jvm-root-types (concat jvm-types
-                                               (keep #(get (:plans jvm-values) (:type-source %))
-                                                     (:jvm-value-sources operation)))
-                        dependency-error (some #(or (get type-preparation-errors %)
-                                                    (get construction-dependency-errors %))
-                                               jvm-root-types)
-                        jvm-signatures (or (some->> (get-in jvm-values [:observed (:id operation)])
-                                                   (sort-by artifact/print-data) vec)
-                                           (when (seq jvm-types)
-                                         (mapv (fn [signature]
-                                                 (into [{:comptime-type (first jvm-types)}] (rest signature)))
-                                               signatures)))
-                        jvm-readers (vec (sort-by artifact/print-data
-                                                 (remove nil? (get-in jvm-refinement
-                                                                     [:reader-schemas (:id operation)]))))
-                        result-reader-types (vec (distinct (concat result-reader-types jvm-readers)))
-                        {prepared-signatures :signatures limited? :limited?}
-                        (preparation-signatures (or jvm-signatures signatures))]
-                    (cond-> (assoc operation :handlers
-                           (cond->
-                            (mapv (fn [types]
-                                    (let [tuple-access? (and (#{:field :index} storage-kind)
-                                                             (map? (first types))
-                                                             (contains? (first types) :tuple))
-                                          comptime-construction (when constructor?
-                                                                  (:comptime-construction (first types)))
-                                          input-types (cond
-                                                        comptime-construction [comptime-construction]
-                                                        scoped-form
-                                                        (cond-> (map first (partition 2 types))
-                                                          scope-result-context? (concat [(peek types)]))
-                                                        (or tuple-access?
-                                                            (and storage-kind
-                                                                 (:comptime-expression (first types))))
-                                                        (cons (first types) (drop 2 types))
-                                                        :else types)]
-                                      (cond
-                                        dependency-error
-                                        (assoc dependency-error
-                                               :status :failed :types types)
-
-                                        (= :import-member
-                                           (get-in (meta (find-var function))
-                                                   [:aguafria/zig-reference :kind]))
-                                        {:status :unsupported :reason :declaration-only-import :types types}
-                                        requires-result-context?
-                                        {:status :deferred :reason :result-context-required :types types}
-                                        (and (not (or concrete-function? address-reference))
-                                             (some #(and (map? %) (:comptime-local-type %)) types))
-                                        {:status :unsupported :reason :comptime-receiver-specialization :types types}
-                                        (not (or concrete-function? address-reference literal-arguments
-                                                 (every? supported-argument? input-types)))
-                                        {:status :unsupported :reason :non-runtime-or-nominal-type :types types}
-                                        :else
-                                        (let [source-arguments (observed-type-argument-sources operation types)
-                                              key [runtime/*native-test-context?* (= :test declaration-kind) constructor? constructor-value contextual-plan contextual-scope function types argument-sources source-arguments result-reader-types storage-kind address-reference member literal-arguments method-call? scoped-form scope-captures]]
-                                          (or (get @prepared key)
-                                              (let [result (try
-                                                             (prepare-in-observed-context
-                                                              declaration-kind
-                                                              #(cond
-                                                                 comptime-construction
-                                                                 (prepare-source-construction comptime-construction
-                                                                                              constructor-source)
+            (comp
+             #(retain-declared-initializer-owner module reader-plans %)
+             (fn [{:keys [status signatures result-reader-types declaration-kind constructor? literal-constructor? constructor-value constructor-source conversion? contextual-input? contextual-plan contextual-scope requires-result-context? concrete-function? argument-sources function storage-kind address-reference member assignment literal-arguments method-call? scoped-form scope-captures scope-result? scope-result-context?] :as operation}]
+               (let [operation (assoc operation :enclosing-context
+                                      (if (= :test declaration-kind) :test :runtime))]
+                 (if-not (= :observed status)
+                   operation
+                   (let [jvm-types (get-in jvm-refinement [:observed (:id operation)])
+                         jvm-root-types (concat jvm-types
+                                                (keep #(get (:plans jvm-values) (:type-source %))
+                                                      (:jvm-value-sources operation)))
+                         dependency-error (some #(or (get type-preparation-errors %)
+                                                     (get construction-dependency-errors %))
+                                                jvm-root-types)
+                         jvm-signatures (or (some->> (get-in jvm-maps [:observed (:id operation)])
+                                                     (sort-by artifact/print-data) vec)
+                                            (some->> (get-in jvm-values [:observed (:id operation)])
+                                                     (sort-by artifact/print-data) vec)
+                                            (when (seq jvm-types)
+                                              (mapv (fn [signature]
+                                                      (into [{:comptime-type (first jvm-types)}] (rest signature)))
+                                                    signatures)))
+                         jvm-readers (vec (sort-by artifact/print-data
+                                                   (remove nil? (get-in jvm-refinement
+                                                                        [:reader-schemas (:id operation)]))))
+                         result-reader-types (vec (distinct (concat result-reader-types jvm-readers)))
+                         {prepared-signatures :signatures limited? :limited?}
+                         (preparation-signatures (or jvm-signatures signatures))]
+                     (cond-> (assoc operation :handlers
+                                    (cond->
+                                     (mapv (fn [types]
+                                             (let [tuple-access? (and (#{:field :index} storage-kind)
+                                                                      (map? (first types))
+                                                                      (or (contains? (first types) :tuple)
+                                                                          (and (= :field storage-kind)
+                                                                               (contains? (first types) :map))))
+                                                   comptime-construction (when constructor?
+                                                                           (:comptime-construction (first types)))
+                                                   input-types (cond
+                                                                 comptime-construction [comptime-construction]
                                                                  scoped-form
-                                                                 (prepare-scoped {:caller (symbol (str module))
-                                                                                  :form scoped-form :captures scope-captures
-                                                                                  :types (cond-> types scope-result-context? pop)
-                                                                                  :result-type (when scope-result-context? (peek types))
-                                                                                  :result? (not (false? scope-result?))})
-                                                                 contextual-plan
-                                                                 (prepare-contextual {:type (first types)
-                                                                                      :plan contextual-plan
-                                                                                      :args (vec (rest types))})
-                                                                 contextual-scope
-                                                                 (prepare-scoped {:caller (symbol (str module))
-                                                                                  :form (:form contextual-scope)
-                                                                                  :captures (:captures contextual-scope)
-                                                                                  :types (vec (rest types))
-                                                                                  :result-type (first types)
-                                                                                  :result? true})
-                                                                 method-call?
-                                                                 (prepare-method {:receiver (first types) :address (second types)
-                                                                                  :member member :args (vec (drop 2 types))
-                                                                                  :result-reader-types result-reader-types})
-                                                                 literal-arguments
-                                                                 (prepare-literal function literal-arguments (first types))
-                                                                 assignment
-                                                                 (prepare-assignment {:function function :operation assignment
-                                                                                      :target (first types) :operand (second types)})
-                                                                 tuple-access?
-                                                                 (prepare-call {:function function
-                                                                                :args [(first types)
-                                                                                       (if (= :field storage-kind)
-                                                                                         {:comptime member}
-                                                                                         (nth types 2))]})
-                                                                 storage-kind
-                                                                 (prepare-storage {:kind storage-kind :receiver (first types)
-                                                                                   :address (second types) :reference address-reference :member member
-                                                                                   :indices (vec (drop 2 types))})
-                                                                 (and conversion? (:constant-coercion (second types)))
-                                                                 (let [[input-type source] (:constant-coercion (second types))]
-                                                                   (prepare-constant-conversion input-type (first types) source))
-                                                                 (and conversion? (:comptime-expression (second types)))
-                                                                 (prepare-literal-type (first types)
-                                                                                       (:comptime-expression (second types)))
-                                                                 (and conversion? (structural-type? (second types)))
-                                                                 (prepare-conversion (second types) (first types))
-                                                                 (and conversion? (:map (second types)))
-                                                                 (prepare-construction (first types) (second types))
-                                                                 constructor?
-                                                                 (cond-> (cond
-                                                                           (:map (second types))
-                                                                           (prepare-construction (first types) (second types))
-                                                                           (and literal-constructor?
-                                                                                (or (seq? (first types))
-                                                                                    (native-literal? constructor-value)))
-                                                                           (prepare-literal-type (first types) constructor-value)
-                                                                           :else (prepare-type (first types)))
-                                                                   contextual-input?
-                                                                   (assoc :status :partial :reason :result-context-required))
-                                                                 concrete-function? (prepare-concrete function types argument-sources)
-                                                                 :else (prepare-call {:function function :args types
-                                                                                      :caller (symbol (str module))
-                                                                                      :source-arguments source-arguments
-                                                                                      :result-reader-types result-reader-types})))
-                                                             (catch Exception error
-                                                               (assoc (error-report error) :status :failed)))]
-                                                (swap! prepared assoc key result)
-                                                result)))))) prepared-signatures)
-                             limited? (conj {:status :partial
-                                             :reason :representation-limit
-                                             :prepared-variant-limit max-representation-variants})))
-                      jvm-signatures (assoc :jvm-signatures jvm-signatures
-                                            :jvm-result-reader-types jvm-readers))))))
+                                                                 (cond-> (map first (partition 2 types))
+                                                                   scope-result-context? (concat [(peek types)]))
+                                                                 (or tuple-access?
+                                                                     (and storage-kind
+                                                                          (:comptime-expression (first types))))
+                                                                 (cons (first types) (drop 2 types))
+                                                                 :else types)]
+                                               (cond
+                                                 dependency-error
+                                                 (assoc dependency-error
+                                                        :status :failed :types types)
+
+                                                 (= :import-member
+                                                    (get-in (meta (find-var function))
+                                                            [:aguafria/zig-reference :kind]))
+                                                 {:status :unsupported :reason :declaration-only-import :types types}
+                                                 requires-result-context?
+                                                 {:status :deferred :reason :result-context-required :types types}
+                                                 (and (not (or concrete-function? address-reference))
+                                                      (some #(and (map? %) (:comptime-local-type %)) types))
+                                                 {:status :unsupported :reason :comptime-receiver-specialization :types types}
+                                                 (not (or concrete-function? address-reference literal-arguments
+                                                          (every? supported-argument? input-types)))
+                                                 {:status :unsupported :reason :non-runtime-or-nominal-type :types types}
+                                                 :else
+                                                 (let [source-arguments (observed-type-argument-sources operation types)
+                                                       key [runtime/*native-test-context?* (= :test declaration-kind) constructor? constructor-value contextual-plan contextual-scope function types argument-sources source-arguments result-reader-types storage-kind address-reference member literal-arguments method-call? scoped-form scope-captures]]
+                                                   (or (get @prepared key)
+                                                       (let [result (try
+                                                                      (prepare-in-observed-context
+                                                                       declaration-kind
+                                                                       #(cond
+                                                                          comptime-construction
+                                                                          (prepare-source-construction comptime-construction
+                                                                                                       constructor-source)
+                                                                          scoped-form
+                                                                          (prepare-scoped {:caller (symbol (str module))
+                                                                                           :form (vary-meta scoped-form assoc
+                                                                                                            :aguafria/scoped-capture-contracts
+                                                                                                            (:scope-capture-contracts operation))
+                                                                                           :captures scope-captures
+                                                                                           :types (cond-> types scope-result-context? pop)
+                                                                                           :result-type (when scope-result-context? (peek types))
+                                                                                           :result? (not (false? scope-result?))})
+                                                                          contextual-plan
+                                                                          (prepare-contextual {:type (first types)
+                                                                                               :plan contextual-plan
+                                                                                               :args (vec (rest types))})
+                                                                          contextual-scope
+                                                                          (prepare-scoped {:caller (symbol (str module))
+                                                                                           :form (:form contextual-scope)
+                                                                                           :captures (:captures contextual-scope)
+                                                                                           :types (vec (rest types))
+                                                                                           :result-type (first types)
+                                                                                           :result? true})
+                                                                          method-call?
+                                                                          (prepare-method {:receiver (first types) :address (second types)
+                                                                                           :member member :args (vec (drop 2 types))
+                                                                                           :result-reader-types result-reader-types})
+                                                                          literal-arguments
+                                                                          (prepare-literal function literal-arguments (first types))
+                                                                          assignment
+                                                                          (prepare-assignment {:function function :operation assignment
+                                                                                               :target (first types) :operand (second types)})
+                                                                          tuple-access?
+                                                                          (prepare-call {:function function
+                                                                                         :args [(first types)
+                                                                                                (if (= :field storage-kind)
+                                                                                                  {:comptime member}
+                                                                                                  (nth types 2))]})
+                                                                          storage-kind
+                                                                          (prepare-storage {:kind storage-kind :receiver (first types)
+                                                                                            :address (second types) :reference address-reference :member member
+                                                                                            :indices (vec (drop 2 types))})
+                                                                          (and conversion? (:constant-coercion (second types)))
+                                                                          (let [[input-type source] (:constant-coercion (second types))]
+                                                                            (prepare-constant-conversion input-type (first types) source))
+                                                                          (and conversion? (:comptime-expression (second types)))
+                                                                          (prepare-literal-type (first types)
+                                                                                                (:comptime-expression (second types)))
+                                                                          (and conversion? (structural-type? (second types)))
+                                                                          (prepare-conversion (second types) (first types))
+                                                                          (and conversion? (:map (second types)))
+                                                                          (prepare-construction (first types) (second types))
+                                                                          constructor?
+                                                                          (cond-> (cond
+                                                                                    (:map (second types))
+                                                                                    (prepare-construction (first types) (second types))
+                                                                                    (and literal-constructor?
+                                                                                         (or (seq? (first types))
+                                                                                             (native-literal? constructor-value)))
+                                                                                    (prepare-literal-type (first types) constructor-value)
+                                                                                    :else (prepare-type (first types)))
+                                                                            contextual-input?
+                                                                            (assoc :status :partial :reason :result-context-required))
+                                                                          concrete-function? (prepare-concrete function types argument-sources)
+                                                                          :else (prepare-call {:function function :args types
+                                                                                               :caller (symbol (str module))
+                                                                                               :source-arguments source-arguments
+                                                                                               :result-reader-types result-reader-types})))
+                                                                      (catch Exception error
+                                                                        (assoc (error-report error) :status :failed)))]
+                                                         (swap! prepared assoc key result)
+                                                         result)))))) prepared-signatures)
+                                      limited? (conj {:status :partial
+                                                      :reason :representation-limit
+                                                      :prepared-variant-limit max-representation-variants})))
+                       jvm-signatures (assoc :jvm-signatures jvm-signatures
+                                             :jvm-result-reader-types jvm-readers)))))))
             (:operations report)))))

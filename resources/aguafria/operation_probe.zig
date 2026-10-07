@@ -237,6 +237,50 @@ pub fn Inspector(comptime declarations: anytype) type {
             return schema(T);
         }
 
+        pub fn jvmMapStringArgumentSchema(comptime value: anytype) []const u8 {
+            const T = @TypeOf(value);
+            const native = argumentSchema(T);
+            const constant = comptimeValue(value);
+            // Ordinary generic JVM map calls transport strings as slices;
+            // syntax field calls may instead embed the literal. Ask Zig to
+            // validate that exact original constant's slice representation.
+            if (@typeInfo(T) != .pointer or std.mem.eql(u8, constant, "nil")) return native;
+            const pointer = @typeInfo(T).pointer;
+            if (!((pointer.size == .slice and pointer.child == u8) or
+                (pointer.size == .one and @typeInfo(pointer.child) == .array and
+                    @typeInfo(pointer.child).array.child == u8))) return native;
+            return "{:representations [" ++ native ++ " " ++ constant ++ " " ++
+                schema(@TypeOf(@as([]const u8, value))) ++ "]}";
+        }
+
+        pub fn jvmMapArgumentSchema(comptime T: type) []const u8 {
+            @setEvalBranchQuota(10_000_000);
+            // This describes the independently supplied fields of an ordinary
+            // JVM map. It does NOT name T, borrow its storage, or assert that a
+            // newly emitted anonymous literal has T's nominal identity.
+            if (@typeInfo(T) != .@"struct") return "nil";
+            if (declarationSchema(T) != null) return "nil";
+            const info = @typeInfo(T).@"struct";
+            if (info.is_tuple or info.decl_names.len != 0) return "nil";
+            var result: []const u8 = "{:map {";
+            inline for (info.field_names, info.field_types, info.field_attrs) |name, Field, attrs| {
+                if (name.len == 0) return "nil";
+                for (name) |c| {
+                    if (!std.ascii.isAlphanumeric(c) and c != '_') return "nil";
+                }
+                const entry = if (attrs.@"comptime" and @typeInfo(Field) == .pointer)
+                    jvmMapStringArgumentSchema(attrs.defaultValue(Field).?)
+                else if (attrs.@"comptime" and
+                    (Field == comptime_int or Field == comptime_float or
+                        Field == type or @typeInfo(Field) == .enum_literal))
+                    comptimeValue(attrs.defaultValue(Field).?)
+                else
+                    argumentSchema(Field);
+                result = result ++ ":" ++ name ++ " " ++ entry ++ " ";
+            }
+            return result ++ "}}";
+        }
+
         pub fn declaredSchema(comptime T: type, comptime Declaration: type, comptime expression: []const u8) []const u8 {
             if (T == Declaration) return expression;
             return schema(T);

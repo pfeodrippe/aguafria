@@ -2,9 +2,11 @@
   "Explicit fresh-JVM check of ordinary lesson bodies against a prepared pack."
   (:require [aguafria.zig :as a]
             [aguafria.zig.explain :as explain]
+            [aguafria.zig.value :as value]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [learn.jvm-assertions :as assertions])
   (:import [clojure.lang LineNumberingPushbackReader]))
 
 (def checked-lessons
@@ -15,6 +17,17 @@
     learn.example.test-inline-switch
     learn.example.test-allocator
     learn.example.test-comptime-evaluation
+    learn.example.test-namespace-level-comptime-expressions
+    learn.example.test-if
+    learn.example.test-if-optionals
+    learn.example.test-anonymous-struct
+    learn.example.test-for
+    learn.example.test-pointer-casting
+    learn.example.test-inline-for
+    learn.example.test-for-nested-break
+    learn.example.test-while-nested-break
+    learn.example.error-union-parsing-u64
+    learn.example.test-switch
     learn.example.test-error-union
     learn.example.test-optional-type
     learn.example.test-peer-type-resolution
@@ -40,6 +53,27 @@
      learn.example.destructuring-to-existing
      learn.example.destructuring-block
      learn.example.destructuring-return-value})
+
+(def expected-body-count 80)
+
+(def checked-constants
+  '[learn.example.float-special-values/inf
+    learn.example.float-special-values/negative-inf
+    learn.example.float-special-values/nan])
+
+(def checked-native-owners
+  '[learn.example.test-namespace-level-comptime-expressions/variable-values
+    learn.example.test-inline-while/inline-while-loop
+    learn.example.test-comptime-evaluation/perform-fn
+    learn.example.test-for-nested-break/nested-break
+    learn.example.test-for-nested-break/nested-continue
+    learn.example.test-while-nested-break/nested-break
+    learn.example.test-while-nested-break/nested-continue
+    learn.example.error-union-parsing-u64/parse-u64
+    learn.example.test-inline-switch/using-typeInfo-with-runtime-values
+    learn.example.test-switch-on-errors/unreachable-else-prong
+    learn.example.test-switch-on-errors/comptime-unreachable-errors-not-in-error-set
+    learn.example.test-switch-continue-equivalent/switch-continue-equivalent-loop])
 
 (defn test-bodies
   "Return each authored top-level test body, preserving its lexical scope."
@@ -82,7 +116,9 @@
 
 (defn validate-report!
   "Reject failed assertion results, runtime builds and the wrong producer pack."
-  [{:keys [results expected-body-count producer-bundle-id bundles
+  [{:keys [results expected-body-count constant-results expected-constant-count
+           native-owner-results expected-native-owner-count
+           producer-bundle-id bundles
            compiled standalone events] :as report}]
   (let [bodies (mapcat :bodies results)
         failures (filterv #(or (not= :passed (:status %))
@@ -92,6 +128,18 @@
       (throw (ex-info "Ordinary lesson bodies failed"
                       {:failures failures :expected-body-count expected-body-count
                        :actual-body-count (count bodies)})))
+    (when (and expected-constant-count
+               (or (not= expected-constant-count (count constant-results))
+                   (some #(not= :passed (:status %)) constant-results)))
+      (throw (ex-info "Prepared lesson constants failed"
+                      {:expected-constant-count expected-constant-count
+                       :constant-results constant-results})))
+    (when (and expected-native-owner-count
+               (or (not= expected-native-owner-count (count native-owner-results))
+                   (some #(not= :passed (:status %)) native-owner-results)))
+      (throw (ex-info "Prepared native test owners failed"
+                      {:expected-native-owner-count expected-native-owner-count
+                       :native-owner-results native-owner-results})))
     (when (or (seq compiled) (seq standalone))
       (throw (ex-info "Ordinary bodies missed the prepared bundle"
                       {:compiled compiled :standalone standalone})))
@@ -104,7 +152,7 @@
 
 (defn- evaluate-body [{:keys [form] :as body}]
   (try
-    (let [result (a/value (eval form))]
+    (let [result (a/value (assertions/call-with-checks #(eval form)))]
       (assoc (dissoc body :form)
              :status (if (contains? #{nil {:ok nil}} result) :passed :failed)
              :result result))
@@ -113,10 +161,26 @@
              :causes (mapv ex-message
                            (take-while some? (iterate ex-cause error)))))))
 
+(defn- evaluate-constant [constant]
+  (try
+    (let [handle (var-get (requiring-resolve constant))
+          decoded (double (a/value handle))
+          type (value/storage-type handle)
+          passed? (case (name constant)
+                    "inf" (and (= :f32 type) (= Double/POSITIVE_INFINITY decoded))
+                    "negative-inf" (and (= :f64 type) (= Double/NEGATIVE_INFINITY decoded))
+                    "nan" (and (= :f128 type) (Double/isNaN decoded)))]
+      {:constant constant :type type :status (if passed? :passed :failed)})
+    (catch Throwable error
+      {:constant constant :status :failed
+       :causes (mapv ex-message (take-while some? (iterate ex-cause error)))})))
+
 (defn check!
   "Run the selected safe bodies in a fresh JVM after explicit precompilation."
   [producer-report]
-  (let [loaded (filterv find-ns checked-lessons)]
+  (let [loaded (filterv find-ns (concat checked-lessons
+                                        (map #(symbol (namespace %))
+                                             (concat checked-constants checked-native-owners))))]
     (when (seq loaded)
       (throw (ex-info "Run the bundle check in a fresh JVM" {:loaded loaded}))))
   (let [producer (edn/read-string (slurp producer-report))
@@ -133,8 +197,24 @@
                              :bodies (binding [*ns* (the-ns namespace) *file* source]
                                        (mapv evaluate-body bodies))}))
                         checked-lessons))
+        constant-results (binding [explain/*reporter* #(swap! events conj %)]
+                           (mapv evaluate-constant checked-constants))
+        native-owner-results
+        (binding [explain/*reporter* #(swap! events conj %)]
+          (mapv (fn [test]
+                  (try
+                    {:test test :status (:status ((requiring-resolve test)))}
+                    (catch Throwable error
+                      {:test test :status :failed
+                       :causes (mapv ex-message
+                                     (take-while some? (iterate ex-cause error)))})))
+                checked-native-owners))
         report {:producer-report producer-report
-                :expected-body-count 56
+                :expected-body-count expected-body-count
+                :expected-constant-count (count checked-constants)
+                :constant-results constant-results
+                :expected-native-owner-count (count checked-native-owners)
+                :native-owner-results native-owner-results
                 :producer-bundle-id (get-in producer [:bundles :packs 0 :id])
                 :results results
                 :duration-ms (/ (- (System/nanoTime) started) 1e6)

@@ -1582,7 +1582,14 @@
             (is (empty? (#'runtime/declaration-reference-logical-ids reader)))
             (is (= #{(:logical-id js-api) (:logical-id unrelated)}
                    (#'runtime/declaration-reference-logical-ids
-                    (assoc reader :jvm-adapter? false))))))
+                   (assoc reader :jvm-adapter? false))))))
+        (let [reader (assoc member-reader
+                            :body [(list '(field __aguafria_jvm :constantResult)
+                                         (list 'aguafria.keyword/& root) false)])]
+          (is (empty? (#'runtime/declaration-reference-logical-ids reader)))
+          (is (= #{(:logical-id js-api) (:logical-id unrelated)}
+                 (#'runtime/declaration-reference-logical-ids
+                  (assoc reader :jvm-adapter? false)))))
         (doseq [member ['JsApi :JsApi "JsApi"]]
           (is (= #{(:logical-id js-api)}
                  (#'runtime/declaration-reference-logical-ids

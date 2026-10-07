@@ -2,9 +2,74 @@
   (:require [aguafria.keyword :as ak]
             [aguafria.std :as std]
             [aguafria.zig :as a]
+            [aguafria.zig.runtime :as runtime]
             [aguafria.zig.value :as value]
             [clojure.pprint :as pprint]
             [clojure.test :refer [deftest is]]))
+
+(deftest scalar-type-expressions-use-the-compiler-reported-storage-type
+  (with-open [arena (java.lang.foreign.Arena/ofConfined)]
+    (let [storage (.allocate arena 4 4)
+          declared '(aguafria.keyword/TypeOf fixture/value)
+          schema {:kind :scalar :type :i32 :size 4 :alignment 4}]
+      (value/write-value! storage declared schema 1060 arena)
+      (is (= 1060 (.get storage java.lang.foreign.ValueLayout/JAVA_INT 0)))
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (value/write-value! storage declared schema 2147483648 arena))))))
+
+(deftest float32-transport-preserves-special-values-and-finite-bounds
+  (with-open [arena (java.lang.foreign.Arena/ofConfined)]
+    (let [storage (.allocate arena 4 4)]
+      (doseq [input [Double/POSITIVE_INFINITY Double/NEGATIVE_INFINITY Double/NaN]]
+        (let [expected (unchecked-float input)
+              direct (#'runtime/coerce-argument :f32 input)]
+          (value/write-value! storage :f32 nil input arena)
+          (is (= (Float/floatToIntBits expected) (Float/floatToIntBits direct)))
+          (is (= (Float/floatToIntBits expected)
+                 (Float/floatToIntBits
+                  (.get storage java.lang.foreign.ValueLayout/JAVA_FLOAT 0))))))
+      (is (thrown? IllegalArgumentException
+                   (#'runtime/coerce-argument :f32 Double/MAX_VALUE)))
+      (is (thrown? IllegalArgumentException
+                   (value/write-value! storage :f32 nil Double/MAX_VALUE arena))))))
+
+(deftest computed-scalar-types-accept-jvm-arguments-and-nested-fields
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.scalar-alias-fixture :reload))
+  (let [context (the-ns 'aguafria.zig.scalar-alias-fixture)
+        call (fn [name input] (a/value ((ns-resolve context name) input)))]
+    (is (= 1234 (call 'echo-integer 1234)))
+    (is (= false (call 'echo-boolean false)))
+    (is (= 2.5 (call 'echo-float 2.5)))
+    (binding [*ns* context]
+      (with-open [fields (a/init {:number 7 :enabled false :ratio 2.5}
+                                 'aguafria.zig.scalar-alias-fixture/Fields)]
+        (is (= {:number 7 :enabled false :ratio 2.5} (a/value fields)))))))
+
+(deftest inferred-constants-retain-the-compiler-reported-scalar-type
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.scalar-alias-fixture :reload))
+  (let [context (the-ns 'aguafria.zig.scalar-alias-fixture)]
+    (doseq [[name expected-type expected-value]
+            [['inferred-integer :i32 1060]
+             ['inferred-boolean :bool false]
+             ['inferred-float :f32 1.5]]]
+      (let [constant (var-get (ns-resolve context name))
+            materialized (value/realize! constant)]
+        (is (= {:kind :scalar :type expected-type} (:schema materialized)))
+        (is (= expected-value (a/value constant)))))))
+
+(deftest wide-float-constants-retain-native-storage
+  (binding [runtime/*source-only-registration?* true]
+    (require 'aguafria.zig.scalar-alias-fixture :reload))
+  (let [context (the-ns 'aguafria.zig.scalar-alias-fixture)]
+    (doseq [[name expected-type]
+            [['half-float :f16] ['extended-float :f80] ['wide-float :f128]]]
+      (let [constant (var-get (ns-resolve context name))
+            materialized (value/realize! constant)]
+        (is (= :native (:representation materialized)))
+        (is (= expected-type (value/storage-type constant)))
+        (is (= 1.5 (a/value constant)))))))
 
 (deftest aligned-addresses-use-canonical-pointer-attributes
   (doseq [alignment [2 64]
@@ -26,6 +91,31 @@
                  (.address (.get ^java.lang.foreign.MemorySegment
                             (:segment (value/realize! pointer))
                                  java.lang.foreign.ValueLayout/ADDRESS 0)))))))))
+
+(deftest borrowed-storage-provenance-requires-type-address-and-size-identity
+  (with-open [arena (java.lang.foreign.Arena/ofConfined)]
+    (let [storage (.allocate arena 8 8)
+          schema {:kind :error-union}
+          type [:error-union [:error-set [:Rejected]] :u32]
+          owner (value/native-value
+                 {:kind :var :type type}
+                 (constantly {:representation :native :segment storage
+                              :schema schema :native-image "actual-storage"}))
+          pointer (value/native-value
+                   {:kind :const :type [:* type]}
+                   (constantly {:owners [owner]}))]
+      (doseq [[view-type view-storage matched?]
+              [[type (.asSlice storage 0 8) true]
+               [:u64 (.asSlice storage 0 8) false]
+               [type (.asSlice storage 0 4) false]
+               [type (.allocate arena 8 8) false]]]
+        (let [view (value/native-value
+                    {:kind :var :type view-type}
+                    (constantly {:representation :native :segment view-storage}))]
+          (value/retain-storage-provenance! view [pointer])
+          (is (= (when matched? schema) (:schema (value/realize! view))))
+          (is (= (when matched? "actual-storage") (:native-image (value/realize! view))))
+          (is (identical? pointer (first (:owners (value/realize! view))))))))))
 
 (deftest native-sequential-values-support-clojure-destructuring
   (doseq [type [[:array 3 :i32]
@@ -74,10 +164,11 @@
 (deftest generated-container-inspection-uses-native-fields
   (doseq [type [:u21 :u8 [:optional :u21]]]
     (with-open [native (ak/var :.empty (std/ArrayList (a/type type)))]
-      (let [items (if (= type :u8) "" [])]
-        (is (= {:items items :capacity 0} @native))
+      (let [items (if (= type :u8) "" [])
+            expected {:items items :capacity 0 :pointer_stability {:state :unlocked}}]
+        (is (= expected @native))
         (is (= (str "#aguafria.zig.value.ZigValue["
-                    (pr-str {:items items :capacity 0}) "]")
+                    (pr-str expected) "]")
                (pr-str native)))))))
 
 (deftest reflected-inspection-does-not-follow-arbitrary-pointers

@@ -47,3 +47,15 @@
         (a/while-loop {:error [err] :else-expression err}
                       (stop)
                       (k/unreachable)))))
+
+(a/defn for-else-value :!void []
+  (let [items (a/array [1 2] :i32)
+        sum (k/var 0 :i32)
+        result (k/for [item items]
+                 (k/+= sum item)
+                 (a/else-expression
+                  (a/with-block :done
+                    (try (testing/expectEqual 3 sum))
+                    (k/break :done sum))))]
+    (try (testing/expectEqual :i32 (k/TypeOf result)))
+    (try (testing/expectEqual 3 result))))

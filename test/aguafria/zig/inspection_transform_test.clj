@@ -1,10 +1,75 @@
 (ns aguafria.zig.inspection-transform-test
-  (:require [aguafria.zig.runtime :as runtime]
+  (:require [aguafria.zig.precompile :as precompile]
+            [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.test :refer [deftest is]])
   (:import [java.nio.file Files]))
+
+(deftest final-test-preparation-reports-failures-and-continues
+  (let [calls (atom [])]
+    (with-redefs [runtime/registered-declarations
+                  (fn [_] [{:kind :fn :name 'helper}
+                           {:kind :test :name 'valid}
+                           {:kind :test :name 'invalid}])
+                  runtime/precompile-test!
+                  (fn [test]
+                    (swap! calls conj test)
+                    (if (= 'fixture.owner/invalid test)
+                      (throw (ex-info "Rejected native test" {:aguafria/phase :zig-test}))
+                      {:test test :status :prepared}))]
+      (let [checks (#'precompile/prepare-native-test-owners! "fixture.owner")]
+        (is (= '[fixture.owner/invalid fixture.owner/valid] @calls))
+        (is (= [:failed :prepared] (mapv :status checks)))
+        (is (= (first @calls) (:test (first checks))))
+        (is (= "Rejected native test" (:message (first checks))))))))
+
+(deftest final-native-test-preparation-shares-the-demand-library-plan
+  (let [calls (atom [])
+        artifact {:source-path "final.zig" :library-path "final.dylib" :command [:native-test]}]
+    (with-redefs-fn
+      {#'runtime/native-test-library!
+       (fn [& args] (swap! calls conj args) artifact)}
+      #(do
+         (is (= {:test 'fixture.owner/example :status :prepared
+                 :artifact (select-keys artifact [:library-path :source-path])}
+                (runtime/precompile-test! 'fixture.owner/example)))
+         (is (= [["fixture.owner" 'example]] @calls))
+         (is (thrown? clojure.lang.ExceptionInfo (runtime/precompile-test! 'example)))
+         (is (= 1 (count @calls)))))))
+
+(deftest native-test-snapshots-exclude-jvm-adapters-from-roots-and-dependencies
+  (let [module "fixture.native-test"
+        helper {:module module :kind :fn :name 'helper :return :u32 :args [] :body [42]}
+        selected {:module module :kind :test :name 'example :test-name "example" :body []}
+        sibling (assoc selected :name 'sibling :test-name "sibling")
+        adapter (assoc helper :name 'adapter :jvm-adapter? true)
+        dependency-helper (assoc helper :module "fixture.provider" :name 'provider)
+        dependency-adapter (assoc adapter :module "fixture.provider")
+        roots (atom nil)
+        dependency-declarations (atom nil)
+        emitted (atom nil)]
+    (with-redefs-fn
+      {#'runtime/registry (atom {module {:definitions {[:fn 'helper] helper
+                                                       [:test 'example] selected
+                                                       [:test 'sibling] sibling
+                                                       [:fn 'adapter] adapter}}})
+       #'runtime/static-dependency-snapshot
+       (fn [declarations transform]
+         (reset! roots declarations)
+         (reset! dependency-declarations (transform [dependency-helper dependency-adapter sibling]))
+         {})
+       #'runtime/compiler-options-for-declarations (fn [_ _] {})
+       #'aguafria.zig.emitter/emit-module
+       (fn [_ declarations] (reset! emitted declarations) "original native test")}
+      #(let [snapshot (#'runtime/native-test-snapshot module 'example)]
+         (is (= "original native test" (:source snapshot)))))
+    (is (= ['helper 'example] (mapv :name @roots)))
+    (is (= ['provider] (mapv :name @dependency-declarations)))
+    (is (= @roots @emitted))
+    (is (= selected (last @roots)))
+    (is (false? (:export? (first @roots))))))
 
 (deftest transformed-inspection-plans-the-exact-emitted-graph
   (let [cache (str (Files/createTempDirectory

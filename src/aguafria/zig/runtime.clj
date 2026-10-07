@@ -4,6 +4,7 @@
             [aguafria.zig.artifact :as artifact]
             [aguafria.zig.bundle :as bundle]
             [aguafria.zig.cache :as cache]
+            [aguafria.zig.declaration-data :as declaration-data]
             [aguafria.zig.emitter :as emit]
             [aguafria.zig.debug :as debug]
             [aguafria.zig.explain :as explanation]
@@ -658,10 +659,7 @@
   "Reconstitute declaration data serialized into JVM-safe UTF-8 chunks.
   Public because macro expansions call it; not part of the user-facing API."
   [chunks]
-  (when-not (and (vector? chunks) (every? string? chunks))
-    (throw (ex-info "Serialized Aguafria declaration must be string chunks"
-                    {:chunks (type chunks)})))
-  (edn/read-string (apply str chunks)))
+  (declaration-data/read-chunks chunks))
 
 (defn clear!
   "Forget loaded modules and close their quiescent native libraries.
@@ -1673,7 +1671,7 @@
 
 (defn generic-function-argument?
   "Whether a native parameter requires call-site specialization, shared by
-  invocation and compile-only preparation. Variadic tails have no fixed ABI."
+  invocation and compile-only preparation. Variadic tails have no fixed schema."
   [{:keys [type properties]}]
   (or (:zig/variadic properties)
       (= "comptime" (:zig/prefix properties))
@@ -2616,14 +2614,23 @@
                                      (emit/identifier (nth selected 2))))))
                       type-name-reader?
                       (and (:jvm-adapter? declaration)
-                           (seq? value) (= 2 (count value))
+                           (seq? value)
                            (let [writer (first value)]
                              (and (seq? writer) (= 3 (count writer))
                                   (symbol? (first writer))
                                   (= "field" (name (first writer)))
-                                  (contains? #{:comptimeResult :storageFreeConstantResult}
-                                             (nth writer 2))
-                                  (namespace-root-module (second value) #{}))))
+                                  (or (and (= 2 (count value))
+                                           (contains? #{:comptimeResult :storageFreeConstantResult}
+                                                      (nth writer 2))
+                                           (namespace-root-module (second value) #{}))
+                                      (and (= :constantResult (nth writer 2))
+                                           (= 3 (count value))
+                                           (boolean? (nth value 2))
+                                           (seq? (second value))
+                                           (= 2 (count (second value)))
+                                           (symbol? (first (second value)))
+                                           (= "&" (name (first (second value))))
+                                           (namespace-root-module (second (second value)) #{}))))))
                       values
                       (cond
                         ;; `_ = @import(...)` analyzes the imported module's
@@ -3267,6 +3274,31 @@
           (recur (next pending) (conj seen module) reachable)))
       reachable)))
 
+(defn- development-dispatch-abi-options
+  [compiler-options]
+  ;; Zig's .auto calling convention gains a hidden argument when error tracing
+  ;; is enabled, even for functions which do not return an error union. A safe
+  ;; JVM image can dispatch to a fast native replacement, so their optimization
+  ;; modes may differ but their tracing ABI cannot. The root flag also applies
+  ;; to imported modules, including modules with their own optimization flags.
+  ;; Preserve already-compatible options exactly: this is part of native
+  ;; artifact identity, and ordinary JVM images already carry the flag.
+  (doseq [[module arguments]
+          (cons [:root (:zig-args compiler-options)]
+                (map (fn [module]
+                       [module (get-in compiler-options [:module-zig-args module])])
+                     (sort-by str (keys (:modules compiler-options)))))
+          :when (some #{"-fno-error-tracing"} arguments)]
+    (throw
+     (ex-info
+      "Reloadable Zig dispatch requires error tracing in every native image; remove -fno-error-tracing or use a non-reloadable/static build"
+      {:aguafria/phase :development-dispatch-abi
+       :reason :conflicting-error-tracing
+       :module module :arguments (vec arguments)})))
+  (if (some #{"-ferror-tracing"} (:zig-args compiler-options))
+    compiler-options
+    (update compiler-options :zig-args #(conj (vec %) "-ferror-tracing"))))
+
 (defn- compiler-options-for-declarations
   [compiler-options declarations]
   (let [development-dependencies?
@@ -3519,7 +3551,9 @@
                    (every? #(contains? external-cache-tokens %)
                            selected-configured-module-names))
       (seq module-dependencies)
-      (assoc :module-dependencies module-dependencies))))
+      (assoc :module-dependencies module-dependencies)
+      (and development-dependencies? (:reloadable? compiler-options))
+      development-dispatch-abi-options)))
 
 (defn- namespace-source-file
   [^File root module]
@@ -11364,6 +11398,10 @@
             declaration))
         declarations))
 
+(defn- native-test-program-declarations [declarations]
+  (native-test-declarations
+   (without-native-tests (remove :jvm-adapter? declarations))))
+
 (defn- native-test-snapshot
   [module test-name & [candidate]]
   (locking compile-lock
@@ -11380,10 +11418,9 @@
       ;; Keep ordinary declarations, including types/generic functions whose
       ;; arguments or error unions have no JVM ABI. Only Zig invokes them.
       ;; Selection never changes the registered module or test descriptors.
-      (let [declarations (native-test-declarations
-                          (conj (without-native-tests (vals definitions)) selected))
+      (let [declarations (conj (native-test-program-declarations (vals definitions)) selected)
             dependencies (static-dependency-snapshot
-                          declarations (comp native-test-declarations without-native-tests))
+                          declarations native-test-program-declarations)
             compiler-options (compiler-options-for-declarations
                               (assoc @config :transitive-dependencies? true
                                      :dependency-snapshot dependencies)
@@ -11538,6 +11575,17 @@
                              :module module :path (.getAbsolutePath library-file)
                              :duration-ms (/ (- (System/nanoTime) started) 1e6)})))
     details))
+
+(defn precompile-test!
+  "Compile the final registered native test snapshot without executing it.
+  Uses the same source selection and artifact key as ordinary test invocation."
+  [test]
+  (when-not (qualified-symbol? test)
+    (throw (ex-info "Expected a qualified native test symbol" {:test test})))
+  {:test test
+   :status :prepared
+   :artifact (select-keys (native-test-library! (namespace test) (symbol (name test)))
+                          [:library-path :source-path])})
 
 (defn check-test-definition!
   "Compile a proposed test against declarations available now, without running
@@ -12264,7 +12312,7 @@
       :u64 (unchecked-long (coerce-integer-argument type value false 64))
       :isize (unchecked-long (coerce-integer-argument type value true 64))
       :usize (unchecked-long (coerce-integer-argument type value false 64))
-      :f32 (float value)
+      :f32 (zig-value/float32-value value)
       :f64 (double value)
       value)))
 
@@ -12421,7 +12469,7 @@
   [module qualified-name expected-type argument argument-binding
    ^Arena call-arena]
   (if (zig-value/zig-value? argument)
-    (let [actual-type (zig-value/type argument)
+    (let [actual-type (zig-value/storage-type argument)
           actual-module (:module (zig-value/info argument))
           canonical
           (fn [type default-module]
@@ -13790,86 +13838,17 @@
               (.close arena)
               (throw error))))))))
 
-(defn- materialize-stored-constant!
-  "Materialize the latest value of a non-literal Zig constant for a ZigValue.
-  Scalar accessors return an exact JVM value. Other values retain their exact
-  native byte representation and pin the owning dylib generation."
-  [declaration]
-  (let [module (:module declaration)
-        qualified-name (symbol module (str (:name declaration)))]
-    (when (:pending (get @registry module))
-      (await! module))
-    (when-not (current-value-binding qualified-name)
-      (materialize-declaration-generation!
-       declaration :jvm-value-declaration-keys))
-    (when (and (not (contains? scalar-layouts (scalar-key (:type declaration))))
-               (nil? (native-type-schema module (:type declaration))))
-      (ensure-native-type-binding! module (:type declaration)))
-    (let [{:keys [mode getter-handle address-getter-handle size-getter-handle
-                  align-getter-handle native-value-refs wrapper-generation]
-           :as binding}
-          (current-value-binding qualified-name)]
-      (when-not binding
-        (throw (ex-info "Zig constant value accessor is not loaded"
-                        {:constant qualified-name
-                         :module module
-                         :type (:type declaration)})))
-      (if (= :scalar mode)
-        {:representation :scalar
-         :value (coerce-result
-                 (:type declaration)
-                 (.invokeWithArguments ^MethodHandle getter-handle
-                                       (ArrayList.)))
-         :generation wrapper-generation}
-        (let [address (long (.invokeWithArguments
-                             ^MethodHandle address-getter-handle
-                             (ArrayList.)))
-              size (long (.invokeWithArguments ^MethodHandle size-getter-handle
-                                               (ArrayList.)))
-              alignment
-              (long (.invokeWithArguments ^MethodHandle align-getter-handle
-                                          (ArrayList.)))
-              _ (when (or (zero? address) (neg? size) (not (pos? alignment)))
-                  (throw (ex-info "Zig constant returned invalid native storage"
-                                  {:constant qualified-name
-                                   :address address
-                                   :size size
-                                   :alignment alignment})))
-              segment (.reinterpret (MemorySegment/ofAddress address) size)
-              schema (or (native-optional-field-schema module #{} binding)
-                         (native-slice-field-schema module #{} binding)
-                         (native-error-union-field-schema module #{} binding)
-                         (native-storage-binding-schema
-                          module #{} (:type declaration)
-                          (:nested-storage-binding binding))
-                         (native-type-schema module (:type declaration)))
-              closed? (atom false)
-              close!
-              (fn []
-                (when (compare-and-set! closed? false true)
-                  (.decrementAndGet ^AtomicLong native-value-refs)
-                  (locking compile-lock
-                    (retire-module-quiescent-generations! module))))]
-          (.incrementAndGet ^AtomicLong native-value-refs)
-          {:representation :native
-           :segment segment
-           :size size
-           :alignment alignment
-           :schema schema
-           :generation wrapper-generation
-           :close! close!})))))
-
 (defn materialize-constant!
-  "Let Zig select storage-free value transport before requesting native storage."
+  "Use Zig's declared-constant transport and retain its native storage owner."
   [declaration]
-  (if-let [result ((requiring-resolve 'aguafria.zig.jvm/comptime-constant-value!) declaration)]
+  (let [result ((requiring-resolve 'aguafria.zig.jvm/declared-constant-value!) declaration)]
     (if (zig-value/zig-value? result)
-      (assoc (zig-value/realize! result) :owners [result])
-      {:representation :scalar :value (:comptime_value result)})
-    (if (:type declaration)
-      (materialize-stored-constant! declaration)
-      (let [view ((requiring-resolve 'aguafria.zig.jvm/constant-view!) declaration)]
-        (assoc (zig-value/realize! view) :owners [view])))))
+      (assoc (zig-value/realize! result)
+             :native-type (zig-value/qualified-type result)
+             :owners [result])
+      (cond-> {:representation :scalar :value (:comptime_value result)}
+        (:scalar-type result)
+        (assoc :schema {:kind :scalar :type (:scalar-type result)})))))
 
 (defn materialize-state!
   "Materialize the active native storage for a Zig defvar as a live ZigValue."

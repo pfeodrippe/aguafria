@@ -93,8 +93,9 @@ against that exact bundle in a fresh JVM:
 clojure -M:dev -m learn.bundle-cache-check .aguafria/precompile/your-report.edn
 ```
 
-This gate evaluates 40 top-level bodies from 12 safe lessons; it does not run
-all Learn subforms. It rejects failed assertion returns, new native builds,
+This gate evaluates 79 top-level bodies from 36 safe lessons; it does not run
+all Learn subforms. It observes native testing expectations even when the body
+discards their results, and rejects failed assertions, new native builds,
 standalone JVM handlers, and any pack other than the producer's single bundle.
 Deliberate panic/exit examples remain isolated in the complete audit.
 

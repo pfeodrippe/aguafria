@@ -149,6 +149,31 @@
                        (k/= @item (k/intCast index))))")]
     (is (empty? (filter #(= :error (:level %)) findings)))))
 
+(deftest scoped-native-for-owners-preserve-lexical-uses
+  (let [findings
+        (lint "(ns fixture (:require [aguafria.zig :as a] [aguafria.keyword :as k]))
+               (let [items [1 2] total 0 outer 42]
+                 (a/inline-for [item items] (k/+= total item))
+                 (a/for-loop {:label outer :body-label body}
+                   [(k/* item) (k/& items) index (a/range 0)]
+                   (a/for-loop {:label inner} [value items]
+                     (k/= @item (k/+ index value outer))
+                     (k/continue outer))
+                   (a/break-label body)
+                   (else-expression total)))")]
+    (is (empty? findings) (pr-str findings)))
+  (let [findings
+        (lint "(ns fixture (:require [aguafria.zig :as a]))
+               (let [items [1] unused 2]
+                 (a/for-loop {:label exit} [item items] item))")]
+    (is (= ["unused binding unused"] (mapv :message findings))))
+  (let [findings
+        (lint "(ns fixture (:require [aguafria.zig :as a]))
+               (let [items [1]]
+                 (a/for-loop {} [item items] item (else-expression item)))")]
+    (is (= [:unresolved-symbol] (mapv :type findings)) (pr-str findings))
+    (is (re-find #"item" (:message (first findings))))))
+
 (deftest native-try-is-not-clojure-exception-handling
   (let [findings (lint
                   (str prelude

@@ -35,6 +35,32 @@
         (is (= (:schema-fingerprint expected)
                (get-in expansion [:reference :schema-fingerprint])))))))
 
+(deftest descriptor-expansion-retains-shared-lexical-provenance
+  (let [bindings (vec (mapcat (fn [index]
+                              [(symbol (str "local" index))
+                               (if (zero? index)
+                                 1
+                                 (list 'ak/+ (symbol (str "local" (dec index))) 0))])
+                            (range 40)))
+        descriptor (emitter/prepare-declaration
+                    *ns* {:kind :fn :name 'shared-source
+                          :module "fixture.descriptor-sharing"
+                          :declaration-key [:fn 'shared-source]
+                          :args [] :return :i32
+                          :body [(list 'let bindings 'local39)]})
+        expansion (#'aguafria.zig/descriptor-expansion descriptor)
+        restored (eval (:descriptor-form expansion))
+        reference (last (first (:body restored)))
+        metadata (meta reference)]
+    (is (= (emitter/emit-declaration descriptor) (emitter/emit-declaration restored)))
+    (is (= (:implementation-fingerprint (runtime/declaration-info descriptor))
+           (:implementation-fingerprint restored)))
+    (is (identical? (:aguafria/jvm-initializer metadata)
+                    (get-in metadata [:aguafria/jvm-binding-source :initializer])))
+    (is (= 'local38 (second (:aguafria/jvm-initializer metadata))))
+    (is (some? (:aguafria/jvm-initializer
+                (meta (second (:aguafria/jvm-initializer metadata))))))))
+
 (deftest attributes-require-sets-in-every-declaration-context
   (doseq [attributes [:comptime 'ak/comptime ak/comptime [:comptime]
                       '(:comptime) nil {:comptime true}]]

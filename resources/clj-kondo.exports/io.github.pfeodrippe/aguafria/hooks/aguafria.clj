@@ -34,11 +34,13 @@
       ;; Do not apply the surrounding native syntax rewrites inside them.
       (= {:ns 'aguafria.zig :name 'clj!} resolved) node
       (= {:ns 'aguafria.keyword :name 'continue} resolved)
-      (call-node 'do (mapv native-expression (drop 2 (:children node))))
+      (call-node 'do (cons (first (:children node))
+                           (mapv native-expression (drop 2 (:children node)))))
       (= {:ns 'aguafria.keyword :name 'break} resolved)
-      (call-node 'do (mapv native-expression (take-last 1 (rest (:children node)))))
+      (call-node 'do (cons (first (:children node))
+                           (mapv native-expression (take-last 1 (rest (:children node))))))
       (= {:ns 'aguafria.zig :name 'break-label} resolved)
-      (call-node 'do [])
+      (call-node 'do [(first (:children node))])
       (:children node)
       (assoc node :children
              (mapv native-expression
@@ -127,7 +129,15 @@
 (defn native-for
   "Treat native captures as lexical bindings; pointer capture is not multiplication."
   [{:keys [node]}]
-  (let [[_ bindings & body] (:children node)
+  (let [[operator & arguments] (:children node)
+        labeled? (= {:ns 'aguafria.zig :name 'for-loop}
+                    (select-keys (api/resolve {:name (sexpr operator)}) [:ns :name]))
+        [bindings & body] (if labeled? (rest arguments) arguments)
+        otherwise (last body)
+        else? (and (= :list (:tag otherwise))
+                   (contains? #{'else-clause 'else-expression}
+                              (some-> otherwise :children first sexpr name symbol)))
+        body (if else? (butlast body) body)
         pairs (partition 2 (:children bindings))
         binding-nodes
         (into [] (mapcat (fn [[capture input]]
@@ -139,9 +149,13 @@
                                  capture (if pointer? (second (:children capture)) capture)
                                  element (call-node 'first [(native-expression input)])]
                              [capture (if pointer? (call-node 'atom [element]) element)])))
-              pairs)]
-    {:node (call-node 'let (cons (api/vector-node binding-nodes)
-                                 (mapv native-expression body)))}))
+              pairs)
+        loop-body (call-node 'let (cons (api/vector-node binding-nodes)
+                                        (mapv native-expression body)))]
+    {:node (if else?
+             (call-node 'do (cons loop-body
+                                  (mapv native-expression (rest (:children otherwise)))))
+             loop-body)}))
 
 (defn- expression-node
   [nodes]

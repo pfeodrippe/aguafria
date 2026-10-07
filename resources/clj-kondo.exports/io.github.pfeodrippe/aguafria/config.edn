@@ -15,6 +15,7 @@
    aguafria.zig/labeled-switch-stmt hooks.aguafria/native-switch
    aguafria.zig/while-loop hooks.aguafria/native-while
    aguafria.zig/inline-for hooks.aguafria/native-for
+   aguafria.zig/for-loop hooks.aguafria/native-for
    aguafria.zig/defn hooks.aguafria/function-declaration
    aguafria.zig/defn- hooks.aguafria/function-declaration
    aguafria.zig/defconst hooks.aguafria/top-level-declaration
